@@ -1,160 +1,258 @@
-# Goldsmith ERP
+Goldsmith ERP
 
-**Skalierbares, sicheres und erweiterbares ERP-System für Goldschmiede**
+Ein skalierbares, sicheres und erweiterbares ERP-System, speziell zugeschnitten auf die Anforderungen moderner Goldschmieden.
 
-Dieser README dient als zentrale Dokumentation für Architektur, Modulübersicht und das initiale Setup des Projekts. Bewahre diese Datei im Wurzelverzeichnis deines Repositories (`README.md`) auf.
+⸻
 
----
+Inhaltsverzeichnis
+	1.	Überblick
+	2.	Funktionsumfang & Benutzerstories
+	•	Module
+	•	User Stories
+	3.	Architektur
+	•	Frontend (SPA)
+	•	Backend (FastAPI)
+	•	Daten & Caching
+	•	Echtzeit & NFC-Use-Cases
+	•	Maschinelles Lernen & LLM
+	4.	Einrichtung & Local Development
+	•	Voraussetzungen
+	•	Docker‑Compose Setup
+	•	Umgebungsvariablen
+	5.	Dokumentation & ADRs
+	6.	Roadmap
+	7.	Beitrag leisten
+	8.	Lizenz
+	9.	Kontakt & Support
+	10.	Danksagungen
 
-## Architektur & Modulübersicht
+⸻
 
-### Frontend (Web & Mobile)
-- **Technologien:** React (TypeScript) oder Vue.js
-- **Architektur:** Single-Page Application (SPA)
-- **State Management:** Redux / Pinia
-- **Kommunikation:**
-  - **REST** für Standard-CRUD-Operationen
-  - **WebSocket** (FastAPI) für Echtzeit-Synchronisierung (Auftragsstatus, NFC-Scans)
-- **Build-Tool:** Vite oder Webpack
-- **Testing:** Jest + React Testing Library bzw. Vue Test Utils
-- **Design-System:** Storybook für wiederverwendbare UI-Komponenten
+Überblick
 
-### Backend (Python)
-- **Framework:** FastAPI (asynchron, Pydantic-Typisierung)
-- **Architektur-Layers:**
-  1. **API Layer:** Router/Endpoints in `src/goldsmith_erp/api/`
-  2. **Core Layer:** Domänenlogik in `src/goldsmith_erp/services/`
-  3. **Data Layer:** ORM-Modelle & Session-Management in `src/goldsmith_erp/models/` und `src/goldsmith_erp/db/`
-- **Echtzeit:** WebSocket-Endpunkt `/ws/orders` für Push-Updates
-- **Sicherheit:** JWT-Auth, OAuth2, CORS-Policies
+Goldsmith ERP bündelt Kernprozesse einer Goldschmiede in einer modernen, containerisierten Anwendung:
+	•	Frontend: React (TypeScript) oder Vue.js SPA mit Storybook‑Designsystem
+	•	Backend: Asynchrones Python (FastAPI) mit klar getrennten Layers (API, Services, ORM)
+	•	Realtime: WebSockets für Auftragsstatus & NFC‑Scans
+	•	Daten & Cache: PostgreSQL, Redis, S3-kompatibler Storage
+	•	ML/LLM: OCR (Tesseract & LayoutLM), Bildklassifikation, Predictive Modeling
+	•	Sicherheit: JWT, OAuth2, CORS, Secrets Management, Audit Logs
+	•	Infra: Docker, Kubernetes (Helm), GitHub Actions (Lint, Mypy, Pytest, Bandit)
 
-### Persistence & Caching
-- **Datenbank:** PostgreSQL (Cloud-Hosted in EU-Region)
-- **ORM:** SQLAlchemy Async + Alembic (Migrations)
-- **Caching & Pub/Sub:** Redis (Session-Cache, Pub/Sub für Broadcast)
-- **Dateispeicherung:** S3-kompatibler Storage (AWS S3 / MinIO)
+⸻
 
-### ML/LLM-Komponente
-- **Rechnungs-OCR:** Tesseract + Transformers (z. B. LayoutLM)
-- **Bildklassifikation:** PyTorch / TensorFlow
-- **Vorhersagen:** scikit-learn / XGBoost
-- **Struktur:** Eigenes Package `goldsmith_ml` für Pipelines und Modelle
+Funktionsumfang & Benutzerstories
 
-### Infrastruktur & Cloud
-- **Containerisierung:** Docker + Kubernetes (Helm-Charts)
-- **CI/CD:** GitHub Actions
-  - Linting: `pylint`, `black`
-  - Typprüfung: `mypy`
-  - Tests: `pytest`
-  - Security-Scans: `bandit`
-  - Deployment: Helm/Kubectl
-- **Secrets & Config:** AWS Secrets Manager / Azure Key Vault
-- **Monitoring & Logging:** Prometheus + Grafana; ELK-Stack / CloudWatch
-- **TLS & Routing:** Ingress (nginx) mit HTTPS
+Module
+	•	Inventarverwaltung
+	•	Nachverfolgung von Edelmetallen & Edelsteinen
+	•	Chargen‑ und Seriennummernverwaltung
+	•	CRM
+	•	Kundenprofile, Kommunikation, Angebote
+	•	Fertigung
+	•	Auftrags‑Workflows, Arbeitsgänge, Ressourcen‑Planung
+	•	POS‑Integration
+	•	Kassenschnittstellen, Zahlungs­abwicklung
+	•	Einkauf & Lieferanten
+	•	Bestellungen, Wareneingang, Lieferantenbewertungen
+	•	Abrechnung & Rechnungswesen
+	•	Rechnungserstellung, Zahlungsüberwachung, Mahnwesen
+	•	Reporting & Analytics
+	•	Lagerbestände, Umsatz‑ und Margenreports
+	•	Benutzerverwaltung & Rollen
+	•	Zugriffskontrolle, Audit-Logging
 
-### Sicherheit & DSGVO
-- Speicherung in EU-Region
-- Datenverschlüsselung (at-rest & in-transit)
-- Anonymisierte Logs
-- Audit-Logging für Auftragsänderungen
+User Stories
+	1.	Inventar
+Als Lagerverwalter möchte ich Edelmetalle mit Gewicht und Reinheitsgrad erfassen, um immer aktuelle Bestände zu sehen.
+	2.	Auftragsstatus
+Als Geschäftsführer möchte ich Echtzeit‑Updates zum Fertigungsfortschritt per WebSocket erhalten.
+	3.	NFC‑Scan
+Als Goldschmied scanne ich Job-Taschen via NFC am Arbeitsplatz, um Arbeitsbeginn und -ende automatisch zu dokumentieren.
+	4.	OCR‑Billing
+Als Buchhalter möchte ich eingehende Rechnungen automatisch via OCR erfassen und codieren.
+	5.	Predictive Lead‑Time
+Als Planer möchte ich basierend auf historischen Daten die Fertigungsdauer neuer Aufträge prognostizieren.
 
-### Skalierbarkeit & Erweiterbarkeit
-- **Microservices-Ansatz:** Später getrennte Services (Auth, Orders, Billing)
-- **Event-Driven:** Kafka / AWS SNS für asynchrone Verarbeitung
-- **Feature-Flags:** LaunchDarkly oder eigene Implementierung
+⸻
 
----
+Architektur
 
-## Initiales Setup & Entwicklungsumgebung
+Frontend (SPA)
+	•	Technologien: React + TypeScript oder Vue.js + TypeScript
+	•	State Management: Redux / Pinia
+	•	Routing & Build: Vite oder Webpack
+	•	Kommunikation:
+	•	REST für CRUD
+	•	WebSockets (/ws/orders) für Push‑Updates
+	•	Testing: Jest + React Testing Library oder Vue Test Utils
+	•	UI‑Bibliothek: Storybook
 
-### 1. Voraussetzungen (macOS)
-```bash
-# Homebrew installieren (falls noch nicht vorhanden)
-/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+Backend (FastAPI)
+	•	Framework: FastAPI (async, Pydantic)
+	•	Layers:
+	1.	API Layer (src/goldsmith_erp/api/)
+	2.	Service Layer (src/goldsmith_erp/services/)
+	3.	Data Layer (src/goldsmith_erp/models/, src/goldsmith_erp/db/)
+	•	Auth & Security:
+	•	JWT, OAuth2 Password Flow
+	•	CORS Policies, HTTPS/In‐Transit Encryption
+	•	Audit-Logging für alle Auftragsänderungen
 
-# System-Tools
-brew install python@3.11 git node redis postgresql
+Daten & Caching
+	•	PostgreSQL (Cloud‑Hosted in EU, SSL‑Verbindung)
+	•	ORM: SQLAlchemy Async + Alembic Migrations
+	•	Redis:
+	•	Session Cache
+	•	Pub/Sub für Broadcast (z. B. NFC‑Events)
+	•	Object Storage: S3‑kompatibel (AWS S3 oder MinIO)
 
-# Terminal & Editor
-brew install --cask iterm2 visual-studio-code
-```  
+Echtzeit & NFC-Use-Cases
+	•	Order Status: WebSocket‑Endpoint /ws/orders liefert Statusupdates in Echtzeit.
+	•	NFC‑Scans:
+	•	Scan-Typen: Materialien (Rohlinge), Werkzeuge, Job‑Bags, Fertigware
+	•	Workflows:
+	1.	Wareneingang: Scan bei Anlieferung → automatische Bestandsbuchung
+	2.	Arbeitsbeginn/-ende: Scan am Arbeitsplatz → Zeiterfassung
+	3.	Qualitätskontrolle: Scan nach QC → Status „geprüft“ setzen
 
-### 2. Repository & Versionierung
-```bash
-mkdir goldsmith_erp && cd goldsmith_erp
-git init
-git remote add origin git@github.com:<username>/goldsmith_erp.git
-```
-- Erstelle `.gitignore` für `__pycache__/`, `.env`, `dist/`, `.vscode/`
+Maschinelles Lernen & LLM
+	•	OCR für Rechnungen: Tesseract integration, optional LayoutLM für komplexe Layouts
+	•	Bildklassifikation: PyTorch / TensorFlow – z. B. Materialfehler­erkennung
+	•	Predictive Modeling: scikit-learn / XGBoost für Durchlaufzeit‑Prognosen
+	•	Architektur:
+	•	Package goldsmith_ml für Pipelines, Modellregistrierung & APIs
+	•	ML‑Features als optionale Plugins konfigurierbar
 
-### 3. Virtuelle Umgebung & Paketmanagement
-```bash
-# Poetry installieren
-brew install poetry
+⸻
 
-# Projekt initialisieren
-poetry init --name goldsmith_erp \
-  --dependency fastapi pydantic uvicorn[standard] sqlalchemy asyncpg redis python-dotenv \
-  --dev-dependency pylint mypy pytest pre-commit
+Einrichtung & Local Development
 
-# Python-Version festlegen & installieren
-poetry env use $(which python3.11)
-poetry install
-```  
+Voraussetzungen
+	•	Docker & Docker‑Compose (empfohlen)
+	•	Git
+	•	Node.js & npm/yarn (Frontend)
+	•	Poetry (optional für reine Python‑Entwicklung)
 
-### 4. Konfiguration in VS Code & iTerm2
-- **VS Code Extensions:** Python, Pylance, Prettier, ESLint, Docker
-- **`.vscode/settings.json`**
-  ```json
-  {
-    "python.pythonPath": "${workspaceFolder}/.venv/bin/python",
-    "editor.formatOnSave": true,
-    "editor.codeActionsOnSave": {
-      "source.organizeImports": true,
-      "source.fixAll": true
-    }
-  }
-  ```
-- **Zsh Config (`~/.zshrc`)**
-  ```shell
-  export PATH="$HOME/.poetry/bin:$PATH"
-  export DATABASE_URL="postgresql://user:pass@localhost:5432/goldsmith"
-  source $HOME/goldsmith_erp/.env
-  ```
+Docker‑Compose Setup
 
-### 5. Pre-Commit & CI/CD
-- **`.pre-commit-config.yaml`**
-  ```yaml
-  repos:
-    - repo: https://github.com/pre-commit/pre-commit-hooks
-      rev: v4.4.0
-      hooks:
-        - id: end-of-file-fixer
-        - id: trailing-whitespace
-    - repo: https://github.com/psf/black
-      rev: 23.1.0
-      hooks:
-        - id: black
-    - repo: https://github.com/PyCQA/pylint
-      rev: v2.17.0
-      hooks:
-        - id: pylint
-    - repo: https://github.com/pre-commit/mirrors-mypy
-      rev: v0.991
-      hooks:
-        - id: mypy
-  ```
-- **GitHub Actions** in `.github/workflows/ci.yml` (siehe Infrastruktur-Sektion)
+Legt alles in Containern an:
 
-### 6. Erstes Commit & Workflow
-```bash
-git add .
-git commit -m "chore: initial scaffold of project"
-```
-- **Branches:** `main` (stabil), `feature/<name>`
-- **Pull Requests:** Pflicht-Reviews + automatisierte Checks
+version: '3.8'
+services:
+  db:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: goldsmith
+      POSTGRES_PASSWORD: secret
+      POSTGRES_DB: goldsmith
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
 
----
+  redis:
+    image: redis:7
+    ports:
+      - "6379:6379"
 
-> **Hinweis:** Dieses README ist ein lebendes Dokument. Passe es bei Bedarf an neue Anforderungen oder Technologien an.
+  minio:
+    image: minio/minio
+    command: server /data
+    environment:
+      MINIO_ACCESS_KEY: minio
+      MINIO_SECRET_KEY: minio123
+    ports:
+      - "9000:9000"
+    volumes:
+      - miniodata:/data
 
+  backend:
+    build: .
+    command: uvicorn src.goldsmith_erp.main:app --host 0.0.0.0 --port 8000 --reload
+    volumes:
+      - ./:/app
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+
+  frontend:
+    working_dir: /app/frontend
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./frontend:/app/frontend
+    command: yarn dev
+
+volumes:
+  pgdata:
+  miniodata:
+
+Starten:
+
+docker-compose up --build
+
+Umgebungsvariablen
+
+Erstelle eine .env.example im Projekt‑Root:
+
+DATABASE_URL=postgresql://goldsmith:secret@db:5432/goldsmith
+REDIS_URL=redis://redis:6379/0
+MINIO_ENDPOINT=minio:9000
+MINIO_ACCESS_KEY=minio
+MINIO_SECRET_KEY=minio123
+JWT_SECRET_KEY=your_jwt_secret
+OAUTH2_CLIENT_ID=...
+OAUTH2_CLIENT_SECRET=...
+
+Kopiere dann nach .env und passe an.
+
+⸻
+
+Dokumentation & ADRs
+	•	API‑Specs: Automatisch generiert von FastAPI unter /docs (OpenAPI/Swagger)
+	•	ADR‑Verzeichnis: docs/adrs/ für Architektur-Entscheidungen
+	•	User Guide & Dev Guide: docs/user/, docs/developer/ (optional: MkDocs/Docsify)
+
+⸻
+
+Roadmap
+
+Version	Fokus (Initial)	Geplant (Future)
+v1.0	Kernmodule (Inventar, Aufträge, Abrechnung)	Microservices‑Split (Auth, Orders, Billing)
+v1.1	NFC‑Integration, Basis‑OCR	Erweiterte Predictive Analytics, Kafka Event‑Bus
+v2.0	POS & CRM	Mobile App (PWA), Multi‑Tenant Support
+v3.0	Multiregionale Cloud‑Deploys	Vollautomatisierte Helm‑Operatoren, ML‑Model‑Service
+
+
+
+⸻
+
+Beitrag leisten
+	1.	Fork des Repos
+	2.	Branch anlegen: feature/<kurzbeschreibung>
+	3.	Änderungen mit PEP 8, pylint & mypy prüfen
+	4.	PR öffnen gegen main, Reviews bestehen lassen
+	5.	Automatisierte Tests müssen grünen (GitHub Actions)
+
+⸻
+
+Lizenz
+
+Dieses Projekt steht unter der MIT Lizenz.
+
+⸻
+
+Kontakt & Support
+	•	Issue Tracker: https://github.com/your-org/goldsmith_erp/issues
+	•	Team‑E‑Mail: support@goldsmith-erp.example.com
+
+⸻
+
+Danksagungen
+	•	Basierend auf Ideen der Open‑Source ERP‑Community
+	•	Dank an FastAPI, React, SQLAlchemy und all die großartigen Tools
