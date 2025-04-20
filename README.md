@@ -72,15 +72,21 @@ Goldsmith ERP bündelt Kernprozesse einer Goldschmiede in einer modernen, contai
 ### User Stories
 
 1. **Inventar**  
-   > Als Lagerverwalter möchte ich Edelmetalle mit Gewicht und Reinheitsgrad erfassen, um immer aktuelle Bestände zu sehen.  
+   > Als Lagerverwalter möchte ich Edelmetalle mit Gewicht und Reinheitsgrad erfassen, um immer aktuelle Bestände zu sehen. Ressourcen (Materialien, Werkzeuge) sollen dabei direkt zu Aufträgen zugeordnet werden können.  
 2. **Auftragsstatus**  
    > Als Geschäftsführer möchte ich Echtzeit‑Updates zum Fertigungsfortschritt per WebSocket erhalten.  
 3. **NFC‑Scan**  
-   > Als Goldschmied scanne ich Job-Taschen via NFC am Arbeitsplatz, um Arbeitsbeginn und -ende automatisch zu dokumentieren.  
+   > Als Goldschmied scanne ich Job‑Taschen via NFC am Arbeitsplatz, um Arbeitsbeginn und ‑ende automatisch zu dokumentieren.  
 4. **OCR‑Billing**  
-   > Als Buchhalter möchte ich eingehende Rechnungen automatisch via OCR erfassen und Codieren.  
+   > Als Buchhalter möchte ich eingehende Rechnungen automatisch via OCR erfassen und codieren.  
 5. **Predictive Lead‑Time**  
    > Als Planer möchte ich basierend auf historischen Daten die Fertigungsdauer neuer Aufträge prognostizieren.  
+6. **Ressourcenverwaltung**  
+   > Als Produktionsleiter möchte ich die Materialien und Werkzeuge, die für jeden Auftrag verwendet werden, erfassen und verwalten, um Bestände und Kosten transparent zu halten.  
+7. **Arbeitszeitplanung**  
+   > Als Teamleiter möchte ich die Arbeitszeiten jedes Goldschmieds erfassen und für die Kapazitätsplanung heranziehen können.  
+8. **Rollen‑ & Berechtigungsmanagement**  
+   > Als Administrator möchte ich festlegen können, dass bestimmte Aufgaben nur von qualifizierten Mitarbeitenden ausgeführt werden dürfen, um Sicherheit und Qualität zu gewährleisten.  
 
 ---
 
@@ -88,8 +94,8 @@ Goldsmith ERP bündelt Kernprozesse einer Goldschmiede in einer modernen, contai
 
 ### Frontend (SPA)
 
-- **Technologien:** React + TypeScript oder Vue.js + TypeScript  
-- **State Management:** Redux / Pinia  
+- **Technologien:** React + TypeScript oder Vue.js + TypeScript  
+- **State Management:** Redux / Pinia  
 - **Routing & Build:** Vite oder Webpack  
 - **Kommunikation:**  
   - REST für CRUD  
@@ -115,10 +121,10 @@ Goldsmith ERP bündelt Kernprozesse einer Goldschmiede in einer modernen, contai
 - **ORM:** SQLAlchemy Async + Alembic Migrations  
 - **Redis:**  
   - Session Cache  
-  - Pub/Sub für Broadcast (z. B. NFC‑Events)  
+  - Pub/Sub für Broadcast (z. B. NFC‑Events)  
 - **Object Storage:** S3‑kompatibel (AWS S3 oder MinIO)  
 
-### Echtzeit & NFC‑Use‑Cases
+### Echtzeit & NFC-Use-Cases
 
 - **Order Status:** WebSocket‑Endpoint `/ws/orders` liefert Statusupdates in Echtzeit.  
 - **NFC‑Scans:**  
@@ -126,12 +132,12 @@ Goldsmith ERP bündelt Kernprozesse einer Goldschmiede in einer modernen, contai
   - **Workflows:**  
     1. **Wareneingang:** Scan bei Anlieferung → automatische Bestandsbuchung  
     2. **Arbeitsbeginn/-ende:** Scan am Arbeitsplatz → Zeiterfassung  
-    3. **Qualitätskontrolle:** Scan nach QC → Status „geprüft“ setzen  
+    3. **Qualitätskontrolle:** Scan nach QC → Status „geprüft“ setzen
 
 ### Maschinelles Lernen & LLM
 
 - **OCR für Rechnungen:** Tesseract integration, optional LayoutLM für komplexe Layouts  
-- **Bildklassifikation:** PyTorch / TensorFlow – z. B. Materialfehler­erkennung  
+- **Bildklassifikation:** PyTorch / TensorFlow – z. B. Materialfehler­erkennung  
 - **Predictive Modeling:** scikit-learn / XGBoost für Durchlaufzeit‑Prognosen  
 - **Architektur:**  
   - Package `goldsmith_ml` für Pipelines, Modellregistrierung & APIs  
@@ -206,3 +212,76 @@ services:
 volumes:
   pgdata:
   miniodata:
+```
+
+Starten:
+
+```bash
+docker-compose up --build
+```  
+
+### Umgebungsvariablen
+
+Erstelle eine `.env.example` im Projekt‑Root:
+
+```dotenv
+DATABASE_URL=postgresql://goldsmith:secret@db:5432/goldsmith
+REDIS_URL=redis://redis:6379/0
+MINIO_ENDPOINT=minio:9000
+MINIO_ACCESS_KEY=minio
+MINIO_SECRET_KEY=minio123
+JWT_SECRET_KEY=your_jwt_secret
+OAUTH2_CLIENT_ID=...
+OAUTH2_CLIENT_SECRET=...
+```  
+
+Kopiere dann nach `.env` und passe an.
+
+---
+
+## Dokumentation & ADRs
+
+- **API‑Specs:** Automatisch generiert von FastAPI unter `/docs` (OpenAPI/Swagger)  
+- **ADR‑Verzeichnis:** `docs/adrs/` für Architektur-Entscheidungen  
+- **User Guide & Dev Guide:** `docs/user/`, `docs/developer/` (optional: MkDocs/Docsify)  
+
+---
+
+## Roadmap
+
+| Version | Fokus (Initial)                            | Geplant (Future)                                        |
+|---------|---------------------------------------------|---------------------------------------------------------|
+| v1.0    | Kernmodule (Inventar, Aufträge, Abrechnung) | Microservices‑Split (Auth, Orders, Billing)             |
+| v1.1    | NFC‑Integration, Basis‑OCR                  | Erweiterte Predictive Analytics, Kafka Event‑Bus        |
+| v2.0    | POS & CRM                                   | Mobile App (PWA), Multi‑Tenant Support                  |
+| v3.0    | Multiregionale Cloud‑Deploys                | Vollautomatisierte Helm‑Operatoren, ML‑Model‑Service    |
+
+---
+
+## Beitrag leisten
+
+1. Fork des Repos  
+2. Branch anlegen: `feature/<kurzbeschreibung>`  
+3. Änderungen mit PEP 8, `pylint` & `mypy` prüfen  
+4. PR öffnen gegen `main`, Reviews bestehen lassen  
+5. Automatisierte Tests müssen grünen (GitHub Actions)
+
+---
+
+## Lizenz
+
+Dieses Projekt steht unter der [MIT Lizenz](LICENSE).
+
+---
+
+## Kontakt & Support
+
+- **Issue Tracker:** https://github.com/your-org/goldsmith_erp/issues  
+- **Team‑E‑Mail:** support@goldsmith-erp.example.com  
+
+---
+
+## Danksagungen
+
+- Basierend auf Ideen der Open‑Source ERP‑Community  
+- Dank an FastAPI, React, SQLAlchemy und all die großartigen Tools  
