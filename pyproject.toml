@@ -1,0 +1,237 @@
+# Goldsmith ERP
+
+**Skalierbares, sicheres und erweiterbares ERP-System für Goldschmiede**
+
+Dieses Repository enthält den vollständigen Quellcode für das Goldsmith ERP-Projekt. Es folgt einem src-basierten Layout und verwendet Poetry, FastAPI und React/Vite.
+
+## Architektur & Modulübersicht
+
+### Frontend (Web & Mobile)
+- React (TypeScript) oder Vue.js
+- SPA mit REST + WebSocket für Echtzeit
+- Design-System (Storybook)
+
+### Backend (Python)
+- FastAPI + Pydantic
+- API-Layer, Core-Layer, Data-Layer
+- PostgreSQL + SQLAlchemy Async + Alembic
+- Redis für Caching/PubSub
+
+### ML/LLM
+- Rechnungs-OCR mit Tesseract + Transformers
+- Vorhersagen mit scikit-learn / XGBoost
+
+### Infrastruktur
+- Docker + Kubernetes (Helm)
+- CI/CD mit GitHub Actions
+- Secrets Management (AWS Secrets Manager/Azure Key Vault)
+- Prometheus + Grafana, ELK/CloudWatch
+
+## Initiales Setup
+
+1.  Systemvoraussetzungen installieren (macOS/Homebrew)
+2.  Projekt klonen und in `src/`-Layout arbeiten
+3.  `poetry install --no-root` ausführen
+4.  `.env.example` kopieren und `.env` anpassen
+5.  `alembic upgrade head` für DB-Migrationen
+6.  `uvicorn goldsmith_erp.main:app --reload` zum Starten
+
+## Verzeichnisstruktur
+```
+goldsmith_erp/
+├── README.md
+├── pyproject.toml
+├── poetry.lock
+├── .pre-commit-config.yaml
+├── .env.example
+├── .github/
+│   └── workflows/ci.yml
+├── src/
+│   └── goldsmith_erp/
+│       ├── __init__.py
+│       ├── main.py
+│       ├── api/routers.py
+│       ├── core/config.py
+│       ├── db/session.py
+│       ├── models/order.py
+│       └── services/order_service.py
+└── tests/test_main.py
+```
+# poetry.lock
+# Diese Datei wird automatisch von Poetry generiert. Bitte nicht manuell bearbeiten.
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.4.0
+    hooks:
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+  - repo: https://github.com/psf/black
+    rev: 23.1.0
+    hooks:
+      - id: black
+  - repo: https://github.com/PyCQA/pylint
+    rev: v2.17.0
+    hooks:
+      - id: pylint
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v0.991
+    hooks:
+      - id: mypy
+
+name: CI
+on: [push, pull_request]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: 3.13
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install poetry
+          poetry install
+      - name: Lint with pylint
+        run: poetry run pylint src/goldsmith_erp
+      - name: Type-check with mypy
+        run: poetry run mypy src/goldsmith_erp
+      - name: Run tests
+        run: poetry run pytest --maxfail=1 --disable-warnings -q
+
+# Beispiel-Umgebungsvariablen für Goldsmith ERP
+DATABASE_URL=postgresql://user:password@localhost:5432/goldsmith
+SECRET_KEY=your-secret-key
+HOST=0.0.0.0
+PORT=8000
+DEBUG=true
+
+__version__ = "0.1.0"
+
+"""
+FastAPI application entrypoint for Goldsmith ERP.
+"""
+
+from fastapi import FastAPI, WebSocket
+from goldsmith_erp.core.config import settings
+from goldsmith_erp.api.routers import router
+import uvicorn
+
+app = FastAPI(title="Goldsmith ERP")
+
+app.include_router(router, prefix="/api", tags=["api"])
+
+@app.on_event("startup")
+async def startup_event() -> None:
+    """Initialize resources at startup."""
+    pass
+
+@app.websocket("/ws/orders")
+async def orders_ws(ws: WebSocket) -> None:
+    """WebSocket endpoint for real-time order updates."""
+    await ws.accept()
+    while True:
+        data = await ws.receive_text()
+        await ws.send_text(f"Echo: {data}")
+
+if __name__ == "__main__":
+    uvicorn.run(
+        "goldsmith_erp.main:app",
+        host=settings.host,
+        port=settings.port,
+        reload=settings.debug,
+    )
+
+from fastapi import APIRouter
+from goldsmith_erp.models.order import Order
+from goldsmith_erp.services.order_service import OrderService
+
+router = APIRouter()
+
+@router.get("/orders", response_model=list[Order])
+async def list_orders() -> list[Order]:
+    """Get a list of all orders."""
+    return await OrderService.get_all_orders()
+
+from pydantic import BaseSettings
+from pathlib import Path
+
+class Settings(BaseSettings):
+    """Application settings loaded from environment variables."""
+    host: str = "0.0.0.0"
+    port: int = 8000
+    debug: bool = True
+    database_url: str
+    secret_key: str
+
+    class Config:
+        env_file = Path(__file__).parent.parent.parent / ".env"
+
+settings = Settings()
+
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+from sqlalchemy.orm import sessionmaker
+from goldsmith_erp.core.config import settings
+
+# Create the SQLAlchemy engine
+engine = create_async_engine(settings.database_url, echo=settings.debug)
+
+# Create session factory
+AsyncSessionLocal = sessionmaker(
+    bind=engine,
+    class_=AsyncSession,
+    expire_on_commit=False,
+)
+
+async def get_db() -> AsyncSession:
+    """Get a new database session."""
+    async with AsyncSessionLocal() as session:
+        yield session
+
+from pydantic import BaseModel
+from datetime import datetime
+
+class Order(BaseModel):
+    """Pydantic model for an order."""
+    id: int
+    description: str
+    created_at: datetime
+
+    class Config:
+        orm_mode = True
+
+from typing import List
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+from goldsmith_erp.db.session import get_db
+from goldsmith_erp.models.order import Order as OrderModel
+from goldsmith_erp.models.order import Order
+
+class OrderService:
+    """Service class for handling orders."""
+
+    @staticmethod
+    async def get_all_orders(db: AsyncSession | None = None) -> List[Order]:
+        """Retrieve all orders from the database."""
+        if db is None:
+            async for session in get_db():
+                db = session
+                break
+
+        result = await db.execute(select(OrderModel))
+        orders = result.scalars().all()
+        return [Order.from_orm(o) for o in orders]
+
+import pytest
+from httpx import AsyncClient
+from goldsmith_erp.main import app
+
+@pytest.mark.asyncio
+async def test_health_check():
+    async with AsyncClient(app=app, base_url="http://test") as ac:
+        response = await ac.get("/health")
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok"}

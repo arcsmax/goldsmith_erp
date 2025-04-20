@@ -1,0 +1,38 @@
+name: CI
+
+on: [push, pull_request]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: user
+          POSTGRES_PASSWORD: pass
+          POSTGRES_DB: goldsmith
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U user -d goldsmith"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-python@v4
+        with: python-version: 3.13
+      - run: pip install poetry
+      - run: poetry install --no-root
+      - run: poetry run alembic upgrade head
+      - run: poetry run pytest --maxfail=1 --disable-warnings -q
+      - run: poetry run pylint src/goldsmith_erp
+      - run: poetry run mypy src/goldsmith_erp
