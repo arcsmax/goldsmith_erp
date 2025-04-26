@@ -8,7 +8,6 @@ readme = "README.md"
 packages = [
     { include = "goldsmith_erp", from = "src" }
 ]
-
 [tool.poetry.dependencies]
 python = "^3.11"
 psycopg2-binary = "^2.9.10"

@@ -1,4 +1,4 @@
-version: '3.8'
+version: "3.9"   # optional but recommended
 
 services:
   db:
@@ -27,19 +27,27 @@ services:
       context: .
       dockerfile: Dockerfile
     command: >
-      bash -c "alembic upgrade head &&
-               uvicorn goldsmith_erp.main:app --host 0.0.0.0 --port 8000 --reload"
+      bash -c "poetry run alembic upgrade head &&
+              poetry run uvicorn goldsmith_erp.main:app --host 0.0.0.0 --port 8000 --reload"
     volumes:
-      - .:/app
+      - ./src:/app/src
+      - ./pyproject.toml:/app/pyproject.toml
+      - ./poetry.lock:/app/poetry.lock
+      - ./README.md:/app/README.md
+      - ./.env:/app/.env 
+      - ./src:/app/src
     ports:
       - "8000:8000"
     environment:
+      - MIGRATION_DATABASE_URL=postgresql://user:pass@db:5432/goldsmith
       - SECRET_KEY=${SECRET_KEY:-change_this_to_a_secure_random_string}
       - POSTGRES_USER=${POSTGRES_USER:-user}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-pass}
       - POSTGRES_DB=${POSTGRES_DB:-goldsmith}
       - POSTGRES_HOST=db
       - DEBUG=true
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-user}:${POSTGRES_PASSWORD:-pass}@${POSTGRES_HOST:-db}:5432/${POSTGRES_DB:-goldsmith}
+      - REDIS_URL=redis://redis:6379/0
     depends_on:
       - db
       - redis
@@ -48,16 +56,17 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
-    command: npm run dev -- --host
-    volumes:
-      - ./frontend:/app
-      - /app/node_modules
+    command: yarn dev --host 0.0.0.0
     ports:
       - "3000:3000"
     environment:
-      - VITE_API_URL=http://localhost:8000/api/v1
+      - VITE_API_URL=http://backend:8000/api/v1
     depends_on:
       - backend
+    volumes:
+      - ./frontend:/app
+      - node_modules_frontend:/app/node_modules
 
 volumes:
   db_data:
+  node_modules_frontend:

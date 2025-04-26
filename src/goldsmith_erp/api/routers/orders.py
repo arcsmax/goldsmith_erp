@@ -1,3 +1,4 @@
+# src/goldsmith_erp/api/routers/orders.py
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List
@@ -5,12 +6,12 @@ from typing import List
 from goldsmith_erp.api.deps import get_current_user
 from goldsmith_erp.db.session import get_db
 from goldsmith_erp.db.models import User
-from goldsmith_erp.models.order import Order, OrderCreate, OrderUpdate
+from goldsmith_erp.models.order import OrderCreate, OrderRead, OrderUpdate
 from goldsmith_erp.services.order_service import OrderService
 
 router = APIRouter()
 
-@router.get("/", response_model=List[Order])
+@router.get("/", response_model=List[OrderRead])
 async def list_orders(
     skip: int = 0,
     limit: int = 100,
@@ -20,7 +21,7 @@ async def list_orders(
     """Liste aller Aufträge."""
     return await OrderService.get_orders(db, skip, limit)
 
-@router.post("/", response_model=Order)
+@router.post("/", response_model=OrderRead)
 async def create_order(
     order_in: OrderCreate,
     db: AsyncSession = Depends(get_db),
@@ -29,7 +30,7 @@ async def create_order(
     """Neuen Auftrag erstellen."""
     return await OrderService.create_order(db, order_in)
 
-@router.get("/{order_id}", response_model=Order)
+@router.get("/{order_id}", response_model=OrderRead)
 async def get_order(
     order_id: int,
     db: AsyncSession = Depends(get_db),
@@ -41,7 +42,7 @@ async def get_order(
         raise HTTPException(status_code=404, detail="Order not found")
     return order
 
-@router.put("/{order_id}", response_model=Order)
+@router.put("/{order_id}", response_model=OrderRead)
 async def update_order(
     order_id: int,
     order_in: OrderUpdate,

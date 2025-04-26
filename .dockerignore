@@ -1,0 +1,11 @@
+# ignore any Python venv
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+
+# optional extras
+.git/
+.DS_Store
+node_modules/
+frontend/node_modules/

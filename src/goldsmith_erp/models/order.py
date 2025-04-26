@@ -1,3 +1,4 @@
+# src/goldsmith_erp/models/order.py
 from pydantic import BaseModel
 from datetime import datetime
 from typing import Optional, List
@@ -28,7 +29,7 @@ class OrderUpdate(BaseModel):
     price: Optional[float] = None
     status: Optional[str] = None
 
-class Order(OrderBase):
+class OrderRead(OrderBase):
     """Schema für Order-Anzeige."""
     id: int
     status: str
@@ -36,6 +37,6 @@ class Order(OrderBase):
     created_at: datetime
     updated_at: datetime
     materials: Optional[List[MaterialBase]] = None
-    
+
     class Config:
         orm_mode = True

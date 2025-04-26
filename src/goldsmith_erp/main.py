@@ -1,3 +1,4 @@
+import asyncio
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
@@ -5,6 +6,58 @@ from typing import List
 
 from goldsmith_erp.core.config import settings
 from goldsmith_erp.api.routers import auth, orders
+from goldsmith_erp.core.pubsub import subscribe_and_forward, publish_event  # Import pubsub functions
+import enum
+
+from sqlalchemy import (
+    Column,
+    Integer,
+    String,
+    Float,
+    DateTime,
+    ForeignKey,
+    Boolean,
+    Enum as SAEnum,
+)
+from sqlalchemy.ext.declarative import declarative_base
+
+Base = declarative_base()
+
+
+class OrderStatusEnum(str, enum.Enum):
+    """Enumerated order statuses for consistency and validation."""
+    NEW = "new"
+    IN_PROGRESS = "in_progress"
+    COMPLETED = "completed"
+    DELIVERED = "delivered"
+
+
+class User(Base):
+    """User account model."""
+    __tablename__ = "users"
+
+    id = Column(Integer, primary_key=True, index=True)
+    email = Column(String, unique=True, index=True, nullable=False)
+    full_name = Column(String, nullable=True)
+    is_active = Column(Boolean, default=True, nullable=False)
+    # ... other fields ...
+
+
+class Order(Base):
+    """Order model with status enum."""
+    __tablename__ = "orders"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(
+        Integer, ForeignKey("users.id"), nullable=False
+    )
+    price = Column(Float, nullable=True)
+    created_at = Column(DateTime, nullable=False)
+    status = Column(
+        SAEnum(OrderStatusEnum),
+        default=OrderStatusEnum.NEW,
+        nullable=False,
+    )
 
 # App-Instanz erstellen
 app = FastAPI(
@@ -25,33 +78,40 @@ app.add_middleware(
 app.include_router(auth.router, prefix=f"{settings.API_V1_STR}", tags=["auth"])
 app.include_router(orders.router, prefix=f"{settings.API_V1_STR}/orders", tags=["orders"])
 
-# WebSocket-Verbindungen Manager
-class ConnectionManager:
-    def __init__(self):
-        self.active_connections: List[WebSocket] = []
-
-    async def connect(self, websocket: WebSocket):
-        await websocket.accept()
-        self.active_connections.append(websocket)
-
-    def disconnect(self, websocket: WebSocket):
-        self.active_connections.remove(websocket)
-
-    async def broadcast(self, message: str):
-        for connection in self.active_connections:
-            await connection.send_text(message)
-
-manager = ConnectionManager()
-
+# WebSocket endpoint with Redis Pub/Sub integration
 @app.websocket("/ws/orders")
 async def websocket_endpoint(websocket: WebSocket):
-    await manager.connect(websocket)
+    await websocket.accept()
+    # Define the channel to listen to
+    channel = "order_updates"
+    # Start the task to listen to Redis and forward to this specific websocket
+    subscribe_task = asyncio.create_task(
+        subscribe_and_forward(websocket, channel)
+    )
     try:
+        # Keep the connection alive, potentially handle incoming messages if needed
         while True:
+            # You might still want to handle incoming WebSocket messages
+            # for bidirectional communication
             data = await websocket.receive_text()
-            await manager.broadcast(f"Order update: {data}")
+            # Process client message if needed, but don't broadcast directly
+            # Instead, you could publish to Redis to ensure all systems receive it
+            await publish_event(channel, f"Client message: {data}")
     except WebSocketDisconnect:
-        manager.disconnect(websocket)
+        print("WebSocket disconnected")
+    finally:
+        # Clean up the subscription task when the websocket disconnects
+        subscribe_task.cancel()
+        try:
+            await subscribe_task
+        except asyncio.CancelledError:
+            print("Subscription task cancelled.")
+
+# Example: Add a test endpoint to trigger a publish
+@app.post("/trigger_order_update")
+async def trigger_update(message: str = "Test order update!"):
+    await publish_event("order_updates", f"Simulated Update: {message}")
+    return {"message": "Event published"}
 
 @app.get("/health")
 async def health_check():

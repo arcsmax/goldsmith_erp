@@ -1,20 +1,70 @@
-import asyncio
-import redis.asyncio as redis
+# src/goldsmith_erp/core/pubsub.py
 
-redis_url = "redis://localhost:6379"
-pub = redis.Redis.from_url(redis_url)
-sub = pub.pubsub()
+import asyncio
+from typing import AsyncIterator
+
+import redis.asyncio as redis
+from fastapi import WebSocket
+
+from goldsmith_erp.core.config import settings
+
+# Create a shared Redis pool from URL in settings
+_redis_pool = redis.ConnectionPool.from_url(
+    str(settings.REDIS_URL),         # ← explicit str()
+    decode_responses=True
+)
+
+async def get_redis_connection() -> redis.Redis:
+    """
+    Acquire a Redis client instance from the connection pool.
+    """
+    return redis.Redis(connection_pool=_redis_pool)
+
 
 async def publish_event(channel: str, message: str) -> None:
-    await pub.publish(channel, message)
+    """
+    Publish a message to the given Redis channel.
+    """
+    redis_client = await get_redis_connection()
+    await redis_client.publish(channel, message)
 
-async def subscribe_and_forward(ws: WebSocket, channel: str):
-    await sub.subscribe(channel)
+
+async def _subscribe(channel: str) -> AsyncIterator[dict]:
+    """
+    Internal helper to yield parsed Redis messages.
+    """
+    client = await get_redis_connection()
+    pubsub = client.pubsub(ignore_subscribe_messages=True)
+    await pubsub.subscribe(channel)
+
     try:
-        while True:
-            msg = await sub.get_message(ignore_subscribe_messages=True, timeout=1.0)
-            if msg:
-                await ws.send_text(msg["data"].decode())
-            await asyncio.sleep(0.1)
+        # Loop forever, yielding each message dict as it arrives
+        async for msg in pubsub.listen():
+            if msg.get("type") == "message":
+                yield msg
     finally:
-        await sub.unsubscribe(channel)
+        await pubsub.unsubscribe(channel)
+
+
+async def subscribe_and_forward(
+    ws: WebSocket, channel: str
+) -> None:
+    """
+    Subscribe to Redis channel and forward each message to WebSocket.
+    Cleans up on disconnect or error.
+    """
+    # ensure WS type hint
+    await ws.accept()
+    try:
+        async for msg in _subscribe(channel):
+            data = msg["data"]
+            # forward only the data payload
+            await ws.send_text(data)
+    except asyncio.CancelledError:
+        # Subscription cancelled; let caller handle cleanup
+        raise
+    except Exception as exc:
+        # Log or handle other errors if desired
+        print(f"Redis subscription error: {exc}")
+    finally:
+        print(f"Unsubscribed from Redis channel: {channel}")
