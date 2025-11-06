@@ -1,84 +1,57 @@
-import React, { useEffect, useState } from 'react';
-import OrderList from './components/OrderList';
-import { OrderType } from './types';
+/**
+ * Main App Component with Routing
+ */
+import { useEffect } from 'react';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { useAuthStore } from './store/authStore';
 
-const App: React.FC = () => {
-  const [orders, setOrders] = useState<OrderType[]>([]);
-  const [loading, setLoading] = useState<boolean>(true);
-  const [error, setError] = useState<string | null>(null);
-  const wsRef = React.useRef<WebSocket | null>(null);
+// Pages
+import Login from './pages/Login';
+import Dashboard from './pages/Dashboard';
 
+// Components
+import ProtectedRoute from './components/ProtectedRoute';
+import MainLayout from './components/layout/MainLayout';
+
+// Placeholder pages (will be implemented later)
+const OrdersPage = () => <div style={{ padding: '20px' }}><h1>Aufträge</h1><p>Coming soon...</p></div>;
+const MaterialsPage = () => <div style={{ padding: '20px' }}><h1>Material</h1><p>Coming soon...</p></div>;
+const CustomersPage = () => <div style={{ padding: '20px' }}><h1>Kunden</h1><p>Coming soon...</p></div>;
+
+function App() {
+  const initializeAuth = useAuthStore((state) => state.initializeAuth);
+
+  // Initialize auth on app load
   useEffect(() => {
-    // Fetch initial orders
-    const fetchOrders = async () => {
-      try {
-        const response = await fetch('/api/v1/orders/');
-        if (!response.ok) {
-          throw new Error(`HTTP error! Status: ${response.status}`);
-        }
-        const data = await response.json();
-        setOrders(data);
-      } catch (err) {
-        setError('Failed to fetch orders. Please try again later.');
-        console.error('Error fetching orders:', err);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchOrders();
-
-    // Setup WebSocket connection
-    const wsUrl = `ws://${window.location.host}/ws/orders`;
-    wsRef.current = new WebSocket(wsUrl);
-    
-    wsRef.current.onopen = () => {
-      console.log('WebSocket connection established');
-    };
-    
-    wsRef.current.onmessage = (event) => {
-      console.log('WebSocket message received:', event.data);
-      // Refresh orders data when we get an update
-      fetchOrders();
-    };
-    
-    wsRef.current.onerror = (error) => {
-      console.error('WebSocket error:', error);
-    };
-    
-    wsRef.current.onclose = () => {
-      console.log('WebSocket connection closed');
-    };
-
-    // Cleanup function
-    return () => {
-      if (wsRef.current) {
-        wsRef.current.close();
-      }
-    };
-  }, []);
+    initializeAuth();
+  }, [initializeAuth]);
 
   return (
-    <div className="app-container">
-      <header className="app-header">
-        <h1>Goldsmith ERP</h1>
-      </header>
-      
-      <main className="app-main">
-        {loading ? (
-          <p>Loading orders...</p>
-        ) : error ? (
-          <p className="error-message">{error}</p>
-        ) : (
-          <OrderList orders={orders} />
-        )}
-      </main>
-      
-      <footer className="app-footer">
-        <p>&copy; 2025 Goldsmith ERP</p>
-      </footer>
-    </div>
+    <BrowserRouter>
+      <Routes>
+        {/* Public Routes */}
+        <Route path="/login" element={<Login />} />
+
+        {/* Protected Routes */}
+        <Route
+          path="/"
+          element={
+            <ProtectedRoute>
+              <MainLayout />
+            </ProtectedRoute>
+          }
+        >
+          <Route index element={<Dashboard />} />
+          <Route path="orders" element={<OrdersPage />} />
+          <Route path="materials" element={<MaterialsPage />} />
+          <Route path="customers" element={<CustomersPage />} />
+        </Route>
+
+        {/* Catch-all redirect */}
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+    </BrowserRouter>
   );
-};
+}
 
 export default App;
