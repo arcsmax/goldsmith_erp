@@ -8,6 +8,16 @@ Ein skalierbares, sicheres und erweiterbares ERP-System, speziell zugeschnitten 
 
 ---
 
+## 📖 Umfassende Dokumentation
+
+Für detaillierte Informationen zur Architektur, Workflows und Implementierung, siehe:
+
+- **[ARCHITECTURE.md](docs/ARCHITECTURE.md)** - Vollständige Systemarchitektur, Template-Engine, Tag-System, Cross-Platform Strategie
+- **[WORKFLOWS.md](docs/WORKFLOWS.md)** - Detaillierte Workflow-Beispiele und Use Cases
+- **[ROADMAP.md](docs/ROADMAP.md)** - Phasenweiser Implementierungsplan mit Zeitschätzungen
+
+---
+
 ## Inhaltsverzeichnis
 
 1. [Überblick](#überblick)  
@@ -249,12 +259,19 @@ Kopiere dann nach `.env` und passe an.
 
 ## Roadmap
 
-| Version | Fokus (Initial)                            | Geplant (Future)                                        |
-|---------|---------------------------------------------|---------------------------------------------------------|
-| v1.0    | Kernmodule (Inventar, Aufträge, Abrechnung) | Microservices‑Split (Auth, Orders, Billing)             |
-| v1.1    | NFC‑Integration, Basis‑OCR                  | Erweiterte Predictive Analytics, Kafka Event‑Bus        |
-| v2.0    | POS & CRM                                   | Mobile App (PWA), Multi‑Tenant Support                  |
-| v3.0    | Multiregionale Cloud‑Deploys                | Vollautomatisierte Helm‑Operatoren, ML‑Model‑Service    |
+**Für den detaillierten Implementierungsplan siehe [ROADMAP.md](docs/ROADMAP.md)**
+
+### Phasen-Übersicht
+
+| Phase | Dauer | Ziel |
+|-------|-------|------|
+| **Phase 1: MVP** | 6-8 Wochen | Kern-ERP mit Auftrags-, Material-, Kundenverwaltung |
+| **Phase 2: Tags** | 4 Wochen | QR-Code Scanning & Tag-System |
+| **Phase 3: Templates** | 6 Wochen | Template-Engine & dynamische Workflows |
+| **Phase 4: Mobile** | 6 Wochen | Native Apps mit NFC (iOS + Android) |
+| **Phase 5: Advanced** | 4 Wochen | OCR, ML-Prognosen, Reporting |
+
+**Gesamt bis v2.0**: ~7 Monate
 
 ---
 
