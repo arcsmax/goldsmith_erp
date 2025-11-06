@@ -8,8 +8,11 @@ from logging.config import fileConfig
 from sqlalchemy import engine_from_config, pool
 from alembic import context
 
-# if you need your app on the path (for autogenerate), uncomment:
-# sys.path.append(str(Path(__file__).parents[1]))
+# Add the project root to the path so we can import our models
+sys.path.append(str(Path(__file__).parents[1]))
+
+# Import models to make them available for autogenerate
+from src.goldsmith_erp.db.models import Base
 
 # this reads your alembic.ini
 config = context.config
@@ -24,8 +27,8 @@ if migration_url:
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# 3) metadata for `--autogenerate` (if you ever use it)
-target_metadata = None
+# 3) metadata for `--autogenerate` - use Base from our models
+target_metadata = Base.metadata
 
 def run_migrations_offline() -> None:
     url = config.get_main_option("sqlalchemy.url")
