@@ -11,6 +11,8 @@ import Dashboard from './pages/Dashboard';
 import MaterialList from './pages/materials/MaterialList';
 import MaterialForm from './pages/materials/MaterialForm';
 import MaterialDetail from './pages/materials/MaterialDetail';
+import CustomerList from './pages/customers/CustomerList';
+import CustomerDetail from './pages/customers/CustomerDetail';
 
 // Components
 import ProtectedRoute from './components/ProtectedRoute';
@@ -18,7 +20,8 @@ import MainLayout from './components/layout/MainLayout';
 
 // Placeholder pages (will be implemented later)
 const OrdersPage = () => <div style={{ padding: '20px' }}><h1>Aufträge</h1><p>Coming soon...</p></div>;
-const CustomersPage = () => <div style={{ padding: '20px' }}><h1>Kunden</h1><p>Coming soon...</p></div>;
+const CustomerFormPage = () => <div style={{ padding: '20px' }}><h1>Kunden-Formular</h1><p>Coming soon...</p></div>;
+const CustomerConsentPage = () => <div style={{ padding: '20px' }}><h1>Einwilligungen verwalten</h1><p>Coming soon...</p></div>;
 
 function App() {
   const initializeAuth = useAuthStore((state) => state.initializeAuth);
@@ -52,7 +55,12 @@ function App() {
           <Route path="materials/:id" element={<MaterialDetail />} />
           <Route path="materials/:id/edit" element={<MaterialForm />} />
 
-          <Route path="customers" element={<CustomersPage />} />
+          {/* Customer Management Routes */}
+          <Route path="customers" element={<CustomerList />} />
+          <Route path="customers/new" element={<CustomerFormPage />} />
+          <Route path="customers/:id" element={<CustomerDetail />} />
+          <Route path="customers/:id/edit" element={<CustomerFormPage />} />
+          <Route path="customers/:id/consent" element={<CustomerConsentPage />} />
         </Route>
 
         {/* Catch-all redirect */}
