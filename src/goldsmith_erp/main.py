@@ -4,7 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 
 from goldsmith_erp.core.config import settings
-from goldsmith_erp.api.routers import auth, orders, materials
+from goldsmith_erp.api.routers import auth, orders, materials, customers
 from goldsmith_erp.core.pubsub import subscribe_and_forward, publish_event
 
 # App-Instanz erstellen
@@ -26,6 +26,7 @@ app.add_middleware(
 app.include_router(auth.router, prefix=f"{settings.API_V1_STR}", tags=["auth"])
 app.include_router(orders.router, prefix=f"{settings.API_V1_STR}/orders", tags=["orders"])
 app.include_router(materials.router, prefix=f"{settings.API_V1_STR}/materials", tags=["materials"])
+app.include_router(customers.router, prefix=f"{settings.API_V1_STR}/customers", tags=["customers"])
 
 # WebSocket endpoint with Redis Pub/Sub integration
 @app.websocket("/ws/orders")

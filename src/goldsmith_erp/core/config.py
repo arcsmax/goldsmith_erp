@@ -25,6 +25,9 @@ class Settings(BaseSettings):
     SECRET_KEY: str
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 8  # 8 days
 
+    # ── GDPR / Encryption ──────────────────────────────────────────────────────
+    ENCRYPTION_KEY: str  # Fernet key for encrypting PII (phone, address)
+
     # ── Server ─────────────────────────────────────────────────────────────────
     HOST: str = "0.0.0.0"
     PORT: int = 8000
