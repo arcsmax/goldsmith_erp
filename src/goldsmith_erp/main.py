@@ -6,14 +6,46 @@ import uvicorn
 from goldsmith_erp.core.config import settings
 from goldsmith_erp.api.routers import auth, orders, materials, customers
 from goldsmith_erp.core.pubsub import subscribe_and_forward, publish_event
+from goldsmith_erp.middleware import (
+    AuditLoggingMiddleware,
+    RequestLoggingMiddleware,
+    RequestIDMiddleware,
+    RateLimitMiddleware,
+    SecurityHeadersMiddleware,
+    SensitiveDataRedactionMiddleware,
+)
 
 # App-Instanz erstellen
 app = FastAPI(
     title=settings.APP_NAME,
-    openapi_url=f"{settings.API_V1_STR}/openapi.json"
+    openapi_url=f"{settings.API_V1_STR}/openapi.json",
+    description="GDPR-compliant ERP system for jewelry manufacturing",
+    version="1.0.0",
 )
 
-# CORS-Middleware einrichten
+# ═══════════════════════════════════════════════════════════════════════════
+# Middleware Stack (order matters - first added = outermost = runs first)
+# ═══════════════════════════════════════════════════════════════════════════
+
+# 1. Request ID (outermost - adds ID to all requests)
+app.add_middleware(RequestIDMiddleware)
+
+# 2. Request Logging (log all requests)
+app.add_middleware(RequestLoggingMiddleware)
+
+# 3. Security Headers (add security headers to all responses)
+app.add_middleware(SecurityHeadersMiddleware, production=not settings.DEBUG)
+
+# 4. Sensitive Data Redaction (prevent data leakage)
+app.add_middleware(SensitiveDataRedactionMiddleware)
+
+# 5. Rate Limiting (protect against abuse)
+app.add_middleware(RateLimitMiddleware)
+
+# 6. GDPR Audit Logging (log customer data access)
+app.add_middleware(AuditLoggingMiddleware)
+
+# 7. CORS (should be last/innermost)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.BACKEND_CORS_ORIGINS,
