@@ -15,6 +15,7 @@ Für detaillierte Informationen zur Architektur, Workflows und Implementierung, 
 - **[ARCHITECTURE.md](docs/ARCHITECTURE.md)** - Vollständige Systemarchitektur, Template-Engine, Tag-System, Cross-Platform Strategie
 - **[WORKFLOWS.md](docs/WORKFLOWS.md)** - Detaillierte Workflow-Beispiele und Use Cases
 - **[ROADMAP.md](docs/ROADMAP.md)** - Phasenweiser Implementierungsplan mit Zeitschätzungen
+- **[DEPLOYMENT_LOCAL.md](docs/DEPLOYMENT_LOCAL.md)** - 🆕 Local Network Deployment (Windows Server, LAN-Zugriff)
 
 ---
 
