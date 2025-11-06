@@ -419,81 +419,231 @@ class DataRetentionPolicy(Base):
         return f"<DataRetentionPolicy(category='{self.category}', days={self.retention_period_days}, action='{self.action_after_expiry}')>"
 
 # ============================================================================
-# Order Model (Updated)
+# Order Model (Enhanced for Phase 1.8)
 # ============================================================================
 
 class Order(Base):
     """
-    Order model for jewelry repair and custom work orders.
-    Now references Customer table (not User).
+    Enhanced order model for jewelry repair and custom work orders.
+    Supports complete order lifecycle from draft to delivery with detailed
+    cost tracking, material management, and labor tracking.
     """
     __tablename__ = "orders"
 
+    # ========================================
+    # Identity
+    # ========================================
     id = Column(Integer, primary_key=True, index=True)
-    order_number = Column(String, unique=True, index=True)  # ORDER-YYYYMM-XXXX
+    order_number = Column(String, unique=True, nullable=False, index=True)
+    # Format: ORD-YYYYMM-XXXX (e.g., ORD-202501-0001)
 
     # ========================================
-    # Order Details
-    # ========================================
-    title = Column(String, nullable=False)
-    description = Column(Text)
-    notes = Column(Text)  # Internal notes
-
-    # ========================================
-    # Customer Reference (UPDATED - now references customers)
+    # Customer Reference
     # ========================================
     customer_id = Column(Integer, ForeignKey("customers.id", ondelete="RESTRICT"), nullable=False, index=True)
 
     # ========================================
-    # Pricing
+    # Order Information
     # ========================================
-    subtotal = Column(Float, default=0.0)  # Before tax
-    tax_rate = Column(Float, default=19.0)  # VAT rate (19% in Germany)
-    tax_amount = Column(Float, default=0.0)
-    total_amount = Column(Float, default=0.0)  # Final price including tax
-
-    # Legacy price field (for backward compatibility)
-    price = Column(Float)  # Deprecated - use total_amount
+    title = Column(String, nullable=False)  # "Custom Gold Ring", "Silver Necklace Repair"
+    description = Column(Text)  # Detailed specifications
+    order_type = Column(String, nullable=False, default="custom_jewelry", index=True)
+    # Types: custom_jewelry, repair, modification, resizing, cleaning
 
     # ========================================
-    # Workflow & Status
+    # Status & Priority
     # ========================================
     status = Column(String, default="draft", nullable=False, index=True)
-    # Status: draft, confirmed, in_progress, quality_check, completed, delivered, cancelled
+    # Status: draft, approved, in_progress, completed, delivered, cancelled
 
+    priority = Column(String, default="normal", nullable=False, index=True)
+    # Priority: low, normal, high, urgent
+
+    # Legacy fields for backward compatibility
     workflow_state = Column(String, default="draft", index=True)
-    # More detailed workflow tracking
-
-    # ========================================
-    # Assignment & Scheduling
-    # ========================================
-    assigned_to = Column(Integer, ForeignKey("users.id"))  # Assigned goldsmith
-    priority = Column(String, default="normal")  # urgent, high, normal, low
 
     # ========================================
     # Dates
     # ========================================
+    order_date = Column(DateTime, default=datetime.utcnow, nullable=False)
+    estimated_completion_date = Column(DateTime)
+    actual_completion_date = Column(DateTime)
     delivery_date = Column(DateTime)  # Promised delivery date
+
+    # Legacy date fields for backward compatibility
     started_at = Column(DateTime)  # When work started
     completed_at = Column(DateTime)  # When work finished
     delivered_at = Column(DateTime)  # When delivered to customer
     cancelled_at = Column(DateTime)
 
     # ========================================
-    # Timestamps
+    # Financial Tracking
+    # ========================================
+    material_cost = Column(Float, default=0.0)  # Sum of materials used
+    labor_cost = Column(Float, default=0.0)  # Labor charges
+    additional_cost = Column(Float, default=0.0)  # Other costs (shipping, etc.)
+    total_cost = Column(Float, default=0.0)  # material + labor + additional
+    customer_price = Column(Float, default=0.0)  # Price quoted to customer
+    margin = Column(Float, default=0.0)  # customer_price - total_cost
+    currency = Column(String, default="EUR", nullable=False)
+
+    # Tax calculations
+    subtotal = Column(Float, default=0.0)  # Before tax (for backward compatibility)
+    tax_rate = Column(Float, default=19.0)  # VAT rate (19% in Germany)
+    tax_amount = Column(Float, default=0.0)
+    total_amount = Column(Float, default=0.0)  # Final price including tax
+
+    # Legacy price field
+    price = Column(Float)  # Deprecated - use customer_price
+
+    # ========================================
+    # Labor Tracking
+    # ========================================
+    estimated_hours = Column(Float)  # Estimated labor hours
+    actual_hours = Column(Float)  # Actual hours worked
+    hourly_rate = Column(Float)  # Hourly rate for this order
+
+    # ========================================
+    # Assignment
+    # ========================================
+    assigned_to = Column(Integer, ForeignKey("users.id"))  # Assigned goldsmith
+
+    # ========================================
+    # Additional Information
+    # ========================================
+    notes = Column(Text)  # Internal notes
+    customer_notes = Column(Text)  # Customer-facing notes
+    attachments = Column(JSONB)  # List of file paths/URLs
+    # Example: [{"path": "/uploads/order-123-sketch.jpg", "type": "sketch", "uploaded_at": "2025-01-15"}]
+
+    # ========================================
+    # Audit Trail
     # ========================================
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_by = Column(Integer, ForeignKey("users.id"))
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    updated_by = Column(Integer, ForeignKey("users.id"))
+
+    # ========================================
+    # Soft Delete
+    # ========================================
+    is_deleted = Column(Boolean, default=False, nullable=False, index=True)
+    deleted_at = Column(DateTime)
+    deleted_by = Column(Integer, ForeignKey("users.id"))
 
     # ========================================
     # Relationships
     # ========================================
     customer = relationship("Customer", back_populates="orders")
     assigned_user = relationship("User", foreign_keys=[assigned_to], back_populates="assigned_orders")
+    order_items = relationship("OrderItem", back_populates="order", cascade="all, delete-orphan")
+    status_history = relationship("OrderStatusHistory", back_populates="order", cascade="all, delete-orphan", order_by="OrderStatusHistory.changed_at")
+
+    # Legacy relationship (keep for backward compatibility)
     materials = relationship("Material", secondary=order_materials, back_populates="orders")
 
     def __repr__(self):
         return f"<Order(id={self.id}, order_number='{self.order_number}', customer_id={self.customer_id}, status='{self.status}')>"
+
+
+# ============================================================================
+# Order Item Model (Material Usage Tracking)
+# ============================================================================
+
+class OrderItem(Base):
+    """
+    Track materials used in orders with detailed quantity and cost information.
+    Supports planned vs actual usage for accurate cost tracking.
+    """
+    __tablename__ = "order_items"
+
+    id = Column(Integer, primary_key=True, index=True)
+    order_id = Column(Integer, ForeignKey("orders.id", ondelete="CASCADE"), nullable=False, index=True)
+    material_id = Column(Integer, ForeignKey("materials.id", ondelete="RESTRICT"), nullable=False, index=True)
+
+    # ========================================
+    # Quantities
+    # ========================================
+    quantity_planned = Column(Float, nullable=False)  # How much we plan to use
+    quantity_used = Column(Float, default=0.0)  # How much we actually used
+    unit = Column(String, nullable=False)  # From material (g, kg, pcs, ct)
+
+    # ========================================
+    # Costs (snapshot at time of order)
+    # ========================================
+    unit_price = Column(Float, nullable=False)  # Price per unit at time of order
+    total_cost = Column(Float, default=0.0)  # quantity_used * unit_price
+
+    # ========================================
+    # Status
+    # ========================================
+    is_allocated = Column(Boolean, default=False, nullable=False)  # Has stock been allocated?
+    is_used = Column(Boolean, default=False, nullable=False)  # Has material been used/removed from stock?
+
+    # ========================================
+    # Timestamps
+    # ========================================
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    allocated_at = Column(DateTime)  # When stock was allocated
+    used_at = Column(DateTime)  # When material was actually used
+
+    # ========================================
+    # Notes
+    # ========================================
+    notes = Column(Text)  # Notes about this specific material usage
+
+    # ========================================
+    # Relationships
+    # ========================================
+    order = relationship("Order", back_populates="order_items")
+    material = relationship("Material")
+
+    def __repr__(self):
+        return f"<OrderItem(id={self.id}, order_id={self.order_id}, material_id={self.material_id}, quantity_used={self.quantity_used})>"
+
+
+# ============================================================================
+# Order Status History Model
+# ============================================================================
+
+class OrderStatusHistory(Base):
+    """
+    Track all status changes for orders to maintain complete audit trail.
+    Enables timeline view and accountability for status changes.
+    """
+    __tablename__ = "order_status_history"
+
+    id = Column(Integer, primary_key=True, index=True)
+    order_id = Column(Integer, ForeignKey("orders.id", ondelete="CASCADE"), nullable=False, index=True)
+
+    # ========================================
+    # Status Change
+    # ========================================
+    old_status = Column(String)  # Previous status (NULL for initial status)
+    new_status = Column(String, nullable=False)  # New status
+
+    # ========================================
+    # Change Information
+    # ========================================
+    changed_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    changed_by = Column(Integer, ForeignKey("users.id"), nullable=False)
+    reason = Column(String)  # Why was status changed?
+    notes = Column(Text)  # Additional notes about the change
+
+    # ========================================
+    # Context
+    # ========================================
+    ip_address = Column(String)
+    user_agent = Column(String)
+
+    # ========================================
+    # Relationships
+    # ========================================
+    order = relationship("Order", back_populates="status_history")
+    user = relationship("User")
+
+    def __repr__(self):
+        return f"<OrderStatusHistory(id={self.id}, order_id={self.order_id}, {self.old_status} → {self.new_status})>"
 
 # ============================================================================
 # Material Model (Unchanged)
