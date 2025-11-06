@@ -125,3 +125,19 @@ export const adjustStock = async (
   });
   return response.data;
 };
+
+// Alias for consistency
+export const adjustMaterialStock = adjustStock;
+
+/**
+ * Set stock to exact value
+ */
+export const setMaterialStock = async (
+  id: number,
+  quantity: number
+): Promise<Material> => {
+  const response = await apiClient.put<Material>(`/materials/${id}/stock`, {
+    quantity,
+  });
+  return response.data;
+};

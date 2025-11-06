@@ -8,6 +8,9 @@ import { useAuthStore } from './store/authStore';
 // Pages
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
+import MaterialList from './pages/materials/MaterialList';
+import MaterialForm from './pages/materials/MaterialForm';
+import MaterialDetail from './pages/materials/MaterialDetail';
 
 // Components
 import ProtectedRoute from './components/ProtectedRoute';
@@ -15,7 +18,6 @@ import MainLayout from './components/layout/MainLayout';
 
 // Placeholder pages (will be implemented later)
 const OrdersPage = () => <div style={{ padding: '20px' }}><h1>Aufträge</h1><p>Coming soon...</p></div>;
-const MaterialsPage = () => <div style={{ padding: '20px' }}><h1>Material</h1><p>Coming soon...</p></div>;
 const CustomersPage = () => <div style={{ padding: '20px' }}><h1>Kunden</h1><p>Coming soon...</p></div>;
 
 function App() {
@@ -43,7 +45,13 @@ function App() {
         >
           <Route index element={<Dashboard />} />
           <Route path="orders" element={<OrdersPage />} />
-          <Route path="materials" element={<MaterialsPage />} />
+
+          {/* Material Management Routes */}
+          <Route path="materials" element={<MaterialList />} />
+          <Route path="materials/new" element={<MaterialForm />} />
+          <Route path="materials/:id" element={<MaterialDetail />} />
+          <Route path="materials/:id/edit" element={<MaterialForm />} />
+
           <Route path="customers" element={<CustomersPage />} />
         </Route>
 
