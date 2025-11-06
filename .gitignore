@@ -398,3 +398,17 @@ FodyWeavers.xsd
 
 # JetBrains Rider
 *.sln.iml
+
+# Frontend build artifacts
+frontend/dist/
+frontend/package-lock.json
+
+# Python virtual environments
+.venv/
+venv/
+*.pyc
+__pycache__/
+
+# Environment files
+.env.local
+.env.*.local
