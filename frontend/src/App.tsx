@@ -13,6 +13,7 @@ import MaterialForm from './pages/materials/MaterialForm';
 import MaterialDetail from './pages/materials/MaterialDetail';
 import CustomerList from './pages/customers/CustomerList';
 import CustomerDetail from './pages/customers/CustomerDetail';
+import CustomerForm from './pages/customers/CustomerForm';
 
 // Components
 import ProtectedRoute from './components/ProtectedRoute';
@@ -20,7 +21,6 @@ import MainLayout from './components/layout/MainLayout';
 
 // Placeholder pages (will be implemented later)
 const OrdersPage = () => <div style={{ padding: '20px' }}><h1>Aufträge</h1><p>Coming soon...</p></div>;
-const CustomerFormPage = () => <div style={{ padding: '20px' }}><h1>Kunden-Formular</h1><p>Coming soon...</p></div>;
 const CustomerConsentPage = () => <div style={{ padding: '20px' }}><h1>Einwilligungen verwalten</h1><p>Coming soon...</p></div>;
 
 function App() {
@@ -57,9 +57,9 @@ function App() {
 
           {/* Customer Management Routes */}
           <Route path="customers" element={<CustomerList />} />
-          <Route path="customers/new" element={<CustomerFormPage />} />
+          <Route path="customers/new" element={<CustomerForm />} />
           <Route path="customers/:id" element={<CustomerDetail />} />
-          <Route path="customers/:id/edit" element={<CustomerFormPage />} />
+          <Route path="customers/:id/edit" element={<CustomerForm />} />
           <Route path="customers/:id/consent" element={<CustomerConsentPage />} />
         </Route>
 
