@@ -254,7 +254,7 @@ class CustomerAuditLog(Base):
     # Additional Context
     # ========================================
     description = Column(Text)  # Human-readable description of action
-    metadata = Column(JSONB)  # Additional context data
+    audit_metadata = Column(JSONB)  # Additional context data
 
     # ========================================
     # Relationships

@@ -143,7 +143,7 @@ def upgrade():
 
         # Additional Context
         sa.Column('description', sa.Text(), nullable=True),
-        sa.Column('metadata', postgresql.JSONB(astext_type=sa.Text()), nullable=True),
+        sa.Column('audit_metadata', postgresql.JSONB(astext_type=sa.Text()), nullable=True),
 
         # Constraints
         sa.PrimaryKeyConstraint('id'),
