@@ -1,7 +1,7 @@
 // Main App Component with Routing
 import React from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import { AuthProvider, OrderProvider } from './contexts';
+import { AuthProvider, OrderProvider, TimeTrackingProvider } from './contexts';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { MainLayout } from './layouts/MainLayout';
 import {
@@ -19,8 +19,9 @@ const App: React.FC = () => {
   return (
     <BrowserRouter>
       <AuthProvider>
-        <OrderProvider>
-          <Routes>
+        <TimeTrackingProvider>
+          <OrderProvider>
+            <Routes>
             {/* Public Routes */}
             <Route path="/login" element={<LoginPage />} />
             <Route path="/register" element={<RegisterPage />} />
@@ -46,7 +47,8 @@ const App: React.FC = () => {
             {/* Catch all - redirect to dashboard */}
             <Route path="*" element={<Navigate to="/dashboard" replace />} />
           </Routes>
-        </OrderProvider>
+          </OrderProvider>
+        </TimeTrackingProvider>
       </AuthProvider>
     </BrowserRouter>
   );

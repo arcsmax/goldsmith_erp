@@ -1,17 +1,24 @@
 // Main Layout Component - Layout for authenticated pages
 import React from 'react';
 import { Outlet, Link, useNavigate, useLocation } from 'react-router-dom';
-import { useAuth } from '../contexts';
+import { useAuth, useTimeTracking } from '../contexts';
+import TimerWidget from '../components/TimerWidget';
 import '../styles/layout.css';
 
 export const MainLayout: React.FC = () => {
   const { user, logout } = useAuth();
+  const { runningEntry, stopTracking, refreshRunningEntry } = useTimeTracking();
   const navigate = useNavigate();
   const location = useLocation();
 
   const handleLogout = () => {
     logout();
     navigate('/login');
+  };
+
+  const handleTimerStop = () => {
+    // Timer stopped successfully, refresh will happen via context
+    refreshRunningEntry();
   };
 
   const isActivePath = (path: string) => {
@@ -87,6 +94,13 @@ export const MainLayout: React.FC = () => {
       <footer className="main-footer">
         <p>&copy; 2025 Goldsmith ERP. Alle Rechte vorbehalten.</p>
       </footer>
+
+      {/* Timer Widget - Sticky, always visible when tracking */}
+      <TimerWidget
+        runningEntry={runningEntry}
+        onStop={handleTimerStop}
+        onRefresh={refreshRunningEntry}
+      />
     </div>
   );
 };
