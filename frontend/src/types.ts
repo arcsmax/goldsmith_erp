@@ -186,3 +186,115 @@ export interface AuthContextType {
   logout: () => void;
   refreshUser: () => Promise<void>;
 }
+
+// ==================== TIME TRACKING TYPES ====================
+
+export type ActivityCategory = 'fabrication' | 'administration' | 'waiting';
+
+export interface Activity {
+  id: number;
+  name: string;
+  category: ActivityCategory;
+  icon?: string | null;
+  color?: string | null;
+  usage_count: number;
+  average_duration_minutes?: number | null;
+  last_used?: string | null;
+  is_custom: boolean;
+  created_by?: number | null;
+  created_at: string;
+}
+
+export interface ActivityCreateInput {
+  name: string;
+  category: ActivityCategory;
+  icon?: string;
+  color?: string;
+  is_custom?: boolean;
+  created_by?: number;
+}
+
+export interface ActivityUpdateInput {
+  name?: string;
+  category?: ActivityCategory;
+  icon?: string;
+  color?: string;
+}
+
+export interface TimeEntry {
+  id: string; // UUID
+  order_id: number;
+  user_id: number;
+  activity_id: number;
+  start_time: string; // ISO datetime
+  end_time?: string | null; // ISO datetime
+  duration_minutes?: number | null;
+  location?: string | null;
+  complexity_rating?: number | null; // 1-5
+  quality_rating?: number | null; // 1-5
+  rework_required: boolean;
+  notes?: string | null;
+  extra_metadata?: Record<string, any> | null;
+  created_at: string; // ISO datetime
+}
+
+export interface TimeEntryWithDetails extends TimeEntry {
+  activity?: Activity | null;
+  order_title?: string | null;
+  user_name?: string | null;
+}
+
+export interface TimeEntryStartInput {
+  order_id: number;
+  activity_id: number;
+  location?: string;
+  extra_metadata?: Record<string, any>;
+}
+
+export interface TimeEntryStopInput {
+  complexity_rating?: number; // 1-5
+  quality_rating?: number; // 1-5
+  rework_required?: boolean;
+  notes?: string;
+}
+
+export interface TimeEntryUpdateInput {
+  end_time?: string;
+  duration_minutes?: number;
+  location?: string;
+  complexity_rating?: number; // 1-5
+  quality_rating?: number; // 1-5
+  rework_required?: boolean;
+  notes?: string;
+  extra_metadata?: Record<string, any>;
+}
+
+export interface Interruption {
+  id: number;
+  time_entry_id: string; // UUID
+  reason: string;
+  duration_minutes: number;
+  timestamp: string; // ISO datetime
+}
+
+export interface InterruptionCreateInput {
+  time_entry_id: string;
+  reason: string;
+  duration_minutes: number;
+}
+
+export interface LocationHistory {
+  id: number;
+  order_id: number;
+  location: string;
+  timestamp: string; // ISO datetime
+  changed_by: number;
+}
+
+export interface TimeTrackingStats {
+  total_duration_minutes: number;
+  entry_count: number;
+  average_complexity?: number | null;
+  average_quality?: number | null;
+  by_activity?: Record<string, number>;
+}
