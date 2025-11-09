@@ -1,18 +1,38 @@
 import asyncio
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+import logging
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.util import get_remote_address
 import uvicorn
 from typing import List
 
 from goldsmith_erp.core.config import settings
-from goldsmith_erp.api.routers import auth, orders, users, materials, activities, time_tracking
+from goldsmith_erp.core.logging import setup_logging
+from goldsmith_erp.middleware import RequestLoggingMiddleware
+from goldsmith_erp.api.routers import auth, orders, users, materials, activities, time_tracking, health
 from goldsmith_erp.core.pubsub import subscribe_and_forward, publish_event
+
+# Setup structured logging
+setup_logging()
+logger = logging.getLogger(__name__)
+
+# Initialize rate limiter
+limiter = Limiter(key_func=get_remote_address)
 
 # App-Instanz erstellen
 app = FastAPI(
     title=settings.APP_NAME,
     openapi_url=f"{settings.API_V1_STR}/openapi.json"
 )
+
+# Add rate limiting state and error handler
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+# Add request logging middleware (must be before CORS)
+app.add_middleware(RequestLoggingMiddleware)
 
 # CORS-Middleware einrichten
 app.add_middleware(
@@ -24,6 +44,7 @@ app.add_middleware(
 )
 
 # Router einbinden
+app.include_router(health.router, tags=["health"])  # Health checks at root level
 app.include_router(auth.router, prefix=f"{settings.API_V1_STR}", tags=["auth"])
 app.include_router(users.router, prefix=f"{settings.API_V1_STR}/users", tags=["users"])
 app.include_router(orders.router, prefix=f"{settings.API_V1_STR}/orders", tags=["orders"])
@@ -51,24 +72,20 @@ async def websocket_endpoint(websocket: WebSocket):
             # Instead, you could publish to Redis to ensure all systems receive it
             await publish_event(channel, f"Client message: {data}")
     except WebSocketDisconnect:
-        print("WebSocket disconnected")
+        logger.info("WebSocket disconnected", extra={"channel": channel})
     finally:
         # Clean up the subscription task when the websocket disconnects
         subscribe_task.cancel()
         try:
             await subscribe_task
         except asyncio.CancelledError:
-            print("Subscription task cancelled.")
+            logger.debug("Subscription task cancelled", extra={"channel": channel})
 
 # Example: Add a test endpoint to trigger a publish
 @app.post("/trigger_order_update")
 async def trigger_update(message: str = "Test order update!"):
     await publish_event("order_updates", f"Simulated Update: {message}")
     return {"message": "Event published"}
-
-@app.get("/health")
-async def health_check():
-    return {"status": "ok"}
 
 if __name__ == "__main__":
     uvicorn.run(

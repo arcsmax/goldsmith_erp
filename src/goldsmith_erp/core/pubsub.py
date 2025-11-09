@@ -1,12 +1,16 @@
 # src/goldsmith_erp/core/pubsub.py
 
 import asyncio
+import logging
+from contextlib import asynccontextmanager
 from typing import AsyncIterator
 
 import redis.asyncio as redis
 from fastapi import WebSocket
 
 from goldsmith_erp.core.config import settings
+
+logger = logging.getLogger(__name__)
 
 # Create a shared Redis pool from URL in settings
 # Build Redis URL if not provided
@@ -17,36 +21,46 @@ _redis_pool = redis.ConnectionPool.from_url(
     decode_responses=True
 )
 
-async def get_redis_connection() -> redis.Redis:
+@asynccontextmanager
+async def get_redis_client():
     """
-    Acquire a Redis client instance from the connection pool.
+    Acquire a Redis client instance from the connection pool with proper cleanup.
+
+    Usage:
+        async with get_redis_client() as client:
+            await client.publish("channel", "message")
     """
-    return redis.Redis(connection_pool=_redis_pool)
+    client = redis.Redis(connection_pool=_redis_pool)
+    try:
+        yield client
+    finally:
+        await client.close()
 
 
 async def publish_event(channel: str, message: str) -> None:
     """
-    Publish a message to the given Redis channel.
+    Publish a message to the given Redis channel with automatic cleanup.
     """
-    redis_client = await get_redis_connection()
-    await redis_client.publish(channel, message)
+    async with get_redis_client() as client:
+        await client.publish(channel, message)
 
 
 async def _subscribe(channel: str) -> AsyncIterator[dict]:
     """
-    Internal helper to yield parsed Redis messages.
+    Internal helper to yield parsed Redis messages with proper cleanup.
     """
-    client = await get_redis_connection()
-    pubsub = client.pubsub(ignore_subscribe_messages=True)
-    await pubsub.subscribe(channel)
+    async with get_redis_client() as client:
+        pubsub = client.pubsub(ignore_subscribe_messages=True)
+        await pubsub.subscribe(channel)
 
-    try:
-        # Loop forever, yielding each message dict as it arrives
-        async for msg in pubsub.listen():
-            if msg.get("type") == "message":
-                yield msg
-    finally:
-        await pubsub.unsubscribe(channel)
+        try:
+            # Loop forever, yielding each message dict as it arrives
+            async for msg in pubsub.listen():
+                if msg.get("type") == "message":
+                    yield msg
+        finally:
+            await pubsub.unsubscribe(channel)
+            await pubsub.close()
 
 
 async def subscribe_and_forward(
@@ -67,7 +81,11 @@ async def subscribe_and_forward(
         # Subscription cancelled; let caller handle cleanup
         raise
     except Exception as exc:
-        # Log or handle other errors if desired
-        print(f"Redis subscription error: {exc}")
+        # Log error with context
+        logger.error(
+            "Redis subscription error",
+            extra={"channel": channel, "error": str(exc)},
+            exc_info=True
+        )
     finally:
-        print(f"Unsubscribed from Redis channel: {channel}")
+        logger.debug("Unsubscribed from Redis channel", extra={"channel": channel})
