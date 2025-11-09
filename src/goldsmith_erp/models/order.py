@@ -27,12 +27,14 @@ class OrderUpdate(BaseModel):
     description: Optional[str] = None
     price: Optional[float] = None
     status: Optional[str] = None
+    current_location: Optional[str] = None
 
 class OrderRead(OrderBase):
     """Schema für Order-Anzeige."""
     id: int
     status: str
     customer_id: int
+    current_location: Optional[str] = None
     created_at: datetime
     updated_at: datetime
     materials: Optional[List[MaterialBase]] = None
