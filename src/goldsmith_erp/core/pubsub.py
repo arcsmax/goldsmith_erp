@@ -1,6 +1,7 @@
 # src/goldsmith_erp/core/pubsub.py
 
 import asyncio
+import logging
 from contextlib import asynccontextmanager
 from typing import AsyncIterator
 
@@ -8,6 +9,8 @@ import redis.asyncio as redis
 from fastapi import WebSocket
 
 from goldsmith_erp.core.config import settings
+
+logger = logging.getLogger(__name__)
 
 # Create a shared Redis pool from URL in settings
 # Build Redis URL if not provided
@@ -78,7 +81,11 @@ async def subscribe_and_forward(
         # Subscription cancelled; let caller handle cleanup
         raise
     except Exception as exc:
-        # Log or handle other errors if desired
-        print(f"Redis subscription error: {exc}")
+        # Log error with context
+        logger.error(
+            "Redis subscription error",
+            extra={"channel": channel, "error": str(exc)},
+            exc_info=True
+        )
     finally:
-        print(f"Unsubscribed from Redis channel: {channel}")
+        logger.debug("Unsubscribed from Redis channel", extra={"channel": channel})
