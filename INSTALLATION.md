@@ -1,154 +1,391 @@
 # Goldsmith ERP - Installationsanleitung
 
-Detaillierte Schritt-für-Schritt-Anleitung zur Installation von Goldsmith ERP auf verschiedenen Betriebssystemen.
+**Vollständige Schritt-für-Schritt-Anleitung** zur Installation von Goldsmith ERP mit **Podman** (empfohlen) oder Docker auf verschiedenen Betriebssystemen.
+
+> 📢 **Wichtig:** Goldsmith ERP nutzt jetzt **Podman** statt Docker für verbesserte Sicherheit. Podman ist 100% Docker-kompatibel und benötigt **keine Root-Rechte**.
 
 ---
 
 ## 📋 Inhaltsverzeichnis
 
-- [Windows Installation](#windows-installation)
-- [macOS Installation](#macos-installation)
-- [Linux Installation](#linux-installation)
-- [Entwicklungsumgebung einrichten](#entwicklungsumgebung-einrichten)
-- [Problemlösungen](#problemlösungen)
-- [Häufig gestellte Fragen](#häufig-gestellte-fragen)
+1. [Was ist Podman? (vs Docker)](#was-ist-podman-vs-docker)
+2. [Schnellstart (Automatisch)](#schnellstart-automatisch)
+3. [Linux Installation (Ubuntu/Debian/Fedora)](#linux-installation)
+4. [macOS Installation](#macos-installation)
+5. [Windows Installation (WSL2)](#windows-installation)
+6. [Manuelle Installation (ohne Container)](#manuelle-installation-ohne-container)
+7. [Entwicklungsumgebung](#entwicklungsumgebung-einrichten)
+8. [Migration von Docker zu Podman](#migration-von-docker-zu-podman)
+9. [Problemlösungen](#problemlösungen)
+10. [FAQ](#häufig-gestellte-fragen)
 
 ---
 
-## 🪟 Windows Installation
+## 🐳 Was ist Podman? (vs Docker)
 
-### Voraussetzungen
+**Podman = Docker, aber sicherer!**
 
-Folgende Software wird benötigt:
+| Feature | Docker | Podman |
+|---------|--------|--------|
+| **Root-Rechte nötig?** | ✅ Ja (Daemon) | ❌ Nein (Rootless) |
+| **Hintergrundprozess?** | ✅ Ja (Daemon) | ❌ Nein |
+| **CLI-Kompatibilität** | - | ✅ 100% Docker-kompatibel |
+| **Kubernetes Support** | ⚠️ Separat | ✅ Nativ (`podman play kube`) |
+| **Systemd Integration** | ⚠️ Extra Setup | ✅ Nativ |
+| **Security** | ⚠️ Root-Daemon | ✅ User Namespaces |
 
-- **Windows 10/11** (64-bit)
-- **Git for Windows** - [Download](https://git-scm.com/download/win)
-- **Docker Desktop für Windows** - [Download](https://www.docker.com/products/docker-desktop)
+**Warum Podman?**
+- ✅ **Rootless** - Keine Root-Rechte nötig, sicherer
+- ✅ **Daemonless** - Kein privilegierter Hintergrundprozess
+- ✅ **Docker-kompatibel** - `alias docker=podman` und alles funktioniert
+- ✅ **Kubernetes-ready** - Pods wie in K8s
 
-### Schritt 1: Git installieren
+---
 
-1. **Git herunterladen:**
-   - Besuchen Sie https://git-scm.com/download/win
-   - Laden Sie die neueste Version herunter (z.B., `Git-2.43.0-64-bit.exe`)
+## 🚀 Schnellstart (Automatisch)
 
-2. **Git installieren:**
-   - Führen Sie die heruntergeladene Datei aus
-   - Wählen Sie "Git from the command line and also from 3rd-party software"
-   - Verwenden Sie die empfohlenen Standardeinstellungen
-   - Klicken Sie auf "Install"
+### Linux (Ubuntu, Debian, Fedora, RHEL)
 
-3. **Installation überprüfen:**
-   ```cmd
-   git --version
-   ```
-   Erwartete Ausgabe: `git version 2.43.0` (oder neuer)
+**1 Befehl installation:**
 
-### Schritt 2: Docker Desktop installieren
+```bash
+# Repository klonen
+git clone https://github.com/arcsmax/goldsmith_erp.git
+cd goldsmith_erp
 
-1. **Docker Desktop herunterladen:**
-   - Besuchen Sie https://www.docker.com/products/docker-desktop
-   - Klicken Sie auf "Download for Windows"
+# Automatisches Setup (installiert Podman + startet Services)
+./setup-podman.sh
+```
 
-2. **Docker Desktop installieren:**
-   - Führen Sie `Docker Desktop Installer.exe` aus
-   - Aktivieren Sie "Use WSL 2 instead of Hyper-V" (empfohlen)
-   - Folgen Sie dem Installationsassistenten
-   - **Neustart erforderlich**
+**Was macht das Script?**
+1. ✅ Erkennt automatisch dein OS (Ubuntu/Debian/Fedora/RHEL)
+2. ✅ Installiert Podman, podman-compose, Buildah, Skopeo
+3. ✅ Konfiguriert Rootless Mode (User Namespaces)
+4. ✅ Erstellt `.env` mit sicherem `SECRET_KEY`
+5. ✅ Baut alle Container-Images
+6. ✅ Startet alle Services (DB, Redis, Backend, Frontend)
+7. ✅ Zeigt Status und Access-URLs
 
-3. **Docker Desktop starten:**
-   - Starten Sie "Docker Desktop" aus dem Startmenü
-   - Warten Sie, bis der Docker-Daemon läuft (Whale-Icon in der Taskleiste wird grün)
+**Erwartete Ausgabe:**
 
-4. **Installation überprüfen:**
-   Öffnen Sie PowerShell oder CMD:
-   ```cmd
-   docker --version
-   docker-compose --version
-   ```
-   Erwartete Ausgabe:
-   ```
-   Docker version 24.0.7
-   Docker Compose version v2.23.3
-   ```
+```
+╔════════════════════════════════════════╗
+║     Installation Complete! 🎉         ║
+╚════════════════════════════════════════╝
 
-### Schritt 3: Repository klonen
+✓ Goldsmith ERP is now running in rootless Podman!
 
-1. **Ordner erstellen (optional):**
-   ```cmd
-   mkdir C:\Projects
-   cd C:\Projects
-   ```
+📍 Access points:
+   Backend API:     http://localhost:8000
+   API Docs:        http://localhost:8000/docs
+   Frontend:        http://localhost:3000
 
-2. **Repository klonen:**
-   ```cmd
-   git clone https://github.com/arcsmax/goldsmith_erp.git
-   cd goldsmith_erp
-   ```
+🛠️  Useful commands:
+   View logs:       podman-compose -f podman-compose.yml logs -f
+   Stop services:   podman-compose -f podman-compose.yml down
+   Restart:         podman-compose -f podman-compose.yml restart
+```
 
-### Schritt 4: Umgebungsvariablen konfigurieren
+**Fertig!** 🎉 System läuft auf http://localhost:3000
 
-1. **`.env` Datei erstellen:**
-   ```cmd
-   copy .env.example .env
-   ```
+---
 
-   Falls `.env.example` nicht existiert, erstellen Sie `.env` manuell:
-   ```cmd
-   notepad .env
-   ```
+## 🐧 Linux Installation (Detailliert)
 
-   Fügen Sie folgenden Inhalt ein:
-   ```env
-   # Database
-   POSTGRES_USER=user
-   POSTGRES_PASSWORD=pass
-   POSTGRES_DB=goldsmith
-   POSTGRES_HOST=db
+### Option A: Automatisch (Empfohlen)
 
-   # Redis
-   REDIS_URL=redis://redis:6379/0
+Siehe [Schnellstart](#schnellstart-automatisch) oben.
 
-   # Security
-   SECRET_KEY=change_this_to_a_secure_random_string_min_32_chars
+### Option B: Manuell (Schritt-für-Schritt)
 
-   # App
-   DEBUG=true
-   ```
+#### Schritt 1: System-Voraussetzungen prüfen
 
-2. **Speichern:** `Strg+S`, dann schließen
+```bash
+# OS-Version prüfen
+cat /etc/os-release
 
-### Schritt 5: Anwendung starten
+# Erwartete OS:
+# - Ubuntu 22.04+ (Jammy, Lunar, Mantic)
+# - Debian 12+ (Bookworm)
+# - Fedora 38+
+# - RHEL 9+ / Rocky Linux 9+
+```
 
-1. **Docker Compose ausführen:**
-   ```cmd
-   docker-compose up --build
-   ```
+#### Schritt 2: Podman installieren
 
-   **Erster Start dauert 5-10 Minuten** (Downloads von Images und Dependencies)
+**Ubuntu 22.04+ / Debian 12+:**
 
-2. **Erfolgsmeldungen abwarten:**
-   ```
-   ✓ Container goldsmith_erp-db-1        Started
-   ✓ Container goldsmith_erp-redis-1     Started
-   ✓ Container goldsmith_erp-backend-1   Started
-   ✓ Container goldsmith_erp-frontend-1  Started
-   ```
+```bash
+# System aktualisieren
+sudo apt-get update
 
-3. **Anwendung testen:**
-   - Backend API: http://localhost:8000
-   - API Docs: http://localhost:8000/docs
-   - Frontend: http://localhost:3000
+# Podman + Tools installieren
+sudo apt-get install -y \
+    podman \
+    podman-compose \
+    buildah \
+    skopeo \
+    fuse-overlayfs \
+    slirp4netns
 
-### Schritt 6: Anwendung stoppen
+# Installation prüfen
+podman --version
+podman-compose --version
+```
 
-```cmd
-# Im Terminal: Strg+C drücken
+**Erwartete Ausgabe:**
+```
+podman version 4.6.2
+podman-compose version 1.0.6
+```
 
-# Container vollständig entfernen:
-docker-compose down
+**Fedora 38+ / RHEL 9+:**
 
-# Container + Volumes entfernen (Daten löschen):
-docker-compose down -v
+```bash
+# Podman installieren (meist vorinstalliert)
+sudo dnf install -y \
+    podman \
+    podman-compose \
+    buildah \
+    skopeo
+
+# Installation prüfen
+podman --version
+```
+
+#### Schritt 3: Rootless Mode konfigurieren
+
+**Wichtig:** Podman benötigt User Namespaces für Rootless Mode.
+
+```bash
+# 1. Prüfen ob Subuid/Subgid bereits existieren
+grep "^$USER:" /etc/subuid
+grep "^$USER:" /etc/subgid
+
+# Wenn leer, dann konfigurieren:
+echo "$USER:100000:65536" | sudo tee -a /etc/subuid
+echo "$USER:100000:65536" | sudo tee -a /etc/subgid
+
+# 2. Podman migrieren
+podman system migrate
+
+# 3. Lingering aktivieren (Container überleben Logout)
+loginctl enable-linger $USER
+
+# 4. Podman Info prüfen
+podman info
+```
+
+**Erwartete Ausgabe (wichtige Zeilen):**
+```yaml
+host:
+  security:
+    rootless: true    # ✅ Rootless aktiviert!
+  uidMappings:
+    - containerID: 0
+      hostID: 100000  # ✅ User Namespaces konfiguriert
+```
+
+#### Schritt 4: Repository klonen
+
+```bash
+# Arbeitsverzeichnis erstellen
+mkdir -p ~/Projects
+cd ~/Projects
+
+# Repository klonen
+git clone https://github.com/arcsmax/goldsmith_erp.git
+cd goldsmith_erp
+
+# Verzeichnisinhalt prüfen
+ls -la
+```
+
+**Erwartete Dateien:**
+```
+drwxr-xr-x  podman-compose.yml    # Podman Compose Config
+-rwxr-xr-x  setup-podman.sh       # Auto-Setup Script
+-rw-r--r--  Containerfile         # Backend Container
+-rw-r--r--  Makefile              # Make-Commands
+-rw-r--r--  .env.example          # Umgebungsvariablen-Template
+```
+
+#### Schritt 5: Umgebungsvariablen konfigurieren
+
+```bash
+# .env aus Template erstellen
+cp .env.example .env
+
+# Sicheren SECRET_KEY generieren
+SECRET_KEY=$(python3 -c "import secrets; print(secrets.token_urlsafe(64))")
+echo "Generated SECRET_KEY: $SECRET_KEY"
+
+# SECRET_KEY in .env eintragen
+sed -i "s/SECRET_KEY=.*/SECRET_KEY=$SECRET_KEY/" .env
+
+# Optional: .env bearbeiten
+nano .env
+```
+
+**Wichtige Variablen in `.env`:**
+
+```env
+# Database
+POSTGRES_USER=user
+POSTGRES_PASSWORD=pass          # ⚠️ ÄNDERN für Production!
+POSTGRES_DB=goldsmith
+POSTGRES_HOST=db
+
+# Redis
+REDIS_HOST=redis
+REDIS_PORT=6379
+REDIS_URL=redis://redis:6379/0
+
+# Security
+SECRET_KEY=<generiert>           # ✅ Automatisch generiert
+
+# App
+DEBUG=true                       # ⚠️ FALSE für Production!
+ENVIRONMENT=development          # development/staging/production
+
+# CORS (Frontend-URLs)
+BACKEND_CORS_ORIGINS=http://localhost:3000,http://localhost:8000
+```
+
+**Speichern:** `Ctrl+O` → `Enter` → `Ctrl+X`
+
+#### Schritt 6: Container bauen und starten
+
+```bash
+# Mit podman-compose (Docker-kompatibel)
+podman-compose -f podman-compose.yml build
+
+# Erwartete Ausgabe:
+# Building backend...
+# Step 1/10 : FROM docker.io/library/python:3.11-slim
+# ...
+# Successfully built goldsmith-backend:latest
+# Building frontend...
+# Successfully built goldsmith-frontend:latest
+```
+
+**Container starten:**
+
+```bash
+# Alle Services starten
+podman-compose -f podman-compose.yml up -d
+
+# Status prüfen
+podman-compose -f podman-compose.yml ps
+```
+
+**Erwartete Ausgabe:**
+
+```
+NAME                     STATUS      PORTS
+goldsmith-db-1           Up 2 minutes  0.0.0.0:5432->5432/tcp
+goldsmith-redis-1        Up 2 minutes  0.0.0.0:6379->6379/tcp
+goldsmith-backend-1      Up 1 minute   0.0.0.0:8000->8000/tcp
+goldsmith-frontend-1     Up 1 minute   0.0.0.0:3000->3000/tcp
+```
+
+**Logs anzeigen:**
+
+```bash
+# Alle Logs
+podman-compose logs -f
+
+# Nur Backend
+podman-compose logs -f backend
+
+# Nur Fehler
+podman-compose logs backend | grep ERROR
+```
+
+#### Schritt 7: Anwendung testen
+
+**1. Backend API testen:**
+
+```bash
+# Health Check
+curl http://localhost:8000/health
+
+# Erwartete Antwort:
+# {"status":"ok"}
+
+# API Dokumentation im Browser öffnen:
+firefox http://localhost:8000/docs
+# oder
+google-chrome http://localhost:8000/docs
+```
+
+**2. Frontend testen:**
+
+```bash
+# Frontend im Browser öffnen
+firefox http://localhost:3000
+```
+
+**3. Login testen:**
+
+Da noch keine User existieren, erstellen wir einen:
+
+```bash
+# Python-Shell im Backend-Container öffnen
+podman-compose exec backend bash
+
+# Im Container:
+poetry run python
+
+# In Python:
+from goldsmith_erp.db.models import User
+from goldsmith_erp.db.session import AsyncSessionLocal
+from goldsmith_erp.core.security import get_password_hash
+import asyncio
+
+async def create_admin():
+    async with AsyncSessionLocal() as db:
+        admin = User(
+            email="admin@goldsmith.local",
+            hashed_password=get_password_hash("admin123"),
+            first_name="Admin",
+            last_name="User",
+            is_active=True
+        )
+        db.add(admin)
+        await db.commit()
+        print("✅ Admin user created!")
+
+asyncio.run(create_admin())
+exit()
+exit  # Container verlassen
+```
+
+**Jetzt einloggen:**
+- URL: http://localhost:3000
+- Email: `admin@goldsmith.local`
+- Password: `admin123`
+
+#### Schritt 8: Services verwalten
+
+```bash
+# Services stoppen
+podman-compose -f podman-compose.yml stop
+
+# Services neu starten
+podman-compose -f podman-compose.yml restart
+
+# Services + Container entfernen
+podman-compose -f podman-compose.yml down
+
+# Services + Container + Volumes (Daten!) entfernen
+podman-compose -f podman-compose.yml down -v
+
+# Logs live verfolgen
+podman-compose -f podman-compose.yml logs -f backend
+
+# Spezifischen Container neu bauen
+podman-compose -f podman-compose.yml build --no-cache backend
 ```
 
 ---
@@ -157,228 +394,40 @@ docker-compose down -v
 
 ### Voraussetzungen
 
-Folgende Software wird benötigt:
-
 - **macOS 11 (Big Sur)** oder neuer
-- **Homebrew** - Paketmanager für macOS
-- **Git** - Version Control
-- **Docker Desktop für Mac** - Containerisierung
+- **Homebrew** - Paketmanager
+- **8 GB RAM** empfohlen
 
 ### Schritt 1: Homebrew installieren
 
-1. **Homebrew installieren:**
-
-   Öffnen Sie Terminal (⌘+Leertaste → "Terminal" eingeben):
-   ```bash
-   /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-   ```
-
-2. **Installation überprüfen:**
-   ```bash
-   brew --version
-   ```
-   Erwartete Ausgabe: `Homebrew 4.x.x`
-
-### Schritt 2: Git installieren
-
-Git ist normalerweise vorinstalliert. Falls nicht:
+Falls noch nicht installiert:
 
 ```bash
-brew install git
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
 ```
 
-**Installation überprüfen:**
+### Schritt 2: Podman installieren
+
 ```bash
-git --version
+# Podman + Compose installieren
+brew install podman podman-compose
+
+# Podman Machine initialisieren (macOS benötigt VM)
+podman machine init
+
+# Podman Machine starten
+podman machine start
+
+# Installation prüfen
+podman --version
+podman-compose --version
 ```
 
-### Schritt 3: Docker Desktop installieren
-
-**Option A: Mit Homebrew (empfohlen)**
-```bash
-brew install --cask docker
+**Erwartete Ausgabe:**
 ```
-
-**Option B: Manueller Download**
-
-1. **Docker Desktop herunterladen:**
-   - Besuchen Sie https://www.docker.com/products/docker-desktop
-   - Klicken Sie auf "Download for Mac"
-   - Wählen Sie die richtige Version:
-     - **Apple Silicon (M1/M2/M3):** "Mac with Apple chip"
-     - **Intel Mac:** "Mac with Intel chip"
-
-2. **Docker Desktop installieren:**
-   - Öffnen Sie die heruntergeladene `.dmg` Datei
-   - Ziehen Sie Docker in den Applications-Ordner
-   - Öffnen Sie Docker aus dem Applications-Ordner
-   - Klicken Sie auf "Öffnen" bei der Sicherheitswarnung
-
-3. **Docker Desktop starten:**
-   - Docker startet automatisch
-   - Warten Sie, bis das Wal-Icon in der Menüleiste erscheint
-
-4. **Installation überprüfen:**
-   ```bash
-   docker --version
-   docker-compose --version
-   ```
-
-### Schritt 4: Repository klonen
-
-1. **Arbeitsverzeichnis erstellen (optional):**
-   ```bash
-   mkdir -p ~/Projects
-   cd ~/Projects
-   ```
-
-2. **Repository klonen:**
-   ```bash
-   git clone https://github.com/arcsmax/goldsmith_erp.git
-   cd goldsmith_erp
-   ```
-
-### Schritt 5: Umgebungsvariablen konfigurieren
-
-1. **`.env` Datei erstellen:**
-   ```bash
-   cp .env.example .env
-   ```
-
-   Falls `.env.example` nicht existiert:
-   ```bash
-   cat > .env << 'EOF'
-   # Database
-   POSTGRES_USER=user
-   POSTGRES_PASSWORD=pass
-   POSTGRES_DB=goldsmith
-   POSTGRES_HOST=db
-
-   # Redis
-   REDIS_URL=redis://redis:6379/0
-
-   # Security
-   SECRET_KEY=change_this_to_a_secure_random_string_min_32_chars
-
-   # App
-   DEBUG=true
-   EOF
-   ```
-
-2. **.env bearbeiten (optional):**
-   ```bash
-   nano .env
-   # oder
-   open -e .env
-   ```
-
-### Schritt 6: Anwendung starten
-
-1. **Docker Compose ausführen:**
-   ```bash
-   docker-compose up --build
-   ```
-
-   **Hinweis für Apple Silicon (M1/M2/M3):**
-   Falls Probleme auftreten, verwenden Sie:
-   ```bash
-   DOCKER_DEFAULT_PLATFORM=linux/amd64 docker-compose up --build
-   ```
-
-2. **Erfolgreich gestartet:**
-   ```
-   ✓ Container goldsmith_erp-db-1        Started
-   ✓ Container goldsmith_erp-redis-1     Started
-   ✓ Container goldsmith_erp-backend-1   Started
-   ✓ Container goldsmith_erp-frontend-1  Started
-   ```
-
-3. **Anwendung öffnen:**
-   - Backend API: http://localhost:8000
-   - API Docs: http://localhost:8000/docs
-   - Frontend: http://localhost:3000
-
-### Schritt 7: Anwendung stoppen
-
-```bash
-# Im Terminal: Ctrl+C drücken
-
-# Container stoppen:
-docker-compose down
-
-# Container + Daten löschen:
-docker-compose down -v
-```
-
----
-
-## 🐧 Linux Installation
-
-### Voraussetzungen
-
-- **Ubuntu 20.04+** / **Debian 11+** / **Fedora 36+**
-- **Root oder sudo Zugriff**
-
-### Schritt 1: Git installieren
-
-**Ubuntu/Debian:**
-```bash
-sudo apt update
-sudo apt install git -y
-```
-
-**Fedora:**
-```bash
-sudo dnf install git -y
-```
-
-**Überprüfen:**
-```bash
-git --version
-```
-
-### Schritt 2: Docker installieren
-
-**Ubuntu/Debian:**
-```bash
-# Alte Versionen entfernen
-sudo apt remove docker docker-engine docker.io containerd runc
-
-# Abhängigkeiten installieren
-sudo apt update
-sudo apt install ca-certificates curl gnupg lsb-release -y
-
-# Docker GPG Key hinzufügen
-sudo mkdir -p /etc/apt/keyrings
-curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
-
-# Docker Repository hinzufügen
-echo \
-  "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu \
-  $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
-
-# Docker installieren
-sudo apt update
-sudo apt install docker-ce docker-ce-cli containerd.io docker-compose-plugin -y
-
-# Docker ohne sudo nutzen
-sudo usermod -aG docker $USER
-newgrp docker
-```
-
-**Fedora:**
-```bash
-sudo dnf install docker docker-compose -y
-sudo systemctl start docker
-sudo systemctl enable docker
-sudo usermod -aG docker $USER
-newgrp docker
-```
-
-**Überprüfen:**
-```bash
-docker --version
-docker compose version
+podman version 4.8.0
+podman-compose version 1.0.6
+Podman machine 'podman-machine-default' started successfully
 ```
 
 ### Schritt 3: Repository klonen
@@ -390,229 +439,477 @@ git clone https://github.com/arcsmax/goldsmith_erp.git
 cd goldsmith_erp
 ```
 
-### Schritt 4: Umgebungsvariablen konfigurieren
+### Schritt 4: .env konfigurieren
+
+```bash
+# .env erstellen
+cp .env.example .env
+
+# SECRET_KEY generieren
+python3 -c "import secrets; print('SECRET_KEY=' + secrets.token_urlsafe(64))" >> .env
+
+# Optional bearbeiten
+open -e .env
+```
+
+### Schritt 5: Services starten
+
+```bash
+# Mit Makefile (einfachste Methode)
+make start
+
+# Oder manuell:
+podman-compose -f podman-compose.yml up -d
+
+# Status prüfen
+make ps
+# oder
+podman-compose ps
+```
+
+### Schritt 6: Testen
+
+- Backend: http://localhost:8000/docs
+- Frontend: http://localhost:3000
+
+### macOS-spezifische Tipps
+
+**Podman Machine verwalten:**
+
+```bash
+# Status prüfen
+podman machine list
+
+# Stoppen
+podman machine stop
+
+# Neustarten
+podman machine restart
+
+# Ressourcen erhöhen (bei Performance-Problemen)
+podman machine set --cpus 4 --memory 8192
+```
+
+**Apple Silicon (M1/M2/M3) Kompatibilität:**
+
+Falls Probleme mit ARM64-Images auftreten:
+
+```bash
+# AMD64-Platform erzwingen
+export DOCKER_DEFAULT_PLATFORM=linux/amd64
+
+# Dann bauen
+podman-compose build
+```
+
+---
+
+## 🪟 Windows Installation
+
+### Option 1: WSL2 + Podman (Empfohlen)
+
+**Schritt 1: WSL2 installieren**
+
+```powershell
+# PowerShell als Administrator öffnen
+wsl --install
+
+# Computer neu starten (wenn nötig)
+
+# Ubuntu installieren
+wsl --install -d Ubuntu-22.04
+
+# WSL2 Version prüfen
+wsl -l -v
+
+# Sollte Version 2 sein:
+# * Ubuntu-22.04    Running    2
+```
+
+**Schritt 2: In WSL2 (Ubuntu) wechseln**
+
+```powershell
+wsl -d Ubuntu-22.04
+```
+
+**Ab jetzt: Folge der [Linux Installation](#linux-installation)**
+
+### Option 2: Podman Desktop für Windows
+
+**Schritt 1: Podman Desktop installieren**
+
+1. Download: https://podman-desktop.io/downloads
+2. Datei ausführen: `podman-desktop-setup-x.x.x.exe`
+3. Installation durchführen
+4. Podman Desktop starten
+
+**Schritt 2: Podman Machine erstellen**
+
+1. Podman Desktop öffnen
+2. "Setup Podman" → "Initialize and start"
+3. Warten bis "Podman is running"
+
+**Schritt 3: Repository klonen**
+
+```powershell
+# Git Bash oder PowerShell
+cd C:\Projects
+git clone https://github.com/arcsmax/goldsmith_erp.git
+cd goldsmith_erp
+```
+
+**Schritt 4: Services starten**
+
+```powershell
+# .env erstellen
+copy .env.example .env
+
+# Services starten
+podman-compose -f podman-compose.yml up -d
+```
+
+### Windows-spezifische Tipps
+
+**Ports freigeben:**
+
+Falls Firewall-Probleme auftreten:
+
+```powershell
+# PowerShell als Admin
+New-NetFirewallRule -DisplayName "Goldsmith Backend" -Direction Inbound -LocalPort 8000 -Protocol TCP -Action Allow
+New-NetFirewallRule -DisplayName "Goldsmith Frontend" -Direction Inbound -LocalPort 3000 -Protocol TCP -Action Allow
+```
+
+---
+
+## 📦 Manuelle Installation (ohne Container)
+
+### Backend (Python)
+
+**Voraussetzungen:**
+- Python 3.11+
+- PostgreSQL 15+
+- Redis 7+
+
+**Schritt 1: Python-Dependencies installieren**
+
+```bash
+# Poetry installieren
+curl -sSL https://install.python-poetry.org | python3 -
+
+# Dependencies installieren
+cd goldsmith_erp
+poetry install
+
+# Virtual Environment aktivieren
+poetry shell
+```
+
+**Schritt 2: PostgreSQL + Redis starten**
+
+**Option A: Mit Podman (nur DB/Redis)**
+
+```bash
+# Nur DB und Redis starten
+podman-compose up -d db redis
+```
+
+**Option B: Nativ installiert**
+
+```bash
+# PostgreSQL starten
+sudo systemctl start postgresql
+
+# Redis starten
+sudo systemctl start redis
+
+# Database erstellen
+sudo -u postgres psql -c "CREATE DATABASE goldsmith;"
+sudo -u postgres psql -c "CREATE USER user WITH PASSWORD 'pass';"
+sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE goldsmith TO user;"
+```
+
+**Schritt 3: .env konfigurieren**
 
 ```bash
 cp .env.example .env
-nano .env  # oder vi .env
+
+# DATABASE_URL anpassen für lokale DB:
+# DATABASE_URL=postgresql+asyncpg://user:pass@localhost:5432/goldsmith
 ```
 
-### Schritt 5: Anwendung starten
+**Schritt 4: Migrationen ausführen**
 
 ```bash
-docker compose up --build
+# Alembic Migrationen
+poetry run alembic upgrade head
 ```
 
-**Hinweis:** Bei älteren Docker-Versionen: `docker-compose` (mit Bindestrich)
+**Schritt 5: Backend starten**
+
+```bash
+poetry run uvicorn goldsmith_erp.main:app --reload --host 0.0.0.0 --port 8000
+```
+
+Backend läuft auf: http://localhost:8000
+
+### Frontend (React)
+
+**Voraussetzungen:**
+- Node.js 18+ oder 20+
+
+**Schritt 1: Node.js installieren**
+
+```bash
+# Ubuntu/Debian
+curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+sudo apt-get install -y nodejs
+
+# macOS
+brew install node@20
+
+# Verify
+node --version
+npm --version
+```
+
+**Schritt 2: Dependencies installieren**
+
+```bash
+cd frontend
+
+# Yarn aktivieren
+corepack enable
+
+# Dependencies installieren
+yarn install
+```
+
+**Schritt 3: Frontend starten**
+
+```bash
+yarn dev
+```
+
+Frontend läuft auf: http://localhost:3000
 
 ---
 
 ## 🛠 Entwicklungsumgebung einrichten
 
-Für aktive Entwicklung ohne Docker:
+### Mit Makefile (Einfachste Methode)
 
-### Backend-Entwicklung
+```bash
+# Alle verfügbaren Befehle anzeigen
+make help
 
-**Voraussetzungen:**
-- Python 3.11 oder höher
-- Poetry (Python Package Manager)
+# Services starten
+make start
 
-**Installation:**
+# Logs anzeigen
+make logs
 
-1. **Python 3.11+ installieren:**
+# Backend Shell öffnen
+make shell-backend
 
-   **Windows:**
-   - Download: https://www.python.org/downloads/
-   - Aktivieren Sie "Add Python to PATH"
+# PostgreSQL Shell öffnen
+make shell-db
 
-   **macOS:**
-   ```bash
-   brew install python@3.11
-   ```
+# Code formatieren
+make format
 
-   **Linux:**
-   ```bash
-   sudo apt install python3.11 python3.11-venv python3-pip
-   ```
+# Tests ausführen
+make test
 
-2. **Poetry installieren:**
-   ```bash
-   curl -sSL https://install.python-poetry.org | python3 -
-   ```
+# Migrationen ausführen
+make migrate
 
-   **Windows (PowerShell):**
-   ```powershell
-   (Invoke-WebRequest -Uri https://install.python-poetry.org -UseBasicParsing).Content | python -
-   ```
+# Neue Migration erstellen
+make migrate-create MESSAGE="add_customer_table"
+```
 
-3. **Dependencies installieren:**
-   ```bash
-   cd goldsmith_erp
-   poetry install
-   ```
+### VSCode Setup (Empfohlen)
 
-4. **PostgreSQL & Redis starten (Docker):**
-   ```bash
-   docker-compose up -d db redis
-   ```
+**Extensions installieren:**
 
-5. **Datenbank-Migrationen ausführen:**
-   ```bash
-   poetry run alembic upgrade head
-   ```
+1. Python (ms-python.python)
+2. Pylance (ms-python.vscode-pylance)
+3. ESLint (dbaeumer.vscode-eslint)
+4. Prettier (esbenp.prettier-vscode)
+5. Docker (ms-azuretools.vscode-docker)
 
-6. **Backend-Server starten:**
-   ```bash
-   poetry run uvicorn goldsmith_erp.main:app --reload --host 0.0.0.0 --port 8000
-   ```
+**Workspace Settings (`.vscode/settings.json`):**
 
-### Frontend-Entwicklung
+```json
+{
+  "python.defaultInterpreterPath": "${workspaceFolder}/.venv/bin/python",
+  "python.linting.enabled": true,
+  "python.linting.pylintEnabled": true,
+  "python.formatting.provider": "black",
+  "editor.formatOnSave": true,
+  "[python]": {
+    "editor.defaultFormatter": "ms-python.black-formatter"
+  },
+  "[typescript]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  }
+}
+```
 
-**Voraussetzungen:**
-- Node.js 18+ oder 20+
-- Yarn 4.x
+---
 
-**Installation:**
+## 🔄 Migration von Docker zu Podman
 
-1. **Node.js installieren:**
+### Schritt 1: Docker Services stoppen
 
-   **Windows:**
-   - Download: https://nodejs.org/ (LTS Version)
+```bash
+# Docker stoppen (falls läuft)
+docker-compose down
 
-   **macOS:**
-   ```bash
-   brew install node@20
-   ```
+# Optional: Daten sichern
+docker-compose exec db pg_dump -U user goldsmith > backup.sql
+```
 
-   **Linux:**
-   ```bash
-   curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
-   sudo apt install nodejs -y
-   ```
+### Schritt 2: Podman installieren
 
-2. **Yarn aktivieren:**
-   ```bash
-   corepack enable
-   ```
+Siehe [Linux Installation](#linux-installation) oben.
 
-3. **Dependencies installieren:**
-   ```bash
-   cd frontend
-   yarn install
-   ```
+### Schritt 3: Alias erstellen (Docker-Kompatibilität)
 
-4. **Development-Server starten:**
-   ```bash
-   yarn dev
-   ```
+```bash
+# In ~/.bashrc oder ~/.zshrc
+echo "alias docker=podman" >> ~/.bashrc
+echo "alias docker-compose=podman-compose" >> ~/.bashrc
 
-   Frontend läuft auf: http://localhost:3000
+# Aktivieren
+source ~/.bashrc
+
+# Testen
+docker ps
+# Sollte jetzt Podman-Container zeigen!
+```
+
+### Schritt 4: Services mit Podman starten
+
+```bash
+# Mit neuem podman-compose.yml
+podman-compose -f podman-compose.yml up -d
+
+# Oder mit Makefile
+make start
+```
+
+### Schritt 5: Daten wiederherstellen (falls gesichert)
+
+```bash
+# Backup einspielen
+cat backup.sql | podman-compose exec -T db psql -U user goldsmith
+```
+
+**Fertig!** Alles läuft jetzt mit Podman.
 
 ---
 
 ## 🔧 Problemlösungen
 
-### Problem: Docker startet nicht
+### Problem: "podman: command not found"
 
-**Windows:**
-- Stellen Sie sicher, dass Hyper-V oder WSL 2 aktiviert ist
-- Öffnen Sie Docker Desktop als Administrator
-- Prüfen Sie unter "Settings" → "Resources" ob genug RAM/CPU zugewiesen ist
+**Linux:**
+```bash
+# Podman installieren
+sudo apt-get install podman podman-compose
+```
 
 **macOS:**
-- Öffnen Sie "Systemeinstellungen" → "Sicherheit" → Docker erlauben
-- Stellen Sie sicher, dass Docker Desktop vollständig installiert ist
+```bash
+brew install podman podman-compose
+podman machine init
+podman machine start
+```
+
+### Problem: "Error: short-name resolution is enforced"
+
+**Fehler:**
+```
+Error: short-name "postgres:15" did not resolve to an alias
+```
+
+**Lösung:** Vollständige Image-Namen verwenden
+
+```yaml
+# In podman-compose.yml - BEREITS GEFIXT!
+image: docker.io/library/postgres:15-alpine  # ✅
+# statt
+image: postgres:15  # ❌
+```
+
+### Problem: "permission denied" bei Volumes
+
+**Fehler:**
+```
+Error: error mounting "/path": permission denied
+```
+
+**Lösung:** SELinux Labels hinzufügen (`:Z` oder `:z`)
+
+```yaml
+# In podman-compose.yml - BEREITS GEFIXT!
+volumes:
+  - ./src:/app/src:Z  # ✅ :Z für SELinux
+```
+
+### Problem: Container können nicht auf Host zugreifen
+
+**Lösung:** `host.containers.internal` verwenden
+
+```env
+# Statt localhost:
+DATABASE_URL=postgresql://user:pass@host.containers.internal:5432/db
+```
 
 ### Problem: Port bereits belegt
 
 ```bash
-# Fehler: "Bind for 0.0.0.0:8000 failed: port is already allocated"
-```
+# Port 8000 prüfen
+sudo lsof -i :8000
 
-**Lösung:**
+# Prozess beenden
+kill -9 <PID>
 
-**Windows:**
-```cmd
-netstat -ano | findstr :8000
-taskkill /PID <PID> /F
-```
-
-**macOS/Linux:**
-```bash
-lsof -ti:8000 | xargs kill -9
-```
-
-**Alternative:** Ports in `docker-compose.yml` ändern:
-```yaml
+# Oder anderen Port in podman-compose.yml:
 ports:
-  - "8001:8000"  # Externer Port 8001 statt 8000
+  - "8080:8000"  # Backend jetzt auf 8080
 ```
 
-### Problem: Datenbank-Verbindungsfehler
+### Problem: Podman Machine startet nicht (macOS)
 
-```
-sqlalchemy.exc.OperationalError: could not translate host name "db"
-```
-
-**Lösung:**
-1. Stellen Sie sicher, dass PostgreSQL-Container läuft:
-   ```bash
-   docker ps | grep postgres
-   ```
-
-2. Container neu starten:
-   ```bash
-   docker-compose restart db
-   ```
-
-3. Logs prüfen:
-   ```bash
-   docker-compose logs db
-   ```
-
-### Problem: Migration-Fehler
-
-```
-alembic.util.exc.CommandError: Can't locate revision identified by 'xxxx'
-```
-
-**Lösung:**
 ```bash
-# Container stoppen und Datenbank zurücksetzen
-docker-compose down -v
-
-# Container neu starten
-docker-compose up --build
+# Machine neu initialisieren
+podman machine stop
+podman machine rm
+podman machine init --cpus 4 --memory 8192
+podman machine start
 ```
 
-### Problem: Frontend lädt nicht
+### Problem: Rootless Podman - "unprivileged user namespaces are disabled"
 
-**Symptom:** Weiße Seite oder "Cannot connect to server"
-
-**Lösung:**
-1. Prüfen Sie, ob Backend läuft: http://localhost:8000/docs
-2. Browser-Console öffnen (F12) → Fehler prüfen
-3. Frontend-Container neu starten:
-   ```bash
-   docker-compose restart frontend
-   docker-compose logs frontend
-   ```
-
-### Problem: Apple Silicon (M1/M2/M3) Kompatibilität
-
-**Fehler:** "no matching manifest for linux/arm64/v8"
-
-**Lösung:**
 ```bash
-export DOCKER_DEFAULT_PLATFORM=linux/amd64
-docker-compose up --build
+# Ubuntu/Debian
+echo 'kernel.unprivileged_userns_clone=1' | sudo tee -a /etc/sysctl.conf
+sudo sysctl -p
+
+# Fedora (meist voractiviert)
+sudo grubby --update-kernel=ALL --args="namespace.unpriv_enable=1"
 ```
 
-Oder in `docker-compose.yml` hinzufügen:
-```yaml
-services:
-  backend:
-    platform: linux/amd64
+### Problem: Build schlägt fehl mit "no space left on device"
+
+```bash
+# Podman Speicher bereinigen
+podman system prune -af --volumes
+
+# Speicher prüfen
+podman system df
 ```
 
 ---
@@ -625,28 +922,37 @@ services:
 # Code aktualisieren
 git pull origin main
 
-# Container neu bauen
-docker-compose down
-docker-compose up --build
+# Container neu bauen und starten
+make build
+make start
+
+# Oder manuell:
+podman-compose down
+podman-compose build --no-cache
+podman-compose up -d
 ```
 
 ### Wie setze ich die Datenbank zurück?
 
 ```bash
-# Alle Container und Volumes löschen
-docker-compose down -v
+# ACHTUNG: Löscht alle Daten!
+make clean
 
-# Neu starten
-docker-compose up --build
+# Oder manuell:
+podman-compose down -v
+podman-compose up -d
 ```
 
 ### Wie greife ich auf die Datenbank zu?
 
 ```bash
-# PostgreSQL CLI öffnen
-docker-compose exec db psql -U user -d goldsmith
+# Mit Makefile
+make shell-db
 
-# Oder mit GUI-Tool (z.B. pgAdmin):
+# Oder manuell
+podman-compose exec db psql -U user -d goldsmith
+
+# Mit GUI-Tool (z.B. DBeaver, pgAdmin):
 # Host: localhost
 # Port: 5432
 # User: user
@@ -657,70 +963,96 @@ docker-compose exec db psql -U user -d goldsmith
 ### Wie sehe ich die Logs?
 
 ```bash
-# Alle Logs
-docker-compose logs
+# Mit Makefile
+make logs              # Alle Logs
+make logs-backend      # Nur Backend
+make logs-frontend     # Nur Frontend
 
-# Nur Backend
-docker-compose logs backend
+# Oder manuell
+podman-compose logs -f backend
+```
 
-# Logs folgen (live)
-docker-compose logs -f backend
+### Wie führe ich Migrationen aus?
+
+```bash
+# Mit Makefile
+make migrate                                # Apply migrations
+make migrate-create MESSAGE="add_customer" # Create new migration
+
+# Oder manuell
+podman-compose exec backend poetry run alembic upgrade head
+podman-compose exec backend poetry run alembic revision --autogenerate -m "message"
 ```
 
 ### Wie führe ich Tests aus?
 
 ```bash
-# Backend-Tests
-docker-compose exec backend poetry run pytest
+# Mit Makefile
+make test              # All tests
+make test-cov          # With coverage report
 
-# Oder lokal:
-poetry run pytest
-
-# Frontend-Tests (wenn implementiert)
-cd frontend
-yarn test
+# Oder manuell
+podman-compose exec backend poetry run pytest -v
 ```
 
-### Kann ich einen anderen Port nutzen?
-
-Ja, bearbeiten Sie `docker-compose.yml`:
-
-```yaml
-services:
-  backend:
-    ports:
-      - "8080:8000"  # Backend auf Port 8080
-
-  frontend:
-    ports:
-      - "3001:3000"  # Frontend auf Port 3001
-```
-
-### Wie erstelle ich einen Admin-User?
+### Wie erstelle ich Seed-Daten?
 
 ```bash
-# Python-Shell im Backend-Container öffnen
-docker-compose exec backend poetry run python
+# Standard-Aktivitäten seeden
+podman-compose exec backend python -m goldsmith_erp.db.seed_data
+```
 
-# In der Python-Shell:
-from goldsmith_erp.db.models import User, Base
-from goldsmith_erp.db.session import SessionLocal
-from passlib.context import CryptContext
+### Kann ich Docker UND Podman parallel nutzen?
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-db = SessionLocal()
+Ja, aber nicht empfohlen. Wenn du Docker entfernen willst:
 
-admin = User(
-    email="admin@goldsmith.local",
-    hashed_password=pwd_context.hash("admin123"),
-    first_name="Admin",
-    last_name="User",
-    is_active=True
-)
+```bash
+# Docker vollständig entfernen (Ubuntu)
+sudo apt-get purge docker-ce docker-ce-cli containerd.io
+sudo rm -rf /var/lib/docker
 
-db.add(admin)
-db.commit()
-print("Admin user created!")
+# Dann Alias setzen
+alias docker=podman
+```
+
+### Wie verwende ich es in Production?
+
+**Option 1: Systemd Services (Empfohlen für Single Server)**
+
+```bash
+# Systemd Services generieren
+cd ~/.config/systemd/user/
+podman generate systemd --new --files --name goldsmith-backend
+
+# Services aktivieren
+systemctl --user enable container-goldsmith-backend.service
+systemctl --user start container-goldsmith-backend.service
+
+# Auto-Start bei Boot
+loginctl enable-linger $USER
+```
+
+**Option 2: Kubernetes Pod Deployment**
+
+```bash
+# Pod Manifest verwenden
+podman play kube podman-pod.yaml
+
+# Oder nach Kubernetes deployen
+kubectl apply -f podman-pod.yaml
+```
+
+### Wie erstelle ich Backups?
+
+```bash
+# Mit Makefile
+make backup-db
+
+# Backups liegen in ./backups/
+ls backups/
+
+# Backup wiederherstellen
+make restore-db FILE=backups/goldsmith_20250109_120000.sql
 ```
 
 ---
@@ -729,14 +1061,47 @@ print("Admin user created!")
 
 Bei Problemen:
 
-1. **Logs prüfen:** `docker-compose logs`
-2. **Issues durchsuchen:** https://github.com/arcsmax/goldsmith_erp/issues
-3. **Neues Issue erstellen:** Beschreiben Sie das Problem mit:
-   - Betriebssystem und Version
-   - Docker-Version
-   - Fehlermeldung
-   - Schritte zur Reproduktion
+1. **Logs prüfen:**
+   ```bash
+   make logs
+   ```
+
+2. **Podman Docs:**
+   - https://docs.podman.io/
+   - https://github.com/containers/podman
+
+3. **GitHub Issues:**
+   - Durchsuchen: https://github.com/arcsmax/goldsmith_erp/issues
+   - Neu erstellen: Mit OS, Podman-Version, Logs
+
+4. **Podman Migration Guide:**
+   - [PODMAN_MIGRATION.md](PODMAN_MIGRATION.md)
+
+---
+
+## ✅ Installation erfolgreich?
+
+Prüfe ob alles läuft:
+
+```bash
+# Health Check
+make health
+
+# Sollte zeigen:
+# ✅ Backend: http://localhost:8000/health
+# ✅ Frontend: http://localhost:3000
+# ✅ Database: Ready
+# ✅ Redis: PONG
+```
+
+**Nächste Schritte:**
+1. Admin-User erstellen (siehe Schritt 7)
+2. Frontend öffnen: http://localhost:3000
+3. Einloggen und testen!
+4. [MVP Analysis](MVP_ANALYSIS.md) lesen für nächste Features
 
 ---
 
 **Viel Erfolg mit Goldsmith ERP! 🚀**
+
+**Powered by Podman - Secure, Rootless, Container-Native**
