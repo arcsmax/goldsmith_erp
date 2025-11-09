@@ -22,7 +22,7 @@ class Settings(BaseSettings):
     # ── App basics ─────────────────────────────────────────────────────────────
     APP_NAME: str = "Goldsmith ERP"
     API_V1_STR: str = "/api/v1"
-    SECRET_KEY: str
+    SECRET_KEY: str = "change_this_to_a_secure_random_string"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 8  # 8 days
 
     # ── Server ─────────────────────────────────────────────────────────────────
@@ -31,9 +31,9 @@ class Settings(BaseSettings):
     DEBUG: bool = False
 
     # ── PostgreSQL ──────────────────────────────────────────────────────────────
-    POSTGRES_USER: str
-    POSTGRES_PASSWORD: str
-    POSTGRES_DB: str
+    POSTGRES_USER: str = "user"
+    POSTGRES_PASSWORD: str = "pass"
+    POSTGRES_DB: str = "goldsmith"
     POSTGRES_HOST: str = "db"
     POSTGRES_PORT: int = 5432
     DATABASE_URL: Optional[PostgresDsn] = None
