@@ -5,7 +5,7 @@ import uvicorn
 from typing import List
 
 from goldsmith_erp.core.config import settings
-from goldsmith_erp.api.routers import auth, orders
+from goldsmith_erp.api.routers import auth, orders, users, materials
 from goldsmith_erp.core.pubsub import subscribe_and_forward, publish_event
 
 # App-Instanz erstellen
@@ -25,7 +25,9 @@ app.add_middleware(
 
 # Router einbinden
 app.include_router(auth.router, prefix=f"{settings.API_V1_STR}", tags=["auth"])
+app.include_router(users.router, prefix=f"{settings.API_V1_STR}/users", tags=["users"])
 app.include_router(orders.router, prefix=f"{settings.API_V1_STR}/orders", tags=["orders"])
+app.include_router(materials.router, prefix=f"{settings.API_V1_STR}/materials", tags=["materials"])
 
 # WebSocket endpoint with Redis Pub/Sub integration
 @app.websocket("/ws/orders")
