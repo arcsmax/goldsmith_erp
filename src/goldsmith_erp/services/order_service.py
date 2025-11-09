@@ -54,14 +54,15 @@ class OrderService:
             json.dumps({
                 "action": "create",
                 "order_id": db_order.id,
-                "status": db_order.status,
+                "status": db_order.status.value if hasattr(db_order.status, "value") else db_order.status,
                 # Include only essential data to keep the message size reasonable
                 "data": {
                     "id": db_order.id,
-                    "customer_name": db_order.customer_name,
+                    "customer_id": db_order.customer_id,
+                    "title": db_order.title if hasattr(db_order, "title") else None,
                     "created_at": db_order.created_at.isoformat() if hasattr(db_order, "created_at") else None,
-                    "status": db_order.status,
-                    "price": str(db_order.price) if hasattr(db_order, "price") else None,
+                    "status": db_order.status.value if hasattr(db_order.status, "value") else db_order.status,
+                    "price": str(db_order.price) if db_order.price else None,
                 }
             })
         )
@@ -96,14 +97,15 @@ class OrderService:
             json.dumps({
                 "action": "update",
                 "order_id": order_id,
-                "status": updated_order.status,
+                "status": updated_order.status.value if hasattr(updated_order.status, "value") else updated_order.status,
                 # Include only essential data to keep the message size reasonable
                 "data": {
                     "id": updated_order.id,
-                    "customer_name": updated_order.customer_name,
+                    "customer_id": updated_order.customer_id,
+                    "title": updated_order.title if hasattr(updated_order, "title") else None,
                     "updated_at": updated_order.updated_at.isoformat() if hasattr(updated_order, "updated_at") else None,
-                    "status": updated_order.status,
-                    "price": str(updated_order.price) if hasattr(updated_order, "price") else None,
+                    "status": updated_order.status.value if hasattr(updated_order.status, "value") else updated_order.status,
+                    "price": str(updated_order.price) if updated_order.price else None,
                 }
             })
         )
