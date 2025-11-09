@@ -403,3 +403,25 @@ FodyWeavers.xsd
 frontend/dist/
 frontend/node_modules/
 frontend/.vite/
+
+# Environment variables - NEVER commit these!
+.env
+.env.local
+.env.*.local
+
+# Python virtual environments
+venv/
+env/
+ENV/
+.venv/
+
+# Poetry
+poetry.lock
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Redis dumps
+dump.rdb
