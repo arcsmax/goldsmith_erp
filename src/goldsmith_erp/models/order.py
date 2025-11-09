@@ -1,5 +1,5 @@
 # src/goldsmith_erp/models/order.py
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from datetime import datetime
 from typing import Optional, List
 
@@ -7,9 +7,8 @@ class MaterialBase(BaseModel):
     id: int
     name: str
     unit_price: float
-    
-    class Config:
-        orm_mode = True
+
+    model_config = ConfigDict(from_attributes=True)
 
 class OrderBase(BaseModel):
     """Basis-Schema für Orders."""
@@ -38,5 +37,4 @@ class OrderRead(OrderBase):
     updated_at: datetime
     materials: Optional[List[MaterialBase]] = None
 
-    class Config:
-        orm_mode = True
+    model_config = ConfigDict(from_attributes=True)

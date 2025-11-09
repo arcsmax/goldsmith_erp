@@ -9,8 +9,11 @@ from fastapi import WebSocket
 from goldsmith_erp.core.config import settings
 
 # Create a shared Redis pool from URL in settings
+# Build Redis URL if not provided
+redis_url = str(settings.REDIS_URL) if settings.REDIS_URL else f"redis://{settings.REDIS_HOST}:{settings.REDIS_PORT}/{settings.REDIS_DB}"
+
 _redis_pool = redis.ConnectionPool.from_url(
-    str(settings.REDIS_URL),         # ← explicit str()
+    redis_url,
     decode_responses=True
 )
 

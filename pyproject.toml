@@ -24,6 +24,8 @@ passlib = { version = "^1.7.4", extras = ["bcrypt"] }
 python-multipart = "^0.0.12"
 pyjwt = "^2.9.0"
 pydantic-settings = "^2.6.0"
+email-validator = "^2.3.0"
+python-jose = {extras = ["cryptography"], version = "^3.5.0"}
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.0.0"

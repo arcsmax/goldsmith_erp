@@ -3,9 +3,13 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
 from goldsmith_erp.core.config import settings
 
+# Build DATABASE_URL if not provided or invalid
+database_url = str(settings.DATABASE_URL) if settings.DATABASE_URL else \
+    f"postgresql+asyncpg://{settings.POSTGRES_USER}:{settings.POSTGRES_PASSWORD}@{settings.POSTGRES_HOST}:{settings.POSTGRES_PORT}/{settings.POSTGRES_DB}"
+
 # PostgreSQL-Engine mit async Treiber
 engine = create_async_engine(
-    str(settings.DATABASE_URL),  # ← cast to plain string
+    database_url,
     echo=settings.DEBUG,
     future=True,
 )
