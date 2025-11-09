@@ -1,0 +1,260 @@
+/* Location Picker Component Styles */
+
+.location-picker {
+  background: white;
+  border-radius: 12px;
+  padding: 1.5rem;
+  max-width: 700px;
+  max-height: 75vh;
+  overflow-y: auto;
+}
+
+.location-picker-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1.5rem;
+}
+
+.location-picker-header h2 {
+  margin: 0;
+  font-size: 1.5rem;
+  color: #333;
+}
+
+.location-close-button {
+  background: none;
+  border: none;
+  font-size: 1.5rem;
+  color: #999;
+  cursor: pointer;
+  padding: 0.5rem;
+  line-height: 1;
+  transition: color 0.2s;
+}
+
+.location-close-button:hover {
+  color: #333;
+}
+
+/* Category Filters */
+.location-category-filters {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-bottom: 1.5rem;
+}
+
+.location-category-filter {
+  padding: 0.5rem 1rem;
+  border: 2px solid #e5e7eb;
+  background: white;
+  border-radius: 8px;
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-weight: 500;
+}
+
+.location-category-filter:hover {
+  border-color: #3b82f6;
+  background: #eff6ff;
+}
+
+.location-category-filter.active {
+  border-color: #3b82f6;
+  background: #3b82f6;
+  color: white;
+  font-weight: 600;
+}
+
+/* Locations List */
+.locations-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+}
+
+.location-category-section {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.location-category-header {
+  margin: 0;
+  font-size: 1.1rem;
+  color: #666;
+  font-weight: 600;
+  padding-bottom: 0.5rem;
+  border-bottom: 2px solid #e5e7eb;
+}
+
+/* Location Grid */
+.location-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 0.75rem;
+}
+
+/* Location Card */
+.location-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 1.25rem 0.75rem;
+  border: 2px solid #e5e7eb;
+  border-radius: 10px;
+  background: white;
+  cursor: pointer;
+  transition: all 0.2s;
+  text-align: center;
+}
+
+.location-card:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 6px 12px rgba(0, 0, 0, 0.1);
+}
+
+.location-card-icon {
+  font-size: 2.5rem;
+  line-height: 1;
+}
+
+.location-card-name {
+  font-weight: 600;
+  color: #333;
+  font-size: 0.95rem;
+}
+
+/* Category-specific styles */
+.location-card-workshop {
+  border-color: #93c5fd;
+}
+
+.location-card-workshop:hover {
+  border-color: #3b82f6;
+  background: #eff6ff;
+}
+
+.location-card-workshop.selected {
+  border-color: #3b82f6;
+  background: #dbeafe;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2);
+}
+
+.location-card-storage {
+  border-color: #a7f3d0;
+}
+
+.location-card-storage:hover {
+  border-color: #10b981;
+  background: #f0fdf4;
+}
+
+.location-card-storage.selected {
+  border-color: #10b981;
+  background: #d1fae5;
+  box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.2);
+}
+
+.location-card-external {
+  border-color: #fde68a;
+}
+
+.location-card-external:hover {
+  border-color: #f59e0b;
+  background: #fffbeb;
+}
+
+.location-card-external.selected {
+  border-color: #f59e0b;
+  background: #fef3c7;
+  box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.2);
+}
+
+/* Selected Badge */
+.location-selected-badge {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.5rem;
+  background: #10b981;
+  color: white;
+  padding: 0.15rem 0.5rem;
+  border-radius: 6px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  box-shadow: 0 2px 4px rgba(16, 185, 129, 0.3);
+}
+
+/* Empty State */
+.location-picker-empty {
+  text-align: center;
+  padding: 3rem 1.5rem;
+  color: #666;
+  font-size: 1rem;
+}
+
+/* Mobile Responsive */
+@media (max-width: 768px) {
+  .location-picker {
+    padding: 1rem;
+    max-height: 85vh;
+  }
+
+  .location-picker-header h2 {
+    font-size: 1.25rem;
+  }
+
+  .location-grid {
+    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  }
+
+  .location-card {
+    padding: 1rem 0.5rem;
+  }
+
+  .location-card-icon {
+    font-size: 2rem;
+  }
+
+  .location-card-name {
+    font-size: 0.85rem;
+  }
+
+  .location-category-filters {
+    flex-direction: column;
+  }
+
+  .location-category-filter {
+    width: 100%;
+  }
+}
+
+@media (max-width: 480px) {
+  .location-picker {
+    border-radius: 0;
+    max-height: 100vh;
+    padding: 0.75rem;
+  }
+
+  .location-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .location-card {
+    padding: 0.75rem 0.5rem;
+  }
+
+  .location-card-icon {
+    font-size: 1.75rem;
+  }
+
+  .location-selected-badge {
+    font-size: 0.6rem;
+    padding: 0.1rem 0.4rem;
+  }
+}

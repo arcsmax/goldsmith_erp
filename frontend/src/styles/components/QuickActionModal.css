@@ -1,0 +1,282 @@
+/* Quick Action Modal Styles */
+
+.quick-action-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1500;
+  animation: fadeIn 0.2s ease-out;
+}
+
+.quick-action-modal {
+  background: white;
+  border-radius: 16px;
+  padding: 2rem;
+  max-width: 600px;
+  width: 90%;
+  max-height: 85vh;
+  overflow-y: auto;
+  box-shadow: 0 24px 48px rgba(0, 0, 0, 0.3);
+  animation: scaleIn 0.2s ease-out;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes scaleIn {
+  from {
+    transform: scale(0.9);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+/* Header */
+.quick-action-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1.5rem;
+}
+
+.quick-action-header h2 {
+  margin: 0;
+  font-size: 1.75rem;
+  color: #333;
+}
+
+.modal-close-button {
+  background: none;
+  border: none;
+  font-size: 1.75rem;
+  color: #999;
+  cursor: pointer;
+  padding: 0.5rem;
+  line-height: 1;
+  transition: color 0.2s;
+}
+
+.modal-close-button:hover {
+  color: #333;
+}
+
+/* Order Info */
+.quick-action-order-info {
+  background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);
+  padding: 1.5rem;
+  border-radius: 12px;
+  margin-bottom: 2rem;
+  border-left: 4px solid #3b82f6;
+}
+
+.order-info-badge {
+  display: inline-block;
+  background: #3b82f6;
+  color: white;
+  padding: 0.25rem 0.75rem;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  margin-bottom: 0.75rem;
+}
+
+.quick-action-order-info h3 {
+  margin: 0 0 0.5rem 0;
+  font-size: 1.25rem;
+  color: #1e40af;
+}
+
+.order-description {
+  margin: 0;
+  color: #475569;
+  font-size: 0.95rem;
+  line-height: 1.5;
+}
+
+/* Actions Grid */
+.quick-actions-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.quick-action-button {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 1.5rem 1rem;
+  border: 2px solid #e5e7eb;
+  border-radius: 12px;
+  background: white;
+  cursor: pointer;
+  transition: all 0.2s;
+  text-align: center;
+}
+
+.quick-action-button:hover:not(:disabled) {
+  border-color: #3b82f6;
+  background: #f9fafb;
+  transform: translateY(-4px);
+  box-shadow: 0 8px 16px rgba(59, 130, 246, 0.2);
+}
+
+.quick-action-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.quick-action-icon {
+  font-size: 3rem;
+  line-height: 1;
+}
+
+.quick-action-label {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: #333;
+}
+
+.quick-action-hint {
+  font-size: 0.85rem;
+  color: #666;
+}
+
+/* Action-specific colors */
+.quick-action-timer:hover:not(:disabled) {
+  border-color: #3b82f6;
+  background: #eff6ff;
+}
+
+.quick-action-location:hover:not(:disabled) {
+  border-color: #10b981;
+  background: #f0fdf4;
+}
+
+.quick-action-materials:hover:not(:disabled) {
+  border-color: #f59e0b;
+  background: #fffbeb;
+}
+
+/* Nested View (for Activity/Location Picker) */
+.quick-action-nested-view {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.nested-view-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-bottom: 1rem;
+  border-bottom: 2px solid #e5e7eb;
+}
+
+.back-button {
+  padding: 0.5rem 1rem;
+  background: #f3f4f6;
+  border: 2px solid #e5e7eb;
+  border-radius: 8px;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: #4b5563;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.back-button:hover {
+  background: #e5e7eb;
+  border-color: #d1d5db;
+}
+
+/* Error State */
+.quick-action-error {
+  margin-top: 1rem;
+  padding: 1rem;
+  background: #fee2e2;
+  color: #dc2626;
+  border-radius: 8px;
+  font-size: 0.9rem;
+  text-align: center;
+  border-left: 4px solid #dc2626;
+}
+
+/* Mobile Responsive */
+@media (max-width: 768px) {
+  .quick-action-modal {
+    width: 95%;
+    padding: 1.5rem;
+    max-height: 90vh;
+  }
+
+  .quick-action-header h2 {
+    font-size: 1.5rem;
+  }
+
+  .quick-actions-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .quick-action-button {
+    padding: 1.25rem 1rem;
+  }
+
+  .quick-action-icon {
+    font-size: 2.5rem;
+  }
+
+  .quick-action-label {
+    font-size: 1rem;
+  }
+
+  .quick-action-order-info {
+    padding: 1rem;
+  }
+
+  .quick-action-order-info h3 {
+    font-size: 1.1rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .quick-action-modal {
+    width: 100%;
+    max-width: 100%;
+    max-height: 100vh;
+    border-radius: 0;
+    padding: 1rem;
+  }
+
+  .quick-action-header {
+    margin-bottom: 1rem;
+  }
+
+  .quick-action-header h2 {
+    font-size: 1.25rem;
+  }
+
+  .quick-action-order-info {
+    margin-bottom: 1.5rem;
+  }
+
+  .modal-close-button {
+    font-size: 1.5rem;
+  }
+}
