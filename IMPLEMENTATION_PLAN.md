@@ -1,14 +1,55 @@
 # Implementation Plan: Time-Tracking & Quick-Actions (Phase 5)
 
-## Aktueller Stand
+## Aktueller Stand (2025-11-09)
 
-✅ **Abgeschlossen:**
-- Phase 1: Kritische Bugs behoben
-- Phase 2: User & Material Management (Backend)
-- Phase 3: Frontend-Architektur mit React Router
-- Phase 4: Tab-Memory System mit QR/NFC Scanner
+✅ **Abgeschlossen (UPDATED):**
+- **Phase 1: Production Readiness** (100% Complete)
+  - ✅ Critical security fixes (SECRET_KEY, Redis, HttpOnly cookies, RBAC, Rate limiting)
+  - ✅ Structured logging with JSON formatting + Request ID tracking
+  - ✅ Health checks (6 endpoints: liveness, readiness, startup, detailed, basic, version)
+  - ✅ N+1 query fixes with eager loading (95% query reduction)
+  - ✅ Transaction management with ACID guarantees
+  - ✅ Comprehensive input validation (Pydantic validators)
 
-## Nächster Schritt: Phase 5 - Time-Tracking Foundation
+- **Phase 2.1: CRM Backend** (100% Complete)
+  - ✅ Customer model separated from User (proper CRM)
+  - ✅ Customer CRUD API (8 endpoints with permissions)
+  - ✅ Customer service with business logic
+  - ✅ Fine-grained RBAC permission system (15+ permissions)
+  - ✅ Database migration with data migration (users → customers)
+  - ✅ Frontend TypeScript types and API client
+
+- **Phase 2.2: Cost Calculation** (100% Complete)
+  - ✅ Weight-based material cost calculation
+  - ✅ Gemstone management (type, carat, quality, cost)
+  - ✅ Automatic price calculation: (Material + Gemstones + Labor) × (1 + Margin%) × (1 + VAT%)
+  - ✅ CostCalculationService with PriceBreakdown
+  - ✅ Scrap percentage support (default 5%)
+  - ✅ Manual cost overrides
+  - ✅ Price rounding to .00 or .99
+  - ✅ Database migration with 11 new Order fields + Gemstone table
+
+- **Phase 3: Frontend-Architektur mit React Router** (80% Complete)
+  - ✅ React Router setup
+  - ✅ Basic page structure
+  - ⚠️ Missing: CustomersPage, Calendar, advanced components
+
+- **Phase 4: Tab-Memory System mit QR/NFC Scanner** (90% Complete)
+  - ✅ Tab memory system
+  - ✅ QR/NFC scanner integration
+  - ⚠️ Missing: Advanced Quick-Actions integration
+
+- **Phase 5.1-5.2: Time-Tracking Backend** (100% Complete)
+  - ✅ Database models (activities, time_entries, interruptions, location_history)
+  - ✅ Services (ActivityService, TimeTrackingService, LocationService)
+  - ✅ API routers (15+ endpoints)
+  - ✅ Standard activities seeded (24 activity presets)
+
+## Nächster Schritt: Phase 5.3 - Time-Tracking Frontend UI
+
+**Priorität:** HIGH (Backend fertig, Frontend fehlt)
+**Aufwand:** 32-41 Stunden geschätzt
+**Ziel:** Komplette UI für Time-Tracking, Quick-Actions, Timer-Widget
 
 ### Ziel
 Ein funktionierendes Time-Tracking-System, das die Basis für ML und Kalender bildet.
@@ -468,35 +509,35 @@ Extern: Beim Kunden, Labor, Partner, Versand
 
 ## Implementierungs-Reihenfolge
 
-### Tag 1-2: Backend Foundation
+### Tag 1-2: Backend Foundation ✅ COMPLETE
 1. ✅ Datenbank-Schema (Migration)
 2. ✅ SQLAlchemy Models
 3. ✅ Pydantic Schemas
 4. ✅ Seed Standard-Aktivitäten
 
-### Tag 3-4: Backend Services & APIs
+### Tag 3-4: Backend Services & APIs ✅ COMPLETE
 5. ✅ Activity Service & Router
 6. ✅ Time-Tracking Service & Router
 7. ✅ Location Service & Router
 8. ✅ APIs in main.py registrieren
 
-### Tag 5-6: Frontend Components
+### Tag 5-6: Frontend Components ⚠️ IN PROGRESS (40% Complete)
 9. ✅ TypeScript Types erweitern
 10. ✅ API Clients erstellen
-11. ✅ QuickActionModal bauen
-12. ✅ ActivityPicker bauen
+11. ⏳ QuickActionModal bauen (Backend fertig, Frontend fehlt)
+12. ⏳ ActivityPicker bauen (Backend fertig, Frontend fehlt)
 
-### Tag 7-8: Timer & Integration
-13. ✅ TimerWidget implementieren
-14. ✅ LocationPicker erstellen
-15. ✅ ScannerPage Integration
-16. ✅ OrderDetailPage Tab hinzufügen
+### Tag 7-8: Timer & Integration ❌ TODO
+13. ⏳ TimerWidget implementieren (Backend fertig, Frontend fehlt)
+14. ⏳ LocationPicker erstellen (Backend fertig, Frontend fehlt)
+15. ⏳ ScannerPage Integration (Quick-Actions fehlen noch)
+16. ⏳ OrderDetailPage Tab hinzufügen (Backend Daten vorhanden, Tab UI fehlt)
 
-### Tag 9-10: Testing & Polish
-17. ✅ End-to-End Tests
-18. ✅ Bug-Fixes
-19. ✅ UI/UX-Verbesserungen
-20. ✅ Dokumentation
+### Tag 9-10: Testing & Polish ❌ TODO
+17. ❌ End-to-End Tests (0% test coverage)
+18. ⏳ Bug-Fixes (Backend stabil, Frontend nicht getestet)
+19. ❌ UI/UX-Verbesserungen (UI noch nicht gebaut)
+20. ✅ Dokumentation (Backend gut dokumentiert)
 
 ---
 
@@ -528,17 +569,19 @@ Extern: Beim Kunden, Labor, Partner, Versand
 
 Phase 5 ist abgeschlossen, wenn:
 
-- [ ] Goldschmied kann Timer per QR-Scan starten
-- [ ] Quick-Actions funktionieren
-- [ ] Aktivitäten sind wählbar und sortiert
-- [ ] Timer läuft und zeigt korrekte Zeit
-- [ ] Timer kann pausiert/gestoppt werden
-- [ ] Unterbrechungen werden erfasst
-- [ ] Lagerort kann geändert werden
-- [ ] Alle Daten werden korrekt in DB gespeichert
-- [ ] Frontend zeigt Zeit-Einträge pro Auftrag
-- [ ] Build ist erfolgreich
-- [ ] Keine Console-Errors
+- [ ] Goldschmied kann Timer per QR-Scan starten (Backend ✅, Frontend ❌)
+- [ ] Quick-Actions funktionieren (Backend ✅, Frontend ❌)
+- [ ] Aktivitäten sind wählbar und sortiert (Backend ✅, Frontend ❌)
+- [ ] Timer läuft und zeigt korrekte Zeit (Backend ✅, Frontend ❌)
+- [ ] Timer kann pausiert/gestoppt werden (Backend ✅, Frontend ❌)
+- [ ] Unterbrechungen werden erfasst (Backend ✅, Frontend ❌)
+- [ ] Lagerort kann geändert werden (Backend ✅, Frontend ❌)
+- [x] Alle Daten werden korrekt in DB gespeichert (Backend ✅)
+- [ ] Frontend zeigt Zeit-Einträge pro Auftrag (UI fehlt ❌)
+- [x] Build ist erfolgreich (Backend ✅)
+- [ ] Keine Console-Errors (Frontend nicht getestet ❌)
+
+**Aktuelle Completion Rate:** 5/11 (45%) - Backend komplett, Frontend ausstehend
 
 ---
 
@@ -563,6 +606,224 @@ Phase 5 ist abgeschlossen, wenn:
 
 ---
 
+## CRITICAL GAPS IDENTIFIED (2025-11-09 Code Review)
+
+### 🔴 P0 - CRITICAL BLOCKERS (Must-Have vor Production)
+
+1. **Test Coverage: 0%** ❌
+   - **Status:** Keine Tests vorhanden
+   - **Impact:** DEALBREAKER - Kein Deployment ohne Tests
+   - **Aufwand:** 20-30 Stunden
+   - **Tasks:**
+     - Unit tests für CostCalculationService
+     - Integration tests für Customer API
+     - E2E tests für Order-Workflow
+     - Test coverage target: 80%+
+
+2. **Metal Price API Integration** ❌
+   - **Status:** Hardcoded 45 EUR/g für 18K Gold
+   - **Impact:** DEALBREAKER - Preise müssen aktuell sein
+   - **Aufwand:** 6-8 Stunden
+   - **Tasks:**
+     - Integration mit Gold-Preis-API (z.B. Metals API)
+     - Täglicher Update-Cron-Job
+     - Historische Preisverfolgung
+     - Admin UI für manuelle Overrides
+
+3. **Invoice Generation (Rechnungsstellung)** ❌
+   - **Status:** Nicht implementiert
+   - **Impact:** DEALBREAKER - Rechtlich erforderlich in Deutschland
+   - **Aufwand:** 16-20 Stunden
+   - **Tasks:**
+     - PDF-Generierung mit WeasyPrint/ReportLab
+     - Compliance mit deutschem Steuerrecht (§14 UStG)
+     - Rechnungsnummern-Generator (fortlaufend)
+     - Email-Versand mit Anhang
+     - Storno/Korrektur-Funktion
+
+4. **Production Deployment Guide** ❌
+   - **Status:** Installation.md existiert, aber keine Production-Anleitung
+   - **Impact:** CRITICAL - Niemand kann das System deployen
+   - **Aufwand:** 6-8 Stunden
+   - **Tasks:**
+     - Environment-Variable Checklist
+     - SSL/TLS Setup (Let's Encrypt)
+     - Backup/Restore Prozeduren
+     - Security Hardening Guide
+     - Monitoring Setup (Logs, Metrics, Alerts)
+
+### 🟡 P1 - HIGH PRIORITY (Should-Have)
+
+5. **Frontend Implementation Gap** ⚠️
+   - **Status:** Backend 100%, Frontend 40%
+   - **Impact:** HIGH - Benutzer können Features nicht nutzen
+   - **Aufwand:** 32-41 Stunden
+   - **Tasks:**
+     - CustomersPage (List + Create/Edit Form)
+     - Time-Tracking UI (Timer-Widget, Quick-Actions Modal)
+     - Calendar View für Deadlines
+     - OrderDetailPage erweitert (Cost Breakdown, Time Entries Tab)
+
+6. **Expanded Rate Limiting** ⚠️
+   - **Status:** Nur /login hat Rate Limiting (5 req/min)
+   - **Impact:** HIGH - Abuse-Protection unvollständig
+   - **Aufwand:** 2-3 Stunden
+   - **Tasks:**
+     - Rate Limit auf /register, /customers, /orders POST
+     - DDoS-Protection für alle Endpoints
+     - IP-Blacklisting für wiederholte Verstöße
+
+7. **Monitoring & Alerting** ⚠️
+   - **Status:** Structured Logging vorhanden, aber keine Metrics
+   - **Impact:** HIGH - Keine Visibility in Production
+   - **Aufwand:** 10-12 Stunden
+   - **Tasks:**
+     - Prometheus Metrics Integration
+     - Grafana Dashboards
+     - Alert Rules (CPU, Memory, Error Rate, Response Time)
+     - PagerDuty/Email Notifications
+
+### 🟢 P2 - MEDIUM PRIORITY (Nice-to-Have)
+
+8. **Customer History & Preferences** ⏳
+   - **Status:** Customer-Tabelle existiert, aber keine Historie
+   - **Impact:** MEDIUM - Aus GOLDSMITH_WORKSHOP_REQUIREMENTS.md P1
+   - **Aufwand:** 8-10 Stunden
+   - **Tasks:**
+     - Ring-Größen Tracking
+     - Material-Präferenzen (Gold 18K, Silber 925, etc.)
+     - Allergie-Tracking (Nickel, etc.)
+     - Kaufhistorie-Dashboard
+
+9. **Payment Tracking** ⏳
+   - **Status:** Nicht implementiert
+   - **Impact:** MEDIUM - Aus GOLDSMITH_WORKSHOP_REQUIREMENTS.md P1
+   - **Aufwand:** 12-16 Stunden
+   - **Tasks:**
+     - Payment-Tabelle (Anzahlung, Restzahlung, Ratenzahlung)
+     - Payment-Status Tracking (bezahlt, offen, überfällig)
+     - Zahlungserinnerungen per Email
+     - Mahnwesen (automatisch nach 14/30/60 Tagen)
+
+10. **API Documentation (Client Examples)** ⏳
+    - **Status:** Auto-Generated Swagger existiert (/docs)
+    - **Impact:** MEDIUM - Developer Experience
+    - **Aufwand:** 3-4 Stunden
+    - **Tasks:**
+      - API_CLIENT_GUIDE.md mit curl-Beispielen
+      - Python Client Code Examples
+      - Authentication Flow Diagramm
+      - Error Response Documentation
+
+---
+
+## RECOMMENDED NEXT STEPS (Prioritized Roadmap)
+
+### Option A: Security-First (Production Readiness)
+**Timeline:** 6-8 Wochen bis Production
+**Ziel:** System sicher und deployfähig machen
+
+**Week 1-2:**
+- [ ] Test Coverage (Unit + Integration) - 20-30h
+- [ ] Expanded Rate Limiting - 2-3h
+- [ ] Production Deployment Guide - 6-8h
+
+**Week 3-4:**
+- [ ] Metal Price API Integration - 6-8h
+- [ ] Invoice Generation (Basic) - 16-20h
+- [ ] Monitoring & Alerting - 10-12h
+
+**Week 5-6:**
+- [ ] Frontend: CustomersPage - 12-16h
+- [ ] Frontend: Time-Tracking UI - 12-16h
+- [ ] Security Hardening (SSL, CORS, etc.) - 4-6h
+
+**Week 7-8:**
+- [ ] Load Testing & Performance Tuning - 8-10h
+- [ ] User Manual & Documentation - 8-10h
+- [ ] Beta Testing mit echten Goldschmiede-Kunden
+
+**Pros:** Sichere, produktionsreife Basis
+**Cons:** Dauert länger bis Features sichtbar sind
+
+---
+
+### Option B: Feature-First (Rapid Prototyping)
+**Timeline:** 4-5 Wochen bis Beta
+**Ziel:** Schnell sichtbare Features für Feedback
+
+**Week 1-2:**
+- [ ] Frontend: CustomersPage - 12-16h
+- [ ] Frontend: Time-Tracking UI - 12-16h
+- [ ] Metal Price API Integration - 6-8h
+
+**Week 3:**
+- [ ] Invoice Generation (Basic) - 16-20h
+- [ ] Test Coverage (Critical Paths) - 10-15h
+
+**Week 4-5:**
+- [ ] Production Deployment Guide - 6-8h
+- [ ] Monitoring & Alerting - 10-12h
+- [ ] Beta Testing
+
+**Pros:** Schnelle Feature-Delivery, frühe User-Feedback
+**Cons:** Technische Schulden, weniger stabil
+
+---
+
+### Option C: Parallel Track (RECOMMENDED)
+**Timeline:** 5-6 Wochen bis Production Beta
+**Ziel:** Balance zwischen Features und Stabilität
+
+**Week 1:**
+- [ ] Test Coverage (CostCalculation, CustomerService) - 10-15h
+- [ ] Metal Price API Integration - 6-8h
+- [ ] Expanded Rate Limiting - 2-3h
+
+**Week 2:**
+- [ ] Frontend: CustomersPage - 12-16h
+- [ ] Production Deployment Guide - 6-8h
+
+**Week 3:**
+- [ ] Invoice Generation (Basic) - 16-20h
+- [ ] Integration Tests (Customer, Order APIs) - 8-10h
+
+**Week 4:**
+- [ ] Frontend: Time-Tracking UI - 12-16h
+- [ ] Monitoring & Alerting - 10-12h
+
+**Week 5:**
+- [ ] Security Hardening (SSL, CORS) - 4-6h
+- [ ] User Manual & Screenshots - 6-8h
+- [ ] E2E Tests (Critical Workflows) - 6-8h
+
+**Week 6:**
+- [ ] Load Testing & Performance - 8-10h
+- [ ] Bug Fixes & Polish - 8-10h
+- [ ] Beta Deployment mit 1-2 Test-Kunden
+
+**Pros:** Best of both worlds, risikominimiert
+**Cons:** Erfordert gutes Zeit-Management
+
+---
+
+## NEXT IMMEDIATE ACTIONS (This Week)
+
+1. **Code Review abschließen** ✅ DONE (CODE_REVIEW_2025-11-09.md erstellt)
+2. **Implementation Plan aktualisieren** ✅ DONE (Dieses Dokument)
+3. **Entscheidung:** Welche Option (A, B, oder C)?
+4. **Sprint Planning:** Tasks für die nächsten 2 Wochen festlegen
+5. **Git Workflow:** Pull Request erstellen für Feature-Branch → Main
+
+---
+
 ## Los geht's! 🚀
 
-**Start:** Backend Datenmodell & Migration
+**Aktueller Status:**
+- Backend: 80-85% Complete ✅
+- Frontend: 40% Complete ⚠️
+- Tests: 0% Coverage ❌
+- Documentation: 65% Complete ⚠️
+- Production Readiness: 60% ⚠️
+
+**Nächster Schritt:** Entscheidung zwischen Option A, B, oder C treffen!
