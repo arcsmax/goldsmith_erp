@@ -1,17 +1,22 @@
 // QR/NFC Scanner Page
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useOrders } from '../contexts';
+import { useOrders, useTimeTracking } from '../contexts';
 import { ordersApi } from '../api';
+import { OrderType } from '../types';
+import QuickActionModal from '../components/QuickActionModal';
 import '../styles/scanner.css';
 
 export const ScannerPage: React.FC = () => {
   const navigate = useNavigate();
-  const { setActiveOrder, getOrderTab } = useOrders();
+  const { setActiveOrder, getOrderTab, setOrderTab } = useOrders();
+  const { startTracking } = useTimeTracking();
   const [scanInput, setScanInput] = useState('');
   const [isScanning, setIsScanning] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [lastScanned, setLastScanned] = useState<Array<{ id: number; time: string }>>([]);
+  const [scannedOrder, setScannedOrder] = useState<OrderType | null>(null);
+  const [showQuickActions, setShowQuickActions] = useState(false);
 
   // Auto-focus on scan input when page loads
   useEffect(() => {
@@ -61,9 +66,11 @@ export const ScannerPage: React.FC = () => {
       setLastScanned(newScanned);
       localStorage.setItem('last_scanned_orders', JSON.stringify(newScanned));
 
-      // Navigate to order with last active tab
-      console.log(`📱 Scanned Order #${id} → Opening tab: ${activeTab}`);
-      navigate(`/orders/${id}`);
+      // Show quick actions modal
+      console.log(`📱 Scanned Order #${id} → Showing quick actions`);
+      setScannedOrder(order);
+      setShowQuickActions(true);
+      setScanInput(''); // Clear input for next scan
     } catch (err: any) {
       setError(
         err.response?.status === 404
@@ -85,6 +92,48 @@ export const ScannerPage: React.FC = () => {
   const handleQuickAccess = (orderId: number) => {
     setScanInput(orderId.toString());
     handleScan(orderId.toString());
+  };
+
+  // Quick Action Modal Handlers
+  const handleCloseModal = () => {
+    setShowQuickActions(false);
+    setScannedOrder(null);
+  };
+
+  const handleStartTimeTracking = async (activityId: number, location?: string) => {
+    if (!scannedOrder) return;
+
+    try {
+      await startTracking(scannedOrder.id, activityId, location);
+      // Navigate to order page after starting tracking
+      const activeTab = getOrderTab(scannedOrder.id);
+      navigate(`/orders/${scannedOrder.id}`);
+    } catch (err) {
+      console.error('Failed to start tracking from scanner:', err);
+      throw err; // Let modal handle the error
+    }
+  };
+
+  const handleChangeLocation = async (location: string) => {
+    if (!scannedOrder) return;
+
+    try {
+      // TODO: Implement location change API call
+      console.log(`Change location for order #${scannedOrder.id} to ${location}`);
+      // Navigate to order page
+      navigate(`/orders/${scannedOrder.id}`);
+    } catch (err) {
+      console.error('Failed to change location:', err);
+      throw err;
+    }
+  };
+
+  const handleViewMaterials = () => {
+    if (!scannedOrder) return;
+
+    // Set the active tab to materials and navigate
+    setOrderTab(scannedOrder.id, 'materials');
+    navigate(`/orders/${scannedOrder.id}`);
   };
 
   return (
@@ -156,6 +205,17 @@ export const ScannerPage: React.FC = () => {
           Für Tests: Geben Sie eine Auftragsnummer ein (z.B. "1", "2", "3")
         </p>
       </div>
+
+      {/* Quick Action Modal */}
+      {showQuickActions && scannedOrder && (
+        <QuickActionModal
+          order={scannedOrder}
+          onClose={handleCloseModal}
+          onStartTimeTracking={handleStartTimeTracking}
+          onChangeLocation={handleChangeLocation}
+          onViewMaterials={handleViewMaterials}
+        />
+      )}
     </div>
   );
 };
