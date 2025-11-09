@@ -80,6 +80,19 @@ class OrderCreate(OrderBase):
         max_length=100  # Prevent abuse with huge lists
     )
 
+    # Weight & Material (optional at creation)
+    estimated_weight_g: Optional[float] = Field(None, ge=0, description="Estimated metal weight in grams")
+    scrap_percentage: Optional[float] = Field(5.0, ge=0, le=50, description="Material loss percentage")
+
+    # Cost Calculation (optional at creation)
+    material_cost_override: Optional[float] = Field(None, ge=0, description="Manual material cost override")
+    labor_hours: Optional[float] = Field(None, ge=0, description="Estimated work hours")
+    hourly_rate: Optional[float] = Field(75.00, ge=0, description="Labor rate per hour")
+
+    # Pricing (optional at creation)
+    profit_margin_percent: Optional[float] = Field(40.0, ge=0, le=100, description="Profit margin percentage")
+    vat_rate: Optional[float] = Field(19.0, ge=0, le=100, description="VAT rate percentage")
+
     @field_validator('deadline')
     @classmethod
     def validate_deadline(cls, v: Optional[datetime]) -> Optional[datetime]:
@@ -137,6 +150,20 @@ class OrderUpdate(BaseModel):
         description="Current storage location"
     )
 
+    # Weight & Material
+    estimated_weight_g: Optional[float] = Field(None, ge=0)
+    actual_weight_g: Optional[float] = Field(None, ge=0)
+    scrap_percentage: Optional[float] = Field(None, ge=0, le=50)
+
+    # Cost Calculation
+    material_cost_override: Optional[float] = Field(None, ge=0)
+    labor_hours: Optional[float] = Field(None, ge=0)
+    hourly_rate: Optional[float] = Field(None, ge=0)
+
+    # Pricing
+    profit_margin_percent: Optional[float] = Field(None, ge=0, le=100)
+    vat_rate: Optional[float] = Field(None, ge=0, le=100)
+
     @field_validator('title', 'description', 'current_location')
     @classmethod
     def sanitize_text(cls, v: Optional[str]) -> Optional[str]:
@@ -178,6 +205,24 @@ class OrderRead(OrderBase):
     customer_id: int
     deadline: Optional[datetime] = None
     current_location: Optional[str] = None
+
+    # Weight & Material
+    estimated_weight_g: Optional[float] = None
+    actual_weight_g: Optional[float] = None
+    scrap_percentage: Optional[float] = 5.0
+
+    # Cost Calculation
+    material_cost_calculated: Optional[float] = None
+    material_cost_override: Optional[float] = None
+    labor_hours: Optional[float] = None
+    hourly_rate: Optional[float] = 75.00
+    labor_cost: Optional[float] = None
+
+    # Pricing
+    profit_margin_percent: Optional[float] = 40.0
+    vat_rate: Optional[float] = 19.0
+    calculated_price: Optional[float] = None
+
     created_at: datetime
     updated_at: datetime
     materials: Optional[List[MaterialBase]] = None

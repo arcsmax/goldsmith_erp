@@ -84,17 +84,37 @@ class Order(Base):
     id = Column(Integer, primary_key=True, index=True)
     title = Column(String)
     description = Column(String)
-    price = Column(Float)
+    price = Column(Float)  # Final customer price (can be manually set)
     status = Column(SAEnum(OrderStatusEnum), default=OrderStatusEnum.NEW, nullable=False)
     customer_id = Column(Integer, ForeignKey("customers.id"), nullable=False, index=True)
     deadline = Column(DateTime, nullable=True, index=True)  # Deadline für Kalender
     current_location = Column(String(50), nullable=True)  # Aktueller Lagerort
+
+    # Weight & Material Calculation
+    estimated_weight_g = Column(Float, nullable=True)  # Estimated metal weight in grams
+    actual_weight_g = Column(Float, nullable=True)  # Actual weight after completion
+    scrap_percentage = Column(Float, default=5.0)  # Material loss percentage (default 5%)
+
+    # Cost Calculation
+    material_cost_calculated = Column(Float, nullable=True)  # Auto-calculated material cost
+    material_cost_override = Column(Float, nullable=True)  # Manual override if needed
+    labor_hours = Column(Float, nullable=True)  # Estimated or actual work hours
+    hourly_rate = Column(Float, default=75.00)  # Labor rate (EUR/hour)
+    labor_cost = Column(Float, nullable=True)  # labor_hours × hourly_rate
+
+    # Pricing
+    profit_margin_percent = Column(Float, default=40.0)  # Profit margin (%)
+    vat_rate = Column(Float, default=19.0)  # VAT rate (%)
+    calculated_price = Column(Float, nullable=True)  # Auto-calculated final price
+
+    # Metadata
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     # Beziehungen
     customer = relationship("Customer", back_populates="orders")
     materials = relationship("Material", secondary=order_materials, back_populates="materials")
+    gemstones = relationship("Gemstone", back_populates="order", cascade="all, delete-orphan")
 
 class Material(Base):
     __tablename__ = "materials"
@@ -203,3 +223,36 @@ class OrderPhoto(Base):
     order = relationship("Order")
     time_entry = relationship("TimeEntry", back_populates="photos")
     user = relationship("User")
+
+
+class Gemstone(Base):
+    """Edelsteine für Aufträge"""
+    __tablename__ = "gemstones"
+
+    id = Column(Integer, primary_key=True, index=True)
+    order_id = Column(Integer, ForeignKey("orders.id", ondelete="CASCADE"), nullable=False, index=True)
+
+    # Gemstone Details
+    type = Column(String(50), nullable=False)  # 'diamond', 'ruby', 'sapphire', 'emerald'
+    carat = Column(Float, nullable=True)  # Weight in carats
+    quality = Column(String(20), nullable=True)  # 'VS1', 'VVS2', etc. (clarity)
+    color = Column(String(20), nullable=True)  # 'D', 'E', 'F' for diamonds
+    cut = Column(String(50), nullable=True)  # 'Excellent', 'Very Good', 'Good'
+    shape = Column(String(50), nullable=True)  # 'Round', 'Princess', 'Oval'
+
+    # Cost & Quantity
+    cost = Column(Float, nullable=False)  # Purchase/estimated cost per stone
+    quantity = Column(Integer, default=1)  # Number of identical stones
+    total_cost = Column(Float, nullable=True)  # cost × quantity
+
+    # Setting
+    setting_type = Column(String(100), nullable=True)  # 'Prong', 'Bezel', 'Channel', etc.
+
+    # Optional certificate info
+    certificate_number = Column(String(100), nullable=True)
+    certificate_authority = Column(String(50), nullable=True)  # 'GIA', 'IGI', 'HRD'
+
+    notes = Column(Text, nullable=True)
+
+    # Beziehungen
+    order = relationship("Order", back_populates="gemstones")
