@@ -95,6 +95,11 @@ class Order(Base):
     actual_weight_g = Column(Float, nullable=True)  # Actual weight after completion
     scrap_percentage = Column(Float, default=5.0)  # Material loss percentage (default 5%)
 
+    # Metal Inventory Integration
+    metal_type = Column(SAEnum(MetalType), nullable=True, index=True)  # Which metal type to use
+    costing_method_used = Column(SAEnum(CostingMethod), default=CostingMethod.FIFO, nullable=True)  # Costing method
+    specific_metal_purchase_id = Column(Integer, ForeignKey("metal_purchases.id", ondelete="SET NULL"), nullable=True)  # For SPECIFIC method
+
     # Cost Calculation
     material_cost_calculated = Column(Float, nullable=True)  # Auto-calculated material cost
     material_cost_override = Column(Float, nullable=True)  # Manual override if needed
@@ -116,6 +121,7 @@ class Order(Base):
     materials = relationship("Material", secondary=order_materials, back_populates="materials")
     gemstones = relationship("Gemstone", back_populates="order", cascade="all, delete-orphan")
     material_usage_records = relationship("MaterialUsage", back_populates="order", cascade="all, delete-orphan")
+    specific_metal_purchase = relationship("MetalPurchase")  # For SPECIFIC costing method
 
 class Material(Base):
     __tablename__ = "materials"
