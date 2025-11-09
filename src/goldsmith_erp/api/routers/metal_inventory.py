@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List, Optional
 import logging
 
-from ...db.base import get_db
+from goldsmith_erp.db.session import get_db
 from ...db.models import User, MetalType, CostingMethod
 from ...models.metal_inventory import (
     MetalPurchaseCreate, MetalPurchaseUpdate, MetalPurchaseRead, MetalPurchaseListItem,

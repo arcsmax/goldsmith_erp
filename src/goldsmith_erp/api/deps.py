@@ -123,6 +123,7 @@ class Permission(str, Enum):
 
     # Material permissions
     MATERIAL_VIEW = "material:view"
+    MATERIAL_CREATE = "material:create"
     MATERIAL_EDIT = "material:edit"
 
     # Reports & Analytics

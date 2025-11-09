@@ -22,6 +22,34 @@ class UserRole(str, enum.Enum):
     ADMIN = "admin"  # Full system access
     USER = "user"    # Standard user access
 
+
+class MetalType(str, enum.Enum):
+    """Standard metal types used in goldsmith workshop"""
+    GOLD_24K = "gold_24k"      # 999.9 Feingold
+    GOLD_22K = "gold_22k"      # 916 Gold
+    GOLD_18K = "gold_18k"      # 750 Gold
+    GOLD_14K = "gold_14k"      # 585 Gold
+    GOLD_9K = "gold_9k"        # 375 Gold
+    SILVER_999 = "silver_999"  # Feinsilber
+    SILVER_925 = "silver_925"  # Sterling Silber
+    SILVER_800 = "silver_800"  # Altsilber
+    PLATINUM_950 = "platinum_950"
+    PLATINUM_900 = "platinum_900"
+    PALLADIUM = "palladium"
+    WHITE_GOLD_18K = "white_gold_18k"
+    WHITE_GOLD_14K = "white_gold_14k"
+    ROSE_GOLD_18K = "rose_gold_18k"
+    ROSE_GOLD_14K = "rose_gold_14k"
+
+
+class CostingMethod(str, enum.Enum):
+    """Inventory costing method for material consumption"""
+    FIFO = "fifo"              # First In, First Out
+    LIFO = "lifo"              # Last In, First Out
+    AVERAGE = "average"        # Weighted Average Cost
+    SPECIFIC = "specific"      # Specific Identification (manual selection)
+
+
 # Many-to-Many zwischen Material und Order
 order_materials = Table(
     "order_materials",
@@ -118,7 +146,7 @@ class Order(Base):
 
     # Beziehungen
     customer = relationship("Customer", back_populates="orders")
-    materials = relationship("Material", secondary=order_materials, back_populates="materials")
+    materials = relationship("Material", secondary=order_materials, back_populates="orders")
     gemstones = relationship("Gemstone", back_populates="order", cascade="all, delete-orphan")
     material_usage_records = relationship("MaterialUsage", back_populates="order", cascade="all, delete-orphan")
     specific_metal_purchase = relationship("MetalPurchase")  # For SPECIFIC costing method
@@ -268,33 +296,6 @@ class Gemstone(Base):
 # ============================================================================
 # METAL INVENTORY MANAGEMENT
 # ============================================================================
-
-
-class MetalType(str, enum.Enum):
-    """Standard metal types used in goldsmith workshop"""
-    GOLD_24K = "gold_24k"      # 999.9 Feingold
-    GOLD_22K = "gold_22k"      # 916 Gold
-    GOLD_18K = "gold_18k"      # 750 Gold
-    GOLD_14K = "gold_14k"      # 585 Gold
-    GOLD_9K = "gold_9k"        # 375 Gold
-    SILVER_999 = "silver_999"  # Feinsilber
-    SILVER_925 = "silver_925"  # Sterling Silber
-    SILVER_800 = "silver_800"  # Altsilber
-    PLATINUM_950 = "platinum_950"
-    PLATINUM_900 = "platinum_900"
-    PALLADIUM = "palladium"
-    WHITE_GOLD_18K = "white_gold_18k"
-    WHITE_GOLD_14K = "white_gold_14k"
-    ROSE_GOLD_18K = "rose_gold_18k"
-    ROSE_GOLD_14K = "rose_gold_14k"
-
-
-class CostingMethod(str, enum.Enum):
-    """Inventory costing method for material consumption"""
-    FIFO = "fifo"              # First In, First Out
-    LIFO = "lifo"              # Last In, First Out
-    AVERAGE = "average"        # Weighted Average Cost
-    SPECIFIC = "specific"      # Specific Identification (manual selection)
 
 
 class MetalPurchase(Base):
