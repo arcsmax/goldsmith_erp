@@ -11,7 +11,7 @@ from typing import List
 from goldsmith_erp.core.config import settings
 from goldsmith_erp.core.logging import setup_logging
 from goldsmith_erp.middleware import RequestLoggingMiddleware
-from goldsmith_erp.api.routers import auth, orders, users, materials, activities, time_tracking, health, customers
+from goldsmith_erp.api.routers import auth, orders, users, materials, activities, time_tracking, health, customers, metal_inventory
 from goldsmith_erp.core.pubsub import subscribe_and_forward, publish_event
 
 # Setup structured logging
@@ -50,6 +50,7 @@ app.include_router(users.router, prefix=f"{settings.API_V1_STR}/users", tags=["u
 app.include_router(customers.router, prefix=f"{settings.API_V1_STR}", tags=["customers"])  # CRM
 app.include_router(orders.router, prefix=f"{settings.API_V1_STR}/orders", tags=["orders"])
 app.include_router(materials.router, prefix=f"{settings.API_V1_STR}/materials", tags=["materials"])
+app.include_router(metal_inventory.router, prefix=f"{settings.API_V1_STR}", tags=["metal-inventory"])  # Metal Inventory Management
 app.include_router(activities.router, prefix=f"{settings.API_V1_STR}/activities", tags=["activities"])
 app.include_router(time_tracking.router, prefix=f"{settings.API_V1_STR}/time-tracking", tags=["time-tracking"])
 
