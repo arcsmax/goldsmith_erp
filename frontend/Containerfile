@@ -1,0 +1,46 @@
+# syntax=docker/dockerfile:1
+# Frontend Containerfile for Podman (compatible with Docker)
+# Optimized for Node.js development with Yarn
+
+FROM docker.io/library/node:18-alpine
+
+# Run as non-root user
+ARG USER_ID=1000
+ARG GROUP_ID=1000
+
+WORKDIR /app
+
+# 1) Install dependencies for build
+RUN apk add --no-cache \
+    python3 \
+    make \
+    g++ \
+ && rm -rf /var/cache/apk/*
+
+# 2) Copy package files for layer caching
+COPY package.json yarn.lock ./
+
+# 3) Enable Corepack and install dependencies
+RUN corepack enable \
+ && yarn install --frozen-lockfile
+
+# 4) Copy application code
+COPY . .
+
+# 5) Create non-root user (Podman best practice)
+RUN addgroup -g ${GROUP_ID} appuser \
+ && adduser -D -u ${USER_ID} -G appuser appuser \
+ && chown -R appuser:appuser /app
+
+# 6) Switch to non-root user
+USER appuser
+
+# 7) Expose Vite dev server port
+EXPOSE 3000
+
+# 8) Health check
+HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
+  CMD wget --quiet --tries=1 --spider http://localhost:3000 || exit 1
+
+# 9) Start development server
+CMD ["yarn", "dev", "--host", "0.0.0.0"]

@@ -1,0 +1,123 @@
+version: "3.9"
+
+# Podman Compose Configuration for Goldsmith ERP
+# This is compatible with both docker-compose and podman-compose
+# For rootless mode: podman-compose up -d
+
+services:
+  db:
+    image: docker.io/library/postgres:15-alpine
+    container_name: goldsmith-db
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-pass}
+      POSTGRES_DB: ${POSTGRES_DB:-goldsmith}
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-user} -d ${POSTGRES_DB:-goldsmith}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    # Podman-specific: security options
+    security_opt:
+      - no-new-privileges:true
+    # Podman: read-only root filesystem (except /var/lib/postgresql)
+    read_only: false
+
+  redis:
+    image: docker.io/library/redis:7-alpine
+    container_name: goldsmith-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+    # Podman: security hardening
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
+
+  backend:
+    build:
+      context: .
+      dockerfile: Containerfile
+    container_name: goldsmith-backend
+    command: >
+      bash -c "poetry run alembic upgrade head &&
+              poetry run uvicorn goldsmith_erp.main:app --host 0.0.0.0 --port 8000 --reload"
+    volumes:
+      - ./src:/app/src:Z
+      - ./pyproject.toml:/app/pyproject.toml:Z
+      - ./poetry.lock:/app/poetry.lock:Z
+      - ./alembic:/app/alembic:Z
+      - ./alembic.ini:/app/alembic.ini:Z
+      - ./.env:/app/.env:Z
+    ports:
+      - "8000:8000"
+    environment:
+      - MIGRATION_DATABASE_URL=postgresql://${POSTGRES_USER:-user}:${POSTGRES_PASSWORD:-pass}@db:5432/${POSTGRES_DB:-goldsmith}
+      - SECRET_KEY=${SECRET_KEY:-change_this_to_a_secure_random_string}
+      - POSTGRES_USER=${POSTGRES_USER:-user}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-pass}
+      - POSTGRES_DB=${POSTGRES_DB:-goldsmith}
+      - POSTGRES_HOST=db
+      - POSTGRES_PORT=5432
+      - DEBUG=${DEBUG:-true}
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-user}:${POSTGRES_PASSWORD:-pass}@db:5432/${POSTGRES_DB:-goldsmith}
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    # Podman: security hardening
+    security_opt:
+      - no-new-privileges:true
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Containerfile
+    container_name: goldsmith-frontend
+    command: yarn dev --host 0.0.0.0
+    ports:
+      - "3000:3000"
+    environment:
+      - VITE_API_URL=http://localhost:8000/api/v1
+      - NODE_ENV=development
+    depends_on:
+      - backend
+    volumes:
+      - ./frontend:/app:Z
+      - node_modules_frontend:/app/node_modules
+    restart: unless-stopped
+    # Podman: security hardening
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  db_data:
+    driver: local
+  redis_data:
+    driver: local
+  node_modules_frontend:
+    driver: local
+
+# Podman-specific network configuration (optional)
+# networks:
+#   goldsmith-network:
+#     driver: bridge

@@ -1,83 +1,54 @@
-import React, { useEffect, useState } from 'react';
-import OrderList from './components/OrderList';
-import { OrderType } from './types';
+// Main App Component with Routing
+import React from 'react';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { AuthProvider, OrderProvider } from './contexts';
+import { ProtectedRoute } from './components/ProtectedRoute';
+import { MainLayout } from './layouts/MainLayout';
+import {
+  LoginPage,
+  RegisterPage,
+  DashboardPage,
+  MaterialsPage,
+  OrdersPage,
+  OrderDetailPage,
+  UsersPage,
+  ScannerPage,
+} from './pages';
 
 const App: React.FC = () => {
-  const [orders, setOrders] = useState<OrderType[]>([]);
-  const [loading, setLoading] = useState<boolean>(true);
-  const [error, setError] = useState<string | null>(null);
-  const wsRef = React.useRef<WebSocket | null>(null);
-
-  useEffect(() => {
-    // Fetch initial orders
-    const fetchOrders = async () => {
-      try {
-        const response = await fetch('/api/v1/orders/');
-        if (!response.ok) {
-          throw new Error(`HTTP error! Status: ${response.status}`);
-        }
-        const data = await response.json();
-        setOrders(data);
-      } catch (err) {
-        setError('Failed to fetch orders. Please try again later.');
-        console.error('Error fetching orders:', err);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchOrders();
-
-    // Setup WebSocket connection
-    const wsUrl = `ws://${window.location.host}/ws/orders`;
-    wsRef.current = new WebSocket(wsUrl);
-    
-    wsRef.current.onopen = () => {
-      console.log('WebSocket connection established');
-    };
-    
-    wsRef.current.onmessage = (event) => {
-      console.log('WebSocket message received:', event.data);
-      // Refresh orders data when we get an update
-      fetchOrders();
-    };
-    
-    wsRef.current.onerror = (error) => {
-      console.error('WebSocket error:', error);
-    };
-    
-    wsRef.current.onclose = () => {
-      console.log('WebSocket connection closed');
-    };
-
-    // Cleanup function
-    return () => {
-      if (wsRef.current) {
-        wsRef.current.close();
-      }
-    };
-  }, []);
-
   return (
-    <div className="app-container">
-      <header className="app-header">
-        <h1>Goldsmith ERP</h1>
-      </header>
-      
-      <main className="app-main">
-        {loading ? (
-          <p>Loading orders...</p>
-        ) : error ? (
-          <p className="error-message">{error}</p>
-        ) : (
-          <OrderList orders={orders} />
-        )}
-      </main>
-      
-      <footer className="app-footer">
-        <p>&copy; 2025 Goldsmith ERP</p>
-      </footer>
-    </div>
+    <BrowserRouter>
+      <AuthProvider>
+        <OrderProvider>
+          <Routes>
+            {/* Public Routes */}
+            <Route path="/login" element={<LoginPage />} />
+            <Route path="/register" element={<RegisterPage />} />
+
+            {/* Protected Routes */}
+            <Route
+              path="/"
+              element={
+                <ProtectedRoute>
+                  <MainLayout />
+                </ProtectedRoute>
+              }
+            >
+              <Route index element={<Navigate to="/dashboard" replace />} />
+              <Route path="dashboard" element={<DashboardPage />} />
+              <Route path="materials" element={<MaterialsPage />} />
+              <Route path="orders" element={<OrdersPage />} />
+              <Route path="orders/:orderId" element={<OrderDetailPage />} />
+              <Route path="users" element={<UsersPage />} />
+              <Route path="scanner" element={<ScannerPage />} />
+            </Route>
+
+            {/* Catch all - redirect to dashboard */}
+            <Route path="*" element={<Navigate to="/dashboard" replace />} />
+          </Routes>
+        </OrderProvider>
+      </AuthProvider>
+    </BrowserRouter>
   );
 };
 

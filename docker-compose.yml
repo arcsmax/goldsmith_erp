@@ -34,8 +34,7 @@ services:
       - ./pyproject.toml:/app/pyproject.toml
       - ./poetry.lock:/app/poetry.lock
       - ./README.md:/app/README.md
-      - ./.env:/app/.env 
-      - ./src:/app/src
+      - ./.env:/app/.env
     ports:
       - "8000:8000"
     environment:
@@ -49,8 +48,10 @@ services:
       - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-user}:${POSTGRES_PASSWORD:-pass}@${POSTGRES_HOST:-db}:5432/${POSTGRES_DB:-goldsmith}
       - REDIS_URL=redis://redis:6379/0
     depends_on:
-      - db
-      - redis
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
 
   frontend:
     build:

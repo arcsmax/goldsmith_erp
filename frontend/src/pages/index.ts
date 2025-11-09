@@ -1,0 +1,9 @@
+// Pages Index - Central export for all pages
+export { LoginPage } from './LoginPage';
+export { RegisterPage } from './RegisterPage';
+export { DashboardPage } from './DashboardPage';
+export { MaterialsPage } from './MaterialsPage';
+export { OrdersPage } from './OrdersPage';
+export { OrderDetailPage } from './OrderDetailPage';
+export { UsersPage } from './UsersPage';
+export { ScannerPage } from './ScannerPage';

@@ -5,59 +5,8 @@ import uvicorn
 from typing import List
 
 from goldsmith_erp.core.config import settings
-from goldsmith_erp.api.routers import auth, orders
-from goldsmith_erp.core.pubsub import subscribe_and_forward, publish_event  # Import pubsub functions
-import enum
-
-from sqlalchemy import (
-    Column,
-    Integer,
-    String,
-    Float,
-    DateTime,
-    ForeignKey,
-    Boolean,
-    Enum as SAEnum,
-)
-from sqlalchemy.ext.declarative import declarative_base
-
-Base = declarative_base()
-
-
-class OrderStatusEnum(str, enum.Enum):
-    """Enumerated order statuses for consistency and validation."""
-    NEW = "new"
-    IN_PROGRESS = "in_progress"
-    COMPLETED = "completed"
-    DELIVERED = "delivered"
-
-
-class User(Base):
-    """User account model."""
-    __tablename__ = "users"
-
-    id = Column(Integer, primary_key=True, index=True)
-    email = Column(String, unique=True, index=True, nullable=False)
-    full_name = Column(String, nullable=True)
-    is_active = Column(Boolean, default=True, nullable=False)
-    # ... other fields ...
-
-
-class Order(Base):
-    """Order model with status enum."""
-    __tablename__ = "orders"
-
-    id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(
-        Integer, ForeignKey("users.id"), nullable=False
-    )
-    price = Column(Float, nullable=True)
-    created_at = Column(DateTime, nullable=False)
-    status = Column(
-        SAEnum(OrderStatusEnum),
-        default=OrderStatusEnum.NEW,
-        nullable=False,
-    )
+from goldsmith_erp.api.routers import auth, orders, users, materials, activities, time_tracking
+from goldsmith_erp.core.pubsub import subscribe_and_forward, publish_event
 
 # App-Instanz erstellen
 app = FastAPI(
@@ -76,7 +25,11 @@ app.add_middleware(
 
 # Router einbinden
 app.include_router(auth.router, prefix=f"{settings.API_V1_STR}", tags=["auth"])
+app.include_router(users.router, prefix=f"{settings.API_V1_STR}/users", tags=["users"])
 app.include_router(orders.router, prefix=f"{settings.API_V1_STR}/orders", tags=["orders"])
+app.include_router(materials.router, prefix=f"{settings.API_V1_STR}/materials", tags=["materials"])
+app.include_router(activities.router, prefix=f"{settings.API_V1_STR}/activities", tags=["activities"])
+app.include_router(time_tracking.router, prefix=f"{settings.API_V1_STR}/time-tracking", tags=["time-tracking"])
 
 # WebSocket endpoint with Redis Pub/Sub integration
 @app.websocket("/ws/orders")
