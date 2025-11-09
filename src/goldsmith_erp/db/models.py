@@ -42,6 +42,39 @@ class User(Base):
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
+
+class Customer(Base):
+    """Customer/Client Model for CRM"""
+    __tablename__ = "customers"
+
+    id = Column(Integer, primary_key=True, index=True)
+    # Basic Info
+    first_name = Column(String(100), nullable=False, index=True)
+    last_name = Column(String(100), nullable=False, index=True)
+    company_name = Column(String(200), nullable=True, index=True)
+
+    # Contact Info
+    email = Column(String(255), nullable=False, unique=True, index=True)
+    phone = Column(String(50), nullable=True)
+    mobile = Column(String(50), nullable=True)
+
+    # Address
+    street = Column(String(200), nullable=True)
+    city = Column(String(100), nullable=True)
+    postal_code = Column(String(20), nullable=True)
+    country = Column(String(100), default="Deutschland")
+
+    # CRM Fields
+    customer_type = Column(String(50), default="private")  # private, business
+    source = Column(String(100), nullable=True)  # referral, website, walk-in, etc.
+    notes = Column(Text, nullable=True)
+    tags = Column(JSON, default=list)  # ["VIP", "Stammkunde", etc.]
+
+    # Metadata
+    is_active = Column(Boolean, default=True, index=True)
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
     # Beziehungen
     orders = relationship("Order", back_populates="customer")
 
@@ -53,13 +86,14 @@ class Order(Base):
     description = Column(String)
     price = Column(Float)
     status = Column(SAEnum(OrderStatusEnum), default=OrderStatusEnum.NEW, nullable=False)
-    customer_id = Column(Integer, ForeignKey("users.id"))
+    customer_id = Column(Integer, ForeignKey("customers.id"), nullable=False, index=True)
+    deadline = Column(DateTime, nullable=True, index=True)  # Deadline für Kalender
     current_location = Column(String(50), nullable=True)  # Aktueller Lagerort
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     # Beziehungen
-    customer = relationship("User", back_populates="orders")
+    customer = relationship("Customer", back_populates="orders")
     materials = relationship("Material", secondary=order_materials, back_populates="materials")
 
 class Material(Base):

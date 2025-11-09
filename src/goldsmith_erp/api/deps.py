@@ -3,7 +3,9 @@ from fastapi.security import OAuth2PasswordBearer
 from jose import jwt, JWTError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from typing import Generator, Optional
+from typing import Generator, Optional, Callable
+from enum import Enum
+from functools import wraps
 
 from goldsmith_erp.core.config import settings
 from goldsmith_erp.core.security import ALGORITHM
@@ -93,3 +95,111 @@ async def get_current_admin_user(
             detail="Not enough permissions. Admin role required."
         )
     return current_user
+
+
+# ============================================================================
+# Permission System for Fine-Grained Access Control
+# ============================================================================
+
+class Permission(str, Enum):
+    """System permissions for fine-grained access control"""
+    # Order permissions
+    ORDER_VIEW = "order:view"
+    ORDER_CREATE = "order:create"
+    ORDER_EDIT = "order:edit"
+    ORDER_DELETE = "order:delete"
+
+    # Customer permissions
+    CUSTOMER_VIEW = "customer:view"
+    CUSTOMER_CREATE = "customer:create"
+    CUSTOMER_EDIT = "customer:edit"
+    CUSTOMER_DELETE = "customer:delete"
+
+    # Time tracking permissions
+    TIME_TRACK = "time:track"
+    TIME_VIEW_OWN = "time:view_own"
+    TIME_VIEW_ALL = "time:view_all"
+    TIME_EDIT = "time:edit"
+
+    # Material permissions
+    MATERIAL_VIEW = "material:view"
+    MATERIAL_EDIT = "material:edit"
+
+    # Reports & Analytics
+    REPORTS_VIEW = "reports:view"
+
+    # Admin permissions
+    USER_MANAGE = "user:manage"
+    SYSTEM_CONFIG = "system:config"
+
+
+# Role to Permission mapping
+ROLE_PERMISSIONS = {
+    UserRole.ADMIN: [p for p in Permission],  # Admin has all permissions
+    UserRole.USER: [
+        # Orders
+        Permission.ORDER_VIEW,
+        Permission.ORDER_CREATE,
+        Permission.ORDER_EDIT,
+        # Customers
+        Permission.CUSTOMER_VIEW,
+        Permission.CUSTOMER_CREATE,
+        Permission.CUSTOMER_EDIT,
+        # Time tracking
+        Permission.TIME_TRACK,
+        Permission.TIME_VIEW_OWN,
+        # Materials
+        Permission.MATERIAL_VIEW,
+        # Reports (limited)
+        Permission.REPORTS_VIEW,
+    ],
+}
+
+
+def has_permission(user: User, permission: Permission) -> bool:
+    """
+    Check if user has a specific permission based on their role.
+
+    Args:
+        user: The user to check
+        permission: The required permission
+
+    Returns:
+        bool: True if user has permission, False otherwise
+    """
+    if not user.is_active:
+        return False
+
+    allowed_permissions = ROLE_PERMISSIONS.get(user.role, [])
+    return permission in allowed_permissions
+
+
+def require_permission(permission: Permission) -> Callable:
+    """
+    Dependency factory that creates a permission checker.
+
+    Usage:
+        @router.get("/customers")
+        async def list_customers(
+            current_user: User = Depends(require_permission(Permission.CUSTOMER_VIEW))
+        ):
+            ...
+
+    Args:
+        permission: The required permission
+
+    Returns:
+        Callable: Dependency function that checks permission
+    """
+    async def permission_checker(
+        current_user: User = Depends(get_current_user)
+    ) -> User:
+        """Check if current user has required permission"""
+        if not has_permission(current_user, permission):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Permission denied: {permission.value} required"
+            )
+        return current_user
+
+    return permission_checker
