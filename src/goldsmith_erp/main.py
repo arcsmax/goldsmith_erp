@@ -1,6 +1,9 @@
 import asyncio
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.util import get_remote_address
 import uvicorn
 from typing import List
 
@@ -8,11 +11,18 @@ from goldsmith_erp.core.config import settings
 from goldsmith_erp.api.routers import auth, orders, users, materials, activities, time_tracking
 from goldsmith_erp.core.pubsub import subscribe_and_forward, publish_event
 
+# Initialize rate limiter
+limiter = Limiter(key_func=get_remote_address)
+
 # App-Instanz erstellen
 app = FastAPI(
     title=settings.APP_NAME,
     openapi_url=f"{settings.API_V1_STR}/openapi.json"
 )
+
+# Add rate limiting state and error handler
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # CORS-Middleware einrichten
 app.add_middleware(

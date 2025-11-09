@@ -1,9 +1,10 @@
 # src/goldsmith_erp/core/config.py
 
+import secrets
 from pathlib import Path
 from typing import Any, Optional
 
-from pydantic import PostgresDsn, RedisDsn, field_validator
+from pydantic import Field, PostgresDsn, RedisDsn, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -22,7 +23,10 @@ class Settings(BaseSettings):
     # ── App basics ─────────────────────────────────────────────────────────────
     APP_NAME: str = "Goldsmith ERP"
     API_V1_STR: str = "/api/v1"
-    SECRET_KEY: str = "change_this_to_a_secure_random_string"
+    SECRET_KEY: str = Field(
+        default_factory=lambda: secrets.token_urlsafe(32),
+        description="JWT secret key - MUST be set in production via SECRET_KEY env variable"
+    )
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 8  # 8 days
 
     # ── Server ─────────────────────────────────────────────────────────────────
@@ -83,6 +87,24 @@ class Settings(BaseSettings):
             port=str(info.data["REDIS_PORT"]),
             path=f"/{info.data['REDIS_DB']}",
         )
+
+    @field_validator("SECRET_KEY")
+    @classmethod
+    def validate_secret_key(cls, v: str) -> str:
+        """
+        Validate that SECRET_KEY is secure and not using default value.
+        """
+        if v == "change_this_to_a_secure_random_string":
+            raise ValueError(
+                "SECRET_KEY must be changed from default! "
+                "Set SECRET_KEY environment variable with a secure random string."
+            )
+        if len(v) < 32:
+            raise ValueError(
+                "SECRET_KEY must be at least 32 characters long for security. "
+                f"Current length: {len(v)}"
+            )
+        return v
 
 # Instantiate once per process
 settings = Settings()
