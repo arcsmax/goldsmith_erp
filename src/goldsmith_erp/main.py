@@ -11,7 +11,7 @@ from typing import List
 from goldsmith_erp.core.config import settings
 from goldsmith_erp.core.logging import setup_logging
 from goldsmith_erp.middleware import RequestLoggingMiddleware
-from goldsmith_erp.api.routers import auth, orders, users, materials, activities, time_tracking, health
+from goldsmith_erp.api.routers import auth, orders, users, materials, activities, time_tracking, health, customers
 from goldsmith_erp.core.pubsub import subscribe_and_forward, publish_event
 
 # Setup structured logging
@@ -47,6 +47,7 @@ app.add_middleware(
 app.include_router(health.router, tags=["health"])  # Health checks at root level
 app.include_router(auth.router, prefix=f"{settings.API_V1_STR}", tags=["auth"])
 app.include_router(users.router, prefix=f"{settings.API_V1_STR}/users", tags=["users"])
+app.include_router(customers.router, prefix=f"{settings.API_V1_STR}", tags=["customers"])  # CRM
 app.include_router(orders.router, prefix=f"{settings.API_V1_STR}/orders", tags=["orders"])
 app.include_router(materials.router, prefix=f"{settings.API_V1_STR}/materials", tags=["materials"])
 app.include_router(activities.router, prefix=f"{settings.API_V1_STR}/activities", tags=["activities"])
