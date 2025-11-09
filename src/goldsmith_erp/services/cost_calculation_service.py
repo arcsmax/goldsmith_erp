@@ -1,11 +1,14 @@
 """Cost Calculation Service for Goldsmith Orders
 
 Calculates order costs based on:
-- Material weight and prices
+- Material weight and prices (from Metal Inventory System)
 - Gemstones
 - Labor hours
 - Profit margin
 - VAT (MwSt)
+
+IMPORTANT: As of Phase 2.3, this service uses MetalInventoryService
+for real-time inventory pricing instead of hardcoded prices.
 """
 import logging
 from typing import Dict, Any, Optional
@@ -14,7 +17,8 @@ from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from goldsmith_erp.db.models import Order as OrderModel, Gemstone as GemstoneModel
+from goldsmith_erp.db.models import Order as OrderModel, Gemstone as GemstoneModel, CostingMethod
+from goldsmith_erp.services.metal_inventory_service import MetalInventoryService
 
 logger = logging.getLogger(__name__)
 
@@ -74,19 +78,23 @@ class CostCalculationService:
     @staticmethod
     async def calculate_order_cost(
         db: AsyncSession,
-        order_id: int,
-        material_price_per_gram: Optional[float] = None
+        order_id: int
     ) -> PriceBreakdown:
         """
         Calculate complete cost breakdown for an order.
 
+        Uses MetalInventoryService to get real inventory prices based on
+        the order's metal_type and costing_method.
+
         Args:
             db: Database session
             order_id: Order ID
-            material_price_per_gram: Optional metal price override (EUR/g)
 
         Returns:
             PriceBreakdown with all cost components
+
+        Raises:
+            ValueError: If order not found or insufficient inventory
         """
         # Fetch order with gemstones
         result = await db.execute(
@@ -99,9 +107,9 @@ class CostCalculationService:
         if not order:
             raise ValueError(f"Order {order_id} not found")
 
-        # 1. Material Cost
+        # 1. Material Cost (from inventory)
         material_cost = await CostCalculationService._calculate_material_cost(
-            order, material_price_per_gram
+            db, order
         )
 
         # 2. Gemstone Cost
@@ -157,56 +165,106 @@ class CostCalculationService:
 
     @staticmethod
     async def _calculate_material_cost(
-        order: OrderModel,
-        price_per_gram: Optional[float] = None
+        db: AsyncSession,
+        order: OrderModel
     ) -> float:
         """
-        Calculate material cost based on weight.
+        Calculate material cost from real metal inventory.
 
-        Checks for manual override first, then calculates from weight × price.
+        Uses MetalInventoryService to get actual cost based on:
+        - Order's metal_type
+        - Order's estimated_weight_g (with scrap percentage)
+        - Order's costing_method (FIFO/LIFO/AVERAGE/SPECIFIC)
+
+        Args:
+            db: Database session
+            order: Order model instance
+
+        Returns:
+            Material cost in EUR
+
+        Raises:
+            ValueError: If insufficient inventory
         """
-        # Check for manual override
+        # Check for manual override first
         if order.material_cost_override is not None:
             logger.debug(
-                f"Using manual material cost override: {order.material_cost_override}",
-                extra={"order_id": order.id}
+                "Using manual material cost override",
+                extra={
+                    "order_id": order.id,
+                    "override_cost": order.material_cost_override
+                }
             )
             return order.material_cost_override
 
-        # Use estimated or actual weight
-        weight_g = order.actual_weight_g or order.estimated_weight_g
-
-        if not weight_g:
+        # If no metal type specified, cannot calculate from inventory
+        if not order.metal_type:
             logger.warning(
-                "No weight specified for order",
+                "Order has no metal_type specified - cannot calculate material cost from inventory",
                 extra={"order_id": order.id}
             )
             return 0.0
 
-        # Default material price if not provided
-        # TODO: In Phase 2.3, fetch from metal_prices API
-        if price_per_gram is None:
-            price_per_gram = 45.0  # Default: ~45 EUR/g for 18K gold
+        # Use estimated or actual weight
+        weight_g = order.actual_weight_g or order.estimated_weight_g
+
+        if not weight_g or weight_g <= 0:
+            logger.warning(
+                "No weight specified for order - cannot calculate material cost",
+                extra={"order_id": order.id}
+            )
+            return 0.0
 
         # Apply scrap percentage (material loss during work)
         scrap_percent = order.scrap_percentage or 5.0
         effective_weight = weight_g * (1 + scrap_percent / 100.0)
 
-        material_cost = effective_weight * price_per_gram
+        # Get allocation from MetalInventoryService
+        # This calculates cost WITHOUT consuming inventory (preview mode)
+        try:
+            costing_method = order.costing_method_used or CostingMethod.FIFO
 
-        logger.debug(
-            "Material cost calculated",
-            extra={
-                "order_id": order.id,
-                "weight_g": weight_g,
-                "scrap_percent": scrap_percent,
-                "effective_weight": effective_weight,
-                "price_per_gram": price_per_gram,
-                "material_cost": material_cost,
-            }
-        )
+            allocation = await MetalInventoryService.allocate_material(
+                db,
+                metal_type=order.metal_type,
+                required_weight_g=effective_weight,
+                costing_method=costing_method,
+                specific_purchase_id=order.specific_metal_purchase_id
+            )
 
-        return material_cost
+            material_cost = allocation.total_cost
+
+            logger.info(
+                "Material cost calculated from inventory",
+                extra={
+                    "order_id": order.id,
+                    "metal_type": order.metal_type.value,
+                    "weight_g": weight_g,
+                    "scrap_percent": scrap_percent,
+                    "effective_weight": round(effective_weight, 2),
+                    "costing_method": costing_method.value,
+                    "material_cost": round(material_cost, 2),
+                    "batches_used": len(allocation.allocations)
+                }
+            )
+
+            return material_cost
+
+        except ValueError as e:
+            # Insufficient inventory or other allocation error
+            logger.error(
+                "Failed to allocate material from inventory",
+                extra={
+                    "order_id": order.id,
+                    "metal_type": order.metal_type.value,
+                    "required_weight": round(effective_weight, 2),
+                    "error": str(e)
+                }
+            )
+            # Re-raise with more context
+            raise ValueError(
+                f"Cannot calculate material cost for order {order.id}: {e}"
+            ) from e
 
     @staticmethod
     async def _calculate_gemstone_cost(order: OrderModel) -> float:
