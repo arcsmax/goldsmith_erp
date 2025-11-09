@@ -1,0 +1,155 @@
+# Podman Pod Manifest (Kubernetes-style)
+# Alternative zu podman-compose: Native Podman Pods
+# Start mit: podman play kube podman-pod.yaml
+
+apiVersion: v1
+kind: Pod
+metadata:
+  name: goldsmith-erp
+  labels:
+    app: goldsmith-erp
+    env: development
+spec:
+  # Restart policy
+  restartPolicy: Always
+
+  # Shared volumes for the pod
+  volumes:
+    - name: db-data
+      persistentVolumeClaim:
+        claimName: goldsmith-db-data
+    - name: redis-data
+      persistentVolumeClaim:
+        claimName: goldsmith-redis-data
+
+  # Containers in the pod
+  containers:
+    # PostgreSQL Database
+    - name: db
+      image: docker.io/library/postgres:15-alpine
+      env:
+        - name: POSTGRES_USER
+          value: "user"
+        - name: POSTGRES_PASSWORD
+          value: "pass"
+        - name: POSTGRES_DB
+          value: "goldsmith"
+      ports:
+        - containerPort: 5432
+          hostPort: 5432
+      volumeMounts:
+        - name: db-data
+          mountPath: /var/lib/postgresql/data
+      securityContext:
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop:
+            - ALL
+      resources:
+        requests:
+          memory: "256Mi"
+          cpu: "250m"
+        limits:
+          memory: "512Mi"
+          cpu: "500m"
+
+    # Redis Cache
+    - name: redis
+      image: docker.io/library/redis:7-alpine
+      ports:
+        - containerPort: 6379
+          hostPort: 6379
+      volumeMounts:
+        - name: redis-data
+          mountPath: /data
+      securityContext:
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop:
+            - ALL
+      resources:
+        requests:
+          memory: "128Mi"
+          cpu: "100m"
+        limits:
+          memory: "256Mi"
+          cpu: "200m"
+
+    # FastAPI Backend
+    - name: backend
+      image: localhost/goldsmith-backend:latest
+      env:
+        - name: DATABASE_URL
+          value: "postgresql+asyncpg://user:pass@localhost:5432/goldsmith"
+        - name: REDIS_URL
+          value: "redis://localhost:6379/0"
+        - name: SECRET_KEY
+          value: "change_this_to_a_secure_random_string"
+        - name: DEBUG
+          value: "true"
+      ports:
+        - containerPort: 8000
+          hostPort: 8000
+      securityContext:
+        allowPrivilegeEscalation: false
+        runAsNonRoot: true
+        runAsUser: 1000
+        capabilities:
+          drop:
+            - ALL
+      resources:
+        requests:
+          memory: "256Mi"
+          cpu: "250m"
+        limits:
+          memory: "512Mi"
+          cpu: "500m"
+
+    # React Frontend
+    - name: frontend
+      image: localhost/goldsmith-frontend:latest
+      env:
+        - name: VITE_API_URL
+          value: "http://localhost:8000/api/v1"
+      ports:
+        - containerPort: 3000
+          hostPort: 3000
+      securityContext:
+        allowPrivilegeEscalation: false
+        runAsNonRoot: true
+        runAsUser: 1000
+        capabilities:
+          drop:
+            - ALL
+      resources:
+        requests:
+          memory: "256Mi"
+          cpu: "250m"
+        limits:
+          memory: "512Mi"
+          cpu: "500m"
+
+---
+# Persistent Volume Claims
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: goldsmith-db-data
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: goldsmith-redis-data
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 100Mi
