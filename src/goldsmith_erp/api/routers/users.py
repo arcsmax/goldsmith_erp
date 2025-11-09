@@ -9,18 +9,9 @@ from goldsmith_erp.db.session import get_db
 from goldsmith_erp.db.models import User as UserModel
 from goldsmith_erp.models.user import UserCreate, User, UserUpdate
 from goldsmith_erp.services.user_service import UserService
-from goldsmith_erp.core.permissions import require_admin
+from goldsmith_erp.core.permissions import Permission, require_permission
 
 router = APIRouter()
-
-
-# ==================== DEPENDENCY HELPERS ====================
-
-async def get_admin_user(
-    current_user: UserModel = Depends(get_current_user)
-) -> UserModel:
-    """Dependency that ensures the current user is an admin."""
-    return await require_admin(current_user)
 
 
 # ==================== PUBLIC ENDPOINTS ====================
@@ -107,10 +98,11 @@ async def update_current_user_profile(
 # ==================== ADMIN-ONLY ENDPOINTS ====================
 
 @router.post("/", response_model=User, status_code=status.HTTP_201_CREATED)
+@require_permission(Permission.USER_CREATE)
 async def create_user_by_admin(
     user_in: UserCreate,
     db: AsyncSession = Depends(get_db),
-    admin: UserModel = Depends(get_admin_user)
+    current_user: UserModel = Depends(get_current_user)
 ):
     """
     **Admin-Registration**: Goldschmied (Admin) trägt einen neuen Benutzer ein.
@@ -135,11 +127,12 @@ async def create_user_by_admin(
 
 
 @router.get("/", response_model=List[User])
+@require_permission(Permission.USER_VIEW)
 async def list_all_users(
     skip: int = 0,
     limit: int = 100,
     db: AsyncSession = Depends(get_db),
-    admin: UserModel = Depends(get_admin_user)
+    current_user: UserModel = Depends(get_current_user)
 ):
     """
     Alle Benutzer auflisten.
@@ -154,10 +147,11 @@ async def list_all_users(
 
 
 @router.get("/{user_id}", response_model=User)
+@require_permission(Permission.USER_VIEW)
 async def get_user_by_id(
     user_id: int,
     db: AsyncSession = Depends(get_db),
-    admin: UserModel = Depends(get_admin_user)
+    current_user: UserModel = Depends(get_current_user)
 ):
     """
     Benutzer über ID abrufen.
@@ -177,11 +171,12 @@ async def get_user_by_id(
 
 
 @router.put("/{user_id}", response_model=User)
+@require_permission(Permission.USER_EDIT)
 async def update_user_by_admin(
     user_id: int,
     user_in: UserUpdate,
     db: AsyncSession = Depends(get_db),
-    admin: UserModel = Depends(get_admin_user)
+    current_user: UserModel = Depends(get_current_user)
 ):
     """
     Benutzer durch Admin aktualisieren.
@@ -215,10 +210,11 @@ async def update_user_by_admin(
 
 
 @router.delete("/{user_id}")
+@require_permission(Permission.USER_MANAGE)
 async def deactivate_user(
     user_id: int,
     db: AsyncSession = Depends(get_db),
-    admin: UserModel = Depends(get_admin_user)
+    current_user: UserModel = Depends(get_current_user)
 ):
     """
     Benutzer deaktivieren (Soft Delete).
@@ -241,10 +237,11 @@ async def deactivate_user(
 
 
 @router.post("/{user_id}/activate", response_model=User)
+@require_permission(Permission.USER_MANAGE)
 async def activate_user(
     user_id: int,
     db: AsyncSession = Depends(get_db),
-    admin: UserModel = Depends(get_admin_user)
+    current_user: UserModel = Depends(get_current_user)
 ):
     """
     Benutzer reaktivieren.

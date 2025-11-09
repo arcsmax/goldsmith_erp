@@ -19,8 +19,9 @@ class OrderStatusEnum(str, enum.Enum):
 
 class UserRole(str, enum.Enum):
     """User roles for RBAC (Role-Based Access Control)."""
-    ADMIN = "admin"  # Full system access
-    USER = "user"    # Standard user access
+    ADMIN = "admin"        # Full system access
+    GOLDSMITH = "goldsmith"  # Production workers (orders, time tracking, materials)
+    VIEWER = "viewer"      # View-only access    # Standard user access
 
 # Many-to-Many zwischen Material und Order
 order_materials = Table(
@@ -38,7 +39,7 @@ class User(Base):
     hashed_password = Column(String)
     first_name = Column(String)
     last_name = Column(String)
-    role = Column(SAEnum(UserRole), default=UserRole.USER, nullable=False, index=True)
+    role = Column(SAEnum(UserRole), default=UserRole.VIEWER, nullable=False, index=True)
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 

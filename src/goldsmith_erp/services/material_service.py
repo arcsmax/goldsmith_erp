@@ -53,7 +53,11 @@ class MaterialService:
             Material-Objekt oder None
         """
         result = await db.execute(
-            select(MaterialModel).filter(MaterialModel.id == material_id)
+            select(MaterialModel)
+            .options(
+                selectinload(MaterialModel.orders)  # FIXED: Added orders eager loading
+            )
+            .filter(MaterialModel.id == material_id)
         )
         return result.scalar_one_or_none()
 

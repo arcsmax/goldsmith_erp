@@ -8,10 +8,12 @@ from goldsmith_erp.db.session import get_db
 from goldsmith_erp.db.models import User
 from goldsmith_erp.models.order import OrderCreate, OrderRead, OrderUpdate
 from goldsmith_erp.services.order_service import OrderService
+from goldsmith_erp.core.permissions import Permission, require_permission
 
 router = APIRouter()
 
 @router.get("/", response_model=List[OrderRead])
+@require_permission(Permission.ORDER_VIEW)
 async def list_orders(
     skip: int = 0,
     limit: int = 100,
@@ -22,6 +24,7 @@ async def list_orders(
     return await OrderService.get_orders(db, skip, limit)
 
 @router.post("/", response_model=OrderRead)
+@require_permission(Permission.ORDER_CREATE)
 async def create_order(
     order_in: OrderCreate,
     db: AsyncSession = Depends(get_db),
@@ -31,6 +34,7 @@ async def create_order(
     return await OrderService.create_order(db, order_in)
 
 @router.get("/{order_id}", response_model=OrderRead)
+@require_permission(Permission.ORDER_VIEW)
 async def get_order(
     order_id: int,
     db: AsyncSession = Depends(get_db),
@@ -43,6 +47,7 @@ async def get_order(
     return order
 
 @router.put("/{order_id}", response_model=OrderRead)
+@require_permission(Permission.ORDER_EDIT)
 async def update_order(
     order_id: int,
     order_in: OrderUpdate,
@@ -56,6 +61,7 @@ async def update_order(
     return await OrderService.update_order(db, order_id, order_in)
 
 @router.delete("/{order_id}")
+@require_permission(Permission.ORDER_DELETE)
 async def delete_order(
     order_id: int,
     db: AsyncSession = Depends(get_db),

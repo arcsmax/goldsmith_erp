@@ -25,7 +25,8 @@ class OrderService:
             select(OrderModel)
             .options(
                 selectinload(OrderModel.materials),
-                selectinload(OrderModel.customer)
+                selectinload(OrderModel.customer),
+                selectinload(OrderModel.gemstones),  # FIXED: Added gemstones
             )
             .order_by(OrderModel.created_at.desc())
             .offset(skip)
@@ -44,7 +45,8 @@ class OrderService:
             select(OrderModel)
             .options(
                 selectinload(OrderModel.materials),
-                selectinload(OrderModel.customer)
+                selectinload(OrderModel.customer),
+                selectinload(OrderModel.gemstones),  # FIXED: Added gemstones
             )
             .filter(OrderModel.id == order_id)
         )

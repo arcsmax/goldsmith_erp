@@ -10,6 +10,7 @@ from goldsmith_erp.db.session import get_db
 from goldsmith_erp.db.models import User as UserModel
 from goldsmith_erp.models.material import MaterialCreate, MaterialRead, MaterialUpdate, MaterialWithStock
 from goldsmith_erp.services.material_service import MaterialService
+from goldsmith_erp.core.permissions import Permission, require_permission
 
 router = APIRouter()
 
@@ -31,6 +32,7 @@ class StockValueResponse(BaseModel):
 # ==================== MATERIAL CRUD ENDPOINTS ====================
 
 @router.get("/", response_model=List[MaterialRead])
+@require_permission(Permission.MATERIAL_VIEW)
 async def list_materials(
     skip: int = 0,
     limit: int = 100,
@@ -51,6 +53,7 @@ async def list_materials(
 
 
 @router.post("/", response_model=MaterialRead, status_code=status.HTTP_201_CREATED)
+@require_permission(Permission.MATERIAL_CREATE)
 async def create_material(
     material_in: MaterialCreate,
     db: AsyncSession = Depends(get_db),
@@ -79,6 +82,7 @@ async def create_material(
 
 
 @router.get("/{material_id}", response_model=MaterialRead)
+@require_permission(Permission.MATERIAL_VIEW)
 async def get_material(
     material_id: int,
     db: AsyncSession = Depends(get_db),
@@ -102,6 +106,7 @@ async def get_material(
 
 
 @router.put("/{material_id}", response_model=MaterialRead)
+@require_permission(Permission.MATERIAL_EDIT)
 async def update_material(
     material_id: int,
     material_in: MaterialUpdate,
@@ -140,6 +145,7 @@ async def update_material(
 
 
 @router.delete("/{material_id}")
+@require_permission(Permission.MATERIAL_DELETE)
 async def delete_material(
     material_id: int,
     db: AsyncSession = Depends(get_db),
@@ -167,6 +173,7 @@ async def delete_material(
 # ==================== STOCK MANAGEMENT ENDPOINTS ====================
 
 @router.post("/{material_id}/adjust-stock", response_model=MaterialRead)
+@require_permission(Permission.MATERIAL_ADJUST_STOCK)
 async def adjust_material_stock(
     material_id: int,
     adjustment: StockAdjustment,
@@ -205,6 +212,7 @@ async def adjust_material_stock(
 
 
 @router.get("/low-stock/alert", response_model=List[MaterialWithStock])
+@require_permission(Permission.MATERIAL_VIEW)
 async def get_low_stock_materials(
     threshold: float = 10.0,
     db: AsyncSession = Depends(get_db),
@@ -231,6 +239,7 @@ async def get_low_stock_materials(
 
 
 @router.get("/analytics/stock-value", response_model=StockValueResponse)
+@require_permission(Permission.MATERIAL_VIEW)
 async def get_total_stock_value(
     db: AsyncSession = Depends(get_db),
     current_user: UserModel = Depends(get_current_user)

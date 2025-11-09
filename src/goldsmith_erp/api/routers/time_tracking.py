@@ -17,11 +17,13 @@ from goldsmith_erp.models.time_entry import (
 )
 from goldsmith_erp.models.interruption import InterruptionCreate, InterruptionRead
 from goldsmith_erp.services.time_tracking_service import TimeTrackingService
+from goldsmith_erp.core.permissions import Permission, require_permission, check_ownership_or_permission
 
 router = APIRouter()
 
 
 @router.post("/start", response_model=TimeEntryRead)
+@require_permission(Permission.TIME_TRACK)
 async def start_time_tracking(
     entry_in: TimeEntryStart,
     db: AsyncSession = Depends(get_db),
@@ -44,6 +46,7 @@ async def start_time_tracking(
 
 
 @router.post("/{entry_id}/stop", response_model=TimeEntryRead)
+@require_permission(Permission.TIME_TRACK)
 async def stop_time_tracking(
     entry_id: str,
     stop_data: TimeEntryStop,
@@ -67,6 +70,7 @@ async def stop_time_tracking(
 
 
 @router.get("/running", response_model=Optional[TimeEntryRead])
+@require_permission(Permission.TIME_VIEW_OWN)
 async def get_running_entry(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -76,6 +80,7 @@ async def get_running_entry(
 
 
 @router.get("/order/{order_id}", response_model=List[TimeEntryRead])
+@require_permission(Permission.TIME_VIEW_ALL)
 async def get_time_entries_for_order(
     order_id: int,
     skip: int = 0,
@@ -88,6 +93,7 @@ async def get_time_entries_for_order(
 
 
 @router.get("/order/{order_id}/total")
+@require_permission(Permission.TIME_VIEW_ALL)
 async def get_total_time_for_order(
     order_id: int,
     db: AsyncSession = Depends(get_db),
@@ -108,12 +114,20 @@ async def get_time_entries_for_user(
     current_user: User = Depends(get_current_user),
 ):
     """Holt alle Zeiterfassungen für einen User, optional gefiltert nach Datum."""
+    # Check if user owns resource or has permission to view all time entries
+    if not check_ownership_or_permission(user_id, current_user, Permission.TIME_VIEW_ALL):
+        raise HTTPException(
+            status_code=403,
+            detail="Permission denied: You can only view your own time entries or need TIME_VIEW_ALL permission"
+        )
+
     return await TimeTrackingService.get_time_entries_for_user(
         db, user_id, start_date, end_date, skip, limit
     )
 
 
 @router.post("/", response_model=TimeEntryRead)
+@require_permission(Permission.TIME_TRACK)
 async def create_time_entry(
     entry_in: TimeEntryCreate,
     db: AsyncSession = Depends(get_db),
@@ -127,6 +141,7 @@ async def create_time_entry(
 
 
 @router.get("/{entry_id}", response_model=TimeEntryRead)
+@require_permission(Permission.TIME_VIEW_ALL)
 async def get_time_entry(
     entry_id: str,
     db: AsyncSession = Depends(get_db),
@@ -140,6 +155,7 @@ async def get_time_entry(
 
 
 @router.put("/{entry_id}", response_model=TimeEntryRead)
+@require_permission(Permission.TIME_EDIT)
 async def update_time_entry(
     entry_id: str,
     entry_in: TimeEntryUpdate,
@@ -154,6 +170,7 @@ async def update_time_entry(
 
 
 @router.delete("/{entry_id}")
+@require_permission(Permission.TIME_DELETE)
 async def delete_time_entry(
     entry_id: str,
     db: AsyncSession = Depends(get_db),
@@ -167,6 +184,7 @@ async def delete_time_entry(
 
 
 @router.post("/{entry_id}/interruptions", response_model=InterruptionRead)
+@require_permission(Permission.TIME_TRACK)
 async def add_interruption(
     entry_id: str,
     interruption_in: InterruptionCreate,

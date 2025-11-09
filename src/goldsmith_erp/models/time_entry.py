@@ -1,21 +1,35 @@
 # src/goldsmith_erp/models/time_entry.py
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from datetime import datetime
 from typing import Optional, Dict, Any, List
 
 class TimeEntryBase(BaseModel):
-    """Basis-Schema für TimeEntry."""
-    order_id: int
-    activity_id: int
-    location: Optional[str] = None
-    notes: Optional[str] = None
+    """Basis-Schema für TimeEntry mit Input Validation."""
+    order_id: int = Field(..., gt=0, description="Order ID (must be positive)")
+    activity_id: int = Field(..., gt=0, description="Activity ID (must be positive)")
+    location: Optional[str] = Field(
+        None,
+        min_length=1,
+        max_length=50,
+        description="Storage location (1-50 characters)"
+    )
+    notes: Optional[str] = Field(
+        None,
+        max_length=2000,
+        description="Notes (max 2000 characters)"
+    )
 
 class TimeEntryStart(BaseModel):
-    """Schema zum Starten einer Time-Entry."""
-    order_id: int
-    activity_id: int
-    user_id: int
-    location: Optional[str] = None
+    """Schema zum Starten einer Time-Entry mit Input Validation."""
+    order_id: int = Field(..., gt=0, description="Order ID (must be positive)")
+    activity_id: int = Field(..., gt=0, description="Activity ID (must be positive)")
+    user_id: int = Field(..., gt=0, description="User ID (must be positive)")
+    location: Optional[str] = Field(
+        None,
+        min_length=1,
+        max_length=50,
+        description="Storage location"
+    )
     extra_metadata: Optional[Dict[str, Any]] = None
 
 class TimeEntryStop(BaseModel):
@@ -26,25 +40,78 @@ class TimeEntryStop(BaseModel):
     notes: Optional[str] = None
 
 class TimeEntryCreate(TimeEntryBase):
-    """Schema für manuelle TimeEntry-Erstellung (mit Start/End)."""
-    user_id: int
+    """Schema für manuelle TimeEntry-Erstellung (mit Start/End) mit Input Validation."""
+    user_id: int = Field(..., gt=0, description="User ID (must be positive)")
     start_time: datetime
     end_time: Optional[datetime] = None
-    duration_minutes: Optional[int] = None
-    complexity_rating: Optional[int] = Field(None, ge=1, le=5)
-    quality_rating: Optional[int] = Field(None, ge=1, le=5)
+    duration_minutes: Optional[int] = Field(
+        None,
+        gt=0,
+        le=1440,  # Max 24 hours (1440 minutes)
+        description="Duration in minutes (1-1440)"
+    )
+    complexity_rating: Optional[int] = Field(
+        None,
+        ge=1,
+        le=5,
+        description="Complexity rating (1-5)"
+    )
+    quality_rating: Optional[int] = Field(
+        None,
+        ge=1,
+        le=5,
+        description="Quality rating (1-5)"
+    )
     rework_required: bool = False
     extra_metadata: Optional[Dict[str, Any]] = None
 
+    @field_validator('end_time')
+    @classmethod
+    def validate_end_time(cls, v: Optional[datetime], info) -> Optional[datetime]:
+        """Validate end_time is after start_time."""
+        if v is not None and 'start_time' in info.data:
+            start_time = info.data['start_time']
+            if v <= start_time:
+                raise ValueError("end_time must be after start_time")
+            # Prevent extremely long durations (more than 7 days)
+            duration_days = (v - start_time).days
+            if duration_days > 7:
+                raise ValueError("Duration cannot exceed 7 days")
+        return v
+
 class TimeEntryUpdate(BaseModel):
-    """Schema für TimeEntry-Updates."""
+    """Schema für TimeEntry-Updates mit Input Validation."""
     end_time: Optional[datetime] = None
-    duration_minutes: Optional[int] = None
-    location: Optional[str] = None
-    complexity_rating: Optional[int] = Field(None, ge=1, le=5)
-    quality_rating: Optional[int] = Field(None, ge=1, le=5)
+    duration_minutes: Optional[int] = Field(
+        None,
+        gt=0,
+        le=1440,  # Max 24 hours
+        description="Duration in minutes (1-1440)"
+    )
+    location: Optional[str] = Field(
+        None,
+        min_length=1,
+        max_length=50,
+        description="Storage location"
+    )
+    complexity_rating: Optional[int] = Field(
+        None,
+        ge=1,
+        le=5,
+        description="Complexity rating (1-5)"
+    )
+    quality_rating: Optional[int] = Field(
+        None,
+        ge=1,
+        le=5,
+        description="Quality rating (1-5)"
+    )
     rework_required: Optional[bool] = None
-    notes: Optional[str] = None
+    notes: Optional[str] = Field(
+        None,
+        max_length=2000,
+        description="Notes (max 2000 characters)"
+    )
     extra_metadata: Optional[Dict[str, Any]] = None
 
 class TimeEntryRead(TimeEntryBase):

@@ -123,6 +123,7 @@ class TimeTrackingService:
                 selectinload(TimeEntryModel.order),
                 selectinload(TimeEntryModel.user),
                 selectinload(TimeEntryModel.interruptions),
+                selectinload(TimeEntryModel.photos),  # FIXED: Added photos
             )
             .filter(TimeEntryModel.id == entry_id)
         )
@@ -138,6 +139,9 @@ class TimeTrackingService:
             .options(
                 selectinload(TimeEntryModel.activity),
                 selectinload(TimeEntryModel.order),
+                selectinload(TimeEntryModel.user),  # FIXED: Added user
+                selectinload(TimeEntryModel.interruptions),  # FIXED: Added interruptions
+                selectinload(TimeEntryModel.photos),  # FIXED: Added photos
             )
             .filter(
                 and_(
@@ -158,6 +162,9 @@ class TimeTrackingService:
             .options(
                 selectinload(TimeEntryModel.activity),
                 selectinload(TimeEntryModel.user),
+                selectinload(TimeEntryModel.order),  # FIXED: Added order
+                selectinload(TimeEntryModel.interruptions),  # FIXED: Added interruptions
+                selectinload(TimeEntryModel.photos),  # FIXED: Added photos
             )
             .filter(TimeEntryModel.order_id == order_id)
             .order_by(TimeEntryModel.start_time.desc())
@@ -179,6 +186,9 @@ class TimeTrackingService:
         query = select(TimeEntryModel).options(
             selectinload(TimeEntryModel.activity),
             selectinload(TimeEntryModel.order),
+            selectinload(TimeEntryModel.user),  # FIXED: Added user
+            selectinload(TimeEntryModel.interruptions),  # FIXED: Added interruptions
+            selectinload(TimeEntryModel.photos),  # FIXED: Added photos
         ).filter(TimeEntryModel.user_id == user_id)
 
         if start_date:

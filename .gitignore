@@ -425,3 +425,7 @@ poetry.lock
 
 # Redis dumps
 dump.rdb
+CLAUDE.md
+.mcp.json
+.serena/.gitignore
+.serena/project.yml

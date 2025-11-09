@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Seed-Data für Standard-Aktivitäten im Time-Tracking System"""
+"""Seed-Data für Standard-Aktivitäten und Test-Benutzer"""
 
 from datetime import datetime
 from sqlalchemy.orm import Session
-from .models import Activity
+from .models import Activity, User, UserRole
+from goldsmith_erp.core.security import get_password_hash
 
 # Standard-Aktivitäten nach Kategorie
 STANDARD_ACTIVITIES = [
@@ -135,6 +136,73 @@ STANDARD_ACTIVITIES = [
 ]
 
 
+# Standard-Test-Benutzer mit verschiedenen Rollen
+STANDARD_USERS = [
+    {
+        "email": "admin@goldsmith.local",
+        "password": "admin123",  # Will be hashed
+        "first_name": "Admin",
+        "last_name": "User",
+        "role": UserRole.ADMIN,
+        "is_active": True,
+    },
+    {
+        "email": "goldsmith@goldsmith.local",
+        "password": "goldsmith123",  # Will be hashed
+        "first_name": "Maria",
+        "last_name": "Goldschmied",
+        "role": UserRole.GOLDSMITH,
+        "is_active": True,
+    },
+    {
+        "email": "viewer@goldsmith.local",
+        "password": "viewer123",  # Will be hashed
+        "first_name": "Klaus",
+        "last_name": "Viewer",
+        "role": UserRole.VIEWER,
+        "is_active": True,
+    },
+]
+
+
+def seed_users(db: Session) -> None:
+    """
+    Erstellt Test-Benutzer mit verschiedenen Rollen in der Datenbank.
+    Überspringt bereits existierende Benutzer.
+
+    Args:
+        db: SQLAlchemy Session
+    """
+    created_count = 0
+    skipped_count = 0
+
+    for user_data in STANDARD_USERS:
+        # Prüfe ob Benutzer bereits existiert
+        existing = db.query(User).filter(User.email == user_data["email"]).first()
+
+        if existing:
+            skipped_count += 1
+            continue
+
+        # Erstelle neuen Benutzer mit gehashtem Passwort
+        user = User(
+            email=user_data["email"],
+            hashed_password=get_password_hash(user_data["password"]),
+            first_name=user_data["first_name"],
+            last_name=user_data["last_name"],
+            role=user_data["role"],
+            is_active=user_data["is_active"],
+            created_at=datetime.utcnow()
+        )
+
+        db.add(user)
+        created_count += 1
+
+    db.commit()
+
+    print(f"✅ Seed-Data: {created_count} Benutzer erstellt, {skipped_count} übersprungen")
+
+
 def seed_activities(db: Session) -> None:
     """
     Erstellt die Standard-Aktivitäten in der Datenbank.
@@ -191,7 +259,10 @@ def main():
     db = SessionLocal()
 
     try:
+        print("📦 Starte Seed-Daten...")
+        seed_users(db)
         seed_activities(db)
+        print("✨ Seed-Daten erfolgreich eingespielt!")
     except Exception as e:
         print(f"❌ Fehler beim Seeden: {e}")
         db.rollback()
