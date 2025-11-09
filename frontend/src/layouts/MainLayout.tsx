@@ -26,6 +26,9 @@ export const MainLayout: React.FC = () => {
           <h1 className="logo">Goldsmith ERP</h1>
 
           <div className="user-menu">
+            <Link to="/scanner" className="btn-scanner">
+              📷 Scanner
+            </Link>
             <span className="user-name">
               {user?.first_name || user?.email}
             </span>

@@ -1,10 +1,12 @@
 // Orders Page Component
 import React, { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { ordersApi } from '../api';
 import { OrderType } from '../types';
 import '../styles/pages.css';
 
 export const OrdersPage: React.FC = () => {
+  const navigate = useNavigate();
   const [orders, setOrders] = useState<OrderType[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -71,7 +73,11 @@ export const OrdersPage: React.FC = () => {
             </thead>
             <tbody>
               {orders.map((order) => (
-                <tr key={order.id}>
+                <tr
+                  key={order.id}
+                  onClick={() => navigate(`/orders/${order.id}`)}
+                  style={{ cursor: 'pointer' }}
+                >
                   <td>#{order.id}</td>
                   <td>{order.title}</td>
                   <td>{order.description}</td>

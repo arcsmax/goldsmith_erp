@@ -4,4 +4,6 @@ export { RegisterPage } from './RegisterPage';
 export { DashboardPage } from './DashboardPage';
 export { MaterialsPage } from './MaterialsPage';
 export { OrdersPage } from './OrdersPage';
+export { OrderDetailPage } from './OrderDetailPage';
 export { UsersPage } from './UsersPage';
+export { ScannerPage } from './ScannerPage';
