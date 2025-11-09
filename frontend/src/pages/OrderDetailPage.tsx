@@ -4,6 +4,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { ordersApi, materialsApi } from '../api';
 import { OrderType, MaterialType, OrderStatus } from '../types';
 import { useOrders, OrderTab } from '../contexts';
+import TimeTrackingTab from '../components/TimeTrackingTab';
 import '../styles/order-detail.css';
 
 export const OrderDetailPage: React.FC = () => {
@@ -132,6 +133,12 @@ export const OrderDetailPage: React.FC = () => {
         >
           📜 Historie
         </button>
+        <button
+          className={`tab ${activeTab === 'time-tracking' ? 'active' : ''}`}
+          onClick={() => handleTabChange('time-tracking')}
+        >
+          ⏱️ Zeiterfassung
+        </button>
       </div>
 
       {/* Tab Content */}
@@ -154,6 +161,10 @@ export const OrderDetailPage: React.FC = () => {
 
         {activeTab === 'history' && (
           <HistoryTab order={order} />
+        )}
+
+        {activeTab === 'time-tracking' && (
+          <TimeTrackingTab orderId={order.id} />
         )}
       </div>
     </div>
