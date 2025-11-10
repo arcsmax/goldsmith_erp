@@ -84,17 +84,52 @@ async def admin_user(db_session: AsyncSession) -> User:
 
 
 @pytest_asyncio.fixture
+def sample_user_password() -> str:
+    """Known password for test users (for login tests)"""
+    return "testpassword123"
+
+
+@pytest_asyncio.fixture
 async def auth_headers(sample_user: User) -> dict:
-    """Authentication headers for API requests"""
-    # TODO: Generate real JWT token when auth is implemented
-    return {"Authorization": f"Bearer fake-token-{sample_user.id}"}
+    """Authentication headers for API requests with real JWT token"""
+    from goldsmith_erp.core.security import create_access_token
+    from datetime import timedelta
+
+    token = create_access_token(
+        data={"sub": str(sample_user.id)},
+        expires_delta=timedelta(hours=1)
+    )
+    return {"Authorization": f"Bearer {token}"}
 
 
 @pytest_asyncio.fixture
 async def admin_auth_headers(admin_user: User) -> dict:
-    """Admin authentication headers for API requests"""
-    # TODO: Generate real JWT token when auth is implemented
-    return {"Authorization": f"Bearer fake-admin-token-{admin_user.id}"}
+    """Admin authentication headers for API requests with real JWT token"""
+    from goldsmith_erp.core.security import create_access_token
+    from datetime import timedelta
+
+    token = create_access_token(
+        data={"sub": str(admin_user.id)},
+        expires_delta=timedelta(hours=1)
+    )
+    return {"Authorization": f"Bearer {token}"}
+
+
+@pytest_asyncio.fixture
+async def inactive_user(db_session: AsyncSession) -> User:
+    """Create an inactive user for testing"""
+    user = User(
+        email="inactive@example.com",
+        hashed_password=get_password_hash("testpassword123"),
+        first_name="Inactive",
+        last_name="User",
+        role=UserRole.USER,
+        is_active=False  # Inactive!
+    )
+    db_session.add(user)
+    await db_session.commit()
+    await db_session.refresh(user)
+    return user
 
 
 # =============================================================================
