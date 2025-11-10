@@ -280,6 +280,471 @@
   color: #333;
 }
 
+/* Details Sections */
+.details-section {
+  margin-bottom: 2.5rem;
+}
+
+.details-section:last-child {
+  margin-bottom: 0;
+}
+
+.details-section h3 {
+  font-size: 1.2rem;
+  color: #333;
+  margin-bottom: 1rem;
+  font-weight: 600;
+  border-bottom: 2px solid #e5e7eb;
+  padding-bottom: 0.5rem;
+}
+
+/* ==================== CUSTOMER INFO CARD ==================== */
+
+.customer-info-card {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  border-radius: 12px;
+  padding: 1.5rem;
+  color: white;
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+  transition: all 0.3s;
+}
+
+.customer-info-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
+}
+
+.customer-info-card.loading {
+  background: #f3f4f6;
+  color: #666;
+  text-align: center;
+  padding: 2rem;
+}
+
+.customer-info-card.error {
+  background: #fee;
+  color: #c33;
+  border: 2px solid #fcc;
+}
+
+.loading-spinner {
+  font-size: 1rem;
+  font-style: italic;
+}
+
+.error-message {
+  font-weight: 600;
+  margin-bottom: 0.5rem;
+}
+
+.customer-id-fallback {
+  font-size: 0.9rem;
+  opacity: 0.8;
+}
+
+.customer-header {
+  margin-bottom: 1rem;
+}
+
+.customer-name {
+  font-size: 1.5rem;
+  font-weight: 700;
+  margin-bottom: 0.5rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.customer-icon {
+  font-size: 1.8rem;
+}
+
+.customer-company {
+  font-size: 1.1rem;
+  opacity: 0.9;
+  font-weight: 500;
+  margin-top: 0.25rem;
+}
+
+.customer-details {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.customer-detail-line {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  font-size: 1rem;
+}
+
+.customer-detail-line.inactive {
+  color: #fcc;
+  font-weight: 600;
+}
+
+.detail-icon {
+  font-size: 1.2rem;
+  width: 1.5rem;
+  text-align: center;
+}
+
+.detail-link {
+  color: white;
+  text-decoration: underline;
+  transition: opacity 0.3s;
+}
+
+.detail-link:hover {
+  opacity: 0.8;
+}
+
+.detail-text {
+  color: white;
+}
+
+.customer-actions {
+  margin-top: 1.5rem;
+  padding-top: 1rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.3);
+}
+
+.btn-customer-link {
+  background: white;
+  color: #667eea;
+  border: none;
+  padding: 0.75rem 1.5rem;
+  border-radius: 8px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s;
+  font-size: 1rem;
+  width: 100%;
+}
+
+.btn-customer-link:hover {
+  background: #f3f4f6;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+/* ==================== COST BREAKDOWN CARD ==================== */
+
+.cost-breakdown {
+  background: white;
+  border-radius: 12px;
+  border: 2px solid #e5e7eb;
+  overflow: hidden;
+}
+
+.cost-breakdown.empty {
+  background: #f8f9fa;
+  padding: 3rem 2rem;
+}
+
+.empty-state {
+  text-align: center;
+  color: #666;
+  font-size: 1.1rem;
+}
+
+.empty-state p {
+  margin: 0;
+  font-weight: 500;
+}
+
+.cost-section {
+  padding: 1.5rem 2rem;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.cost-section:last-child {
+  border-bottom: none;
+}
+
+.cost-section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+
+.cost-section-title {
+  font-size: 1.2rem;
+  font-weight: 700;
+  color: #333;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.override-badge {
+  background: #fbbf24;
+  color: #78350f;
+  padding: 0.25rem 0.75rem;
+  border-radius: 12px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.cost-line {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.75rem 0;
+  font-size: 1rem;
+}
+
+.cost-label {
+  color: #666;
+  font-weight: 500;
+}
+
+.cost-label.strikethrough {
+  text-decoration: line-through;
+  opacity: 0.6;
+}
+
+.cost-amount {
+  font-weight: 600;
+  color: #333;
+  font-size: 1.1rem;
+}
+
+.cost-amount.strikethrough {
+  text-decoration: line-through;
+  opacity: 0.6;
+}
+
+.cost-divider {
+  height: 1px;
+  background: #e5e7eb;
+  margin: 0.5rem 0;
+}
+
+.cost-divider.thick {
+  height: 2px;
+  background: #667eea;
+}
+
+.cost-subtotal {
+  background: #f8f9fa;
+  padding: 1rem 2rem;
+  border-top: 1px solid #e5e7eb;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.cost-subtotal .cost-line {
+  font-size: 1.1rem;
+}
+
+.cost-subtotal .cost-label {
+  font-weight: 600;
+  color: #333;
+}
+
+.cost-total {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  padding: 1.5rem 2rem;
+  color: white;
+}
+
+.cost-total .cost-line {
+  font-size: 1.3rem;
+  font-weight: 700;
+}
+
+.cost-total .cost-label,
+.cost-total .cost-amount {
+  color: white;
+}
+
+.price-comparison {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.3);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.95rem;
+}
+
+.price-comparison-label {
+  opacity: 0.9;
+}
+
+.price-comparison-value {
+  font-weight: 600;
+}
+
+/* ==================== METAL INVENTORY CARD ==================== */
+
+.metal-inventory-card {
+  background: white;
+  border-radius: 12px;
+  border: 2px solid #e5e7eb;
+}
+
+.metal-header {
+  background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+  padding: 1.5rem 2rem;
+  color: white;
+  border-radius: 10px 10px 0 0;
+}
+
+.metal-type-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: rgba(255, 255, 255, 0.2);
+  padding: 0.75rem 1.5rem;
+  border-radius: 20px;
+  font-size: 1.2rem;
+  font-weight: 700;
+  backdrop-filter: blur(10px);
+}
+
+.metal-type-badge.metal-gold-24k,
+.metal-type-badge.metal-gold-18k,
+.metal-type-badge.metal-gold-14k {
+  background: rgba(255, 215, 0, 0.3);
+}
+
+.metal-type-badge.metal-silver-925,
+.metal-type-badge.metal-silver-999 {
+  background: rgba(192, 192, 192, 0.3);
+}
+
+.metal-type-badge.metal-platinum {
+  background: rgba(229, 228, 226, 0.3);
+}
+
+.metal-info {
+  padding: 1.5rem 2rem;
+}
+
+.metal-info-section {
+  margin-bottom: 1.5rem;
+  padding-bottom: 1.5rem;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.metal-info-section:last-child {
+  margin-bottom: 0;
+  padding-bottom: 0;
+  border-bottom: none;
+}
+
+.metal-info-section h3 {
+  font-size: 1.1rem;
+  color: #333;
+  margin-bottom: 1rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-size: 0.9rem;
+  color: #666;
+}
+
+.metal-info-line {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.75rem 0;
+  font-size: 1rem;
+}
+
+.metal-info-label {
+  color: #666;
+  font-weight: 500;
+}
+
+.metal-info-value {
+  font-weight: 600;
+  color: #333;
+  font-size: 1.1rem;
+}
+
+.metal-info-value.highlight {
+  color: #667eea;
+  font-size: 1.2rem;
+}
+
+.weight-calculation {
+  background: #f8f9fa;
+  padding: 1rem;
+  border-radius: 8px;
+  margin-top: 0.5rem;
+  font-size: 0.95rem;
+}
+
+.weight-calculation-line {
+  display: flex;
+  justify-content: space-between;
+  padding: 0.5rem 0;
+  color: #666;
+}
+
+.weight-calculation-total {
+  margin-top: 0.5rem;
+  padding-top: 0.5rem;
+  border-top: 2px solid #e5e7eb;
+  font-weight: 600;
+  color: #333;
+}
+
+.costing-method-info {
+  background: #eff6ff;
+  padding: 1rem;
+  border-radius: 8px;
+  border-left: 4px solid #3b82f6;
+  margin-top: 0.5rem;
+}
+
+.costing-method-desc {
+  color: #1e40af;
+  font-size: 0.95rem;
+  margin: 0;
+  font-weight: 500;
+}
+
+.batch-info {
+  background: #f0fdf4;
+  padding: 1rem;
+  border-radius: 8px;
+  border-left: 4px solid #10b981;
+  margin-top: 0.5rem;
+}
+
+.batch-info strong {
+  color: #065f46;
+}
+
+.metal-actions {
+  padding: 0 2rem 1.5rem 2rem;
+}
+
+.btn-view-inventory {
+  background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+  color: white;
+  border: none;
+  padding: 0.75rem 1.5rem;
+  border-radius: 8px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s;
+  font-size: 1rem;
+  width: 100%;
+}
+
+.btn-view-inventory:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(245, 158, 11, 0.4);
+}
+
 /* Responsive */
 @media (max-width: 768px) {
   .order-detail-header {
@@ -300,5 +765,20 @@
 
   .status-buttons {
     grid-template-columns: 1fr;
+  }
+
+  .cost-line,
+  .metal-info-line {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.25rem;
+  }
+
+  .customer-info-card {
+    padding: 1.25rem;
+  }
+
+  .customer-name {
+    font-size: 1.25rem;
   }
 }

@@ -109,6 +109,10 @@ export interface CustomerStats {
 
 export type OrderStatus = 'new' | 'in_progress' | 'completed' | 'delivered';
 
+export type MetalType = 'gold_24k' | 'gold_18k' | 'gold_14k' | 'silver_925' | 'silver_999' | 'platinum';
+
+export type CostingMethod = 'FIFO' | 'LIFO' | 'AVERAGE' | 'SPECIFIC';
+
 export interface OrderType {
   id: number;
   title: string;
@@ -120,6 +124,31 @@ export interface OrderType {
   created_at: string;
   updated_at: string;
   materials?: MaterialType[];
+
+  // Location
+  current_location?: string | null;
+
+  // Weight & Material
+  estimated_weight_g?: number | null;
+  actual_weight_g?: number | null;
+  scrap_percentage?: number;
+
+  // Metal Inventory
+  metal_type?: MetalType | null;
+  costing_method_used?: CostingMethod;
+  specific_metal_purchase_id?: number | null;
+
+  // Cost Calculation
+  material_cost_calculated?: number | null;
+  material_cost_override?: number | null;
+  labor_hours?: number | null;
+  hourly_rate?: number;
+  labor_cost?: number | null;
+
+  // Pricing
+  profit_margin_percent?: number;
+  vat_rate?: number;
+  calculated_price?: number | null;
 }
 
 export interface OrderCreateInput {
