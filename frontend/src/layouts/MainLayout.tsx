@@ -52,6 +52,14 @@ export const MainLayout: React.FC = () => {
             </Link>
 
             <Link
+              to="/customers"
+              className={`nav-link ${isActivePath('/customers') ? 'active' : ''}`}
+            >
+              <span className="nav-icon">📇</span>
+              Kunden
+            </Link>
+
+            <Link
               to="/orders"
               className={`nav-link ${isActivePath('/orders') ? 'active' : ''}`}
             >

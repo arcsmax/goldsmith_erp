@@ -8,6 +8,7 @@ import {
   LoginPage,
   RegisterPage,
   DashboardPage,
+  CustomersPage,
   MaterialsPage,
   OrdersPage,
   OrderDetailPage,
@@ -36,6 +37,7 @@ const App: React.FC = () => {
             >
               <Route index element={<Navigate to="/dashboard" replace />} />
               <Route path="dashboard" element={<DashboardPage />} />
+              <Route path="customers" element={<CustomersPage />} />
               <Route path="materials" element={<MaterialsPage />} />
               <Route path="orders" element={<OrdersPage />} />
               <Route path="orders/:orderId" element={<OrderDetailPage />} />
