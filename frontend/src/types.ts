@@ -215,3 +215,61 @@ export interface AuthContextType {
   logout: () => void;
   refreshUser: () => Promise<void>;
 }
+
+// ==================== METAL INVENTORY TYPES ====================
+
+export interface MetalPurchaseType {
+  id: number;
+  date_purchased: string;
+  metal_type: MetalType;
+  weight_g: number;
+  remaining_weight_g: number;
+  price_total: number;
+  price_per_gram: number;
+  supplier?: string | null;
+  invoice_number?: string | null;
+  notes?: string | null;
+  lot_number?: string | null;
+  created_at: string;
+  updated_at: string;
+  // Computed properties
+  used_weight_g?: number;
+  usage_percentage?: number;
+  is_depleted?: boolean;
+  remaining_value?: number;
+}
+
+export interface MetalPurchaseCreateInput {
+  date_purchased?: string; // Optional, defaults to now
+  metal_type: MetalType;
+  weight_g: number;
+  price_total: number;
+  supplier?: string;
+  invoice_number?: string;
+  notes?: string;
+  lot_number?: string;
+}
+
+export interface MetalPurchaseUpdateInput {
+  date_purchased?: string;
+  metal_type?: MetalType;
+  weight_g?: number;
+  remaining_weight_g?: number;
+  price_total?: number;
+  price_per_gram?: number;
+  supplier?: string;
+  invoice_number?: string;
+  notes?: string;
+  lot_number?: string;
+}
+
+export interface MetalInventorySummary {
+  metal_type: MetalType;
+  total_weight_g: number;
+  total_remaining_g: number;
+  total_value: number;
+  average_price_per_gram: number;
+  purchase_count: number;
+  oldest_purchase_date?: string;
+  newest_purchase_date?: string;
+}

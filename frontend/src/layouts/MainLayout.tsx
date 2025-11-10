@@ -76,6 +76,14 @@ export const MainLayout: React.FC = () => {
             </Link>
 
             <Link
+              to="/metal-inventory"
+              className={`nav-link ${isActivePath('/metal-inventory') ? 'active' : ''}`}
+            >
+              <span className="nav-icon">🥇</span>
+              Metallinventar
+            </Link>
+
+            <Link
               to="/users"
               className={`nav-link ${isActivePath('/users') ? 'active' : ''}`}
             >
