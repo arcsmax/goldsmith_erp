@@ -331,3 +331,113 @@ async def sample_material(db_session: AsyncSession) -> Material:
     await db_session.commit()
     await db_session.refresh(material)
     return material
+
+
+# =============================================================================
+# Activity & Time Tracking Fixtures
+# =============================================================================
+
+
+@pytest_asyncio.fixture
+async def sample_activity(db_session: AsyncSession):
+    """Create a sample activity for testing"""
+    from goldsmith_erp.db.models import Activity
+
+    activity = Activity(
+        name="Fabrication",
+        category="fabrication",
+        icon="🔨",
+        color="#3498db",
+        usage_count=0,
+        is_custom=False,
+        created_at=datetime.utcnow()
+    )
+    db_session.add(activity)
+    await db_session.commit()
+    await db_session.refresh(activity)
+    return activity
+
+
+@pytest_asyncio.fixture
+async def polishing_activity(db_session: AsyncSession):
+    """Create a polishing activity for testing"""
+    from goldsmith_erp.db.models import Activity
+
+    activity = Activity(
+        name="Polishing",
+        category="finishing",
+        icon="✨",
+        color="#2ecc71",
+        usage_count=0,
+        is_custom=False,
+        created_at=datetime.utcnow()
+    )
+    db_session.add(activity)
+    await db_session.commit()
+    await db_session.refresh(activity)
+    return activity
+
+
+@pytest_asyncio.fixture
+async def sample_time_entry(
+    db_session: AsyncSession,
+    sample_order: Order,
+    sample_activity,
+    sample_user: User
+):
+    """Create a completed time entry for testing"""
+    from goldsmith_erp.db.models import TimeEntry
+    import uuid
+    from datetime import timedelta
+
+    start_time = datetime.utcnow() - timedelta(hours=2)
+    end_time = datetime.utcnow()
+
+    entry = TimeEntry(
+        id=str(uuid.uuid4()),
+        order_id=sample_order.id,
+        user_id=sample_user.id,
+        activity_id=sample_activity.id,
+        start_time=start_time,
+        end_time=end_time,
+        duration_minutes=120,
+        location="Werkbank 1",
+        notes="Test work session",
+        complexity_rating=3,
+        quality_rating=5,
+        rework_required=False,
+        created_at=datetime.utcnow()
+    )
+    db_session.add(entry)
+    await db_session.commit()
+    await db_session.refresh(entry)
+    return entry
+
+
+@pytest_asyncio.fixture
+async def active_time_entry(
+    db_session: AsyncSession,
+    sample_order: Order,
+    sample_activity,
+    sample_user: User
+):
+    """Create an active (running) time entry"""
+    from goldsmith_erp.db.models import TimeEntry
+    import uuid
+    from datetime import timedelta
+
+    entry = TimeEntry(
+        id=str(uuid.uuid4()),
+        order_id=sample_order.id,
+        user_id=sample_user.id,
+        activity_id=sample_activity.id,
+        start_time=datetime.utcnow() - timedelta(minutes=30),
+        end_time=None,  # Still running
+        duration_minutes=None,
+        location="Werkbank 2",
+        created_at=datetime.utcnow()
+    )
+    db_session.add(entry)
+    await db_session.commit()
+    await db_session.refresh(entry)
+    return entry
