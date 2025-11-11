@@ -5,8 +5,11 @@ import { MaterialType, MaterialCreateInput, MaterialUpdateInput } from '../types
 export const materialsApi = {
   /**
    * Get all materials with pagination
+   * @param options - Optional object with skip and limit parameters
    */
-  getAll: async (skip: number = 0, limit: number = 100): Promise<MaterialType[]> => {
+  getAll: async (options?: { skip?: number; limit?: number }): Promise<MaterialType[]> => {
+    const skip = options?.skip ?? 0;
+    const limit = options?.limit ?? 100;
     const response = await apiClient.get<MaterialType[]>('/materials/', {
       params: { skip, limit },
     });

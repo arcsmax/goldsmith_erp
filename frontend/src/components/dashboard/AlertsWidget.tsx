@@ -17,6 +17,7 @@ export const AlertsWidget: React.FC = () => {
   const navigate = useNavigate();
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     fetchAlerts();
@@ -25,6 +26,7 @@ export const AlertsWidget: React.FC = () => {
   const fetchAlerts = async () => {
     try {
       setIsLoading(true);
+      setError(null);
       const alertsList: Alert[] = [];
 
       // Fetch low stock materials
@@ -40,7 +42,10 @@ export const AlertsWidget: React.FC = () => {
             actionLabel: 'Zu Materialien',
           });
         }
-      } catch (e) {}
+      } catch (e) {
+        console.warn('Could not fetch low stock materials:', e);
+        // Continue with other alerts
+      }
 
       // Fetch low metal inventory
       try {
@@ -56,7 +61,10 @@ export const AlertsWidget: React.FC = () => {
             actionLabel: 'Zum Inventar',
           });
         }
-      } catch (e) {}
+      } catch (e) {
+        console.warn('Could not fetch metal inventory:', e);
+        // Continue with other alerts
+      }
 
       // Fetch overdue orders
       try {
@@ -79,7 +87,10 @@ export const AlertsWidget: React.FC = () => {
             actionLabel: 'Zu Aufträgen',
           });
         }
-      } catch (e) {}
+      } catch (e) {
+        console.warn('Could not fetch orders for deadlines:', e);
+        // Continue - might still have other alerts
+      }
 
       // If no alerts, show success message
       if (alertsList.length === 0) {
@@ -92,8 +103,10 @@ export const AlertsWidget: React.FC = () => {
       }
 
       setAlerts(alertsList);
-    } catch (err) {
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : 'Unbekannter Fehler';
       console.error('Failed to fetch alerts:', err);
+      setError(errorMessage);
     } finally {
       setIsLoading(false);
     }
@@ -112,10 +125,30 @@ export const AlertsWidget: React.FC = () => {
     }
   };
 
+  if (error) {
+    return (
+      <div className="alerts-widget">
+        <div className="widget-header">
+          <span className="widget-header-icon">⚠️</span>
+          <h2>Benachrichtigungen</h2>
+        </div>
+        <div className="alerts-error">
+          <p>⚠️ Fehler beim Laden: {error}</p>
+          <button onClick={fetchAlerts} className="retry-button">
+            Erneut versuchen
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   if (isLoading) {
     return (
       <div className="alerts-widget">
-        <h3>⚠️ Benachrichtigungen</h3>
+        <div className="widget-header">
+          <span className="widget-header-icon">⚠️</span>
+          <h2>Benachrichtigungen</h2>
+        </div>
         <div className="alerts-loading">Lade Benachrichtigungen...</div>
       </div>
     );
@@ -123,20 +156,28 @@ export const AlertsWidget: React.FC = () => {
 
   return (
     <div className="alerts-widget">
-      <h3>⚠️ Benachrichtigungen</h3>
+      <div className="widget-header">
+        <span className="widget-header-icon">⚠️</span>
+        <h2>Benachrichtigungen</h2>
+      </div>
       <div className="alerts-list">
         {alerts.map((alert) => (
-          <div key={alert.id} className={`alert alert-${alert.type}`}>
-            <div className="alert-header">
-              <span className="alert-icon">{getAlertIcon(alert.type)}</span>
-              <strong className="alert-title">{alert.title}</strong>
+          <div
+            key={alert.id}
+            className={`alert-item alert-${alert.type} ${alert.action ? 'clickable' : ''}`}
+            onClick={alert.action}
+            style={{ cursor: alert.action ? 'pointer' : 'default' }}
+          >
+            <span className="alert-icon">{getAlertIcon(alert.type)}</span>
+            <div className="alert-content">
+              <h4 className="alert-title">{alert.title}</h4>
+              <p className="alert-message">{alert.message}</p>
+              {alert.action && alert.actionLabel && (
+                <span className="alert-action">
+                  {alert.actionLabel} →
+                </span>
+              )}
             </div>
-            <p className="alert-message">{alert.message}</p>
-            {alert.action && alert.actionLabel && (
-              <button className="alert-action" onClick={alert.action}>
-                {alert.actionLabel} →
-              </button>
-            )}
           </div>
         ))}
       </div>

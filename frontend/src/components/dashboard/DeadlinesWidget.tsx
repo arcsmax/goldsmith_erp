@@ -15,6 +15,7 @@ export const DeadlinesWidget: React.FC = () => {
   const navigate = useNavigate();
   const [deadlines, setDeadlines] = useState<DeadlineItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     fetchDeadlines();
@@ -23,6 +24,7 @@ export const DeadlinesWidget: React.FC = () => {
   const fetchDeadlines = async () => {
     try {
       setIsLoading(true);
+      setError(null);
       const orders = await ordersApi.getAll({ limit: 1000 });
       const ordersList = Array.isArray(orders) ? orders : orders.items || [];
 
@@ -53,8 +55,10 @@ export const DeadlinesWidget: React.FC = () => {
         .slice(0, 5); // Show top 5
 
       setDeadlines(upcomingDeadlines);
-    } catch (err) {
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : 'Unbekannter Fehler';
       console.error('Failed to fetch deadlines:', err);
+      setError(errorMessage);
     } finally {
       setIsLoading(false);
     }
@@ -66,10 +70,30 @@ export const DeadlinesWidget: React.FC = () => {
     return `in ${daysRemaining} Tagen`;
   };
 
+  if (error) {
+    return (
+      <div className="deadlines-widget">
+        <div className="widget-header">
+          <span className="widget-header-icon">📅</span>
+          <h2>Anstehende Fristen</h2>
+        </div>
+        <div className="deadlines-error">
+          <p>⚠️ Fehler beim Laden: {error}</p>
+          <button onClick={fetchDeadlines} className="retry-button">
+            Erneut versuchen
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   if (isLoading) {
     return (
       <div className="deadlines-widget">
-        <h3>📅 Anstehende Fristen</h3>
+        <div className="widget-header">
+          <span className="widget-header-icon">📅</span>
+          <h2>Anstehende Fristen</h2>
+        </div>
         <div className="deadlines-loading">Lade Fristen...</div>
       </div>
     );
@@ -78,9 +102,13 @@ export const DeadlinesWidget: React.FC = () => {
   if (deadlines.length === 0) {
     return (
       <div className="deadlines-widget">
-        <h3>📅 Anstehende Fristen</h3>
-        <div className="deadlines-empty">
-          <p>✅ Keine anstehenden Fristen in den nächsten 14 Tagen</p>
+        <div className="widget-header">
+          <span className="widget-header-icon">📅</span>
+          <h2>Anstehende Fristen</h2>
+        </div>
+        <div className="no-deadlines">
+          <div className="no-deadlines-icon">✅</div>
+          <p>Keine anstehenden Fristen in den nächsten 14 Tagen</p>
         </div>
       </div>
     );
@@ -88,7 +116,10 @@ export const DeadlinesWidget: React.FC = () => {
 
   return (
     <div className="deadlines-widget">
-      <h3>📅 Anstehende Fristen ({deadlines.length})</h3>
+      <div className="widget-header">
+        <span className="widget-header-icon">📅</span>
+        <h2>Anstehende Fristen ({deadlines.length})</h2>
+      </div>
       <div className="deadlines-list">
         {deadlines.map((item) => (
           <div
@@ -96,19 +127,26 @@ export const DeadlinesWidget: React.FC = () => {
             className={`deadline-item deadline-${item.urgency}`}
             onClick={() => navigate(`/orders/${item.order.id}`)}
           >
-            <div className="deadline-header">
-              <span className="deadline-title">{item.order.title}</span>
-              <span className={`deadline-badge deadline-badge-${item.urgency}`}>
-                {formatDeadline(item.daysRemaining)}
-              </span>
+            <div className={`deadline-badge deadline-${item.urgency}`}>
+              <div className="deadline-days">{item.daysRemaining}</div>
+              <div className="deadline-label">
+                {item.daysRemaining === 1 ? 'TAG' : 'TAGE'}
+              </div>
             </div>
-            <div className="deadline-details">
-              {item.order.customer && (
-                <span className="deadline-customer">
-                  {item.order.customer.first_name} {item.order.customer.last_name}
-                </span>
-              )}
-              <span className="deadline-status">• {item.order.status}</span>
+            <div className="deadline-content">
+              <h4 className="deadline-title">{item.order.title}</h4>
+              <div className="deadline-meta">
+                {item.order.customer && (
+                  <span className="deadline-customer">
+                    👤 {item.order.customer.first_name} {item.order.customer.last_name}
+                  </span>
+                )}
+                {item.order.deadline && (
+                  <span className="deadline-date">
+                    📅 {new Date(item.order.deadline).toLocaleDateString('de-DE')}
+                  </span>
+                )}
+              </div>
             </div>
           </div>
         ))}

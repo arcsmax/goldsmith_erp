@@ -120,6 +120,7 @@ export interface OrderType {
   price: number | null;
   status: OrderStatus;
   customer_id: number;
+  customer?: Customer; // Optional - populated when fetching with relations
   deadline?: string | null;
   created_at: string;
   updated_at: string;

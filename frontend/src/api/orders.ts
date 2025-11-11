@@ -5,8 +5,11 @@ import { OrderType, OrderCreateInput, OrderUpdateInput } from '../types';
 export const ordersApi = {
   /**
    * Get all orders with pagination
+   * @param options - Optional object with skip and limit parameters
    */
-  getAll: async (skip: number = 0, limit: number = 100): Promise<OrderType[]> => {
+  getAll: async (options?: { skip?: number; limit?: number }): Promise<OrderType[]> => {
+    const skip = options?.skip ?? 0;
+    const limit = options?.limit ?? 100;
     const response = await apiClient.get<OrderType[]>('/orders/', {
       params: { skip, limit },
     });

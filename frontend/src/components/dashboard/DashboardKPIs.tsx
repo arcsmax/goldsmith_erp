@@ -3,6 +3,8 @@ import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ordersApi, metalInventoryApi, timeTrackingApi } from '../../api';
 import { KPICard } from './KPICard';
+import { formatCurrency } from '../../utils/formatters';
+import { getWeekStart, getTodayEnd, getMonthStart } from '../../utils/dateHelpers';
 import '../../styles/dashboard.css';
 
 interface KPIStats {
@@ -33,8 +35,8 @@ export const DashboardKPIs: React.FC = () => {
         ordersApi.getAll({ limit: 1000 }),
         metalInventoryApi.getTotalValue(),
         timeTrackingApi.getSummary({
-          start_date: getWeekStart(),
-          end_date: getTodayEnd(),
+          start_date: getWeekStart().toISOString().split('T')[0],
+          end_date: getTodayEnd().toISOString().split('T')[0],
         }).catch(() => ({ total_hours: 0, billable_hours: 0, entries_count: 0, average_session_minutes: 0 })),
       ]);
 
@@ -48,9 +50,7 @@ export const DashboardKPIs: React.FC = () => {
       const inProduction = orders.filter((o) => o.status === 'in_progress').length;
 
       // Monthly revenue (completed orders this month)
-      const monthStart = new Date();
-      monthStart.setDate(1);
-      monthStart.setHours(0, 0, 0, 0);
+      const monthStart = getMonthStart();
 
       const monthlyRevenue = orders
         .filter((o) => {
@@ -75,30 +75,6 @@ export const DashboardKPIs: React.FC = () => {
     }
   };
 
-  const getWeekStart = (): string => {
-    const now = new Date();
-    const day = now.getDay();
-    const diff = now.getDate() - day + (day === 0 ? -6 : 1); // Monday
-    const monday = new Date(now.setDate(diff));
-    monday.setHours(0, 0, 0, 0);
-    return monday.toISOString().split('T')[0];
-  };
-
-  const getTodayEnd = (): string => {
-    const now = new Date();
-    now.setHours(23, 59, 59, 999);
-    return now.toISOString().split('T')[0];
-  };
-
-  const formatCurrency = (amount: number): string => {
-    return new Intl.NumberFormat('de-DE', {
-      style: 'currency',
-      currency: 'EUR',
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 0,
-    }).format(amount);
-  };
-
   if (error) {
     return (
       <div className="dashboard-error">
@@ -121,7 +97,7 @@ export const DashboardKPIs: React.FC = () => {
 
       <KPICard
         title="Umsatz (Monat)"
-        value={stats ? formatCurrency(stats.monthlyRevenue) : '€0'}
+        value={stats ? formatCurrency(stats.monthlyRevenue, 0) : '€0'}
         icon="💰"
         loading={isLoading}
         color="green"
@@ -129,7 +105,7 @@ export const DashboardKPIs: React.FC = () => {
 
       <KPICard
         title="Inventarwert"
-        value={stats ? formatCurrency(stats.inventoryValue) : '€0'}
+        value={stats ? formatCurrency(stats.inventoryValue, 0) : '€0'}
         icon="📦"
         loading={isLoading}
         onClick={() => navigate('/metal-inventory')}
