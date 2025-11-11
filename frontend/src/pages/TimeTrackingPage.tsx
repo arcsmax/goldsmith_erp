@@ -1,17 +1,23 @@
-// Time Tracking Page Component
-import React, { useEffect, useState } from 'react';
+// Time Tracking Page Component - Optimized
+import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import { timeTrackingApi } from '../api';
 import { TimeEntryType, TimeEntryCreateInput, TimeEntryUpdateInput, ActivityType } from '../types';
 import { ActiveTimerWidget } from '../components/time-tracking/ActiveTimerWidget';
 import { TimeSummaryCards } from '../components/time-tracking/TimeSummaryCards';
 import { TimeReportsSection } from '../components/time-tracking/TimeReportsSection';
 import { TimeEntryFormModal } from '../components/time-tracking/TimeEntryFormModal';
+import { formatDateTime, formatDuration as formatDurationUtil } from '../utils/formatters';
 import '../styles/pages.css';
 import '../styles/time-tracking.css';
 
+// Helper function for duration formatting
+const formatDuration = (minutes: number | null): string => {
+  if (minutes === null) return 'Läuft...';
+  return formatDurationUtil(minutes);
+};
+
 export const TimeTrackingPage: React.FC = () => {
   const [entries, setEntries] = useState<TimeEntryType[]>([]);
-  const [filteredEntries, setFilteredEntries] = useState<TimeEntryType[]>([]);
   const [activities, setActivities] = useState<ActivityType[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -26,16 +32,8 @@ export const TimeTrackingPage: React.FC = () => {
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState(25);
 
-  useEffect(() => {
-    fetchEntries();
-    fetchActivities();
-  }, []);
-
-  useEffect(() => {
-    filterAndSortEntries();
-  }, [entries, searchQuery, filterActivity, sortBy]);
-
-  const fetchEntries = async () => {
+  // Memoized fetch functions
+  const fetchEntries = useCallback(async () => {
     try {
       setIsLoading(true);
       setError(null);
@@ -46,18 +44,31 @@ export const TimeTrackingPage: React.FC = () => {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, []);
 
-  const fetchActivities = async () => {
+  const fetchActivities = useCallback(async () => {
     try {
       const data = await timeTrackingApi.getAllActivities();
       setActivities(data);
     } catch (err: any) {
-      console.error('Failed to fetch activities:', err);
+      setError('Fehler beim Laden der Aktivitäten');
     }
-  };
+  }, []);
 
-  const filterAndSortEntries = () => {
+  useEffect(() => {
+    fetchEntries();
+    fetchActivities();
+  }, [fetchEntries, fetchActivities]);
+
+  // Create activity lookup map for O(1) performance
+  const activityMap = useMemo(() => {
+    const map = new Map<number, ActivityType>();
+    activities.forEach(activity => map.set(activity.id, activity));
+    return map;
+  }, [activities]);
+
+  // Replace useEffect with useMemo for better performance
+  const filteredEntries = useMemo(() => {
     let filtered = [...entries];
 
     // Search filter
@@ -86,10 +97,18 @@ export const TimeTrackingPage: React.FC = () => {
       return 0;
     });
 
-    setFilteredEntries(filtered);
-  };
+    return filtered;
+  }, [entries, searchQuery, filterActivity, sortBy]);
 
-  const handleCreateEntry = async (data: TimeEntryCreateInput) => {
+  // Memoized pagination calculations
+  const totalPages = useMemo(() => Math.ceil(filteredEntries.length / pageSize), [filteredEntries.length, pageSize]);
+  const paginatedEntries = useMemo(
+    () => filteredEntries.slice(page * pageSize, (page + 1) * pageSize),
+    [filteredEntries, page, pageSize]
+  );
+
+  // Memoized event handlers
+  const handleCreateEntry = useCallback(async (data: TimeEntryCreateInput) => {
     try {
       setIsFormLoading(true);
       await timeTrackingApi.create(data);
@@ -101,9 +120,9 @@ export const TimeTrackingPage: React.FC = () => {
     } finally {
       setIsFormLoading(false);
     }
-  };
+  }, [fetchEntries]);
 
-  const handleUpdateEntry = async (data: TimeEntryUpdateInput) => {
+  const handleUpdateEntry = useCallback(async (data: TimeEntryUpdateInput) => {
     if (!selectedEntry) return;
 
     try {
@@ -118,9 +137,9 @@ export const TimeTrackingPage: React.FC = () => {
     } finally {
       setIsFormLoading(false);
     }
-  };
+  }, [selectedEntry, fetchEntries]);
 
-  const handleDeleteEntry = async (entryId: string) => {
+  const handleDeleteEntry = useCallback(async (entryId: string) => {
     const confirmed = window.confirm(
       'Möchten Sie diese Zeiterfassung wirklich löschen?'
     );
@@ -134,55 +153,31 @@ export const TimeTrackingPage: React.FC = () => {
     } catch (err: any) {
       alert(err.response?.data?.detail || 'Fehler beim Löschen der Zeiterfassung');
     }
-  };
+  }, [fetchEntries]);
 
-  const openCreateModal = () => {
+  const openCreateModal = useCallback(() => {
     setSelectedEntry(null);
     setIsModalOpen(true);
-  };
+  }, []);
 
-  const openEditModal = (entry: TimeEntryType, e: React.MouseEvent) => {
+  const openEditModal = useCallback((entry: TimeEntryType, e: React.MouseEvent) => {
     e.stopPropagation();
     setSelectedEntry(entry);
     setIsModalOpen(true);
-  };
+  }, []);
 
-  const closeModal = () => {
+  const closeModal = useCallback(() => {
     setIsModalOpen(false);
     setSelectedEntry(null);
-  };
+  }, []);
 
-  const handleFormSubmit = async (data: TimeEntryCreateInput | TimeEntryUpdateInput) => {
+  const handleFormSubmit = useCallback(async (data: TimeEntryCreateInput | TimeEntryUpdateInput) => {
     if (selectedEntry) {
       await handleUpdateEntry(data);
     } else {
       await handleCreateEntry(data as TimeEntryCreateInput);
     }
-  };
-
-  const formatDate = (dateStr: string): string => {
-    return new Date(dateStr).toLocaleString('de-DE', {
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
-  };
-
-  const formatDuration = (minutes: number | null): string => {
-    if (minutes === null) return 'Läuft...';
-    const hrs = Math.floor(minutes / 60);
-    const mins = minutes % 60;
-    return `${hrs}h ${mins}m`;
-  };
-
-  // Pagination
-  const totalPages = Math.ceil(filteredEntries.length / pageSize);
-  const paginatedEntries = filteredEntries.slice(
-    page * pageSize,
-    (page + 1) * pageSize
-  );
+  }, [selectedEntry, handleUpdateEntry, handleCreateEntry]);
 
   return (
     <div className="page-container">
@@ -290,14 +285,14 @@ export const TimeTrackingPage: React.FC = () => {
               </thead>
               <tbody>
                 {paginatedEntries.map((entry) => {
-                  const activity = activities.find((a) => a.id === entry.activity_id);
+                  const activity = activityMap.get(entry.activity_id);
                   const isRunning = !entry.end_time;
 
                   return (
                     <tr key={entry.id} className={isRunning ? 'running' : ''}>
                       <td>#{entry.id.slice(0, 8)}</td>
-                      <td>{formatDate(entry.start_time)}</td>
-                      <td>{entry.end_time ? formatDate(entry.end_time) : 'Läuft...'}</td>
+                      <td>{formatDateTime(entry.start_time)}</td>
+                      <td>{entry.end_time ? formatDateTime(entry.end_time) : 'Läuft...'}</td>
                       <td>
                         <span className={`duration-badge ${isRunning ? 'running' : ''}`}>
                           {formatDuration(entry.duration_minutes)}
