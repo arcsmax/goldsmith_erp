@@ -1,5 +1,5 @@
 // Alerts Widget - Shows important notifications
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { materialsApi, metalInventoryApi, ordersApi } from '../../api';
 import '../../styles/dashboard.css';
@@ -19,11 +19,7 @@ export const AlertsWidget: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    fetchAlerts();
-  }, []);
-
-  const fetchAlerts = async () => {
+  const fetchAlerts = useCallback(async () => {
     try {
       setIsLoading(true);
       setError(null);
@@ -110,9 +106,14 @@ export const AlertsWidget: React.FC = () => {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [navigate]); // Depends on navigate for alert actions
 
-  const getAlertIcon = (type: Alert['type']): string => {
+  useEffect(() => {
+    fetchAlerts();
+  }, [fetchAlerts]);
+
+  // Memoize icon selector to avoid recreating on every render
+  const getAlertIcon = useCallback((type: Alert['type']): string => {
     switch (type) {
       case 'error':
         return '🔴';
@@ -123,7 +124,7 @@ export const AlertsWidget: React.FC = () => {
       default:
         return '📢';
     }
-  };
+  }, []);
 
   if (error) {
     return (

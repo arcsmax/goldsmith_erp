@@ -1,5 +1,5 @@
 // Dashboard KPIs Component - Displays 5 key metrics
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ordersApi, metalInventoryApi, timeTrackingApi } from '../../api';
 import { KPICard } from './KPICard';
@@ -21,11 +21,7 @@ export const DashboardKPIs: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    fetchAllKPIs();
-  }, []);
-
-  const fetchAllKPIs = async () => {
+  const fetchAllKPIs = useCallback(async () => {
     try {
       setIsLoading(true);
       setError(null);
@@ -73,7 +69,33 @@ export const DashboardKPIs: React.FC = () => {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, []); // Empty deps - function doesn't depend on external values
+
+  useEffect(() => {
+    fetchAllKPIs();
+  }, [fetchAllKPIs]);
+
+  // Memoize navigation handlers to prevent unnecessary re-renders
+  const navigateToOrders = useCallback(() => navigate('/orders'), [navigate]);
+  const navigateToOrdersInProgress = useCallback(() => navigate('/orders?status=in_progress'), [navigate]);
+  const navigateToMetalInventory = useCallback(() => navigate('/metal-inventory'), [navigate]);
+  const navigateToTimeTracking = useCallback(() => navigate('/time-tracking'), [navigate]);
+
+  // Memoize formatted values to avoid recalculation on every render
+  const formattedMonthlyRevenue = useMemo(
+    () => stats ? formatCurrency(stats.monthlyRevenue, 0) : '€0',
+    [stats]
+  );
+
+  const formattedInventoryValue = useMemo(
+    () => stats ? formatCurrency(stats.inventoryValue, 0) : '€0',
+    [stats]
+  );
+
+  const formattedWeeklyHours = useMemo(
+    () => stats ? `${stats.weeklyHours.toFixed(1)}h` : '0h',
+    [stats]
+  );
 
   if (error) {
     return (
@@ -91,13 +113,13 @@ export const DashboardKPIs: React.FC = () => {
         value={stats?.activeOrders ?? 0}
         icon="📊"
         loading={isLoading}
-        onClick={() => navigate('/orders')}
+        onClick={navigateToOrders}
         color="blue"
       />
 
       <KPICard
         title="Umsatz (Monat)"
-        value={stats ? formatCurrency(stats.monthlyRevenue, 0) : '€0'}
+        value={formattedMonthlyRevenue}
         icon="💰"
         loading={isLoading}
         color="green"
@@ -105,10 +127,10 @@ export const DashboardKPIs: React.FC = () => {
 
       <KPICard
         title="Inventarwert"
-        value={stats ? formatCurrency(stats.inventoryValue, 0) : '€0'}
+        value={formattedInventoryValue}
         icon="📦"
         loading={isLoading}
-        onClick={() => navigate('/metal-inventory')}
+        onClick={navigateToMetalInventory}
         color="purple"
       />
 
@@ -117,16 +139,16 @@ export const DashboardKPIs: React.FC = () => {
         value={stats?.inProduction ?? 0}
         icon="🔨"
         loading={isLoading}
-        onClick={() => navigate('/orders?status=in_progress')}
+        onClick={navigateToOrdersInProgress}
         color="orange"
       />
 
       <KPICard
         title="Stunden (Woche)"
-        value={stats ? `${stats.weeklyHours.toFixed(1)}h` : '0h'}
+        value={formattedWeeklyHours}
         icon="⏱️"
         loading={isLoading}
-        onClick={() => navigate('/time-tracking')}
+        onClick={navigateToTimeTracking}
         color="teal"
       />
     </div>

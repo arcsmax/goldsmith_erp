@@ -1,5 +1,5 @@
 // Deadlines Widget - Shows upcoming order deadlines
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ordersApi } from '../../api';
 import { OrderType } from '../../types';
@@ -17,11 +17,7 @@ export const DeadlinesWidget: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    fetchDeadlines();
-  }, []);
-
-  const fetchDeadlines = async () => {
+  const fetchDeadlines = useCallback(async () => {
     try {
       setIsLoading(true);
       setError(null);
@@ -62,13 +58,23 @@ export const DeadlinesWidget: React.FC = () => {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, []); // No dependencies - pure data fetch
 
-  const formatDeadline = (daysRemaining: number): string => {
+  useEffect(() => {
+    fetchDeadlines();
+  }, [fetchDeadlines]);
+
+  // Memoize format function (although it's simple, it's called in map)
+  const formatDeadline = useCallback((daysRemaining: number): string => {
     if (daysRemaining === 0) return 'Heute';
     if (daysRemaining === 1) return 'Morgen';
     return `in ${daysRemaining} Tagen`;
-  };
+  }, []);
+
+  // Memoize navigation handler factory
+  const handleOrderClick = useCallback((orderId: number) => {
+    return () => navigate(`/orders/${orderId}`);
+  }, [navigate]);
 
   if (error) {
     return (
@@ -125,7 +131,7 @@ export const DeadlinesWidget: React.FC = () => {
           <div
             key={item.order.id}
             className={`deadline-item deadline-${item.urgency}`}
-            onClick={() => navigate(`/orders/${item.order.id}`)}
+            onClick={handleOrderClick(item.order.id)}
           >
             <div className={`deadline-badge deadline-${item.urgency}`}>
               <div className="deadline-days">{item.daysRemaining}</div>

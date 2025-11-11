@@ -1,10 +1,14 @@
 # src/goldsmith_erp/models/order.py
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from datetime import datetime
-from typing import Optional, List
+from typing import Optional, List, TYPE_CHECKING
 from decimal import Decimal
 
 from goldsmith_erp.db.models import OrderStatusEnum, MetalType, CostingMethod
+
+# Use TYPE_CHECKING to avoid circular import issues
+if TYPE_CHECKING:
+    from goldsmith_erp.models.customer import CustomerRead
 
 
 class MaterialBase(BaseModel):
@@ -213,6 +217,7 @@ class OrderRead(OrderBase):
     id: int
     status: OrderStatusEnum
     customer_id: int
+    customer: Optional["CustomerRead"] = None  # Optional - populated when explicitly requested
     deadline: Optional[datetime] = None
     current_location: Optional[str] = None
 
@@ -243,3 +248,20 @@ class OrderRead(OrderBase):
     materials: Optional[List[MaterialBase]] = None
 
     model_config = ConfigDict(from_attributes=True)
+
+
+# Resolve forward references after all models are defined
+# This allows the CustomerRead forward reference to be properly resolved
+def _resolve_forward_refs():
+    """Resolve forward references in OrderRead model."""
+    try:
+        from goldsmith_erp.models.customer import CustomerRead
+        OrderRead.model_rebuild()
+    except ImportError:
+        # If customer module isn't available yet, that's okay
+        # The forward reference will be resolved when it's imported elsewhere
+        pass
+
+
+# Call the resolver
+_resolve_forward_refs()
