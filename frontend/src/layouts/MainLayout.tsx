@@ -84,6 +84,14 @@ export const MainLayout: React.FC = () => {
             </Link>
 
             <Link
+              to="/time-tracking"
+              className={`nav-link ${isActivePath('/time-tracking') ? 'active' : ''}`}
+            >
+              <span className="nav-icon">⏱️</span>
+              Zeiterfassung
+            </Link>
+
+            <Link
               to="/users"
               className={`nav-link ${isActivePath('/users') ? 'active' : ''}`}
             >

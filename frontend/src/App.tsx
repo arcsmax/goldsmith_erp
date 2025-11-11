@@ -13,6 +13,7 @@ import {
   MetalInventoryPage,
   OrdersPage,
   OrderDetailPage,
+  TimeTrackingPage,
   UsersPage,
   ScannerPage,
 } from './pages';
@@ -43,6 +44,7 @@ const App: React.FC = () => {
               <Route path="metal-inventory" element={<MetalInventoryPage />} />
               <Route path="orders" element={<OrdersPage />} />
               <Route path="orders/:orderId" element={<OrderDetailPage />} />
+              <Route path="time-tracking" element={<TimeTrackingPage />} />
               <Route path="users" element={<UsersPage />} />
               <Route path="scanner" element={<ScannerPage />} />
             </Route>

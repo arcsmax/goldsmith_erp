@@ -1,0 +1,792 @@
+/* ============================================================================
+   TIME TRACKING STYLES
+   ============================================================================ */
+
+/* ==================== COLOR VARIABLES ====================  */
+:root {
+  --timer-running: #27ae60;
+  --timer-paused: #f39c12;
+  --timer-stopped: #95a5a6;
+  --timer-gradient-start: #3498db;
+  --timer-gradient-end: #2980b9;
+  --chart-primary: #3498db;
+  --chart-secondary: #2ecc71;
+  --chart-tertiary: #e74c3c;
+}
+
+/* ==================== ACTIVE TIMER WIDGET ==================== */
+
+.timer-widget {
+  background: linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%);
+  border-radius: 16px;
+  padding: 2rem;
+  margin-bottom: 2rem;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  border: 2px solid #e0e0e0;
+  transition: all 0.3s ease;
+}
+
+.timer-widget.running {
+  border-color: var(--timer-running);
+  box-shadow: 0 4px 20px rgba(39, 174, 96, 0.3);
+  animation: pulseGlow 2s ease-in-out infinite;
+}
+
+@keyframes pulseGlow {
+  0%, 100% {
+    box-shadow: 0 4px 20px rgba(39, 174, 96, 0.3);
+  }
+  50% {
+    box-shadow: 0 4px 30px rgba(39, 174, 96, 0.5);
+  }
+}
+
+.timer-widget.stopped {
+  border-color: #e0e0e0;
+}
+
+.timer-widget.minimized {
+  padding: 1rem 1.5rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.timer-widget.minimized:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.2);
+}
+
+.timer-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1.5rem;
+}
+
+.timer-header h2 {
+  margin: 0;
+  font-size: 1.5rem;
+  color: #2c3e50;
+}
+
+.btn-minimize {
+  background: #ecf0f1;
+  border: none;
+  border-radius: 50%;
+  width: 36px;
+  height: 36px;
+  font-size: 1rem;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-minimize:hover {
+  background: #bdc3c7;
+  transform: scale(1.1);
+}
+
+.timer-minimal-content {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.timer-minimal-icon {
+  font-size: 1.5rem;
+}
+
+.timer-minimal-display {
+  font-size: 1.5rem;
+  font-weight: 700;
+  font-family: 'Courier New', monospace;
+  color: var(--timer-running);
+}
+
+.timer-minimal-order {
+  font-size: 1rem;
+  color: #666;
+}
+
+.timer-error {
+  background: #ffe5e5;
+  border: 1px solid #e74c3c;
+  border-radius: 8px;
+  padding: 1rem;
+  margin-bottom: 1rem;
+  color: #c0392b;
+  font-weight: 500;
+}
+
+.timer-setup {
+  width: 100%;
+}
+
+.timer-form {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 1.25rem;
+}
+
+.timer-form .form-group {
+  display: flex;
+  flex-direction: column;
+}
+
+.timer-form .form-group:nth-child(3),
+.timer-form .form-group:nth-child(4) {
+  grid-column: span 1;
+}
+
+.timer-form .form-group:nth-child(5) {
+  grid-column: span 2;
+}
+
+.btn-start-timer {
+  grid-column: span 2;
+  background: linear-gradient(135deg, var(--timer-gradient-start), var(--timer-gradient-end));
+  color: white;
+  border: none;
+  border-radius: 10px;
+  padding: 1rem 2rem;
+  font-size: 1.125rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.3s;
+  margin-top: 1rem;
+}
+
+.btn-start-timer:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(52, 152, 219, 0.4);
+}
+
+.btn-start-timer:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.timer-active {
+  text-align: center;
+}
+
+.timer-display {
+  font-size: 5rem;
+  font-family: 'Courier New', monospace;
+  font-weight: 700;
+  color: var(--timer-running);
+  margin: 2rem 0;
+  text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.timer-info {
+  background: #f8f9fa;
+  border-radius: 12px;
+  padding: 1.5rem;
+  margin: 2rem 0;
+  text-align: left;
+}
+
+.timer-info-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.75rem 0;
+  border-bottom: 1px solid #e0e0e0;
+}
+
+.timer-info-row:last-child {
+  border-bottom: none;
+}
+
+.info-label {
+  font-weight: 600;
+  color: #666;
+}
+
+.info-value {
+  color: #2c3e50;
+  font-weight: 500;
+}
+
+.timer-controls {
+  display: flex;
+  gap: 1rem;
+  justify-content: center;
+  margin-top: 2rem;
+}
+
+.btn-timer {
+  padding: 1rem 2rem;
+  border: none;
+  border-radius: 10px;
+  font-size: 1.125rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-timer:hover:not(:disabled) {
+  transform: translateY(-2px);
+}
+
+.btn-timer:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-pause {
+  background: var(--timer-paused);
+  color: white;
+}
+
+.btn-pause:hover:not(:disabled) {
+  box-shadow: 0 4px 12px rgba(243, 156, 18, 0.4);
+}
+
+.btn-resume {
+  background: var(--timer-running);
+  color: white;
+}
+
+.btn-resume:hover:not(:disabled) {
+  box-shadow: 0 4px 12px rgba(39, 174, 96, 0.4);
+}
+
+.btn-stop {
+  background: var(--timer-tertiary);
+  color: white;
+}
+
+.btn-stop:hover:not(:disabled) {
+  box-shadow: 0 4px 12px rgba(231, 76, 60, 0.4);
+}
+
+/* ==================== TIME SUMMARY CARDS ==================== */
+
+.time-summary-container {
+  background: white;
+  border-radius: 12px;
+  padding: 1.5rem;
+  margin-bottom: 2rem;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.time-summary-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1.5rem;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.time-summary-header h2 {
+  margin: 0;
+  font-size: 1.5rem;
+  color: #2c3e50;
+}
+
+.period-selector {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.period-btn {
+  padding: 0.5rem 1rem;
+  border: 1px solid #ddd;
+  background: white;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-size: 0.875rem;
+}
+
+.period-btn:hover {
+  background: #f8f9fa;
+  border-color: #3498db;
+}
+
+.period-btn.active {
+  background: #3498db;
+  color: white;
+  border-color: #3498db;
+}
+
+.time-summary-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 1.5rem;
+}
+
+.summary-card {
+  background: linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%);
+  border-radius: 12px;
+  padding: 1.5rem;
+  border: 2px solid #e0e0e0;
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.summary-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.15);
+}
+
+.summary-card .card-header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.summary-card .card-icon {
+  font-size: 2rem;
+}
+
+.summary-card .card-header h3 {
+  margin: 0;
+  font-size: 1rem;
+  color: #666;
+  font-weight: 600;
+}
+
+.summary-card .card-value {
+  margin: 1.5rem 0;
+}
+
+.summary-card .main-value {
+  display: block;
+  font-size: 2.5rem;
+  font-weight: 700;
+  color: #2c3e50;
+  line-height: 1;
+}
+
+.summary-card .main-value.activity-name {
+  font-size: 1.5rem;
+}
+
+.summary-card .sub-value {
+  display: block;
+  font-size: 0.875rem;
+  color: #999;
+  margin-top: 0.5rem;
+}
+
+.summary-card .comparison {
+  display: block;
+  font-size: 0.875rem;
+  font-weight: 600;
+  margin-top: 0.5rem;
+}
+
+.comparison.positive {
+  color: #27ae60;
+}
+
+.comparison.negative {
+  color: #e74c3c;
+}
+
+.summary-card .card-footer {
+  color: #999;
+  font-size: 0.875rem;
+  border-top: 1px solid #e0e0e0;
+  padding-top: 1rem;
+}
+
+.time-summary-loading,
+.time-summary-error {
+  padding: 2rem;
+  text-align: center;
+  background: white;
+  border-radius: 12px;
+  margin-bottom: 2rem;
+}
+
+.time-summary-error {
+  color: #e74c3c;
+}
+
+/* ==================== TIME REPORTS SECTION ==================== */
+
+.time-reports-container {
+  background: white;
+  border-radius: 12px;
+  padding: 1.5rem;
+  margin-bottom: 2rem;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.time-reports-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1.5rem;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.time-reports-header h2 {
+  margin: 0;
+  font-size: 1.5rem;
+  color: #2c3e50;
+}
+
+.chart-selector {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.chart-btn {
+  padding: 0.5rem 1rem;
+  border: 1px solid #ddd;
+  background: white;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-size: 0.875rem;
+}
+
+.chart-btn:hover {
+  background: #f8f9fa;
+  border-color: #3498db;
+}
+
+.chart-btn.active {
+  background: #3498db;
+  color: white;
+  border-color: #3498db;
+}
+
+.chart-container {
+  margin-top: 1.5rem;
+}
+
+.chart-wrapper {
+  background: #f8f9fa;
+  border-radius: 12px;
+  padding: 1.5rem;
+}
+
+.chart-wrapper h3 {
+  margin: 0 0 1.5rem 0;
+  font-size: 1.125rem;
+  color: #2c3e50;
+  text-align: center;
+}
+
+.chart-empty {
+  text-align: center;
+  padding: 4rem;
+  color: #999;
+  font-size: 1.125rem;
+}
+
+.chart-insights {
+  margin-top: 1.5rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid #e0e0e0;
+}
+
+.insight {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem;
+  background: #f0f8ff;
+  border-radius: 8px;
+  margin-bottom: 0.5rem;
+}
+
+.insight-icon {
+  font-size: 1.5rem;
+}
+
+.insight-text {
+  color: #2c3e50;
+  font-weight: 500;
+}
+
+.time-reports-loading,
+.time-reports-error {
+  padding: 2rem;
+  text-align: center;
+  background: white;
+  border-radius: 12px;
+  margin-bottom: 2rem;
+}
+
+.time-reports-error {
+  color: #e74c3c;
+}
+
+/* ==================== TIME TRACKING CONTROLS ==================== */
+
+.time-tracking-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+  padding: 1rem;
+  background: white;
+  border-radius: 8px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+/* ==================== TIME ENTRIES TABLE ==================== */
+
+.time-entries-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: white;
+}
+
+.time-entries-table thead {
+  background: linear-gradient(135deg, #3498db 0%, #2980b9 100%);
+  color: white;
+}
+
+.time-entries-table th {
+  padding: 1rem 0.75rem;
+  text-align: left;
+  font-weight: 600;
+  font-size: 0.875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.time-entries-table tbody tr {
+  border-bottom: 1px solid #e0e0e0;
+  transition: background-color 0.2s;
+}
+
+.time-entries-table tbody tr:hover {
+  background-color: #f8f9fa;
+}
+
+.time-entries-table tbody tr.running {
+  background-color: #e8f8f5;
+  border-left: 4px solid var(--timer-running);
+}
+
+.time-entries-table td {
+  padding: 1rem 0.75rem;
+  font-size: 0.9rem;
+}
+
+.duration-badge {
+  display: inline-block;
+  padding: 0.375rem 0.75rem;
+  background: #ecf0f1;
+  border-radius: 6px;
+  font-weight: 600;
+  color: #2c3e50;
+}
+
+.duration-badge.running {
+  background: #d5f4e6;
+  color: var(--timer-running);
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.7;
+  }
+}
+
+.activity-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.375rem 0.75rem;
+  background: #f0f0f0;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #2c3e50;
+}
+
+.notes-cell {
+  max-width: 200px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.time-page-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+/* ==================== TIME ENTRY FORM MODAL ==================== */
+
+.time-entry-modal {
+  max-width: 800px;
+  width: 90%;
+}
+
+.time-entry-modal .form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 1.25rem;
+  margin-bottom: 1.25rem;
+}
+
+.time-entry-modal .form-group.full-width {
+  grid-column: span 2;
+}
+
+.time-entry-modal .calculated-field {
+  display: flex;
+  flex-direction: column;
+}
+
+.time-entry-modal .calculated-value {
+  padding: 0.75rem;
+  background: #e8f8f5;
+  border: 2px solid #27ae60;
+  border-radius: 6px;
+  font-size: 1.125rem;
+  font-weight: 700;
+  color: #27ae60;
+  text-align: center;
+}
+
+.checkbox-group {
+  display: flex;
+  align-items: center;
+}
+
+.checkbox-group label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+  font-weight: 500;
+}
+
+.checkbox-group input[type='checkbox'] {
+  width: auto;
+  margin: 0;
+}
+
+/* ==================== RESPONSIVE DESIGN ==================== */
+
+@media (max-width: 1200px) {
+  .time-summary-cards {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 768px) {
+  .timer-form {
+    grid-template-columns: 1fr;
+  }
+
+  .timer-display {
+    font-size: 3.5rem;
+  }
+
+  .time-summary-header,
+  .time-reports-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .period-selector,
+  .chart-selector {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+
+  .time-summary-cards {
+    grid-template-columns: 1fr;
+  }
+
+  .time-entry-modal .form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .time-tracking-controls {
+    flex-direction: column;
+  }
+
+  .time-tracking-controls .search-box {
+    width: 100%;
+  }
+
+  .time-entries-table {
+    font-size: 0.8rem;
+  }
+
+  .time-entries-table th,
+  .time-entries-table td {
+    padding: 0.5rem 0.375rem;
+  }
+
+  /* Hide less important columns on mobile */
+  .time-entries-table th:nth-child(7),
+  .time-entries-table td:nth-child(7),
+  .time-entries-table th:nth-child(8),
+  .time-entries-table td:nth-child(8) {
+    display: none;
+  }
+}
+
+@media (max-width: 480px) {
+  .timer-display {
+    font-size: 2.5rem;
+  }
+
+  .summary-card .main-value {
+    font-size: 2rem;
+  }
+
+  .btn-timer {
+    font-size: 1rem;
+    padding: 0.75rem 1.5rem;
+  }
+
+  /* Hide even more columns on very small screens */
+  .time-entries-table th:nth-child(3),
+  .time-entries-table td:nth-child(3),
+  .time-entries-table th:nth-child(6),
+  .time-entries-table td:nth-child(6) {
+    display: none;
+  }
+}
+
+/* ==================== ANIMATIONS ==================== */
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.summary-card,
+.chart-wrapper {
+  animation: fadeIn 0.3s ease-out;
+}
+
+.summary-card:nth-child(1) {
+  animation-delay: 0s;
+}
+.summary-card:nth-child(2) {
+  animation-delay: 0.1s;
+}
+.summary-card:nth-child(3) {
+  animation-delay: 0.2s;
+}
+.summary-card:nth-child(4) {
+  animation-delay: 0.3s;
+}

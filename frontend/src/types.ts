@@ -273,3 +273,99 @@ export interface MetalInventorySummary {
   oldest_purchase_date?: string;
   newest_purchase_date?: string;
 }
+
+// ==================== TIME TRACKING TYPES ====================
+
+export interface ActivityType {
+  id: number;
+  name: string;
+  category: string; // 'fabrication', 'administration', 'waiting'
+  icon?: string | null;
+  color?: string | null;
+  usage_count: number;
+  average_duration_minutes?: number | null;
+  last_used?: string | null;
+  is_custom: boolean;
+  created_by?: number | null;
+  created_at: string;
+}
+
+export interface ActivityCreateInput {
+  name: string;
+  category: string;
+  icon?: string;
+  color?: string;
+  is_custom?: boolean;
+}
+
+export interface TimeEntryType {
+  id: string;
+  order_id: number;
+  user_id: number;
+  activity_id: number;
+  start_time: string;
+  end_time: string | null;
+  duration_minutes: number | null;
+  location?: string | null;
+  complexity_rating?: number | null;
+  quality_rating?: number | null;
+  rework_required?: boolean;
+  notes?: string | null;
+  created_at: string;
+  // Populated relationships
+  order?: OrderType;
+  activity?: ActivityType;
+  user?: UserType;
+}
+
+export interface TimeEntryCreateInput {
+  order_id: number;
+  activity_id: number;
+  start_time: string;
+  end_time?: string;
+  duration_minutes?: number;
+  location?: string;
+  complexity_rating?: number;
+  quality_rating?: number;
+  rework_required?: boolean;
+  notes?: string;
+}
+
+export interface TimeEntryUpdateInput {
+  order_id?: number;
+  activity_id?: number;
+  start_time?: string;
+  end_time?: string;
+  duration_minutes?: number;
+  location?: string;
+  complexity_rating?: number;
+  quality_rating?: number;
+  rework_required?: boolean;
+  notes?: string;
+}
+
+export interface TimeSummaryStats {
+  total_hours: number;
+  billable_hours: number;
+  entries_count: number;
+  average_session_minutes: number;
+  most_used_activity?: string;
+  comparison_previous_period?: number; // percentage change
+}
+
+export interface WeeklyTimeData {
+  week_start: string;
+  total_hours: number;
+  entries_count: number;
+  breakdown_by_day: {
+    day: string; // 'Mon', 'Tue', etc.
+    hours: number;
+  }[];
+}
+
+export interface ActivityBreakdownData {
+  activity_name: string;
+  hours: number;
+  percentage: number;
+  color: string;
+}
