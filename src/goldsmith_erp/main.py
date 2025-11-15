@@ -2,9 +2,11 @@ import asyncio
 import logging
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
+from starlette.middleware.base import BaseHTTPMiddleware
 import uvicorn
 from typing import List
 
@@ -21,6 +23,50 @@ logger = logging.getLogger(__name__)
 # Initialize rate limiter
 limiter = Limiter(key_func=get_remote_address)
 
+
+# Request Size Limiting Middleware (DoS Protection)
+class RequestSizeLimitMiddleware(BaseHTTPMiddleware):
+    """
+    Middleware to limit request body size and prevent DoS attacks.
+
+    Rejects requests with Content-Length exceeding MAX_REQUEST_SIZE.
+    """
+
+    MAX_REQUEST_SIZE = 10 * 1024 * 1024  # 10 MB
+
+    async def dispatch(self, request: Request, call_next):
+        """Check request size before processing."""
+        if request.method in ["POST", "PUT", "PATCH"]:
+            content_length = request.headers.get("content-length")
+
+            if content_length:
+                try:
+                    content_length_int = int(content_length)
+                    if content_length_int > self.MAX_REQUEST_SIZE:
+                        logger.warning(
+                            "Request body too large",
+                            extra={
+                                "content_length": content_length_int,
+                                "max_allowed": self.MAX_REQUEST_SIZE,
+                                "path": request.url.path,
+                                "method": request.method,
+                            }
+                        )
+                        return JSONResponse(
+                            status_code=413,
+                            content={
+                                "detail": f"Request body too large. Maximum allowed: {self.MAX_REQUEST_SIZE / (1024 * 1024):.1f} MB"
+                            }
+                        )
+                except ValueError:
+                    # Invalid Content-Length header
+                    logger.warning(
+                        "Invalid Content-Length header",
+                        extra={"content_length": content_length}
+                    )
+
+        return await call_next(request)
+
 # App-Instanz erstellen
 app = FastAPI(
     title=settings.APP_NAME,
@@ -31,8 +77,9 @@ app = FastAPI(
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
-# Add request logging middleware (must be before CORS)
-app.add_middleware(RequestLoggingMiddleware)
+# Add security middleware (order matters - from outermost to innermost)
+app.add_middleware(RequestSizeLimitMiddleware)  # Check size first
+app.add_middleware(RequestLoggingMiddleware)    # Then log
 
 # CORS-Middleware einrichten
 app.add_middleware(

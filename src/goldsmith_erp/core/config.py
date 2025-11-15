@@ -92,18 +92,55 @@ class Settings(BaseSettings):
     @classmethod
     def validate_secret_key(cls, v: str) -> str:
         """
-        Validate that SECRET_KEY is secure and not using default value.
+        Validate that SECRET_KEY is secure and not using default/insecure values.
+
+        Security requirements:
+        - Minimum 32 characters
+        - Not a common insecure default value
+        - High entropy (for production)
         """
-        if v == "change_this_to_a_secure_random_string":
+        # List of known insecure default values
+        insecure_values = [
+            "change_this_to_a_secure_random_string",
+            "CHANGE_THIS_TO_A_SECURE_RANDOM_STRING_AT_LEAST_32_CHARS",
+            "secret",
+            "secretkey",
+            "your-secret-key",
+            "mysecretkey",
+            "changeme",
+            "password",
+            "secret123",
+            "supersecret",
+        ]
+
+        # Check for exact matches (case-insensitive)
+        if v.lower() in [s.lower() for s in insecure_values]:
             raise ValueError(
-                "SECRET_KEY must be changed from default! "
-                "Set SECRET_KEY environment variable with a secure random string."
+                "SECRET_KEY is using an insecure default value! "
+                "Generate a secure key with:\n"
+                "  python3 -c \"import secrets; print(secrets.token_urlsafe(64))\"\n"
+                "Then set it in your .env file."
             )
+
+        # Check minimum length
         if len(v) < 32:
             raise ValueError(
-                "SECRET_KEY must be at least 32 characters long for security. "
-                f"Current length: {len(v)}"
+                f"SECRET_KEY must be at least 32 characters for security. "
+                f"Current length: {len(v)}. "
+                f"Generate a secure key with:\n"
+                f"  python3 -c \"import secrets; print(secrets.token_urlsafe(64))\""
             )
+
+        # Warning for low entropy (optional, but helpful)
+        # Check if key has good character diversity
+        if len(set(v)) < 16:  # Less than 16 unique characters
+            import warnings
+            warnings.warn(
+                f"SECRET_KEY has low entropy ({len(set(v))} unique characters). "
+                f"Consider generating a more random key.",
+                UserWarning
+            )
+
         return v
 
 # Instantiate once per process
