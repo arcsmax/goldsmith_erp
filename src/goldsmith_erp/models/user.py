@@ -120,7 +120,7 @@ class UserUpdate(BaseModel):
 class User(UserBase):
     """Schema für User-Anzeige mit RBAC role."""
     id: int
-    role: UserRole = Field(default=UserRole.USER, description="User role (admin/user)")
+    role: UserRole = Field(default=UserRole.GOLDSMITH, description="User role (admin/goldsmith/viewer)")
     is_active: bool
     created_at: datetime
 

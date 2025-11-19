@@ -136,7 +136,7 @@ class Permission(str, Enum):
 # Role to Permission mapping
 ROLE_PERMISSIONS = {
     UserRole.ADMIN: [p for p in Permission],  # Admin has all permissions
-    UserRole.USER: [
+    UserRole.GOLDSMITH: [
         # Orders
         Permission.ORDER_VIEW,
         Permission.ORDER_CREATE,
@@ -151,6 +151,13 @@ ROLE_PERMISSIONS = {
         # Materials
         Permission.MATERIAL_VIEW,
         # Reports (limited)
+        Permission.REPORTS_VIEW,
+    ],
+    UserRole.VIEWER: [
+        # View-only permissions
+        Permission.ORDER_VIEW,
+        Permission.CUSTOMER_VIEW,
+        Permission.MATERIAL_VIEW,
         Permission.REPORTS_VIEW,
     ],
 }
