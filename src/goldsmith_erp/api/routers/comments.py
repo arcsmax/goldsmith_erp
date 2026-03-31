@@ -63,6 +63,7 @@ async def create_comment(
 
 
 @router.put("/orders/{order_id}/comments/{comment_id}", response_model=OrderCommentRead)
+@require_permission(Permission.ORDER_EDIT)
 async def update_comment(
     order_id: int,
     comment_id: int,
@@ -71,7 +72,7 @@ async def update_comment(
     current_user: User = Depends(get_current_user)
 ):
     """Eigenen Kommentar bearbeiten."""
-    comment = await CommentService.update_comment(db, comment_id, current_user.id, comment_in)
+    comment = await CommentService.update_comment(db, comment_id, order_id, current_user.id, comment_in)
     if not comment:
         raise HTTPException(status_code=404, detail="Kommentar nicht gefunden oder keine Berechtigung")
     return OrderCommentRead(
@@ -86,6 +87,7 @@ async def update_comment(
 
 
 @router.delete("/orders/{order_id}/comments/{comment_id}", status_code=204)
+@require_permission(Permission.ORDER_EDIT)
 async def delete_comment(
     order_id: int,
     comment_id: int,
@@ -94,6 +96,6 @@ async def delete_comment(
 ):
     """Kommentar loeschen (eigene oder als Admin alle)."""
     is_admin = current_user.role == UserRole.ADMIN
-    deleted = await CommentService.delete_comment(db, comment_id, current_user.id, is_admin)
+    deleted = await CommentService.delete_comment(db, comment_id, order_id, current_user.id, is_admin)
     if not deleted:
         raise HTTPException(status_code=404, detail="Kommentar nicht gefunden oder keine Berechtigung")

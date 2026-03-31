@@ -22,6 +22,14 @@ class CustomerBase(BaseModel):
     notes: Optional[str] = None
     tags: Optional[List[str]] = Field(default_factory=list)
 
+    # Measurement Library (Mass-Bibliothek)
+    ring_size: Optional[float] = Field(None, ge=30, le=80, description="EU ring size")
+    chain_length_cm: Optional[float] = Field(None, ge=10, le=120, description="Chain length in cm")
+    bracelet_length_cm: Optional[float] = Field(None, ge=10, le=50, description="Bracelet length in cm")
+    allergies: Optional[str] = Field(None, max_length=500, description="e.g. Nickel, Kupfer")
+    preferences: Optional[dict] = Field(default_factory=dict, description="Key-value preferences")
+    birthday: Optional[datetime] = None
+
     @field_validator('first_name', 'last_name')
     @classmethod
     def validate_name(cls, v: str) -> str:
@@ -118,6 +126,14 @@ class CustomerUpdate(BaseModel):
     notes: Optional[str] = None
     tags: Optional[List[str]] = None
     is_active: Optional[bool] = None
+
+    # Measurement Library
+    ring_size: Optional[float] = Field(None, ge=30, le=80)
+    chain_length_cm: Optional[float] = Field(None, ge=10, le=120)
+    bracelet_length_cm: Optional[float] = Field(None, ge=10, le=50)
+    allergies: Optional[str] = Field(None, max_length=500)
+    preferences: Optional[dict] = None
+    birthday: Optional[datetime] = None
 
     @field_validator('first_name', 'last_name')
     @classmethod

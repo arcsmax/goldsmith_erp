@@ -19,6 +19,7 @@ class CommentService:
         result = await db.execute(
             select(CommentModel)
             .where(CommentModel.order_id == order_id)
+            .options(selectinload(CommentModel.user))
             .order_by(CommentModel.created_at.desc())
             .offset(skip)
             .limit(limit)
@@ -46,12 +47,14 @@ class CommentService:
     async def update_comment(
         db: AsyncSession,
         comment_id: int,
+        order_id: int,
         user_id: int,
         comment_in: OrderCommentUpdate
     ) -> Optional[CommentModel]:
         result = await db.execute(
             select(CommentModel).where(
                 CommentModel.id == comment_id,
+                CommentModel.order_id == order_id,
                 CommentModel.user_id == user_id
             )
         )
@@ -68,10 +71,14 @@ class CommentService:
     async def delete_comment(
         db: AsyncSession,
         comment_id: int,
+        order_id: int,
         user_id: int,
         is_admin: bool = False
     ) -> bool:
-        query = select(CommentModel).where(CommentModel.id == comment_id)
+        query = select(CommentModel).where(
+            CommentModel.id == comment_id,
+            CommentModel.order_id == order_id
+        )
         if not is_admin:
             query = query.where(CommentModel.user_id == user_id)
         result = await db.execute(query)

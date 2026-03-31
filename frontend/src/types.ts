@@ -127,7 +127,7 @@ export interface CustomerStats {
 
 export type OrderStatus = 'new' | 'in_progress' | 'completed' | 'delivered';
 
-export type MetalType = 'gold_24k' | 'gold_18k' | 'gold_14k' | 'silver_925' | 'silver_999' | 'platinum';
+// MetalType defined in Metal Inventory section below
 
 export type CostingMethod = 'FIFO' | 'LIFO' | 'AVERAGE' | 'SPECIFIC';
 
@@ -238,7 +238,7 @@ export interface AuthContextType {
 
 // ==================== METAL INVENTORY TYPES ====================
 
-export type MetalType = 'gold_999' | 'gold_750' | 'gold_585' | 'gold_333' | 'silver_999' | 'silver_925' | 'platinum_950' | 'palladium_950';
+export type MetalType = 'gold_24k' | 'gold_22k' | 'gold_18k' | 'gold_14k' | 'gold_9k' | 'silver_999' | 'silver_925' | 'silver_800' | 'platinum_950' | 'platinum_900' | 'palladium' | 'white_gold_18k' | 'white_gold_14k' | 'rose_gold_18k' | 'rose_gold_14k';
 
 export interface MetalPurchaseType {
   id: number;
