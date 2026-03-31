@@ -32,6 +32,10 @@ PUBLIC_PREFIXES = [
     "/static",
     f"{settings.API_V1_STR}/login",
     f"{settings.API_V1_STR}/auth/mfa",
+    # The refresh endpoint must bypass the middleware's strict expiry check so that
+    # recently-expired tokens can reach the handler, which applies its own grace
+    # window logic and all other security checks (signature, user existence, etc.).
+    f"{settings.API_V1_STR}/auth/refresh",
 ]
 
 
