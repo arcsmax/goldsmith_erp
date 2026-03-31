@@ -2,6 +2,8 @@
 import React, { useState, useEffect } from 'react';
 import { OrderType, OrderCreateInput, OrderUpdateInput, Customer, MetalType, CostingMethod } from '../../types';
 import { customersApi } from '../../api';
+import { OrderCreateSchema } from '../../lib/validation/schemas';
+import { useFormValidation } from '../../lib/validation/useFormValidation';
 import '../../styles/orders.css';
 
 interface OrderFormModalProps {
@@ -64,7 +66,7 @@ export const OrderFormModal: React.FC<OrderFormModalProps> = ({
     vat_rate: '19',
   });
 
-  const [errors, setErrors] = useState<Record<string, string>>({});
+  const { validate: zodValidate, errors, clearErrors, clearError } = useFormValidation(OrderCreateSchema);
   const [hasAttemptedSubmit, setHasAttemptedSubmit] = useState(false);
 
   // Fetch customers on mount
@@ -117,10 +119,10 @@ export const OrderFormModal: React.FC<OrderFormModalProps> = ({
         vat_rate: '19',
       });
     }
-    setErrors({});
+    clearErrors();
     setHasAttemptedSubmit(false);
     setActiveTab('basic');
-  }, [order, isOpen]);
+  }, [order, isOpen]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const fetchCustomers = async () => {
     try {
@@ -140,67 +142,9 @@ export const OrderFormModal: React.FC<OrderFormModalProps> = ({
     const { name, value } = e.target;
     setFormData((prev) => ({ ...prev, [name]: value }));
 
-    if (errors[name]) {
-      setErrors((prev) => {
-        const newErrors = { ...prev };
-        delete newErrors[name];
-        return newErrors;
-      });
-    }
+    clearError(name);
   };
 
-  const validate = (): boolean => {
-    const newErrors: Record<string, string> = {};
-
-    // Basic tab validation - required fields
-    if (!formData.title.trim()) {
-      newErrors.title = 'Dieses Feld ist erforderlich';
-    }
-
-    if (!formData.description.trim()) {
-      newErrors.description = 'Dieses Feld ist erforderlich';
-    }
-
-    if (!formData.customer_id) {
-      newErrors.customer_id = 'Dieses Feld ist erforderlich';
-    }
-
-    if (!formData.deadline) {
-      newErrors.deadline = 'Dieses Feld ist erforderlich';
-    }
-
-    // Metal type is required
-    if (!formData.metal_type) {
-      newErrors.metal_type = 'Dieses Feld ist erforderlich';
-    }
-
-    // Metal tab validation - conditional required fields
-    if (formData.metal_type) {
-      if (!formData.estimated_weight_g || parseFloat(formData.estimated_weight_g) <= 0) {
-        newErrors.estimated_weight_g = 'Gewicht ist erforderlich wenn Metall ausgewählt ist';
-      }
-
-      if (
-        formData.costing_method_used === 'SPECIFIC' &&
-        !formData.specific_metal_purchase_id
-      ) {
-        newErrors.specific_metal_purchase_id =
-          'Charge-ID ist erforderlich für spezifische Methode';
-      }
-    }
-
-    // Pricing validation
-    if (formData.price && parseFloat(formData.price) < 0) {
-      newErrors.price = 'Preis kann nicht negativ sein';
-    }
-
-    if (formData.labor_hours && parseFloat(formData.labor_hours) < 0) {
-      newErrors.labor_hours = 'Arbeitsstunden können nicht negativ sein';
-    }
-
-    setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
-  };
 
   // Check if all required fields are filled (for button disable state)
   const isFormValid =
@@ -214,35 +158,28 @@ export const OrderFormModal: React.FC<OrderFormModalProps> = ({
     e.preventDefault();
     setHasAttemptedSubmit(true);
 
-    if (!validate()) {
-      return;
-    }
-
-    const submitData: any = {
+    // Coerce string form fields to the numeric types Zod expects
+    const toValidate = {
       title: formData.title.trim(),
       description: formData.description.trim(),
-      customer_id: parseInt(formData.customer_id),
-      deadline: formData.deadline || undefined,
+      customer_id: formData.customer_id ? parseInt(formData.customer_id) : NaN,
+      deadline: formData.deadline || '',
       status: formData.status,
       current_location: formData.current_location.trim() || undefined,
 
-      // Metal fields (only if metal_type is selected)
-      metal_type: formData.metal_type || undefined,
-      estimated_weight_g: formData.metal_type && formData.estimated_weight_g
+      metal_type: (formData.metal_type || undefined) as MetalType | undefined,
+      estimated_weight_g: formData.estimated_weight_g
         ? parseFloat(formData.estimated_weight_g)
         : undefined,
-      scrap_percentage: formData.metal_type && formData.scrap_percentage
+      scrap_percentage: formData.scrap_percentage
         ? parseFloat(formData.scrap_percentage)
         : undefined,
-      costing_method_used: formData.metal_type ? formData.costing_method_used : undefined,
+      costing_method: formData.costing_method_used as CostingMethod,
       specific_metal_purchase_id:
-        formData.metal_type &&
-        formData.costing_method_used === 'SPECIFIC' &&
         formData.specific_metal_purchase_id
           ? parseInt(formData.specific_metal_purchase_id)
           : undefined,
 
-      // Pricing fields
       price: formData.price ? parseFloat(formData.price) : undefined,
       labor_hours: formData.labor_hours ? parseFloat(formData.labor_hours) : undefined,
       hourly_rate: formData.hourly_rate ? parseFloat(formData.hourly_rate) : undefined,
@@ -251,6 +188,19 @@ export const OrderFormModal: React.FC<OrderFormModalProps> = ({
         : undefined,
       vat_rate: formData.vat_rate ? parseFloat(formData.vat_rate) : undefined,
     };
+
+    const result = zodValidate(toValidate);
+    if (!result.success) {
+      return;
+    }
+
+    // Map validated data to the shape the parent component expects
+    const submitData: any = {
+      ...result.data,
+      // The form field is costing_method_used for display; backend expects costing_method
+      costing_method_used: result.data.costing_method,
+    };
+    delete submitData.costing_method;
 
     await onSubmit(submitData);
   };

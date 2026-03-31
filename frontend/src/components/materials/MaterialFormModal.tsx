@@ -1,6 +1,8 @@
 // Material Form Modal Component
 import React, { useState, useEffect } from 'react';
 import { MaterialType, MaterialCreateInput, MaterialUpdateInput } from '../../types';
+import { MaterialCreateSchema } from '../../lib/validation/schemas';
+import { useFormValidation } from '../../lib/validation/useFormValidation';
 import '../../styles/materials.css';
 
 interface MaterialFormModalProps {
@@ -36,7 +38,7 @@ export const MaterialFormModal: React.FC<MaterialFormModalProps> = ({
     unit: 'Stück',
   });
 
-  const [errors, setErrors] = useState<Record<string, string>>({});
+  const { validate: zodValidate, errors, clearError } = useFormValidation(MaterialCreateSchema);
 
   // Initialize form with material data if editing
   useEffect(() => {
@@ -57,7 +59,6 @@ export const MaterialFormModal: React.FC<MaterialFormModalProps> = ({
         unit: 'Stück',
       });
     }
-    setErrors({});
   }, [material, isOpen]);
 
   const handleChange = (
@@ -65,56 +66,14 @@ export const MaterialFormModal: React.FC<MaterialFormModalProps> = ({
   ) => {
     const { name, value } = e.target;
     setFormData((prev) => ({ ...prev, [name]: value }));
-
-    // Clear error when user types
-    if (errors[name]) {
-      setErrors((prev) => {
-        const newErrors = { ...prev };
-        delete newErrors[name];
-        return newErrors;
-      });
-    }
-  };
-
-  const validate = (): boolean => {
-    const newErrors: Record<string, string> = {};
-
-    if (!formData.name.trim()) {
-      newErrors.name = 'Name ist erforderlich';
-    }
-
-    if (!formData.unit_price.trim()) {
-      newErrors.unit_price = 'Preis ist erforderlich';
-    } else if (parseFloat(formData.unit_price) <= 0) {
-      newErrors.unit_price = 'Preis muss größer als 0 sein';
-    } else if (isNaN(parseFloat(formData.unit_price))) {
-      newErrors.unit_price = 'Ungültiger Preis';
-    }
-
-    if (!formData.stock.trim()) {
-      newErrors.stock = 'Bestand ist erforderlich';
-    } else if (parseFloat(formData.stock) < 0) {
-      newErrors.stock = 'Bestand kann nicht negativ sein';
-    } else if (isNaN(parseFloat(formData.stock))) {
-      newErrors.stock = 'Ungültiger Bestand';
-    }
-
-    if (!formData.unit.trim()) {
-      newErrors.unit = 'Einheit ist erforderlich';
-    }
-
-    setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
+    clearError(name);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!validate()) {
-      return;
-    }
-
-    const submitData = {
+    // Coerce string inputs to the expected types before Zod validation
+    const parsed = {
       name: formData.name.trim(),
       description: formData.description.trim() || undefined,
       unit_price: parseFloat(formData.unit_price),
@@ -122,7 +81,12 @@ export const MaterialFormModal: React.FC<MaterialFormModalProps> = ({
       unit: formData.unit,
     };
 
-    await onSubmit(submitData);
+    const result = zodValidate(parsed);
+    if (!result.success) {
+      return;
+    }
+
+    await onSubmit(result.data);
   };
 
   if (!isOpen) {

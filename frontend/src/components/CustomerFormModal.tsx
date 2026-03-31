@@ -1,6 +1,8 @@
 // CustomerFormModal - Modal for creating and editing customers
 import React, { useState, useEffect } from 'react';
 import { Customer, CustomerCategory, CustomerCreateInput, CustomerUpdateInput } from '../types';
+import { CustomerCreateSchema } from '../lib/validation/schemas';
+import { useFormValidation } from '../lib/validation/useFormValidation';
 import '../styles/customers.css';
 
 interface CustomerFormModalProps {
@@ -43,7 +45,7 @@ export const CustomerFormModal: React.FC<CustomerFormModalProps> = ({
     preferences: '',
   });
 
-  const [errors, setErrors] = useState<Record<string, string>>({});
+  const { validate: zodValidate, errors, clearErrors, clearError } = useFormValidation(CustomerCreateSchema);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
   // Initialize form data when editing
@@ -100,9 +102,9 @@ export const CustomerFormModal: React.FC<CustomerFormModalProps> = ({
         preferences: '',
       });
     }
-    setErrors({});
+    clearErrors();
     setSubmitError(null);
-  }, [customer]);
+  }, [customer]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Handle input changes
   const handleChange = (
@@ -116,47 +118,38 @@ export const CustomerFormModal: React.FC<CustomerFormModalProps> = ({
       [name]: type === 'checkbox' ? checked : value,
     }));
 
-    // Clear error for this field
-    if (errors[name]) {
-      setErrors(prev => {
-        const newErrors = { ...prev };
-        delete newErrors[name];
-        return newErrors;
-      });
-    }
-  };
-
-  // Validate form
-  const validate = (): boolean => {
-    const newErrors: Record<string, string> = {};
-
-    // Required fields
-    if (!formData.first_name.trim()) {
-      newErrors.first_name = 'Vorname ist erforderlich';
-    }
-    if (!formData.last_name.trim()) {
-      newErrors.last_name = 'Nachname ist erforderlich';
-    }
-    if (!formData.email.trim()) {
-      newErrors.email = 'E-Mail ist erforderlich';
-    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) {
-      newErrors.email = 'Ungültige E-Mail-Adresse';
-    }
-
-    // Company name required for business customers
-    if (formData.customer_type === 'business' && !formData.company_name.trim()) {
-      newErrors.company_name = 'Firmenname ist für Geschäftskunden erforderlich';
-    }
-
-    setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
+    clearError(name);
   };
 
   // Handle form submission
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!validate()) {
+    // Build the payload to validate (only scalar fields; tags/preferences are
+    // assembled further down after Zod passes the core fields)
+    const toValidate = {
+      first_name: formData.first_name.trim(),
+      last_name: formData.last_name.trim(),
+      email: formData.email.trim(),
+      customer_type: formData.customer_type,
+      country: formData.country,
+      company_name: formData.company_name.trim() || undefined,
+      phone: formData.phone.trim() || undefined,
+      mobile: formData.mobile.trim() || undefined,
+      street: formData.street.trim() || undefined,
+      city: formData.city.trim() || undefined,
+      postal_code: formData.postal_code.trim() || undefined,
+      source: formData.source.trim() || undefined,
+      notes: formData.notes.trim() || undefined,
+      allergies: formData.allergies.trim() || undefined,
+      birthday: formData.birthday || undefined,
+      ring_size: formData.ring_size !== '' ? parseFloat(formData.ring_size) : undefined,
+      chain_length_cm: formData.chain_length_cm !== '' ? parseFloat(formData.chain_length_cm) : undefined,
+      bracelet_length_cm: formData.bracelet_length_cm !== '' ? parseFloat(formData.bracelet_length_cm) : undefined,
+    };
+
+    const zodResult = zodValidate(toValidate);
+    if (!zodResult.success) {
       return;
     }
 

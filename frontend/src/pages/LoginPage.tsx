@@ -2,27 +2,35 @@
 import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../contexts';
+import { LoginSchema } from '../lib/validation/schemas';
+import { useFormValidation } from '../lib/validation/useFormValidation';
 import '../styles/auth.css';
 
 export const LoginPage: React.FC = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [error, setError] = useState<string | null>(null);
+  const [submitError, setSubmitError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
   const { login } = useAuth();
   const navigate = useNavigate();
+  const { validate, errors, clearError } = useFormValidation(LoginSchema);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError(null);
-    setIsLoading(true);
+    setSubmitError(null);
 
+    const result = validate({ email, password });
+    if (!result.success) {
+      return;
+    }
+
+    setIsLoading(true);
     try {
-      await login({ email, password });
+      await login(result.data);
       navigate('/dashboard');
     } catch (err: any) {
-      setError(
+      setSubmitError(
         err.response?.data?.detail || 'Login fehlgeschlagen. Bitte überprüfen Sie Ihre Eingaben.'
       );
     } finally {
@@ -36,7 +44,7 @@ export const LoginPage: React.FC = () => {
         <h1>Goldsmith ERP</h1>
         <h2>Anmelden</h2>
 
-        {error && <div className="error-message">{error}</div>}
+        {submitError && <div className="error-message">{submitError}</div>}
 
         <form onSubmit={handleSubmit} className="auth-form">
           <div className="form-group">
@@ -45,11 +53,15 @@ export const LoginPage: React.FC = () => {
               id="email"
               type="email"
               value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              required
+              onChange={(e) => {
+                setEmail(e.target.value);
+                clearError('email');
+              }}
+              className={errors.email ? 'error' : ''}
               autoComplete="email"
               disabled={isLoading}
             />
+            {errors.email && <span className="error-message">{errors.email}</span>}
           </div>
 
           <div className="form-group">
@@ -58,11 +70,15 @@ export const LoginPage: React.FC = () => {
               id="password"
               type="password"
               value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
+              onChange={(e) => {
+                setPassword(e.target.value);
+                clearError('password');
+              }}
+              className={errors.password ? 'error' : ''}
               autoComplete="current-password"
               disabled={isLoading}
             />
+            {errors.password && <span className="error-message">{errors.password}</span>}
           </div>
 
           <button type="submit" disabled={isLoading} className="btn-primary">
