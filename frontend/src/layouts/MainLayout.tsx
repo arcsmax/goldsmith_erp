@@ -6,7 +6,7 @@ import TimerWidget from '../components/TimerWidget';
 import '../styles/layout.css';
 
 export const MainLayout: React.FC = () => {
-  const { user, logout } = useAuth();
+  const { user, logout, hasRole } = useAuth();
   const { runningEntry, stopTracking, refreshRunningEntry } = useTimeTracking();
   const navigate = useNavigate();
   const location = useLocation();
@@ -24,6 +24,11 @@ export const MainLayout: React.FC = () => {
   const isActivePath = (path: string) => {
     return location.pathname === path || location.pathname.startsWith(path + '/');
   };
+
+  // Role helpers used to conditionally render nav items
+  const canManageCustomers = hasRole(['ADMIN', 'GOLDSMITH']);
+  const canManageMaterials = hasRole(['ADMIN', 'GOLDSMITH']);
+  const canManageUsers = hasRole(['ADMIN']);
 
   return (
     <div className="main-layout">
@@ -50,6 +55,7 @@ export const MainLayout: React.FC = () => {
         {/* Sidebar Navigation */}
         <aside className="main-sidebar">
           <nav className="sidebar-nav">
+            {/* Dashboard — alle Rollen */}
             <Link
               to="/dashboard"
               className={`nav-link ${isActivePath('/dashboard') ? 'active' : ''}`}
@@ -58,14 +64,18 @@ export const MainLayout: React.FC = () => {
               Dashboard
             </Link>
 
-            <Link
-              to="/customers"
-              className={`nav-link ${isActivePath('/customers') ? 'active' : ''}`}
-            >
-              <span className="nav-icon">📇</span>
-              Kunden
-            </Link>
+            {/* Kunden — ADMIN und GOLDSMITH */}
+            {canManageCustomers && (
+              <Link
+                to="/customers"
+                className={`nav-link ${isActivePath('/customers') ? 'active' : ''}`}
+              >
+                <span className="nav-icon">📇</span>
+                Kunden
+              </Link>
+            )}
 
+            {/* Aufträge — alle Rollen */}
             <Link
               to="/orders"
               className={`nav-link ${isActivePath('/orders') ? 'active' : ''}`}
@@ -74,22 +84,29 @@ export const MainLayout: React.FC = () => {
               Aufträge
             </Link>
 
-            <Link
-              to="/materials"
-              className={`nav-link ${isActivePath('/materials') ? 'active' : ''}`}
-            >
-              <span className="nav-icon">💎</span>
-              Materialien
-            </Link>
+            {/* Materialien — ADMIN und GOLDSMITH */}
+            {canManageMaterials && (
+              <Link
+                to="/materials"
+                className={`nav-link ${isActivePath('/materials') ? 'active' : ''}`}
+              >
+                <span className="nav-icon">💎</span>
+                Materialien
+              </Link>
+            )}
 
-            <Link
-              to="/metal-inventory"
-              className={`nav-link ${isActivePath('/metal-inventory') ? 'active' : ''}`}
-            >
-              <span className="nav-icon">🥇</span>
-              Metallinventar
-            </Link>
+            {/* Metallinventar — ADMIN und GOLDSMITH */}
+            {canManageMaterials && (
+              <Link
+                to="/metal-inventory"
+                className={`nav-link ${isActivePath('/metal-inventory') ? 'active' : ''}`}
+              >
+                <span className="nav-icon">🥇</span>
+                Metallinventar
+              </Link>
+            )}
 
+            {/* Zeiterfassung — alle Rollen */}
             <Link
               to="/time-tracking"
               className={`nav-link ${isActivePath('/time-tracking') ? 'active' : ''}`}
@@ -98,6 +115,7 @@ export const MainLayout: React.FC = () => {
               Zeiterfassung
             </Link>
 
+            {/* Kalender — alle Rollen */}
             <Link
               to="/calendar"
               className={`nav-link ${isActivePath('/calendar') ? 'active' : ''}`}
@@ -106,13 +124,16 @@ export const MainLayout: React.FC = () => {
               Kalender
             </Link>
 
-            <Link
-              to="/users"
-              className={`nav-link ${isActivePath('/users') ? 'active' : ''}`}
-            >
-              <span className="nav-icon">👥</span>
-              Benutzer
-            </Link>
+            {/* Benutzerverwaltung — nur ADMIN */}
+            {canManageUsers && (
+              <Link
+                to="/users"
+                className={`nav-link ${isActivePath('/users') ? 'active' : ''}`}
+              >
+                <span className="nav-icon">👥</span>
+                Benutzer
+              </Link>
+            )}
           </nav>
         </aside>
 

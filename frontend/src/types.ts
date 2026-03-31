@@ -189,12 +189,14 @@ export interface OrderUpdateInput {
 
 // ==================== USER TYPES ====================
 
+export type UserRole = 'ADMIN' | 'GOLDSMITH' | 'VIEWER' | 'USER';
+
 export interface UserType {
   id: number;
   email: string;
   first_name?: string;
   last_name?: string;
-  role?: string; // 'admin' | 'goldsmith' | 'viewer'
+  role: UserRole;
   is_active: boolean;
   created_at: string;
 }
@@ -234,6 +236,8 @@ export interface AuthContextType {
   register: (userData: UserCreateInput) => Promise<void>;
   logout: () => void;
   refreshUser: () => Promise<void>;
+  hasRole: (roles: UserRole | UserRole[]) => boolean;
+  isAdmin: boolean;
 }
 
 // ==================== METAL INVENTORY TYPES ====================

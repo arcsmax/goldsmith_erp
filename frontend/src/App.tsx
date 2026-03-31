@@ -57,13 +57,51 @@ const App: React.FC = () => {
               >
                 <Route index element={<Navigate to="/dashboard" replace />} />
                 <Route path="dashboard" element={<DashboardPage />} />
-                <Route path="customers" element={<CustomersPage />} />
-                <Route path="materials" element={<MaterialsPage />} />
-                <Route path="metal-inventory" element={<MetalInventoryPage />} />
+
+                {/* Kunden — ADMIN und GOLDSMITH */}
+                <Route
+                  path="customers"
+                  element={
+                    <ProtectedRoute requiredRoles={['ADMIN', 'GOLDSMITH']}>
+                      <CustomersPage />
+                    </ProtectedRoute>
+                  }
+                />
+
+                {/* Materialien — ADMIN und GOLDSMITH */}
+                <Route
+                  path="materials"
+                  element={
+                    <ProtectedRoute requiredRoles={['ADMIN', 'GOLDSMITH']}>
+                      <MaterialsPage />
+                    </ProtectedRoute>
+                  }
+                />
+
+                {/* Metallinventar — ADMIN und GOLDSMITH */}
+                <Route
+                  path="metal-inventory"
+                  element={
+                    <ProtectedRoute requiredRoles={['ADMIN', 'GOLDSMITH']}>
+                      <MetalInventoryPage />
+                    </ProtectedRoute>
+                  }
+                />
+
                 <Route path="orders" element={<OrdersPage />} />
                 <Route path="orders/:orderId" element={<OrderDetailPage />} />
                 <Route path="time-tracking" element={<TimeTrackingPage />} />
-                <Route path="users" element={<UsersPage />} />
+
+                {/* Benutzerverwaltung — nur ADMIN */}
+                <Route
+                  path="users"
+                  element={
+                    <ProtectedRoute requiredRoles={['ADMIN']}>
+                      <UsersPage />
+                    </ProtectedRoute>
+                  }
+                />
+
                 <Route path="scanner" element={<ScannerPage />} />
                 <Route path="calendar" element={<CalendarPage />} />
               </Route>

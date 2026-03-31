@@ -3,6 +3,7 @@ import React, { createContext, useContext, useState, useEffect, ReactNode } from
 import { authApi } from '../api';
 import {
   UserType,
+  UserRole,
   LoginCredentials,
   UserCreateInput,
   AuthContextType,
@@ -26,6 +27,18 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
   // Check if user is authenticated
   const isAuthenticated = !!user && !!localStorage.getItem('access_token');
+
+  /**
+   * Check whether the current user holds at least one of the given roles.
+   * Accepts a single role string or an array of role strings.
+   */
+  const hasRole = (roles: UserRole | UserRole[]): boolean => {
+    if (!user) return false;
+    const roleList = Array.isArray(roles) ? roles : [roles];
+    return roleList.includes(user.role);
+  };
+
+  const isAdmin = user?.role === 'ADMIN';
 
   /**
    * Initialize auth state on mount
@@ -140,6 +153,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     register,
     logout,
     refreshUser,
+    hasRole,
+    isAdmin: isAdmin ?? false,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
