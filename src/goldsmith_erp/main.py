@@ -13,6 +13,7 @@ from typing import List
 from goldsmith_erp.core.config import settings
 from goldsmith_erp.core.logging import setup_logging
 from goldsmith_erp.middleware import RequestLoggingMiddleware
+from goldsmith_erp.middleware.auth_required import AuthRequiredMiddleware
 from goldsmith_erp.api.routers import auth, orders, users, materials, activities, time_tracking, health, customers, metal_inventory, comments, scrap_gold
 from goldsmith_erp.core.pubsub import subscribe_and_forward, publish_event
 
@@ -78,6 +79,7 @@ app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # Add security middleware (order matters - from outermost to innermost)
+app.add_middleware(AuthRequiredMiddleware)      # Deny-by-default auth check
 app.add_middleware(RequestSizeLimitMiddleware)  # Check size first
 app.add_middleware(RequestLoggingMiddleware)    # Then log
 
