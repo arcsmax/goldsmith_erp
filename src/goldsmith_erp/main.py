@@ -14,6 +14,7 @@ from goldsmith_erp.core.config import settings
 from goldsmith_erp.core.logging import setup_logging
 from goldsmith_erp.middleware import RequestLoggingMiddleware
 from goldsmith_erp.middleware.auth_required import AuthRequiredMiddleware
+from goldsmith_erp.middleware.security_headers import SecurityHeadersMiddleware
 from goldsmith_erp.api.routers import auth, orders, users, materials, activities, time_tracking, health, customers, metal_inventory, comments, scrap_gold
 from goldsmith_erp.core.pubsub import subscribe_and_forward, publish_event
 
@@ -91,6 +92,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Security headers middleware (innermost - decorates all responses with security headers)
+app.add_middleware(SecurityHeadersMiddleware)
 
 # Router einbinden
 app.include_router(health.router, tags=["health"])  # Health checks at root level
