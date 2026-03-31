@@ -25,6 +25,7 @@
     "msw": "^2.0.11",
     "tailwindcss": "^4.2.2",
     "vite": "^7.2.2",
+    "vite-plugin-pwa": "^1.2.0",
     "vitest": "^4.0.10"
   },
   "scripts": {
@@ -39,5 +40,8 @@
     "e2e:headed": "playwright test --headed"
   },
   "main": "index.js",
-  "license": "MIT"
+  "license": "MIT",
+  "resolutions": {
+    "lodash": "4.17.21"
+  }
 }
