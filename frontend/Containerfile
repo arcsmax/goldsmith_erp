@@ -15,6 +15,7 @@ RUN apk add --no-cache \
     python3 \
     make \
     g++ \
+    wget \
  && rm -rf /var/cache/apk/*
 
 # 2) Copy package files for layer caching
