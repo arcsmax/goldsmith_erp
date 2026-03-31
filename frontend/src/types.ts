@@ -47,6 +47,12 @@ export interface Customer {
   notes?: string | null;
   tags: string[];
   is_active: boolean;
+  ring_size?: number | null;
+  chain_length_cm?: number | null;
+  bracelet_length_cm?: number | null;
+  allergies?: string | null;
+  preferences?: Record<string, string> | null;
+  birthday?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -78,6 +84,12 @@ export interface CustomerCreateInput {
   source?: string;
   notes?: string;
   tags?: string[];
+  ring_size?: number | null;
+  chain_length_cm?: number | null;
+  bracelet_length_cm?: number | null;
+  allergies?: string | null;
+  preferences?: Record<string, string> | null;
+  birthday?: string | null;
 }
 
 export interface CustomerUpdateInput {
@@ -96,6 +108,12 @@ export interface CustomerUpdateInput {
   notes?: string | null;
   tags?: string[];
   is_active?: boolean;
+  ring_size?: number | null;
+  chain_length_cm?: number | null;
+  bracelet_length_cm?: number | null;
+  allergies?: string | null;
+  preferences?: Record<string, string> | null;
+  birthday?: string | null;
 }
 
 export interface CustomerStats {
@@ -176,6 +194,7 @@ export interface UserType {
   email: string;
   first_name?: string;
   last_name?: string;
+  role?: string; // 'admin' | 'goldsmith' | 'viewer'
   is_active: boolean;
   created_at: string;
 }

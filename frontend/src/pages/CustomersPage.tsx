@@ -26,6 +26,11 @@ export const CustomersPage: React.FC = () => {
   const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  // Detail/expand states
+  const [expandedCustomerId, setExpandedCustomerId] = useState<number | null>(null);
+  const [expandedCustomer, setExpandedCustomer] = useState<Customer | null>(null);
+  const [isLoadingDetail, setIsLoadingDetail] = useState(false);
+
   // Fetch customers with filters
   const fetchCustomers = useCallback(async () => {
     try {
@@ -124,6 +129,27 @@ export const CustomersPage: React.FC = () => {
       setEditingCustomer(customer);
     } catch (err: any) {
       alert('Fehler beim Laden der Kundendaten');
+    }
+  };
+
+  // Toggle detail row
+  const handleToggleDetail = async (customerId: number) => {
+    if (expandedCustomerId === customerId) {
+      setExpandedCustomerId(null);
+      setExpandedCustomer(null);
+      return;
+    }
+
+    try {
+      setIsLoadingDetail(true);
+      setExpandedCustomerId(customerId);
+      const customer = await customersApi.getById(customerId);
+      setExpandedCustomer(customer);
+    } catch (err: any) {
+      setExpandedCustomerId(null);
+      setExpandedCustomer(null);
+    } finally {
+      setIsLoadingDetail(false);
     }
   };
 
@@ -235,7 +261,12 @@ export const CustomersPage: React.FC = () => {
               </thead>
               <tbody>
                 {customers.map((customer) => (
-                  <tr key={customer.id}>
+                  <React.Fragment key={customer.id}>
+                  <tr
+                    style={{ cursor: 'pointer' }}
+                    onClick={() => handleToggleDetail(customer.id)}
+                    className={expandedCustomerId === customer.id ? 'row-expanded' : ''}
+                  >
                     <td>#{customer.id}</td>
                     <td>
                       <strong>{customer.first_name} {customer.last_name}</strong>
@@ -268,22 +299,93 @@ export const CustomersPage: React.FC = () => {
                       <button
                         className="btn-action"
                         title="Bearbeiten"
-                        onClick={() => handleOpenEdit(customer.id)}
+                        onClick={(e) => { e.stopPropagation(); handleOpenEdit(customer.id); }}
                       >
                         ✏️
                       </button>
                       <button
                         className="btn-action btn-danger"
                         title="Löschen"
-                        onClick={() => handleDeleteCustomer(
-                          customer.id,
-                          `${customer.first_name} ${customer.last_name}`
-                        )}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDeleteCustomer(
+                            customer.id,
+                            `${customer.first_name} ${customer.last_name}`
+                          );
+                        }}
                       >
                         🗑️
                       </button>
                     </td>
                   </tr>
+
+                  {/* Detail / Measurement Row */}
+                  {expandedCustomerId === customer.id && (
+                    <tr className="customer-detail-row">
+                      <td colSpan={9}>
+                        {isLoadingDetail ? (
+                          <div className="detail-loading">Lade Details...</div>
+                        ) : expandedCustomer ? (
+                          <div className="customer-detail-content">
+                            <div className="detail-section">
+                              <h4 className="detail-section-title">Mass-Bibliothek</h4>
+                              <div className="detail-badges">
+                                {expandedCustomer.ring_size != null && (
+                                  <span className="measurement-badge">
+                                    Ringgroesse: {expandedCustomer.ring_size} (EU)
+                                  </span>
+                                )}
+                                {expandedCustomer.chain_length_cm != null && (
+                                  <span className="measurement-badge">
+                                    Kettenlaenge: {expandedCustomer.chain_length_cm} cm
+                                  </span>
+                                )}
+                                {expandedCustomer.bracelet_length_cm != null && (
+                                  <span className="measurement-badge">
+                                    Armband: {expandedCustomer.bracelet_length_cm} cm
+                                  </span>
+                                )}
+                                {expandedCustomer.allergies && (
+                                  <span className="measurement-badge badge-warning">
+                                    Allergien: {expandedCustomer.allergies}
+                                  </span>
+                                )}
+                                {expandedCustomer.birthday && (
+                                  <span className="measurement-badge">
+                                    Geburtstag: {new Date(expandedCustomer.birthday).toLocaleDateString('de-DE')}
+                                  </span>
+                                )}
+                                {!expandedCustomer.ring_size && !expandedCustomer.chain_length_cm &&
+                                 !expandedCustomer.bracelet_length_cm && !expandedCustomer.allergies &&
+                                 !expandedCustomer.birthday && !expandedCustomer.preferences && (
+                                  <span className="detail-empty">Keine Masse oder Vorlieben hinterlegt.</span>
+                                )}
+                              </div>
+                            </div>
+                            {expandedCustomer.preferences && Object.keys(expandedCustomer.preferences).length > 0 && (
+                              <div className="detail-section">
+                                <h4 className="detail-section-title">Vorlieben</h4>
+                                <div className="detail-badges">
+                                  {Object.entries(expandedCustomer.preferences).map(([key, value]) => (
+                                    <span key={key} className="preference-badge">
+                                      {key}: {value}
+                                    </span>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                            {expandedCustomer.notes && (
+                              <div className="detail-section">
+                                <h4 className="detail-section-title">Notizen</h4>
+                                <p className="detail-notes">{expandedCustomer.notes}</p>
+                              </div>
+                            )}
+                          </div>
+                        ) : null}
+                      </td>
+                    </tr>
+                  )}
+                  </React.Fragment>
                 ))}
               </tbody>
             </table>

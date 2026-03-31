@@ -3,10 +3,11 @@ from sqlalchemy.future import select
 from sqlalchemy import update, delete
 from sqlalchemy.orm import selectinload
 from typing import List, Optional, Dict, Any
+from datetime import datetime
 import json
 import logging
 
-from goldsmith_erp.db.models import Order as OrderModel, Material
+from goldsmith_erp.db.models import Order as OrderModel, Material, Customer
 from goldsmith_erp.models.order import OrderCreate, OrderUpdate
 from goldsmith_erp.core.pubsub import publish_event  # Import the Redis publish function
 from goldsmith_erp.db.transaction import transactional
@@ -196,3 +197,23 @@ class OrderService:
             logger.error(f"Failed to publish order deletion event: {str(e)}", exc_info=True)
 
         return {"success": True}
+
+    @staticmethod
+    async def get_orders_with_deadlines(
+        db: AsyncSession,
+        start: Optional[str] = None,
+        end: Optional[str] = None
+    ) -> List[OrderModel]:
+        """Get orders with deadlines for calendar view."""
+        query = (
+            select(OrderModel)
+            .where(OrderModel.deadline.isnot(None))
+            .options(selectinload(OrderModel.customer))
+            .order_by(OrderModel.deadline)
+        )
+        if start:
+            query = query.where(OrderModel.deadline >= datetime.fromisoformat(start))
+        if end:
+            query = query.where(OrderModel.deadline <= datetime.fromisoformat(end))
+        result = await db.execute(query)
+        return result.scalars().all()

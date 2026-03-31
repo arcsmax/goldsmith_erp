@@ -5,6 +5,7 @@ import { ordersApi, materialsApi } from '../api';
 import { OrderType, MaterialType, OrderStatus } from '../types';
 import { useOrders, OrderTab } from '../contexts';
 import TimeTrackingTab from '../components/TimeTrackingTab';
+import { CommentsTab } from '../components/CommentsTab';
 import { CostBreakdownCard } from '../components/orders/CostBreakdownCard';
 import { MetalInventoryCard } from '../components/orders/MetalInventoryCard';
 import { CustomerInfoCard } from '../components/orders/CustomerInfoCard';
@@ -156,6 +157,12 @@ export const OrderDetailPage: React.FC = () => {
         >
           ⏱️ Zeiterfassung
         </button>
+        <button
+          className={`tab ${activeTab === 'comments' ? 'active' : ''}`}
+          onClick={() => handleTabChange('comments')}
+        >
+          💬 Kommentare
+        </button>
       </div>
 
       {/* Tab Content */}
@@ -190,6 +197,10 @@ export const OrderDetailPage: React.FC = () => {
 
         {activeTab === 'time-tracking' && (
           <TimeTrackingTab orderId={order.id} />
+        )}
+
+        {activeTab === 'comments' && (
+          <CommentsTab orderId={order.id} />
         )}
       </div>
     </div>

@@ -69,6 +69,13 @@ from .order_photo import (
     OrderPhotoUpload,
 )
 
+# OrderComment Schemas
+from .order_comment import (
+    OrderCommentCreate,
+    OrderCommentUpdate,
+    OrderCommentRead,
+)
+
 __all__ = [
     # User
     "UserBase",

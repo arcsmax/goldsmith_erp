@@ -65,6 +65,7 @@ export const OrderFormModal: React.FC<OrderFormModalProps> = ({
   });
 
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [hasAttemptedSubmit, setHasAttemptedSubmit] = useState(false);
 
   // Fetch customers on mount
   useEffect(() => {
@@ -117,6 +118,7 @@ export const OrderFormModal: React.FC<OrderFormModalProps> = ({
       });
     }
     setErrors({});
+    setHasAttemptedSubmit(false);
     setActiveTab('basic');
   }, [order, isOpen]);
 
@@ -150,20 +152,29 @@ export const OrderFormModal: React.FC<OrderFormModalProps> = ({
   const validate = (): boolean => {
     const newErrors: Record<string, string> = {};
 
-    // Basic tab validation
+    // Basic tab validation - required fields
     if (!formData.title.trim()) {
-      newErrors.title = 'Titel ist erforderlich';
+      newErrors.title = 'Dieses Feld ist erforderlich';
     }
 
     if (!formData.description.trim()) {
-      newErrors.description = 'Beschreibung ist erforderlich';
+      newErrors.description = 'Dieses Feld ist erforderlich';
     }
 
     if (!formData.customer_id) {
-      newErrors.customer_id = 'Kunde ist erforderlich';
+      newErrors.customer_id = 'Dieses Feld ist erforderlich';
     }
 
-    // Metal tab validation
+    if (!formData.deadline) {
+      newErrors.deadline = 'Dieses Feld ist erforderlich';
+    }
+
+    // Metal type is required
+    if (!formData.metal_type) {
+      newErrors.metal_type = 'Dieses Feld ist erforderlich';
+    }
+
+    // Metal tab validation - conditional required fields
     if (formData.metal_type) {
       if (!formData.estimated_weight_g || parseFloat(formData.estimated_weight_g) <= 0) {
         newErrors.estimated_weight_g = 'Gewicht ist erforderlich wenn Metall ausgewählt ist';
@@ -191,8 +202,17 @@ export const OrderFormModal: React.FC<OrderFormModalProps> = ({
     return Object.keys(newErrors).length === 0;
   };
 
+  // Check if all required fields are filled (for button disable state)
+  const isFormValid =
+    formData.title.trim() !== '' &&
+    formData.description.trim() !== '' &&
+    formData.customer_id !== '' &&
+    formData.deadline !== '' &&
+    formData.metal_type !== '';
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setHasAttemptedSubmit(true);
 
     if (!validate()) {
       return;
@@ -281,7 +301,7 @@ export const OrderFormModal: React.FC<OrderFormModalProps> = ({
               <div className="tab-content-form">
                 <div className="form-group">
                   <label htmlFor="title">
-                    Titel <span className="required">*</span>
+                    Bezeichnung <span className="required">*</span>
                   </label>
                   <input
                     type="text"
@@ -289,10 +309,12 @@ export const OrderFormModal: React.FC<OrderFormModalProps> = ({
                     name="title"
                     value={formData.title}
                     onChange={handleChange}
-                    className={errors.title ? 'error' : ''}
+                    className={hasAttemptedSubmit && errors.title ? 'error' : ''}
                     placeholder="z.B. Goldring mit Diamant"
                   />
-                  {errors.title && <span className="error-message">{errors.title}</span>}
+                  {hasAttemptedSubmit && errors.title && (
+                    <span className="error-message">{errors.title}</span>
+                  )}
                 </div>
 
                 <div className="form-group">
@@ -304,11 +326,11 @@ export const OrderFormModal: React.FC<OrderFormModalProps> = ({
                     name="description"
                     value={formData.description}
                     onChange={handleChange}
-                    className={errors.description ? 'error' : ''}
+                    className={hasAttemptedSubmit && errors.description ? 'error' : ''}
                     rows={4}
                     placeholder="Detaillierte Beschreibung des Auftrags"
                   />
-                  {errors.description && (
+                  {hasAttemptedSubmit && errors.description && (
                     <span className="error-message">{errors.description}</span>
                   )}
                 </div>
@@ -322,7 +344,7 @@ export const OrderFormModal: React.FC<OrderFormModalProps> = ({
                     name="customer_id"
                     value={formData.customer_id}
                     onChange={handleChange}
-                    className={errors.customer_id ? 'error' : ''}
+                    className={hasAttemptedSubmit && errors.customer_id ? 'error' : ''}
                     disabled={isLoadingCustomers}
                   >
                     <option value="">
@@ -335,21 +357,27 @@ export const OrderFormModal: React.FC<OrderFormModalProps> = ({
                       </option>
                     ))}
                   </select>
-                  {errors.customer_id && (
+                  {hasAttemptedSubmit && errors.customer_id && (
                     <span className="error-message">{errors.customer_id}</span>
                   )}
                 </div>
 
                 <div className="form-row">
                   <div className="form-group">
-                    <label htmlFor="deadline">Deadline</label>
+                    <label htmlFor="deadline">
+                      Abgabetermin <span className="required">*</span>
+                    </label>
                     <input
                       type="date"
                       id="deadline"
                       name="deadline"
                       value={formData.deadline}
                       onChange={handleChange}
+                      className={hasAttemptedSubmit && errors.deadline ? 'error' : ''}
                     />
+                    {hasAttemptedSubmit && errors.deadline && (
+                      <span className="error-message">{errors.deadline}</span>
+                    )}
                   </div>
 
                   <div className="form-group">
@@ -386,23 +414,26 @@ export const OrderFormModal: React.FC<OrderFormModalProps> = ({
             {activeTab === 'metal' && (
               <div className="tab-content-form">
                 <div className="form-group">
-                  <label htmlFor="metal_type">Metalltyp</label>
+                  <label htmlFor="metal_type">
+                    Metallart <span className="required">*</span>
+                  </label>
                   <select
                     id="metal_type"
                     name="metal_type"
                     value={formData.metal_type}
                     onChange={handleChange}
+                    className={hasAttemptedSubmit && errors.metal_type ? 'error' : ''}
                   >
-                    <option value="">-- Kein Metall --</option>
+                    <option value="">-- Metallart auswählen --</option>
                     {METAL_TYPE_OPTIONS.map((option) => (
                       <option key={option.value} value={option.value}>
                         {option.label}
                       </option>
                     ))}
                   </select>
-                  <small style={{ color: '#666' }}>
-                    Optional: Wählen Sie einen Metalltyp, wenn dieser Auftrag Metall verwendet
-                  </small>
+                  {hasAttemptedSubmit && errors.metal_type && (
+                    <span className="error-message">{errors.metal_type}</span>
+                  )}
                 </div>
 
                 {formData.metal_type && (
@@ -586,7 +617,12 @@ export const OrderFormModal: React.FC<OrderFormModalProps> = ({
             >
               Abbrechen
             </button>
-            <button type="submit" className="btn-primary" disabled={isLoading}>
+            <button
+              type="submit"
+              className="btn-primary"
+              disabled={isLoading || !isFormValid}
+              title={!isFormValid ? 'Bitte alle Pflichtfelder ausfüllen' : ''}
+            >
               {isLoading ? 'Speichern...' : order ? 'Aktualisieren' : 'Erstellen'}
             </button>
           </div>

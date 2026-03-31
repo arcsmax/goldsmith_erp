@@ -99,6 +99,14 @@ export const MainLayout: React.FC = () => {
             </Link>
 
             <Link
+              to="/calendar"
+              className={`nav-link ${isActivePath('/calendar') ? 'active' : ''}`}
+            >
+              <span className="nav-icon">📅</span>
+              Kalender
+            </Link>
+
+            <Link
               to="/users"
               className={`nav-link ${isActivePath('/users') ? 'active' : ''}`}
             >

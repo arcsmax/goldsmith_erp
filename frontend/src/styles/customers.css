@@ -345,6 +345,90 @@
   cursor: not-allowed;
 }
 
+/* Customer Detail / Measurement Row */
+.row-expanded {
+  background-color: #f9fafb;
+}
+
+.customer-detail-row td {
+  padding: 0 !important;
+  border-top: none !important;
+}
+
+.customer-detail-content {
+  padding: 1rem 1.5rem;
+  background-color: #f9fafb;
+  border-top: 1px solid #e5e7eb;
+}
+
+.detail-section {
+  margin-bottom: 0.75rem;
+}
+
+.detail-section:last-child {
+  margin-bottom: 0;
+}
+
+.detail-section-title {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #6b7280;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin: 0 0 0.5rem 0;
+}
+
+.detail-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.measurement-badge {
+  display: inline-block;
+  padding: 0.3rem 0.75rem;
+  background-color: #ede9fe;
+  color: #5b21b6;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  font-weight: 500;
+}
+
+.measurement-badge.badge-warning {
+  background-color: #fef3c7;
+  color: #92400e;
+}
+
+.preference-badge {
+  display: inline-block;
+  padding: 0.3rem 0.75rem;
+  background-color: #e0f2fe;
+  color: #0c4a6e;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  font-weight: 500;
+}
+
+.detail-empty {
+  color: #9ca3af;
+  font-size: 0.9rem;
+  font-style: italic;
+}
+
+.detail-notes {
+  margin: 0;
+  color: #4b5563;
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+.detail-loading {
+  padding: 1rem 1.5rem;
+  color: #6b7280;
+  font-style: italic;
+}
+
 /* Responsive */
 @media (max-width: 768px) {
   .filter-bar {

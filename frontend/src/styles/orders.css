@@ -40,6 +40,32 @@
   border-bottom-color: #667eea;
 }
 
+/* ==================== FORM VALIDATION ==================== */
+
+.order-form .form-group .required {
+  color: #ef4444;
+  margin-left: 0.25rem;
+  font-weight: 700;
+}
+
+.order-form .form-group input.error,
+.order-form .form-group textarea.error,
+.order-form .form-group select.error {
+  border-color: #ef4444;
+  box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.15);
+}
+
+.order-form .form-group .error-message {
+  display: block;
+  color: #ef4444;
+  font-size: 0.85rem;
+  font-weight: 500;
+  margin-top: 0.35rem;
+  padding: 0;
+  border: none;
+  background: none;
+}
+
 /* ==================== FORM LAYOUT ==================== */
 
 .order-form {

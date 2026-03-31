@@ -99,6 +99,14 @@ class Customer(Base):
     notes = Column(Text, nullable=True)
     tags = Column(JSON, default=list)  # ["VIP", "Stammkunde", etc.]
 
+    # Measurement Library (Mass-Bibliothek)
+    ring_size = Column(Float, nullable=True)  # EU ring size (e.g., 52, 54.5)
+    chain_length_cm = Column(Float, nullable=True)  # Preferred chain length in cm
+    bracelet_length_cm = Column(Float, nullable=True)  # Preferred bracelet length in cm
+    allergies = Column(String(500), nullable=True)  # e.g., "Nickel", "Kupfer"
+    preferences = Column(JSON, default=dict)  # {"bevorzugt": "Platin", "style": "modern"}
+    birthday = Column(DateTime, nullable=True)  # For marketing/gift vouchers
+
     # Metadata
     is_active = Column(Boolean, default=True, index=True)
     created_at = Column(DateTime, default=datetime.utcnow, index=True)
@@ -151,6 +159,24 @@ class Order(Base):
     gemstones = relationship("Gemstone", back_populates="order", cascade="all, delete-orphan")
     material_usage_records = relationship("MaterialUsage", back_populates="order", cascade="all, delete-orphan")
     specific_metal_purchase = relationship("MetalPurchase")  # For SPECIFIC costing method
+    comments = relationship("OrderComment", back_populates="order", cascade="all, delete-orphan", order_by="OrderComment.created_at.desc()")
+
+
+class OrderComment(Base):
+    """Order-scoped comments (Digitale Post-its) for inter-team communication."""
+    __tablename__ = "order_comments"
+
+    id = Column(Integer, primary_key=True, index=True)
+    order_id = Column(Integer, ForeignKey("orders.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    text = Column(Text, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    # Beziehungen
+    order = relationship("Order", back_populates="comments")
+    user = relationship("User")
+
 
 class Material(Base):
     __tablename__ = "materials"

@@ -35,6 +35,12 @@ export const CustomerFormModal: React.FC<CustomerFormModalProps> = ({
     notes: '',
     tags: '',
     is_active: true,
+    ring_size: '',
+    chain_length_cm: '',
+    bracelet_length_cm: '',
+    allergies: '',
+    birthday: '',
+    preferences: '',
   });
 
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -59,6 +65,14 @@ export const CustomerFormModal: React.FC<CustomerFormModalProps> = ({
         notes: customer.notes || '',
         tags: customer.tags?.join(', ') || '',
         is_active: customer.is_active ?? true,
+        ring_size: customer.ring_size != null ? String(customer.ring_size) : '',
+        chain_length_cm: customer.chain_length_cm != null ? String(customer.chain_length_cm) : '',
+        bracelet_length_cm: customer.bracelet_length_cm != null ? String(customer.bracelet_length_cm) : '',
+        allergies: customer.allergies || '',
+        birthday: customer.birthday ? customer.birthday.substring(0, 10) : '',
+        preferences: customer.preferences
+          ? Object.entries(customer.preferences).map(([k, v]) => `${k}: ${v}`).join(', ')
+          : '',
       });
     } else {
       // Reset form for new customer
@@ -78,6 +92,12 @@ export const CustomerFormModal: React.FC<CustomerFormModalProps> = ({
         notes: '',
         tags: '',
         is_active: true,
+        ring_size: '',
+        chain_length_cm: '',
+        bracelet_length_cm: '',
+        allergies: '',
+        birthday: '',
+        preferences: '',
       });
     }
     setErrors({});
@@ -176,6 +196,37 @@ export const CustomerFormModal: React.FC<CustomerFormModalProps> = ({
       }
       if (formData.notes.trim()) {
         submitData.notes = formData.notes.trim();
+      }
+
+      // Measurement fields
+      if (formData.ring_size !== '') {
+        submitData.ring_size = parseFloat(formData.ring_size);
+      }
+      if (formData.chain_length_cm !== '') {
+        submitData.chain_length_cm = parseFloat(formData.chain_length_cm);
+      }
+      if (formData.bracelet_length_cm !== '') {
+        submitData.bracelet_length_cm = parseFloat(formData.bracelet_length_cm);
+      }
+      if (formData.allergies.trim()) {
+        submitData.allergies = formData.allergies.trim();
+      }
+      if (formData.birthday) {
+        submitData.birthday = formData.birthday;
+      }
+
+      // Parse preferences (key: value pairs, comma-separated)
+      if (formData.preferences.trim()) {
+        const prefs: Record<string, string> = {};
+        formData.preferences.split(',').forEach(pair => {
+          const [key, ...valueParts] = pair.split(':');
+          if (key && valueParts.length > 0) {
+            prefs[key.trim()] = valueParts.join(':').trim();
+          }
+        });
+        if (Object.keys(prefs).length > 0) {
+          submitData.preferences = prefs;
+        }
       }
 
       // Parse tags
@@ -433,6 +484,88 @@ export const CustomerFormModal: React.FC<CustomerFormModalProps> = ({
                 disabled={isLoading}
                 placeholder="Zusätzliche Anmerkungen zum Kunden..."
                 rows={4}
+              />
+            </div>
+
+            {/* Measurements & Preferences */}
+            <h3 className="form-section-title">Masse & Vorlieben</h3>
+
+            <div className="form-row" style={{ gridTemplateColumns: '1fr 1fr 1fr' }}>
+              <div className="form-group">
+                <label>Ringgroesse (EU)</label>
+                <input
+                  type="number"
+                  name="ring_size"
+                  value={formData.ring_size}
+                  onChange={handleChange}
+                  disabled={isLoading}
+                  placeholder="z.B. 54"
+                  step="0.5"
+                  min="0"
+                />
+              </div>
+
+              <div className="form-group">
+                <label>Kettenlaenge (cm)</label>
+                <input
+                  type="number"
+                  name="chain_length_cm"
+                  value={formData.chain_length_cm}
+                  onChange={handleChange}
+                  disabled={isLoading}
+                  placeholder="z.B. 45"
+                  step="0.5"
+                  min="0"
+                />
+              </div>
+
+              <div className="form-group">
+                <label>Armband-Laenge (cm)</label>
+                <input
+                  type="number"
+                  name="bracelet_length_cm"
+                  value={formData.bracelet_length_cm}
+                  onChange={handleChange}
+                  disabled={isLoading}
+                  placeholder="z.B. 18"
+                  step="0.5"
+                  min="0"
+                />
+              </div>
+            </div>
+
+            <div className="form-group">
+              <label>Allergien</label>
+              <input
+                type="text"
+                name="allergies"
+                value={formData.allergies}
+                onChange={handleChange}
+                disabled={isLoading}
+                placeholder="z.B. Nickel, Kupfer"
+              />
+            </div>
+
+            <div className="form-group">
+              <label>Geburtstag</label>
+              <input
+                type="date"
+                name="birthday"
+                value={formData.birthday}
+                onChange={handleChange}
+                disabled={isLoading}
+              />
+            </div>
+
+            <div className="form-group">
+              <label>Vorlieben (kommagetrennt, Format: Schluessel: Wert)</label>
+              <input
+                type="text"
+                name="preferences"
+                value={formData.preferences}
+                onChange={handleChange}
+                disabled={isLoading}
+                placeholder="z.B. Bevorzugtes Metall: Platin, Stil: Modern"
               />
             </div>
 

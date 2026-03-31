@@ -1,7 +1,8 @@
 # src/goldsmith_erp/api/routers/orders.py
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from typing import List
+from typing import List, Optional
+from datetime import datetime
 
 from goldsmith_erp.api.deps import get_current_user
 from goldsmith_erp.db.session import get_db
@@ -72,3 +73,40 @@ async def delete_order(
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
     return await OrderService.delete_order(db, order_id)
+
+
+@router.get("/calendar/deadlines")
+@require_permission(Permission.ORDER_VIEW)
+async def get_calendar_deadlines(
+    start: Optional[str] = Query(None, description="Start date (ISO format)"),
+    end: Optional[str] = Query(None, description="End date (ISO format)"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Auftraege mit Deadlines fuer Kalender-Ansicht mit Ampel-Status."""
+    orders = await OrderService.get_orders_with_deadlines(db, start, end)
+    now = datetime.utcnow()
+    result = []
+    for order in orders:
+        if not order.deadline:
+            continue
+        days_until = (order.deadline - now).days
+        if order.status in ("completed", "delivered"):
+            traffic_light = "grey"
+        elif days_until < 2:
+            traffic_light = "red"
+        elif days_until <= 5:
+            traffic_light = "yellow"
+        else:
+            traffic_light = "green"
+
+        result.append({
+            "id": order.id,
+            "title": order.title,
+            "status": order.status.value if hasattr(order.status, 'value') else order.status,
+            "deadline": order.deadline.isoformat(),
+            "customer_name": f"{order.customer.first_name} {order.customer.last_name}" if order.customer else None,
+            "traffic_light": traffic_light,
+            "days_until_deadline": days_until,
+        })
+    return result

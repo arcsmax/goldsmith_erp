@@ -13,7 +13,7 @@ from typing import List
 from goldsmith_erp.core.config import settings
 from goldsmith_erp.core.logging import setup_logging
 from goldsmith_erp.middleware import RequestLoggingMiddleware
-from goldsmith_erp.api.routers import auth, orders, users, materials, activities, time_tracking, health, customers, metal_inventory
+from goldsmith_erp.api.routers import auth, orders, users, materials, activities, time_tracking, health, customers, metal_inventory, comments
 from goldsmith_erp.core.pubsub import subscribe_and_forward, publish_event
 
 # Setup structured logging
@@ -100,6 +100,7 @@ app.include_router(materials.router, prefix=f"{settings.API_V1_STR}/materials", 
 app.include_router(metal_inventory.router, prefix=f"{settings.API_V1_STR}", tags=["metal-inventory"])  # Metal Inventory Management
 app.include_router(activities.router, prefix=f"{settings.API_V1_STR}/activities", tags=["activities"])
 app.include_router(time_tracking.router, prefix=f"{settings.API_V1_STR}/time-tracking", tags=["time-tracking"])
+app.include_router(comments.router, prefix=f"{settings.API_V1_STR}", tags=["comments"])  # Order Comments
 
 # WebSocket endpoint with Redis Pub/Sub integration
 @app.websocket("/ws/orders")

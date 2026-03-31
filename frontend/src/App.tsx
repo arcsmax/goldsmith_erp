@@ -18,6 +18,7 @@ const OrderDetailPage = lazy(() => import('./pages/OrderDetailPage').then(m => (
 const TimeTrackingPage = lazy(() => import('./pages/TimeTrackingPage').then(m => ({ default: m.TimeTrackingPage })));
 const UsersPage = lazy(() => import('./pages/UsersPage').then(m => ({ default: m.UsersPage })));
 const ScannerPage = lazy(() => import('./pages/ScannerPage').then(m => ({ default: m.ScannerPage })));
+const CalendarPage = lazy(() => import('./pages/CalendarPage').then(m => ({ default: m.CalendarPage })));
 
 // Loading fallback component
 const PageLoader: React.FC = () => (
@@ -64,6 +65,7 @@ const App: React.FC = () => {
                 <Route path="time-tracking" element={<TimeTrackingPage />} />
                 <Route path="users" element={<UsersPage />} />
                 <Route path="scanner" element={<ScannerPage />} />
+                <Route path="calendar" element={<CalendarPage />} />
               </Route>
 
               {/* Catch all - redirect to dashboard */}
