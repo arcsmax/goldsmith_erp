@@ -19,12 +19,18 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy import select
-from src.goldsmith_erp.core.config import settings
-from src.goldsmith_erp.db.models import (
-    User, Customer, Material, Order,
-    DataRetentionPolicy, CustomerAuditLog
-)
-from src.goldsmith_erp.core.security import get_password_hash
+from goldsmith_erp.core.config import settings
+from goldsmith_erp.db.models import User, Customer, Material, Order
+from goldsmith_erp.core.security import get_password_hash
+
+# Optional GDPR models — present only after GDPR schema migration
+try:
+    from goldsmith_erp.db.models import DataRetentionPolicy, CustomerAuditLog
+    _GDPR_MODELS_AVAILABLE = True
+except ImportError:
+    DataRetentionPolicy = None  # type: ignore[assignment,misc]
+    CustomerAuditLog = None  # type: ignore[assignment,misc]
+    _GDPR_MODELS_AVAILABLE = False
 
 
 async def seed_users(session: AsyncSession):
@@ -79,7 +85,14 @@ async def seed_users(session: AsyncSession):
 
 
 async def seed_data_retention_policies(session: AsyncSession, admin: User):
-    """Create default data retention policies (GDPR compliant)."""
+    """Create default data retention policies (GDPR compliant).
+
+    NOTE: Skipped when GDPR models are not yet migrated (DataRetentionPolicy absent).
+    """
+    if not _GDPR_MODELS_AVAILABLE or DataRetentionPolicy is None:
+        print("⚠ Skipping data retention policies (GDPR schema migration not applied)")
+        return
+
     print("Creating data retention policies...")
 
     policies_data = [
@@ -165,8 +178,14 @@ async def seed_data_retention_policies(session: AsyncSession, admin: User):
     print(f"✓ Created {len(policies_data)} data retention policies")
 
 
+def _filter_customer_fields(data: dict) -> dict:
+    """Return only fields that exist as columns on the Customer model."""
+    valid_columns = {col.key for col in Customer.__table__.columns}
+    return {k: v for k, v in data.items() if k in valid_columns}
+
+
 async def seed_customers(session: AsyncSession, admin: User):
-    """Create sample customers (GDPR compliant)."""
+    """Create sample customers (GDPR compliant where schema supports it)."""
     print("Creating customers...")
 
     current_date = datetime.utcnow()
@@ -182,7 +201,7 @@ async def seed_customers(session: AsyncSession, admin: User):
             "postal_code": "10115",
             "city": "Berlin",
             "country": "DE",
-            # GDPR
+            # GDPR — present only after GDPR schema migration
             "legal_basis": "contract",
             "consent_marketing": True,
             "consent_date": current_date,
@@ -192,12 +211,10 @@ async def seed_customers(session: AsyncSession, admin: User):
             "data_retention_category": "active",
             "last_order_date": current_date - timedelta(days=30),
             "retention_deadline": current_date + timedelta(days=3650),
-            # Preferences
             "data_processing_consent": True,
             "email_communication_consent": True,
             "phone_communication_consent": True,
             "sms_communication_consent": False,
-            # Audit
             "created_by": admin.id,
             "is_active": True,
             "notes": "VIP-Kunde, bevorzugt Express-Service",
@@ -213,7 +230,6 @@ async def seed_customers(session: AsyncSession, admin: User):
             "postal_code": "80331",
             "city": "München",
             "country": "DE",
-            # GDPR
             "legal_basis": "contract",
             "consent_marketing": False,
             "consent_date": current_date - timedelta(days=60),
@@ -223,12 +239,10 @@ async def seed_customers(session: AsyncSession, admin: User):
             "data_retention_category": "active",
             "last_order_date": current_date - timedelta(days=60),
             "retention_deadline": current_date + timedelta(days=3650),
-            # Preferences
             "data_processing_consent": True,
             "email_communication_consent": False,
             "phone_communication_consent": True,
             "sms_communication_consent": False,
-            # Audit
             "created_by": admin.id,
             "is_active": True,
             "notes": "Möchte keine Marketing-E-Mails",
@@ -243,7 +257,6 @@ async def seed_customers(session: AsyncSession, admin: User):
             "postal_code": "50667",
             "city": "Köln",
             "country": "DE",
-            # GDPR
             "legal_basis": "contract",
             "consent_marketing": True,
             "consent_date": current_date - timedelta(days=120),
@@ -253,12 +266,10 @@ async def seed_customers(session: AsyncSession, admin: User):
             "data_retention_category": "active",
             "last_order_date": current_date - timedelta(days=90),
             "retention_deadline": current_date + timedelta(days=3650),
-            # Preferences
             "data_processing_consent": True,
             "email_communication_consent": True,
             "phone_communication_consent": False,
             "sms_communication_consent": True,
-            # Audit
             "created_by": admin.id,
             "is_active": True,
             "notes": "Großhändler, regelmäßige Großbestellungen",
@@ -275,7 +286,6 @@ async def seed_customers(session: AsyncSession, admin: User):
             "postal_code": "60311",
             "city": "Frankfurt",
             "country": "DE",
-            # GDPR
             "legal_basis": "contract",
             "consent_marketing": False,
             "consent_date": current_date - timedelta(days=180),
@@ -284,13 +294,11 @@ async def seed_customers(session: AsyncSession, admin: User):
             "consent_method": "phone",
             "data_retention_category": "inactive",
             "last_order_date": current_date - timedelta(days=400),
-            "retention_deadline": current_date + timedelta(days=330),  # Almost expired
-            # Preferences
+            "retention_deadline": current_date + timedelta(days=330),
             "data_processing_consent": True,
             "email_communication_consent": False,
             "phone_communication_consent": False,
             "sms_communication_consent": False,
-            # Audit
             "created_by": admin.id,
             "is_active": False,
             "notes": "Inaktiver Kunde, letzte Bestellung vor über einem Jahr",
@@ -299,7 +307,9 @@ async def seed_customers(session: AsyncSession, admin: User):
 
     created_customers = []
     for customer_data in customers_data:
-        customer = Customer(**customer_data)
+        # Only pass fields that exist in the current Customer model
+        filtered = _filter_customer_fields(customer_data)
+        customer = Customer(**filtered)
         session.add(customer)
         created_customers.append(customer)
 
@@ -569,7 +579,14 @@ async def seed_orders(session: AsyncSession, customers: list, materials: list, a
 
 
 async def seed_audit_logs(session: AsyncSession, customers: list, admin: User):
-    """Create sample audit log entries."""
+    """Create sample audit log entries.
+
+    NOTE: Skipped when GDPR models are not yet migrated (CustomerAuditLog absent).
+    """
+    if not _GDPR_MODELS_AVAILABLE or CustomerAuditLog is None:
+        print("⚠ Skipping audit log entries (GDPR schema migration not applied)")
+        return
+
     print("Creating audit log entries...")
 
     current_date = datetime.utcnow()

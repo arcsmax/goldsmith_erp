@@ -29,10 +29,10 @@ from datetime import datetime, timedelta
 sys.path.insert(0, str(Path(__file__).parents[1]))
 
 from sqlalchemy import select, update, and_
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 from goldsmith_erp.core.config import settings
 from goldsmith_erp.db.models import User, Customer, Order
-from goldsmith_erp.db.session import get_db_session
+from goldsmith_erp.db.session import AsyncSessionLocal
 
 # Color codes for terminal output
 class Colors:
@@ -208,7 +208,16 @@ async def create_customer_from_user(
 async def update_order_customer_references(db: AsyncSession):
     """
     Update orders to reference the new customer_id_new field.
+
+    NOTE: Order.customer_id_new is added in the GDPR schema migration.
+    This step is a no-op until that migration is applied.
     """
+    # Check if customer_id_new column exists on Order before attempting update
+    order_columns = {col.key for col in Order.__table__.columns}
+    if "customer_id_new" not in order_columns:
+        print_warning("Order.customer_id_new column not found — skipping reference update (run GDPR migration first)")
+        return
+
     print_info("Updating order references to new customer table...")
 
     # Copy customer_id to customer_id_new
@@ -227,16 +236,20 @@ async def verify_migration(db: AsyncSession):
     """
     print_info("Verifying migration...")
 
-    # Check that all orders have customer_id_new set
-    result = await db.execute(
-        select(Order.id)
-        .filter(Order.customer_id_new.is_(None))
-    )
-    orphaned_orders = result.fetchall()
+    # Check that all orders have customer_id_new set (only if column exists)
+    order_columns = {col.key for col in Order.__table__.columns}
+    if "customer_id_new" in order_columns:
+        result = await db.execute(
+            select(Order.id)
+            .filter(Order.customer_id_new.is_(None))
+        )
+        orphaned_orders = result.fetchall()
 
-    if orphaned_orders:
-        print_error(f"Found {len(orphaned_orders)} orders without customer reference!")
-        return False
+        if orphaned_orders:
+            print_error(f"Found {len(orphaned_orders)} orders without customer reference!")
+            return False
+    else:
+        print_warning("Skipping customer_id_new check — column absent (GDPR migration not applied)")
 
     # Check that customer count matches
     result = await db.execute(select(Customer.id))
@@ -297,10 +310,7 @@ async def run_migration():
         print_info("Migration cancelled by user")
         return
 
-    # Create async engine
-    engine = create_async_engine(str(settings.DATABASE_URL), echo=False)
-
-    async with get_db_session() as db:
+    async with AsyncSessionLocal() as db:
         try:
             print_info("Starting migration process...")
 
@@ -376,15 +386,20 @@ async def rollback_migration():
         print_info("Rollback cancelled")
         return
 
-    async with get_db_session() as db:
+    async with AsyncSessionLocal() as db:
         try:
-            # Reset order customer_id_new to NULL
-            await db.execute(
-                update(Order).values(customer_id_new=None)
-            )
+            # Reset order customer_id_new to NULL (only if column exists)
+            order_columns = {col.key for col in Order.__table__.columns}
+            if "customer_id_new" in order_columns:
+                await db.execute(
+                    update(Order).values(customer_id_new=None)
+                )
+            else:
+                print_warning("Skipping customer_id_new reset — column absent (GDPR migration not applied)")
 
             # Delete all customers
-            await db.execute("DELETE FROM customers")
+            from sqlalchemy import text
+            await db.execute(text("DELETE FROM customers"))
 
             await db.commit()
             print_success("Rollback completed")
