@@ -1,8 +1,9 @@
 // Main Layout Component - Layout for authenticated pages
-import React from 'react';
+import React, { useState, useCallback } from 'react';
 import { Outlet, Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth, useTimeTracking } from '../contexts';
 import TimerWidget from '../components/TimerWidget';
+import { OfflineIndicator } from '../components/OfflineIndicator';
 import '../styles/layout.css';
 
 export const MainLayout: React.FC = () => {
@@ -10,6 +11,7 @@ export const MainLayout: React.FC = () => {
   const { runningEntry, stopTracking, refreshRunningEntry } = useTimeTracking();
   const navigate = useNavigate();
   const location = useLocation();
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
   const handleLogout = () => {
     logout();
@@ -21,9 +23,17 @@ export const MainLayout: React.FC = () => {
     refreshRunningEntry();
   };
 
+  const openSidebar = useCallback(() => setIsSidebarOpen(true), []);
+  const closeSidebar = useCallback(() => setIsSidebarOpen(false), []);
+
   const isActivePath = (path: string) => {
     return location.pathname === path || location.pathname.startsWith(path + '/');
   };
+
+  // Nav link that closes sidebar on mobile after navigation
+  const handleNavClick = useCallback(() => {
+    setIsSidebarOpen(false);
+  }, []);
 
   // Role helpers used to conditionally render nav items
   const canManageCustomers = hasRole(['ADMIN', 'GOLDSMITH']);
@@ -32,9 +42,23 @@ export const MainLayout: React.FC = () => {
 
   return (
     <div className="main-layout">
+      {/* Offline status indicator — fixed banner, non-blocking */}
+      <OfflineIndicator />
+
       {/* Header */}
       <header className="main-header">
         <div className="header-content">
+          {/* Hamburger button — visible on mobile only via CSS */}
+          <button
+            className="btn-hamburger"
+            onClick={openSidebar}
+            aria-label="Navigation öffnen"
+            aria-expanded={isSidebarOpen}
+            aria-controls="main-sidebar"
+          >
+            ☰
+          </button>
+
           <h1 className="logo">Goldsmith ERP</h1>
 
           <div className="user-menu">
@@ -51,14 +75,39 @@ export const MainLayout: React.FC = () => {
         </div>
       </header>
 
+      {/* Offline status banner — non-blocking, auto-dismisses on reconnect */}
+      <OfflineIndicator />
+
+      {/* Overlay backdrop for mobile sidebar */}
+      <div
+        className={`sidebar-overlay${isSidebarOpen ? ' open' : ''}`}
+        onClick={closeSidebar}
+        aria-hidden="true"
+      />
+
       <div className="main-content-wrapper">
         {/* Sidebar Navigation */}
-        <aside className="main-sidebar">
+        <aside
+          id="main-sidebar"
+          className={`main-sidebar${isSidebarOpen ? ' open' : ''}`}
+        >
+          {/* Close button row — visible on mobile */}
+          <div className="sidebar-close-row">
+            <button
+              className="btn-sidebar-close"
+              onClick={closeSidebar}
+              aria-label="Navigation schließen"
+            >
+              ✕
+            </button>
+          </div>
+
           <nav className="sidebar-nav">
             {/* Dashboard — alle Rollen */}
             <Link
               to="/dashboard"
               className={`nav-link ${isActivePath('/dashboard') ? 'active' : ''}`}
+              onClick={handleNavClick}
             >
               <span className="nav-icon">📊</span>
               Dashboard
@@ -69,6 +118,7 @@ export const MainLayout: React.FC = () => {
               <Link
                 to="/customers"
                 className={`nav-link ${isActivePath('/customers') ? 'active' : ''}`}
+                onClick={handleNavClick}
               >
                 <span className="nav-icon">📇</span>
                 Kunden
@@ -79,6 +129,7 @@ export const MainLayout: React.FC = () => {
             <Link
               to="/orders"
               className={`nav-link ${isActivePath('/orders') ? 'active' : ''}`}
+              onClick={handleNavClick}
             >
               <span className="nav-icon">📋</span>
               Aufträge
@@ -89,6 +140,7 @@ export const MainLayout: React.FC = () => {
               <Link
                 to="/materials"
                 className={`nav-link ${isActivePath('/materials') ? 'active' : ''}`}
+                onClick={handleNavClick}
               >
                 <span className="nav-icon">💎</span>
                 Materialien
@@ -100,6 +152,7 @@ export const MainLayout: React.FC = () => {
               <Link
                 to="/metal-inventory"
                 className={`nav-link ${isActivePath('/metal-inventory') ? 'active' : ''}`}
+                onClick={handleNavClick}
               >
                 <span className="nav-icon">🥇</span>
                 Metallinventar
@@ -110,6 +163,7 @@ export const MainLayout: React.FC = () => {
             <Link
               to="/time-tracking"
               className={`nav-link ${isActivePath('/time-tracking') ? 'active' : ''}`}
+              onClick={handleNavClick}
             >
               <span className="nav-icon">⏱️</span>
               Zeiterfassung
@@ -119,6 +173,7 @@ export const MainLayout: React.FC = () => {
             <Link
               to="/calendar"
               className={`nav-link ${isActivePath('/calendar') ? 'active' : ''}`}
+              onClick={handleNavClick}
             >
               <span className="nav-icon">📅</span>
               Kalender
@@ -129,6 +184,7 @@ export const MainLayout: React.FC = () => {
               <Link
                 to="/users"
                 className={`nav-link ${isActivePath('/users') ? 'active' : ''}`}
+                onClick={handleNavClick}
               >
                 <span className="nav-icon">👥</span>
                 Benutzer

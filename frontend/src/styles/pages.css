@@ -10,6 +10,8 @@
   justify-content: space-between;
   align-items: center;
   margin-bottom: 2rem;
+  gap: 1rem;
+  flex-wrap: wrap;
 }
 
 .page-header h1 {
@@ -47,6 +49,8 @@
   color: #666;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
 }
+
+/* ==================== TABLE CONTAINER ==================== */
 
 .table-container {
   background: white;
@@ -95,19 +99,169 @@
   font-weight: 600;
 }
 
-/* Responsive Design */
-@media (max-width: 768px) {
-  .page-header {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 1rem;
+/* ==================== MOBILE CARD LAYOUT FOR TABLES ==================== */
+/*
+ * Tables on small screens are replaced with card layouts.
+ *
+ * Usage: Add data-label="Column Name" to every <td>
+ *        and the class "responsive-table" to the <table>.
+ *
+ * On desktop nothing changes. On mobile (≤640px):
+ *   - thead is hidden (screen-reader accessible via data-label)
+ *   - each <tr> becomes a card
+ *   - each <td> shows its data-label as a micro-label above the value
+ */
+
+@media (max-width: 640px) {
+  /* ---- generic .responsive-table ---- */
+  .responsive-table,
+  .data-table,
+  .orders-table,
+  .materials-table,
+  .time-entries-table,
+  .customers-table,
+  .users-table {
+    display: block;
   }
 
+  .responsive-table thead,
+  .data-table thead,
+  .orders-table thead,
+  .materials-table thead,
+  .time-entries-table thead,
+  .customers-table thead,
+  .users-table thead {
+    /* Visually hidden but remains accessible to screen readers */
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+
+  .responsive-table tbody,
+  .data-table tbody,
+  .orders-table tbody,
+  .materials-table tbody,
+  .time-entries-table tbody,
+  .customers-table tbody,
+  .users-table tbody {
+    display: block;
+  }
+
+  /* Each row becomes a card */
+  .responsive-table tbody tr,
+  .data-table tbody tr,
+  .orders-table tbody tr,
+  .materials-table tbody tr,
+  .time-entries-table tbody tr,
+  .customers-table tbody tr,
+  .users-table tbody tr {
+    display: block;
+    background: white;
+    border-radius: 10px;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+    margin-bottom: 0.875rem;
+    padding: 0.75rem 1rem;
+    border-left: 3px solid #e5e7eb;
+    cursor: pointer;
+  }
+
+  .responsive-table tbody tr:last-child,
+  .data-table tbody tr:last-child,
+  .orders-table tbody tr:last-child,
+  .materials-table tbody tr:last-child,
+  .time-entries-table tbody tr:last-child,
+  .customers-table tbody tr:last-child,
+  .users-table tbody tr:last-child {
+    margin-bottom: 0;
+  }
+
+  /* Remove the inherited table-cell layout from td */
+  .responsive-table td,
+  .data-table td,
+  .orders-table td,
+  .materials-table td,
+  .time-entries-table td,
+  .customers-table td,
+  .users-table td {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    padding: 0.4rem 0;
+    border-bottom: 1px solid #f3f4f6;
+    font-size: 0.9rem;
+    min-height: 40px;
+  }
+
+  .responsive-table td:last-child,
+  .data-table td:last-child,
+  .orders-table td:last-child,
+  .materials-table td:last-child,
+  .time-entries-table td:last-child,
+  .customers-table td:last-child,
+  .users-table td:last-child {
+    border-bottom: none;
+    padding-top: 0.6rem;
+  }
+
+  /* data-label becomes the left-side label */
+  .responsive-table td::before,
+  .data-table td::before,
+  .orders-table td::before,
+  .materials-table td::before,
+  .time-entries-table td::before,
+  .customers-table td::before,
+  .users-table td::before {
+    content: attr(data-label);
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: #9ca3af;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    white-space: nowrap;
+    margin-right: 0.75rem;
+    flex-shrink: 0;
+    padding-top: 0.1rem;
+  }
+
+  /* Table container scrolling no longer needed on card layout */
+  .table-container {
+    overflow: visible;
+    background: transparent;
+    box-shadow: none;
+    border-radius: 0;
+    padding: 0;
+  }
+
+  /* Reset data-table min-width override from old responsive block */
+  .data-table {
+    min-width: unset;
+  }
+}
+
+/* ==================== TABLET LAYOUT (641–1024px) ==================== */
+
+@media (min-width: 641px) and (max-width: 1024px) {
   .table-container {
     overflow-x: auto;
   }
 
-  .data-table {
-    min-width: 800px;
+  .page-header h1 {
+    font-size: 1.75rem;
+  }
+}
+
+/* ==================== DESKTOP FALLBACK RESPONSIVE ==================== */
+
+@media (max-width: 768px) {
+  .page-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .page-header h1 {
+    font-size: 1.5rem;
   }
 }

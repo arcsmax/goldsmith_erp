@@ -34,8 +34,6 @@
 
 body {
   margin: 0;
-  display: flex;
-  place-items: center;
   min-width: 320px;
   min-height: 100vh;
 }
@@ -43,7 +41,7 @@ body {
 #root {
   width: 100%;
   margin: 0 auto;
-  text-align: center;
+  text-align: left;
 }
 
 h1 {

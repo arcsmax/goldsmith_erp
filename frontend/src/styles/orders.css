@@ -205,7 +205,7 @@
 .btn-icon {
   background: white;
   border: 2px solid #e5e7eb;
-  padding: 0.5rem 0.75rem;
+  padding: 0.6rem 0.875rem;
   border-radius: 6px;
   cursor: pointer;
   font-size: 1rem;
@@ -213,6 +213,9 @@
   display: inline-flex;
   align-items: center;
   gap: 0.5rem;
+  /* WCAG 44px touch target */
+  min-height: 44px;
+  min-width: 44px;
 }
 
 .btn-icon:hover {
@@ -370,7 +373,19 @@
   font-style: italic;
 }
 
-/* ==================== RESPONSIVE ==================== */
+/* ==================== RESPONSIVE — TABLET ==================== */
+
+@media (max-width: 1024px) {
+  .orders-controls {
+    flex-wrap: wrap;
+  }
+
+  .search-box {
+    flex: 1 1 100%;
+  }
+}
+
+/* ==================== RESPONSIVE — MOBILE ==================== */
 
 @media (max-width: 768px) {
   .modal-large {
@@ -385,6 +400,9 @@
   .form-tab {
     border-bottom: none;
     border-left: 3px solid transparent;
+    min-height: 44px;
+    display: flex;
+    align-items: center;
   }
 
   .form-tab.active {
@@ -399,16 +417,13 @@
     flex-direction: column;
   }
 
-  .search-box {
-    width: 100%;
-  }
-
   .filter-group {
     width: 100%;
   }
 
   .filter-group select {
     width: 100%;
+    min-height: 44px;
   }
 
   .pagination-controls {
@@ -420,25 +435,23 @@
   .pagination-buttons {
     width: 100%;
     justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 0.5rem;
   }
 
+  .pagination-buttons button {
+    min-height: 44px;
+    flex: 1;
+  }
+
+  /* Action buttons: side by side with full width on mobile */
   .orders-page-actions {
-    flex-direction: column;
-    width: 100%;
+    flex-wrap: wrap;
+    gap: 0.5rem;
   }
 
-  .btn-icon {
-    width: 100%;
+  .orders-page-actions .btn-icon {
+    flex: 1;
     justify-content: center;
-  }
-
-  /* Hide less important columns on mobile */
-  .orders-table th:nth-child(3),
-  .orders-table td:nth-child(3),
-  .orders-table th:nth-child(6),
-  .orders-table td:nth-child(6),
-  .orders-table th:nth-child(7),
-  .orders-table td:nth-child(7) {
-    display: none;
   }
 }

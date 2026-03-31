@@ -223,6 +223,8 @@
   font-weight: 700;
   cursor: pointer;
   transition: all 0.2s;
+  /* WCAG 44px touch target */
+  min-height: 44px;
 }
 
 .btn-timer:hover:not(:disabled) {
