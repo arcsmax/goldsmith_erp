@@ -22,8 +22,11 @@ from datetime import datetime, timedelta
 # Un-skip after applying migration: docs/superpowers/plans/2026-03-31-apply-coffee-lab-patterns.md
 pytestmark = pytest.mark.skip(reason="Requires GDPR schema migration (CustomerAuditLog, consent fields, DataRetentionPolicy)")
 
-from goldsmith_erp.db.repositories.customer import CustomerRepository
-from goldsmith_erp.services.customer_service import CustomerService
+try:
+    from goldsmith_erp.db.repositories.customer import CustomerRepository
+    from goldsmith_erp.services.customer_service import CustomerService
+except ImportError:
+    pytest.skip("GDPR models not yet available", allow_module_level=True)
 
 
 @pytest.fixture

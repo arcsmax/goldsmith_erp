@@ -6,7 +6,7 @@ Provides database sessions, test data fixtures, and authentication helpers.
 import asyncio
 import pytest
 import pytest_asyncio
-from httpx import AsyncClient
+from httpx import ASGITransport, AsyncClient
 from datetime import datetime
 from typing import AsyncGenerator
 
@@ -31,7 +31,7 @@ def event_loop():
 @pytest_asyncio.fixture
 async def client():
     """HTTP client for API testing"""
-    async with AsyncClient(app=app, base_url="http://test") as ac:
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
         yield ac
 
 

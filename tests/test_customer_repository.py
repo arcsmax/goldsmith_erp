@@ -24,8 +24,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 # Un-skip after applying migration: docs/superpowers/plans/2026-03-31-apply-coffee-lab-patterns.md
 pytestmark = pytest.mark.skip(reason="Requires GDPR schema migration (CustomerAuditLog, GDPR Customer fields)")
 
-from goldsmith_erp.db.repositories.customer import CustomerRepository
-from goldsmith_erp.db.models import Customer, CustomerAuditLog, User
+try:
+    from goldsmith_erp.db.repositories.customer import CustomerRepository
+    from goldsmith_erp.db.models import Customer, CustomerAuditLog, User
+except ImportError:
+    pytest.skip("GDPR models not yet available", allow_module_level=True)
 
 
 @pytest.fixture
