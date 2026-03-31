@@ -88,6 +88,20 @@ class Settings(BaseSettings):
             path=f"/{info.data['REDIS_DB']}",
         )
 
+    # ── Metal Price Service ──────────────────────────────────────────────────────
+    # Optional external API for live spot prices.
+    # When unset the service falls back to DB history then hardcoded defaults.
+    METAL_PRICE_API_URL: Optional[str] = None
+
+    # How long (seconds) a fetched price set is kept in Redis before re-fetching.
+    METAL_PRICE_CACHE_TTL: int = 3600  # 1 hour
+
+    # EUR per gram fallback prices used only when Redis AND the API AND the DB
+    # all fail to provide a price.  Values reflect mid-2026 typical spot rates.
+    METAL_PRICE_FALLBACK_GOLD: float = 75.0       # 24K / fine gold
+    METAL_PRICE_FALLBACK_SILVER: float = 0.85     # 999 fine silver
+    METAL_PRICE_FALLBACK_PLATINUM: float = 30.0   # pure platinum
+
     @field_validator("SECRET_KEY")
     @classmethod
     def validate_secret_key(cls, v: str) -> str:

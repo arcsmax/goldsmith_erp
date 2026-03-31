@@ -15,7 +15,7 @@ from goldsmith_erp.core.logging import setup_logging
 from goldsmith_erp.middleware import RequestLoggingMiddleware
 from goldsmith_erp.middleware.auth_required import AuthRequiredMiddleware
 from goldsmith_erp.middleware.security_headers import SecurityHeadersMiddleware
-from goldsmith_erp.api.routers import auth, orders, users, materials, activities, time_tracking, health, customers, metal_inventory, comments, scrap_gold, calendar, invoices
+from goldsmith_erp.api.routers import auth, orders, users, materials, activities, time_tracking, health, customers, metal_inventory, comments, scrap_gold, calendar, invoices, metal_prices
 from goldsmith_erp.core.pubsub import subscribe_and_forward, publish_event
 
 # Setup structured logging
@@ -110,6 +110,7 @@ app.include_router(comments.router, prefix=f"{settings.API_V1_STR}", tags=["comm
 app.include_router(scrap_gold.router, prefix=f"{settings.API_V1_STR}", tags=["scrap-gold"])  # Altgold
 app.include_router(calendar.router, prefix=f"{settings.API_V1_STR}/calendar", tags=["calendar"])  # Calendar/Planning
 app.include_router(invoices.router, prefix=f"{settings.API_V1_STR}/invoices", tags=["invoices"])  # Rechnungswesen
+app.include_router(metal_prices.router, prefix=f"{settings.API_V1_STR}", tags=["metal-prices"])  # Live metal spot prices
 
 # WebSocket endpoint with Redis Pub/Sub integration
 @app.websocket("/ws/orders")

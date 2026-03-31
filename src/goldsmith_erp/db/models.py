@@ -554,6 +554,46 @@ class ScrapGoldItem(Base):
     scrap_gold = relationship("ScrapGold", back_populates="items")
 
 
+# ============================================================================
+# METAL PRICE HISTORY
+# ============================================================================
+
+
+class MetalPriceSource(str, enum.Enum):
+    """Source of a recorded metal spot price."""
+    API = "api"          # Fetched from an external price API
+    MANUAL = "manual"    # Entered manually by an admin
+    FALLBACK = "fallback"  # Hardcoded fallback used when all other sources failed
+
+
+class MetalPriceHistory(Base):
+    """
+    Persisted record of spot prices fetched for gold, silver, and platinum.
+
+    The table serves two purposes:
+    1. Audit trail — every price used in cost calculations is traceable.
+    2. Last-known-price fallback — when Redis cache is cold AND the external
+       API is unreachable the service queries this table for the most recent
+       entry per base metal.
+
+    Only base-metal prices are stored (GOLD_24K, SILVER_999, PLATINUM_950).
+    Alloy prices (18K, 14K, ...) are derived from these on the fly.
+    """
+    __tablename__ = "metal_price_history"
+
+    id = Column(Integer, primary_key=True, index=True)
+    metal_type = Column(SAEnum(MetalType), nullable=False, index=True)
+    price_per_gram_eur = Column(Float, nullable=False)
+    source = Column(SAEnum(MetalPriceSource), nullable=False, default=MetalPriceSource.API)
+    fetched_at = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
+
+    def __repr__(self) -> str:
+        return (
+            f"<MetalPriceHistory {self.metal_type.value} "
+            f"{self.price_per_gram_eur:.4f} EUR/g @ {self.fetched_at}>"
+        )
+
+
 class CalendarEvent(Base):
     """
     Calendar events for workshop planning.
