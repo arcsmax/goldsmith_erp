@@ -4,6 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List, Optional
 
 from goldsmith_erp.api.deps import get_current_user
+from goldsmith_erp.core.permissions import Permission, require_permission
 from goldsmith_erp.db.session import get_db
 from goldsmith_erp.db.models import User
 from goldsmith_erp.models.activity import ActivityCreate, ActivityRead, ActivityUpdate
@@ -13,6 +14,7 @@ router = APIRouter()
 
 
 @router.get("/", response_model=List[ActivityRead])
+@require_permission(Permission.ACTIVITY_VIEW)
 async def list_activities(
     category: Optional[str] = Query(None, description="Filter by category: fabrication, administration, waiting"),
     sort_by_usage: bool = Query(False, description="Sort by most used"),
@@ -33,6 +35,7 @@ async def list_activities(
 
 
 @router.get("/most-used", response_model=List[ActivityRead])
+@require_permission(Permission.ACTIVITY_VIEW)
 async def get_most_used_activities(
     limit: int = Query(10, description="Number of activities to return"),
     db: AsyncSession = Depends(get_db),
@@ -43,6 +46,7 @@ async def get_most_used_activities(
 
 
 @router.post("/", response_model=ActivityRead)
+@require_permission(Permission.ACTIVITY_CREATE)
 async def create_activity(
     activity_in: ActivityCreate,
     db: AsyncSession = Depends(get_db),
@@ -57,6 +61,7 @@ async def create_activity(
 
 
 @router.get("/{activity_id}", response_model=ActivityRead)
+@require_permission(Permission.ACTIVITY_VIEW)
 async def get_activity(
     activity_id: int,
     db: AsyncSession = Depends(get_db),
@@ -70,6 +75,7 @@ async def get_activity(
 
 
 @router.put("/{activity_id}", response_model=ActivityRead)
+@require_permission(Permission.ACTIVITY_EDIT)
 async def update_activity(
     activity_id: int,
     activity_in: ActivityUpdate,
@@ -84,6 +90,7 @@ async def update_activity(
 
 
 @router.delete("/{activity_id}")
+@require_permission(Permission.ACTIVITY_DELETE)
 async def delete_activity(
     activity_id: int,
     db: AsyncSession = Depends(get_db),
