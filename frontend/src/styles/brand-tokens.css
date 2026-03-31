@@ -1,0 +1,66 @@
+@import "tailwindcss";
+
+/* Goldsmith ERP Brand Tokens */
+@theme {
+  /* Primary actions — gold/amber */
+  --color-brand-cta-50: #fffbeb;
+  --color-brand-cta-100: #fef3c7;
+  --color-brand-cta-200: #fde68a;
+  --color-brand-cta-300: #fcd34d;
+  --color-brand-cta-400: #fbbf24;
+  --color-brand-cta-500: #f59e0b;
+  --color-brand-cta-600: #d97706;
+  --color-brand-cta-700: #b45309;
+  --color-brand-cta-800: #92400e;
+  --color-brand-cta-900: #78350f;
+
+  /* Dark surfaces — deep charcoal */
+  --color-brand-primary-50: #f8fafc;
+  --color-brand-primary-100: #f1f5f9;
+  --color-brand-primary-200: #e2e8f0;
+  --color-brand-primary-300: #cbd5e1;
+  --color-brand-primary-400: #94a3b8;
+  --color-brand-primary-500: #64748b;
+  --color-brand-primary-600: #475569;
+  --color-brand-primary-700: #334155;
+  --color-brand-primary-800: #1e293b;
+  --color-brand-primary-900: #0f172a;
+
+  /* Page backgrounds — warm ivory */
+  --color-brand-cream-50: #fefdfb;
+  --color-brand-cream-100: #fdf8f0;
+  --color-brand-cream-200: #f5edd6;
+
+  /* Accents — rose gold */
+  --color-brand-accent-50: #fff1f2;
+  --color-brand-accent-100: #ffe4e6;
+  --color-brand-accent-200: #fecdd3;
+  --color-brand-accent-300: #fda4af;
+  --color-brand-accent-400: #fb7185;
+  --color-brand-accent-500: #f43f5e;
+  --color-brand-accent-600: #e11d48;
+  --color-brand-accent-700: #be123c;
+  --color-brand-accent-800: #9f1239;
+  --color-brand-accent-900: #881337;
+
+  /* Secondary — warm bronze */
+  --color-brand-secondary-50: #fdf4ef;
+  --color-brand-secondary-100: #f9e4d4;
+  --color-brand-secondary-200: #f0c9a8;
+  --color-brand-secondary-300: #e4a672;
+  --color-brand-secondary-400: #d4813e;
+  --color-brand-secondary-500: #c76b24;
+  --color-brand-secondary-600: #b5541c;
+  --color-brand-secondary-700: #963f1a;
+  --color-brand-secondary-800: #7a341c;
+  --color-brand-secondary-900: #652d1b;
+}
+
+/* Semantic tokens */
+:root {
+  --background-color-page: var(--color-brand-cream-50);
+  --text-color-primary: var(--color-brand-primary-800);
+  --text-color-link: var(--color-brand-cta-600);
+  --border-color-focus: var(--color-brand-cta-500);
+  --ring-color-focus: var(--color-brand-cta-500);
+}

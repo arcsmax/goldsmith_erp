@@ -1,3 +1,6 @@
+@import "./styles/brand-tokens.css";
+@import "./styles/utilities.css";
+
 /* Goldsmith ERP - Global Styles */
 
 :root {

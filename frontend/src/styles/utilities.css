@@ -1,0 +1,127 @@
+/* Goldsmith ERP Component Utilities */
+
+/* Buttons — all meet 44px WCAG minimum touch target */
+@utility btn-primary {
+  padding-left: 1.5rem;
+  padding-right: 1.5rem;
+  padding-top: 0.75rem;
+  padding-bottom: 0.75rem;
+  background-color: var(--color-brand-cta-600);
+  color: white;
+  border-radius: 0.5rem;
+  min-height: 44px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.15s;
+  &:hover { background-color: var(--color-brand-cta-700); }
+  &:focus { outline: 2px solid var(--ring-color-focus); outline-offset: 2px; }
+}
+
+@utility btn-secondary {
+  padding-left: 1.5rem;
+  padding-right: 1.5rem;
+  padding-top: 0.75rem;
+  padding-bottom: 0.75rem;
+  border: 1px solid var(--color-brand-secondary-400);
+  color: var(--color-brand-secondary-700);
+  border-radius: 0.5rem;
+  min-height: 44px;
+  font-weight: 500;
+  cursor: pointer;
+  background: transparent;
+  &:hover { background-color: var(--color-brand-secondary-50); }
+}
+
+@utility btn-danger {
+  padding-left: 1.5rem;
+  padding-right: 1.5rem;
+  padding-top: 0.75rem;
+  padding-bottom: 0.75rem;
+  background-color: #dc2626;
+  color: white;
+  border-radius: 0.5rem;
+  min-height: 44px;
+  font-weight: 500;
+  cursor: pointer;
+  &:hover { background-color: #b91c1c; }
+}
+
+@utility btn-ghost {
+  padding-left: 1rem;
+  padding-right: 1rem;
+  padding-top: 0.5rem;
+  padding-bottom: 0.5rem;
+  color: var(--color-brand-cta-600);
+  background: transparent;
+  border: none;
+  min-height: 44px;
+  cursor: pointer;
+  &:hover { text-decoration: underline; }
+}
+
+/* Cards — glass morphism */
+@utility card {
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(4px);
+  border-radius: 0.75rem;
+  border: 1px solid var(--color-brand-cream-100);
+  padding: 1.5rem;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+@utility card-interactive {
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(4px);
+  border-radius: 0.75rem;
+  border: 1px solid var(--color-brand-cream-100);
+  padding: 1.5rem;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  transition: transform 0.15s, box-shadow 0.15s;
+  cursor: pointer;
+  &:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15); }
+}
+
+@utility card-compact {
+  background: rgba(255, 255, 255, 0.85);
+  border-radius: 0.75rem;
+  border: 1px solid var(--color-brand-cream-100);
+  padding: 1rem;
+}
+
+/* Typography */
+@utility page-title {
+  font-size: 1.5rem;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+@utility section-title {
+  font-size: 1.25rem;
+  font-weight: 700;
+  margin-bottom: 1rem;
+}
+
+@utility card-title {
+  font-size: 1.125rem;
+  font-weight: 600;
+  margin-bottom: 1rem;
+}
+
+@utility subtitle {
+  font-size: 0.875rem;
+  color: var(--color-brand-primary-500);
+}
+
+/* Inputs — 44px minimum touch target */
+@utility input-field {
+  padding-left: 0.75rem;
+  padding-right: 0.75rem;
+  padding-top: 0.5rem;
+  padding-bottom: 0.5rem;
+  font-size: 0.875rem;
+  border: 1px solid var(--color-brand-primary-200);
+  border-radius: 0.5rem;
+  min-height: 44px;
+  width: 100%;
+  &:focus { outline: 2px solid var(--ring-color-focus); outline-offset: 0px; }
+}
