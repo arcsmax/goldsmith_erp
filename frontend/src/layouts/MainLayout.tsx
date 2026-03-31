@@ -59,6 +59,14 @@ export const MainLayout: React.FC = () => {
             </Link>
 
             <Link
+              to="/customers"
+              className={`nav-link ${isActivePath('/customers') ? 'active' : ''}`}
+            >
+              <span className="nav-icon">📇</span>
+              Kunden
+            </Link>
+
+            <Link
               to="/orders"
               className={`nav-link ${isActivePath('/orders') ? 'active' : ''}`}
             >
@@ -72,6 +80,22 @@ export const MainLayout: React.FC = () => {
             >
               <span className="nav-icon">💎</span>
               Materialien
+            </Link>
+
+            <Link
+              to="/metal-inventory"
+              className={`nav-link ${isActivePath('/metal-inventory') ? 'active' : ''}`}
+            >
+              <span className="nav-icon">🥇</span>
+              Metallinventar
+            </Link>
+
+            <Link
+              to="/time-tracking"
+              className={`nav-link ${isActivePath('/time-tracking') ? 'active' : ''}`}
+            >
+              <span className="nav-icon">⏱️</span>
+              Zeiterfassung
             </Link>
 
             <Link

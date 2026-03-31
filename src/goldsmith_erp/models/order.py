@@ -1,10 +1,14 @@
 # src/goldsmith_erp/models/order.py
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from datetime import datetime
-from typing import Optional, List
+from typing import Optional, List, TYPE_CHECKING
 from decimal import Decimal
 
-from goldsmith_erp.db.models import OrderStatusEnum
+from goldsmith_erp.db.models import OrderStatusEnum, MetalType, CostingMethod
+
+# Use TYPE_CHECKING to avoid circular import issues
+if TYPE_CHECKING:
+    from goldsmith_erp.models.customer import CustomerRead
 
 
 class MaterialBase(BaseModel):
@@ -84,6 +88,11 @@ class OrderCreate(OrderBase):
     estimated_weight_g: Optional[float] = Field(None, ge=0, description="Estimated metal weight in grams")
     scrap_percentage: Optional[float] = Field(5.0, ge=0, le=50, description="Material loss percentage")
 
+    # Metal Inventory Integration (optional at creation)
+    metal_type: Optional[MetalType] = Field(None, description="Type of metal to use (e.g., gold_18k, silver_925)")
+    costing_method: Optional[CostingMethod] = Field(CostingMethod.FIFO, description="Costing method (FIFO/LIFO/AVERAGE/SPECIFIC)")
+    specific_metal_purchase_id: Optional[int] = Field(None, gt=0, description="Specific metal batch ID (required if costing_method=SPECIFIC)")
+
     # Cost Calculation (optional at creation)
     material_cost_override: Optional[float] = Field(None, ge=0, description="Manual material cost override")
     labor_hours: Optional[float] = Field(None, ge=0, description="Estimated work hours")
@@ -155,6 +164,11 @@ class OrderUpdate(BaseModel):
     actual_weight_g: Optional[float] = Field(None, ge=0)
     scrap_percentage: Optional[float] = Field(None, ge=0, le=50)
 
+    # Metal Inventory Integration
+    metal_type: Optional[MetalType] = Field(None, description="Type of metal to use")
+    costing_method: Optional[CostingMethod] = Field(None, description="Costing method")
+    specific_metal_purchase_id: Optional[int] = Field(None, gt=0, description="Specific metal batch ID")
+
     # Cost Calculation
     material_cost_override: Optional[float] = Field(None, ge=0)
     labor_hours: Optional[float] = Field(None, ge=0)
@@ -203,6 +217,7 @@ class OrderRead(OrderBase):
     id: int
     status: OrderStatusEnum
     customer_id: int
+    customer: Optional["CustomerRead"] = None  # Optional - populated when explicitly requested
     deadline: Optional[datetime] = None
     current_location: Optional[str] = None
 
@@ -210,6 +225,11 @@ class OrderRead(OrderBase):
     estimated_weight_g: Optional[float] = None
     actual_weight_g: Optional[float] = None
     scrap_percentage: Optional[float] = 5.0
+
+    # Metal Inventory Integration
+    metal_type: Optional[MetalType] = None
+    costing_method_used: Optional[CostingMethod] = CostingMethod.FIFO
+    specific_metal_purchase_id: Optional[int] = None
 
     # Cost Calculation
     material_cost_calculated: Optional[float] = None
@@ -228,3 +248,20 @@ class OrderRead(OrderBase):
     materials: Optional[List[MaterialBase]] = None
 
     model_config = ConfigDict(from_attributes=True)
+
+
+# Resolve forward references after all models are defined
+# This allows the CustomerRead forward reference to be properly resolved
+def _resolve_forward_refs():
+    """Resolve forward references in OrderRead model."""
+    try:
+        from goldsmith_erp.models.customer import CustomerRead
+        OrderRead.model_rebuild()
+    except ImportError:
+        # If customer module isn't available yet, that's okay
+        # The forward reference will be resolved when it's imported elsewhere
+        pass
+
+
+# Call the resolver
+_resolve_forward_refs()

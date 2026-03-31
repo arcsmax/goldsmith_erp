@@ -1,0 +1,418 @@
+/* Orders Page & Modal Styles */
+
+/* ==================== MODAL LARGE ==================== */
+
+.modal-large {
+  max-width: 800px;
+}
+
+/* ==================== FORM TABS ==================== */
+
+.form-tabs {
+  display: flex;
+  border-bottom: 2px solid #e5e7eb;
+  background: #f8f9fa;
+}
+
+.form-tab {
+  flex: 1;
+  padding: 1rem 1.5rem;
+  background: none;
+  border: none;
+  font-size: 1rem;
+  font-weight: 600;
+  color: #666;
+  cursor: pointer;
+  transition: all 0.3s;
+  border-bottom: 3px solid transparent;
+  position: relative;
+  top: 2px;
+}
+
+.form-tab:hover {
+  background: white;
+  color: #667eea;
+}
+
+.form-tab.active {
+  background: white;
+  color: #667eea;
+  border-bottom-color: #667eea;
+}
+
+/* ==================== FORM LAYOUT ==================== */
+
+.order-form {
+  display: flex;
+  flex-direction: column;
+}
+
+.tab-content-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.form-row {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 1.5rem;
+}
+
+/* ==================== ORDER FILTERS ==================== */
+
+.orders-controls {
+  display: flex;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+  flex-wrap: wrap;
+  align-items: flex-end;
+}
+
+.search-box {
+  flex: 1;
+  min-width: 250px;
+}
+
+.filter-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.filter-group label {
+  font-weight: 600;
+  color: #666;
+  font-size: 0.85rem;
+}
+
+.filter-group select {
+  padding: 0.75rem 1rem;
+  border: 2px solid #e5e7eb;
+  border-radius: 8px;
+  font-size: 1rem;
+  cursor: pointer;
+  background: white;
+  transition: all 0.3s;
+  min-width: 150px;
+}
+
+.filter-group select:focus {
+  outline: none;
+  border-color: #667eea;
+  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+}
+
+/* ==================== STATUS BADGES ==================== */
+
+.status-badge {
+  padding: 0.35rem 0.75rem;
+  border-radius: 12px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  display: inline-block;
+}
+
+.status-badge.status-new {
+  background: #dbeafe;
+  color: #1e40af;
+}
+
+.status-badge.status-in_progress {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.status-badge.status-completed {
+  background: #d1fae5;
+  color: #065f46;
+}
+
+.status-badge.status-delivered {
+  background: #e5e7eb;
+  color: #374151;
+}
+
+/* ==================== ORDERS TABLE ==================== */
+
+.orders-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.orders-table th {
+  background: #f8f9fa;
+  padding: 1rem;
+  text-align: left;
+  font-weight: 600;
+  color: #666;
+  border-bottom: 2px solid #e9ecef;
+  font-size: 0.9rem;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.orders-table td {
+  padding: 1rem;
+  border-bottom: 1px solid #e9ecef;
+  color: #333;
+}
+
+.orders-table tbody tr {
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.orders-table tbody tr:hover {
+  background: #f8f9fa;
+}
+
+/* ==================== ORDER ACTIONS ==================== */
+
+.orders-page-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.btn-icon {
+  background: white;
+  border: 2px solid #e5e7eb;
+  padding: 0.5rem 0.75rem;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 1rem;
+  transition: all 0.3s;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.btn-icon:hover {
+  background: #f3f4f6;
+  border-color: #667eea;
+  color: #667eea;
+}
+
+.btn-icon.btn-edit:hover {
+  border-color: #3b82f6;
+  color: #3b82f6;
+}
+
+.btn-icon.btn-delete:hover {
+  border-color: #ef4444;
+  color: #ef4444;
+}
+
+.btn-icon.btn-duplicate:hover {
+  border-color: #10b981;
+  color: #10b981;
+}
+
+/* ==================== PAGINATION ==================== */
+
+.pagination-controls {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 1.5rem;
+  padding: 1rem 0;
+  border-top: 2px solid #e5e7eb;
+}
+
+.pagination-info {
+  color: #666;
+  font-size: 0.95rem;
+}
+
+.pagination-buttons {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.pagination-buttons button {
+  padding: 0.5rem 1rem;
+  border: 2px solid #e5e7eb;
+  background: white;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: 600;
+  transition: all 0.3s;
+}
+
+.pagination-buttons button:hover:not(:disabled) {
+  background: #f3f4f6;
+  border-color: #667eea;
+  color: #667eea;
+}
+
+.pagination-buttons button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.pagination-buttons .page-size-select {
+  padding: 0.5rem 0.75rem;
+  border: 2px solid #e5e7eb;
+  border-radius: 6px;
+  font-size: 0.95rem;
+  cursor: pointer;
+  background: white;
+}
+
+/* ==================== CUSTOMER AUTOCOMPLETE ==================== */
+
+.customer-select {
+  position: relative;
+}
+
+.customer-autocomplete {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  background: white;
+  border: 2px solid #667eea;
+  border-top: none;
+  border-radius: 0 0 8px 8px;
+  max-height: 200px;
+  overflow-y: auto;
+  z-index: 100;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.customer-autocomplete-item {
+  padding: 0.75rem 1rem;
+  cursor: pointer;
+  transition: background 0.2s;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.customer-autocomplete-item:last-child {
+  border-bottom: none;
+}
+
+.customer-autocomplete-item:hover {
+  background: #f3f4f6;
+}
+
+.customer-autocomplete-item.active {
+  background: #eff6ff;
+  color: #1e40af;
+}
+
+/* ==================== METAL TYPE INDICATORS ==================== */
+
+.metal-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.25rem 0.75rem;
+  border-radius: 12px;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.metal-indicator.gold {
+  background: rgba(255, 215, 0, 0.2);
+  color: #b45309;
+}
+
+.metal-indicator.silver {
+  background: rgba(192, 192, 192, 0.3);
+  color: #6b7280;
+}
+
+.metal-indicator.platinum {
+  background: rgba(229, 228, 226, 0.3);
+  color: #4b5563;
+}
+
+/* ==================== PRICE DISPLAY ==================== */
+
+.price-display {
+  font-weight: 700;
+  color: #059669;
+  font-size: 1.1rem;
+}
+
+.price-calculated {
+  font-size: 0.85rem;
+  color: #666;
+  font-style: italic;
+}
+
+/* ==================== RESPONSIVE ==================== */
+
+@media (max-width: 768px) {
+  .modal-large {
+    width: 95%;
+    max-height: 95vh;
+  }
+
+  .form-tabs {
+    flex-direction: column;
+  }
+
+  .form-tab {
+    border-bottom: none;
+    border-left: 3px solid transparent;
+  }
+
+  .form-tab.active {
+    border-left-color: #667eea;
+  }
+
+  .form-row {
+    grid-template-columns: 1fr;
+  }
+
+  .orders-controls {
+    flex-direction: column;
+  }
+
+  .search-box {
+    width: 100%;
+  }
+
+  .filter-group {
+    width: 100%;
+  }
+
+  .filter-group select {
+    width: 100%;
+  }
+
+  .pagination-controls {
+    flex-direction: column;
+    gap: 1rem;
+    align-items: flex-start;
+  }
+
+  .pagination-buttons {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .orders-page-actions {
+    flex-direction: column;
+    width: 100%;
+  }
+
+  .btn-icon {
+    width: 100%;
+    justify-content: center;
+  }
+
+  /* Hide less important columns on mobile */
+  .orders-table th:nth-child(3),
+  .orders-table td:nth-child(3),
+  .orders-table th:nth-child(6),
+  .orders-table td:nth-child(6),
+  .orders-table th:nth-child(7),
+  .orders-table td:nth-child(7) {
+    display: none;
+  }
+}

@@ -24,7 +24,7 @@ from .material import (
     MaterialBase as MaterialBaseSchema,
     MaterialCreate,
     MaterialUpdate,
-    Material,
+    MaterialRead as Material,
 )
 
 # Activity Schemas

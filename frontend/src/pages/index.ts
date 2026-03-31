@@ -2,8 +2,11 @@
 export { LoginPage } from './LoginPage';
 export { RegisterPage } from './RegisterPage';
 export { DashboardPage } from './DashboardPage';
+export { CustomersPage } from './CustomersPage';
 export { MaterialsPage } from './MaterialsPage';
+export { MetalInventoryPage } from './MetalInventoryPage';
 export { OrdersPage } from './OrdersPage';
 export { OrderDetailPage } from './OrderDetailPage';
+export { TimeTrackingPage } from './TimeTrackingPage';
 export { UsersPage } from './UsersPage';
 export { ScannerPage } from './ScannerPage';

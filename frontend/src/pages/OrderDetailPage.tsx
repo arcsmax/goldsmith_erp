@@ -5,6 +5,9 @@ import { ordersApi, materialsApi } from '../api';
 import { OrderType, MaterialType, OrderStatus } from '../types';
 import { useOrders, OrderTab } from '../contexts';
 import TimeTrackingTab from '../components/TimeTrackingTab';
+import { CostBreakdownCard } from '../components/orders/CostBreakdownCard';
+import { MetalInventoryCard } from '../components/orders/MetalInventoryCard';
+import { CustomerInfoCard } from '../components/orders/CustomerInfoCard';
 import '../styles/order-detail.css';
 
 export const OrderDetailPage: React.FC = () => {
@@ -110,6 +113,20 @@ export const OrderDetailPage: React.FC = () => {
           📋 Details
         </button>
         <button
+          className={`tab ${activeTab === 'kosten' ? 'active' : ''}`}
+          onClick={() => handleTabChange('kosten')}
+        >
+          💰 Kosten
+        </button>
+        {order.metal_type && (
+          <button
+            className={`tab ${activeTab === 'metall' ? 'active' : ''}`}
+            onClick={() => handleTabChange('metall')}
+          >
+            🥇 Metall
+          </button>
+        )}
+        <button
           className={`tab ${activeTab === 'materials' ? 'active' : ''}`}
           onClick={() => handleTabChange('materials')}
         >
@@ -147,6 +164,14 @@ export const OrderDetailPage: React.FC = () => {
           <DetailsTab order={order} />
         )}
 
+        {activeTab === 'kosten' && (
+          <CostsTab order={order} />
+        )}
+
+        {activeTab === 'metall' && order.metal_type && (
+          <MetalTab order={order} />
+        )}
+
         {activeTab === 'materials' && (
           <MaterialsTab materials={materials} orderId={order.id} />
         )}
@@ -176,36 +201,69 @@ export const OrderDetailPage: React.FC = () => {
 const DetailsTab: React.FC<{ order: OrderType }> = ({ order }) => (
   <div className="tab-panel">
     <h2>Auftragsdetails</h2>
-    <div className="detail-grid">
-      <div className="detail-item">
-        <label>Auftragsnummer:</label>
-        <span>#{order.id}</span>
-      </div>
-      <div className="detail-item">
-        <label>Titel:</label>
-        <span>{order.title}</span>
-      </div>
-      <div className="detail-item">
-        <label>Beschreibung:</label>
-        <span>{order.description}</span>
-      </div>
-      <div className="detail-item">
-        <label>Preis:</label>
-        <span>{order.price ? `${order.price} €` : 'Nicht festgelegt'}</span>
-      </div>
-      <div className="detail-item">
-        <label>Kunde ID:</label>
-        <span>#{order.customer_id}</span>
-      </div>
-      <div className="detail-item">
-        <label>Erstellt:</label>
-        <span>{new Date(order.created_at).toLocaleString('de-DE')}</span>
-      </div>
-      <div className="detail-item">
-        <label>Aktualisiert:</label>
-        <span>{new Date(order.updated_at).toLocaleString('de-DE')}</span>
+
+    {/* Customer Info Section */}
+    <div className="details-section">
+      <h3>Kunde</h3>
+      <CustomerInfoCard customerId={order.customer_id} />
+    </div>
+
+    {/* Order Details Section */}
+    <div className="details-section">
+      <h3>Auftragsinformationen</h3>
+      <div className="detail-grid">
+        <div className="detail-item">
+          <label>Auftragsnummer:</label>
+          <span>#{order.id}</span>
+        </div>
+        <div className="detail-item">
+          <label>Titel:</label>
+          <span>{order.title}</span>
+        </div>
+        <div className="detail-item">
+          <label>Beschreibung:</label>
+          <span>{order.description}</span>
+        </div>
+        <div className="detail-item">
+          <label>Preis:</label>
+          <span>{order.price ? `${order.price.toFixed(2)} €` : 'Nicht festgelegt'}</span>
+        </div>
+        {order.deadline && (
+          <div className="detail-item">
+            <label>Deadline:</label>
+            <span>{new Date(order.deadline).toLocaleString('de-DE')}</span>
+          </div>
+        )}
+        {order.current_location && (
+          <div className="detail-item">
+            <label>Standort:</label>
+            <span>{order.current_location}</span>
+          </div>
+        )}
+        <div className="detail-item">
+          <label>Erstellt:</label>
+          <span>{new Date(order.created_at).toLocaleString('de-DE')}</span>
+        </div>
+        <div className="detail-item">
+          <label>Aktualisiert:</label>
+          <span>{new Date(order.updated_at).toLocaleString('de-DE')}</span>
+        </div>
       </div>
     </div>
+  </div>
+);
+
+const CostsTab: React.FC<{ order: OrderType }> = ({ order }) => (
+  <div className="tab-panel">
+    <h2>Kostenaufstellung</h2>
+    <CostBreakdownCard order={order} />
+  </div>
+);
+
+const MetalTab: React.FC<{ order: OrderType }> = ({ order }) => (
+  <div className="tab-panel">
+    <h2>Metallinformationen</h2>
+    <MetalInventoryCard order={order} />
   </div>
 );
 

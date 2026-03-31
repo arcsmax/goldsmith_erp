@@ -109,6 +109,10 @@ export interface CustomerStats {
 
 export type OrderStatus = 'new' | 'in_progress' | 'completed' | 'delivered';
 
+export type MetalType = 'gold_24k' | 'gold_18k' | 'gold_14k' | 'silver_925' | 'silver_999' | 'platinum';
+
+export type CostingMethod = 'FIFO' | 'LIFO' | 'AVERAGE' | 'SPECIFIC';
+
 export interface OrderType {
   id: number;
   title: string;
@@ -116,10 +120,36 @@ export interface OrderType {
   price: number | null;
   status: OrderStatus;
   customer_id: number;
+  customer?: Customer; // Optional - populated when fetching with relations
   deadline?: string | null;
   created_at: string;
   updated_at: string;
   materials?: MaterialType[];
+
+  // Location
+  current_location?: string | null;
+
+  // Weight & Material
+  estimated_weight_g?: number | null;
+  actual_weight_g?: number | null;
+  scrap_percentage?: number;
+
+  // Metal Inventory
+  metal_type?: MetalType | null;
+  costing_method_used?: CostingMethod;
+  specific_metal_purchase_id?: number | null;
+
+  // Cost Calculation
+  material_cost_calculated?: number | null;
+  material_cost_override?: number | null;
+  labor_hours?: number | null;
+  hourly_rate?: number;
+  labor_cost?: number | null;
+
+  // Pricing
+  profit_margin_percent?: number;
+  vat_rate?: number;
+  calculated_price?: number | null;
 }
 
 export interface OrderCreateInput {
@@ -185,6 +215,66 @@ export interface AuthContextType {
   register: (userData: UserCreateInput) => Promise<void>;
   logout: () => void;
   refreshUser: () => Promise<void>;
+}
+
+// ==================== METAL INVENTORY TYPES ====================
+
+export type MetalType = 'gold_999' | 'gold_750' | 'gold_585' | 'gold_333' | 'silver_999' | 'silver_925' | 'platinum_950' | 'palladium_950';
+
+export interface MetalPurchaseType {
+  id: number;
+  date_purchased: string;
+  metal_type: MetalType;
+  weight_g: number;
+  remaining_weight_g: number;
+  price_total: number;
+  price_per_gram: number;
+  supplier?: string | null;
+  invoice_number?: string | null;
+  notes?: string | null;
+  lot_number?: string | null;
+  created_at: string;
+  updated_at: string;
+  // Computed properties
+  used_weight_g?: number;
+  usage_percentage?: number;
+  is_depleted?: boolean;
+  remaining_value?: number;
+}
+
+export interface MetalPurchaseCreateInput {
+  date_purchased?: string;
+  metal_type: MetalType;
+  weight_g: number;
+  price_total: number;
+  supplier?: string;
+  invoice_number?: string;
+  notes?: string;
+  lot_number?: string;
+}
+
+export interface MetalPurchaseUpdateInput {
+  date_purchased?: string;
+  metal_type?: MetalType;
+  weight_g?: number;
+  remaining_weight_g?: number;
+  price_total?: number;
+  price_per_gram?: number;
+  supplier?: string;
+  invoice_number?: string;
+  notes?: string;
+  lot_number?: string;
+}
+
+export interface MetalInventorySummary {
+  metal_type: MetalType;
+  total_weight_g: number;
+  total_remaining_g: number;
+  total_value: number;
+  average_price_per_gram: number;
+  purchase_count: number;
+  oldest_purchase_date?: string;
+  newest_purchase_date?: string;
 }
 
 // ==================== TIME TRACKING TYPES ====================
@@ -297,4 +387,30 @@ export interface TimeTrackingStats {
   average_complexity?: number | null;
   average_quality?: number | null;
   by_activity?: Record<string, number>;
+}
+
+export interface TimeSummaryStats {
+  total_hours: number;
+  billable_hours: number;
+  entries_count: number;
+  average_session_minutes: number;
+  most_used_activity?: string;
+  comparison_previous_period?: number; // percentage change
+}
+
+export interface WeeklyTimeData {
+  week_start: string;
+  total_hours: number;
+  entries_count: number;
+  breakdown_by_day: {
+    day: string; // 'Mon', 'Tue', etc.
+    hours: number;
+  }[];
+}
+
+export interface ActivityBreakdownData {
+  activity_name: string;
+  hours: number;
+  percentage: number;
+  color: string;
 }
