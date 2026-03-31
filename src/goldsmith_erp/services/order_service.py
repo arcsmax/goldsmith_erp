@@ -62,7 +62,10 @@ class OrderService:
         Event publishing happens after successful commit.
         """
         async with transactional(db):
-            order_data = order_in.dict(exclude={"materials"})
+            order_data = order_in.dict(exclude={"materials", "costing_method"})
+            # OrderCreate uses 'costing_method' but the ORM column is 'costing_method_used'
+            if order_in.costing_method is not None:
+                order_data["costing_method_used"] = order_in.costing_method
             db_order = OrderModel(**order_data)
 
             # Materialien verknüpfen, falls angegeben
@@ -84,7 +87,10 @@ class OrderService:
             db.add(db_order)
             # Flush to get the ID before commit
             await db.flush()
-            await db.refresh(db_order)
+
+        # Re-fetch with eager loading after commit so relationships are available
+        # for response serialization without requiring an active greenlet
+        db_order = await OrderService.get_order(db, db_order.id)
 
         # Publish event to Redis AFTER successful transaction commit
         # If this fails, the order is still created (eventual consistency)
