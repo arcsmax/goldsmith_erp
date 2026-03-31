@@ -6,6 +6,14 @@ from datetime import datetime
 import enum
 import uuid
 
+
+class CalendarEventType(str, enum.Enum):
+    """Event types for the calendar/planning system."""
+    ORDER_DEADLINE = "order_deadline"
+    WORKSHOP_TASK = "workshop_task"
+    APPOINTMENT = "appointment"
+    REMINDER = "reminder"
+
 Base = declarative_base()
 
 
@@ -57,6 +65,23 @@ class ScrapGoldStatus(str, enum.Enum):
     CALCULATED = "calculated"  # Fine content calculated
     SIGNED = "signed"          # Customer signed receipt
     CREDITED = "credited"      # Applied to invoice
+
+
+class InvoiceStatus(str, enum.Enum):
+    """Invoice lifecycle status (Rechnungsstatus)."""
+    DRAFT = "draft"            # Entwurf - not yet sent
+    SENT = "sent"              # Versendet - sent to customer
+    PAID = "paid"              # Bezahlt - payment received
+    OVERDUE = "overdue"        # Ueberfaellig - past due date
+    CANCELLED = "cancelled"    # Storniert - voided
+
+
+class InvoiceLineType(str, enum.Enum):
+    """Type of invoice line item (Rechnungspositionstyp)."""
+    MATERIAL = "material"      # Metal material (e.g. Gold 18K)
+    LABOR = "labor"            # Labor/Arbeitszeit
+    GEMSTONE = "gemstone"      # Edelstein
+    OTHER = "other"            # Sonstiges
 
 
 class AlloyType(str, enum.Enum):
@@ -527,3 +552,150 @@ class ScrapGoldItem(Base):
 
     # Relationships
     scrap_gold = relationship("ScrapGold", back_populates="items")
+
+
+class CalendarEvent(Base):
+    """
+    Calendar events for workshop planning.
+
+    Covers manual events (appointments, reminders, tasks) as well as
+    system-generated entries (order_deadline type is created on-the-fly from
+    Order.deadline and is NOT stored here — use CalendarService.get_order_deadlines
+    for those).
+    """
+    __tablename__ = "calendar_events"
+
+    id = Column(Integer, primary_key=True, index=True)
+    title = Column(String(200), nullable=False)
+    description = Column(Text, nullable=True)
+    event_type = Column(
+        SAEnum(CalendarEventType),
+        nullable=False,
+        default=CalendarEventType.WORKSHOP_TASK,
+        index=True,
+    )
+
+    # Time range
+    start_datetime = Column(DateTime, nullable=False, index=True)
+    end_datetime = Column(DateTime, nullable=True)
+    all_day = Column(Boolean, default=False, nullable=False)
+
+    # Optional link to an order
+    order_id = Column(
+        Integer,
+        ForeignKey("orders.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+
+    # Owner / creator
+    user_id = Column(
+        Integer,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+
+    # Visual styling
+    color = Column(String(7), nullable=True)  # Hex color, e.g. "#FF6B6B"
+
+    # Simple recurrence note (free-text, not a full RFC 5545 implementation)
+    recurrence = Column(String(100), nullable=True)  # e.g. "weekly", "monthly"
+
+    # Metadata
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(
+        DateTime,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+        nullable=False,
+    )
+
+    # Relationships
+    order = relationship("Order")
+    user = relationship("User")
+
+
+# ============================================================================
+# INVOICE / BILLING (RECHNUNGSWESEN)
+# ============================================================================
+
+
+class Invoice(Base):
+    """
+    Rechnung (Invoice) for a completed goldsmith order.
+
+    Invoice numbers follow the German format RE-YYYY-NNNN (sequential per year).
+    Tax is 19% MwSt (Mehrwertsteuer) by default.
+    All financial access is audit-logged via structured logging.
+    """
+    __tablename__ = "invoices"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    # Rechnungsnummer: RE-2026-0001 (unique, generated on creation)
+    invoice_number = Column(String(20), unique=True, nullable=False, index=True)
+
+    # Links
+    order_id = Column(Integer, ForeignKey("orders.id", ondelete="RESTRICT"), nullable=False, index=True)
+    customer_id = Column(Integer, ForeignKey("customers.id", ondelete="RESTRICT"), nullable=False, index=True)
+    created_by = Column(Integer, ForeignKey("users.id"), nullable=False)
+
+    # Status
+    status = Column(SAEnum(InvoiceStatus), default=InvoiceStatus.DRAFT, nullable=False, index=True)
+
+    # Dates
+    issue_date = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
+    due_date = Column(DateTime, nullable=False, index=True)       # Faelligkeitsdatum
+    paid_date = Column(DateTime, nullable=True)                   # Zahlungsdatum
+
+    # Amounts (Betraege)
+    subtotal = Column(Float, nullable=False, default=0.0)         # Zwischensumme (netto)
+    tax_rate = Column(Float, nullable=False, default=19.0)        # MwSt-Satz in Prozent
+    tax_amount = Column(Float, nullable=False, default=0.0)       # MwSt-Betrag
+    total = Column(Float, nullable=False, default=0.0)            # Gesamtbetrag (brutto)
+
+    # Optional fields
+    notes = Column(Text, nullable=True)                           # Anmerkungen
+    payment_method = Column(String(50), nullable=True)            # Zahlungsart (Ueberweisung, Bar, Karte)
+
+    # Metadata
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    # Relationships
+    order = relationship("Order")
+    customer = relationship("Customer")
+    creator = relationship("User")
+    line_items = relationship(
+        "InvoiceLineItem",
+        back_populates="invoice",
+        cascade="all, delete-orphan",
+        order_by="InvoiceLineItem.id",
+    )
+
+
+class InvoiceLineItem(Base):
+    """
+    Rechnungsposition (Invoice Line Item).
+
+    Each line item represents a billable component of the work:
+    - Material (Werkstoff, e.g. "Gold 18K, 5.2g")
+    - Labor (Arbeitszeit, e.g. "Fertigung Ring, 3.5h")
+    - Gemstone (Edelstein, e.g. "Diamant 0.5ct VS1")
+    - Other (Sonstiges)
+    """
+    __tablename__ = "invoice_line_items"
+
+    id = Column(Integer, primary_key=True, index=True)
+    invoice_id = Column(Integer, ForeignKey("invoices.id", ondelete="CASCADE"), nullable=False, index=True)
+
+    # Line item details
+    line_type = Column(SAEnum(InvoiceLineType), nullable=False, default=InvoiceLineType.OTHER)
+    description = Column(String(500), nullable=False)   # Beschreibung der Position
+    quantity = Column(Float, nullable=False, default=1.0)
+    unit_price = Column(Float, nullable=False)           # Einzelpreis (netto)
+    total = Column(Float, nullable=False)                # Gesamtpreis dieser Position (quantity * unit_price)
+
+    # Relationships
+    invoice = relationship("Invoice", back_populates="line_items")
