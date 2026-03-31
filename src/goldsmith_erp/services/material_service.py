@@ -1,12 +1,17 @@
 # src/goldsmith_erp/services/material_service.py
 
+import json
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy import update, delete
 from typing import List, Optional, Dict, Any
 
+from goldsmith_erp.core.cache import MATERIALS_TTL, get_cached, invalidate
 from goldsmith_erp.db.models import Material as MaterialModel
 from goldsmith_erp.models.material import MaterialCreate, MaterialUpdate
+
+# Stable cache key for the default (unpaginated) materials list.
+_MATERIALS_LIST_KEY = "materials:list"
 
 
 class MaterialService:
@@ -21,6 +26,10 @@ class MaterialService:
         """
         Holt alle Materialien mit Pagination.
 
+        The default call (skip=0, limit=100) is served from the Redis cache
+        (TTL: MATERIALS_TTL seconds).  Parameterised calls bypass the cache so
+        paginated or restricted results are never incorrectly shared.
+
         Args:
             db: Datenbank-Session
             skip: Anzahl zu überspringender Einträge
@@ -29,13 +38,42 @@ class MaterialService:
         Returns:
             Liste von Material-Objekten
         """
-        result = await db.execute(
-            select(MaterialModel)
-            .order_by(MaterialModel.name.asc())
-            .offset(skip)
-            .limit(limit)
-        )
-        return result.scalars().all()
+        async def _fetch() -> List[MaterialModel]:
+            result = await db.execute(
+                select(MaterialModel)
+                .order_by(MaterialModel.name.asc())
+                .offset(skip)
+                .limit(limit)
+            )
+            return list(result.scalars().all())
+
+        # Only cache the canonical default query.
+        if skip == 0 and limit == 100:
+            def _serialise(materials: List[MaterialModel]) -> str:
+                return json.dumps([
+                    {
+                        "id": m.id,
+                        "name": m.name,
+                        "description": m.description,
+                        "unit_price": m.unit_price,
+                        "stock": m.stock,
+                        "unit": m.unit,
+                    }
+                    for m in materials
+                ])
+
+            # Deserialisation returns plain dicts; callers that need ORM
+            # objects with parameterised pagination go directly to the DB.
+            # For the list endpoint the dict representation is sufficient.
+            return await get_cached(  # type: ignore[return-value]
+                key=_MATERIALS_LIST_KEY,
+                ttl=MATERIALS_TTL,
+                fetch_fn=_fetch,
+                serialise=_serialise,
+                deserialise=json.loads,
+            )
+
+        return await _fetch()
 
     @staticmethod
     async def get_material_by_id(
@@ -108,6 +146,7 @@ class MaterialService:
         await db.commit()
         await db.refresh(db_material)
 
+        await invalidate(_MATERIALS_LIST_KEY)
         return db_material
 
     @staticmethod
@@ -143,6 +182,7 @@ class MaterialService:
                 .values(**update_data)
             )
             await db.commit()
+            await invalidate(_MATERIALS_LIST_KEY)
 
         # Aktualisiertes Objekt holen
         updated_material = await MaterialService.get_material_by_id(db, material_id)
@@ -173,6 +213,7 @@ class MaterialService:
             delete(MaterialModel).where(MaterialModel.id == material_id)
         )
         await db.commit()
+        await invalidate(_MATERIALS_LIST_KEY)
 
         return {
             "success": True,
@@ -219,6 +260,7 @@ class MaterialService:
             .values(stock=new_stock)
         )
         await db.commit()
+        await invalidate(_MATERIALS_LIST_KEY)
 
         # Aktualisiertes Objekt holen
         updated_material = await MaterialService.get_material_by_id(db, material_id)
