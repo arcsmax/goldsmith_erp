@@ -51,6 +51,28 @@ class CostingMethod(str, enum.Enum):
     SPECIFIC = "specific"      # Specific Identification (manual selection)
 
 
+class ScrapGoldStatus(str, enum.Enum):
+    """Status of scrap gold processing."""
+    RECEIVED = "received"      # Items documented
+    CALCULATED = "calculated"  # Fine content calculated
+    SIGNED = "signed"          # Customer signed receipt
+    CREDITED = "credited"      # Applied to invoice
+
+
+class AlloyType(str, enum.Enum):
+    """Standard gold/silver alloy types with fine content ratio."""
+    GOLD_999 = "999"    # 99.9% Feingold
+    GOLD_900 = "900"    # 90.0%
+    GOLD_750 = "750"    # 75.0% (18K)
+    GOLD_585 = "585"    # 58.5% (14K)
+    GOLD_375 = "375"    # 37.5% (9K)
+    GOLD_333 = "333"    # 33.3% (8K)
+    SILVER_999 = "ag999" # 99.9% Feinsilber
+    SILVER_925 = "ag925" # 92.5% Sterling
+    SILVER_800 = "ag800" # 80.0%
+    PLATINUM_950 = "pt950" # 95.0%
+
+
 # Many-to-Many zwischen Material und Order
 order_materials = Table(
     "order_materials",
@@ -456,3 +478,52 @@ class InventoryAdjustment(Base):
 
     def __repr__(self):
         return f"<InventoryAdjustment {self.adjustment_type} {self.weight_change_g:+.2f}g>"
+
+
+class ScrapGold(Base):
+    """Scrap gold (Altgold) intake record linked to an order."""
+    __tablename__ = "scrap_gold"
+
+    id = Column(Integer, primary_key=True, index=True)
+    order_id = Column(Integer, ForeignKey("orders.id", ondelete="CASCADE"), nullable=False, index=True)
+    customer_id = Column(Integer, ForeignKey("customers.id"), nullable=False, index=True)
+    created_by = Column(Integer, ForeignKey("users.id"), nullable=False)
+    status = Column(SAEnum(ScrapGoldStatus), default=ScrapGoldStatus.RECEIVED, nullable=False)
+
+    # Calculated totals
+    total_fine_gold_g = Column(Float, default=0.0)
+    total_value_eur = Column(Float, default=0.0)
+    gold_price_per_g = Column(Float, nullable=True)  # Rate used for calculation
+    price_source = Column(String(50), default="fixed_rate")  # daily_rate or fixed_rate
+
+    # Legal documentation
+    signature_data = Column(Text, nullable=True)  # Base64 encoded signature image
+    signed_at = Column(DateTime, nullable=True)
+    receipt_pdf_path = Column(String(500), nullable=True)
+
+    notes = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    # Relationships
+    order = relationship("Order")
+    customer = relationship("Customer")
+    creator = relationship("User")
+    items = relationship("ScrapGoldItem", back_populates="scrap_gold", cascade="all, delete-orphan")
+
+
+class ScrapGoldItem(Base):
+    """Individual scrap gold item within a scrap gold intake."""
+    __tablename__ = "scrap_gold_items"
+
+    id = Column(Integer, primary_key=True, index=True)
+    scrap_gold_id = Column(Integer, ForeignKey("scrap_gold.id", ondelete="CASCADE"), nullable=False, index=True)
+    description = Column(String(200), nullable=False)  # "Alter Ehering", "Kette"
+    alloy = Column(SAEnum(AlloyType), nullable=False)
+    weight_g = Column(Float, nullable=False)  # Total weight in grams
+    fine_content_g = Column(Float, nullable=False)  # Calculated: weight * alloy/1000
+    photo_path = Column(String(500), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    # Relationships
+    scrap_gold = relationship("ScrapGold", back_populates="items")

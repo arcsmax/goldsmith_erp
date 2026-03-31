@@ -1,0 +1,794 @@
+/* ==================== SCRAP GOLD (ALTGOLD) STYLES ==================== */
+
+.scrap-gold-tab {
+  animation: fadeIn 0.3s;
+}
+
+/* Loading & Error */
+.scrap-gold-loading,
+.scrap-gold-error {
+  text-align: center;
+  padding: 3rem 2rem;
+  color: #666;
+}
+
+.scrap-gold-error {
+  color: #c33;
+}
+
+.scrap-gold-error .btn-retry {
+  margin-top: 1rem;
+  background: #667eea;
+  color: white;
+  border: none;
+  padding: 0.75rem 1.5rem;
+  border-radius: 8px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s;
+}
+
+.scrap-gold-error .btn-retry:hover {
+  background: #5a6fd6;
+}
+
+/* ==================== PROMPT (No scrap gold yet) ==================== */
+
+.scrap-gold-prompt {
+  text-align: center;
+  padding: 4rem 2rem;
+}
+
+.prompt-icon {
+  font-size: 4rem;
+  margin-bottom: 1rem;
+}
+
+.scrap-gold-prompt h2 {
+  font-size: 1.8rem;
+  color: #333;
+  margin-bottom: 0.75rem;
+}
+
+.scrap-gold-prompt p {
+  color: #666;
+  font-size: 1.1rem;
+  margin-bottom: 2rem;
+}
+
+.prompt-actions {
+  display: flex;
+  gap: 1rem;
+  justify-content: center;
+}
+
+.btn-prompt-yes {
+  background: linear-gradient(135deg, #C5A55A 0%, #a8893d 100%);
+  color: white;
+  border: none;
+  padding: 1rem 2.5rem;
+  border-radius: 10px;
+  font-size: 1.1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s;
+}
+
+.btn-prompt-yes:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 16px rgba(197, 165, 90, 0.4);
+}
+
+.btn-prompt-yes:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.btn-prompt-no {
+  background: white;
+  color: #666;
+  border: 2px solid #e5e7eb;
+  padding: 1rem 2.5rem;
+  border-radius: 10px;
+  font-size: 1.1rem;
+  font-weight: 600;
+  cursor: default;
+  opacity: 0.5;
+}
+
+/* ==================== HEADER ==================== */
+
+.scrap-gold-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 2rem;
+}
+
+.scrap-gold-header h2 {
+  font-size: 1.5rem;
+  color: #333;
+  margin: 0;
+}
+
+/* Status Badges */
+.scrap-gold-status-badge {
+  display: inline-block;
+  padding: 0.4rem 1rem;
+  border-radius: 20px;
+  font-size: 0.85rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.scrap-gold-status-badge.status-received {
+  background: #dbeafe;
+  color: #1e40af;
+}
+
+.scrap-gold-status-badge.status-calculated {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.scrap-gold-status-badge.status-signed {
+  background: #d1fae5;
+  color: #065f46;
+}
+
+.scrap-gold-status-badge.status-settled {
+  background: #ede9fe;
+  color: #5b21b6;
+}
+
+/* ==================== ALLOY CALCULATOR ==================== */
+
+.alloy-calculator {
+  background: white;
+  border: 2px solid #d1fae5;
+  border-radius: 12px;
+  margin-bottom: 2rem;
+  overflow: hidden;
+}
+
+.alloy-calculator-header {
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+  padding: 1rem 1.5rem;
+  color: white;
+}
+
+.alloy-calculator-header h3 {
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 700;
+}
+
+.alloy-calculator-form {
+  padding: 1.5rem;
+}
+
+.alloy-field {
+  margin-bottom: 1rem;
+  flex: 1;
+}
+
+.alloy-field label {
+  display: block;
+  font-weight: 600;
+  color: #555;
+  font-size: 0.9rem;
+  margin-bottom: 0.4rem;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.alloy-field input,
+.alloy-field select {
+  width: 100%;
+  padding: 0.75rem 1rem;
+  border: 2px solid #e5e7eb;
+  border-radius: 8px;
+  font-size: 1rem;
+  font-family: inherit;
+  transition: border-color 0.2s;
+  box-sizing: border-box;
+}
+
+.alloy-field input:focus,
+.alloy-field select:focus {
+  outline: none;
+  border-color: #10b981;
+}
+
+.alloy-field input:disabled,
+.alloy-field select:disabled {
+  background: #f3f4f6;
+  cursor: not-allowed;
+}
+
+.alloy-field-row {
+  display: flex;
+  gap: 1rem;
+}
+
+/* Result */
+.alloy-result {
+  background: #f0fdf4;
+  border: 2px solid #bbf7d0;
+  border-radius: 8px;
+  padding: 1rem 1.5rem;
+  margin-bottom: 1rem;
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+}
+
+.alloy-result-value {
+  font-size: 1.3rem;
+  font-weight: 700;
+  color: #065f46;
+}
+
+.alloy-result-percentage {
+  font-size: 1rem;
+  color: #059669;
+  font-weight: 500;
+}
+
+/* Add Button */
+.btn-add-item {
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+  color: white;
+  border: none;
+  padding: 0.75rem 2rem;
+  border-radius: 8px;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s;
+  width: 100%;
+}
+
+.btn-add-item:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
+}
+
+.btn-add-item:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ==================== ITEMS TABLE ==================== */
+
+.scrap-gold-items-section {
+  margin-bottom: 2rem;
+}
+
+.scrap-gold-items-section h3 {
+  font-size: 1.2rem;
+  color: #333;
+  margin-bottom: 1rem;
+  font-weight: 600;
+}
+
+.scrap-gold-empty {
+  text-align: center;
+  color: #666;
+  padding: 2rem;
+  font-style: italic;
+  background: #f8f9fa;
+  border-radius: 8px;
+}
+
+.scrap-gold-items-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.scrap-gold-items-table th {
+  background: #f8f9fa;
+  padding: 0.875rem 1rem;
+  text-align: left;
+  font-weight: 600;
+  color: #555;
+  border-bottom: 2px solid #e5e7eb;
+  font-size: 0.9rem;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.scrap-gold-items-table td {
+  padding: 0.875rem 1rem;
+  border-bottom: 1px solid #e9ecef;
+  color: #333;
+  font-size: 1rem;
+}
+
+.scrap-gold-items-table tbody tr:nth-child(even) {
+  background: #fafafa;
+}
+
+.scrap-gold-items-table tbody tr:hover {
+  background: #f0f0f0;
+}
+
+.scrap-gold-items-table .text-right {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.btn-remove-item {
+  background: none;
+  border: 1px solid #ef4444;
+  color: #ef4444;
+  padding: 0.4rem 0.75rem;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-remove-item:hover {
+  background: #ef4444;
+  color: white;
+}
+
+/* ==================== SUMMARY ==================== */
+
+.scrap-gold-summary {
+  background: #fffbeb;
+  border: 2px solid #C5A55A;
+  border-radius: 12px;
+  padding: 1.5rem;
+  margin-bottom: 2rem;
+}
+
+.scrap-gold-summary h3 {
+  margin: 0 0 1.25rem 0;
+  font-size: 1.2rem;
+  color: #92400e;
+  font-weight: 700;
+}
+
+.summary-grid {
+  display: grid;
+  gap: 1rem;
+}
+
+.summary-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.75rem 0;
+  border-bottom: 1px solid #f3e8c8;
+}
+
+.summary-item:last-child {
+  border-bottom: none;
+}
+
+.summary-item.total {
+  border-top: 2px solid #C5A55A;
+  padding-top: 1rem;
+  margin-top: 0.5rem;
+}
+
+.summary-item.source {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.summary-label {
+  font-weight: 600;
+  color: #78350f;
+  font-size: 1rem;
+}
+
+.summary-value {
+  font-weight: 600;
+  color: #333;
+  font-size: 1.1rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.summary-value.highlight {
+  color: #C5A55A;
+  font-size: 1.3rem;
+  font-weight: 700;
+}
+
+.summary-value.total-value {
+  color: #92400e;
+  font-size: 1.4rem;
+  font-weight: 700;
+}
+
+.summary-input-group {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.summary-price-input {
+  width: 120px;
+  padding: 0.5rem 0.75rem;
+  border: 2px solid #e5e7eb;
+  border-radius: 6px;
+  font-size: 1rem;
+  font-family: inherit;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.summary-price-input:focus {
+  outline: none;
+  border-color: #C5A55A;
+}
+
+.summary-price-input:disabled {
+  background: #f3f4f6;
+  cursor: not-allowed;
+}
+
+.summary-currency {
+  font-weight: 600;
+  color: #78350f;
+  font-size: 0.95rem;
+}
+
+/* Calculate Button */
+.btn-calculate {
+  background: linear-gradient(135deg, #C5A55A 0%, #a8893d 100%);
+  color: white;
+  border: none;
+  padding: 0.875rem 2rem;
+  border-radius: 8px;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s;
+  width: 100%;
+  margin-top: 1.25rem;
+}
+
+.btn-calculate:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(197, 165, 90, 0.4);
+}
+
+.btn-calculate:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ==================== SIGNATURE ==================== */
+
+.scrap-gold-signature {
+  margin-bottom: 2rem;
+}
+
+.scrap-gold-signature h3 {
+  font-size: 1.2rem;
+  color: #333;
+  margin-bottom: 1rem;
+  font-weight: 600;
+}
+
+.signature-area {
+  border: 2px dashed #d1d5db;
+  border-radius: 10px;
+  padding: 3rem 2rem;
+  text-align: center;
+  background: #fafafa;
+  margin-bottom: 1rem;
+  min-height: 120px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.signature-area p {
+  color: #9ca3af;
+  font-size: 1rem;
+  margin: 0;
+  font-style: italic;
+}
+
+.btn-sign {
+  background: #333;
+  color: white;
+  border: none;
+  padding: 0.875rem 2rem;
+  border-radius: 8px;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s;
+  width: 100%;
+}
+
+.btn-sign:hover:not(:disabled) {
+  background: #1a1a1a;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+
+.btn-sign:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.signature-done {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  background: #d1fae5;
+  border: 2px solid #6ee7b7;
+  border-radius: 10px;
+  padding: 1.5rem;
+}
+
+.signature-checkmark {
+  font-size: 2rem;
+  color: #059669;
+}
+
+.signature-done p {
+  margin: 0;
+  color: #065f46;
+  font-weight: 600;
+  font-size: 1rem;
+}
+
+.signature-pending {
+  /* Wrapper for signature area and button */
+}
+
+/* ==================== NOTES ==================== */
+
+.scrap-gold-notes {
+  background: #f8f9fa;
+  border-radius: 10px;
+  padding: 1.5rem;
+}
+
+.scrap-gold-notes h3 {
+  font-size: 1.1rem;
+  color: #333;
+  margin: 0 0 0.75rem 0;
+  font-weight: 600;
+}
+
+.scrap-gold-notes p {
+  margin: 0;
+  color: #555;
+  line-height: 1.6;
+}
+
+/* ==================== RESPONSIVE ==================== */
+
+@media (max-width: 768px) {
+  .scrap-gold-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.75rem;
+  }
+
+  .alloy-field-row {
+    flex-direction: column;
+    gap: 0;
+  }
+
+  .scrap-gold-items-table {
+    font-size: 0.9rem;
+  }
+
+  .scrap-gold-items-table th,
+  .scrap-gold-items-table td {
+    padding: 0.625rem 0.5rem;
+  }
+
+  .summary-item {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.4rem;
+  }
+
+  .prompt-actions {
+    flex-direction: column;
+  }
+
+  .btn-prompt-yes,
+  .btn-prompt-no {
+    width: 100%;
+  }
+}
+
+/* ==================== DARK THEME SUPPORT ==================== */
+
+@media (prefers-color-scheme: dark) {
+  .scrap-gold-prompt h2 {
+    color: #e5e7eb;
+  }
+
+  .scrap-gold-prompt p {
+    color: #9ca3af;
+  }
+
+  .scrap-gold-header h2 {
+    color: #e5e7eb;
+  }
+
+  .alloy-calculator {
+    background: #1f2937;
+    border-color: #065f46;
+  }
+
+  .alloy-field label {
+    color: #d1d5db;
+  }
+
+  .alloy-field input,
+  .alloy-field select {
+    background: #374151;
+    border-color: #4b5563;
+    color: #e5e7eb;
+  }
+
+  .alloy-field input:focus,
+  .alloy-field select:focus {
+    border-color: #10b981;
+  }
+
+  .alloy-result {
+    background: #064e3b;
+    border-color: #065f46;
+  }
+
+  .alloy-result-value {
+    color: #6ee7b7;
+  }
+
+  .alloy-result-percentage {
+    color: #34d399;
+  }
+
+  .scrap-gold-items-section h3 {
+    color: #e5e7eb;
+  }
+
+  .scrap-gold-empty {
+    background: #1f2937;
+    color: #9ca3af;
+  }
+
+  .scrap-gold-items-table th {
+    background: #374151;
+    color: #d1d5db;
+    border-bottom-color: #4b5563;
+  }
+
+  .scrap-gold-items-table td {
+    color: #e5e7eb;
+    border-bottom-color: #374151;
+  }
+
+  .scrap-gold-items-table tbody tr:nth-child(even) {
+    background: #1f2937;
+  }
+
+  .scrap-gold-items-table tbody tr:hover {
+    background: #374151;
+  }
+
+  .scrap-gold-summary {
+    background: #292210;
+    border-color: #C5A55A;
+  }
+
+  .scrap-gold-summary h3 {
+    color: #fbbf24;
+  }
+
+  .summary-item {
+    border-bottom-color: #44390f;
+  }
+
+  .summary-item.total {
+    border-top-color: #C5A55A;
+  }
+
+  .summary-label {
+    color: #fbbf24;
+  }
+
+  .summary-value {
+    color: #e5e7eb;
+  }
+
+  .summary-value.total-value {
+    color: #fbbf24;
+  }
+
+  .summary-price-input {
+    background: #374151;
+    border-color: #4b5563;
+    color: #e5e7eb;
+  }
+
+  .summary-price-input:focus {
+    border-color: #C5A55A;
+  }
+
+  .summary-currency {
+    color: #fbbf24;
+  }
+
+  .scrap-gold-signature h3 {
+    color: #e5e7eb;
+  }
+
+  .signature-area {
+    background: #1f2937;
+    border-color: #4b5563;
+  }
+
+  .signature-area p {
+    color: #6b7280;
+  }
+
+  .signature-done {
+    background: #064e3b;
+    border-color: #059669;
+  }
+
+  .signature-done p {
+    color: #6ee7b7;
+  }
+
+  .scrap-gold-notes {
+    background: #1f2937;
+  }
+
+  .scrap-gold-notes h3 {
+    color: #e5e7eb;
+  }
+
+  .scrap-gold-notes p {
+    color: #9ca3af;
+  }
+
+  .scrap-gold-loading,
+  .scrap-gold-error {
+    color: #9ca3af;
+  }
+
+  .btn-prompt-no {
+    background: #374151;
+    color: #9ca3af;
+    border-color: #4b5563;
+  }
+
+  .scrap-gold-status-badge.status-received {
+    background: #1e3a5f;
+    color: #93c5fd;
+  }
+
+  .scrap-gold-status-badge.status-calculated {
+    background: #451a03;
+    color: #fde68a;
+  }
+
+  .scrap-gold-status-badge.status-signed {
+    background: #064e3b;
+    color: #6ee7b7;
+  }
+
+  .scrap-gold-status-badge.status-settled {
+    background: #2e1065;
+    color: #c4b5fd;
+  }
+}

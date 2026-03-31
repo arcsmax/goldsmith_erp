@@ -10,3 +10,5 @@ export { usersApi } from './users';
 export { calendarApi } from './calendar';
 export { commentsApi } from './comments';
 export type { OrderComment } from './comments';
+export { scrapGoldApi } from './scrap-gold';
+export type { ScrapGold, ScrapGoldItem, ScrapGoldStatus } from './scrap-gold';

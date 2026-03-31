@@ -3,7 +3,7 @@ import React, { createContext, useContext, useState, useEffect, ReactNode } from
 import { OrderType } from '../types';
 
 // Tab types for order detail page
-export type OrderTab = 'details' | 'kosten' | 'metall' | 'materials' | 'status' | 'notes' | 'history' | 'time-tracking' | 'comments';
+export type OrderTab = 'details' | 'kosten' | 'metall' | 'materials' | 'status' | 'notes' | 'history' | 'time-tracking' | 'comments' | 'scrap-gold';
 
 interface OrderTabState {
   orderId: number;

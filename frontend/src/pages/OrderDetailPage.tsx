@@ -6,6 +6,7 @@ import { OrderType, MaterialType, OrderStatus } from '../types';
 import { useOrders, OrderTab } from '../contexts';
 import TimeTrackingTab from '../components/TimeTrackingTab';
 import { CommentsTab } from '../components/CommentsTab';
+import { ScrapGoldTab } from '../components/scrap-gold';
 import { CostBreakdownCard } from '../components/orders/CostBreakdownCard';
 import { MetalInventoryCard } from '../components/orders/MetalInventoryCard';
 import { CustomerInfoCard } from '../components/orders/CustomerInfoCard';
@@ -163,6 +164,12 @@ export const OrderDetailPage: React.FC = () => {
         >
           💬 Kommentare
         </button>
+        <button
+          className={`tab ${activeTab === 'scrap-gold' ? 'active' : ''}`}
+          onClick={() => handleTabChange('scrap-gold')}
+        >
+          🥇 Altgold
+        </button>
       </div>
 
       {/* Tab Content */}
@@ -201,6 +208,10 @@ export const OrderDetailPage: React.FC = () => {
 
         {activeTab === 'comments' && (
           <CommentsTab orderId={order.id} />
+        )}
+
+        {activeTab === 'scrap-gold' && (
+          <ScrapGoldTab orderId={order.id} customerId={order.customer_id} />
         )}
       </div>
     </div>
