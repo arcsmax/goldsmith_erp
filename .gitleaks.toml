@@ -1,0 +1,10 @@
+title = "Goldsmith ERP Gitleaks Config"
+
+[allowlist]
+  description = "Allow test fixtures and CI secrets"
+  paths = [
+    '''tests/.*''',
+    '''.github/workflows/.*''',
+    '''.env.example''',
+  ]
+  regexTarget = "match"
