@@ -44,6 +44,7 @@ pre-commit = "^3.6.0"
 pip-audit = "^2.9.0"
 pytest-cov = "^7.0.0"
 httpx = "^0.28.1"
+factory-boy = "^3.3.3"
 
 [tool.poetry.extras]
 ml = [
@@ -71,6 +72,16 @@ disable = [
     "C0114",  # missing-module-docstring
     "C0115",  # missing-class-docstring
     "C0116"   # missing-function-docstring
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_functions = ["test_*"]
+addopts = "-v --tb=short"
+filterwarnings = [
+    "ignore::DeprecationWarning",
 ]
 
 [build-system]
