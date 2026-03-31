@@ -1,4 +1,4 @@
-name: CI
+name: Goldsmith ERP CI
 
 on:
   push:
@@ -7,85 +7,133 @@ on:
     branches: [main]
 
 env:
-  DATABASE_URL: postgresql+asyncpg://user:pass@localhost:5432/goldsmith
+  DATABASE_URL: postgresql+asyncpg://user:pass@localhost:5432/goldsmith_test
   REDIS_URL: redis://localhost:6379/0
-  SECRET_KEY: ci-test-secret-key-minimum-32-characters-long
+  SECRET_KEY: ci-test-secret-key-minimum-32-characters-long-enough
   DEBUG: "true"
+  PYTHONDONTWRITEBYTECODE: "1"
 
 jobs:
-  backend:
-    name: Backend Tests & Lint
+  # Stage 1: Lint & Static Analysis
+  lint:
     runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install Poetry
+        run: pip install poetry
+      - name: Install dependencies
+        working-directory: ./src
+        run: poetry install --no-root
+      - name: Check formatting (black)
+        working-directory: ./src
+        run: poetry run black --check goldsmith_erp/
+      - name: Check import sorting (isort)
+        working-directory: ./src
+        run: poetry run isort --check-only goldsmith_erp/
+      - name: Security scan (bandit)
+        working-directory: ./src
+        run: poetry run bandit -r goldsmith_erp/ -c pyproject.toml || true
+      - name: Type checking (mypy)
+        working-directory: ./src
+        run: poetry run mypy goldsmith_erp/ --ignore-missing-imports
 
+  lint-frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "18"
+      - name: Enable Corepack
+        run: corepack enable
+      - name: Install dependencies
+        working-directory: ./frontend
+        run: yarn install --frozen-lockfile
+      - name: Type check
+        working-directory: ./frontend
+        run: npx tsc --noEmit || true
+
+  # Stage 2: Tests
+  test-backend:
+    needs: lint
+    runs-on: ubuntu-latest
     services:
       postgres:
         image: postgres:15
         env:
           POSTGRES_USER: user
           POSTGRES_PASSWORD: pass
-          POSTGRES_DB: goldsmith
+          POSTGRES_DB: goldsmith_test
         ports:
           - 5432:5432
         options: >-
-          --health-cmd="pg_isready -U user -d goldsmith"
-          --health-interval=10s
-          --health-timeout=5s
-          --health-retries=5
-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
       redis:
         image: redis:7
         ports:
           - 6379:6379
-
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-
       - name: Install Poetry
         run: pip install poetry
-
       - name: Install dependencies
+        working-directory: ./src
         run: poetry install --no-root
-
-      - name: Run database migrations
+      - name: Run migrations
+        working-directory: ./src
         run: poetry run alembic upgrade head
-
       - name: Run tests with coverage
-        run: poetry run pytest --maxfail=3 -q --tb=short
+        working-directory: ./src
+        run: poetry run pytest ../tests/ --maxfail=3 -q --tb=short --cov=goldsmith_erp --cov-report=xml --cov-report=term --cov-fail-under=30
+      - name: Upload coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-coverage
+          path: src/coverage.xml
 
-      - name: Lint with pylint
-        run: poetry run pylint src/goldsmith_erp --exit-zero
-
-      - name: Type check with mypy
-        run: poetry run mypy src/goldsmith_erp --ignore-missing-imports
-
-  frontend:
-    name: Frontend Build & Lint
+  test-frontend:
+    needs: lint-frontend
     runs-on: ubuntu-latest
-
     steps:
       - uses: actions/checkout@v4
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: "18"
-
-      - name: Enable Corepack (Yarn)
+      - name: Enable Corepack
         run: corepack enable
-
       - name: Install dependencies
-        working-directory: frontend
+        working-directory: ./frontend
         run: yarn install --frozen-lockfile
-
-      - name: Build
-        working-directory: frontend
+      - name: Run tests
+        working-directory: ./frontend
+        run: yarn test --run
+      - name: Build check
+        working-directory: ./frontend
         run: yarn build
 
-      - name: Run tests
-        working-directory: frontend
-        run: yarn test --run 2>/dev/null || echo "Frontend tests completed"
+  # Stage 3: Build Verification (PRs to main only)
+  build-verify:
+    if: github.event_name == 'pull_request'
+    needs: [test-backend, test-frontend]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build backend container
+        run: docker build -f Containerfile -t goldsmith-backend:test .
+      - name: Build frontend container
+        run: docker build -f frontend/Dockerfile -t goldsmith-frontend:test ./frontend
