@@ -15,14 +15,13 @@ WORKDIR /app
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
       build-essential \
-      curl \
       ca-certificates \
  && rm -rf /var/lib/apt/lists/* \
  && apt-get clean
 
 # 2) Install Poetry 2.x
-RUN curl -sSL https://install.python-poetry.org | python3 - \
- && ln -s /root/.local/bin/poetry /usr/local/bin/poetry \
+# curl is not present in this image; install Poetry via pip (stdlib only, no curl needed)
+RUN pip install --no-cache-dir poetry \
  && poetry config virtualenvs.create false
 
 # 3) Copy dependency files for layer caching
@@ -47,9 +46,9 @@ USER appuser
 # 8) Expose port
 EXPOSE 8000
 
-# 9) Health check
+# 9) Health check — uses Python stdlib so curl is not required in the image
 HEALTHCHECK --interval=30s --timeout=3s --start-period=40s --retries=3 \
-  CMD curl -f http://localhost:8000/health || exit 1
+  CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')" || exit 1
 
 # 10) Runtime command
 CMD ["poetry", "run", "uvicorn", "goldsmith_erp.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
