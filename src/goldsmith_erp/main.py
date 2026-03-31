@@ -109,6 +109,7 @@ app.include_router(time_tracking.router, prefix=f"{settings.API_V1_STR}/time-tra
 app.include_router(comments.router, prefix=f"{settings.API_V1_STR}", tags=["comments"])  # Order Comments
 app.include_router(scrap_gold.router, prefix=f"{settings.API_V1_STR}", tags=["scrap-gold"])  # Altgold
 app.include_router(calendar.router, prefix=f"{settings.API_V1_STR}/calendar", tags=["calendar"])  # Calendar/Planning
+app.include_router(invoices.router, prefix=f"{settings.API_V1_STR}/invoices", tags=["invoices"])  # Rechnungswesen
 
 # WebSocket endpoint with Redis Pub/Sub integration
 @app.websocket("/ws/orders")

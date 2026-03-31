@@ -55,6 +55,12 @@ class Permission(str, Enum):
     CUSTOMER_EDIT = "customer:edit"
     CUSTOMER_DELETE = "customer:delete"
 
+    # Invoice permissions (financial data - ADMIN and GOLDSMITH only)
+    INVOICE_VIEW = "invoice:view"
+    INVOICE_CREATE = "invoice:create"
+    INVOICE_EDIT = "invoice:edit"
+    INVOICE_DELETE = "invoice:delete"
+
     # Report permissions
     REPORTS_VIEW = "reports:view"
     REPORTS_EXPORT = "reports:export"
@@ -88,6 +94,10 @@ ROLE_PERMISSIONS: dict[UserRole, List[Permission]] = {
         Permission.CUSTOMER_VIEW,
         Permission.CUSTOMER_CREATE,
         Permission.CUSTOMER_EDIT,
+        # Invoices (financial data - goldsmith can view and create, not delete)
+        Permission.INVOICE_VIEW,
+        Permission.INVOICE_CREATE,
+        Permission.INVOICE_EDIT,
         # Reports
         Permission.REPORTS_VIEW,
     ],
