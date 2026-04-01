@@ -4,6 +4,7 @@ import { Outlet, Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth, useTimeTracking } from '../contexts';
 import TimerWidget from '../components/TimerWidget';
 import { OfflineIndicator } from '../components/OfflineIndicator';
+import { NotificationBell } from '../components/NotificationBell';
 import '../styles/layout.css';
 
 export const MainLayout: React.FC = () => {
@@ -65,6 +66,7 @@ export const MainLayout: React.FC = () => {
             <Link to="/scanner" className="btn-scanner">
               📷 Scanner
             </Link>
+            <NotificationBell />
             <span className="user-name">
               {user?.first_name || user?.email}
             </span>

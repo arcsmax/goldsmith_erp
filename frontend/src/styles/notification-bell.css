@@ -1,0 +1,377 @@
+/* ==================== NOTIFICATION BELL ==================== */
+/*
+ * Component: NotificationBell
+ * Sits inside .user-menu in the header. Contains a trigger button with a
+ * badge and a dropdown panel. All interactive elements are ≥ 44 × 44 px
+ * (WCAG 2.1 AA touch target requirement).
+ *
+ * Severity palette is colorblind-safe: INFO=blue, WARNING=amber, URGENT=red.
+ * Each severity also carries a text indicator (i / ~ / !) so users who
+ * cannot distinguish the colors still get a semantic cue.
+ */
+
+/* ---------------------------------------------------------------------------
+   Wrapper — positions the dropdown relative to the trigger
+   --------------------------------------------------------------------------- */
+
+.notification-bell {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+/* ---------------------------------------------------------------------------
+   Trigger button
+   --------------------------------------------------------------------------- */
+
+.notification-bell__trigger {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  /* WCAG 44 × 44 px minimum touch target */
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0;
+  background: rgba(255, 255, 255, 0.2);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 8px;
+  color: white;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.notification-bell__trigger:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+.notification-bell__trigger:focus-visible {
+  outline: 2px solid white;
+  outline-offset: 2px;
+}
+
+/* Bell icon */
+.notification-bell__icon {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+}
+
+/* Unread badge — top-right of the trigger button */
+.notification-bell__badge {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  background: #ef4444; /* red-500 */
+  color: white;
+  border-radius: 9999px;
+  font-size: 0.65rem;
+  font-weight: 700;
+  line-height: 18px;
+  text-align: center;
+  /* Slightly raised off the button so it reads on the header gradient */
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
+  /* Prevent badge from being a click target of its own */
+  pointer-events: none;
+}
+
+/* ---------------------------------------------------------------------------
+   Dropdown panel
+   --------------------------------------------------------------------------- */
+
+.notification-dropdown {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 500;
+
+  width: 360px;
+  max-height: 480px;
+  display: flex;
+  flex-direction: column;
+
+  background: white;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.14), 0 2px 8px rgba(0, 0, 0, 0.08);
+
+  /* Glass morphism subtle effect — aligns with overall brand direction */
+  backdrop-filter: blur(4px);
+  overflow: hidden;
+
+  /* Entrance animation */
+  animation: notificationDropdownIn 0.18s ease-out;
+}
+
+@keyframes notificationDropdownIn {
+  from {
+    opacity: 0;
+    transform: translateY(-6px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Dropdown header
+   --------------------------------------------------------------------------- */
+
+.notification-dropdown__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem 1.25rem 0.75rem;
+  border-bottom: 1px solid #f3f4f6;
+  flex-shrink: 0;
+}
+
+.notification-dropdown__title {
+  font-weight: 600;
+  font-size: 0.95rem;
+  color: #111827;
+}
+
+.notification-dropdown__unread-label {
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: white;
+  background: #667eea; /* matches header gradient start */
+  border-radius: 9999px;
+  padding: 0.15rem 0.6rem;
+}
+
+/* ---------------------------------------------------------------------------
+   Notification list
+   --------------------------------------------------------------------------- */
+
+.notification-dropdown__list {
+  flex: 1;
+  overflow-y: auto;
+  list-style: none;
+  margin: 0;
+  padding: 0.5rem 0;
+  overscroll-behavior: contain;
+}
+
+/* Scrollbar — subtle on WebKit */
+.notification-dropdown__list::-webkit-scrollbar {
+  width: 4px;
+}
+.notification-dropdown__list::-webkit-scrollbar-track {
+  background: transparent;
+}
+.notification-dropdown__list::-webkit-scrollbar-thumb {
+  background: #d1d5db;
+  border-radius: 2px;
+}
+
+/* Empty / loading / error state rows */
+.notification-dropdown__state-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 1.5rem 1.25rem;
+  color: #6b7280;
+  font-size: 0.875rem;
+}
+
+.notification-dropdown__state-row--error {
+  color: #ef4444;
+}
+
+/* Loading spinner */
+.notification-dropdown__spinner {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  border: 2px solid #e5e7eb;
+  border-top-color: #667eea;
+  border-radius: 50%;
+  animation: notificationSpin 0.7s linear infinite;
+  flex-shrink: 0;
+}
+
+@keyframes notificationSpin {
+  to { transform: rotate(360deg); }
+}
+
+/* ---------------------------------------------------------------------------
+   Individual notification item
+   --------------------------------------------------------------------------- */
+
+.notification-item {
+  list-style: none;
+}
+
+.notification-item__inner {
+  /* Reset button defaults */
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 0.75rem 1.25rem;
+  transition: background 0.15s;
+}
+
+.notification-item__inner:hover {
+  background: #f9fafb;
+}
+
+.notification-item__inner:focus-visible {
+  outline: 2px solid #667eea;
+  outline-offset: -2px;
+}
+
+/* Read state — fade to indicate consumed */
+.notification-item--read .notification-item__inner {
+  opacity: 0.65;
+}
+.notification-item--read .notification-item__inner:hover {
+  opacity: 0.85;
+}
+
+/* ---------------------------------------------------------------------------
+   Severity indicator — colored circle with text label
+   Colorblind-safe: shape (circle) + text (i/~/!) + color
+   --------------------------------------------------------------------------- */
+
+.notification-item__severity {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.65rem;
+  font-weight: 800;
+  color: white;
+  margin-top: 1px; /* align with first line of text */
+}
+
+.notification-item--info .notification-item__severity {
+  background: #3b82f6; /* blue-500 */
+}
+
+.notification-item--warning .notification-item__severity {
+  background: #f59e0b; /* amber-500 */
+}
+
+.notification-item--urgent .notification-item__severity {
+  background: #ef4444; /* red-500 */
+}
+
+/* ---------------------------------------------------------------------------
+   Item body
+   --------------------------------------------------------------------------- */
+
+.notification-item__body {
+  flex: 1;
+  min-width: 0; /* prevent overflow of long text */
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.notification-item__title {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #111827;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.notification-item__message {
+  font-size: 0.8rem;
+  color: #4b5563;
+  /* Allow two lines, then truncate */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  line-height: 1.4;
+}
+
+.notification-item__time {
+  font-size: 0.72rem;
+  color: #9ca3af;
+  margin-top: 0.15rem;
+}
+
+/* Unread dot — small visual indicator on the right */
+.notification-item__unread-dot {
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #667eea;
+  margin-top: 6px;
+}
+
+/* ---------------------------------------------------------------------------
+   Footer
+   --------------------------------------------------------------------------- */
+
+.notification-dropdown__footer {
+  flex-shrink: 0;
+  padding: 0.75rem 1.25rem;
+  border-top: 1px solid #f3f4f6;
+}
+
+.notification-dropdown__mark-all {
+  width: 100%;
+  background: none;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  padding: 0.55rem 1rem;
+  font-size: 0.825rem;
+  font-weight: 500;
+  color: #374151;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+  /* WCAG touch target — minimum 44px combined height counts padding */
+  min-height: 44px;
+}
+
+.notification-dropdown__mark-all:hover:not(:disabled) {
+  background: #f3f4f6;
+  border-color: #d1d5db;
+}
+
+.notification-dropdown__mark-all:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.notification-dropdown__mark-all:focus-visible {
+  outline: 2px solid #667eea;
+  outline-offset: 2px;
+}
+
+/* ---------------------------------------------------------------------------
+   Mobile — dropdown goes full-width, attached to viewport edges
+   --------------------------------------------------------------------------- */
+
+@media (max-width: 480px) {
+  .notification-dropdown {
+    position: fixed;
+    top: 64px; /* header height */
+    left: 0;
+    right: 0;
+    width: 100%;
+    border-radius: 0 0 12px 12px;
+    max-height: calc(100dvh - 64px - 1rem);
+  }
+}

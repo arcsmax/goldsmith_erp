@@ -437,3 +437,215 @@ export interface ActivityBreakdownData {
   percentage: number;
   color: string;
 }
+
+// ==================== NOTIFICATION TYPES ====================
+
+export type NotificationSeverity = 'INFO' | 'WARNING' | 'URGENT';
+
+export interface Notification {
+  id: number;
+  title: string;
+  message: string;
+  severity: NotificationSeverity;
+  is_read: boolean;
+  created_at: string; // ISO datetime
+  link?: string | null; // optional deep-link (e.g. /orders/42)
+}
+
+export interface NotificationUnreadCount {
+  unread_count: number;
+}
+
+export interface NotificationListResponse {
+  items: Notification[];
+  total: number;
+}
+
+// ==================== INVOICE TYPES ====================
+
+export type InvoiceStatus = 'DRAFT' | 'SENT' | 'PAID' | 'OVERDUE' | 'CANCELLED';
+
+export type InvoiceLineType = 'material' | 'labor' | 'gemstone' | 'other';
+
+export interface InvoiceLineItem {
+  id: number;
+  invoice_id: number;
+  line_type: InvoiceLineType;
+  description: string;
+  quantity: number;
+  unit_price: number;
+  total: number;
+}
+
+/** Full invoice including line items (used for detail view). */
+export interface Invoice {
+  id: number;
+  invoice_number: string; // RE-YYYY-NNNN
+  order_id: number;
+  customer_id: number;
+  created_by: number;
+  status: InvoiceStatus;
+  issue_date: string;   // ISO datetime
+  due_date: string;     // ISO datetime
+  paid_date?: string | null;
+  subtotal: number;     // Zwischensumme (net)
+  tax_rate: number;     // MwSt-Satz in Prozent
+  tax_amount: number;   // MwSt-Betrag
+  total: number;        // Gesamtbetrag (gross)
+  notes?: string | null;
+  payment_method?: string | null;
+  created_at: string;
+  updated_at: string;
+  line_items: InvoiceLineItem[];
+}
+
+/** Lightweight invoice for list views. */
+export interface InvoiceListItem {
+  id: number;
+  invoice_number: string;
+  order_id: number;
+  customer_id: number;
+  status: InvoiceStatus;
+  issue_date: string;
+  due_date: string;
+  paid_date?: string | null;
+  total: number;
+  created_at: string;
+}
+
+export interface InvoiceListResponse {
+  items: InvoiceListItem[];
+  total: number;
+  skip: number;
+  limit: number;
+}
+
+export interface InvoiceCreateInput {
+  order_id: number;
+  due_date: string; // ISO datetime
+  tax_rate?: number; // defaults to 19.0
+  notes?: string;
+  payment_method?: string;
+}
+
+export interface InvoiceUpdateInput {
+  status?: InvoiceStatus;
+  due_date?: string;
+  notes?: string;
+  payment_method?: string;
+}
+
+export interface MarkPaidInput {
+  paid_date?: string | null; // ISO datetime, defaults to now if omitted
+  payment_method?: string;
+}
+
+// ==================== CALENDAR TYPES ====================
+
+/** Mirror of CalendarEventType enum from db/models.py */
+export type CalendarEventType =
+  | 'ORDER_DEADLINE'
+  | 'WORKSHOP_TASK'
+  | 'APPOINTMENT'
+  | 'REMINDER';
+
+/** Traffic light status for deadline events */
+export type TrafficLight = 'green' | 'yellow' | 'red' | 'grey';
+
+/** Stored calendar event — returned by GET /api/v1/calendar/events */
+export interface CalendarEvent {
+  id: number;
+  title: string;
+  description?: string | null;
+  event_type: CalendarEventType;
+  start_datetime: string; // ISO datetime
+  end_datetime?: string | null; // ISO datetime
+  all_day: boolean;
+  order_id?: number | null;
+  user_id: number;
+  color?: string | null;
+  recurrence?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Virtual deadline event — returned by GET /api/v1/calendar/deadlines */
+export interface CalendarDeadlineEvent {
+  id: number;
+  title: string;
+  event_type: 'ORDER_DEADLINE';
+  start_datetime: string; // ISO datetime
+  all_day: boolean;
+  order_id: number;
+  status: string;
+  customer_name?: string | null;
+  traffic_light: TrafficLight;
+  days_until_deadline: number;
+  color?: string | null;
+}
+
+/** Union type for anything rendered on the calendar grid */
+export type AnyCalendarEvent = CalendarEvent | CalendarDeadlineEvent;
+
+/** POST body for creating a new event */
+export interface CalendarEventCreate {
+  title: string;
+  description?: string;
+  event_type: CalendarEventType;
+  start_datetime: string; // ISO datetime
+  end_datetime?: string;  // ISO datetime
+  all_day: boolean;
+  order_id?: number;
+  color?: string;
+  recurrence?: string;
+}
+
+/** PUT body for updating an existing event (all fields optional) */
+export interface CalendarEventUpdate {
+  title?: string;
+  description?: string;
+  event_type?: CalendarEventType;
+  start_datetime?: string;
+  end_datetime?: string;
+  all_day?: boolean;
+  order_id?: number;
+  color?: string;
+  recurrence?: string;
+}
+
+// ==================== SOLL/IST COMPARISON TYPES ====================
+
+export interface ComparisonMetric {
+  soll: number | null;
+  ist: number | null;
+  deviation_percent: number | null;
+  deviation_abs: number | null;
+  is_significant: boolean;
+}
+
+export interface ActivityBreakdownComparison {
+  activity_id: number;
+  activity_name: string;
+  activity_category: string;
+  actual_minutes: number;
+  estimated_minutes: number | null;
+  deviation_minutes: number | null;
+  deviation_percent: number | null;
+  is_significant: boolean;
+  entry_count: number;
+}
+
+export interface OrderComparison {
+  order_id: number;
+  order_title: string;
+  order_type: string | null;
+  status: string;
+  completed_at: string | null;
+  hours: ComparisonMetric;
+  material_weight: ComparisonMetric;
+  material_cost: ComparisonMetric;
+  total_price: ComparisonMetric;
+  activity_breakdown: ActivityBreakdownComparison[];
+  overall_accuracy_score: number | null;
+  has_significant_deviation: boolean;
+}
