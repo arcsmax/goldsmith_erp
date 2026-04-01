@@ -540,6 +540,9 @@ export const InvoicesPage: React.FC = () => {
   // Inline detail expand
   const [expandedInvoiceId, setExpandedInvoiceId] = useState<number | null>(null);
 
+  // Export dropdown
+  const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
+
   // Guard — this page is for ADMIN and GOLDSMITH only
   if (!hasRole(['ADMIN', 'GOLDSMITH'])) {
     return (
@@ -640,6 +643,62 @@ export const InvoicesPage: React.FC = () => {
     setPage(0);
   };
 
+  /**
+   * Trigger a browser download for the given accounting export format.
+   *
+   * Uses the Fetch API with the stored JWT token in the Authorization header
+   * (the same token that the Axios client uses for all other requests).
+   * Once the response arrives, a temporary blob URL is created and a hidden
+   * anchor element is clicked to trigger the browser's native file-save dialog.
+   *
+   * This avoids the need to pass the token as a query parameter — which would
+   * expose it in server access logs and browser history.
+   */
+  const handleExport = async (format: 'datev' | 'lexoffice') => {
+    setIsExportMenuOpen(false);
+
+    const params = new URLSearchParams();
+    if (filterFrom) params.set('date_from', new Date(filterFrom).toISOString());
+    if (filterTo) params.set('date_to', new Date(filterTo).toISOString());
+    if (filterStatus && format === 'datev') params.set('status', filterStatus);
+
+    const token = localStorage.getItem('access_token');
+    const url = `/api/v1/invoices/export/${format}?${params.toString()}`;
+
+    try {
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: {
+          Authorization: token ? `Bearer ${token}` : '',
+        },
+      });
+
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({}));
+        showToast(
+          err.detail || `Export fehlgeschlagen (HTTP ${response.status}).`,
+          'error'
+        );
+        return;
+      }
+
+      const blob = await response.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      const today = new Date().toISOString().substring(0, 10).replace(/-/g, '');
+      const filename = `${format}_export_${today}.csv`;
+
+      const anchor = document.createElement('a');
+      anchor.href = blobUrl;
+      anchor.download = filename;
+      document.body.appendChild(anchor);
+      anchor.click();
+      document.body.removeChild(anchor);
+      URL.revokeObjectURL(blobUrl);
+    } catch {
+      showToast('Export fehlgeschlagen. Bitte versuchen Sie es erneut.', 'error');
+    }
+  };
+
   // Summary stats from current page
   const totalAmount = invoices.reduce((sum, inv) => sum + inv.total, 0);
   const overdueCount = invoices.filter((inv) => inv.status === 'OVERDUE').length;
@@ -667,9 +726,84 @@ export const InvoicesPage: React.FC = () => {
             {total} Rechnungen gesamt
           </p>
         </div>
-        <button className="btn-primary" onClick={openCreateModal}>
-          + Rechnung erstellen
-        </button>
+        <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
+          {/* Export dropdown — ADMIN only */}
+          {hasRole(['ADMIN']) && (
+            <div style={{ position: 'relative' }}>
+              <button
+                className="btn-secondary"
+                onClick={() => setIsExportMenuOpen((prev) => !prev)}
+                aria-haspopup="true"
+                aria-expanded={isExportMenuOpen}
+                style={{ minHeight: 44 }}
+              >
+                Export ▾
+              </button>
+              {isExportMenuOpen && (
+                <div
+                  role="menu"
+                  style={{
+                    position: 'absolute',
+                    right: 0,
+                    top: 'calc(100% + 4px)',
+                    background: '#ffffff',
+                    border: '2px solid #e5e7eb',
+                    borderRadius: 8,
+                    boxShadow: '0 4px 16px rgba(0,0,0,0.12)',
+                    minWidth: 200,
+                    zIndex: 100,
+                    overflow: 'hidden',
+                  }}
+                >
+                  <button
+                    role="menuitem"
+                    onClick={() => handleExport('datev')}
+                    style={{
+                      display: 'block',
+                      width: '100%',
+                      textAlign: 'left',
+                      padding: '0.875rem 1.25rem',
+                      background: 'none',
+                      border: 'none',
+                      borderBottom: '1px solid #f3f4f6',
+                      cursor: 'pointer',
+                      fontSize: '0.95rem',
+                      color: '#111827',
+                      minHeight: 44,
+                    }}
+                    onMouseEnter={(e) => ((e.target as HTMLElement).style.background = '#f3f4f6')}
+                    onMouseLeave={(e) => ((e.target as HTMLElement).style.background = 'none')}
+                  >
+                    DATEV Export
+                  </button>
+                  <button
+                    role="menuitem"
+                    onClick={() => handleExport('lexoffice')}
+                    style={{
+                      display: 'block',
+                      width: '100%',
+                      textAlign: 'left',
+                      padding: '0.875rem 1.25rem',
+                      background: 'none',
+                      border: 'none',
+                      cursor: 'pointer',
+                      fontSize: '0.95rem',
+                      color: '#111827',
+                      minHeight: 44,
+                    }}
+                    onMouseEnter={(e) => ((e.target as HTMLElement).style.background = '#f3f4f6')}
+                    onMouseLeave={(e) => ((e.target as HTMLElement).style.background = 'none')}
+                  >
+                    Lexoffice Export
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+          <button className="btn-primary" onClick={openCreateModal}>
+            + Rechnung erstellen
+          </button>
+        </div>
       </header>
 
       {/* Summary bar */}

@@ -6,13 +6,18 @@ All endpoints are restricted to ADMIN and GOLDSMITH roles.
 Financial data access is audit-logged by the service layer.
 
 Endpoints:
-  POST   /api/v1/invoices                  - Create invoice from order
-  GET    /api/v1/invoices                  - List invoices (with filters)
-  GET    /api/v1/invoices/{invoice_id}     - Get single invoice
-  PUT    /api/v1/invoices/{invoice_id}     - Update invoice status/notes
+  POST   /api/v1/invoices                      - Create invoice from order
+  GET    /api/v1/invoices                      - List invoices (with filters)
+  GET    /api/v1/invoices/export/datev         - DATEV Buchungsstapel CSV (ADMIN)
+  GET    /api/v1/invoices/export/lexoffice     - Lexoffice CSV (ADMIN)
+  GET    /api/v1/invoices/{invoice_id}         - Get single invoice
+  PUT    /api/v1/invoices/{invoice_id}         - Update invoice status/notes
   POST   /api/v1/invoices/{invoice_id}/mark-paid   - Mark as paid
   POST   /api/v1/invoices/{invoice_id}/cancel      - Cancel invoice
   GET    /api/v1/invoices/{invoice_id}/pdf         - Download invoice as PDF
+
+IMPORTANT: The /export/* routes MUST be registered before /{invoice_id} routes
+to prevent FastAPI from treating "export" as an invoice_id path parameter.
 """
 
 import io
@@ -39,6 +44,10 @@ from goldsmith_erp.models.invoice import (
 )
 from goldsmith_erp.services.invoice_service import InvoiceService
 from goldsmith_erp.services.pdf_service import PDFService
+from goldsmith_erp.services.accounting_export_service import (
+    export_datev_csv,
+    export_lexoffice_csv,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -102,6 +111,168 @@ async def list_invoices(
         date_to=date_to,
     )
     return InvoiceListResponse(items=items, total=total, skip=skip, limit=limit)
+
+
+@router.get("/export/datev")
+@require_permission(Permission.INVOICE_VIEW)
+async def export_invoices_datev(
+    date_from: Optional[datetime] = Query(
+        default=None,
+        description="Filter invoices issued on or after this date (ISO 8601)",
+    ),
+    date_to: Optional[datetime] = Query(
+        default=None,
+        description="Filter invoices issued on or before this date (ISO 8601)",
+    ),
+    status_filter: Optional[InvoiceStatus] = Query(
+        default=None,
+        alias="status",
+        description="Filter by invoice status",
+    ),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    DATEV Buchungsstapel CSV-Export (ADMIN only).
+
+    Exports invoices in DATEV format 510 (Buchungsstapel), ready for import
+    into DATEV Unternehmen Online or DATEV Kanzlei-Rechnungswesen.
+
+    Access is restricted to ADMIN role (financial data export).
+    Each export call is audit-logged.
+
+    Query parameters:
+      date_from  - ISO 8601 datetime, filters by issue_date
+      date_to    - ISO 8601 datetime, filters by issue_date
+      status     - Invoice status filter (e.g. PAID, SENT)
+
+    Returns a StreamingResponse with Content-Type text/csv and a
+    Content-Disposition attachment header (datev_export_YYYYMMDD.csv).
+    """
+    if not current_user or current_user.role.value != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="DATEV-Export ist nur für Administratoren verfügbar.",
+        )
+
+    logger.info(
+        "Financial data export — DATEV",
+        extra={
+            "audit": True,
+            "action": "export_datev",
+            "user_id": current_user.id,
+            "user_role": current_user.role.value,
+            "date_from": date_from.isoformat() if date_from else None,
+            "date_to": date_to.isoformat() if date_to else None,
+            "status_filter": status_filter.value if status_filter else None,
+        },
+    )
+
+    invoices, _ = await InvoiceService.list_invoices(
+        db=db,
+        current_user=current_user,
+        skip=0,
+        limit=10_000,
+        status=status_filter,
+        customer_id=None,
+        date_from=date_from,
+        date_to=date_to,
+    )
+
+    invoice_ids = [inv.id for inv in invoices]
+    if not invoice_ids:
+        csv_content = export_datev_csv([])
+    else:
+        result = await db.execute(
+            select(Invoice).where(Invoice.id.in_(invoice_ids))
+        )
+        orm_invoices = result.scalars().all()
+        csv_content = export_datev_csv(list(orm_invoices))
+
+    filename = f"datev_export_{datetime.utcnow().strftime('%Y%m%d')}.csv"
+    return StreamingResponse(
+        io.BytesIO(csv_content.encode("utf-8-sig")),
+        media_type="text/csv; charset=utf-8",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+        },
+    )
+
+
+@router.get("/export/lexoffice")
+@require_permission(Permission.INVOICE_VIEW)
+async def export_invoices_lexoffice(
+    date_from: Optional[datetime] = Query(
+        default=None,
+        description="Filter invoices issued on or after this date (ISO 8601)",
+    ),
+    date_to: Optional[datetime] = Query(
+        default=None,
+        description="Filter invoices issued on or before this date (ISO 8601)",
+    ),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Lexoffice CSV-Export (ADMIN only).
+
+    Exports invoices as a simplified CSV suitable for import into Lexoffice
+    (Haufe lexware). Columns: Datum, Belegnummer, Beschreibung, Netto,
+    MwSt-Satz, Brutto.
+
+    Access is restricted to ADMIN role (financial data export).
+    Each export call is audit-logged.
+
+    Returns a StreamingResponse with Content-Type text/csv and a
+    Content-Disposition attachment header (lexoffice_export_YYYYMMDD.csv).
+    """
+    if not current_user or current_user.role.value != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Lexoffice-Export ist nur für Administratoren verfügbar.",
+        )
+
+    logger.info(
+        "Financial data export — Lexoffice",
+        extra={
+            "audit": True,
+            "action": "export_lexoffice",
+            "user_id": current_user.id,
+            "user_role": current_user.role.value,
+            "date_from": date_from.isoformat() if date_from else None,
+            "date_to": date_to.isoformat() if date_to else None,
+        },
+    )
+
+    invoices, _ = await InvoiceService.list_invoices(
+        db=db,
+        current_user=current_user,
+        skip=0,
+        limit=10_000,
+        status=None,
+        customer_id=None,
+        date_from=date_from,
+        date_to=date_to,
+    )
+
+    invoice_ids = [inv.id for inv in invoices]
+    if not invoice_ids:
+        csv_content = export_lexoffice_csv([])
+    else:
+        result = await db.execute(
+            select(Invoice).where(Invoice.id.in_(invoice_ids))
+        )
+        orm_invoices = result.scalars().all()
+        csv_content = export_lexoffice_csv(list(orm_invoices))
+
+    filename = f"lexoffice_export_{datetime.utcnow().strftime('%Y%m%d')}.csv"
+    return StreamingResponse(
+        io.BytesIO(csv_content.encode("utf-8-sig")),
+        media_type="text/csv; charset=utf-8",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+        },
+    )
 
 
 @router.get("/{invoice_id}", response_model=InvoiceResponse)
