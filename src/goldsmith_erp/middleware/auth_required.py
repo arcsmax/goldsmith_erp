@@ -42,6 +42,9 @@ PUBLIC_PREFIXES = [
     # Customers look up their order/repair status by reference number + email.
     # The router itself is rate-limited (10/minute per IP) against enumeration.
     f"{settings.API_V1_STR}/portal",
+    # Theme GET is public — needed before login for branding.
+    # The PUT endpoint is guarded at router level via @require_permission.
+    f"{settings.API_V1_STR}/theme",
 ]
 
 

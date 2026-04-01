@@ -15,7 +15,10 @@ import {
   triggerBackup,
   updateEmailConfig,
 } from '../api/admin';
+import type { ThemeSettings } from '../hooks/useTheme';
+import { applyTheme, fetchTheme, saveTheme } from '../hooks/useTheme';
 import '../styles/admin.css';
+import '../styles/admin-theme.css';
 
 const AUTO_REFRESH_MS = 60_000; // 60 seconds
 
@@ -420,6 +423,297 @@ const EmailConfigSection: React.FC = () => {
 };
 
 // ---------------------------------------------------------------------------
+// Section: Appearance (Erscheinungsbild)
+// ---------------------------------------------------------------------------
+
+const THEME_DEFAULTS: ThemeSettings = {
+  primary_color: '#d97706',
+  primary_dark: '#92400e',
+  header_gradient_start: '#d97706',
+  header_gradient_end: '#92400e',
+  accent_color: '#f59e0b',
+  page_background: '#faf8f4',
+  workshop_name: 'Goldschmiede Werkstatt',
+  logo_url: null,
+};
+
+/** Minimal inline colour picker field — label + swatch + hex text input. */
+function ColorField({
+  label,
+  hint,
+  value,
+  onChange,
+}: {
+  label: string;
+  hint?: string;
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  // Validate hex before applying
+  const handleHexInput = (raw: string) => {
+    const clean = raw.trim().replace(/^#+/, '');
+    if (/^[0-9a-fA-F]{0,6}$/.test(clean)) {
+      onChange('#' + clean);
+    }
+  };
+
+  return (
+    <div className="theme-field">
+      <label className="theme-field-label">{label}</label>
+      <div className="theme-color-row">
+        <input
+          type="color"
+          className="theme-color-swatch"
+          value={/^#[0-9a-fA-F]{6}$/.test(value) ? value : '#d97706'}
+          onChange={e => onChange(e.target.value)}
+          title={label}
+          aria-label={label}
+        />
+        <input
+          type="text"
+          className="theme-color-hex"
+          value={value}
+          maxLength={7}
+          onChange={e => handleHexInput(e.target.value)}
+          aria-label={`${label} Hexwert`}
+          spellCheck={false}
+        />
+      </div>
+      {hint && <span className="theme-field-hint">{hint}</span>}
+    </div>
+  );
+}
+
+/** Live preview card rendered using inline CSS variables. */
+function ThemePreview({ draft }: { draft: ThemeSettings }) {
+  const previewStyle: React.CSSProperties = {
+    ['--preview-header-start' as string]: draft.header_gradient_start,
+    ['--preview-header-end' as string]: draft.header_gradient_end,
+    ['--preview-primary' as string]: draft.primary_color,
+    ['--preview-accent' as string]: draft.accent_color,
+    ['--preview-bg' as string]: draft.page_background,
+  };
+
+  return (
+    <div className="theme-preview-panel" style={previewStyle}>
+      <div className="theme-preview-header">
+        <p>Vorschau</p>
+      </div>
+      <div className="theme-preview-app-header">
+        {draft.logo_url && (
+          <img
+            src={draft.logo_url}
+            alt="Logo"
+            style={{ width: 28, height: 28, objectFit: 'contain', borderRadius: 4 }}
+          />
+        )}
+        <span className="theme-preview-app-name">{draft.workshop_name || 'Werkstatt'}</span>
+      </div>
+      <div className="theme-preview-body">
+        <div className="theme-preview-buttons">
+          <div className="theme-preview-btn-primary">Speichern</div>
+          <div className="theme-preview-btn-secondary">Abbrechen</div>
+        </div>
+        <div className="theme-preview-accent-bar" />
+        <p className="theme-preview-label">Akzentfarbe &amp; Hintergrund</p>
+      </div>
+    </div>
+  );
+}
+
+const ThemeConfigSection: React.FC = () => {
+  const [draft, setDraft] = useState<ThemeSettings>(THEME_DEFAULTS);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
+  const [message, setMessage] = useState<{ text: string; ok: boolean } | null>(null);
+
+  // Load current settings on mount
+  useEffect(() => {
+    const token = localStorage.getItem('access_token') ?? '';
+    fetchTheme(token)
+      .then(settings => {
+        setDraft(settings);
+      })
+      .catch(() => {
+        // Non-critical — defaults already in state
+      })
+      .finally(() => setIsLoading(false));
+  }, []);
+
+  // Live preview: apply draft colours to the page as user changes values
+  const applyPreview = (updated: ThemeSettings) => {
+    setDraft(updated);
+    applyTheme(updated);
+  };
+
+  const set = (key: keyof ThemeSettings) => (value: string) => {
+    applyPreview({ ...draft, [key]: value || null });
+  };
+
+  const handleSave = async () => {
+    const token = localStorage.getItem('access_token') ?? '';
+    setIsSaving(true);
+    setMessage(null);
+    try {
+      const saved = await saveTheme(draft, token);
+      setDraft(saved);
+      setMessage({ text: 'Einstellungen gespeichert.', ok: true });
+    } catch (err: unknown) {
+      setMessage({
+        text: err instanceof Error ? err.message : 'Fehler beim Speichern.',
+        ok: false,
+      });
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleReset = () => {
+    applyPreview(THEME_DEFAULTS);
+    setMessage(null);
+  };
+
+  if (isLoading) {
+    return (
+      <div className="admin-section">
+        <h2>Erscheinungsbild</h2>
+        <p style={{ color: 'var(--color-text-muted)', fontSize: '0.875rem' }}>Wird geladen…</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="admin-section">
+      <h2>Erscheinungsbild</h2>
+
+      {message && (
+        <div
+          className="admin-error-banner"
+          style={{
+            background: message.ok ? '#f0fdf4' : '#fef2f2',
+            borderColor: message.ok ? '#86efac' : '#fca5a5',
+            color: message.ok ? '#15803d' : '#b91c1c',
+            marginBottom: '16px',
+          }}
+        >
+          {message.text}
+        </div>
+      )}
+
+      <div className="theme-config-section">
+        {/* Left: form */}
+        <div className="theme-form-panel">
+          <div className="theme-form-grid">
+            {/* Left column */}
+            <div>
+              <ColorField
+                label="Hauptfarbe"
+                hint="Schaltflaechen, Links, aktive Elemente"
+                value={draft.primary_color}
+                onChange={set('primary_color')}
+              />
+              <ColorField
+                label="Hauptfarbe (dunkel)"
+                hint="Hover-Zustand der Hauptfarbe"
+                value={draft.primary_dark}
+                onChange={set('primary_dark')}
+              />
+              <ColorField
+                label="Header-Verlauf Start"
+                hint="Linke / obere Farbe des App-Headers"
+                value={draft.header_gradient_start}
+                onChange={set('header_gradient_start')}
+              />
+            </div>
+
+            {/* Right column */}
+            <div>
+              <ColorField
+                label="Header-Verlauf Ende"
+                hint="Rechte / untere Farbe des App-Headers"
+                value={draft.header_gradient_end}
+                onChange={set('header_gradient_end')}
+              />
+              <ColorField
+                label="Akzentfarbe"
+                hint="Fokusringe, Markierungen, Badges"
+                value={draft.accent_color}
+                onChange={set('accent_color')}
+              />
+              <ColorField
+                label="Seitenhintergrund"
+                hint="Hintergrundfarbe des Hauptbereichs"
+                value={draft.page_background}
+                onChange={set('page_background')}
+              />
+            </div>
+          </div>
+
+          {/* Workshop name + logo */}
+          <div className="theme-field">
+            <label className="theme-field-label">Name der Werkstatt</label>
+            <input
+              type="text"
+              className="theme-text-input"
+              value={draft.workshop_name}
+              maxLength={100}
+              placeholder="Goldschmiede Werkstatt"
+              onChange={e => applyPreview({ ...draft, workshop_name: e.target.value })}
+            />
+            <span className="theme-field-hint">Wird im App-Header und auf Etiketten angezeigt.</span>
+          </div>
+
+          <div className="theme-field">
+            <label className="theme-field-label">Logo-URL (optional)</label>
+            <input
+              type="url"
+              className="theme-text-input"
+              value={draft.logo_url ?? ''}
+              maxLength={512}
+              placeholder="https://meine-werkstatt.de/logo.png"
+              onChange={e =>
+                applyPreview({ ...draft, logo_url: e.target.value || null })
+              }
+            />
+            <span className="theme-field-hint">
+              Oeffentlich erreichbare URL zu Ihrem Logo (JPG, PNG oder SVG, max. 64 px Hoehe empfohlen).
+            </span>
+          </div>
+
+          {/* Actions */}
+          <div className="theme-actions">
+            <button
+              className="theme-save-btn"
+              onClick={handleSave}
+              disabled={isSaving}
+            >
+              {isSaving ? 'Wird gespeichert…' : 'Speichern'}
+            </button>
+            <button
+              className="theme-reset-btn"
+              onClick={handleReset}
+              disabled={isSaving}
+            >
+              Zurücksetzen
+            </button>
+            {message && (
+              <span
+                className={`theme-status-msg ${message.ok ? 'theme-status-msg--ok' : 'theme-status-msg--err'}`}
+              >
+                {message.text}
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* Right: live preview */}
+        <ThemePreview draft={draft} />
+      </div>
+    </div>
+  );
+};
+
+// ---------------------------------------------------------------------------
 // Main Page
 // ---------------------------------------------------------------------------
 
@@ -521,6 +815,7 @@ export const AdminSystemPage: React.FC = () => {
       )}
 
       <EmailConfigSection />
+      <ThemeConfigSection />
     </div>
   );
 };

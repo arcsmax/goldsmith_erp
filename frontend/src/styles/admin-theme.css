@@ -1,0 +1,291 @@
+/* Admin Theme Configuration — Erscheinungsbild section
+ * Styles for the colour picker form and live preview panel
+ * in AdminSystemPage.tsx.
+ */
+
+/* ── Section layout ─────────────────────────────────────────────── */
+
+.theme-config-section {
+  display: grid;
+  grid-template-columns: 1fr 320px;
+  gap: 1.5rem;
+  align-items: start;
+}
+
+@media (max-width: 900px) {
+  .theme-config-section {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ── Form panel ─────────────────────────────────────────────────── */
+
+.theme-form-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.theme-form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0 1.5rem;
+}
+
+@media (max-width: 600px) {
+  .theme-form-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ── Field wrapper ──────────────────────────────────────────────── */
+
+.theme-field {
+  margin-bottom: 14px;
+}
+
+.theme-field-label {
+  display: block;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--color-text-body);
+  margin-bottom: 5px;
+}
+
+.theme-field-hint {
+  display: block;
+  font-size: 0.72rem;
+  color: var(--color-text-muted);
+  margin-top: 3px;
+}
+
+/* ── Colour picker row ──────────────────────────────────────────── */
+
+.theme-color-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.theme-color-swatch {
+  /* The <input type="color"> acts as a swatch button.
+     Min 44x44px for workshop touch target (WCAG 2.5.5). */
+  width: 44px;
+  height: 44px;
+  min-width: 44px;
+  padding: 2px;
+  border: 2px solid var(--color-border-default);
+  border-radius: 8px;
+  cursor: pointer;
+  background: none;
+  flex-shrink: 0;
+  transition: border-color 0.15s;
+}
+
+.theme-color-swatch:hover {
+  border-color: var(--color-border-focus);
+}
+
+.theme-color-swatch:focus-visible {
+  outline: 3px solid var(--color-border-focus);
+  outline-offset: 2px;
+}
+
+.theme-color-hex {
+  flex: 1;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--color-border-default);
+  border-radius: 8px;
+  font-size: 0.875rem;
+  font-family: 'Courier New', monospace;
+  background: var(--color-surface-card);
+  color: var(--color-text-body);
+  text-transform: uppercase;
+  transition: border-color 0.15s;
+}
+
+.theme-color-hex:focus {
+  outline: none;
+  border-color: var(--color-border-focus);
+  box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.12);
+}
+
+/* ── Text input (workshop name, logo URL) ───────────────────────── */
+
+.theme-text-input {
+  width: 100%;
+  padding: 0.55rem 0.875rem;
+  border: 1px solid var(--color-border-default);
+  border-radius: 8px;
+  font-size: 0.9rem;
+  background: var(--color-surface-card);
+  color: var(--color-text-body);
+  box-sizing: border-box;
+  transition: border-color 0.15s;
+}
+
+.theme-text-input:focus {
+  outline: none;
+  border-color: var(--color-border-focus);
+  box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.12);
+}
+
+/* ── Action row ─────────────────────────────────────────────────── */
+
+.theme-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 4px;
+  flex-wrap: wrap;
+}
+
+.theme-save-btn {
+  padding: 0.6rem 1.4rem;
+  background: var(--color-interactive-primary);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  /* 44px min height for workshop touch targets */
+  min-height: 44px;
+  transition: background 0.15s, transform 0.1s;
+}
+
+.theme-save-btn:hover:not(:disabled) {
+  background: var(--color-interactive-primary-hover);
+  transform: translateY(-1px);
+}
+
+.theme-save-btn:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.theme-save-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.theme-reset-btn {
+  padding: 0.6rem 1rem;
+  background: #fff;
+  color: var(--color-text-body);
+  border: 1px solid var(--color-border-default);
+  border-radius: 8px;
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+  min-height: 44px;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.theme-reset-btn:hover:not(:disabled) {
+  background: #f8f6f0;
+  border-color: var(--color-brand-cta-400);
+}
+
+.theme-status-msg {
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.theme-status-msg--ok {
+  color: #15803d;
+}
+
+.theme-status-msg--err {
+  color: #b91c1c;
+}
+
+/* ── Live preview panel ─────────────────────────────────────────── */
+
+.theme-preview-panel {
+  border: 1px solid var(--color-border-default);
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--color-surface-card);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+}
+
+.theme-preview-header {
+  padding: 0.5rem 0.75rem;
+  background: var(--color-border-default);
+  border-bottom: 1px solid var(--color-border-default);
+}
+
+.theme-preview-header p {
+  margin: 0;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--color-text-muted);
+}
+
+/* Miniature app header using preview CSS variables */
+.theme-preview-app-header {
+  padding: 0.75rem 1rem;
+  background: linear-gradient(135deg, var(--preview-header-start, #d97706), var(--preview-header-end, #92400e));
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.theme-preview-app-name {
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: #fff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.theme-preview-body {
+  padding: 0.75rem 1rem;
+  background: var(--preview-bg, #faf8f4);
+}
+
+/* Mini button samples */
+.theme-preview-buttons {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.theme-preview-btn-primary {
+  padding: 0.35rem 0.75rem;
+  background: var(--preview-primary, #d97706);
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  pointer-events: none;
+}
+
+.theme-preview-btn-secondary {
+  padding: 0.35rem 0.75rem;
+  background: #fff;
+  color: var(--preview-primary, #d97706);
+  border: 1.5px solid var(--preview-primary, #d97706);
+  border-radius: 6px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  pointer-events: none;
+}
+
+.theme-preview-accent-bar {
+  margin-top: 0.6rem;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--preview-accent, #f59e0b);
+  width: 60%;
+}
+
+.theme-preview-label {
+  margin-top: 0.5rem;
+  font-size: 0.72rem;
+  color: var(--color-text-muted);
+}

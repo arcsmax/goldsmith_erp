@@ -6,6 +6,7 @@ import { ProtectedRoute } from './components/ProtectedRoute';
 import { MainLayout } from './layouts/MainLayout';
 import { ToastContainer } from './components/Toast';
 import { ConfirmDialog } from './components/ConfirmDialog';
+import { useTheme } from './hooks/useTheme';
 
 // Lazy load pages for code splitting and better performance
 // Note: Pages use named exports, so we need to destructure them
@@ -44,6 +45,9 @@ const PageLoader: React.FC = () => (
 );
 
 const App: React.FC = () => {
+  // Apply admin-configurable theme settings as CSS variables on first paint
+  useTheme();
+
   return (
     <BrowserRouter>
       <ToastProvider>
