@@ -76,7 +76,7 @@ class TestOrderCreation:
 
     async def test_create_order_with_multiple_materials(self, db_session, sample_customer):
         """Test creating order with multiple materials"""
-        # Create multiple materials
+        # Create multiple materials and collect references BEFORE committing
         materials = []
         for i in range(3):
             material = Material(
@@ -87,10 +87,8 @@ class TestOrderCreation:
                 unit="g"
             )
             db_session.add(material)
-        await db_session.commit()
-        await db_session.flush()
-
-        material_ids = [m.id for m in materials]
+            materials.append(material)
+        await db_session.flush()  # Flush to assign IDs without committing
 
         order_data = OrderCreate(
             title="Complex Piece",
@@ -101,7 +99,7 @@ class TestOrderCreation:
 
         order = await OrderService.create_order(db_session, order_data)
 
-        assert len(order.materials) >= 3
+        assert len(order.materials) == 3
 
     async def test_create_order_with_invalid_material_raises_error(self, db_session, sample_customer):
         """Test that creating order with non-existent material raises error"""
@@ -479,16 +477,14 @@ class TestOrderValidation:
     """Test order validation and error handling"""
 
     async def test_create_order_sql_injection_prevention(self, db_session, sample_customer):
-        """Test that SQL injection attempts are blocked"""
-        malicious_data = OrderCreate(
-            title="'; DROP TABLE orders; --",
-            description="Normal description",
-            customer_id=sample_customer.id
-        )
-
-        # Should raise validation error
+        """Test that SQL injection attempts are blocked at Pydantic validation time"""
+        # Pydantic raises ValidationError (a subclass of ValueError) during model construction
         with pytest.raises(ValueError, match="dangerous SQL keyword"):
-            await OrderService.create_order(db_session, malicious_data)
+            OrderCreate(
+                title="'; DROP TABLE orders; --",
+                description="Normal description",
+                customer_id=sample_customer.id
+            )
 
     async def test_create_order_empty_title_fails(self, db_session, sample_customer):
         """Test that empty title (after stripping) fails"""
@@ -500,9 +496,9 @@ class TestOrderValidation:
             )
 
     async def test_create_order_negative_price_fails(self, db_session, sample_customer):
-        """Test that negative price fails validation"""
-        with pytest.raises(ValueError, match="cannot be negative"):
-            order_data = OrderCreate(
+        """Test that negative price fails Pydantic validation"""
+        with pytest.raises(ValueError, match="greater than or equal to 0"):
+            OrderCreate(
                 title="Valid title",
                 description="Valid description",
                 customer_id=sample_customer.id,

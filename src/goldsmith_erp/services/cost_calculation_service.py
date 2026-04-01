@@ -121,13 +121,13 @@ class CostCalculationService:
         # 4. Subtotal
         subtotal = material_cost + gemstone_cost + labor_cost
 
-        # 5. Apply profit margin
-        margin_percent = order.profit_margin_percent or 40.0
+        # 5. Apply profit margin — use explicit None check, 0.0 is valid (no margin)
+        margin_percent = order.profit_margin_percent if order.profit_margin_percent is not None else 40.0
         margin_amount = subtotal * (margin_percent / 100.0)
         subtotal_with_margin = subtotal + margin_amount
 
         # 6. Apply VAT
-        vat_percent = order.vat_rate or 19.0
+        vat_percent = order.vat_rate if order.vat_rate is not None else 19.0
         vat_amount = subtotal_with_margin * (vat_percent / 100.0)
         total_with_vat = subtotal_with_margin + vat_amount
 
@@ -215,8 +215,9 @@ class CostCalculationService:
             )
             return 0.0
 
-        # Apply scrap percentage (material loss during work)
-        scrap_percent = order.scrap_percentage or 5.0
+        # Apply scrap percentage (material loss during work).
+        # Use explicit None check — 0.0 is a valid scrap percentage (no waste).
+        scrap_percent = order.scrap_percentage if order.scrap_percentage is not None else 5.0
         effective_weight = weight_g * (1 + scrap_percent / 100.0)
 
         # Get allocation from MetalInventoryService

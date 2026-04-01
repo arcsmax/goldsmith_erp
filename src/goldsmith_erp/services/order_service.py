@@ -136,7 +136,11 @@ class OrderService:
         if not order:
             return None
 
-        update_data = order_in.dict(exclude_unset=True)
+        update_data = order_in.dict(exclude_unset=True, exclude={"costing_method"})
+
+        # OrderUpdate uses 'costing_method' but the ORM column is 'costing_method_used'
+        if order_in.costing_method is not None:
+            update_data["costing_method_used"] = order_in.costing_method
 
         # Detect completion transition: only set completed_at once (idempotent)
         _completion_statuses = {OrderStatusEnum.COMPLETED, OrderStatusEnum.DELIVERED}

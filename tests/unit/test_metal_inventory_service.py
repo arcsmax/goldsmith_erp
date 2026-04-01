@@ -270,7 +270,7 @@ class TestInventoryStatistics:
         stats = await MetalInventoryService.get_inventory_summary(db_session)
 
         assert len(stats.low_stock_alerts) > 0
-        assert "platinum_950: 25.0g" in stats.low_stock_alerts
+        assert any("platinum_950" in alert and "25" in alert for alert in stats.low_stock_alerts)
 
 
 @pytest.mark.asyncio

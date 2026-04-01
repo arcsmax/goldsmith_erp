@@ -135,7 +135,8 @@ class TestJWTTokenCreation:
 
         payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[ALGORITHM])
         exp_timestamp = payload["exp"]
-        exp_datetime = datetime.fromtimestamp(exp_timestamp)
+        # Use utcfromtimestamp to stay in UTC, matching utcnow()
+        exp_datetime = datetime.utcfromtimestamp(exp_timestamp)
 
         # Should expire around ACCESS_TOKEN_EXPIRE_MINUTES from now
         expected_expiry = datetime.utcnow() + timedelta(
@@ -156,7 +157,8 @@ class TestJWTTokenCreation:
 
         payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[ALGORITHM])
         exp_timestamp = payload["exp"]
-        exp_datetime = datetime.fromtimestamp(exp_timestamp)
+        # Use utcfromtimestamp to stay in UTC, matching utcnow()
+        exp_datetime = datetime.utcfromtimestamp(exp_timestamp)
 
         expected_expiry = datetime.utcnow() + custom_expiry
 

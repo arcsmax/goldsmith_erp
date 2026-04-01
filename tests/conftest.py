@@ -70,10 +70,38 @@ async def create_tables():
 
 @pytest_asyncio.fixture
 async def db_session() -> AsyncGenerator[AsyncSession, None]:
-    """Async SQLite session for a single test. Rolls back after each test."""
+    """
+    Async SQLite session for a single test.
+
+    Yields a session and then truncates all tables after each test so that
+    committed rows (written by service-layer commits) do not leak between tests.
+    Using DELETE rather than TRUNCATE because SQLite does not support TRUNCATE.
+    """
     async with TestSessionLocal() as session:
         yield session
         await session.rollback()
+
+    # Wipe all rows after each test so the next test starts with an empty DB.
+    # This runs outside the session to ensure it executes even if the test fails.
+    async with TestSessionLocal() as cleanup:
+        for table in reversed(Base.metadata.sorted_tables):
+            await cleanup.execute(table.delete())
+        await cleanup.commit()
+
+
+@pytest.fixture(autouse=True)
+def mock_publish_event(monkeypatch):
+    """
+    Replace publish_event with a no-op async function for all unit tests.
+
+    Unit tests must never connect to Redis. Any service that calls
+    publish_event after a DB operation will silently succeed.
+    """
+    async def _noop(*args, **kwargs):
+        pass
+
+    monkeypatch.setattr("goldsmith_erp.core.pubsub.publish_event", _noop)
+    monkeypatch.setattr("goldsmith_erp.services.order_service.publish_event", _noop)
 
 
 @pytest_asyncio.fixture

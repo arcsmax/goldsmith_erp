@@ -4,6 +4,7 @@ import json
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy import update, delete
+from sqlalchemy.orm import selectinload
 from typing import List, Optional, Dict, Any
 
 from goldsmith_erp.core.cache import MATERIALS_TTL, get_cached, invalidate
