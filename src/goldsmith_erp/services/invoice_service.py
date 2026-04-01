@@ -361,7 +361,6 @@ class InvoiceService:
                 action="viewed",
                 invoice_id=invoice_id,
                 user_id=current_user.id,
-                user_email=current_user.email,
                 user_role=current_user.role.value if hasattr(current_user.role, "value") else str(current_user.role),
             )
 

@@ -35,7 +35,9 @@ PUBLIC_PREFIXES = [
     # The refresh endpoint must bypass the middleware's strict expiry check so that
     # recently-expired tokens can reach the handler, which applies its own grace
     # window logic and all other security checks (signature, user existence, etc.).
-    f"{settings.API_V1_STR}/auth/refresh",
+    # Note: the auth router is mounted at /api/v1 (no /auth sub-prefix), so the
+    # actual path is /api/v1/refresh, not /api/v1/auth/refresh.
+    f"{settings.API_V1_STR}/refresh",
 ]
 
 
