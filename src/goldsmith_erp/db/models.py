@@ -936,6 +936,7 @@ class NotificationTypeEnum(str, enum.Enum):
     ORDER_STATUS = "order_status"           # Auftragsstatus geaendert
     SYSTEM = "system"                       # Systemnachricht
     HANDOFF = "handoff"                     # Uebergabe zwischen Goldschmiede
+    COMMENT = "comment"                     # Neuer Kommentar an einem Auftrag
 
 
 class NotificationSeverityEnum(str, enum.Enum):

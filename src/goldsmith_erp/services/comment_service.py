@@ -1,11 +1,22 @@
 """Service for Order Comments (Digitale Post-its)."""
+import logging
+from typing import List, Optional
+
+from sqlalchemy import and_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy.orm import selectinload
-from typing import List, Optional
 
-from goldsmith_erp.db.models import OrderComment as CommentModel, User as UserModel
+from goldsmith_erp.db.models import (
+    NotificationSeverityEnum,
+    NotificationTypeEnum,
+    OrderComment as CommentModel,
+    User as UserModel,
+    UserRole,
+)
 from goldsmith_erp.models.order_comment import OrderCommentCreate, OrderCommentUpdate
+
+logger = logging.getLogger(__name__)
 
 
 class CommentService:
@@ -41,6 +52,62 @@ class CommentService:
         db.add(comment)
         await db.commit()
         await db.refresh(comment)
+
+        # Fire comment notifications after the comment is durably committed.
+        # Import lazily to avoid circular imports (notification_service imports
+        # from db.models, which is safe, but the service graph is complex).
+        try:
+            from goldsmith_erp.services.notification_service import NotificationService
+
+            # Resolve the author's display name for the notification message.
+            author_result = await db.execute(
+                select(UserModel).where(UserModel.id == user_id)
+            )
+            author = author_result.scalar_one_or_none()
+            if author and (author.first_name or author.last_name):
+                author_name = f"{author.first_name or ''} {author.last_name or ''}".strip()
+            else:
+                author_name = f"Benutzer #{user_id}"
+
+            # Truncate comment preview to 100 chars, add ellipsis if needed.
+            preview = comment_in.text[:100]
+            if len(comment_in.text) > 100:
+                preview += "..."
+
+            title = f"Neuer Kommentar: Auftrag #{order_id}"
+            message = f"{author_name} hat einen Kommentar hinterlassen: {preview}"
+
+            # Notify all active ADMIN and GOLDSMITH users except the author.
+            recipients_result = await db.execute(
+                select(UserModel).where(
+                    and_(
+                        UserModel.is_active.is_(True),
+                        UserModel.role.in_([UserRole.ADMIN, UserRole.GOLDSMITH]),
+                        UserModel.id != user_id,
+                    )
+                )
+            )
+            recipients = recipients_result.scalars().all()
+
+            for recipient in recipients:
+                await NotificationService.create_notification(
+                    db=db,
+                    user_id=recipient.id,
+                    title=title,
+                    message=message,
+                    notification_type=NotificationTypeEnum.COMMENT,
+                    severity=NotificationSeverityEnum.INFO,
+                    related_order_id=order_id,
+                )
+
+        except Exception:
+            # Notification failure must not affect the comment that was
+            # already committed.  Log the full traceback for debugging.
+            logger.exception(
+                "Failed to fire comment notifications",
+                extra={"order_id": order_id, "user_id": user_id, "comment_id": comment.id},
+            )
+
         return comment
 
     @staticmethod
