@@ -340,6 +340,7 @@ class Order(Base):
     specific_metal_purchase = relationship("MetalPurchase")  # For SPECIFIC costing method
     comments = relationship("OrderComment", back_populates="order", cascade="all, delete-orphan", order_by="OrderComment.created_at.desc()")
     time_entries = relationship("TimeEntry", back_populates="order")
+    handoffs = relationship("OrderHandoff", back_populates="order", cascade="all, delete-orphan", order_by="OrderHandoff.created_at.desc()")
 
 
 class OrderComment(Base):
@@ -878,6 +879,28 @@ class InvoiceLineItem(Base):
 # ============================================================================
 
 
+class HandoffTypeEnum(str, enum.Enum):
+    """
+    Type of order handoff (Uebergabetyp) between goldsmiths.
+
+    PASS_TO_NEXT     — Normale Weitergabe, z.B. "Loeten fertig → Fassung"
+    REQUEST_REVIEW   — Qualitaetskontrolle anfordern, z.B. "Fassung pruefen"
+    RETURN_FOR_REWORK— Stueck zurueckgeben mit Nacharbeitsauftrag
+    MARK_COMPLETE    — Letzter Arbeitsschritt abgeschlossen (Endkontrolle)
+    """
+    PASS_TO_NEXT = "pass_to_next"
+    REQUEST_REVIEW = "request_review"
+    RETURN_FOR_REWORK = "return_for_rework"
+    MARK_COMPLETE = "mark_complete"
+
+
+class HandoffStatusEnum(str, enum.Enum):
+    """Lifecycle state of an order handoff record."""
+    PENDING = "pending"     # Warten auf Bestaetigung durch Empfaenger
+    ACCEPTED = "accepted"   # Empfaenger hat uebernommen
+    DECLINED = "declined"   # Empfaenger hat abgelehnt (mit Begruendung)
+
+
 class NotificationTypeEnum(str, enum.Enum):
     """Type of notification — drives icon and routing on the frontend."""
     DEADLINE_WARNING = "deadline_warning"   # Auftrag-Deadline naehert sich
@@ -886,6 +909,7 @@ class NotificationTypeEnum(str, enum.Enum):
     FITTING_REMINDER = "fitting_reminder"   # Anprobe-Erinnerung
     ORDER_STATUS = "order_status"           # Auftragsstatus geaendert
     SYSTEM = "system"                       # Systemnachricht
+    HANDOFF = "handoff"                     # Uebergabe zwischen Goldschmiede
 
 
 class NotificationSeverityEnum(str, enum.Enum):
@@ -977,3 +1001,89 @@ class NotificationPreference(Base):
 
     # Relationships
     user = relationship("User")
+
+
+# ============================================================================
+# HANDOFF PROTOCOL (STABUEBERGABE)
+# ============================================================================
+
+
+class OrderHandoff(Base):
+    """
+    Formal handoff record when an order passes between goldsmiths.
+
+    Workflow: Sender creates a PENDING handoff → recipient ACCEPTS or DECLINES.
+    On acceptance the order changes hands; on decline the sender is notified
+    with the reason so they can resolve the issue before re-attempting.
+
+    Examples:
+      "Loeten fertig, bitte Fassung pruefen" (PASS_TO_NEXT)
+      "Fassung kontrollieren" (REQUEST_REVIEW)
+      "Pavee-Fassung muss nachgearbeitet werden" (RETURN_FOR_REWORK)
+      "Endkontrolle abgeschlossen" (MARK_COMPLETE)
+    """
+    __tablename__ = "order_handoffs"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    # Order being handed off
+    order_id = Column(
+        Integer,
+        ForeignKey("orders.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+
+    # Who is passing the order
+    from_user_id = Column(
+        Integer,
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,   # SET NULL so handoff history survives user deletion
+        index=True,
+    )
+
+    # Who should receive the order
+    to_user_id = Column(
+        Integer,
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+
+    # Handoff classification
+    handoff_type = Column(
+        SAEnum(HandoffTypeEnum),
+        nullable=False,
+        index=True,
+    )
+
+    # Lifecycle status
+    status = Column(
+        SAEnum(HandoffStatusEnum),
+        nullable=False,
+        default=HandoffStatusEnum.PENDING,
+        index=True,
+    )
+
+    # Sender's message — e.g. "Loeten fertig, Lot an Stelle 3 pruefen"
+    notes = Column(Text, nullable=True)
+
+    # Recipient's response when declining — required on DECLINED
+    response_notes = Column(Text, nullable=True)
+
+    # Timestamps
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    responded_at = Column(DateTime, nullable=True)  # Set when accepted/declined
+
+    # Relationships
+    order = relationship("Order", back_populates="handoffs")
+    from_user = relationship("User", foreign_keys=[from_user_id])
+    to_user = relationship("User", foreign_keys=[to_user_id])
+
+    def __repr__(self) -> str:
+        return (
+            f"<OrderHandoff order={self.order_id} "
+            f"{self.handoff_type.value} "
+            f"from={self.from_user_id} to={self.to_user_id} "
+            f"status={self.status.value}>"
+        )

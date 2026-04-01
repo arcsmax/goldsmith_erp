@@ -77,6 +77,11 @@ class Permission(str, Enum):
     NOTIFICATION_VIEW = "notification:view"          # Read own notifications
     NOTIFICATION_CHECK_DEADLINES = "notification:check_deadlines"  # Trigger deadline scan (ADMIN)
 
+    # Handoff permissions (Stabuebergabe)
+    HANDOFF_CREATE = "handoff:create"   # Create a handoff (GOLDSMITH + ADMIN)
+    HANDOFF_RESPOND = "handoff:respond" # Accept/decline incoming handoffs (GOLDSMITH + ADMIN)
+    HANDOFF_VIEW = "handoff:view"       # View handoffs on an order (all authenticated)
+
 
 # Role-Permission mapping
 ROLE_PERMISSIONS: dict[UserRole, List[Permission]] = {
@@ -114,6 +119,10 @@ ROLE_PERMISSIONS: dict[UserRole, List[Permission]] = {
         Permission.ML_VIEW_STATS,
         # Notifications — goldsmiths receive and read their own
         Permission.NOTIFICATION_VIEW,
+        # Handoffs — goldsmiths create and respond to handoffs
+        Permission.HANDOFF_CREATE,
+        Permission.HANDOFF_RESPOND,
+        Permission.HANDOFF_VIEW,
     ],
     UserRole.VIEWER: [
         # View-only access
@@ -128,6 +137,8 @@ ROLE_PERMISSIONS: dict[UserRole, List[Permission]] = {
         Permission.ML_VIEW_STATS,
         # Notifications — viewers receive and read their own
         Permission.NOTIFICATION_VIEW,
+        # Handoffs — viewers can see handoff history but not create/respond
+        Permission.HANDOFF_VIEW,
     ],
 }
 
