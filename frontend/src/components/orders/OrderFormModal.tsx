@@ -14,7 +14,7 @@ interface OrderFormModalProps {
   isLoading?: boolean;
 }
 
-type TabType = 'basic' | 'metal' | 'pricing';
+type TabType = 'basic' | 'auftrag' | 'metal' | 'pricing';
 
 const METAL_TYPE_OPTIONS: { value: MetalType; label: string }[] = [
   { value: 'gold_24k', label: 'Gold 24K (999)' },
@@ -30,6 +30,27 @@ const COSTING_METHOD_OPTIONS: { value: CostingMethod; label: string }[] = [
   { value: 'LIFO', label: 'LIFO (Last In, First Out)' },
   { value: 'AVERAGE', label: 'Durchschnittspreis' },
   { value: 'SPECIFIC', label: 'Spezifische Charge' },
+];
+
+const ALLOY_OPTIONS = [
+  { value: '999', label: 'Gold 999 (24K, Feingold)' },
+  { value: '900', label: 'Gold 900 (21,6K)' },
+  { value: '750', label: 'Gold 750 (18K)' },
+  { value: '585', label: 'Gold 585 (14K)' },
+  { value: '375', label: 'Gold 375 (9K)' },
+  { value: '333', label: 'Gold 333 (8K)' },
+  { value: 'Ag925', label: 'Silber 925 (Sterling)' },
+  { value: 'Ag800', label: 'Silber 800' },
+  { value: 'Pt950', label: 'Platin 950' },
+];
+
+const SURFACE_FINISH_OPTIONS = [
+  { value: 'Hochglanz', label: 'Hochglanz' },
+  { value: 'Matt', label: 'Matt' },
+  { value: 'Gebuerstet', label: 'Gebürstet' },
+  { value: 'Gehaemmert', label: 'Gehämmert' },
+  { value: 'Oxidiert', label: 'Oxidiert' },
+  { value: 'Sandgestrahlt', label: 'Sandgestrahlt' },
 ];
 
 export const OrderFormModal: React.FC<OrderFormModalProps> = ({
@@ -64,6 +85,14 @@ export const OrderFormModal: React.FC<OrderFormModalProps> = ({
     hourly_rate: '75',
     profit_margin_percent: '40',
     vat_rate: '19',
+
+    // Goldsmith Intake Fields (Pflichtfelder)
+    alloy: '',
+    ring_size_mm: '',
+    surface_finish: '',
+    fitting_date: '',
+    has_scrap_gold: false,
+    special_instructions: '',
   });
 
   const { validate: zodValidate, errors, clearErrors, clearError } = useFormValidation(OrderCreateSchema);
@@ -98,6 +127,13 @@ export const OrderFormModal: React.FC<OrderFormModalProps> = ({
         hourly_rate: order.hourly_rate?.toString() || '75',
         profit_margin_percent: order.profit_margin_percent?.toString() || '40',
         vat_rate: order.vat_rate?.toString() || '19',
+
+        alloy: order.alloy || '',
+        ring_size_mm: order.ring_size_mm?.toString() || '',
+        surface_finish: order.surface_finish || '',
+        fitting_date: order.fitting_date ? order.fitting_date.split('T')[0] : '',
+        has_scrap_gold: order.has_scrap_gold ?? false,
+        special_instructions: order.special_instructions || '',
       });
     } else {
       setFormData({
@@ -117,6 +153,13 @@ export const OrderFormModal: React.FC<OrderFormModalProps> = ({
         hourly_rate: '75',
         profit_margin_percent: '40',
         vat_rate: '19',
+
+        alloy: '',
+        ring_size_mm: '',
+        surface_finish: '',
+        fitting_date: '',
+        has_scrap_gold: false,
+        special_instructions: '',
       });
     }
     clearErrors();
@@ -141,18 +184,38 @@ export const OrderFormModal: React.FC<OrderFormModalProps> = ({
   ) => {
     const { name, value } = e.target;
     setFormData((prev) => ({ ...prev, [name]: value }));
+    clearError(name);
+  };
 
+  const handleCheckboxChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const { name, checked } = e.target;
+    setFormData((prev) => ({ ...prev, [name]: checked }));
     clearError(name);
   };
 
 
-  // Check if all required fields are filled (for button disable state)
+  // Check if base required fields are filled (for button disable state)
   const isFormValid =
     formData.title.trim() !== '' &&
     formData.description.trim() !== '' &&
     formData.customer_id !== '' &&
     formData.deadline !== '' &&
     formData.metal_type !== '';
+
+  // Pflichtfelder completion indicator for the Auftrag tab
+  // These are the fields needed before status can be set to 'confirmed'
+  const isRingOrder = formData.metal_type !== '' &&
+    (formData.title.toLowerCase().includes('ring') ||
+     formData.description.toLowerCase().includes('ring'));
+  const pflichtfelder = [
+    { key: 'title', label: 'Bezeichnung', filled: formData.title.trim() !== '' },
+    { key: 'metal_type', label: 'Metallart', filled: formData.metal_type !== '' },
+    { key: 'alloy', label: 'Legierung', filled: formData.alloy !== '' },
+    { key: 'deadline', label: 'Abgabetermin', filled: formData.deadline !== '' },
+    ...(isRingOrder ? [{ key: 'ring_size_mm', label: 'Ringmass', filled: formData.ring_size_mm !== '' }] : []),
+  ];
+  const filledCount = pflichtfelder.filter((f) => f.filled).length;
+  const totalCount = pflichtfelder.length;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -187,6 +250,14 @@ export const OrderFormModal: React.FC<OrderFormModalProps> = ({
         ? parseFloat(formData.profit_margin_percent)
         : undefined,
       vat_rate: formData.vat_rate ? parseFloat(formData.vat_rate) : undefined,
+
+      // Goldsmith Intake Fields
+      alloy: formData.alloy || undefined,
+      ring_size_mm: formData.ring_size_mm ? parseFloat(formData.ring_size_mm) : undefined,
+      surface_finish: formData.surface_finish || undefined,
+      fitting_date: formData.fitting_date || undefined,
+      has_scrap_gold: formData.has_scrap_gold,
+      special_instructions: formData.special_instructions.trim() || undefined,
     };
 
     const result = zodValidate(toValidate);
@@ -226,21 +297,34 @@ export const OrderFormModal: React.FC<OrderFormModalProps> = ({
             className={`form-tab ${activeTab === 'basic' ? 'active' : ''}`}
             onClick={() => setActiveTab('basic')}
           >
-            📋 Basisinformationen
+            Basisinformationen
+          </button>
+          <button
+            type="button"
+            className={`form-tab ${activeTab === 'auftrag' ? 'active' : ''}`}
+            onClick={() => setActiveTab('auftrag')}
+          >
+            Auftrag
+            {filledCount < totalCount && (
+              <span className="tab-badge tab-badge--warn">{filledCount}/{totalCount}</span>
+            )}
+            {filledCount === totalCount && totalCount > 0 && (
+              <span className="tab-badge tab-badge--ok">{filledCount}/{totalCount}</span>
+            )}
           </button>
           <button
             type="button"
             className={`form-tab ${activeTab === 'metal' ? 'active' : ''}`}
             onClick={() => setActiveTab('metal')}
           >
-            🥇 Metall
+            Metall
           </button>
           <button
             type="button"
             className={`form-tab ${activeTab === 'pricing' ? 'active' : ''}`}
             onClick={() => setActiveTab('pricing')}
           >
-            💰 Preisgestaltung
+            Preisgestaltung
           </button>
         </div>
 
@@ -339,7 +423,13 @@ export const OrderFormModal: React.FC<OrderFormModalProps> = ({
                       onChange={handleChange}
                     >
                       <option value="new">Neu</option>
+                      <option value="draft">Entwurf</option>
+                      <option value="confirmed">Bestätigt</option>
                       <option value="in_progress">In Bearbeitung</option>
+                      <option value="waiting_for_fitting">Wartet auf Anprobe</option>
+                      <option value="fitting_done">Anprobe abgeschlossen</option>
+                      <option value="ready_for_setting">Bereit für Steinbesatz</option>
+                      <option value="quality_check">Endkontrolle</option>
                       <option value="completed">Fertiggestellt</option>
                       <option value="delivered">Ausgeliefert</option>
                     </select>
@@ -357,6 +447,129 @@ export const OrderFormModal: React.FC<OrderFormModalProps> = ({
                     placeholder="z.B. Werkstatt, Tresor, Versand"
                   />
                 </div>
+              </div>
+            )}
+
+            {/* Auftrag Tab — Goldsmith Intake Pflichtfelder */}
+            {activeTab === 'auftrag' && (
+              <div className="tab-content-form">
+
+                {/* Pflichtfelder completion indicator */}
+                <div className="pflichtfelder-indicator">
+                  <span className="pflichtfelder-label">Pflichtfelder:</span>
+                  <span className={`pflichtfelder-count ${filledCount === totalCount ? 'pflichtfelder-count--ok' : 'pflichtfelder-count--warn'}`}>
+                    {filledCount}/{totalCount} ausgefüllt
+                  </span>
+                  {filledCount < totalCount && (
+                    <span className="pflichtfelder-missing">
+                      {' — Fehlend: '}
+                      {pflichtfelder.filter((f) => !f.filled).map((f) => f.label).join(', ')}
+                    </span>
+                  )}
+                </div>
+
+                {/* Legierung */}
+                <div className="form-group">
+                  <label htmlFor="alloy">
+                    Legierung <span className="required">*</span>
+                  </label>
+                  <select
+                    id="alloy"
+                    name="alloy"
+                    value={formData.alloy}
+                    onChange={handleChange}
+                  >
+                    <option value="">-- Legierung auswählen --</option>
+                    {ALLOY_OPTIONS.map((opt) => (
+                      <option key={opt.value} value={opt.value}>
+                        {opt.label}
+                      </option>
+                    ))}
+                  </select>
+                  <small style={{ color: '#666' }}>
+                    Feingehalt der Legierung (z.B. 585 = 58,5% Feingold)
+                  </small>
+                </div>
+
+                {/* Oberfläche */}
+                <div className="form-group">
+                  <label htmlFor="surface_finish">Oberfläche</label>
+                  <select
+                    id="surface_finish"
+                    name="surface_finish"
+                    value={formData.surface_finish}
+                    onChange={handleChange}
+                  >
+                    <option value="">-- Oberfläche auswählen --</option>
+                    {SURFACE_FINISH_OPTIONS.map((opt) => (
+                      <option key={opt.value} value={opt.value}>
+                        {opt.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Ringmass — only shown when the order appears to be a ring */}
+                {isRingOrder && (
+                  <div className="form-group">
+                    <label htmlFor="ring_size_mm">
+                      Ringmass (mm Innenumfang) <span className="required">*</span>
+                    </label>
+                    <input
+                      type="number"
+                      id="ring_size_mm"
+                      name="ring_size_mm"
+                      value={formData.ring_size_mm}
+                      onChange={handleChange}
+                      placeholder="z.B. 52.5"
+                      step="0.5"
+                      min="30"
+                      max="100"
+                    />
+                    <small style={{ color: '#666' }}>
+                      EU-Innendurchmesser in mm (Ringgröße 52 = 52 mm)
+                    </small>
+                  </div>
+                )}
+
+                {/* Anprobe-Datum */}
+                <div className="form-group">
+                  <label htmlFor="fitting_date">Anprobe-Datum</label>
+                  <input
+                    type="date"
+                    id="fitting_date"
+                    name="fitting_date"
+                    value={formData.fitting_date}
+                    onChange={handleChange}
+                  />
+                </div>
+
+                {/* Altgold */}
+                <div className="form-group form-group--checkbox">
+                  <label className="checkbox-label">
+                    <input
+                      type="checkbox"
+                      name="has_scrap_gold"
+                      checked={formData.has_scrap_gold}
+                      onChange={handleCheckboxChange}
+                    />
+                    <span>Altgold vorhanden (Altgold-Verrechnung erforderlich)</span>
+                  </label>
+                </div>
+
+                {/* Sonderwünsche */}
+                <div className="form-group">
+                  <label htmlFor="special_instructions">Sonderwünsche</label>
+                  <textarea
+                    id="special_instructions"
+                    name="special_instructions"
+                    value={formData.special_instructions}
+                    onChange={handleChange}
+                    rows={4}
+                    placeholder="Besondere Anforderungen des Kunden (Gravur, Fassungsart, Lieferbedingungen, ...)"
+                  />
+                </div>
+
               </div>
             )}
 

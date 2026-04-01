@@ -125,7 +125,17 @@ export interface CustomerStats {
 
 // ==================== ORDER TYPES ====================
 
-export type OrderStatus = 'new' | 'in_progress' | 'completed' | 'delivered';
+export type OrderStatus =
+  | 'new'
+  | 'draft'
+  | 'confirmed'
+  | 'in_progress'
+  | 'waiting_for_fitting'
+  | 'fitting_done'
+  | 'ready_for_setting'
+  | 'quality_check'
+  | 'completed'
+  | 'delivered';
 
 // MetalType defined in Metal Inventory section below
 
@@ -168,6 +178,14 @@ export interface OrderType {
   profit_margin_percent?: number;
   vat_rate?: number;
   calculated_price?: number | null;
+
+  // Goldsmith Intake Fields (Pflichtfelder)
+  alloy?: string | null;
+  ring_size_mm?: number | null;
+  surface_finish?: string | null;
+  fitting_date?: string | null;
+  has_scrap_gold?: boolean | null;
+  special_instructions?: string | null;
 }
 
 export interface OrderCreateInput {

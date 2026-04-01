@@ -31,13 +31,13 @@
 
 .form-tab:hover {
   background: white;
-  color: #667eea;
+  color: var(--color-interactive-primary);
 }
 
 .form-tab.active {
   background: white;
-  color: #667eea;
-  border-bottom-color: #667eea;
+  color: var(--color-interactive-primary);
+  border-bottom-color: var(--color-interactive-primary);
 }
 
 /* ==================== FORM VALIDATION ==================== */
@@ -125,8 +125,8 @@
 
 .filter-group select:focus {
   outline: none;
-  border-color: #667eea;
-  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+  border-color: var(--color-border-focus);
+  box-shadow: 0 0 0 3px rgba(217, 119, 6, 0.1);
 }
 
 /* ==================== STATUS BADGES ==================== */
@@ -220,8 +220,8 @@
 
 .btn-icon:hover {
   background: #f3f4f6;
-  border-color: #667eea;
-  color: #667eea;
+  border-color: var(--color-interactive-primary);
+  color: var(--color-interactive-primary);
 }
 
 .btn-icon.btn-edit:hover {
@@ -273,8 +273,8 @@
 
 .pagination-buttons button:hover:not(:disabled) {
   background: #f3f4f6;
-  border-color: #667eea;
-  color: #667eea;
+  border-color: var(--color-interactive-primary);
+  color: var(--color-interactive-primary);
 }
 
 .pagination-buttons button:disabled {
@@ -303,7 +303,7 @@
   left: 0;
   right: 0;
   background: white;
-  border: 2px solid #667eea;
+  border: 2px solid var(--color-interactive-primary);
   border-top: none;
   border-radius: 0 0 8px 8px;
   max-height: 200px;
@@ -406,7 +406,7 @@
   }
 
   .form-tab.active {
-    border-left-color: #667eea;
+    border-left-color: var(--color-interactive-primary);
   }
 
   .form-row {
@@ -454,4 +454,90 @@
     flex: 1;
     justify-content: center;
   }
+}
+
+/* ==================== AUFTRAG TAB — PFLICHTFELDER ==================== */
+
+/* Small badge on the tab button showing completion ratio */
+.tab-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: 0.5rem;
+  padding: 0.1rem 0.45rem;
+  border-radius: 10px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.tab-badge--warn {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.tab-badge--ok {
+  background: #d1fae5;
+  color: #065f46;
+}
+
+/* Completion indicator bar inside the Auftrag tab */
+.pflichtfelder-indicator {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  padding: 0.75rem 1rem;
+  border-radius: 8px;
+  background: #f8f9fa;
+  border: 1px solid #e5e7eb;
+  font-size: 0.9rem;
+}
+
+.pflichtfelder-label {
+  font-weight: 600;
+  color: #374151;
+}
+
+.pflichtfelder-count {
+  font-weight: 700;
+  padding: 0.15rem 0.5rem;
+  border-radius: 6px;
+}
+
+.pflichtfelder-count--ok {
+  background: #d1fae5;
+  color: #065f46;
+}
+
+.pflichtfelder-count--warn {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.pflichtfelder-missing {
+  color: #92400e;
+  font-size: 0.85rem;
+}
+
+/* Checkbox form group variant */
+.form-group--checkbox {
+  display: flex;
+  align-items: flex-start;
+}
+
+.checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  cursor: pointer;
+  font-weight: 500;
+  color: #374151;
+}
+
+.checkbox-label input[type="checkbox"] {
+  width: 1.1rem;
+  height: 1.1rem;
+  accent-color: var(--color-interactive-primary);
+  flex-shrink: 0;
 }

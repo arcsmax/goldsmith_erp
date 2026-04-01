@@ -40,7 +40,18 @@ const optionalPhone = z
 // Order
 // ---------------------------------------------------------------------------
 
-export const OrderStatusValues = ['new', 'in_progress', 'completed', 'delivered'] as const;
+export const OrderStatusValues = [
+  'new',
+  'draft',
+  'confirmed',
+  'in_progress',
+  'waiting_for_fitting',
+  'fitting_done',
+  'ready_for_setting',
+  'quality_check',
+  'completed',
+  'delivered',
+] as const;
 export type OrderStatusValue = (typeof OrderStatusValues)[number];
 
 export const MetalTypeValues = [
@@ -101,6 +112,14 @@ export const OrderCreateSchema = z
     hourly_rate: z.number().min(0, 'Stundensatz darf nicht negativ sein').optional(),
     profit_margin_percent: z.number().min(0).max(100, 'Maximal 100 %').optional(),
     vat_rate: z.number().min(0).max(100, 'Maximal 100 %').optional(),
+
+    // Goldsmith Intake Fields (Pflichtfelder fuer Auftragsbestaetigung)
+    alloy: z.string().max(20, 'Maximal 20 Zeichen erlaubt').optional(),
+    ring_size_mm: z.number().min(30, 'Mindestens 30 mm').max(100, 'Maximal 100 mm').optional(),
+    surface_finish: z.string().max(50, 'Maximal 50 Zeichen erlaubt').optional(),
+    fitting_date: z.string().optional(),
+    has_scrap_gold: z.boolean().optional(),
+    special_instructions: z.string().max(2000, 'Maximal 2000 Zeichen erlaubt').optional(),
   })
   .refine(
     (data) => {
