@@ -15,7 +15,7 @@ from goldsmith_erp.core.logging import setup_logging
 from goldsmith_erp.middleware import RequestLoggingMiddleware, RequestMetricsMiddleware
 from goldsmith_erp.middleware.auth_required import AuthRequiredMiddleware
 from goldsmith_erp.middleware.security_headers import SecurityHeadersMiddleware
-from goldsmith_erp.api.routers import auth, orders, users, materials, activities, time_tracking, health, customers, metal_inventory, comments, scrap_gold, calendar, invoices, metal_prices, ml, measurements, analytics, notifications, handoffs, photos, metal_types, repairs
+from goldsmith_erp.api.routers import auth, orders, users, materials, activities, time_tracking, health, customers, metal_inventory, comments, scrap_gold, calendar, invoices, metal_prices, ml, measurements, analytics, notifications, handoffs, photos, metal_types, quotes, repairs
 from goldsmith_erp.api.routers import admin_email
 from goldsmith_erp.core.pubsub import subscribe_and_forward, publish_event
 from goldsmith_erp.services.system_monitor import system_monitor_loop
@@ -121,6 +121,7 @@ app.include_router(analytics.router, prefix=f"{settings.API_V1_STR}", tags=["ana
 app.include_router(handoffs.router, prefix=f"{settings.API_V1_STR}", tags=["handoffs"])  # Stabuebergabe
 app.include_router(photos.router, prefix=f"{settings.API_V1_STR}", tags=["photos"])  # Order photo documentation
 app.include_router(metal_types.router, prefix=f"{settings.API_V1_STR}", tags=["metal-types"])  # Custom metal type management
+app.include_router(quotes.router, prefix=f"{settings.API_V1_STR}/quotes", tags=["quotes"])  # Kostenvoranschlag
 app.include_router(repairs.router, prefix=f"{settings.API_V1_STR}/repairs", tags=["repairs"])  # Repair tracking (Reparaturverwaltung)
 app.include_router(admin_email.router, prefix=f"{settings.API_V1_STR}", tags=["admin-email"])  # Email/SMTP admin configuration
 

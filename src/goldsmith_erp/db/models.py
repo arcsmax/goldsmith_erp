@@ -904,6 +904,114 @@ class InvoiceLineItem(Base):
     # Relationships
     invoice = relationship("Invoice", back_populates="line_items")
 
+
+# ============================================================================
+# QUOTE SYSTEM (Kostenvoranschlag)
+# ============================================================================
+
+
+class QuoteStatus(str, enum.Enum):
+    """Lifecycle status of a quote (Kostenvoranschlag-Status)."""
+    DRAFT = "draft"            # Entwurf
+    SENT = "sent"              # Gesendet
+    APPROVED = "approved"      # Genehmigt
+    REJECTED = "rejected"      # Abgelehnt
+    EXPIRED = "expired"        # Abgelaufen
+    CONVERTED = "converted"    # Umgewandelt in Auftrag
+
+
+class QuoteLineType(str, enum.Enum):
+    """Type of quote line item (Angebotspositionstyp)."""
+    MATERIAL = "material"
+    LABOR = "labor"
+    GEMSTONE = "gemstone"
+    OTHER = "other"
+
+
+class Quote(Base):
+    """
+    Kostenvoranschlag (Quote/Estimate) for a goldsmith job.
+
+    Quote numbers follow the format KV-YYYY-NNNN (sequential per year).
+    Valid for 14 days by default. Can be linked to an existing order or
+    created standalone with only a customer reference.
+    All financial access is audit-logged.
+    """
+    __tablename__ = "quotes"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    # KV-Nummer: KV-2026-0001 (unique, generated on creation)
+    quote_number = Column(String(20), unique=True, nullable=False, index=True)
+
+    # Links -- order_id is optional (quote can precede an order)
+    order_id = Column(Integer, ForeignKey("orders.id", ondelete="SET NULL"), nullable=True, index=True)
+    customer_id = Column(Integer, ForeignKey("customers.id", ondelete="RESTRICT"), nullable=False, index=True)
+    created_by = Column(Integer, ForeignKey("users.id"), nullable=False)
+
+    # Status
+    status = Column(SAEnum(QuoteStatus), default=QuoteStatus.DRAFT, nullable=False, index=True)
+
+    # Dates
+    valid_until = Column(DateTime, nullable=False, index=True)     # Gueltig bis (+14 Tage default)
+    approved_at = Column(DateTime, nullable=True)                  # Genehmigt am
+    rejected_at = Column(DateTime, nullable=True)                  # Abgelehnt am
+    converted_at = Column(DateTime, nullable=True)                 # Umgewandelt am
+
+    # Amounts (Betraege)
+    subtotal = Column(Float, nullable=False, default=0.0)          # Zwischensumme (netto)
+    tax_rate = Column(Float, nullable=False, default=19.0)         # MwSt-Satz in Prozent
+    tax_amount = Column(Float, nullable=False, default=0.0)        # MwSt-Betrag
+    total = Column(Float, nullable=False, default=0.0)             # Gesamtbetrag (brutto)
+
+    # Customer signature (base64 PNG -- stored for approved quotes)
+    customer_signature_data = Column(Text, nullable=True)
+
+    # Optional fields
+    notes = Column(Text, nullable=True)                            # Anmerkungen
+
+    # Metadata
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    # Relationships
+    order = relationship("Order")
+    customer = relationship("Customer")
+    creator = relationship("User")
+    line_items = relationship(
+        "QuoteLineItem",
+        back_populates="quote",
+        cascade="all, delete-orphan",
+        order_by="QuoteLineItem.id",
+    )
+
+
+class QuoteLineItem(Base):
+    """
+    Angebotsposition (Quote Line Item).
+
+    Each line item represents a cost component of the estimate:
+    - Material (Werkstoff, e.g. "Gold 18K, 5.2g")
+    - Labor (Arbeitszeit, e.g. "Fertigung Ring, 3.5h")
+    - Gemstone (Edelstein, e.g. "Diamant 0.5ct VS1")
+    - Other (Sonstiges)
+    """
+    __tablename__ = "quote_line_items"
+
+    id = Column(Integer, primary_key=True, index=True)
+    quote_id = Column(Integer, ForeignKey("quotes.id", ondelete="CASCADE"), nullable=False, index=True)
+
+    # Line item details
+    line_type = Column(SAEnum(QuoteLineType), nullable=False, default=QuoteLineType.OTHER)
+    description = Column(String(500), nullable=False)    # Beschreibung der Position
+    quantity = Column(Float, nullable=False, default=1.0)
+    unit_price = Column(Float, nullable=False)            # Einzelpreis (netto)
+    total = Column(Float, nullable=False)                 # Gesamtpreis (quantity * unit_price)
+
+    # Relationships
+    quote = relationship("Quote", back_populates="line_items")
+
+
 # ============================================================================
 # NOTIFICATION SYSTEM
 # ============================================================================
@@ -941,6 +1049,8 @@ class NotificationTypeEnum(str, enum.Enum):
     SYSTEM = "system"                       # Systemnachricht
     HANDOFF = "handoff"                     # Uebergabe zwischen Goldschmiede
     COMMENT = "comment"                     # Neuer Kommentar an einem Auftrag
+    REPAIR_RECEIVED = "repair_received"     # Reparaturauftrag eingegangen
+    REPAIR_READY = "repair_ready"           # Reparatur abholbereit
 
 
 class NotificationSeverityEnum(str, enum.Enum):
@@ -1119,6 +1229,171 @@ class OrderHandoff(Base):
             f"status={self.status.value}>"
         )
 
+
+# ============================================================================
+# REPAIR TRACKING (REPARATURVERWALTUNG)
+# ============================================================================
+
+
+class RepairJobStatus(str, enum.Enum):
+    """
+    Lifecycle states for a repair job.
+
+    Follows the physical flow through the workshop:
+    Eingang -> Diagnose -> Angebot -> Genehmigt -> Reparatur ->
+    Qualitaetskontrolle -> Abholbereit -> Abgeholt | Storniert
+    """
+    RECEIVED = "received"           # Eingang — Stueck angenommen
+    DIAGNOSED = "diagnosed"         # Diagnose — Fehler festgestellt
+    QUOTED = "quoted"               # Angebot erstellt, wartet auf Kundenzusage
+    APPROVED = "approved"           # Kunde hat Angebot genehmigt
+    IN_REPAIR = "in_repair"         # Reparatur laeuft
+    QUALITY_CHECK = "quality_check" # Qualitaetskontrolle
+    READY = "ready"                 # Abholbereit
+    PICKED_UP = "picked_up"         # Abgeholt
+    CANCELLED = "cancelled"         # Storniert
+
+
+class RepairItemType(str, enum.Enum):
+    """Type of jewelry item being repaired."""
+    RING = "ring"           # Ring
+    CHAIN = "chain"         # Kette
+    BRACELET = "bracelet"   # Armband
+    EARRING = "earring"     # Ohrringe
+    WATCH = "watch"         # Uhr
+    BROOCH = "brooch"       # Brosche
+    OTHER = "other"         # Sonstiges
+
+
+class RepairPhotoPhase(str, enum.Enum):
+    """Phase during which a repair photo was taken."""
+    INTAKE = "intake"           # Eingang — Zustand bei Annahme
+    DURING_REPAIR = "during_repair"  # Waehrend der Reparatur
+    COMPLETED = "completed"     # Fertig — Ergebnis
+
+
+class RepairJob(Base):
+    """
+    Reparaturauftrag — repair order for an existing piece of jewelry.
+
+    Repair jobs are distinct from production orders (Order table):
+    - They have a physical bag/envelope with a number for physical tracking
+    - They go through an estimate → approval workflow before work begins
+    - Customer notification events (REPAIR_RECEIVED, REPAIR_READY) are tracked
+    - Estimated and actual costs are both recorded for Nachkalkulation
+    """
+    __tablename__ = "repair_jobs"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    # Repair number: REP-YYYY-NNNN (unique, auto-generated)
+    repair_number = Column(String(20), unique=True, nullable=False, index=True)
+
+    # Physical bag/envelope number for workshop floor tracking
+    # (piece sits in a numbered paper tray until pickup)
+    bag_number = Column(String(20), nullable=False, index=True)
+
+    # Links
+    customer_id = Column(
+        Integer,
+        ForeignKey("customers.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    received_by = Column(
+        Integer,
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+
+    # Item details
+    item_description = Column(Text, nullable=False)
+    item_type = Column(SAEnum(RepairItemType), nullable=False, default=RepairItemType.OTHER)
+    metal_type = Column(String(50), nullable=True)  # Free text: "585 Gelbgold", "Silber 925"
+    estimated_value = Column(Float, nullable=True)  # Versicherungswert des Stuecks in EUR
+
+    # Status
+    status = Column(
+        SAEnum(RepairJobStatus),
+        nullable=False,
+        default=RepairJobStatus.RECEIVED,
+        index=True,
+    )
+
+    # Diagnosis & cost
+    diagnosis_notes = Column(Text, nullable=True)
+    estimated_cost = Column(Float, nullable=True)   # Kostenvoranschlag in EUR
+    actual_cost = Column(Float, nullable=True)       # Tatsaechliche Kosten nach Reparatur
+
+    # Dates
+    estimated_completion_date = Column(DateTime, nullable=True, index=True)
+    actual_completion_date = Column(DateTime, nullable=True)
+    customer_notified_at = Column(DateTime, nullable=True)  # When READY notification was sent
+    picked_up_at = Column(DateTime, nullable=True)
+
+    # Soft delete (30-day grace period before hard delete per GDPR Art. 17)
+    is_deleted = Column(Boolean, default=False, nullable=False, index=True)
+    deleted_at = Column(DateTime, nullable=True)
+
+    # Audit timestamps
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    # Relationships
+    customer = relationship("Customer")
+    received_by_user = relationship("User", foreign_keys=[received_by])
+    photos = relationship(
+        "RepairPhoto",
+        back_populates="repair_job",
+        cascade="all, delete-orphan",
+        order_by="RepairPhoto.timestamp.asc()",
+    )
+
+    def __repr__(self) -> str:
+        return (
+            f"<RepairJob {self.repair_number} "
+            f"status={self.status.value} "
+            f"bag={self.bag_number}>"
+        )
+
+
+class RepairPhoto(Base):
+    """
+    Foto-Dokumentation fuer Reparaturauftraege.
+
+    Photos are grouped by phase (INTAKE / DURING_REPAIR / COMPLETED) so the
+    customer can see before/after documentation and the workshop has a visual
+    audit trail for each step.
+    """
+    __tablename__ = "repair_photos"
+
+    id = Column(Integer, primary_key=True, index=True)
+    repair_job_id = Column(
+        Integer,
+        ForeignKey("repair_jobs.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    phase = Column(SAEnum(RepairPhotoPhase), nullable=False, default=RepairPhotoPhase.INTAKE)
+    file_path = Column(String(500), nullable=False)
+    timestamp = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    taken_by = Column(
+        Integer,
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    notes = Column(Text, nullable=True)
+
+    # Relationships
+    repair_job = relationship("RepairJob", back_populates="photos")
+    taken_by_user = relationship("User", foreign_keys=[taken_by])
+
+    def __repr__(self) -> str:
+        return (
+            f"<RepairPhoto repair={self.repair_job_id} "
+            f"phase={self.phase.value}>"
+        )
 
 class CustomMetalType(Base):
     """User-defined metal types that extend the built-in MetalType enum.

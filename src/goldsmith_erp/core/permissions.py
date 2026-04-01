@@ -61,6 +61,12 @@ class Permission(str, Enum):
     INVOICE_EDIT = "invoice:edit"
     INVOICE_DELETE = "invoice:delete"
 
+    # Quote permissions (Kostenvoranschlag - ADMIN and GOLDSMITH only)
+    QUOTE_VIEW = "quote:view"
+    QUOTE_CREATE = "quote:create"
+    QUOTE_EDIT = "quote:edit"
+    QUOTE_DELETE = "quote:delete"
+
     # Report permissions
     REPORTS_VIEW = "reports:view"
     REPORTS_EXPORT = "reports:export"
@@ -81,6 +87,11 @@ class Permission(str, Enum):
     HANDOFF_CREATE = "handoff:create"   # Create a handoff (GOLDSMITH + ADMIN)
     HANDOFF_RESPOND = "handoff:respond" # Accept/decline incoming handoffs (GOLDSMITH + ADMIN)
     HANDOFF_VIEW = "handoff:view"       # View handoffs on an order (all authenticated)
+
+    # Repair permissions (Reparaturverwaltung)
+    REPAIR_VIEW = "repair:view"         # View repair jobs
+    REPAIR_CREATE = "repair:create"     # Create new repair intake
+    REPAIR_EDIT = "repair:edit"         # Update repair status and notes
 
 
 # Role-Permission mapping
@@ -112,6 +123,10 @@ ROLE_PERMISSIONS: dict[UserRole, List[Permission]] = {
         Permission.INVOICE_VIEW,
         Permission.INVOICE_CREATE,
         Permission.INVOICE_EDIT,
+        # Quotes (Kostenvoranschlag - goldsmith can view, create, edit, not delete)
+        Permission.QUOTE_VIEW,
+        Permission.QUOTE_CREATE,
+        Permission.QUOTE_EDIT,
         # Reports
         Permission.REPORTS_VIEW,
         # ML — goldsmiths can run predictions and view stats
@@ -123,6 +138,10 @@ ROLE_PERMISSIONS: dict[UserRole, List[Permission]] = {
         Permission.HANDOFF_CREATE,
         Permission.HANDOFF_RESPOND,
         Permission.HANDOFF_VIEW,
+        # Repairs — goldsmiths handle all repair workflow steps
+        Permission.REPAIR_VIEW,
+        Permission.REPAIR_CREATE,
+        Permission.REPAIR_EDIT,
     ],
     UserRole.VIEWER: [
         # View-only access
@@ -139,6 +158,8 @@ ROLE_PERMISSIONS: dict[UserRole, List[Permission]] = {
         Permission.NOTIFICATION_VIEW,
         # Handoffs — viewers can see handoff history but not create/respond
         Permission.HANDOFF_VIEW,
+        # Repairs — viewers can see repair status (e.g. front desk)
+        Permission.REPAIR_VIEW,
     ],
 }
 
