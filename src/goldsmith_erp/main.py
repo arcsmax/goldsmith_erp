@@ -57,7 +57,7 @@ class RequestSizeLimitMiddleware(BaseHTTPMiddleware):
                         return JSONResponse(
                             status_code=413,
                             content={
-                                "detail": f"Request body too large. Maximum allowed: {self.MAX_REQUEST_SIZE / (1024 * 1024):.1f} MB"
+                                "detail": "Anfrage zu groß. Maximum: 10 MB."
                             }
                         )
                 except ValueError:

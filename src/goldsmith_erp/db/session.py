@@ -7,6 +7,14 @@ from goldsmith_erp.core.config import settings
 database_url = str(settings.DATABASE_URL) if settings.DATABASE_URL else \
     f"postgresql+asyncpg://{settings.POSTGRES_USER}:{settings.POSTGRES_PASSWORD}@{settings.POSTGRES_HOST}:{settings.POSTGRES_PORT}/{settings.POSTGRES_DB}"
 
+# SQL query timeout — only for PostgreSQL (not SQLite used in tests).
+# Prevents runaway queries from blocking the connection pool.
+connect_args: dict = {}
+if "postgresql" in database_url:
+    connect_args["server_settings"] = {
+        "statement_timeout": "30000"  # 30 seconds (in milliseconds)
+    }
+
 # PostgreSQL-Engine mit async Treiber und Connection-Pool-Konfiguration
 engine = create_async_engine(
     database_url,
@@ -17,6 +25,7 @@ engine = create_async_engine(
     pool_timeout=settings.DB_POOL_TIMEOUT,
     pool_recycle=settings.DB_POOL_RECYCLE,
     pool_pre_ping=True,
+    connect_args=connect_args,
 )
 
 # Asynchrone Session-Factory
