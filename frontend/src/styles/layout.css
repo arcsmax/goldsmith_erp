@@ -111,9 +111,7 @@
 .main-content-wrapper {
   display: flex;
   flex: 1;
-  max-width: 1600px;
   width: 100%;
-  margin: 0 auto;
   position: relative;
 }
 
@@ -125,6 +123,11 @@
   background: white;
   box-shadow: 2px 0 8px rgba(0, 0, 0, 0.05);
   padding: 2rem 0;
+  min-height: calc(100vh - 64px);
+  position: sticky;
+  top: 64px;
+  display: flex;
+  flex-direction: column;
 }
 
 /* Overlay backdrop — hidden by default */

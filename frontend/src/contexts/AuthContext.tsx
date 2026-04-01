@@ -34,11 +34,12 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
    */
   const hasRole = (roles: UserRole | UserRole[]): boolean => {
     if (!user) return false;
+    const userRoleUpper = user.role?.toUpperCase() as UserRole;
     const roleList = Array.isArray(roles) ? roles : [roles];
-    return roleList.includes(user.role);
+    return roleList.some(r => r.toUpperCase() === userRoleUpper);
   };
 
-  const isAdmin = user?.role === 'ADMIN';
+  const isAdmin = user?.role?.toUpperCase() === 'ADMIN';
 
   /**
    * Initialize auth state on mount
