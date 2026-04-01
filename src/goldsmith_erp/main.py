@@ -180,13 +180,6 @@ async def notification_websocket_endpoint(websocket: WebSocket, user_id: int):
             )
 
 
-# Example: Add a test endpoint to trigger a publish
-@app.post("/trigger_order_update")
-async def trigger_update(message: str = "Test order update!"):
-    await publish_event("order_updates", f"Simulated Update: {message}")
-    return {"message": "Event published"}
-
-
 @app.on_event("startup")
 async def start_background_tasks() -> None:
     """Register long-running background tasks on application startup."""

@@ -230,13 +230,8 @@ update: ## Pull latest images, rebuild, and restart production services
 	@$(PROD_COMPOSE) exec -T backend poetry run alembic upgrade head
 	@echo "$(GREEN)✓ Update abgeschlossen$(NC)"
 
-backup-now: ## Create a timestamped database backup immediately
-	@echo "$(GREEN)Datenbank-Backup erstellen…$(NC)"
-	@mkdir -p "$${BACKUP_DIR:-./backups}"
-	@$(PROD_COMPOSE) exec -T db pg_dump \
-		-U $${POSTGRES_USER:-goldsmith} $${POSTGRES_DB:-goldsmith} \
-		> "$${BACKUP_DIR:-./backups}/goldsmith_$(shell date +%Y%m%d_%H%M%S).sql"
-	@echo "$(GREEN)✓ Backup erstellt in $${BACKUP_DIR:-./backups}/$(NC)"
+backup-now: ## Create a compressed, verified database backup via scripts/backup.sh
+	@bash scripts/backup.sh
 
 restore: ## Restore database from backup (usage: make restore FILE=path/to/backup.sql)
 	@if [ -z "$(FILE)" ]; then \
@@ -284,25 +279,10 @@ EOF
 
 install-backup-cron: ## Install daily 02:00 backup cron job
 	@echo "$(GREEN)Backup-Cronjob einrichten (täglich 02:00)…$(NC)"
-	@(crontab -l 2>/dev/null | grep -v 'goldsmith.*backup-now'; \
-	echo "0 2 * * * cd $(PWD) && make backup-now >> $(PWD)/logs/backup.log 2>&1") | crontab -
+	@(crontab -l 2>/dev/null | grep -v 'goldsmith.*backup'; \
+	echo "0 2 * * * cd $(PWD) && bash scripts/backup.sh >> $(PWD)/logs/backup.log 2>&1") | crontab -
 	@echo "$(GREEN)✓ Backup-Cronjob installiert (täglich 02:00)$(NC)"
 	@echo "  Prüfen mit: crontab -l"
 
-rotate-secrets: ## Rotate SECRET_KEY and ENCRYPTION_KEY in .env.production (requires restart)
-	@echo "$(YELLOW)Warnung: Schlüsselrotation meldet alle Benutzer ab!$(NC)"
-	@read -p "Fortfahren? [j/N] " -n 1 -r; echo; \
-	if [[ $$REPLY =~ ^[Jj]$$ ]]; then \
-		NEW_SECRET=$$(python3 -c "import secrets; print(secrets.token_urlsafe(64))"); \
-		NEW_ENC=$$(python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"); \
-		BACKUP_FILE=".env.production.bak.$$(date +%Y%m%d_%H%M%S)"; \
-		cp .env.production "$$BACKUP_FILE"; \
-		chmod 600 "$$BACKUP_FILE"; \
-		sed -i.tmp "s|^SECRET_KEY=.*|SECRET_KEY=$$NEW_SECRET|" .env.production; \
-		sed -i.tmp "s|^ENCRYPTION_KEY=.*|ENCRYPTION_KEY=$$NEW_ENC|" .env.production; \
-		rm -f .env.production.tmp; \
-		echo "$(GREEN)✓ Schlüssel rotiert. Backup: $$BACKUP_FILE$(NC)"; \
-		echo "$(YELLOW)Dienste neustarten mit: make prod-restart$(NC)"; \
-	else \
-		echo "$(YELLOW)Rotation abgebrochen$(NC)"; \
-	fi
+rotate-secrets: ## Rotate SECRET_KEY in .env.production via scripts/rotate-secrets.sh (requires restart)
+	@bash scripts/rotate-secrets.sh

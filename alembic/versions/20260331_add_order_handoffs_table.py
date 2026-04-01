@@ -40,7 +40,7 @@ from alembic import op
 # ---------------------------------------------------------------------------
 
 revision = "4d5e6f7a8b9c"
-down_revision = "3c4d5e6f7a8b"
+down_revision = "3d4e5f6a7b8c"
 branch_labels = None
 depends_on = None
 

@@ -101,7 +101,7 @@ class CustomerService:
             # Check if email already exists
             existing = await CustomerService.get_customer_by_email(db, customer_in.email)
             if existing:
-                raise ValueError(f"Customer with email {customer_in.email} already exists")
+                raise ValueError("Ein Kunde mit dieser E-Mail-Adresse existiert bereits")
 
             # Create customer
             customer_data = customer_in.model_dump()
@@ -146,7 +146,7 @@ class CustomerService:
             if 'email' in update_data and update_data['email'] != db_customer.email:
                 existing = await CustomerService.get_customer_by_email(db, update_data['email'])
                 if existing:
-                    raise ValueError(f"Customer with email {update_data['email']} already exists")
+                    raise ValueError("Ein Kunde mit dieser E-Mail-Adresse existiert bereits")
 
             # Apply updates
             for field, value in update_data.items():

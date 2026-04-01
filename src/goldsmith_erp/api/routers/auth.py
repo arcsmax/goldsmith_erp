@@ -67,9 +67,9 @@ async def login_access_token(
     response.set_cookie(
         key="access_token",
         value=token,
-        httponly=True,   # Prevents JavaScript access (XSS protection)
-        secure=False,    # Set True in production behind HTTPS (override via env)
-        samesite="lax",  # CSRF protection
+        httponly=True,              # Prevents JavaScript access (XSS protection)
+        secure=settings.COOKIE_SECURE,  # Controlled via COOKIE_SECURE env var
+        samesite="lax",             # CSRF protection
         max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,  # seconds
         path="/",        # Cookie valid for all paths
     )
@@ -176,7 +176,7 @@ async def refresh_access_token(
         key="access_token",
         value=new_token,
         httponly=True,
-        secure=False,    # Set True in production behind HTTPS (override via env)
+        secure=settings.COOKIE_SECURE,
         samesite="lax",
         max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
         path="/",

@@ -102,6 +102,16 @@ class Settings(BaseSettings):
     BACKUP_DIR: str = "~/goldsmith-backups"
     BACKUP_CLOUD_URL: Optional[str] = None
 
+    # ── Encryption ───────────────────────────────────────────────────────────────
+    # Fernet key for PII field encryption at rest. Generate with setup.sh.
+    # Optional: app starts without it but PII fields will not be encrypted.
+    ENCRYPTION_KEY: Optional[str] = None
+
+    # ── Cookie security ──────────────────────────────────────────────────────────
+    # Set True in production when TLS is terminated at the load balancer or
+    # reverse proxy (HTTPS). Keep False for local network / dev environments.
+    COOKIE_SECURE: bool = False
+
     # ── Metal Price Service ──────────────────────────────────────────────────────
     # Optional external API for live spot prices.
     # When unset the service falls back to DB history then hardcoded defaults.
