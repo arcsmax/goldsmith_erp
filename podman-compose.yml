@@ -15,7 +15,7 @@ services:
     volumes:
       - db_data:/var/lib/postgresql/data
     ports:
-      - "5432:5432"
+      - "${DB_PORT:-5432}:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-user} -d ${POSTGRES_DB:-goldsmith}"]
       interval: 10s
@@ -32,7 +32,7 @@ services:
     image: docker.io/library/redis:7-alpine
     container_name: goldsmith-redis
     ports:
-      - "6379:6379"
+      - "${REDIS_EXT_PORT:-6379}:6379"
     volumes:
       - redis_data:/data
     healthcheck:
@@ -53,18 +53,18 @@ services:
       context: .
       dockerfile: Containerfile
     container_name: goldsmith-backend
-    command: >
-      bash -c "poetry run alembic upgrade head &&
-              poetry run uvicorn goldsmith_erp.main:app --host 0.0.0.0 --port 8000 --reload"
+    command: ["bash", "-c", "cd /app/src && poetry run python /app/scripts/init-db.py; cd /app && poetry run alembic stamp head 2>/dev/null; cd /app/src && poetry run uvicorn goldsmith_erp.main:app --host 0.0.0.0 --port 8000 --reload"]
     volumes:
       - ./src:/app/src:Z
       - ./pyproject.toml:/app/pyproject.toml:Z
       - ./poetry.lock:/app/poetry.lock:Z
       - ./alembic:/app/alembic:Z
       - ./alembic.ini:/app/alembic.ini:Z
+      - ./scripts:/app/scripts:Z
+      - ./uploads:/app/uploads:Z
       - ./.env:/app/.env:Z
     ports:
-      - "8000:8000"
+      - "${BACKEND_PORT:-8000}:8000"
     environment:
       - MIGRATION_DATABASE_URL=postgresql://${POSTGRES_USER:-user}:${POSTGRES_PASSWORD:-pass}@db:5432/${POSTGRES_DB:-goldsmith}
       - SECRET_KEY=${SECRET_KEY:-change_this_to_a_secure_random_string}
