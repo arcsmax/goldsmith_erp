@@ -1,5 +1,5 @@
 // Order Form Modal Component with Tabs
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { OrderType, OrderCreateInput, OrderUpdateInput, Customer, MetalType, CostingMethod } from '../../types';
 import { customersApi } from '../../api';
 import { useMetalTypes } from '../../hooks/useMetalTypes';
@@ -66,6 +66,7 @@ export const OrderFormModal: React.FC<OrderFormModalProps> = ({
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [isLoadingCustomers, setIsLoadingCustomers] = useState(false);
   const { metalTypes: allMetalTypes, isLoading: isLoadingMetalTypes } = useMetalTypes();
+  const firstInputRef = useRef<HTMLInputElement>(null);
 
   const [formData, setFormData] = useState({
     title: '',
@@ -105,6 +106,14 @@ export const OrderFormModal: React.FC<OrderFormModalProps> = ({
   useEffect(() => {
     if (isOpen) {
       fetchCustomers();
+    }
+  }, [isOpen]);
+
+  // Focus the first input when modal opens
+  useEffect(() => {
+    if (isOpen) {
+      const t = setTimeout(() => firstInputRef.current?.focus(), 30);
+      return () => clearTimeout(t);
     }
   }, [isOpen]);
 
@@ -285,11 +294,17 @@ export const OrderFormModal: React.FC<OrderFormModalProps> = ({
   }
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
+    <div
+      className="modal-overlay"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="order-modal-title"
+      onClick={onClose}
+    >
       <div className="modal-content modal-large" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
-          <h2>{order ? 'Auftrag bearbeiten' : 'Neuer Auftrag'}</h2>
-          <button className="modal-close" onClick={onClose} type="button">
+          <h2 id="order-modal-title">{order ? 'Auftrag bearbeiten' : 'Neuer Auftrag'}</h2>
+          <button className="modal-close" onClick={onClose} type="button" aria-label="Modal schließen">
             ×
           </button>
         </div>
@@ -345,6 +360,7 @@ export const OrderFormModal: React.FC<OrderFormModalProps> = ({
                     type="text"
                     id="title"
                     name="title"
+                    ref={firstInputRef}
                     value={formData.title}
                     onChange={handleChange}
                     className={hasAttemptedSubmit && errors.title ? 'error' : ''}

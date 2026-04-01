@@ -1,5 +1,5 @@
 // CustomerFormModal - Modal for creating and editing customers
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Customer, CustomerCategory, CustomerCreateInput, CustomerUpdateInput } from '../types';
 import { CustomerCreateSchema } from '../lib/validation/schemas';
 import { useFormValidation } from '../lib/validation/useFormValidation';
@@ -20,6 +20,7 @@ export const CustomerFormModal: React.FC<CustomerFormModalProps> = ({
   customer,
   isLoading = false,
 }) => {
+  const firstInputRef = useRef<HTMLInputElement>(null);
   // Form state
   const [formData, setFormData] = useState({
     first_name: '',
@@ -105,6 +106,14 @@ export const CustomerFormModal: React.FC<CustomerFormModalProps> = ({
     clearErrors();
     setSubmitError(null);
   }, [customer]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Focus the first input when modal opens
+  useEffect(() => {
+    if (isOpen) {
+      const t = setTimeout(() => firstInputRef.current?.focus(), 30);
+      return () => clearTimeout(t);
+    }
+  }, [isOpen]);
 
   // Handle input changes
   const handleChange = (
@@ -244,14 +253,21 @@ export const CustomerFormModal: React.FC<CustomerFormModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
+    <div
+      className="modal-overlay"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="customer-modal-title"
+      onClick={onClose}
+    >
       <div className="modal-content" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
-          <h2>{customer ? 'Kunde bearbeiten' : 'Neuer Kunde'}</h2>
+          <h2 id="customer-modal-title">{customer ? 'Kunde bearbeiten' : 'Neuer Kunde'}</h2>
           <button
             className="modal-close"
             onClick={onClose}
             disabled={isLoading}
+            aria-label="Modal schließen"
           >
             ×
           </button>
@@ -270,12 +286,14 @@ export const CustomerFormModal: React.FC<CustomerFormModalProps> = ({
 
             <div className="form-row">
               <div className="form-group">
-                <label>
+                <label htmlFor="first_name">
                   Vorname <span className="required">*</span>
                 </label>
                 <input
                   type="text"
+                  id="first_name"
                   name="first_name"
+                  ref={firstInputRef}
                   value={formData.first_name}
                   onChange={handleChange}
                   disabled={isLoading}
@@ -287,11 +305,12 @@ export const CustomerFormModal: React.FC<CustomerFormModalProps> = ({
               </div>
 
               <div className="form-group">
-                <label>
+                <label htmlFor="last_name">
                   Nachname <span className="required">*</span>
                 </label>
                 <input
                   type="text"
+                  id="last_name"
                   name="last_name"
                   value={formData.last_name}
                   onChange={handleChange}
@@ -305,11 +324,12 @@ export const CustomerFormModal: React.FC<CustomerFormModalProps> = ({
             </div>
 
             <div className="form-group">
-              <label>
+              <label htmlFor="email">
                 E-Mail <span className="required">*</span>
               </label>
               <input
                 type="email"
+                id="email"
                 name="email"
                 value={formData.email}
                 onChange={handleChange}
@@ -326,9 +346,10 @@ export const CustomerFormModal: React.FC<CustomerFormModalProps> = ({
 
             <div className="form-row">
               <div className="form-group">
-                <label>Telefon</label>
+                <label htmlFor="phone">Telefon</label>
                 <input
                   type="tel"
+                  id="phone"
                   name="phone"
                   value={formData.phone}
                   onChange={handleChange}
@@ -338,9 +359,10 @@ export const CustomerFormModal: React.FC<CustomerFormModalProps> = ({
               </div>
 
               <div className="form-group">
-                <label>Mobil</label>
+                <label htmlFor="mobile">Mobil</label>
                 <input
                   type="tel"
+                  id="mobile"
                   name="mobile"
                   value={formData.mobile}
                   onChange={handleChange}
@@ -354,9 +376,10 @@ export const CustomerFormModal: React.FC<CustomerFormModalProps> = ({
             <h3 className="form-section-title">Adresse</h3>
 
             <div className="form-group">
-              <label>Straße</label>
+              <label htmlFor="street">Straße</label>
               <input
                 type="text"
+                id="street"
                 name="street"
                 value={formData.street}
                 onChange={handleChange}
@@ -367,9 +390,10 @@ export const CustomerFormModal: React.FC<CustomerFormModalProps> = ({
 
             <div className="form-row">
               <div className="form-group">
-                <label>PLZ</label>
+                <label htmlFor="postal_code">PLZ</label>
                 <input
                   type="text"
+                  id="postal_code"
                   name="postal_code"
                   value={formData.postal_code}
                   onChange={handleChange}
@@ -379,9 +403,10 @@ export const CustomerFormModal: React.FC<CustomerFormModalProps> = ({
               </div>
 
               <div className="form-group">
-                <label>Stadt</label>
+                <label htmlFor="city">Stadt</label>
                 <input
                   type="text"
+                  id="city"
                   name="city"
                   value={formData.city}
                   onChange={handleChange}
@@ -392,9 +417,10 @@ export const CustomerFormModal: React.FC<CustomerFormModalProps> = ({
             </div>
 
             <div className="form-group">
-              <label>Land</label>
+              <label htmlFor="country">Land</label>
               <input
                 type="text"
+                id="country"
                 name="country"
                 value={formData.country}
                 onChange={handleChange}
@@ -407,10 +433,11 @@ export const CustomerFormModal: React.FC<CustomerFormModalProps> = ({
             <h3 className="form-section-title">Geschäftsinformationen</h3>
 
             <div className="form-group">
-              <label>
+              <label htmlFor="customer_type">
                 Kundentyp <span className="required">*</span>
               </label>
               <select
+                id="customer_type"
                 name="customer_type"
                 value={formData.customer_type}
                 onChange={handleChange}
@@ -422,7 +449,7 @@ export const CustomerFormModal: React.FC<CustomerFormModalProps> = ({
             </div>
 
             <div className="form-group">
-              <label>
+              <label htmlFor="company_name">
                 Firmenname
                 {formData.customer_type === 'business' && (
                   <span className="required"> *</span>
@@ -430,6 +457,7 @@ export const CustomerFormModal: React.FC<CustomerFormModalProps> = ({
               </label>
               <input
                 type="text"
+                id="company_name"
                 name="company_name"
                 value={formData.company_name}
                 onChange={handleChange}
@@ -442,9 +470,10 @@ export const CustomerFormModal: React.FC<CustomerFormModalProps> = ({
             </div>
 
             <div className="form-group">
-              <label>Quelle</label>
+              <label htmlFor="source">Quelle</label>
               <input
                 type="text"
+                id="source"
                 name="source"
                 value={formData.source}
                 onChange={handleChange}
@@ -457,9 +486,10 @@ export const CustomerFormModal: React.FC<CustomerFormModalProps> = ({
             <h3 className="form-section-title">Zusätzliche Informationen</h3>
 
             <div className="form-group">
-              <label>Tags (kommagetrennt)</label>
+              <label htmlFor="tags">Tags (kommagetrennt)</label>
               <input
                 type="text"
+                id="tags"
                 name="tags"
                 value={formData.tags}
                 onChange={handleChange}
@@ -469,8 +499,9 @@ export const CustomerFormModal: React.FC<CustomerFormModalProps> = ({
             </div>
 
             <div className="form-group">
-              <label>Notizen</label>
+              <label htmlFor="notes">Notizen</label>
               <textarea
+                id="notes"
                 name="notes"
                 value={formData.notes}
                 onChange={handleChange}
@@ -485,9 +516,10 @@ export const CustomerFormModal: React.FC<CustomerFormModalProps> = ({
 
             <div className="form-row" style={{ gridTemplateColumns: '1fr 1fr 1fr' }}>
               <div className="form-group">
-                <label>Ringgroesse (EU)</label>
+                <label htmlFor="ring_size">Ringgroesse (EU)</label>
                 <input
                   type="number"
+                  id="ring_size"
                   name="ring_size"
                   value={formData.ring_size}
                   onChange={handleChange}
@@ -499,9 +531,10 @@ export const CustomerFormModal: React.FC<CustomerFormModalProps> = ({
               </div>
 
               <div className="form-group">
-                <label>Kettenlaenge (cm)</label>
+                <label htmlFor="chain_length_cm">Kettenlaenge (cm)</label>
                 <input
                   type="number"
+                  id="chain_length_cm"
                   name="chain_length_cm"
                   value={formData.chain_length_cm}
                   onChange={handleChange}
@@ -513,9 +546,10 @@ export const CustomerFormModal: React.FC<CustomerFormModalProps> = ({
               </div>
 
               <div className="form-group">
-                <label>Armband-Laenge (cm)</label>
+                <label htmlFor="bracelet_length_cm">Armband-Laenge (cm)</label>
                 <input
                   type="number"
+                  id="bracelet_length_cm"
                   name="bracelet_length_cm"
                   value={formData.bracelet_length_cm}
                   onChange={handleChange}
@@ -528,9 +562,10 @@ export const CustomerFormModal: React.FC<CustomerFormModalProps> = ({
             </div>
 
             <div className="form-group">
-              <label>Allergien</label>
+              <label htmlFor="allergies">Allergien</label>
               <input
                 type="text"
+                id="allergies"
                 name="allergies"
                 value={formData.allergies}
                 onChange={handleChange}
@@ -540,9 +575,10 @@ export const CustomerFormModal: React.FC<CustomerFormModalProps> = ({
             </div>
 
             <div className="form-group">
-              <label>Geburtstag</label>
+              <label htmlFor="birthday">Geburtstag</label>
               <input
                 type="date"
+                id="birthday"
                 name="birthday"
                 value={formData.birthday}
                 onChange={handleChange}
@@ -551,9 +587,10 @@ export const CustomerFormModal: React.FC<CustomerFormModalProps> = ({
             </div>
 
             <div className="form-group">
-              <label>Vorlieben (kommagetrennt, Format: Schluessel: Wert)</label>
+              <label htmlFor="preferences">Vorlieben (kommagetrennt, Format: Schluessel: Wert)</label>
               <input
                 type="text"
+                id="preferences"
                 name="preferences"
                 value={formData.preferences}
                 onChange={handleChange}

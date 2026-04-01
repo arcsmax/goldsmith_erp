@@ -240,6 +240,7 @@ export const NotificationBell: React.FC = () => {
           <span
             className="notification-bell__badge"
             aria-hidden="true" // count is already in the button aria-label
+            aria-live="polite"
           >
             {unreadCount > 99 ? '99+' : unreadCount}
           </span>

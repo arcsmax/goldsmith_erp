@@ -80,7 +80,13 @@ const QuickActionModal: React.FC<QuickActionModalProps> = ({
   };
 
   return (
-    <div className="quick-action-modal-overlay" onClick={onClose}>
+    <div
+      className="quick-action-modal-overlay"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="quick-action-title"
+      onClick={onClose}
+    >
       <div
         className="quick-action-modal"
         onClick={(e) => e.stopPropagation()}
@@ -88,8 +94,8 @@ const QuickActionModal: React.FC<QuickActionModalProps> = ({
         {currentView === 'actions' && (
           <>
             <div className="quick-action-header">
-              <h2>Schnellaktionen</h2>
-              <button onClick={onClose} className="modal-close-button">
+              <h2 id="quick-action-title">Schnellaktionen</h2>
+              <button onClick={onClose} className="modal-close-button" aria-label="Modal schließen">
                 ✕
               </button>
             </div>
@@ -153,10 +159,10 @@ const QuickActionModal: React.FC<QuickActionModalProps> = ({
         {currentView === 'activity-picker' && (
           <div className="quick-action-nested-view">
             <div className="nested-view-header">
-              <button onClick={handleBack} className="back-button">
+              <button onClick={handleBack} className="back-button" aria-label="Zurück zu Schnellaktionen">
                 ← Zurück
               </button>
-              <button onClick={onClose} className="modal-close-button">
+              <button onClick={onClose} className="modal-close-button" aria-label="Modal schließen">
                 ✕
               </button>
             </div>
@@ -172,10 +178,10 @@ const QuickActionModal: React.FC<QuickActionModalProps> = ({
         {currentView === 'location-picker' && (
           <div className="quick-action-nested-view">
             <div className="nested-view-header">
-              <button onClick={handleBack} className="back-button">
+              <button onClick={handleBack} className="back-button" aria-label="Zurück zu Schnellaktionen">
                 ← Zurück
               </button>
-              <button onClick={onClose} className="modal-close-button">
+              <button onClick={onClose} className="modal-close-button" aria-label="Modal schließen">
                 ✕
               </button>
             </div>

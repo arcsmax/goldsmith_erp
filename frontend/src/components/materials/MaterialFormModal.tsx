@@ -1,5 +1,5 @@
 // Material Form Modal Component
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { MaterialType, MaterialCreateInput, MaterialUpdateInput } from '../../types';
 import { MaterialCreateSchema } from '../../lib/validation/schemas';
 import { useFormValidation } from '../../lib/validation/useFormValidation';
@@ -44,6 +44,7 @@ export const MaterialFormModal: React.FC<MaterialFormModalProps> = ({
   const [imagePreview, setImagePreview] = useState<string | null>(null);
 
   const { validate: zodValidate, errors, clearError } = useFormValidation(MaterialCreateSchema);
+  const firstInputRef = useRef<HTMLInputElement>(null);
 
   // Initialize form with material data if editing
   useEffect(() => {
@@ -74,6 +75,14 @@ export const MaterialFormModal: React.FC<MaterialFormModalProps> = ({
     }
     setImageFile(null);
   }, [material, isOpen]);
+
+  // Focus the first input when modal opens
+  useEffect(() => {
+    if (isOpen) {
+      const t = setTimeout(() => firstInputRef.current?.focus(), 30);
+      return () => clearTimeout(t);
+    }
+  }, [isOpen]);
 
   const handleChange = (
     e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>
@@ -129,11 +138,17 @@ export const MaterialFormModal: React.FC<MaterialFormModalProps> = ({
   }
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
+    <div
+      className="modal-overlay"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="material-modal-title"
+      onClick={onClose}
+    >
       <div className="modal-content" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
-          <h2>{material ? 'Material bearbeiten' : 'Neues Material'}</h2>
-          <button className="modal-close" onClick={onClose} type="button">
+          <h2 id="material-modal-title">{material ? 'Material bearbeiten' : 'Neues Material'}</h2>
+          <button className="modal-close" onClick={onClose} type="button" aria-label="Modal schließen">
             ×
           </button>
         </div>
@@ -149,6 +164,7 @@ export const MaterialFormModal: React.FC<MaterialFormModalProps> = ({
                 type="text"
                 id="name"
                 name="name"
+                ref={firstInputRef}
                 value={formData.name}
                 onChange={handleChange}
                 className={errors.name ? 'error' : ''}
