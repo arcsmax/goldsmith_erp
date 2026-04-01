@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { scrapGoldApi, ScrapGold, ScrapGoldStatus } from '../../api/scrap-gold';
 import { AlloyCalculator, ALLOY_OPTIONS } from './AlloyCalculator';
+import { SignatureCanvas } from '../SignatureCanvas';
 import '../../styles/scrap-gold.css';
 
 interface ScrapGoldTabProps {
@@ -108,14 +109,11 @@ export const ScrapGoldTab: React.FC<ScrapGoldTabProps> = ({ orderId, customerId 
     }
   };
 
-  const handleSign = async () => {
+  const handleSign = async (signatureBase64: string) => {
     if (!scrapGold) return;
 
-    // Placeholder: In a real implementation, this would capture a signature via canvas
-    const signatureData = `signed_by_customer_${customerId}_at_${new Date().toISOString()}`;
-
     try {
-      const updated = await scrapGoldApi.sign(scrapGold.id, signatureData);
+      const updated = await scrapGoldApi.sign(scrapGold.id, signatureBase64);
       setScrapGold(updated);
     } catch (err) {
       console.error('Failed to sign:', err);
@@ -297,24 +295,44 @@ export const ScrapGoldTab: React.FC<ScrapGoldTabProps> = ({ orderId, customerId 
 
         {scrapGold.signed_at ? (
           <div className="signature-done">
-            <span className="signature-checkmark">&#x2714;</span>
-            <p>
-              Unterschrieben am{' '}
-              {new Date(scrapGold.signed_at).toLocaleString('de-DE')}
-            </p>
+            <div className="signature-done-info">
+              <span className="signature-checkmark">&#x2714;</span>
+              <p>
+                Unterschrieben am{' '}
+                {new Date(scrapGold.signed_at).toLocaleString('de-DE')}
+              </p>
+            </div>
+
+            {/* Show the captured signature image when available */}
+            {scrapGold.signature_data && scrapGold.signature_data.startsWith('data:image/') && (
+              <div className="signature-image-wrapper">
+                <img
+                  src={scrapGold.signature_data}
+                  alt="Gespeicherte Unterschrift des Kunden"
+                  className="signature-captured-image"
+                />
+              </div>
+            )}
+
+            {/* PDF download — links to the backend receipt endpoint */}
+            <a
+              href={`/api/v1/scrap-gold/${scrapGold.id}/receipt.pdf`}
+              download={`Ankaufsbeleg-${scrapGold.id}.pdf`}
+              className="btn-pdf-download"
+              aria-label="Ankaufsbeleg als PDF herunterladen"
+            >
+              PDF herunterladen
+            </a>
           </div>
         ) : (
           <div className="signature-pending">
-            <div className="signature-area">
-              <p>Unterschrift des Kunden</p>
-            </div>
-            <button
-              className="btn-sign"
-              onClick={handleSign}
-              disabled={scrapGold.status === 'received' && scrapGold.items.length === 0}
-            >
-              Unterschrift erfassen
-            </button>
+            {scrapGold.status === 'received' && scrapGold.items.length === 0 ? (
+              <p className="signature-blocked-hint">
+                Bitte zuerst Positionen erfassen und berechnen, bevor die Unterschrift eingeholt wird.
+              </p>
+            ) : (
+              <SignatureCanvas onSave={handleSign} height={180} />
+            )}
           </div>
         )}
       </div>

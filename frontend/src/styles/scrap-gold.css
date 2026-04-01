@@ -522,18 +522,25 @@
 }
 
 .signature-done {
-  display: flex;
-  align-items: center;
-  gap: 1rem;
   background: #d1fae5;
   border: 2px solid #6ee7b7;
   border-radius: 10px;
   padding: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.signature-done-info {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
 }
 
 .signature-checkmark {
   font-size: 2rem;
   color: #059669;
+  flex-shrink: 0;
 }
 
 .signature-done p {
@@ -543,8 +550,180 @@
   font-size: 1rem;
 }
 
+/* Captured signature image (read-only, shown after signing) */
+.signature-image-wrapper {
+  background: white;
+  border: 1px solid #a7f3d0;
+  border-radius: 8px;
+  padding: 0.75rem;
+  text-align: center;
+}
+
+.signature-captured-image {
+  max-width: 100%;
+  max-height: 140px;
+  display: block;
+  margin: 0 auto;
+  /* Preserve ink appearance, avoid upscaling blur */
+  image-rendering: -webkit-optimize-contrast;
+  image-rendering: crisp-edges;
+}
+
+/* PDF download button — prominent but secondary to the sign action */
+.btn-pdf-download {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  background: #1e293b;
+  color: #ffffff;
+  border: none;
+  border-radius: 8px;
+  padding: 0.875rem 1.75rem;
+  font-size: 1rem;
+  font-weight: 600;
+  font-family: inherit;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background 0.2s, box-shadow 0.2s, transform 0.15s;
+  /* min 44px height for workshop touch targets */
+  min-height: 44px;
+  align-self: flex-start;
+}
+
+.btn-pdf-download:hover {
+  background: #0f172a;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+  transform: translateY(-1px);
+}
+
+.btn-pdf-download:focus-visible {
+  outline: 3px solid #C5A55A;
+  outline-offset: 2px;
+}
+
+/* Hint shown when signing is not yet possible */
+.signature-blocked-hint {
+  color: #6b7280;
+  font-style: italic;
+  font-size: 0.95rem;
+  padding: 1rem;
+  background: #f9fafb;
+  border-radius: 8px;
+  margin: 0;
+}
+
 .signature-pending {
-  /* Wrapper for signature area and button */
+  /* Wrapper for canvas or blocked hint */
+}
+
+/* ==================== SIGNATURE CANVAS COMPONENT ==================== */
+
+.signature-canvas-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.signature-canvas-hint {
+  margin: 0;
+  font-size: 0.9rem;
+  color: #6b7280;
+  font-style: italic;
+}
+
+.signature-canvas {
+  display: block;
+  width: 100%;
+  /* The canvas internal resolution is 600×200 — CSS scales it to fill the container.
+     touch-action: none prevents the browser scrolling while the user draws. */
+  touch-action: none;
+  border: 2px solid #d1d5db;
+  border-radius: 10px;
+  background: #ffffff;
+  cursor: crosshair;
+  /* Subtle inner shadow so the field reads as an ink-on-paper surface */
+  box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.06);
+  transition: border-color 0.2s;
+}
+
+.signature-canvas:focus {
+  outline: none;
+  border-color: #C5A55A;
+}
+
+/* Indicate active drawing state */
+.signature-canvas:active {
+  border-color: #1a1a2e;
+}
+
+.signature-canvas-actions {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+}
+
+/* Löschen — min 44×44 px (WCAG 2.1 SC 2.5.5, workshop-safe for gloved hands) */
+.btn-sig-clear {
+  background: none;
+  border: 2px solid #d1d5db;
+  color: #6b7280;
+  padding: 0 1.25rem;
+  border-radius: 8px;
+  font-size: 0.95rem;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: border-color 0.2s, color 0.2s, background 0.2s;
+  /* Explicit min dimensions — both axes must meet 44 px */
+  min-height: 44px;
+  min-width: 44px;
+  white-space: nowrap;
+}
+
+.btn-sig-clear:hover {
+  border-color: #ef4444;
+  color: #ef4444;
+  background: #fff5f5;
+}
+
+.btn-sig-clear:focus-visible {
+  outline: 3px solid #C5A55A;
+  outline-offset: 2px;
+}
+
+/* Unterschrift bestätigen — primary action */
+.btn-sig-save {
+  flex: 1;
+  background: linear-gradient(135deg, #1a1a2e 0%, #333 100%);
+  color: white;
+  border: none;
+  padding: 0 2rem;
+  border-radius: 8px;
+  font-size: 1rem;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: opacity 0.2s, transform 0.15s, box-shadow 0.2s;
+  min-height: 44px;
+}
+
+.btn-sig-save:hover:not(:disabled) {
+  opacity: 0.9;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.2);
+}
+
+.btn-sig-save:focus-visible {
+  outline: 3px solid #C5A55A;
+  outline-offset: 2px;
+}
+
+.btn-sig-save:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
 }
 
 /* ==================== NOTES ==================== */
@@ -604,6 +783,26 @@
   .btn-prompt-yes,
   .btn-prompt-no {
     width: 100%;
+  }
+
+  /* On narrow screens the canvas fills the full width — the internal resolution
+     stays 600×200 and CSS scaling takes care of the rest. */
+  .signature-canvas-actions {
+    flex-direction: column;
+  }
+
+  .btn-sig-clear,
+  .btn-sig-save {
+    width: 100%;
+  }
+
+  .btn-pdf-download {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .signature-done-info {
+    flex-wrap: wrap;
   }
 }
 
@@ -747,6 +946,52 @@
 
   .signature-done p {
     color: #6ee7b7;
+  }
+
+  .signature-image-wrapper {
+    background: #1f2937;
+    border-color: #059669;
+  }
+
+  .btn-pdf-download {
+    background: #334155;
+  }
+
+  .btn-pdf-download:hover {
+    background: #1e293b;
+  }
+
+  .signature-blocked-hint {
+    background: #1f2937;
+    color: #9ca3af;
+  }
+
+  .signature-canvas {
+    background: #1e293b;
+    border-color: #4b5563;
+  }
+
+  .signature-canvas:active {
+    border-color: #C5A55A;
+  }
+
+  .signature-canvas-hint {
+    color: #9ca3af;
+  }
+
+  .btn-sig-clear {
+    border-color: #4b5563;
+    color: #9ca3af;
+  }
+
+  .btn-sig-clear:hover {
+    border-color: #f87171;
+    color: #f87171;
+    background: #2d1b1b;
+  }
+
+  .btn-sig-save {
+    background: linear-gradient(135deg, #334155 0%, #475569 100%);
   }
 
   .scrap-gold-notes {
