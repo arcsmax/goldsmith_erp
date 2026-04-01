@@ -306,7 +306,7 @@ class NotificationService:
         today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
         today_end = today_start + timedelta(days=1)
 
-        stmt = select(Material).where(Material.stock <= LOW_STOCK_THRESHOLD)
+        stmt = select(Material).where(Material.stock <= Material.min_stock)
         result = await db.execute(stmt)
         low_stock_materials = result.scalars().all()
 
@@ -325,7 +325,7 @@ class NotificationService:
             title = f"Mindestbestand unterschritten: {material.name}"
             message = (
                 f"Material \"{material.name}\" hat nur noch {material.stock} {material.unit} "
-                f"auf Lager (Schwellenwert: {LOW_STOCK_THRESHOLD} {material.unit})."
+                f"auf Lager (Mindestbestand: {material.min_stock} {material.unit})."
             )
 
             for user in admin_users:

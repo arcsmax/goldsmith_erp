@@ -1,6 +1,6 @@
 // Materials API Service
 import apiClient from './client';
-import { MaterialType, MaterialCreateInput, MaterialUpdateInput } from '../types';
+import { MaterialType, MaterialCreateInput, MaterialUpdateInput, PurchaseListItem } from '../types';
 
 export const materialsApi = {
   /**
@@ -82,6 +82,14 @@ export const materialsApi = {
     const response = await apiClient.get<{ total_value: number; currency: string }>(
       '/materials/analytics/stock-value'
     );
+    return response.data;
+  },
+
+  /**
+   * Get purchase list: materials below their individual min_stock, grouped by supplier.
+   */
+  getPurchaseList: async (): Promise<PurchaseListItem[]> => {
+    const response = await apiClient.get<PurchaseListItem[]>('/materials/purchase-list');
     return response.data;
   },
 };
