@@ -1,3 +1,6 @@
+import json
+import logging
+
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy import update, delete, and_, func
@@ -21,6 +24,8 @@ from goldsmith_erp.models.time_entry import (
 )
 from goldsmith_erp.models.interruption import InterruptionCreate
 from goldsmith_erp.services.activity_service import ActivityService
+
+logger = logging.getLogger(__name__)
 
 
 class TimeTrackingService:
@@ -111,7 +116,92 @@ class TimeTrackingService:
         # Update activity average duration
         await ActivityService.update_average_duration(db, entry.activity_id, float(duration))
 
-        return await TimeTrackingService.get_time_entry(db, entry_id)
+        # Reload the entry with relationships for anomaly check and return value
+        stopped_entry = await TimeTrackingService.get_time_entry(db, entry_id)
+
+        # --- Anomaly detection (fire-and-forget, must not block the stop flow) ---
+        await TimeTrackingService._check_and_publish_anomaly(db, stopped_entry, duration)
+
+        return stopped_entry
+
+    @staticmethod
+    async def _check_and_publish_anomaly(
+        db: AsyncSession,
+        entry: Optional[TimeEntryModel],
+        duration_minutes: int,
+    ) -> None:
+        """
+        Check the just-stopped time entry for anomalous duration and publish
+        a WebSocket event over Redis if an anomaly is detected.
+
+        Failures are logged and swallowed so the stop flow is never disrupted.
+        Database commit has already happened before this is called.
+        """
+        if entry is None:
+            return
+
+        try:
+            from goldsmith_erp.ml.anomaly_detection import AnomalyDetector
+            from goldsmith_erp.ml.anomaly_alerts import AnomalyAlert
+            from goldsmith_erp.core.pubsub import publish_event
+
+            detector = AnomalyDetector()
+            result = await detector.check_anomaly(
+                db=db,
+                activity_id=entry.activity_id,
+                duration_minutes=duration_minutes,
+                complexity_rating=entry.complexity_rating,
+                user_id=entry.user_id,
+            )
+
+            if not result.is_anomaly:
+                return
+
+            user_name = (
+                f"{entry.user.first_name} {entry.user.last_name}"
+                if entry.user
+                else f"User #{entry.user_id}"
+            )
+            activity_name = (
+                entry.activity.name if entry.activity else f"Activity #{entry.activity_id}"
+            )
+
+            alert = AnomalyAlert(
+                time_entry_id=entry.id,
+                order_id=entry.order_id,
+                activity_name=activity_name,
+                user_name=user_name,
+                expected_duration_minutes=result.expected_duration_minutes,
+                actual_duration_minutes=result.actual_duration_minutes,
+                deviation_factor=result.deviation_factor,
+                severity=result.severity,
+                suggested_reasons=result.suggested_reasons,
+            )
+
+            await publish_event(
+                "anomaly_alerts",
+                json.dumps(alert.model_dump(mode="json")),
+            )
+
+            logger.info(
+                "Anomaly alert published",
+                extra={
+                    "time_entry_id": entry.id,
+                    "order_id": entry.order_id,
+                    "activity_id": entry.activity_id,
+                    "duration_minutes": duration_minutes,
+                    "deviation_factor": result.deviation_factor,
+                    "severity": result.severity.value if result.severity else None,
+                },
+            )
+
+        except Exception as exc:
+            # Anomaly check must never break the time entry stop flow.
+            logger.error(
+                "Anomaly detection failed (non-fatal)",
+                extra={"time_entry_id": entry.id if entry else None, "error": str(exc)},
+                exc_info=True,
+            )
 
     @staticmethod
     async def get_time_entry(db: AsyncSession, entry_id: str) -> Optional[TimeEntryModel]:
