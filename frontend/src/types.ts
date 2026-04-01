@@ -140,6 +140,29 @@ export interface CustomerStats {
   last_order_date?: string | null;
 }
 
+// Maßbibliothek — persisted per-customer body measurements
+// Values match backend MeasurementType enum exactly.
+export type MeasurementType =
+  | 'ring_size'
+  | 'chain_length'
+  | 'wrist_circumference'
+  | 'finger_circumference'
+  | 'neck_circumference'
+  | 'ankle_circumference';
+
+export interface CustomerMeasurement {
+  id: number;
+  customer_id: number;
+  measurement_type: MeasurementType;
+  value: number;
+  unit: string;
+  hand?: 'left' | 'right' | null;
+  finger?: 'thumb' | 'index' | 'middle' | 'ring' | 'pinky' | null;
+  notes?: string | null;
+  measured_at: string;
+  measured_by?: number | null;
+}
+
 // ==================== ORDER TYPES ====================
 
 export type OrderStatus =
