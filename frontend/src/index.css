@@ -18,8 +18,8 @@
   -moz-osx-font-smoothing: grayscale;
 
   /* Color Palette */
-  --primary-color: #646cff;
-  --primary-hover: #535bf2;
+  --primary-color: var(--color-interactive-primary, #d97706);
+  --primary-hover: var(--color-interactive-primary-hover, #b45309);
   --background-dark: #242424;
   --background-light: #ffffff;
   --text-light: rgba(255, 255, 255, 0.87);
@@ -94,7 +94,7 @@ button {
   font-size: 1em;
   font-weight: 500;
   font-family: inherit;
-  background-color: #1a1a1a;
+  background-color: transparent;
   cursor: pointer;
   transition: border-color 0.25s;
 }

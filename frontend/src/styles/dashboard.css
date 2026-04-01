@@ -61,8 +61,8 @@
   border-radius: 12px;
   font-size: 0.8rem;
   font-weight: 600;
-  background: #e0e7ff;
-  color: #3730a3;
+  background: var(--color-brand-cta-100, #fef3c7);
+  color: var(--color-brand-cta-800, #92400e);
   text-transform: uppercase;
   letter-spacing: 0.5px;
   vertical-align: middle;

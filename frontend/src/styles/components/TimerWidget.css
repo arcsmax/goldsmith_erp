@@ -9,7 +9,7 @@
   border-radius: 12px;
   padding: 1rem 1.5rem;
   box-shadow: 0 8px 24px rgba(59, 130, 246, 0.3);
-  z-index: 1000;
+  z-index: 1050;
   min-width: 320px;
   transition: all 0.3s ease;
   animation: slideIn 0.3s ease-out;

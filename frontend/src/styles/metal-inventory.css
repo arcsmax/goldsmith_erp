@@ -273,7 +273,7 @@
 }
 
 .metal-inventory-table thead {
-  background: linear-gradient(135deg, #3498db 0%, #2980b9 100%);
+  background: var(--color-surface-header-gradient);
   color: white;
 }
 
@@ -372,6 +372,12 @@
 .metal-page-actions {
   display: flex;
   gap: 0.5rem;
+}
+
+/* ==================== METAL TYPE MANAGER MODAL ==================== */
+
+.metal-type-manager-modal {
+  max-width: 700px;
 }
 
 /* ==================== METAL PURCHASE FORM MODAL ==================== */

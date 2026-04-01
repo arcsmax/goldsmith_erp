@@ -1498,3 +1498,74 @@
     justify-content: center;
   }
 }
+
+/* ==================== ARBEITSZETTEL FORM ==================== */
+
+.arbeitszettel-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.arbeitszettel-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 1.5rem;
+}
+
+@media (max-width: 600px) {
+  .arbeitszettel-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.az-input,
+.az-select {
+  width: 100%;
+  min-height: 48px;
+  border-radius: 8px;
+  padding: 0.75rem;
+  border: 2px solid var(--color-border-default, #e5e7eb);
+  font-size: 0.95rem;
+  font-family: inherit;
+  background: white;
+  color: #1f2937;
+  box-sizing: border-box;
+  transition: border-color 0.2s;
+}
+
+.az-input:focus,
+.az-select:focus {
+  outline: none;
+  border-color: var(--color-border-focus, #d97706);
+  box-shadow: 0 0 0 3px rgba(217, 119, 6, 0.15);
+}
+
+.az-reference {
+  font-size: 0.85rem;
+  color: var(--color-text-muted, #6b7280);
+  margin-top: 0.25rem;
+}
+
+.az-save-btn {
+  background: var(--color-interactive-primary, #d97706);
+  color: white;
+  border: none;
+  min-height: 52px;
+  border-radius: 8px;
+  padding: 0.75rem 2rem;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.2s, transform 0.1s;
+}
+
+.az-save-btn:hover:not(:disabled) {
+  background: var(--color-interactive-primary-hover, #b45309);
+  transform: translateY(-1px);
+}
+
+.az-save-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
