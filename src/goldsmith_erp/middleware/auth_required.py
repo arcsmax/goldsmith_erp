@@ -30,6 +30,7 @@ PUBLIC_PREFIXES = [
     "/docs",
     "/redoc",
     "/static",
+    "/uploads",
     f"{settings.API_V1_STR}/login",
     f"{settings.API_V1_STR}/auth/mfa",
     # The refresh endpoint must bypass the middleware's strict expiry check so that

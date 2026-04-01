@@ -1,8 +1,11 @@
 import asyncio
 import logging
+import os
+from pathlib import Path
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
@@ -79,6 +82,14 @@ app = FastAPI(
     title=settings.APP_NAME,
     openapi_url=f"{settings.API_V1_STR}/openapi.json"
 )
+
+# Serve uploaded files (photos, material images, scrap gold docs)
+_uploads_dir = Path(settings.PHOTO_STORAGE_PATH).parent  # ./uploads
+if _uploads_dir.exists():
+    app.mount("/uploads", StaticFiles(directory=str(_uploads_dir)), name="uploads")
+else:
+    _uploads_dir.mkdir(parents=True, exist_ok=True)
+    app.mount("/uploads", StaticFiles(directory=str(_uploads_dir)), name="uploads")
 
 # Add rate limiting state and error handler
 app.state.limiter = limiter
