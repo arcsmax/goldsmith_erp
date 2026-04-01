@@ -1,0 +1,542 @@
+/* Invoice Page Styles — Rechnungsverwaltung */
+
+/* ==================== INVOICE CONTROLS ==================== */
+
+.invoices-controls {
+  display: flex;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+  flex-wrap: wrap;
+  align-items: flex-end;
+}
+
+/* ==================== INVOICE TABLE ==================== */
+
+.invoices-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.invoices-table th {
+  background: #f8f9fa;
+  padding: 1rem;
+  text-align: left;
+  font-weight: 600;
+  color: #666;
+  border-bottom: 2px solid #e9ecef;
+  font-size: 0.9rem;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.invoices-table td {
+  padding: 1rem;
+  border-bottom: 1px solid #e9ecef;
+  color: #333;
+}
+
+.invoices-table tbody tr {
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.invoices-table tbody tr:hover {
+  background: #f8f9fa;
+}
+
+.invoices-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+/* ==================== INVOICE NUMBER ==================== */
+
+.invoice-number {
+  font-family: 'Courier New', Courier, monospace;
+  font-weight: 700;
+  color: #1e40af;
+  letter-spacing: 0.5px;
+  font-size: 0.95rem;
+}
+
+/* ==================== INVOICE STATUS BADGES ==================== */
+
+/*
+ * Color strategy: shape (border + icon prefix in label) is the primary
+ * differentiator — color is secondary — so colorblind users can always
+ * distinguish status by the label text prefix alone.
+ *
+ * DRAFT      → gray, dashed border
+ * SENT       → blue, solid border
+ * PAID       → green, solid border, checkmark prefix
+ * OVERDUE    → red, solid border, warning prefix
+ * CANCELLED  → gray, strikethrough text, dotted border
+ */
+
+.invoice-status-badge {
+  padding: 0.3rem 0.75rem;
+  border-radius: 10px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  display: inline-block;
+  border: 2px solid transparent;
+  white-space: nowrap;
+}
+
+/* DRAFT — neutral gray, dashed border (not yet sent) */
+.invoice-status-badge.status-DRAFT {
+  background: #f3f4f6;
+  color: #6b7280;
+  border-color: #d1d5db;
+  border-style: dashed;
+}
+
+/* SENT — informational blue */
+.invoice-status-badge.status-SENT {
+  background: #dbeafe;
+  color: #1e40af;
+  border-color: #93c5fd;
+}
+
+/* PAID — success green */
+.invoice-status-badge.status-PAID {
+  background: #d1fae5;
+  color: #065f46;
+  border-color: #6ee7b7;
+}
+
+/* OVERDUE — danger red */
+.invoice-status-badge.status-OVERDUE {
+  background: #fee2e2;
+  color: #991b1b;
+  border-color: #fca5a5;
+}
+
+/* CANCELLED — strikethrough, neutral */
+.invoice-status-badge.status-CANCELLED {
+  background: #f9fafb;
+  color: #9ca3af;
+  border-color: #e5e7eb;
+  border-style: dotted;
+  text-decoration: line-through;
+}
+
+/* ==================== FINANCIAL AMOUNTS ==================== */
+
+.amount-display {
+  font-weight: 700;
+  color: #059669;
+  font-size: 1rem;
+  white-space: nowrap;
+}
+
+.amount-overdue {
+  font-weight: 700;
+  color: #dc2626;
+}
+
+/* ==================== INVOICE ACTIONS ==================== */
+
+.invoice-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+/* "Als bezahlt markieren" — primary action on SENT invoices */
+.btn-mark-paid {
+  background: #059669;
+  border: 2px solid #059669;
+  color: white;
+  padding: 0.55rem 0.875rem;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.85rem;
+  font-weight: 600;
+  transition: all 0.2s;
+  min-height: 44px;
+  white-space: nowrap;
+}
+
+.btn-mark-paid:hover {
+  background: #047857;
+  border-color: #047857;
+}
+
+.btn-mark-paid:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* "Stornieren" — destructive action on DRAFT invoices */
+.btn-cancel-invoice {
+  background: white;
+  border: 2px solid #e5e7eb;
+  color: #dc2626;
+  padding: 0.55rem 0.875rem;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.85rem;
+  font-weight: 600;
+  transition: all 0.2s;
+  min-height: 44px;
+  white-space: nowrap;
+}
+
+.btn-cancel-invoice:hover {
+  background: #fee2e2;
+  border-color: #fca5a5;
+}
+
+/* ==================== CREATE INVOICE MODAL ==================== */
+
+.create-invoice-modal .form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-bottom: 1.25rem;
+}
+
+.create-invoice-modal .form-group label {
+  font-weight: 600;
+  color: #374151;
+  font-size: 0.9rem;
+}
+
+.create-invoice-modal .form-group input,
+.create-invoice-modal .form-group select,
+.create-invoice-modal .form-group textarea {
+  padding: 0.75rem 1rem;
+  border: 2px solid #e5e7eb;
+  border-radius: 8px;
+  font-size: 1rem;
+  transition: border-color 0.2s, box-shadow 0.2s;
+  background: white;
+}
+
+.create-invoice-modal .form-group input:focus,
+.create-invoice-modal .form-group select:focus,
+.create-invoice-modal .form-group textarea:focus {
+  outline: none;
+  border-color: #667eea;
+  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+}
+
+.create-invoice-modal .modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 1rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid #e5e7eb;
+  margin-top: 1.5rem;
+}
+
+/* ==================== INVOICE DETAIL PANEL ==================== */
+
+.invoice-detail-panel {
+  background: white;
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  padding: 1.5rem;
+  margin-top: 1rem;
+}
+
+.invoice-detail-panel .detail-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 1.5rem;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.invoice-detail-panel .detail-meta {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.detail-meta-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.detail-meta-item .meta-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #9ca3af;
+}
+
+.detail-meta-item .meta-value {
+  font-size: 0.95rem;
+  color: #333;
+  font-weight: 500;
+}
+
+/* ==================== LINE ITEMS TABLE ==================== */
+
+.line-items-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 1rem;
+}
+
+.line-items-table th {
+  background: #f8f9fa;
+  padding: 0.75rem 1rem;
+  text-align: left;
+  font-weight: 600;
+  color: #666;
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  border-bottom: 2px solid #e9ecef;
+}
+
+.line-items-table th:last-child,
+.line-items-table td:last-child {
+  text-align: right;
+}
+
+.line-items-table td {
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid #f3f4f6;
+  color: #374151;
+  font-size: 0.95rem;
+}
+
+.line-items-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+/* ==================== TOTALS BLOCK ==================== */
+
+.invoice-totals {
+  margin-top: 1rem;
+  border-top: 2px solid #e5e7eb;
+  padding-top: 1rem;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.4rem;
+}
+
+.totals-row {
+  display: flex;
+  gap: 2rem;
+  font-size: 0.95rem;
+  color: #374151;
+}
+
+.totals-row .totals-label {
+  min-width: 160px;
+  text-align: right;
+  color: #6b7280;
+}
+
+.totals-row .totals-value {
+  min-width: 100px;
+  text-align: right;
+  font-weight: 500;
+}
+
+.totals-row.totals-grand {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: #111827;
+  border-top: 1px solid #e5e7eb;
+  padding-top: 0.5rem;
+  margin-top: 0.25rem;
+}
+
+.totals-row.totals-grand .totals-value {
+  color: #059669;
+}
+
+/* ==================== DUE DATE WARNING ==================== */
+
+.due-date-overdue {
+  color: #dc2626;
+  font-weight: 600;
+}
+
+.due-date-soon {
+  color: #d97706;
+  font-weight: 600;
+}
+
+/* ==================== MARK AS PAID MODAL ==================== */
+
+.mark-paid-modal .payment-summary {
+  background: #f0fdf4;
+  border: 1px solid #6ee7b7;
+  border-radius: 8px;
+  padding: 1rem 1.25rem;
+  margin-bottom: 1.25rem;
+}
+
+.mark-paid-modal .payment-summary .summary-amount {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #065f46;
+}
+
+/* ==================== SUMMARY STATS BAR ==================== */
+
+.invoice-summary-bar {
+  display: flex;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+  flex-wrap: wrap;
+}
+
+.invoice-summary-card {
+  background: white;
+  border-radius: 8px;
+  padding: 0.875rem 1.25rem;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  flex: 1;
+  min-width: 140px;
+}
+
+.invoice-summary-card .summary-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #9ca3af;
+}
+
+.invoice-summary-card .summary-value {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: #111827;
+}
+
+.invoice-summary-card.card-overdue .summary-value {
+  color: #dc2626;
+}
+
+.invoice-summary-card.card-paid .summary-value {
+  color: #059669;
+}
+
+/* ==================== RESPONSIVE — TABLET ==================== */
+
+@media (max-width: 1024px) {
+  .invoices-controls {
+    flex-wrap: wrap;
+  }
+
+  .invoice-summary-bar {
+    flex-wrap: wrap;
+  }
+
+  .invoice-summary-card {
+    flex: 1 1 calc(50% - 0.5rem);
+  }
+}
+
+/* ==================== RESPONSIVE — MOBILE ==================== */
+
+@media (max-width: 768px) {
+  .invoice-detail-panel .detail-header {
+    flex-direction: column;
+  }
+
+  .invoices-controls {
+    flex-direction: column;
+  }
+
+  .invoice-actions {
+    flex-direction: column;
+    width: 100%;
+  }
+
+  .btn-mark-paid,
+  .btn-cancel-invoice {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .create-invoice-modal .modal-footer {
+    flex-direction: column-reverse;
+  }
+
+  .invoice-totals {
+    align-items: stretch;
+  }
+
+  .totals-row {
+    justify-content: space-between;
+  }
+
+  .invoice-summary-card {
+    flex: 1 1 100%;
+  }
+}
+
+@media (max-width: 640px) {
+  .invoices-table,
+  .invoices-table thead,
+  .invoices-table tbody,
+  .invoices-table tr,
+  .invoices-table td {
+    display: block;
+  }
+
+  .invoices-table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+
+  .invoices-table tbody tr {
+    background: white;
+    border-radius: 10px;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+    margin-bottom: 0.875rem;
+    padding: 0.75rem 1rem;
+    border-left: 3px solid #e5e7eb;
+    cursor: pointer;
+  }
+
+  .invoices-table td {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    padding: 0.4rem 0;
+    border-bottom: 1px solid #f3f4f6;
+    font-size: 0.9rem;
+    min-height: 40px;
+  }
+
+  .invoices-table td:last-child {
+    border-bottom: none;
+    padding-top: 0.6rem;
+  }
+
+  .invoices-table td::before {
+    content: attr(data-label);
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: #9ca3af;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    white-space: nowrap;
+    margin-right: 0.75rem;
+    flex-shrink: 0;
+    padding-top: 0.1rem;
+  }
+}

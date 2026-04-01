@@ -40,6 +40,7 @@ export const MainLayout: React.FC = () => {
   const canManageCustomers = hasRole(['ADMIN', 'GOLDSMITH']);
   const canManageMaterials = hasRole(['ADMIN', 'GOLDSMITH']);
   const canManageUsers = hasRole(['ADMIN']);
+  const canManageInvoices = hasRole(['ADMIN', 'GOLDSMITH']);
 
   return (
     <div className="main-layout">
@@ -180,6 +181,18 @@ export const MainLayout: React.FC = () => {
               <span className="nav-icon">📅</span>
               Kalender
             </Link>
+
+            {/* Rechnungen — ADMIN und GOLDSMITH */}
+            {canManageInvoices && (
+              <Link
+                to="/invoices"
+                className={`nav-link ${isActivePath('/invoices') ? 'active' : ''}`}
+                onClick={handleNavClick}
+              >
+                <span className="nav-icon">🧾</span>
+                Rechnungen
+              </Link>
+            )}
 
             {/* Benutzerverwaltung — nur ADMIN */}
             {canManageUsers && (

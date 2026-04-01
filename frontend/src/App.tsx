@@ -19,6 +19,7 @@ const TimeTrackingPage = lazy(() => import('./pages/TimeTrackingPage').then(m =>
 const UsersPage = lazy(() => import('./pages/UsersPage').then(m => ({ default: m.UsersPage })));
 const ScannerPage = lazy(() => import('./pages/ScannerPage').then(m => ({ default: m.ScannerPage })));
 const CalendarPage = lazy(() => import('./pages/CalendarPage').then(m => ({ default: m.CalendarPage })));
+const InvoicesPage = lazy(() => import('./pages/InvoicesPage').then(m => ({ default: m.InvoicesPage })));
 
 // Loading fallback component
 const PageLoader: React.FC = () => (
@@ -104,6 +105,16 @@ const App: React.FC = () => {
 
                 <Route path="scanner" element={<ScannerPage />} />
                 <Route path="calendar" element={<CalendarPage />} />
+
+                {/* Rechnungen — ADMIN und GOLDSMITH */}
+                <Route
+                  path="invoices"
+                  element={
+                    <ProtectedRoute requiredRoles={['ADMIN', 'GOLDSMITH']}>
+                      <InvoicesPage />
+                    </ProtectedRoute>
+                  }
+                />
               </Route>
 
               {/* Catch all - redirect to dashboard */}
