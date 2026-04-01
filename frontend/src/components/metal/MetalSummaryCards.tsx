@@ -73,7 +73,7 @@ export const MetalSummaryCards: React.FC = () => {
         }
         setSpotPrices(priceMap);
       }
-      // Spot price failures are intentionally silent.
+      // Spot price failures are intentionally silent — partial data is acceptable.
     } catch (err: any) {
       setError(err.message || 'Fehler beim Laden der Zusammenfassung');
     } finally {
@@ -81,21 +81,15 @@ export const MetalSummaryCards: React.FC = () => {
     }
   };
 
-  const formatCurrency = (amount: number): string => {
-    return new Intl.NumberFormat('de-DE', {
-      style: 'currency',
-      currency: 'EUR',
-    }).format(amount);
-  };
+  const formatCurrency = (amount: number): string =>
+    new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR' }).format(amount);
 
   const formatWeight = (grams: number): string => {
-    if (grams >= 1000) {
-      return `${(grams / 1000).toFixed(2)} kg`;
-    }
+    if (grams >= 1000) return `${(grams / 1000).toFixed(2)} kg`;
     return `${grams.toFixed(2)} g`;
   };
 
-  const formatDate = (dateStr?: string): string => {
+  const formatDate = (dateStr?: string | null): string => {
     if (!dateStr) return '-';
     return new Date(dateStr).toLocaleDateString('de-DE', {
       year: 'numeric',
@@ -109,7 +103,7 @@ export const MetalSummaryCards: React.FC = () => {
   }
 
   if (error) {
-    return <div className="metal-summary-error">❌ {error}</div>;
+    return <div className="metal-summary-error">Fehler: {error}</div>;
   }
 
   if (summaries.length === 0) {
@@ -120,10 +114,10 @@ export const MetalSummaryCards: React.FC = () => {
     );
   }
 
-  // Use pre-aggregated totals from statistics when available; derive from
-  // per-metal summaries as fallback so the component still renders correctly.
-  const totalInventoryValue = statistics?.total_value ?? summaries.reduce((sum, s) => sum + s.total_value, 0);
-  const totalRemainingWeight = statistics?.total_weight_g ?? summaries.reduce((sum, s) => sum + s.total_weight_g, 0);
+  const totalInventoryValue =
+    statistics?.total_value ?? summaries.reduce((sum, s) => sum + s.total_value, 0);
+  const totalRemainingWeight =
+    statistics?.total_weight_g ?? summaries.reduce((sum, s) => sum + s.total_weight_g, 0);
 
   return (
     <div className="metal-summary-container">
@@ -141,13 +135,34 @@ export const MetalSummaryCards: React.FC = () => {
         </div>
       </div>
 
+      {statistics && statistics.low_stock_alerts.length > 0 && (
+        <div className="metal-low-stock-banner" role="alert">
+          <strong>Niedriger Bestand:</strong>{' '}
+          {statistics.low_stock_alerts.join(' · ')}
+        </div>
+      )}
+
       <div className="metal-summary-cards">
         {summaries.map((summary) => {
           const config = METAL_TYPE_CONFIG[summary.metal_type];
-          // Backend does not return a separate remaining field on MetalInventorySummary.
-          // total_weight_g already reflects only the remaining (non-depleted) weight
-          // per the statistics endpoint, so usage percentage is reported as 0 here.
-          const usagePercentage = 0;
+          const spot = spotPrices[summary.metal_type] ?? null;
+
+          // Determine whether the average purchase price is above or below spot.
+          let spotClass = '';
+          let spotBadge: string | null = null;
+          if (spot) {
+            const diff = summary.average_price_per_gram - spot.price_per_gram;
+            const pct = (Math.abs(diff) / spot.price_per_gram) * 100;
+            if (diff < -0.001) {
+              spotClass = 'spot-below';
+              spotBadge = `${pct.toFixed(1)} % unter Kurs`;
+            } else if (diff > 0.001) {
+              spotClass = 'spot-above';
+              spotBadge = `${pct.toFixed(1)} % über Kurs`;
+            } else {
+              spotBadge = 'Am Kurs';
+            }
+          }
 
           return (
             <div key={summary.metal_type} className={`metal-card ${config.className}`}>
@@ -161,7 +176,7 @@ export const MetalSummaryCards: React.FC = () => {
 
               <div className="metal-card-stats">
                 <div className="stat-row">
-                  <span className="stat-label">Gewicht gesamt:</span>
+                  <span className="stat-label">Bestand:</span>
                   <span className="stat-value primary">
                     {formatWeight(summary.total_weight_g)}
                   </span>
@@ -175,21 +190,31 @@ export const MetalSummaryCards: React.FC = () => {
                 </div>
 
                 <div className="stat-row">
-                  <span className="stat-label">Ø Preis/g:</span>
+                  <span className="stat-label">Ø Einkauf/g:</span>
                   <span className="stat-value">
                     {formatCurrency(summary.average_price_per_gram)}
                   </span>
                 </div>
-              </div>
 
-              <div className="metal-card-usage">
-                <div className="usage-bar-container">
-                  <div
-                    className="usage-bar-fill"
-                    style={{ width: `${usagePercentage}%` }}
-                  />
-                </div>
-                <span className="usage-percentage">{usagePercentage.toFixed(1)}% verbraucht</span>
+                {/* Live spot price row — only rendered when data is available */}
+                {spot && (
+                  <div className="stat-row stat-row--spot">
+                    <span className="stat-label">Aktueller Kurs:</span>
+                    <div className="spot-price-cell">
+                      <span className="stat-value">
+                        {formatCurrency(spot.price_per_gram)}/g
+                      </span>
+                      {spotBadge && (
+                        <span
+                          className={`spot-comparison-badge ${spotClass}`}
+                          title={`Quelle: ${spot.source} · Stand: ${formatDate(spot.updated_at)}`}
+                        >
+                          {spotBadge}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
 
               <div className="metal-card-details">
@@ -201,8 +226,11 @@ export const MetalSummaryCards: React.FC = () => {
                   <div className="detail-item">
                     <span className="detail-icon">📅</span>
                     <span className="detail-text">
-                      {formatDate(summary.oldest_batch_date)} -{' '}
-                      {formatDate(summary.newest_batch_date)}
+                      {formatDate(summary.oldest_batch_date)}
+                      {summary.newest_batch_date &&
+                        summary.newest_batch_date !== summary.oldest_batch_date
+                        ? ` – ${formatDate(summary.newest_batch_date)}`
+                        : ''}
                     </span>
                   </div>
                 )}

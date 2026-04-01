@@ -4,6 +4,8 @@ import { metalInventoryApi } from '../api';
 import { MetalPurchaseListItem, MetalPurchaseType, MetalPurchaseCreateInput, MetalPurchaseUpdateInput, MetalType } from '../types';
 import { MetalSummaryCards } from '../components/metal/MetalSummaryCards';
 import { MetalPurchaseFormModal } from '../components/metal/MetalPurchaseFormModal';
+import { ConsumeMetalModal } from '../components/metal/ConsumeMetalModal';
+import { UsageHistoryPanel } from '../components/metal/UsageHistoryPanel';
 import { useToast, useConfirm } from '../contexts';
 import '../styles/pages.css';
 import '../styles/metal-inventory.css';
@@ -41,6 +43,11 @@ export const MetalInventoryPage: React.FC = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isFormLoading, setIsFormLoading] = useState(false);
   const [selectedPurchase, setSelectedPurchase] = useState<MetalPurchaseListItem | null>(null);
+
+  // Consume modal state
+  const [isConsumeModalOpen, setIsConsumeModalOpen] = useState(false);
+  // Incrementing this value causes UsageHistoryPanel to reload
+  const [usageRefreshKey, setUsageRefreshKey] = useState(0);
 
   // Filters & Sort
   const [searchQuery, setSearchQuery] = useState('');
@@ -237,9 +244,18 @@ export const MetalInventoryPage: React.FC = () => {
             {filteredPurchases.length} Einkäufe • Wert: {formatCurrency(totalValue)}
           </p>
         </div>
-        <button className="btn-primary" onClick={openCreateModal}>
-          + Neuer Einkauf
-        </button>
+        <div className="header-actions">
+          <button
+            className="btn-secondary"
+            onClick={() => setIsConsumeModalOpen(true)}
+            title="Metallverbrauch für einen Auftrag erfassen"
+          >
+            Verbrauch erfassen
+          </button>
+          <button className="btn-primary" onClick={openCreateModal}>
+            + Neuer Einkauf
+          </button>
+        </div>
       </header>
 
       {/* Search and Filters */}
@@ -438,6 +454,9 @@ export const MetalInventoryPage: React.FC = () => {
         </>
       )}
 
+      {/* Usage History */}
+      <UsageHistoryPanel refreshKey={usageRefreshKey} />
+
       {/* Metal Purchase Form Modal */}
       <MetalPurchaseFormModal
         isOpen={isModalOpen}
@@ -445,6 +464,16 @@ export const MetalInventoryPage: React.FC = () => {
         onSubmit={handleFormSubmit}
         purchase={selectedPurchase}
         isLoading={isFormLoading}
+      />
+
+      {/* Consume Metal Modal */}
+      <ConsumeMetalModal
+        isOpen={isConsumeModalOpen}
+        onClose={() => setIsConsumeModalOpen(false)}
+        onSuccess={() => {
+          setUsageRefreshKey((k) => k + 1);
+          showToast('Verbrauch erfolgreich gebucht!', 'success');
+        }}
       />
     </div>
   );
