@@ -2,6 +2,14 @@
 import apiClient from './client';
 import { OrderType, OrderCreateInput, OrderUpdateInput } from '../types';
 
+export interface LocationHistoryEntry {
+  id: number;
+  order_id: number;
+  location: string;
+  timestamp: string;
+  changed_by: number;
+}
+
 export const ordersApi = {
   /**
    * Get all orders with pagination
@@ -58,6 +66,27 @@ export const ordersApi = {
     status: 'new' | 'in_progress' | 'completed' | 'delivered'
   ): Promise<OrderType> => {
     const response = await apiClient.patch<OrderType>(`/orders/${id}/status`, { status });
+    return response.data;
+  },
+
+  /**
+   * Change current location of an order.
+   * Creates a LocationHistory entry and updates order.current_location.
+   */
+  changeLocation: async (orderId: number, location: string): Promise<OrderType> => {
+    const response = await apiClient.post<OrderType>(`/orders/${orderId}/location`, {
+      location,
+    });
+    return response.data;
+  },
+
+  /**
+   * Fetch the full location history of an order.
+   */
+  getLocationHistory: async (orderId: number): Promise<LocationHistoryEntry[]> => {
+    const response = await apiClient.get<LocationHistoryEntry[]>(
+      `/orders/${orderId}/location-history`
+    );
     return response.data;
   },
 };

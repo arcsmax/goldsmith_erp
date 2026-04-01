@@ -267,6 +267,35 @@ class OrderRead(OrderBase):
     model_config = ConfigDict(from_attributes=True)
 
 
+class LocationChangeRequest(BaseModel):
+    """Schema for changing an order's current location."""
+    location: str = Field(
+        ...,
+        min_length=1,
+        max_length=50,
+        description="Target workshop location (e.g. Werkbank 1, Tresor)"
+    )
+
+    @field_validator('location')
+    @classmethod
+    def validate_location(cls, v: str) -> str:
+        v = v.strip()
+        if not v:
+            raise ValueError("Location cannot be empty")
+        return v
+
+
+class LocationHistoryRead(BaseModel):
+    """Schema for a single location history entry."""
+    id: int
+    order_id: int
+    location: str
+    timestamp: datetime
+    changed_by: int
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 # Resolve forward references after all models are defined
 # This allows the CustomerRead forward reference to be properly resolved
 def _resolve_forward_refs():

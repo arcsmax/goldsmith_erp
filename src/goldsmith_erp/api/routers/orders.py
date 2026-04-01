@@ -7,7 +7,7 @@ from datetime import datetime
 from goldsmith_erp.api.deps import get_current_user
 from goldsmith_erp.db.session import get_db
 from goldsmith_erp.db.models import User
-from goldsmith_erp.models.order import OrderCreate, OrderRead, OrderUpdate
+from goldsmith_erp.models.order import OrderCreate, OrderRead, OrderUpdate, LocationChangeRequest, LocationHistoryRead
 from goldsmith_erp.services.order_service import OrderService
 from goldsmith_erp.core.permissions import Permission, require_permission
 
@@ -101,6 +101,37 @@ async def update_order(
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
     return await OrderService.update_order(db, order_id, order_in)
+
+@router.post("/{order_id}/location", response_model=OrderRead)
+@require_permission(Permission.ORDER_EDIT)
+async def change_order_location(
+    order_id: int,
+    location_in: LocationChangeRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Lagerort eines Auftrags ändern und Verlaufseintrag anlegen."""
+    order = await OrderService.change_location(
+        db, order_id, location_in.location, current_user.id
+    )
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    return order
+
+
+@router.get("/{order_id}/location-history", response_model=List[LocationHistoryRead])
+@require_permission(Permission.ORDER_VIEW)
+async def get_order_location_history(
+    order_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Lagerort-Verlauf eines Auftrags abrufen."""
+    order = await OrderService.get_order(db, order_id)
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    return await OrderService.get_location_history(db, order_id)
+
 
 @router.delete("/{order_id}")
 @require_permission(Permission.ORDER_DELETE)

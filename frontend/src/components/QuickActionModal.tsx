@@ -165,7 +165,7 @@ const QuickActionModal: React.FC<QuickActionModalProps> = ({
               </button>
             </div>
             <LocationPicker
-              currentLocation={null}
+              currentLocation={order.current_location ?? null}
               onSelectLocation={handleLocationSelect}
               onCancel={handleBack}
             />

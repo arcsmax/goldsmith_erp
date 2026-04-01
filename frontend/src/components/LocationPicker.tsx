@@ -16,22 +16,23 @@ interface LocationPickerProps {
 
 const LOCATIONS: Location[] = [
   // Workshop (Werkstatt)
-  { id: 'workbench_1', name: 'Werkbank 1', icon: '🔨', category: 'workshop' },
-  { id: 'workbench_2', name: 'Werkbank 2', icon: '🔨', category: 'workshop' },
-  { id: 'workbench_3', name: 'Werkbank 3', icon: '🔨', category: 'workshop' },
-  { id: 'polishing_station', name: 'Polierstation', icon: '✨', category: 'workshop' },
+  { id: 'Werkbank 1', name: 'Werkbank 1', icon: '🔨', category: 'workshop' },
+  { id: 'Werkbank 2', name: 'Werkbank 2', icon: '🔨', category: 'workshop' },
+  { id: 'Werkbank 3', name: 'Werkbank 3', icon: '🔨', category: 'workshop' },
+  { id: 'Polierstation', name: 'Polierstation', icon: '✨', category: 'workshop' },
+  { id: 'Prüfbank', name: 'Prüfbank', icon: '🔬', category: 'workshop' },
 
   // Storage (Lager)
-  { id: 'vault', name: 'Tresor', icon: '🔐', category: 'storage' },
-  { id: 'shelf_1', name: 'Regal 1', icon: '📦', category: 'storage' },
-  { id: 'shelf_2', name: 'Regal 2', icon: '📦', category: 'storage' },
-  { id: 'drawer', name: 'Schublade', icon: '🗄️', category: 'storage' },
+  { id: 'Tresor', name: 'Tresor', icon: '🔐', category: 'storage' },
+  { id: 'Materialregal', name: 'Materialregal', icon: '📦', category: 'storage' },
+  { id: 'Eingang', name: 'Eingang', icon: '📥', category: 'storage' },
+  { id: 'Ausgang', name: 'Ausgang', icon: '📤', category: 'storage' },
 
   // External (Extern)
-  { id: 'electroplating', name: 'Galvanik', icon: '⚡', category: 'external' },
-  { id: 'customer', name: 'Kunde', icon: '👤', category: 'external' },
-  { id: 'shipping', name: 'Versand', icon: '📮', category: 'external' },
-  { id: 'repair', name: 'Reparatur', icon: '🔧', category: 'external' },
+  { id: 'Beim Kunden', name: 'Beim Kunden', icon: '👤', category: 'external' },
+  { id: 'Labor', name: 'Labor', icon: '🧪', category: 'external' },
+  { id: 'Partner-Werkstatt', name: 'Partner-Werkstatt', icon: '🤝', category: 'external' },
+  { id: 'Versand', name: 'Versand', icon: '📮', category: 'external' },
 ];
 
 const CATEGORY_LABELS = {

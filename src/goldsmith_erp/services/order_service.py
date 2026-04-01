@@ -7,7 +7,7 @@ from datetime import datetime
 import json
 import logging
 
-from goldsmith_erp.db.models import Order as OrderModel, Material, Customer, OrderStatusEnum
+from goldsmith_erp.db.models import Order as OrderModel, Material, Customer, OrderStatusEnum, LocationHistory
 from goldsmith_erp.models.order import OrderCreate, OrderUpdate
 from goldsmith_erp.core.pubsub import publish_event  # Import the Redis publish function
 from goldsmith_erp.db.transaction import transactional
@@ -225,6 +225,71 @@ class OrderService:
             logger.error(f"Failed to publish order deletion event: {str(e)}", exc_info=True)
 
         return {"success": True}
+
+    @staticmethod
+    async def change_location(
+        db: AsyncSession,
+        order_id: int,
+        location: str,
+        user_id: int,
+    ) -> Optional[OrderModel]:
+        """
+        Setzt den aktuellen Lagerort eines Auftrags und schreibt einen Verlaufseintrag.
+
+        Both the order update and the LocationHistory insert are committed in a
+        single transaction.  The WebSocket event is published after commit to
+        keep the real-time feed in sync.
+        """
+        order = await OrderService.get_order(db, order_id)
+        if not order:
+            return None
+
+        async with transactional(db):
+            await db.execute(
+                update(OrderModel)
+                .where(OrderModel.id == order_id)
+                .values(current_location=location, updated_at=datetime.utcnow())
+            )
+            history_entry = LocationHistory(
+                order_id=order_id,
+                location=location,
+                changed_by=user_id,
+            )
+            db.add(history_entry)
+            await db.flush()
+
+        updated_order = await OrderService.get_order(db, order_id)
+
+        try:
+            await publish_event(
+                "order_updates",
+                json.dumps({
+                    "action": "location_change",
+                    "order_id": order_id,
+                    "location": location,
+                    "changed_by": user_id,
+                })
+            )
+        except Exception as e:
+            logger.error(
+                f"Failed to publish location change event for order {order_id}: {e}",
+                exc_info=True,
+            )
+
+        return updated_order
+
+    @staticmethod
+    async def get_location_history(
+        db: AsyncSession,
+        order_id: int,
+    ) -> List[LocationHistory]:
+        """Gibt den vollständigen Lagerort-Verlauf eines Auftrags zurück."""
+        result = await db.execute(
+            select(LocationHistory)
+            .where(LocationHistory.order_id == order_id)
+            .order_by(LocationHistory.timestamp.desc())
+        )
+        return result.scalars().all()
 
     @staticmethod
     async def get_orders_with_deadlines(

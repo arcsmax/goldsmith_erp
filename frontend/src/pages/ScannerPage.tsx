@@ -118,9 +118,7 @@ export const ScannerPage: React.FC = () => {
     if (!scannedOrder) return;
 
     try {
-      // TODO: Implement location change API call
-      console.log(`Change location for order #${scannedOrder.id} to ${location}`);
-      // Navigate to order page
+      await ordersApi.changeLocation(scannedOrder.id, location);
       navigate(`/orders/${scannedOrder.id}`);
     } catch (err) {
       console.error('Failed to change location:', err);
