@@ -88,6 +88,20 @@ class Settings(BaseSettings):
             path=f"/{info.data['REDIS_DB']}",
         )
 
+    # ── Connection Pooling ───────────────────────────────────────────────────────
+    DB_POOL_SIZE: int = 5
+    DB_MAX_OVERFLOW: int = 10
+    DB_POOL_TIMEOUT: int = 30
+    DB_POOL_RECYCLE: int = 1800  # 30 minutes — recycle stale connections
+
+    # ── Workshop / Application identity ──────────────────────────────────────────
+    WORKSHOP_NAME: str = "Goldschmiede"
+    APP_VERSION: str = "1.0.0"
+
+    # ── Backup ───────────────────────────────────────────────────────────────────
+    BACKUP_DIR: str = "~/goldsmith-backups"
+    BACKUP_CLOUD_URL: Optional[str] = None
+
     # ── Metal Price Service ──────────────────────────────────────────────────────
     # Optional external API for live spot prices.
     # When unset the service falls back to DB history then hardcoded defaults.
