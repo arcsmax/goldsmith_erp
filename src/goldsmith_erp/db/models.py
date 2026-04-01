@@ -1118,3 +1118,42 @@ class OrderHandoff(Base):
             f"from={self.from_user_id} to={self.to_user_id} "
             f"status={self.status.value}>"
         )
+
+
+class CustomMetalType(Base):
+    """User-defined metal types that extend the built-in MetalType enum.
+
+    Goldsmiths can define workshop-specific alloys (e.g. "Rotgold 333",
+    "Palladium 500", a supplier-specific alloy) that are not covered by the
+    standard 15-value MetalType enum.  The frontend shows built-in and custom
+    types side-by-side in all metal-type dropdowns.
+    """
+    __tablename__ = "custom_metal_types"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    # Machine-readable identifier — must be unique across custom types and must
+    # not collide with any MetalType enum value (e.g. "gold_18k").
+    code = Column(String(50), unique=True, nullable=False, index=True)
+
+    # Human-readable label shown in the UI (e.g. "Roségold 375 (9K)")
+    display_name = Column(String(100), nullable=False)
+
+    # Fine-content ratio: 0.0 – 1.0 (e.g. 0.375 for 9K gold)
+    fine_content_ratio = Column(Float, nullable=False)
+
+    # Base precious metal category for grouping in dropdowns
+    base_metal = Column(String(20), nullable=False)  # "gold", "silver", "platinum", "palladium"
+
+    # Optional hex colour for UI badge rendering (e.g. "#D4A843")
+    color = Column(String(7), nullable=True)
+
+    # Soft-delete flag — deactivated types are hidden from dropdowns but
+    # preserved for historical records (e.g. MetalPurchase rows still referencing them).
+    is_active = Column(Boolean, default=True, nullable=False, index=True)
+
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    def __repr__(self) -> str:
+        return f"<CustomMetalType code={self.code!r} display_name={self.display_name!r}>"

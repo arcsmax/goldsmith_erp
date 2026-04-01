@@ -15,7 +15,7 @@ from goldsmith_erp.core.logging import setup_logging
 from goldsmith_erp.middleware import RequestLoggingMiddleware, RequestMetricsMiddleware
 from goldsmith_erp.middleware.auth_required import AuthRequiredMiddleware
 from goldsmith_erp.middleware.security_headers import SecurityHeadersMiddleware
-from goldsmith_erp.api.routers import auth, orders, users, materials, activities, time_tracking, health, customers, metal_inventory, comments, scrap_gold, calendar, invoices, metal_prices, ml, measurements, analytics, notifications, handoffs, photos
+from goldsmith_erp.api.routers import auth, orders, users, materials, activities, time_tracking, health, customers, metal_inventory, comments, scrap_gold, calendar, invoices, metal_prices, ml, measurements, analytics, notifications, handoffs, photos, metal_types
 from goldsmith_erp.core.pubsub import subscribe_and_forward, publish_event
 from goldsmith_erp.services.system_monitor import system_monitor_loop
 
@@ -119,6 +119,7 @@ app.include_router(notifications.router, prefix=f"{settings.API_V1_STR}/notifica
 app.include_router(analytics.router, prefix=f"{settings.API_V1_STR}", tags=["analytics"])  # Soll/Ist-Vergleich
 app.include_router(handoffs.router, prefix=f"{settings.API_V1_STR}", tags=["handoffs"])  # Stabuebergabe
 app.include_router(photos.router, prefix=f"{settings.API_V1_STR}", tags=["photos"])  # Order photo documentation
+app.include_router(metal_types.router, prefix=f"{settings.API_V1_STR}", tags=["metal-types"])  # Custom metal type management
 
 # WebSocket endpoint with Redis Pub/Sub integration
 @app.websocket("/ws/orders")
