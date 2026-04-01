@@ -962,3 +962,214 @@
     display: none;
   }
 }
+
+/* ============================================================================
+   PRICE CHART
+   ============================================================================ */
+
+.price-chart-container {
+  background: white;
+  border-radius: 12px;
+  padding: 1.25rem 1.5rem;
+  margin-bottom: 2rem;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+.price-chart-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.price-chart-title {
+  margin: 0;
+  font-size: 1.125rem;
+  font-weight: 700;
+  color: #2c3e50;
+}
+
+.price-chart-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.price-chart-label {
+  font-size: 0.85rem;
+  color: #555;
+  white-space: nowrap;
+}
+
+.price-chart-select {
+  padding: 0.3rem 0.6rem;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  color: #2c3e50;
+  background: white;
+  cursor: pointer;
+}
+
+.price-chart-stats {
+  display: flex;
+  gap: 1.5rem;
+  margin-bottom: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.price-chart-stat {
+  display: flex;
+  flex-direction: column;
+}
+
+.price-chart-stat-label {
+  font-size: 0.75rem;
+  color: #6b7280;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.price-chart-stat-value {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: #2c3e50;
+}
+
+.price-chart-stat-value.primary {
+  color: #c9a227; /* gold accent */
+}
+
+.price-chart-stat-value.avg7 {
+  color: #6366f1;
+  font-size: 1rem;
+}
+
+.price-chart-stat-value.avg30 {
+  color: #9ca3af;
+  font-size: 1rem;
+}
+
+.price-chart-svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: visible;
+}
+
+.price-chart-legend {
+  display: flex;
+  gap: 1.25rem;
+  margin-top: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.78rem;
+  color: #6b7280;
+}
+
+.legend-item::before {
+  content: '';
+  display: inline-block;
+  width: 24px;
+  height: 3px;
+  border-radius: 2px;
+}
+
+.legend-item.legend-line::before {
+  background: #c9a227;
+}
+
+.legend-item.legend-avg7::before {
+  background: #6366f1;
+  border-top: 2px dashed #6366f1;
+  background: transparent;
+}
+
+.legend-item.legend-avg30::before {
+  border-top: 2px dashed #9ca3af;
+  background: transparent;
+}
+
+.price-chart-note {
+  font-size: 0.75rem;
+  color: #9ca3af;
+  margin-top: 0.5rem;
+  margin-bottom: 0;
+}
+
+.price-chart-loading,
+.price-chart-error,
+.price-chart-no-data {
+  padding: 2rem;
+  text-align: center;
+  color: #6b7280;
+  font-size: 0.9rem;
+}
+
+.price-chart-error {
+  color: #e74c3c;
+}
+
+/* ============================================================================
+   INVENTORY FORECAST BADGES (used in MetalSummaryCards)
+   ============================================================================ */
+
+.forecast-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  margin-top: 0.4rem;
+  padding: 0.25rem 0.6rem;
+  border-radius: 20px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.forecast-badge.green {
+  background: #d1fae5;
+  color: #065f46;
+}
+
+.forecast-badge.amber {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.forecast-badge.red {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.forecast-badge-wrapper {
+  margin-top: 0.5rem;
+  padding-top: 0.5rem;
+  border-top: 1px dashed rgba(0, 0, 0, 0.08);
+}
+
+.forecast-reorder-overdue {
+  display: block;
+  font-size: 0.72rem;
+  color: #dc2626;
+  font-weight: 600;
+  margin-top: 0.2rem;
+}
+
+@media (max-width: 480px) {
+  .price-chart-stats {
+    gap: 0.75rem;
+  }
+
+  .price-chart-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}

@@ -10,6 +10,7 @@ Runs an async loop every 5 minutes that:
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 from datetime import datetime, timedelta
@@ -20,7 +21,9 @@ from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from goldsmith_erp.core.config import settings
+from goldsmith_erp.core.pubsub import publish_event
 from goldsmith_erp.db.models import (
+    MetalPriceSource,
     Notification,
     NotificationSeverityEnum,
     NotificationTypeEnum,
@@ -28,6 +31,7 @@ from goldsmith_erp.db.models import (
     UserRole,
 )
 from goldsmith_erp.db.session import AsyncSessionLocal
+from goldsmith_erp.services.metal_price_service import MetalPriceService
 from goldsmith_erp.services.notification_service import NotificationService
 from goldsmith_erp.services.system_health_service import SystemHealthService
 
@@ -35,6 +39,12 @@ logger = logging.getLogger(__name__)
 
 # How long to wait between monitoring cycles (seconds)
 MONITOR_INTERVAL_SECONDS: int = 5 * 60  # 5 minutes
+
+# How often metal prices are refreshed (seconds) — independent of health cycle
+PRICE_REFRESH_INTERVAL_SECONDS: int = 15 * 60  # 15 minutes
+
+# Tracks last refresh time; None means never refreshed yet
+_last_price_refresh: Optional[datetime] = None
 
 # How many hours before the same system notification category is repeated
 DEDUP_HOURS: int = 1
@@ -217,6 +227,68 @@ async def _check_state_transition(
     _previous_health_status = current_status
 
 
+async def _refresh_metal_prices(db: AsyncSession) -> None:
+    """
+    Force-refresh metal spot prices, persist to DB history, and publish
+    a Redis event so connected frontends can update live.
+
+    Runs every PRICE_REFRESH_INTERVAL_SECONDS regardless of health status.
+    Failures are logged and swallowed — a price-feed outage must not affect
+    health monitoring or business notification scans.
+    """
+    global _last_price_refresh
+
+    now = datetime.utcnow()
+    if _last_price_refresh is not None:
+        elapsed = (now - _last_price_refresh).total_seconds()
+        if elapsed < PRICE_REFRESH_INTERVAL_SECONDS:
+            return
+
+    try:
+        prices = await MetalPriceService.refresh_cache(db)
+
+        # Extract the three base metal prices for the log line and event payload.
+        from goldsmith_erp.db.models import MetalType  # local import to avoid circulars
+
+        gold_price: Optional[float] = None
+        silver_price: Optional[float] = None
+
+        for metal_type, (price, source, _) in prices.items():
+            if metal_type == MetalType.GOLD_24K:
+                gold_price = price
+            elif metal_type == MetalType.SILVER_999:
+                silver_price = price
+
+        logger.info(
+            "Metal prices refreshed: Gold %.4f EUR/g, Silver %.4f EUR/g",
+            gold_price or 0.0,
+            silver_price or 0.0,
+        )
+
+        # Publish price update event so WebSocket clients can react.
+        event_payload = {
+            "action": "price_refresh",
+            "refreshed_at": now.isoformat(),
+            "prices": {
+                metal.value: {
+                    "price_per_gram_eur": price,
+                    "source": source.value,
+                }
+                for metal, (price, source, _) in prices.items()
+            },
+        }
+        await publish_event("metal_price_updates", json.dumps(event_payload))
+
+        _last_price_refresh = now
+
+    except Exception as exc:
+        logger.error(
+            "Metal price refresh failed",
+            extra={"error": str(exc)},
+            exc_info=True,
+        )
+
+
 async def _run_one_cycle() -> None:
     """Run a single monitoring cycle."""
     async with AsyncSessionLocal() as db:
@@ -235,6 +307,9 @@ async def _run_one_cycle() -> None:
                 extra={"error": str(exc)},
                 exc_info=True,
             )
+
+        # Metal price refresh — runs every 15 minutes, independently of health.
+        await _refresh_metal_prices(db)
 
         # Business-level notification scans — run independently of the system
         # health block so a health-check failure does not suppress business alerts.

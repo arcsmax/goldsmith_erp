@@ -50,3 +50,31 @@ class MetalPriceListResponse(BaseModel):
     count: int = Field(..., description="Number of metal types returned")
 
     model_config = {"from_attributes": True}
+
+
+class MetalPriceHistoryPoint(BaseModel):
+    """Single data point in the price history chart series."""
+
+    fetched_at: datetime = Field(..., description="When this price was recorded")
+    price_per_gram_eur: float = Field(..., description="Spot price in EUR/g at this timestamp")
+    source: MetalPriceSource = Field(..., description="Data source for this point")
+
+    model_config = {"from_attributes": True}
+
+
+class MetalPriceHistoryResponse(BaseModel):
+    """
+    Price history for a single base metal over a requested time window.
+
+    The `points` list is sorted ascending by `fetched_at` so it can be
+    fed directly into a time-series chart without client-side sorting.
+    """
+
+    metal_type: MetalType
+    days: int = Field(..., description="Number of days of history returned")
+    points: List[MetalPriceHistoryPoint]
+    avg_7d: float = Field(..., description="7-day simple moving average, EUR/g")
+    avg_30d: float = Field(..., description="30-day simple moving average, EUR/g")
+    current_price: float = Field(..., description="Most recent recorded price, EUR/g")
+
+    model_config = {"from_attributes": True}

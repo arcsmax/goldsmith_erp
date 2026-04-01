@@ -2,10 +2,32 @@
 // Displays per-metal inventory totals alongside live spot prices from /metal-prices.
 // Color coding: green when average purchase price is below current spot (good deal),
 // red when above spot (purchased above market). Spot price failures degrade gracefully.
+// Also shows AI-powered depletion forecast badges below each card.
 import React, { useEffect, useState } from 'react';
+import apiClient from '../../api/client';
 import { metalInventoryApi } from '../../api';
 import { MetalInventorySummary, InventoryStatistics, MetalPriceResponse, MetalType } from '../../types';
 import '../../styles/metal-inventory.css';
+
+interface ForecastItem {
+  metal_type: MetalType;
+  remaining_stock_g: number;
+  weekly_consumption_g: number;
+  depletion_date: string | null;
+  weeks_until_depletion: number | null;
+  reorder_by: string | null;
+  reorder_is_overdue: boolean;
+  reorder_message: string;
+  confidence: string;
+  confidence_note: string;
+}
+
+interface ForecastResponse {
+  forecasts: ForecastItem[];
+  generated_at: string;
+  lookback_days: number;
+  lead_time_days: number;
+}
 
 interface MetalConfig {
   label: string;
@@ -37,6 +59,8 @@ export const MetalSummaryCards: React.FC = () => {
   const [statistics, setStatistics] = useState<InventoryStatistics | null>(null);
   // Spot prices keyed by metal_type string value
   const [spotPrices, setSpotPrices] = useState<Record<string, MetalPriceResponse>>({});
+  // Forecast keyed by metal_type string value
+  const [forecasts, setForecasts] = useState<Record<string, ForecastItem>>({});
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -49,11 +73,12 @@ export const MetalSummaryCards: React.FC = () => {
       setIsLoading(true);
       setError(null);
 
-      // Fetch inventory statistics and spot prices in parallel.
-      // Spot price failure does not block the inventory view.
-      const [statsResult, spotResult] = await Promise.allSettled([
+      // Fetch inventory statistics, spot prices, and forecasts in parallel.
+      // Spot price and forecast failures do not block the inventory view.
+      const [statsResult, spotResult, forecastResult] = await Promise.allSettled([
         metalInventoryApi.getStatistics(),
         metalInventoryApi.getSpotPrices(),
+        apiClient.get<ForecastResponse>('/metal-inventory/forecast'),
       ]);
 
       if (statsResult.status === 'fulfilled') {
@@ -74,6 +99,15 @@ export const MetalSummaryCards: React.FC = () => {
         setSpotPrices(priceMap);
       }
       // Spot price failures are intentionally silent — partial data is acceptable.
+
+      if (forecastResult.status === 'fulfilled') {
+        const forecastMap: Record<string, ForecastItem> = {};
+        for (const item of forecastResult.value.data.forecasts) {
+          forecastMap[item.metal_type] = item;
+        }
+        setForecasts(forecastMap);
+      }
+      // Forecast failures are silent — the cards still render without the badge.
     } catch (err: any) {
       setError(err.message || 'Fehler beim Laden der Zusammenfassung');
     } finally {
@@ -83,6 +117,38 @@ export const MetalSummaryCards: React.FC = () => {
 
   const formatCurrency = (amount: number): string =>
     new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR' }).format(amount);
+
+  /**
+   * Returns the CSS class and label for the depletion forecast badge.
+   * Color coding: green > 4 weeks, amber 2–4 weeks, red < 2 weeks or overdue.
+   */
+  const getForecastBadgeProps = (
+    forecast: ForecastItem
+  ): { className: string; label: string } => {
+    if (forecast.reorder_is_overdue) {
+      return { className: 'red', label: 'Nachbestellung uberfaellig' };
+    }
+    if (forecast.weeks_until_depletion === null) {
+      return { className: 'green', label: 'Kein Verbrauch erfasst' };
+    }
+    const weeks = forecast.weeks_until_depletion;
+    if (weeks < 2) {
+      return {
+        className: 'red',
+        label: `Aufgebraucht in ${weeks.toFixed(1)} Wochen`,
+      };
+    }
+    if (weeks <= 4) {
+      return {
+        className: 'amber',
+        label: `Aufgebraucht in ${weeks.toFixed(1)} Wochen`,
+      };
+    }
+    return {
+      className: 'green',
+      label: `Aufgebraucht in ${weeks.toFixed(1)} Wochen`,
+    };
+  };
 
   const formatWeight = (grams: number): string => {
     if (grams >= 1000) return `${(grams / 1000).toFixed(2)} kg`;
@@ -164,6 +230,9 @@ export const MetalSummaryCards: React.FC = () => {
             }
           }
 
+          const forecast = forecasts[summary.metal_type] ?? null;
+          const forecastBadge = forecast ? getForecastBadgeProps(forecast) : null;
+
           return (
             <div key={summary.metal_type} className={`metal-card ${config.className}`}>
               <div className="metal-card-header">
@@ -235,6 +304,31 @@ export const MetalSummaryCards: React.FC = () => {
                   </div>
                 )}
               </div>
+
+              {/* Forecast depletion badge */}
+              {forecastBadge && (
+                <div className="forecast-badge-wrapper">
+                  <span
+                    className={`forecast-badge ${forecastBadge.className}`}
+                    title={forecast?.confidence_note}
+                  >
+                    {forecastBadge.label}
+                  </span>
+                  {forecast?.depletion_date && (
+                    <span
+                      className="stat-label"
+                      style={{ display: 'block', fontSize: '0.72rem', marginTop: '0.2rem' }}
+                    >
+                      Voraussichtlich aufgebraucht: {formatDate(forecast.depletion_date)}
+                    </span>
+                  )}
+                  {forecast?.reorder_is_overdue && (
+                    <span className="forecast-reorder-overdue">
+                      Sofort nachbestellen!
+                    </span>
+                  )}
+                </div>
+              )}
             </div>
           );
         })}

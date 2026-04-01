@@ -3,6 +3,7 @@ import React, { useEffect, useState } from 'react';
 import { metalInventoryApi } from '../api';
 import { MetalPurchaseListItem, MetalPurchaseType, MetalPurchaseCreateInput, MetalPurchaseUpdateInput, MetalType } from '../types';
 import { MetalSummaryCards } from '../components/metal/MetalSummaryCards';
+import { PriceChart } from '../components/metal/PriceChart';
 import { MetalPurchaseFormModal } from '../components/metal/MetalPurchaseFormModal';
 import { MetalTypeManager } from '../components/metal/MetalTypeManager';
 import { ConsumeMetalModal } from '../components/metal/ConsumeMetalModal';
@@ -241,6 +242,9 @@ export const MetalInventoryPage: React.FC = () => {
     <div className="page-container">
       {/* Summary Cards */}
       <MetalSummaryCards />
+
+      {/* Price History Chart */}
+      <PriceChart />
 
       {/* Page Header */}
       <header className="page-header">
