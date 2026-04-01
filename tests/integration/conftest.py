@@ -87,9 +87,22 @@ async def create_tables():
 
 @pytest_asyncio.fixture
 async def db_session() -> AsyncGenerator[AsyncSession, None]:
-    """Database session for a single test."""
+    """
+    Database session for a single test.
+
+    Yields a session and then truncates all tables after each test so that
+    committed rows do not leak between tests.
+    """
     async with TestSessionLocal() as session:
         yield session
+        await session.rollback()
+
+    # Wipe all rows after each test so the next test starts with an empty DB.
+    # This runs outside the session to ensure it executes even if the test fails.
+    async with TestSessionLocal() as cleanup:
+        for table in reversed(Base.metadata.sorted_tables):
+            await cleanup.execute(table.delete())
+        await cleanup.commit()
 
 
 # ---------------------------------------------------------------------------

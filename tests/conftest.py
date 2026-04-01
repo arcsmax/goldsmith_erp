@@ -104,6 +104,21 @@ def mock_publish_event(monkeypatch):
     monkeypatch.setattr("goldsmith_erp.services.order_service.publish_event", _noop)
 
 
+@pytest.fixture(autouse=True)
+def reset_rate_limiters():
+    """
+    Reset slowapi in-memory rate-limit counters before every test.
+
+    Each test gets a clean rate-limit slate so that the 5/minute cap on
+    /login/access-token is never reached by the cumulative traffic of
+    earlier tests in the suite.
+    """
+    from goldsmith_erp.api.routers.auth import limiter as auth_limiter
+    auth_limiter.reset()
+    yield
+    auth_limiter.reset()
+
+
 @pytest_asyncio.fixture
 async def client(db_session: AsyncSession):
     """HTTP client for API testing backed by the SQLite test database."""
