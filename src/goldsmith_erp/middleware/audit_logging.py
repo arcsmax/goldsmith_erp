@@ -15,6 +15,7 @@ Author: Claude AI
 Date: 2025-11-06
 """
 
+import ipaddress
 import logging
 import time
 import json
@@ -36,6 +37,38 @@ except ImportError:
     CustomerAuditLog = None  # type: ignore[assignment,misc]
 
 logger = logging.getLogger(__name__)
+
+
+def _is_trusted_proxy_ip(ip: str) -> bool:
+    """Return True if *ip* is a loopback or RFC-1918 private address."""
+    try:
+        addr = ipaddress.ip_address(ip)
+        return addr.is_loopback or addr.is_private
+    except ValueError:
+        return False
+
+
+def get_real_ip(request: Request) -> str:
+    """
+    Return the real client IP address.
+
+    X-Forwarded-For is only trusted when the direct TCP peer
+    (request.client.host) is a loopback or private-network address,
+    i.e. a known-good reverse proxy.  Untrusted clients that inject
+    X-Forwarded-For are ignored and their direct IP is used instead.
+    """
+    direct_ip = request.client.host if request.client else None
+
+    if direct_ip and _is_trusted_proxy_ip(direct_ip):
+        forwarded_for = request.headers.get("X-Forwarded-For")
+        if forwarded_for:
+            return forwarded_for.split(",")[0].strip()
+
+        real_ip = request.headers.get("X-Real-IP")
+        if real_ip:
+            return real_ip
+
+    return direct_ip or "unknown"
 
 
 class AuditLoggingMiddleware(BaseHTTPMiddleware):
@@ -121,10 +154,10 @@ class AuditLoggingMiddleware(BaseHTTPMiddleware):
                 # Don't fail the request if logging fails
                 logger.error(f"Failed to log audit entry: {e}")
 
-        # Log to application log for monitoring
+        # Log to application log for monitoring — user_email omitted (PII).
         logger.info(
             f"Customer data access: {method} {request.url.path} | "
-            f"User: {user_email or 'anonymous'} | "
+            f"User ID: {user_id or 'anonymous'} | "
             f"IP: {client_ip} | "
             f"Status: {response.status_code} | "
             f"Duration: {duration_ms:.2f}ms"
@@ -176,7 +209,7 @@ class AuditLoggingMiddleware(BaseHTTPMiddleware):
 
     def _get_client_ip(self, request: Request) -> str:
         """
-        Get client IP address, handling proxies.
+        Get client IP address, validating proxy headers against the direct peer.
 
         Args:
             request: HTTP request
@@ -184,22 +217,7 @@ class AuditLoggingMiddleware(BaseHTTPMiddleware):
         Returns:
             Client IP address
         """
-        # Check for forwarded IP (behind proxy)
-        forwarded_for = request.headers.get("X-Forwarded-For")
-        if forwarded_for:
-            # Take the first IP if multiple
-            return forwarded_for.split(",")[0].strip()
-
-        # Check for real IP header
-        real_ip = request.headers.get("X-Real-IP")
-        if real_ip:
-            return real_ip
-
-        # Fall back to direct client
-        if request.client:
-            return request.client.host
-
-        return "unknown"
+        return get_real_ip(request)
 
     def _method_to_action(self, method: str) -> str:
         """
@@ -328,19 +346,8 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
         return response
 
     def _get_client_ip(self, request: Request) -> str:
-        """Get client IP address."""
-        forwarded_for = request.headers.get("X-Forwarded-For")
-        if forwarded_for:
-            return forwarded_for.split(",")[0].strip()
-
-        real_ip = request.headers.get("X-Real-IP")
-        if real_ip:
-            return real_ip
-
-        if request.client:
-            return request.client.host
-
-        return "unknown"
+        """Get client IP address, validating proxy headers against the direct peer."""
+        return get_real_ip(request)
 
 
 # ═══════════════════════════════════════════════════════════════════════════

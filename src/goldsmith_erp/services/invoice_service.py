@@ -45,15 +45,17 @@ def _log_financial_access(
     action: str,
     invoice_id: Optional[int],
     user_id: int,
-    user_email: str,
     user_role: str,
     extra: Optional[dict] = None,
 ) -> None:
     """
     Structured audit log for financial data access.
 
-    All invoice operations are recorded with WHO (user), WHAT (invoice_id),
+    All invoice operations are recorded with WHO (user_id), WHAT (invoice_id),
     WHEN (timestamp), and HOW (action) to satisfy CLAUDE.md financial audit requirements.
+
+    user_email is intentionally excluded — PII must not appear in log messages
+    (CLAUDE.md: "NEVER log customer PII in plaintext").
     """
     logger.info(
         "Financial data access",
@@ -63,7 +65,6 @@ def _log_financial_access(
             "entity": "invoice",
             "invoice_id": invoice_id,
             "user_id": user_id,
-            "user_email": user_email,
             "user_role": user_role,
             "timestamp": datetime.utcnow().isoformat(),
             **(extra or {}),
@@ -331,7 +332,6 @@ class InvoiceService:
             action="created",
             invoice_id=db_invoice.id,
             user_id=current_user.id,
-            user_email=current_user.email,
             user_role=current_user.role.value if hasattr(current_user.role, "value") else str(current_user.role),
             extra={"invoice_number": invoice_number, "total": totals["total"]},
         )
@@ -411,7 +411,6 @@ class InvoiceService:
             action="listed",
             invoice_id=None,
             user_id=current_user.id,
-            user_email=current_user.email,
             user_role=current_user.role.value if hasattr(current_user.role, "value") else str(current_user.role),
             extra={"filters": {"status": status, "customer_id": customer_id}, "result_count": len(items)},
         )
@@ -457,7 +456,6 @@ class InvoiceService:
             action="updated",
             invoice_id=invoice_id,
             user_id=current_user.id,
-            user_email=current_user.email,
             user_role=current_user.role.value if hasattr(current_user.role, "value") else str(current_user.role),
             extra={"updated_fields": list(update_data.keys())},
         )
@@ -505,7 +503,6 @@ class InvoiceService:
             action="marked_paid",
             invoice_id=invoice_id,
             user_id=current_user.id,
-            user_email=current_user.email,
             user_role=current_user.role.value if hasattr(current_user.role, "value") else str(current_user.role),
             extra={"paid_date": paid_at.isoformat(), "payment_method": request.payment_method},
         )
@@ -550,7 +547,6 @@ class InvoiceService:
             action="cancelled",
             invoice_id=invoice_id,
             user_id=current_user.id,
-            user_email=current_user.email,
             user_role=current_user.role.value if hasattr(current_user.role, "value") else str(current_user.role),
         )
 
