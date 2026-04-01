@@ -29,6 +29,8 @@ from goldsmith_erp.db.models import (
     Order as OrderModel,
     Customer as CustomerModel,
     User as UserModel,
+    ScrapGold as ScrapGoldModel,
+    ScrapGoldStatus,
 )
 from goldsmith_erp.db.transaction import transactional
 from goldsmith_erp.models.invoice import (
@@ -224,6 +226,59 @@ class InvoiceService:
         return items
 
     # -------------------------------------------------------------------------
+    # Scrap gold credit
+    # -------------------------------------------------------------------------
+
+    @staticmethod
+    async def _get_scrap_gold_credit(
+        db: AsyncSession,
+        order_id: int,
+    ) -> Optional[ScrapGoldModel]:
+        """
+        Return the ScrapGold record for this order if it is in a state that
+        qualifies for a credit line on the invoice (SIGNED or CREDITED).
+
+        CREDITED is included so that idempotent re-generation of a cancelled
+        invoice does not silently drop an already-applied credit.
+        """
+        result = await db.execute(
+            select(ScrapGoldModel).where(
+                ScrapGoldModel.order_id == order_id,
+                ScrapGoldModel.status.in_(
+                    [ScrapGoldStatus.SIGNED, ScrapGoldStatus.CREDITED]
+                ),
+            )
+        )
+        return result.scalar_one_or_none()
+
+    @staticmethod
+    def _build_scrap_gold_line_item(
+        scrap_gold: ScrapGoldModel,
+    ) -> InvoiceLineItemCreate:
+        """
+        Build a negative (credit) line item for scrap gold handed in by the
+        customer.
+
+        The description follows the German jewellery trade convention:
+        "Gutschrift Altgold (Xg Feingold)"
+
+        unit_price is negative so that the line item reduces the invoice total.
+        total_value_eur must be > 0 for the credit to be meaningful; if the
+        value was never calculated the credit is 0.00 EUR (edge case, but safe).
+        """
+        fine_gold_g = scrap_gold.total_fine_gold_g or 0.0
+        value_eur = scrap_gold.total_value_eur or 0.0
+
+        description = f"Gutschrift Altgold ({fine_gold_g:.3f}g Feingold)"
+
+        return InvoiceLineItemCreate(
+            line_type=InvoiceLineType.OTHER,
+            description=description,
+            quantity=1.0,
+            unit_price=round(-value_eur, 2),
+        )
+
+    # -------------------------------------------------------------------------
     # CRUD
     # -------------------------------------------------------------------------
 
@@ -290,6 +345,23 @@ class InvoiceService:
 
         # Build line items
         auto_items = InvoiceService._build_line_items_from_order(order)
+
+        # Scrap gold credit (Gutschrift Altgold) — must be queried before the
+        # transaction opens so we can decide whether to append the credit item.
+        scrap_gold = await InvoiceService._get_scrap_gold_credit(db, invoice_in.order_id)
+        if scrap_gold is not None:
+            auto_items.append(InvoiceService._build_scrap_gold_line_item(scrap_gold))
+            logger.info(
+                "Scrap gold credit applied to invoice",
+                extra={
+                    "audit": True,
+                    "entity": "scrap_gold",
+                    "scrap_gold_id": scrap_gold.id,
+                    "order_id": invoice_in.order_id,
+                    "credit_eur": scrap_gold.total_value_eur,
+                },
+            )
+
         all_line_items = auto_items + (invoice_in.additional_line_items or [])
 
         # Calculate totals
@@ -326,6 +398,12 @@ class InvoiceService:
                     total=round(item.quantity * item.unit_price, 2),
                 )
                 db.add(db_line)
+
+            # Transition scrap gold status to CREDITED atomically with the
+            # invoice creation so the two records are always consistent.
+            if scrap_gold is not None and scrap_gold.status != ScrapGoldStatus.CREDITED:
+                scrap_gold.status = ScrapGoldStatus.CREDITED
+                db.add(scrap_gold)
 
         # Audit log AFTER successful commit
         _log_financial_access(
