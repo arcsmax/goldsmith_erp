@@ -7,7 +7,7 @@ from datetime import datetime
 import json
 import logging
 
-from goldsmith_erp.db.models import Order as OrderModel, Material, Customer, OrderStatusEnum, LocationHistory
+from goldsmith_erp.db.models import Order as OrderModel, Material, Customer, OrderStatusEnum, LocationHistory, TimeEntry
 from goldsmith_erp.models.order import OrderCreate, OrderUpdate
 from goldsmith_erp.core.pubsub import publish_event  # Import the Redis publish function
 from goldsmith_erp.db.transaction import transactional
@@ -15,6 +15,43 @@ from goldsmith_erp.db.transaction import transactional
 logger = logging.getLogger(__name__)
 
 class OrderService:
+
+    @staticmethod
+    def validate_for_confirmation(order: OrderModel) -> List[str]:
+        """
+        Prueft ob alle Pflichtfelder fuer eine Auftragsbestaetigung ausgefuellt sind.
+
+        Returns a list of human-readable field names that are missing.
+        An empty list means the order is ready for confirmation.
+
+        Required for all orders:
+          - customer_id (structural FK — always set)
+          - title
+          - metal_type
+          - alloy
+          - deadline
+
+        Conditionally required:
+          - ring_size_mm  when order_type contains 'ring'
+        """
+        missing: List[str] = []
+
+        if not order.title or not order.title.strip():
+            missing.append("Bezeichnung")
+        if not order.metal_type:
+            missing.append("Metallart")
+        if not order.alloy:
+            missing.append("Legierung")
+        if not order.deadline:
+            missing.append("Abgabetermin")
+
+        # Ring-specific check
+        order_type_str = order.order_type or ""
+        if "ring" in order_type_str.lower() and not order.ring_size_mm:
+            missing.append("Ringmass")
+
+        return missing
+
     @staticmethod
     async def get_orders(db: AsyncSession, skip: int = 0, limit: int = 100) -> List[OrderModel]:
         """
@@ -29,6 +66,7 @@ class OrderService:
                 selectinload(OrderModel.customer),
                 selectinload(OrderModel.gemstones),  # FIXED: Added gemstones
             )
+            .where(OrderModel.is_deleted == False)  # noqa: E712 — SQLAlchemy requires == not is
             .order_by(OrderModel.created_at.desc())
             .offset(skip)
             .limit(limit)
@@ -49,7 +87,7 @@ class OrderService:
                 selectinload(OrderModel.customer),
                 selectinload(OrderModel.gemstones),  # FIXED: Added gemstones
             )
-            .filter(OrderModel.id == order_id)
+            .filter(OrderModel.id == order_id, OrderModel.is_deleted == False)  # noqa: E712
         )
         return result.scalar_one_or_none()
     
@@ -142,9 +180,27 @@ class OrderService:
         if order_in.costing_method is not None:
             update_data["costing_method_used"] = order_in.costing_method
 
+        # Guard: status transition to CONFIRMED requires all Pflichtfelder
+        new_status = update_data.get("status")
+        if new_status == OrderStatusEnum.CONFIRMED:
+            # Merge pending update data with current order state for validation
+            # (the update may itself supply the missing fields)
+            class _MergedOrder:
+                """Lightweight proxy that overlays update_data onto the current order."""
+                def __getattr__(self, name: str):
+                    if name in update_data:
+                        return update_data[name]
+                    return getattr(order, name)
+
+            merged = _MergedOrder()
+            missing = OrderService.validate_for_confirmation(merged)  # type: ignore[arg-type]
+            if missing:
+                raise ValueError(
+                    f"Pflichtfelder nicht ausgefuellt: {', '.join(missing)}"
+                )
+
         # Detect completion transition: only set completed_at once (idempotent)
         _completion_statuses = {OrderStatusEnum.COMPLETED, OrderStatusEnum.DELIVERED}
-        new_status = update_data.get("status")
         is_completing = (
             new_status in _completion_statuses
             and order.status not in _completion_statuses
@@ -198,20 +254,71 @@ class OrderService:
     @staticmethod
     async def delete_order(db: AsyncSession, order_id: int) -> Dict[str, Any]:
         """
-        Löscht einen Auftrag mit transaktionaler Integrität.
+        Soft-loescht einen Auftrag (setzt is_deleted=True, deleted_at=utcnow).
 
-        All database operations are wrapped in a transaction to ensure ACID properties.
+        Hard delete is intentionally avoided — financial audit trail must be
+        preserved.  GDPR erasure requests are handled separately via the
+        customer anonymisation workflow.
+
+        Deletion is blocked when:
+          - The order has open (non-completed) time entries — the goldsmith is
+            still actively working on it.
+          - The order has invoices in status other than CANCELLED — altering the
+            financial record would break the Rechnungsprufung audit trail.
+
+        Returns:
+            {"success": True}  on success
+            {"success": False, "message": "..."}  when blocked
         """
-        # Get order information before deletion for the event
         order = await OrderService.get_order(db, order_id)
         if not order:
-            return {"success": False, "message": "Order not found"}
+            return {"success": False, "message": "Auftrag nicht gefunden"}
+
+        if order.is_deleted:
+            return {"success": False, "message": "Auftrag wurde bereits geloescht"}
+
+        # Block if open time entries exist
+        time_entry_result = await db.execute(
+            select(TimeEntry)
+            .where(
+                TimeEntry.order_id == order_id,
+                TimeEntry.end_time.is_(None),
+            )
+            .limit(1)
+        )
+        open_time_entry = time_entry_result.scalar_one_or_none()
+        if open_time_entry is not None:
+            return {
+                "success": False,
+                "message": "Auftrag kann nicht geloescht werden: offene Zeiterfassungen vorhanden",
+            }
+
+        # Block if non-cancelled invoices exist (import inline to avoid circular deps)
+        try:
+            from goldsmith_erp.db.models import Invoice, InvoiceStatus  # noqa: PLC0415
+            invoice_result = await db.execute(
+                select(Invoice)
+                .where(
+                    Invoice.order_id == order_id,
+                    Invoice.status != InvoiceStatus.CANCELLED,
+                )
+                .limit(1)
+            )
+            active_invoice = invoice_result.scalar_one_or_none()
+            if active_invoice is not None:
+                return {
+                    "success": False,
+                    "message": "Auftrag kann nicht geloescht werden: aktive Rechnung vorhanden",
+                }
+        except Exception:
+            # Invoice model may not exist in all deployments — skip the check
+            pass
 
         async with transactional(db):
-            # Delete the order
             await db.execute(
-                delete(OrderModel)
+                update(OrderModel)
                 .where(OrderModel.id == order_id)
+                .values(is_deleted=True, deleted_at=datetime.utcnow())
             )
 
         # Publish event to Redis AFTER successful transaction commit
@@ -221,11 +328,10 @@ class OrderService:
                 json.dumps({
                     "action": "delete",
                     "order_id": order_id,
-                    "message": f"Order {order_id} has been deleted"
+                    "message": f"Auftrag {order_id} wurde geloescht",
                 })
             )
         except Exception as e:
-            # Log but don't fail the request if event publishing fails
             logger.error(f"Failed to publish order deletion event: {str(e)}", exc_info=True)
 
         return {"success": True}
