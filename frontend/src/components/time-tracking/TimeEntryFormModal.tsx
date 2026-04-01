@@ -98,7 +98,7 @@ export const TimeEntryFormModal: React.FC<TimeEntryFormModalProps> = ({
 
   const fetchOrders = async () => {
     try {
-      const data = await ordersApi.getAll({ limit: 1000 });
+      const data = await ordersApi.getAll({ limit: 100 }); // dropdown — 100 is ample for picker UI
       const ordersList = Array.isArray(data) ? data : data.items || [];
       setOrders(ordersList);
     } catch (err: any) {

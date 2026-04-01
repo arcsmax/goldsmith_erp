@@ -182,7 +182,7 @@ export const OrderFormModal: React.FC<OrderFormModalProps> = ({
   const fetchCustomers = async () => {
     try {
       setIsLoadingCustomers(true);
-      const data = await customersApi.getAll({ limit: 1000 });
+      const data = await customersApi.getAll({ limit: 100 }); // dropdown — 100 is ample for picker UI
       setCustomers(Array.isArray(data) ? data : data.items || []);
     } catch (err) {
       console.error('Failed to fetch customers', err);

@@ -64,7 +64,7 @@ export const AlertsWidget: React.FC = () => {
 
       // Fetch overdue orders
       try {
-        const orders = await ordersApi.getAll({ limit: 1000 });
+        const orders = await ordersApi.getAll({ limit: 100 }); // reasonable page size for workshop scale
         const ordersList = Array.isArray(orders) ? orders : orders.items || [];
         const now = new Date();
         const overdueOrders = ordersList.filter((o) => {

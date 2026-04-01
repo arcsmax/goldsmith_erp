@@ -40,7 +40,7 @@ export const TimeTrackingPage: React.FC = () => {
     try {
       setIsLoading(true);
       setError(null);
-      const data = await timeTrackingApi.getAll({ limit: 1000 });
+      const data = await timeTrackingApi.getAll({ limit: 100 }); // first page — server-side pagination
       setEntries(data);
     } catch (err: any) {
       setError(err.response?.data?.detail || 'Fehler beim Laden der Zeiteinträge');

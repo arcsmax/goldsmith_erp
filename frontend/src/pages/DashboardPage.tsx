@@ -201,7 +201,7 @@ const GoldsmithDashboard: React.FC = () => {
     setIsLoading(true);
     try {
       const [ordersData, handoffResp] = await Promise.all([
-        ordersApi.getAll({ limit: 1000 }),
+        ordersApi.getAll({ limit: 100 }), // reasonable page size for workshop scale
         handoffsApi.getPending().catch(() => ({ data: [] })),
       ]);
       const ordersList = Array.isArray(ordersData) ? ordersData : ordersData.items || [];
@@ -445,7 +445,7 @@ const AdminDashboard: React.FC = () => {
   const fetchNewOrders = useCallback(async () => {
     try {
       setIsLoading(true);
-      const ordersData = await ordersApi.getAll({ limit: 1000 });
+      const ordersData = await ordersApi.getAll({ limit: 100 }); // reasonable page size for workshop scale
       const ordersList = Array.isArray(ordersData) ? ordersData : ordersData.items || [];
       const filtered = ordersList.filter((o) => o.status === 'new');
       setNewOrders(filtered);
@@ -563,7 +563,7 @@ const ViewerDashboard: React.FC = () => {
   const fetchStats = useCallback(async () => {
     try {
       setIsLoading(true);
-      const ordersData = await ordersApi.getAll({ limit: 1000 });
+      const ordersData = await ordersApi.getAll({ limit: 100 }); // reasonable page size for workshop scale
       const ordersList = Array.isArray(ordersData) ? ordersData : ordersData.items || [];
 
       setOrderStats({

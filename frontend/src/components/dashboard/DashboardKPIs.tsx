@@ -28,7 +28,7 @@ export const DashboardKPIs: React.FC = () => {
 
       // Fetch all data in parallel
       const [ordersData, inventoryData, timeData] = await Promise.all([
-        ordersApi.getAll({ limit: 1000 }),
+        ordersApi.getAll({ limit: 100 }), // reasonable page size for workshop scale
         metalInventoryApi.getTotalValue(),
         timeTrackingApi.getSummary({
           start_date: getWeekStart().toISOString().split('T')[0],

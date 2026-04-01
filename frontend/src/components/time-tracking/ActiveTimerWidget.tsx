@@ -47,7 +47,7 @@ export const ActiveTimerWidget: React.FC = () => {
 
   const fetchOrders = async () => {
     try {
-      const data = await ordersApi.getAll({ limit: 1000 });
+      const data = await ordersApi.getAll({ limit: 100 }); // dropdown — pre-filtered to active orders below
       const ordersList = Array.isArray(data) ? data : data.items || [];
       // Filter for active orders only
       const activeOrders = ordersList.filter(
