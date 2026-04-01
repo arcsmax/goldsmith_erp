@@ -343,6 +343,48 @@ export interface AuthContextType {
 
 export type MetalType = 'gold_24k' | 'gold_22k' | 'gold_18k' | 'gold_14k' | 'gold_9k' | 'silver_999' | 'silver_925' | 'silver_800' | 'platinum_950' | 'platinum_900' | 'palladium' | 'white_gold_18k' | 'white_gold_14k' | 'rose_gold_18k' | 'rose_gold_14k';
 
+// ==================== CUSTOM METAL TYPES ====================
+
+/** Unified dropdown entry: one item for built-in types, one for custom DB rows. */
+export interface MetalTypeOption {
+  code: string;
+  display_name: string;
+  fine_content_ratio: number;
+  base_metal: string;
+  color?: string | null;
+  is_builtin: boolean;
+  /** Only set for custom types */
+  id?: number | null;
+}
+
+export interface CustomMetalTypeCreate {
+  code: string;
+  display_name: string;
+  fine_content_ratio: number;
+  base_metal: string;
+  color?: string | null;
+}
+
+export interface CustomMetalTypeUpdate {
+  display_name?: string;
+  fine_content_ratio?: number;
+  base_metal?: string;
+  color?: string | null;
+  is_active?: boolean;
+}
+
+export interface CustomMetalTypeRead {
+  id: number;
+  code: string;
+  display_name: string;
+  fine_content_ratio: number;
+  base_metal: string;
+  color?: string | null;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface MetalPurchaseType {
   id: number;
   date_purchased: string;

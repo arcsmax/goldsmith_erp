@@ -1,5 +1,6 @@
 // Alloy Calculator Widget - Calculates fine gold content from alloy and weight
 import React, { useState, useMemo } from 'react';
+import { useMetalTypes } from '../../hooks/useMetalTypes';
 
 export interface AlloyOption {
   value: number;
@@ -27,9 +28,35 @@ export const AlloyCalculator: React.FC<AlloyCalculatorProps> = ({
   onAddItem,
   isDisabled = false,
 }) => {
+  const { groupedMetalTypes, isLoading: isLoadingMetalTypes } = useMetalTypes();
+
   const [selectedAlloy, setSelectedAlloy] = useState<number>(585);
   const [weightG, setWeightG] = useState<string>('');
   const [description, setDescription] = useState<string>('');
+
+  // Build the full option list from the API (converted to permille integers)
+  // plus any custom types, merged with the static fallback.
+  const dynamicOptions: AlloyOption[] = useMemo(() => {
+    if (isLoadingMetalTypes || Object.keys(groupedMetalTypes).length === 0) {
+      return ALLOY_OPTIONS;
+    }
+    const result: AlloyOption[] = [];
+    for (const [base, types] of Object.entries(groupedMetalTypes)) {
+      const metalType: 'gold' | 'silver' | 'platinum' =
+        base === 'silver' ? 'silver' : base === 'platinum' || base === 'palladium' ? 'platinum' : 'gold';
+      for (const t of types) {
+        const permille = Math.round(t.fine_content_ratio * 1000);
+        result.push({ value: permille, label: t.display_name, metalType });
+      }
+    }
+    // Deduplicate by value — keep first occurrence (built-ins take priority)
+    const seen = new Set<number>();
+    return result.filter((o) => {
+      if (seen.has(o.value)) return false;
+      seen.add(o.value);
+      return true;
+    });
+  }, [groupedMetalTypes, isLoadingMetalTypes]);
 
   const fineContent = useMemo(() => {
     const weight = parseFloat(weightG);
@@ -42,8 +69,9 @@ export const AlloyCalculator: React.FC<AlloyCalculatorProps> = ({
   }, [selectedAlloy]);
 
   const selectedOption = useMemo(() => {
-    return ALLOY_OPTIONS.find((opt) => opt.value === selectedAlloy);
-  }, [selectedAlloy]);
+    return dynamicOptions.find((opt) => opt.value === selectedAlloy)
+      ?? ALLOY_OPTIONS.find((opt) => opt.value === selectedAlloy);
+  }, [dynamicOptions, selectedAlloy]);
 
   const getFineLabel = (): string => {
     const metalType = selectedOption?.metalType;
@@ -65,6 +93,10 @@ export const AlloyCalculator: React.FC<AlloyCalculatorProps> = ({
   };
 
   const canAdd = description.trim().length > 0 && fineContent !== null && fineContent > 0;
+
+  const goldOptions = dynamicOptions.filter((o) => o.metalType === 'gold');
+  const silverOptions = dynamicOptions.filter((o) => o.metalType === 'silver');
+  const platinumOptions = dynamicOptions.filter((o) => o.metalType === 'platinum');
 
   return (
     <div className="alloy-calculator">
@@ -94,29 +126,35 @@ export const AlloyCalculator: React.FC<AlloyCalculatorProps> = ({
               id="scrap-alloy"
               value={selectedAlloy}
               onChange={(e) => setSelectedAlloy(Number(e.target.value))}
-              disabled={isDisabled}
+              disabled={isDisabled || isLoadingMetalTypes}
             >
-              <optgroup label="Gold">
-                {ALLOY_OPTIONS.filter((o) => o.metalType === 'gold').map((opt) => (
-                  <option key={opt.value} value={opt.value}>
-                    {opt.label}
-                  </option>
-                ))}
-              </optgroup>
-              <optgroup label="Silber">
-                {ALLOY_OPTIONS.filter((o) => o.metalType === 'silver').map((opt) => (
-                  <option key={opt.value} value={opt.value}>
-                    {opt.label}
-                  </option>
-                ))}
-              </optgroup>
-              <optgroup label="Platin">
-                {ALLOY_OPTIONS.filter((o) => o.metalType === 'platinum').map((opt) => (
-                  <option key={opt.value} value={opt.value}>
-                    {opt.label}
-                  </option>
-                ))}
-              </optgroup>
+              {goldOptions.length > 0 && (
+                <optgroup label="Gold">
+                  {goldOptions.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </optgroup>
+              )}
+              {silverOptions.length > 0 && (
+                <optgroup label="Silber">
+                  {silverOptions.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </optgroup>
+              )}
+              {platinumOptions.length > 0 && (
+                <optgroup label="Platin">
+                  {platinumOptions.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </optgroup>
+              )}
             </select>
           </div>
 

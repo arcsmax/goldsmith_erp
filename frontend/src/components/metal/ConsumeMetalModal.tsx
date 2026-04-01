@@ -12,6 +12,7 @@ import {
   MetalPurchaseListItem,
   OrderMaterialAllocation,
 } from '../../types';
+import { useMetalTypes } from '../../hooks/useMetalTypes';
 
 interface ConsumeMetalModalProps {
   isOpen: boolean;
@@ -19,7 +20,8 @@ interface ConsumeMetalModalProps {
   onSuccess: () => void;
 }
 
-const METAL_TYPE_OPTIONS: { value: MetalType; label: string }[] = [
+// Fallback list used while the metal-types API is loading
+const METAL_TYPE_OPTIONS_FALLBACK: { value: MetalType; label: string }[] = [
   { value: 'gold_24k', label: 'Gold 24K (999.9)' },
   { value: 'gold_22k', label: 'Gold 22K (916)' },
   { value: 'gold_18k', label: 'Gold 18K (750)' },
@@ -54,6 +56,8 @@ export const ConsumeMetalModal: React.FC<ConsumeMetalModalProps> = ({
   onClose,
   onSuccess,
 }) => {
+  const { metalTypes: allMetalTypes, isLoading: isLoadingMetalTypes } = useMetalTypes();
+
   // Form state
   const [orderId, setOrderId] = useState<number | ''>('');
   const [metalType, setMetalType] = useState<MetalType | ''>('');
@@ -260,10 +264,13 @@ export const ConsumeMetalModal: React.FC<ConsumeMetalModalProps> = ({
               id="consume-metal-type"
               value={metalType}
               onChange={(e) => setMetalType(e.target.value as MetalType | '')}
-              disabled={isSubmitting}
+              disabled={isSubmitting || isLoadingMetalTypes}
             >
               <option value="">-- Metalltyp auswählen --</option>
-              {METAL_TYPE_OPTIONS.map((opt) => (
+              {(isLoadingMetalTypes || allMetalTypes.length === 0
+                ? METAL_TYPE_OPTIONS_FALLBACK
+                : allMetalTypes.map((o) => ({ value: o.code, label: o.display_name }))
+              ).map((opt) => (
                 <option key={opt.value} value={opt.value}>
                   {opt.label}
                 </option>

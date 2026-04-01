@@ -4,9 +4,10 @@ import { metalInventoryApi } from '../api';
 import { MetalPurchaseListItem, MetalPurchaseType, MetalPurchaseCreateInput, MetalPurchaseUpdateInput, MetalType } from '../types';
 import { MetalSummaryCards } from '../components/metal/MetalSummaryCards';
 import { MetalPurchaseFormModal } from '../components/metal/MetalPurchaseFormModal';
+import { MetalTypeManager } from '../components/metal/MetalTypeManager';
 import { ConsumeMetalModal } from '../components/metal/ConsumeMetalModal';
 import { UsageHistoryPanel } from '../components/metal/UsageHistoryPanel';
-import { useToast, useConfirm } from '../contexts';
+import { useToast, useConfirm, useAuth } from '../contexts';
 import '../styles/pages.css';
 import '../styles/metal-inventory.css';
 
@@ -36,6 +37,9 @@ const METAL_TYPE_CONFIG: Record<MetalType, MetalConfig> = {
 export const MetalInventoryPage: React.FC = () => {
   const { showToast } = useToast();
   const { showConfirm } = useConfirm();
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'ADMIN';
+
   const [purchases, setPurchases] = useState<MetalPurchaseListItem[]>([]);
   const [filteredPurchases, setFilteredPurchases] = useState<MetalPurchaseListItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -46,6 +50,8 @@ export const MetalInventoryPage: React.FC = () => {
 
   // Consume modal state
   const [isConsumeModalOpen, setIsConsumeModalOpen] = useState(false);
+  // Metal Type Manager modal (ADMIN only)
+  const [isMetalTypeManagerOpen, setIsMetalTypeManagerOpen] = useState(false);
   // Incrementing this value causes UsageHistoryPanel to reload
   const [usageRefreshKey, setUsageRefreshKey] = useState(0);
 
@@ -245,6 +251,15 @@ export const MetalInventoryPage: React.FC = () => {
           </p>
         </div>
         <div className="header-actions">
+          {isAdmin && (
+            <button
+              className="btn-secondary"
+              onClick={() => setIsMetalTypeManagerOpen(true)}
+              title="Benutzerdefinierte Metalltypen verwalten"
+            >
+              Metalltypen verwalten
+            </button>
+          )}
           <button
             className="btn-secondary"
             onClick={() => setIsConsumeModalOpen(true)}
@@ -474,6 +489,12 @@ export const MetalInventoryPage: React.FC = () => {
           setUsageRefreshKey((k) => k + 1);
           showToast('Verbrauch erfolgreich gebucht!', 'success');
         }}
+      />
+
+      {/* Metal Type Manager — ADMIN only */}
+      <MetalTypeManager
+        isOpen={isMetalTypeManagerOpen}
+        onClose={() => setIsMetalTypeManagerOpen(false)}
       />
     </div>
   );

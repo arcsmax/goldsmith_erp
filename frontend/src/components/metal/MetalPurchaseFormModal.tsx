@@ -6,6 +6,7 @@ import {
   MetalPurchaseUpdateInput,
   MetalType,
 } from '../../types';
+import { useMetalTypes } from '../../hooks/useMetalTypes';
 import '../../styles/metal-inventory.css';
 
 interface MetalPurchaseFormModalProps {
@@ -33,25 +34,21 @@ interface FormErrors {
   price_total?: string;
 }
 
-const METAL_TYPE_OPTIONS: { value: MetalType; label: string; category: string }[] = [
-  // Gold
+// Legacy static options kept as fallback while the API is loading
+const METAL_TYPE_OPTIONS_FALLBACK: { value: MetalType; label: string; category: string }[] = [
   { value: 'gold_24k', label: 'Gold 24K (999.9)', category: 'Gold' },
   { value: 'gold_22k', label: 'Gold 22K (916)', category: 'Gold' },
   { value: 'gold_18k', label: 'Gold 18K (750)', category: 'Gold' },
   { value: 'gold_14k', label: 'Gold 14K (585)', category: 'Gold' },
   { value: 'gold_9k', label: 'Gold 9K (375)', category: 'Gold' },
-  // Silver
   { value: 'silver_999', label: 'Silber 999 (Feinsilber)', category: 'Silber' },
   { value: 'silver_925', label: 'Silber 925 (Sterling)', category: 'Silber' },
   { value: 'silver_800', label: 'Silber 800 (Altsilber)', category: 'Silber' },
-  // Platinum & Palladium
   { value: 'platinum_950', label: 'Platin 950', category: 'Platin' },
   { value: 'platinum_900', label: 'Platin 900', category: 'Platin' },
   { value: 'palladium', label: 'Palladium 999', category: 'Palladium' },
-  // White Gold
   { value: 'white_gold_18k', label: 'Weißgold 18K (750)', category: 'Weißgold' },
   { value: 'white_gold_14k', label: 'Weißgold 14K (585)', category: 'Weißgold' },
-  // Rose Gold
   { value: 'rose_gold_18k', label: 'Rotgold 18K (750)', category: 'Rotgold' },
   { value: 'rose_gold_14k', label: 'Rotgold 14K (585)', category: 'Rotgold' },
 ];
@@ -64,6 +61,7 @@ export const MetalPurchaseFormModal: React.FC<MetalPurchaseFormModalProps> = ({
   isLoading = false,
 }) => {
   const isEditMode = Boolean(purchase);
+  const { groupedMetalTypes, isLoading: isLoadingTypes } = useMetalTypes();
 
   const [formData, setFormData] = useState<FormData>({
     date_purchased: new Date().toISOString().split('T')[0],
@@ -230,14 +228,30 @@ export const MetalPurchaseFormModal: React.FC<MetalPurchaseFormModalProps> = ({
 
   const pricePerGram = calculatePricePerGram();
 
-  // Group options by category for better UX
-  const groupedOptions = METAL_TYPE_OPTIONS.reduce((acc, option) => {
-    if (!acc[option.category]) {
-      acc[option.category] = [];
-    }
-    acc[option.category].push(option);
-    return acc;
-  }, {} as Record<string, typeof METAL_TYPE_OPTIONS>);
+  // Build grouped options from the unified metal-types API.
+  // Fall back to the static list while the API is loading.
+  const BASE_METAL_LABELS: Record<string, string> = {
+    gold: 'Gold',
+    silver: 'Silber',
+    platinum: 'Platin',
+    palladium: 'Palladium',
+  };
+
+  const dynamicGrouped = Object.entries(groupedMetalTypes).map(([baseMetal, options]) => ({
+    category: BASE_METAL_LABELS[baseMetal] ?? baseMetal,
+    options: options.map((o) => ({ value: o.code, label: o.display_name })),
+  }));
+
+  // Use static fallback if dynamic list hasn't loaded yet
+  const groupedOptions: Array<{ category: string; options: Array<{ value: string; label: string }> }> =
+    isLoadingTypes || dynamicGrouped.length === 0
+      ? Object.entries(
+          METAL_TYPE_OPTIONS_FALLBACK.reduce((acc, opt) => {
+            (acc[opt.category] ??= []).push({ value: opt.value, label: opt.label });
+            return acc;
+          }, {} as Record<string, Array<{ value: string; label: string }>>)
+        ).map(([category, options]) => ({ category, options }))
+      : dynamicGrouped;
 
   return (
     <div className="modal-overlay" onClick={onClose}>
@@ -278,9 +292,10 @@ export const MetalPurchaseFormModal: React.FC<MetalPurchaseFormModalProps> = ({
                 onChange={handleChange}
                 required
                 className={errors.metal_type ? 'error' : ''}
+                disabled={isLoadingTypes}
               >
                 <option value="">-- Metalltyp wählen --</option>
-                {Object.entries(groupedOptions).map(([category, options]) => (
+                {groupedOptions.map(({ category, options }) => (
                   <optgroup key={category} label={category}>
                     {options.map((opt) => (
                       <option key={opt.value} value={opt.value}>

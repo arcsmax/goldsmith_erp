@@ -2,6 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { OrderType, OrderCreateInput, OrderUpdateInput, Customer, MetalType, CostingMethod } from '../../types';
 import { customersApi } from '../../api';
+import { useMetalTypes } from '../../hooks/useMetalTypes';
 import { OrderCreateSchema } from '../../lib/validation/schemas';
 import { useFormValidation } from '../../lib/validation/useFormValidation';
 import '../../styles/orders.css';
@@ -16,13 +17,14 @@ interface OrderFormModalProps {
 
 type TabType = 'basic' | 'auftrag' | 'metal' | 'pricing';
 
-const METAL_TYPE_OPTIONS: { value: MetalType; label: string }[] = [
+// Kept as fallback while the metal-types API is loading
+const METAL_TYPE_OPTIONS_FALLBACK: { value: MetalType; label: string }[] = [
   { value: 'gold_24k', label: 'Gold 24K (999)' },
   { value: 'gold_18k', label: 'Gold 18K (750)' },
   { value: 'gold_14k', label: 'Gold 14K (585)' },
   { value: 'silver_925', label: 'Silber 925' },
   { value: 'silver_999', label: 'Silber 999' },
-  { value: 'platinum', label: 'Platin' },
+  { value: 'platinum_950', label: 'Platin 950' },
 ];
 
 const COSTING_METHOD_OPTIONS: { value: CostingMethod; label: string }[] = [
@@ -63,6 +65,7 @@ export const OrderFormModal: React.FC<OrderFormModalProps> = ({
   const [activeTab, setActiveTab] = useState<TabType>('basic');
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [isLoadingCustomers, setIsLoadingCustomers] = useState(false);
+  const { metalTypes: allMetalTypes, isLoading: isLoadingMetalTypes } = useMetalTypes();
 
   const [formData, setFormData] = useState({
     title: '',
@@ -592,9 +595,13 @@ export const OrderFormModal: React.FC<OrderFormModalProps> = ({
                     value={formData.metal_type}
                     onChange={handleChange}
                     className={hasAttemptedSubmit && errors.metal_type ? 'error' : ''}
+                    disabled={isLoadingMetalTypes}
                   >
                     <option value="">-- Metallart auswählen --</option>
-                    {METAL_TYPE_OPTIONS.map((option) => (
+                    {(isLoadingMetalTypes || allMetalTypes.length === 0
+                      ? METAL_TYPE_OPTIONS_FALLBACK
+                      : allMetalTypes.map((o) => ({ value: o.code, label: o.display_name }))
+                    ).map((option) => (
                       <option key={option.value} value={option.value}>
                         {option.label}
                       </option>

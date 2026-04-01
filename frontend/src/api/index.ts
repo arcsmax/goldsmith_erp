@@ -14,3 +14,4 @@ export { scrapGoldApi } from './scrap-gold';
 export type { ScrapGold, ScrapGoldItem, ScrapGoldStatus } from './scrap-gold';
 export { invoicesApi } from './invoices';
 export type { InvoiceFilterParams } from './invoices';
+export { metalTypesApi } from './metal-types';
