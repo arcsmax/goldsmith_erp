@@ -1,6 +1,6 @@
 // Orders API Service
 import apiClient from './client';
-import { OrderType, OrderCreateInput, OrderUpdateInput } from '../types';
+import { OrderType, OrderCreateInput, OrderUpdateInput, OrderComparison } from '../types';
 
 export interface LocationHistoryEntry {
   id: number;
@@ -88,5 +88,23 @@ export const ordersApi = {
       `/orders/${orderId}/location-history`
     );
     return response.data;
+  },
+
+  /**
+   * Fetch Soll/Ist comparison for a completed or delivered order.
+   * Returns null when the backend responds with 404 (no comparison data yet).
+   */
+  getComparison: async (orderId: number): Promise<OrderComparison | null> => {
+    try {
+      const response = await apiClient.get<OrderComparison>(
+        `/orders/${orderId}/comparison`
+      );
+      return response.data;
+    } catch (err: any) {
+      if (err.response?.status === 404) {
+        return null;
+      }
+      throw err;
+    }
   },
 };
