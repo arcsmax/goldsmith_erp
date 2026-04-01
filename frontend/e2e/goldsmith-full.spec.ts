@@ -64,8 +64,10 @@ test('Full goldsmith workflow — single session', async ({ page }) => {
   await page.goto(`${BASE}/orders`);
   await page.waitForTimeout(2000);
 
+  // Wait for page content to fully render
+  await page.waitForTimeout(3000);
   // Check for "Neuer Auftrag" button
-  const newOrderBtn = page.locator('button').filter({ hasText: /Neuer Auftrag/ });
+  const newOrderBtn = page.locator('button', { hasText: 'Neuer Auftrag' });
   const hasNewBtn = await newOrderBtn.count() > 0;
   console.log(hasNewBtn ? '✅ "Neuer Auftrag" button found' : '❌ "Neuer Auftrag" button MISSING');
 
