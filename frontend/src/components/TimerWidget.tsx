@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { TimeEntry, TimeEntryStopInput } from '../types';
-import { timeTrackingApi } from '../api/timeTracking';
+import { timeTrackingApi } from '../api/time-tracking';
 import '../styles/components/TimerWidget.css';
 
 interface TimerWidgetProps {

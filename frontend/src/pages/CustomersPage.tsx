@@ -48,7 +48,15 @@ export const CustomersPage: React.FC = () => {
 
       const data = await customersApi.getAll(params);
       setCustomers(data);
-      setTotalCount(data.length); // Backend should return total, but for now we use length
+      // Backend returns a plain list without a total count field.
+      // If the page is full (data.length === pageSize), at least one more page
+      // may exist, so we set the total one page beyond what we've seen.
+      // Otherwise the current page is the last one.
+      if (data.length === pageSize) {
+        setTotalCount((page + 1) * pageSize + 1);
+      } else {
+        setTotalCount(page * pageSize + data.length);
+      }
     } catch (err: any) {
       setError(err.response?.data?.detail || 'Fehler beim Laden der Kunden');
     } finally {

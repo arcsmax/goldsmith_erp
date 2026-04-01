@@ -1,6 +1,6 @@
 // Time Tracking Context - Global time tracking state management
 import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
-import { timeTrackingApi } from '../api/timeTracking';
+import { timeTrackingApi } from '../api/time-tracking';
 import { activitiesApi } from '../api/activities';
 import {
   TimeEntry,

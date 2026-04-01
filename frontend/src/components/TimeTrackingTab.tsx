@@ -1,6 +1,6 @@
 // Time Tracking Tab Component - Shows time entries for an order
 import React, { useState, useEffect } from 'react';
-import { timeTrackingApi } from '../api/timeTracking';
+import { timeTrackingApi } from '../api/time-tracking';
 import { activitiesApi } from '../api/activities';
 import { TimeEntry, TimeTrackingStats, Activity } from '../types';
 import ActivityPicker from './ActivityPicker';

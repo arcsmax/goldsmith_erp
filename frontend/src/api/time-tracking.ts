@@ -1,182 +1,152 @@
 // Time Tracking API Service
 import apiClient from './client';
 import {
-  TimeEntryType,
-  TimeEntryCreateInput,
+  TimeEntry,
+  TimeEntryWithDetails,
+  TimeEntryStartInput,
+  TimeEntryStopInput,
   TimeEntryUpdateInput,
-  ActivityType,
-  ActivityCreateInput,
-  TimeSummaryStats,
-  WeeklyTimeData,
-  ActivityBreakdownData,
+  Interruption,
+  InterruptionCreateInput,
+  TimeTrackingStats,
 } from '../types';
 
 export const timeTrackingApi = {
-  // ==================== TIME ENTRIES ====================
-
   /**
-   * Get all time entries with optional filters
+   * Start time tracking for an order
    */
-  getAll: async (params?: {
-    skip?: number;
-    limit?: number;
-    order_id?: number;
-    user_id?: number;
-    start_date?: string;
-    end_date?: string;
-  }): Promise<TimeEntryType[]> => {
-    const response = await apiClient.get<TimeEntryType[]>('/time-entries/', {
-      params,
-    });
+  start: async (data: TimeEntryStartInput): Promise<TimeEntry> => {
+    const response = await apiClient.post<TimeEntry>('/time-tracking/start', data);
     return response.data;
   },
 
   /**
-   * Get single time entry by ID
+   * Stop time tracking
    */
-  getById: async (id: string): Promise<TimeEntryType> => {
-    const response = await apiClient.get<TimeEntryType>(`/time-entries/${id}`);
+  stop: async (entryId: string, data: TimeEntryStopInput): Promise<TimeEntry> => {
+    const response = await apiClient.post<TimeEntry>(
+      `/time-tracking/${entryId}/stop`,
+      data
+    );
     return response.data;
   },
 
   /**
-   * Create new time entry
+   * Get currently running time entry for current user
    */
-  create: async (entry: TimeEntryCreateInput): Promise<TimeEntryType> => {
-    const response = await apiClient.post<TimeEntryType>('/time-entries/', entry);
+  getRunning: async (): Promise<TimeEntry | null> => {
+    const response = await apiClient.get<TimeEntry | null>('/time-tracking/running');
     return response.data;
   },
 
   /**
-   * Update existing time entry
+   * Get all time entries for a specific order
    */
-  update: async (id: string, entry: TimeEntryUpdateInput): Promise<TimeEntryType> => {
-    const response = await apiClient.put<TimeEntryType>(`/time-entries/${id}`, entry);
+  getForOrder: async (
+    orderId: number,
+    skip: number = 0,
+    limit: number = 100
+  ): Promise<TimeEntry[]> => {
+    const response = await apiClient.get<TimeEntry[]>(
+      `/time-tracking/order/${orderId}`,
+      {
+        params: { skip, limit },
+      }
+    );
     return response.data;
   },
 
   /**
-   * Delete time entry
+   * Get total time statistics for an order
    */
-  delete: async (id: string): Promise<{ success: boolean; message: string }> => {
+  getTotalForOrder: async (orderId: number): Promise<TimeTrackingStats> => {
+    const response = await apiClient.get<TimeTrackingStats>(
+      `/time-tracking/order/${orderId}/total`
+    );
+    return response.data;
+  },
+
+  /**
+   * Get time entries for a specific user (with optional date filter)
+   */
+  getForUser: async (
+    userId: number,
+    startDate?: string,
+    endDate?: string,
+    skip: number = 0,
+    limit: number = 100
+  ): Promise<TimeEntry[]> => {
+    const response = await apiClient.get<TimeEntry[]>(
+      `/time-tracking/user/${userId}`,
+      {
+        params: {
+          start_date: startDate,
+          end_date: endDate,
+          skip,
+          limit,
+        },
+      }
+    );
+    return response.data;
+  },
+
+  /**
+   * Get a single time entry by ID
+   */
+  getById: async (entryId: string): Promise<TimeEntry> => {
+    const response = await apiClient.get<TimeEntry>(`/time-tracking/${entryId}`);
+    return response.data;
+  },
+
+  /**
+   * Create a manual time entry (with start and end time)
+   */
+  createManual: async (data: {
+    order_id: number;
+    activity_id: number;
+    start_time: string;
+    end_time?: string;
+    duration_minutes?: number;
+    location?: string;
+    complexity_rating?: number;
+    quality_rating?: number;
+    rework_required?: boolean;
+    notes?: string;
+    extra_metadata?: Record<string, any>;
+  }): Promise<TimeEntry> => {
+    const response = await apiClient.post<TimeEntry>('/time-tracking/', data);
+    return response.data;
+  },
+
+  /**
+   * Update a time entry
+   */
+  update: async (entryId: string, data: TimeEntryUpdateInput): Promise<TimeEntry> => {
+    const response = await apiClient.put<TimeEntry>(`/time-tracking/${entryId}`, data);
+    return response.data;
+  },
+
+  /**
+   * Delete a time entry
+   */
+  delete: async (entryId: string): Promise<{ success: boolean; message: string }> => {
     const response = await apiClient.delete<{ success: boolean; message: string }>(
-      `/time-entries/${id}`
+      `/time-tracking/${entryId}`
     );
     return response.data;
   },
 
   /**
-   * Stop an active time entry (set end_time to now)
+   * Add an interruption to a time entry
    */
-  stop: async (id: string): Promise<TimeEntryType> => {
-    const response = await apiClient.post<TimeEntryType>(`/time-entries/${id}/stop`);
-    return response.data;
-  },
-
-  // ==================== ANALYTICS ====================
-
-  /**
-   * Get summary statistics for a time period
-   */
-  getSummary: async (params?: {
-    start_date?: string;
-    end_date?: string;
-    user_id?: number;
-  }): Promise<TimeSummaryStats> => {
-    const response = await apiClient.get<TimeSummaryStats>('/time-entries/analytics/summary', {
-      params,
-    });
-    return response.data;
-  },
-
-  /**
-   * Get weekly time data for trend analysis
-   */
-  getWeeklyReport: async (params?: {
-    weeks?: number;
-    user_id?: number;
-  }): Promise<WeeklyTimeData[]> => {
-    const response = await apiClient.get<WeeklyTimeData[]>(
-      '/time-entries/analytics/weekly',
-      {
-        params,
-      }
+  addInterruption: async (
+    entryId: string,
+    data: Omit<InterruptionCreateInput, 'time_entry_id'>
+  ): Promise<Interruption> => {
+    const response = await apiClient.post<Interruption>(
+      `/time-tracking/${entryId}/interruptions`,
+      data
     );
     return response.data;
-  },
-
-  /**
-   * Get activity breakdown (time spent per activity)
-   */
-  getActivityBreakdown: async (params?: {
-    start_date?: string;
-    end_date?: string;
-    user_id?: number;
-  }): Promise<ActivityBreakdownData[]> => {
-    const response = await apiClient.get<ActivityBreakdownData[]>(
-      '/time-entries/analytics/activity-breakdown',
-      {
-        params,
-      }
-    );
-    return response.data;
-  },
-
-  /**
-   * Get daily distribution (hours per day of week)
-   */
-  getDailyDistribution: async (params?: {
-    start_date?: string;
-    end_date?: string;
-    user_id?: number;
-  }): Promise<{ day: string; hours: number }[]> => {
-    const response = await apiClient.get<{ day: string; hours: number }[]>(
-      '/time-entries/analytics/daily-distribution',
-      {
-        params,
-      }
-    );
-    return response.data;
-  },
-
-  // ==================== ACTIVITIES ====================
-
-  /**
-   * Get all activities
-   */
-  getAllActivities: async (): Promise<ActivityType[]> => {
-    const response = await apiClient.get<ActivityType[]>('/activities/');
-    return response.data;
-  },
-
-  /**
-   * Get activity by ID
-   */
-  getActivityById: async (id: number): Promise<ActivityType> => {
-    const response = await apiClient.get<ActivityType>(`/activities/${id}`);
-    return response.data;
-  },
-
-  /**
-   * Create new activity
-   */
-  createActivity: async (activity: ActivityCreateInput): Promise<ActivityType> => {
-    const response = await apiClient.post<ActivityType>('/activities/', activity);
-    return response.data;
-  },
-
-  /**
-   * Get active time entry for current user
-   */
-  getActiveEntry: async (): Promise<TimeEntryType | null> => {
-    try {
-      const response = await apiClient.get<TimeEntryType>('/time-entries/active/current');
-      return response.data;
-    } catch (error: any) {
-      if (error.response?.status === 404) {
-        return null;
-      }
-      throw error;
-    }
   },
 };
