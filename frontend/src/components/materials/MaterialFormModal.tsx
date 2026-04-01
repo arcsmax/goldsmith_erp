@@ -36,7 +36,12 @@ export const MaterialFormModal: React.FC<MaterialFormModalProps> = ({
     unit_price: '',
     stock: '',
     unit: 'Stück',
+    supplier: '',
+    webshop_url: '',
+    min_stock: '10',
   });
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [imagePreview, setImagePreview] = useState<string | null>(null);
 
   const { validate: zodValidate, errors, clearError } = useFormValidation(MaterialCreateSchema);
 
@@ -49,7 +54,11 @@ export const MaterialFormModal: React.FC<MaterialFormModalProps> = ({
         unit_price: material.unit_price.toString(),
         stock: material.stock.toString(),
         unit: material.unit,
+        supplier: material.supplier || '',
+        webshop_url: material.webshop_url || '',
+        min_stock: (material.min_stock ?? 10).toString(),
       });
+      setImagePreview(material.image_url || null);
     } else {
       setFormData({
         name: '',
@@ -57,8 +66,13 @@ export const MaterialFormModal: React.FC<MaterialFormModalProps> = ({
         unit_price: '',
         stock: '',
         unit: 'Stück',
+        supplier: '',
+        webshop_url: '',
+        min_stock: '10',
       });
+      setImagePreview(null);
     }
+    setImageFile(null);
   }, [material, isOpen]);
 
   const handleChange = (
@@ -67,6 +81,15 @@ export const MaterialFormModal: React.FC<MaterialFormModalProps> = ({
     const { name, value } = e.target;
     setFormData((prev) => ({ ...prev, [name]: value }));
     clearError(name);
+  };
+
+  const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0] ?? null;
+    setImageFile(file);
+    if (file) {
+      const url = URL.createObjectURL(file);
+      setImagePreview(url);
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -79,6 +102,9 @@ export const MaterialFormModal: React.FC<MaterialFormModalProps> = ({
       unit_price: parseFloat(formData.unit_price),
       stock: parseFloat(formData.stock),
       unit: formData.unit,
+      supplier: formData.supplier.trim() || undefined,
+      webshop_url: formData.webshop_url.trim() || undefined,
+      min_stock: parseFloat(formData.min_stock),
     };
 
     const result = zodValidate(parsed);
@@ -86,7 +112,14 @@ export const MaterialFormModal: React.FC<MaterialFormModalProps> = ({
       return;
     }
 
-    await onSubmit(result.data);
+    const submitData: MaterialCreateInput = {
+      ...result.data,
+      // image_url is set server-side after the upload POST; pass through
+      // existing value when editing so the field is not cleared on save.
+      image_url: imageFile ? undefined : (material?.image_url ?? undefined),
+    };
+
+    await onSubmit(submitData);
   };
 
   if (!isOpen) {
@@ -194,6 +227,83 @@ export const MaterialFormModal: React.FC<MaterialFormModalProps> = ({
                 ))}
               </select>
               {errors.unit && <span className="error-message">{errors.unit}</span>}
+            </div>
+
+            {/* Supplier */}
+            <div className="form-group">
+              <label htmlFor="supplier">Lieferant</label>
+              <input
+                type="text"
+                id="supplier"
+                name="supplier"
+                value={formData.supplier}
+                onChange={handleChange}
+                className={errors.supplier ? 'error' : ''}
+                placeholder="z.B. Hafner GmbH, Otto Feil"
+              />
+              {errors.supplier && (
+                <span className="error-message">{errors.supplier}</span>
+              )}
+            </div>
+
+            {/* Webshop URL */}
+            <div className="form-group">
+              <label htmlFor="webshop_url">Webshop URL</label>
+              <input
+                type="url"
+                id="webshop_url"
+                name="webshop_url"
+                value={formData.webshop_url}
+                onChange={handleChange}
+                className={errors.webshop_url ? 'error' : ''}
+                placeholder="https://lieferant.de/artikel/123"
+              />
+              {errors.webshop_url && (
+                <span className="error-message">{errors.webshop_url}</span>
+              )}
+            </div>
+
+            {/* Minimum Stock */}
+            <div className="form-group">
+              <label htmlFor="min_stock">Mindestbestand</label>
+              <input
+                type="number"
+                id="min_stock"
+                name="min_stock"
+                value={formData.min_stock}
+                onChange={handleChange}
+                className={errors.min_stock ? 'error' : ''}
+                placeholder="10"
+                step="0.01"
+                min="0"
+              />
+              {errors.min_stock && (
+                <span className="error-message">{errors.min_stock}</span>
+              )}
+            </div>
+
+            {/* Image Upload */}
+            <div className="form-group">
+              <label htmlFor="material_image">Bild</label>
+              {imagePreview && (
+                <div style={{ marginBottom: '0.5rem' }}>
+                  <img
+                    src={imagePreview}
+                    alt="Vorschau"
+                    style={{ width: 80, height: 80, objectFit: 'cover', borderRadius: 4 }}
+                  />
+                </div>
+              )}
+              <input
+                type="file"
+                id="material_image"
+                name="material_image"
+                accept="image/jpeg,image/png,image/webp"
+                onChange={handleImageChange}
+              />
+              <small style={{ color: '#666' }}>
+                Erlaubte Formate: JPEG, PNG, WEBP (max. 10 MB)
+              </small>
             </div>
 
             {/* Stock Value (calculated, read-only) */}

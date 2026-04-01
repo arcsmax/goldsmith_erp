@@ -1,11 +1,114 @@
 // Materials Page Component
 import React, { useEffect, useState } from 'react';
 import { materialsApi } from '../api';
-import { MaterialType, MaterialCreateInput, MaterialUpdateInput } from '../types';
+import { MaterialType, MaterialCreateInput, MaterialUpdateInput, PurchaseListItem } from '../types';
 import { MaterialFormModal } from '../components/materials/MaterialFormModal';
 import { useToast, useConfirm } from '../contexts';
 import '../styles/pages.css';
 import '../styles/materials.css';
+
+// ── helpers ─────────────────────────────────────────────────────────────────
+
+function isLowStock(material: MaterialType): boolean {
+  return material.stock < (material.min_stock ?? 10);
+}
+
+// ── Purchase list modal ──────────────────────────────────────────────────────
+
+interface PurchaseListModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+}
+
+const PurchaseListModal: React.FC<PurchaseListModalProps> = ({ isOpen, onClose }) => {
+  const [groups, setGroups] = useState<PurchaseListItem[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    setIsLoading(true);
+    setError(null);
+    materialsApi
+      .getPurchaseList()
+      .then(setGroups)
+      .catch((err: any) => {
+        setError(err.response?.data?.detail || 'Fehler beim Laden der Bestellliste');
+      })
+      .finally(() => setIsLoading(false));
+  }, [isOpen]);
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div
+        className="modal-content"
+        style={{ maxWidth: 700, width: '95vw' }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="modal-header">
+          <h2>Bestellliste</h2>
+          <button className="modal-close" onClick={onClose} type="button">
+            ×
+          </button>
+        </div>
+
+        <div style={{ padding: '1rem 1.5rem 1.5rem' }}>
+          {isLoading && <p>Lade Bestellliste...</p>}
+          {error && <p style={{ color: 'var(--color-error, red)' }}>{error}</p>}
+          {!isLoading && !error && groups.length === 0 && (
+            <p style={{ color: '#666' }}>Alle Materialien haben ausreichend Bestand.</p>
+          )}
+          {!isLoading &&
+            groups.map((group) => (
+              <div key={group.supplier ?? '__none__'} style={{ marginBottom: '1.5rem' }}>
+                <h3 style={{ marginBottom: '0.5rem', borderBottom: '1px solid #e5e7eb', paddingBottom: '0.25rem' }}>
+                  {group.supplier ?? 'Kein Lieferant'}
+                </h3>
+                <table className="data-table" style={{ width: '100%' }}>
+                  <thead>
+                    <tr>
+                      <th>Material</th>
+                      <th>Bestand</th>
+                      <th>Mindestbestand</th>
+                      <th>Einheit</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {group.materials.map((m) => (
+                      <tr key={m.id}>
+                        <td>
+                          {m.webshop_url ? (
+                            <a href={m.webshop_url} target="_blank" rel="noopener noreferrer">
+                              {m.name}
+                            </a>
+                          ) : (
+                            m.name
+                          )}
+                        </td>
+                        <td style={{ color: 'var(--color-error, #dc2626)' }}>{m.stock}</td>
+                        <td>{m.min_stock ?? 10}</td>
+                        <td>{m.unit}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ))}
+        </div>
+
+        <div className="modal-footer">
+          <button className="btn-secondary" onClick={onClose}>
+            Schliessen
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ── Main Page ────────────────────────────────────────────────────────────────
 
 export const MaterialsPage: React.FC = () => {
   const { showToast } = useToast();
@@ -20,6 +123,7 @@ export const MaterialsPage: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [filterLowStock, setFilterLowStock] = useState(false);
   const [sortBy, setSortBy] = useState<'name' | 'price' | 'stock'>('name');
+  const [isPurchaseListOpen, setIsPurchaseListOpen] = useState(false);
 
   useEffect(() => {
     fetchMaterials();
@@ -55,9 +159,9 @@ export const MaterialsPage: React.FC = () => {
       );
     }
 
-    // Low stock filter
+    // Low stock filter — per-material threshold
     if (filterLowStock) {
-      filtered = filtered.filter((m) => m.stock < 10);
+      filtered = filtered.filter(isLowStock);
     }
 
     // Sort
@@ -174,9 +278,14 @@ export const MaterialsPage: React.FC = () => {
             {filteredMaterials.length} Materialien • Gesamtwert: {totalValue.toFixed(2)} €
           </p>
         </div>
-        <button className="btn-primary" onClick={openCreateModal}>
-          + Neues Material
-        </button>
+        <div style={{ display: 'flex', gap: '0.75rem' }}>
+          <button className="btn-secondary" onClick={() => setIsPurchaseListOpen(true)}>
+            Bestellliste
+          </button>
+          <button className="btn-primary" onClick={openCreateModal}>
+            + Neues Material
+          </button>
+        </div>
       </header>
 
       {/* Search and Filters */}
@@ -224,8 +333,10 @@ export const MaterialsPage: React.FC = () => {
           <table className="data-table">
             <thead>
               <tr>
+                <th style={{ width: 50 }}>Bild</th>
                 <th>ID</th>
                 <th>Name</th>
+                <th>Lieferant</th>
                 <th>Beschreibung</th>
                 <th>Preis/Einheit</th>
                 <th>Bestand</th>
@@ -235,42 +346,110 @@ export const MaterialsPage: React.FC = () => {
               </tr>
             </thead>
             <tbody>
-              {filteredMaterials.map((material) => (
-                <tr key={material.id}>
-                  <td>#{material.id}</td>
-                  <td>{material.name}</td>
-                  <td>{material.description || '-'}</td>
-                  <td>{material.unit_price.toFixed(2)} €</td>
-                  <td className={material.stock < 10 ? 'low-stock' : ''}>
-                    <div className="stock-indicator">
-                      {material.stock}
-                      {material.stock < 10 && (
-                        <span className="stock-badge low">Niedrig</span>
+              {filteredMaterials.map((material) => {
+                const lowStock = isLowStock(material);
+                return (
+                  <tr key={material.id}>
+                    {/* Thumbnail */}
+                    <td>
+                      {material.image_url ? (
+                        <img
+                          src={material.image_url}
+                          alt={material.name}
+                          style={{
+                            width: 40,
+                            height: 40,
+                            objectFit: 'cover',
+                            borderRadius: 4,
+                            display: 'block',
+                          }}
+                        />
+                      ) : (
+                        <div
+                          style={{
+                            width: 40,
+                            height: 40,
+                            borderRadius: 4,
+                            background: '#f3f4f6',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            fontSize: '1.2rem',
+                            color: '#9ca3af',
+                          }}
+                          title="Kein Bild"
+                        >
+                          &#128190;
+                        </div>
                       )}
-                    </div>
-                  </td>
-                  <td>{material.unit}</td>
-                  <td>{(material.unit_price * material.stock).toFixed(2)} €</td>
-                  <td>
-                    <div className="materials-page-actions">
-                      <button
-                        className="btn-icon btn-edit"
-                        onClick={() => openEditModal(material)}
-                        title="Bearbeiten"
-                      >
-                        ✏️
-                      </button>
-                      <button
-                        className="btn-icon btn-delete"
-                        onClick={() => handleDeleteMaterial(material.id, material.name)}
-                        title="Löschen"
-                      >
-                        🗑️
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
+                    </td>
+                    <td>#{material.id}</td>
+                    <td>{material.name}</td>
+                    {/* Lieferant with optional webshop link */}
+                    <td>
+                      {material.supplier ? (
+                        material.webshop_url ? (
+                          <a
+                            href={material.webshop_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            title="Im Webshop bestellen"
+                            style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}
+                          >
+                            {material.supplier}
+                            <span title="Bestellen" style={{ fontSize: '0.85rem' }}>&#128722;</span>
+                          </a>
+                        ) : (
+                          material.supplier
+                        )
+                      ) : (
+                        material.webshop_url ? (
+                          <a
+                            href={material.webshop_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            title="Im Webshop bestellen"
+                          >
+                            <span title="Bestellen">&#128722;</span>
+                          </a>
+                        ) : (
+                          '-'
+                        )
+                      )}
+                    </td>
+                    <td>{material.description || '-'}</td>
+                    <td>{material.unit_price.toFixed(2)} €</td>
+                    <td className={lowStock ? 'low-stock' : ''}>
+                      <div className="stock-indicator">
+                        {material.stock}
+                        {lowStock && (
+                          <span className="stock-badge low">Niedrig</span>
+                        )}
+                      </div>
+                    </td>
+                    <td>{material.unit}</td>
+                    <td>{(material.unit_price * material.stock).toFixed(2)} €</td>
+                    <td>
+                      <div className="materials-page-actions">
+                        <button
+                          className="btn-icon btn-edit"
+                          onClick={() => openEditModal(material)}
+                          title="Bearbeiten"
+                        >
+                          ✏️
+                        </button>
+                        <button
+                          className="btn-icon btn-delete"
+                          onClick={() => handleDeleteMaterial(material.id, material.name)}
+                          title="Löschen"
+                        >
+                          🗑️
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -283,6 +462,12 @@ export const MaterialsPage: React.FC = () => {
         onSubmit={handleFormSubmit}
         material={selectedMaterial}
         isLoading={isFormLoading}
+      />
+
+      {/* Purchase List Modal */}
+      <PurchaseListModal
+        isOpen={isPurchaseListOpen}
+        onClose={() => setIsPurchaseListOpen(false)}
       />
     </div>
   );

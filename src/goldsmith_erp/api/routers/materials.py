@@ -1,16 +1,27 @@
 # src/goldsmith_erp/api/routers/materials.py
 
-from fastapi import APIRouter, Depends, HTTPException, status
+import logging
+import uuid
+from pathlib import Path
+
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List
 from pydantic import BaseModel
 
 from goldsmith_erp.api.deps import get_current_user
+from goldsmith_erp.core.config import settings
 from goldsmith_erp.db.session import get_db
 from goldsmith_erp.db.models import User as UserModel
 from goldsmith_erp.models.material import MaterialCreate, MaterialRead, MaterialUpdate, MaterialWithStock
 from goldsmith_erp.services.material_service import MaterialService
+from goldsmith_erp.services.photo_service import _detect_image_type, _MAX_MAGIC_BYTES, PhotoValidationError
 from goldsmith_erp.core.permissions import Permission, require_permission
+
+logger = logging.getLogger(__name__)
+
+# Maximum upload size for material images (10 MB)
+_MATERIAL_IMAGE_MAX_BYTES: int = 10 * 1024 * 1024
 
 router = APIRouter()
 
@@ -236,6 +247,94 @@ async def get_low_stock_materials(
     ]
 
     return materials_with_value
+
+
+@router.post("/{material_id}/image", response_model=MaterialRead)
+@require_permission(Permission.MATERIAL_EDIT)
+async def upload_material_image(
+    material_id: int,
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user),
+):
+    """
+    Material-Bild hochladen.
+
+    - **Authentifizierung erforderlich**
+    - Erlaubte Formate: JPEG, PNG, WEBP (via magic-byte-Prüfung)
+    - Maximale Dateigröße: 10 MB
+    - Speichert die Datei unter ``uploads/materials/{material_id}/``
+
+    **Use Case**: Produktfoto für ein Material hinzufügen oder aktualisieren.
+    """
+    material = await MaterialService.get_material_by_id(db, material_id)
+    if not material:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Material not found",
+        )
+
+    # Read enough bytes for magic byte detection
+    header = await file.read(_MAX_MAGIC_BYTES)
+    if not header:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Empty file upload",
+        )
+
+    ext = _detect_image_type(header)
+    if ext is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Unsupported file type. Only JPEG, PNG, and WEBP are accepted.",
+        )
+
+    # Read remainder, checking total size
+    remainder = await file.read(_MATERIAL_IMAGE_MAX_BYTES - _MAX_MAGIC_BYTES + 1)
+    if len(remainder) > _MATERIAL_IMAGE_MAX_BYTES - _MAX_MAGIC_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=f"File exceeds maximum allowed size of {_MATERIAL_IMAGE_MAX_BYTES // (1024 * 1024)} MB",
+        )
+
+    # Persist to filesystem — random UUID filename, no user input in path
+    storage_dir = Path(settings.PHOTO_STORAGE_PATH).resolve().parent / "materials" / str(material_id)
+    storage_dir.mkdir(parents=True, exist_ok=True)
+
+    filename = f"{uuid.uuid4()}.{ext}"
+    dest = storage_dir / filename
+
+    try:
+        dest.write_bytes(header + remainder)
+    except OSError as exc:
+        logger.error(
+            "Failed to write material image",
+            extra={"material_id": material_id, "error": str(exc)},
+            exc_info=True,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Could not save image to disk",
+        )
+
+    # Store relative URL — the static files mount exposes /uploads/...
+    image_url = f"/uploads/materials/{material_id}/{filename}"
+
+    from goldsmith_erp.models.material import MaterialUpdate as _MaterialUpdate
+    updated = await MaterialService.update_material(
+        db, material_id, _MaterialUpdate(image_url=image_url)
+    )
+    if not updated:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Material not found after image upload",
+        )
+
+    logger.info(
+        "Material image uploaded",
+        extra={"material_id": material_id, "image_url": image_url},
+    )
+    return updated
 
 
 @router.get("/analytics/stock-value", response_model=StockValueResponse)
