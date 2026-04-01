@@ -15,7 +15,7 @@ from goldsmith_erp.core.logging import setup_logging
 from goldsmith_erp.middleware import RequestLoggingMiddleware
 from goldsmith_erp.middleware.auth_required import AuthRequiredMiddleware
 from goldsmith_erp.middleware.security_headers import SecurityHeadersMiddleware
-from goldsmith_erp.api.routers import auth, orders, users, materials, activities, time_tracking, health, customers, metal_inventory, comments, scrap_gold, calendar, invoices, metal_prices, ml
+from goldsmith_erp.api.routers import auth, orders, users, materials, activities, time_tracking, health, customers, metal_inventory, comments, scrap_gold, calendar, invoices, metal_prices, ml, measurements
 from goldsmith_erp.core.pubsub import subscribe_and_forward, publish_event
 
 # Setup structured logging
@@ -112,6 +112,9 @@ app.include_router(calendar.router, prefix=f"{settings.API_V1_STR}/calendar", ta
 app.include_router(invoices.router, prefix=f"{settings.API_V1_STR}/invoices", tags=["invoices"])  # Rechnungswesen
 app.include_router(metal_prices.router, prefix=f"{settings.API_V1_STR}", tags=["metal-prices"])  # Live metal spot prices
 app.include_router(ml.router, prefix=f"{settings.API_V1_STR}/ml", tags=["ml"])  # ML predictions and monitoring
+app.include_router(measurements.router, prefix=f"{settings.API_V1_STR}", tags=["measurements"])  # Massbibliothek
+app.include_router(notifications.router, prefix=f"{settings.API_V1_STR}/notifications", tags=["notifications"])  # In-app notifications
+app.include_router(analytics.router, prefix=f"{settings.API_V1_STR}", tags=["analytics"])  # Soll/Ist-Vergleich
 
 # WebSocket endpoint with Redis Pub/Sub integration
 @app.websocket("/ws/orders")

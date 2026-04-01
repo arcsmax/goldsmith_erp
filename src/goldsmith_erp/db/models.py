@@ -84,6 +84,31 @@ class InvoiceLineType(str, enum.Enum):
     OTHER = "other"            # Sonstiges
 
 
+class MeasurementType(str, enum.Enum):
+    """Types of body measurements stored in the customer Massbibliothek."""
+    RING_SIZE = "ring_size"                    # Ring inner circumference (EU mm or EU size)
+    CHAIN_LENGTH = "chain_length"              # Necklace/chain length in cm
+    WRIST_CIRCUMFERENCE = "wrist_circumference"  # Wrist for bracelets
+    FINGER_CIRCUMFERENCE = "finger_circumference"  # Exact finger circumference in mm
+    NECK_CIRCUMFERENCE = "neck_circumference"  # Neck circumference in cm
+    ANKLE_CIRCUMFERENCE = "ankle_circumference"  # Ankle for anklets
+
+
+class HandSide(str, enum.Enum):
+    """Hand side for ring and bracelet measurements."""
+    LEFT = "left"
+    RIGHT = "right"
+
+
+class FingerPosition(str, enum.Enum):
+    """Finger position for ring measurements (Fingerposition)."""
+    THUMB = "thumb"          # Daumen
+    INDEX = "index"          # Zeigefinger
+    MIDDLE = "middle"        # Mittelfinger
+    RING = "ring"            # Ringfinger
+    PINKY = "pinky"          # Kleiner Finger
+
+
 class AlloyType(str, enum.Enum):
     """Standard gold/silver alloy types with fine content ratio."""
     GOLD_999 = "999"    # 99.9% Feingold
@@ -161,6 +186,84 @@ class Customer(Base):
 
     # Beziehungen
     orders = relationship("Order", back_populates="customer")
+    measurements = relationship(
+        "CustomerMeasurement",
+        back_populates="customer",
+        cascade="all, delete-orphan",
+        order_by="CustomerMeasurement.measured_at.desc()",
+    )
+
+
+class CustomerMeasurement(Base):
+    """
+    Massbibliothek — persistent body measurements per customer.
+
+    Goldsmiths capture measurements once and reuse them across all future
+    orders, eliminating repeated re-measurement sessions.  Each row stores
+    one measurement (e.g. ring size on the left ring finger) with full
+    provenance: who measured, when, and any fitting notes.
+    """
+    __tablename__ = "customer_measurements"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    # Links
+    customer_id = Column(
+        Integer,
+        ForeignKey("customers.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    measured_by = Column(
+        Integer,
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+
+    # What was measured
+    measurement_type = Column(
+        SAEnum(MeasurementType),
+        nullable=False,
+        index=True,
+    )
+
+    # The numeric value — interpretation depends on measurement_type + unit
+    # Ring sizes (EU): inner circumference in mm, range 38-80
+    # Chain / neck / wrist / ankle: centimetres
+    # Finger circumference: millimetres (raw tape measurement, basis for EU size)
+    value = Column(Float, nullable=False)
+    unit = Column(String(20), nullable=False)  # "mm", "cm", "EU", "US"
+
+    # Ring-specific anatomy
+    hand = Column(SAEnum(HandSide), nullable=True)      # LEFT / RIGHT
+    finger = Column(SAEnum(FingerPosition), nullable=True)  # RING, INDEX, …
+
+    # Goldsmith notes — e.g. "Knöchel etwas breiter, Weitungsring empfohlen"
+    notes = Column(Text, nullable=True)
+
+    # When the measurement was physically taken (not necessarily = created_at)
+    measured_at = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
+
+    # Audit timestamps
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(
+        DateTime,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+        nullable=False,
+    )
+
+    # Beziehungen
+    customer = relationship("Customer", back_populates="measurements")
+    goldsmith = relationship("User", foreign_keys=[measured_by])
+
+    def __repr__(self) -> str:
+        return (
+            f"<CustomerMeasurement customer={self.customer_id} "
+            f"{self.measurement_type.value}={self.value}{self.unit}>"
+        )
+
 
 class OrderTypeEnum(str, enum.Enum):
     """Type of jewelry piece being made — primary ML feature for duration prediction."""
@@ -769,3 +872,108 @@ class InvoiceLineItem(Base):
 
     # Relationships
     invoice = relationship("Invoice", back_populates="line_items")
+
+# ============================================================================
+# NOTIFICATION SYSTEM
+# ============================================================================
+
+
+class NotificationTypeEnum(str, enum.Enum):
+    """Type of notification — drives icon and routing on the frontend."""
+    DEADLINE_WARNING = "deadline_warning"   # Auftrag-Deadline naehert sich
+    PICKUP_READY = "pickup_ready"           # Auftrag abholbereit
+    LOW_STOCK = "low_stock"                 # Material unter Mindestbestand
+    FITTING_REMINDER = "fitting_reminder"   # Anprobe-Erinnerung
+    ORDER_STATUS = "order_status"           # Auftragsstatus geaendert
+    SYSTEM = "system"                       # Systemnachricht
+
+
+class NotificationSeverityEnum(str, enum.Enum):
+    """Severity level — maps to visual styling (colour, urgency) on the frontend."""
+    INFO = "info"
+    WARNING = "warning"
+    URGENT = "urgent"
+
+
+class Notification(Base):
+    """
+    Per-user in-app notification.
+
+    Notifications are always scoped to a single recipient (user_id).
+    Real-time delivery is handled via Redis pub/sub on channel
+    ``notifications:{user_id}``.  Persistence here allows unread counts
+    and notification history to survive browser refreshes.
+    """
+    __tablename__ = "notifications"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(
+        Integer,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    title = Column(String(200), nullable=False)
+    message = Column(Text, nullable=False)
+    notification_type = Column(
+        SAEnum(NotificationTypeEnum),
+        nullable=False,
+        index=True,
+    )
+    severity = Column(
+        SAEnum(NotificationSeverityEnum),
+        nullable=False,
+        default=NotificationSeverityEnum.INFO,
+    )
+
+    # Optional contextual links (both nullable — not every notification has one)
+    related_order_id = Column(
+        Integer,
+        ForeignKey("orders.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    related_customer_id = Column(
+        Integer,
+        ForeignKey("customers.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+
+    # Read state
+    is_read = Column(Boolean, default=False, nullable=False, index=True)
+    read_at = Column(DateTime, nullable=True)
+
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+
+    # Relationships
+    user = relationship("User")
+    related_order = relationship("Order")
+    related_customer = relationship("Customer")
+
+
+class NotificationPreference(Base):
+    """
+    Per-user preferences that control which notification types are delivered
+    and how far in advance deadline warnings are triggered.
+    """
+    __tablename__ = "notification_preferences"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(
+        Integer,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    notification_type = Column(SAEnum(NotificationTypeEnum), nullable=False)
+
+    # Whether the user wants this notification type at all
+    enabled = Column(Boolean, default=True, nullable=False)
+
+    # For DEADLINE_WARNING: how many days before the deadline to notify
+    # (default 3 days; checked on every deadline scan)
+    advance_days = Column(Integer, default=3, nullable=False)
+
+    # Relationships
+    user = relationship("User")
