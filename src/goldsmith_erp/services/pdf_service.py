@@ -590,6 +590,233 @@ def _safe_str(value: Any) -> str:
     return str(value)
 
 
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Quote renderer (Kostenvoranschlag)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _render_quote_fpdf(
+    quote: Any,
+    customer: Any,
+    line_items: list[Any],
+    workshop_name: str,
+) -> bytes:
+    """Build a Kostenvoranschlag PDF with fpdf2 and return raw bytes."""
+    import base64
+    import tempfile
+
+    footer_text = (
+        f"{workshop_name}  |  Kostenvoranschlag {quote.quote_number}"
+    )
+    pdf = _GoldsmithPDF(workshop_name=workshop_name, footer_text=footer_text)
+
+    # ── Page top: workshop name + KOSTENVORANSCHLAG title ─────────────────────
+    pdf.set_font(_FONT_B, "", 18)
+    pdf.set_text_color(*_GOLD)
+    pdf.cell(110, 10, workshop_name)
+
+    pdf.set_font(_FONT_B, "", 18)
+    pdf.set_text_color(60, 60, 60)
+    pdf.cell(0, 10, "KOSTENVORANSCHLAG", align="R", ln=True)
+
+    pdf.set_font(_FONT, "", 8)
+    pdf.set_text_color(*_GRAY)
+    pdf.cell(110, 5, "Goldschmiede & Atelier")
+    pdf.set_font(_FONT_B, "", 10)
+    pdf.set_text_color(*_GOLD)
+    pdf.cell(0, 5, quote.quote_number, align="R", ln=True)
+    pdf.set_text_color(*_DARK)
+
+    pdf.gold_rule()
+    pdf.ln(4)
+
+    # ── Address columns ───────────────────────────────────────────────────────
+    x_left = pdf.get_x()
+    y_addr = pdf.get_y()
+
+    # Left column: workshop (Aussteller)
+    pdf.set_xy(x_left, y_addr)
+    pdf.set_font(_FONT_B, "", 7)
+    pdf.set_text_color(*_GRAY)
+    pdf.cell(90, 4, "ANBIETER", ln=True)
+    pdf.set_text_color(*_DARK)
+    pdf.set_font(_FONT_B, "", 10)
+    pdf.cell(90, 5, workshop_name, ln=True)
+    pdf.set_font(_FONT, "", 9)
+
+    # Right column: customer (Empfaenger)
+    pdf.set_xy(x_left + 100, y_addr)
+    pdf.set_font(_FONT_B, "", 7)
+    pdf.set_text_color(*_GRAY)
+    pdf.cell(90, 4, "AUFTRAGGEBER", ln=True)
+    cust_y = pdf.get_y()
+    pdf.set_xy(x_left + 100, cust_y)
+    pdf.set_text_color(*_DARK)
+
+    customer_name = _safe_str(getattr(customer, "name", "Kunde"))
+    pdf.set_font(_FONT_B, "", 10)
+    pdf.cell(90, 5, customer_name, ln=True)
+    pdf.set_xy(x_left + 100, pdf.get_y())
+    pdf.set_font(_FONT, "", 9)
+
+    for attr in ("address", "city", "email", "phone"):
+        val = _safe_str(getattr(customer, attr, None))
+        if val:
+            pdf.set_xy(x_left + 100, pdf.get_y())
+            pdf.cell(90, 4.5, val, ln=True)
+
+    pdf.set_y(max(pdf.get_y(), y_addr + 28))
+    pdf.ln(4)
+
+    # ── Quote meta (right-aligned) ────────────────────────────────────────────
+    meta: list[tuple[str, str]] = [
+        ("KV-Datum:", _fmt_date(quote.created_at)),
+        ("Gueltig bis:", _fmt_date(quote.valid_until)),
+    ]
+    if getattr(quote, "order_id", None):
+        meta.append(("Auftragsnummer:", str(quote.order_id)))
+
+    for label, value in meta:
+        pdf.set_font(_FONT, "", 9)
+        pdf.set_text_color(*_GRAY)
+        pdf.cell(155, 4.5, label, align="R")
+        pdf.set_text_color(*_DARK)
+        pdf.set_font(_FONT_B, "", 9)
+        pdf.cell(0, 4.5, value, align="R", ln=True)
+
+    pdf.ln(5)
+
+    # ── Line items table ──────────────────────────────────────────────────────
+    col_pos = 12
+    col_desc = 88
+    col_qty = 22
+    col_unit = 28
+    col_total = 28
+
+    pdf.filled_header_row([
+        ("Pos.", col_pos, "C"),
+        ("Beschreibung", col_desc, "L"),
+        ("Menge", col_qty, "R"),
+        ("Einzelpreis", col_unit, "R"),
+        ("Gesamtpreis", col_total, "R"),
+    ])
+
+    for i, item in enumerate(line_items):
+        even = (i % 2 == 0)
+        pdf.table_data_row([
+            (str(i + 1), col_pos, "C"),
+            (_safe_str(item.description)[:65], col_desc, "L"),
+            (_fmt_num(item.quantity), col_qty, "R"),
+            (_fmt_eur(item.unit_price), col_unit, "R"),
+            (_fmt_eur(item.total), col_total, "R"),
+        ], even=even)
+
+    # Divider below table
+    pdf.set_draw_color(180, 180, 180)
+    pdf.line(10, pdf.get_y(), 200, pdf.get_y())
+    pdf.set_draw_color(0, 0, 0)
+    pdf.ln(4)
+
+    # ── Totals ────────────────────────────────────────────────────────────────
+    label_w = 140
+    value_w = 38
+
+    def _total_row(label: str, value: str, bold: bool = False, gold_bg: bool = False) -> None:
+        if gold_bg:
+            pdf.set_fill_color(*_GOLD)
+            pdf.set_text_color(255, 255, 255)
+            pdf.set_font(_FONT_B, "", 11)
+        else:
+            pdf.set_fill_color(255, 255, 255)
+            pdf.set_text_color(*(_DARK if bold else _GRAY))
+            pdf.set_font(_FONT_B if bold else _FONT, "", 9)
+        pdf.cell(label_w, 6, label, fill=gold_bg)
+        pdf.cell(value_w, 6, value, align="R", fill=gold_bg, ln=True)
+        pdf.set_text_color(*_DARK)
+        pdf.set_fill_color(255, 255, 255)
+
+    _total_row("Zwischensumme (netto):", _fmt_eur(quote.subtotal))
+    _total_row(f"MwSt {quote.tax_rate:.0f}%:", _fmt_eur(quote.tax_amount))
+    _total_row("Gesamtbetrag:", _fmt_eur(quote.total), gold_bg=True)
+    pdf.ln(4)
+
+    # ── Notes ─────────────────────────────────────────────────────────────────
+    notes = _safe_str(getattr(quote, "notes", None))
+    if notes:
+        pdf.set_fill_color(*_LIGHT_GOLD_BG)
+        pdf.set_draw_color(*_GOLD)
+        pdf.set_line_width(0.5)
+        y_note = pdf.get_y()
+        pdf.rect(10, y_note, 2, 14, style="F")
+        pdf.set_x(15)
+        pdf.set_font(_FONT_B, "", 7.5)
+        pdf.set_text_color(*_GOLD)
+        pdf.cell(0, 5, "HINWEISE", ln=True)
+        pdf.set_x(15)
+        pdf.set_font(_FONT, "", 9)
+        pdf.set_text_color(*_DARK)
+        pdf.multi_cell(175, 4.5, notes[:400])
+        pdf.ln(2)
+
+    # ── Signature line ────────────────────────────────────────────────────────
+    pdf.ln(6)
+    pdf.section_title("Unterschrift")
+
+    sig_y = pdf.get_y()
+    col_w = 88
+
+    # If approved signature exists, embed it
+    sig_data = _safe_str(getattr(quote, "customer_signature_data", None))
+    if sig_data:
+        try:
+            img_data = base64.b64decode(sig_data)
+            with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
+                tmp.write(img_data)
+                tmp_path = tmp.name
+            pdf.image(tmp_path, x=12, y=sig_y, w=col_w - 4, h=18)
+            import os
+            os.unlink(tmp_path)
+        except Exception:
+            logger.warning("Could not embed quote signature into PDF", exc_info=True)
+
+    pdf.set_draw_color(80, 80, 80)
+    pdf.set_line_width(0.4)
+    pdf.line(10, sig_y + 20, 10 + col_w, sig_y + 20)
+    pdf.line(10 + col_w + 10, sig_y + 20, 200, sig_y + 20)
+    pdf.set_line_width(0.2)
+    pdf.set_y(sig_y + 22)
+    pdf.set_font(_FONT, "", 7.5)
+    pdf.set_text_color(*_GRAY)
+    pdf.cell(col_w + 10, 4, "Unterschrift Auftraggeber / Kunde", align="C")
+    pdf.cell(0, 4, "Unterschrift Goldschmiede / Auftragnehmer", align="C", ln=True)
+    pdf.set_text_color(*_DARK)
+    pdf.ln(6)
+
+    # ── Legal disclaimer ──────────────────────────────────────────────────────
+    valid_until_str = _fmt_date(getattr(quote, "valid_until", None))
+    legal = (
+        f"Dieser Kostenvoranschlag ist unverbindlich und gilt bis zum {valid_until_str}. "
+        "Preisaenderungen durch Materialkostenschwankungen (Edelmetallpreise) vorbehalten. "
+        "Mit der Unterschrift des Auftraggebers wird der Kostenvoranschlag zur verbindlichen "
+        "Bestellung. Lieferbedingungen und Zahlungskonditionen gemaess unserer AGB. "
+        "MwSt gemaess gesetzlichem Satz zum Zeitpunkt der Leistungserbringung."
+    )
+
+    pdf.set_fill_color(245, 245, 245)
+    legal_y = pdf.get_y()
+    pdf.rect(10, legal_y, 190, 24, style="F")
+    pdf.set_xy(13, legal_y + 2)
+    pdf.set_font(_FONT_B, "", 7.5)
+    pdf.set_text_color(80, 80, 80)
+    pdf.cell(0, 4, "RECHTLICHER HINWEIS", ln=True)
+    pdf.set_x(13)
+    pdf.set_font(_FONT, "", 7.5)
+    pdf.multi_cell(184, 3.8, legal)
+    pdf.set_text_color(*_DARK)
+
+    return bytes(pdf.output())
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Public service class
 # ─────────────────────────────────────────────────────────────────────────────
@@ -678,4 +905,37 @@ class PDFService:
             customer=customer,
             workshop_name=workshop_name,
             signature_base64=signature_base64,
+        )
+
+    @staticmethod
+    def render_quote_pdf(
+        quote: Any,
+        customer: Any,
+        line_items: list[Any],
+        workshop_name: str,
+    ) -> bytes:
+        """
+        Render a German Kostenvoranschlag as PDF.
+
+        Args:
+            quote:         QuoteResponse-like object (quote_number, created_at,
+                           valid_until, subtotal, tax_rate, tax_amount, total,
+                           notes, order_id, customer_signature_data).
+            customer:      Customer object with name, address, city, email, phone attrs.
+            line_items:    List of line item objects with description, quantity,
+                           unit_price, total attrs.
+            workshop_name: Business name from settings.
+
+        Returns:
+            Raw PDF bytes. Caller streams via StreamingResponse.
+        """
+        logger.info(
+            "Rendering quote PDF",
+            extra={"quote_number": quote.quote_number},
+        )
+        return _render_quote_fpdf(
+            quote=quote,
+            customer=customer,
+            line_items=line_items,
+            workshop_name=workshop_name,
         )
