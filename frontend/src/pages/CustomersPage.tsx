@@ -4,11 +4,14 @@ import { useNavigate } from 'react-router-dom';
 import { customersApi } from '../api';
 import { Customer, CustomerListItem, CustomerCategory } from '../types';
 import { CustomerFormModal } from '../components/CustomerFormModal';
+import { useToast, useConfirm } from '../contexts';
 import '../styles/pages.css';
 import '../styles/customers.css';
 
 export const CustomersPage: React.FC = () => {
   const navigate = useNavigate();
+  const { showToast } = useToast();
+  const { showConfirm } = useConfirm();
   const [customers, setCustomers] = useState<CustomerListItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -116,10 +119,12 @@ export const CustomersPage: React.FC = () => {
 
   // Handle delete customer
   const handleDeleteCustomer = async (customerId: number, customerName: string) => {
-    const confirmed = window.confirm(
-      `Möchten Sie den Kunden "${customerName}" wirklich löschen?\n\n` +
-      `Hinweis: Kunden mit aktiven Aufträgen können nicht gelöscht werden.`
-    );
+    const confirmed = await showConfirm({
+      title: 'Kunden loschen',
+      message: `Mochten Sie den Kunden "${customerName}" wirklich loschen? Kunden mit aktiven Auftragen konnen nicht geloscht werden.`,
+      confirmLabel: 'Loschen',
+      variant: 'danger',
+    });
 
     if (!confirmed) return;
 
@@ -127,8 +132,11 @@ export const CustomersPage: React.FC = () => {
       await customersApi.delete(customerId);
       await fetchCustomers();
     } catch (err: any) {
-      const errorMsg = err.response?.data?.detail || 'Fehler beim Löschen des Kunden';
-      alert(`Fehler: ${errorMsg}\n\nTipp: Kunden mit Aufträgen können nicht gelöscht werden. Deaktivieren Sie den Kunden stattdessen.`);
+      const errorMsg = err.response?.data?.detail || 'Fehler beim Loschen des Kunden';
+      showToast(
+        `${errorMsg} - Tipp: Kunden mit Auftragen konnen nicht geloscht werden. Deaktivieren Sie den Kunden stattdessen.`,
+        'error'
+      );
     }
   };
 
@@ -138,7 +146,7 @@ export const CustomersPage: React.FC = () => {
       const customer = await customersApi.getById(customerId);
       setEditingCustomer(customer);
     } catch (err: any) {
-      alert('Fehler beim Laden der Kundendaten');
+      showToast('Fehler beim Laden der Kundendaten', 'error');
     }
   };
 

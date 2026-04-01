@@ -1,6 +1,6 @@
 // Invoice Management Page — Rechnungsverwaltung
 import React, { useEffect, useState, useCallback } from 'react';
-import { useAuth } from '../contexts';
+import { useAuth, useToast, useConfirm } from '../contexts';
 import { invoicesApi } from '../api/invoices';
 import { ordersApi } from '../api/orders';
 import {
@@ -511,6 +511,8 @@ const InvoiceDetailPanel: React.FC<InvoiceDetailPanelProps> = ({ invoiceId, onCl
 
 export const InvoicesPage: React.FC = () => {
   const { hasRole } = useAuth();
+  const { showToast } = useToast();
+  const { showConfirm } = useConfirm();
 
   const [invoices, setInvoices] = useState<InvoiceListItem[]>([]);
   const [total, setTotal] = useState(0);
@@ -587,9 +589,9 @@ export const InvoicesPage: React.FC = () => {
       await invoicesApi.createFromOrder(data);
       setIsCreateModalOpen(false);
       await fetchInvoices();
-      alert('Rechnung erfolgreich erstellt!');
+      showToast('Rechnung erfolgreich erstellt!', 'success');
     } catch (err: any) {
-      alert(err.response?.data?.detail || 'Fehler beim Erstellen der Rechnung.');
+      showToast(err.response?.data?.detail || 'Fehler beim Erstellen der Rechnung.', 'error');
     } finally {
       setIsCreateLoading(false);
     }
@@ -602,9 +604,9 @@ export const InvoicesPage: React.FC = () => {
       await invoicesApi.markAsPaid(invoiceToMarkPaid.id, data);
       setInvoiceToMarkPaid(null);
       await fetchInvoices();
-      alert('Rechnung als bezahlt markiert.');
+      showToast('Rechnung als bezahlt markiert.', 'success');
     } catch (err: any) {
-      alert(err.response?.data?.detail || 'Fehler beim Aktualisieren des Zahlungsstatus.');
+      showToast(err.response?.data?.detail || 'Fehler beim Aktualisieren des Zahlungsstatus.', 'error');
     } finally {
       setIsMarkPaidLoading(false);
     }
@@ -612,15 +614,18 @@ export const InvoicesPage: React.FC = () => {
 
   const handleCancelInvoice = async (invoice: InvoiceListItem, e: React.MouseEvent) => {
     e.stopPropagation();
-    const confirmed = window.confirm(
-      `Rechnung ${invoice.invoice_number} wirklich stornieren?`
-    );
+    const confirmed = await showConfirm({
+      title: 'Rechnung stornieren',
+      message: `Rechnung ${invoice.invoice_number} wirklich stornieren?`,
+      confirmLabel: 'Stornieren',
+      variant: 'danger',
+    });
     if (!confirmed) return;
     try {
       await invoicesApi.updateInvoice(invoice.id, { status: 'CANCELLED' });
       await fetchInvoices();
     } catch (err: any) {
-      alert(err.response?.data?.detail || 'Fehler beim Stornieren der Rechnung.');
+      showToast(err.response?.data?.detail || 'Fehler beim Stornieren der Rechnung.', 'error');
     }
   };
 

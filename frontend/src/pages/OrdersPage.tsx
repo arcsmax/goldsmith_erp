@@ -4,11 +4,14 @@ import { useNavigate } from 'react-router-dom';
 import { ordersApi } from '../api';
 import { OrderType, OrderCreateInput, OrderUpdateInput, OrderStatus } from '../types';
 import { OrderFormModal } from '../components/orders/OrderFormModal';
+import { useToast, useConfirm } from '../contexts';
 import '../styles/pages.css';
 import '../styles/orders.css';
 
 export const OrdersPage: React.FC = () => {
   const navigate = useNavigate();
+  const { showToast } = useToast();
+  const { showConfirm } = useConfirm();
   const [orders, setOrders] = useState<OrderType[]>([]);
   const [filteredOrders, setFilteredOrders] = useState<OrderType[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -85,9 +88,9 @@ export const OrdersPage: React.FC = () => {
       await ordersApi.create(data);
       await fetchOrders();
       setIsModalOpen(false);
-      alert('Auftrag erfolgreich erstellt!');
+      showToast('Auftrag erfolgreich erstellt!', 'success');
     } catch (err: any) {
-      alert(err.response?.data?.detail || 'Fehler beim Erstellen des Auftrags');
+      showToast(err.response?.data?.detail || 'Fehler beim Erstellen des Auftrags', 'error');
     } finally {
       setIsFormLoading(false);
     }
@@ -102,27 +105,30 @@ export const OrdersPage: React.FC = () => {
       await fetchOrders();
       setIsModalOpen(false);
       setSelectedOrder(null);
-      alert('Auftrag erfolgreich aktualisiert!');
+      showToast('Auftrag erfolgreich aktualisiert!', 'success');
     } catch (err: any) {
-      alert(err.response?.data?.detail || 'Fehler beim Aktualisieren des Auftrags');
+      showToast(err.response?.data?.detail || 'Fehler beim Aktualisieren des Auftrags', 'error');
     } finally {
       setIsFormLoading(false);
     }
   };
 
   const handleDeleteOrder = async (orderId: number, orderTitle: string) => {
-    const confirmed = window.confirm(
-      `Möchten Sie den Auftrag "${orderTitle}" wirklich löschen?`
-    );
+    const confirmed = await showConfirm({
+      title: 'Auftrag loschen',
+      message: `Mochten Sie den Auftrag "${orderTitle}" wirklich loschen?`,
+      confirmLabel: 'Loschen',
+      variant: 'danger',
+    });
 
     if (!confirmed) return;
 
     try {
       await ordersApi.delete(orderId);
       await fetchOrders();
-      alert('Auftrag erfolgreich gelöscht!');
+      showToast('Auftrag erfolgreich geloscht!', 'success');
     } catch (err: any) {
-      alert(err.response?.data?.detail || 'Fehler beim Löschen des Auftrags');
+      showToast(err.response?.data?.detail || 'Fehler beim Loschen des Auftrags', 'error');
     }
   };
 

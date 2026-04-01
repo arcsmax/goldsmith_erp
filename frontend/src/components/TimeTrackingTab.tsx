@@ -4,7 +4,7 @@ import { timeTrackingApi } from '../api/time-tracking';
 import { activitiesApi } from '../api/activities';
 import { TimeEntry, TimeTrackingStats, Activity } from '../types';
 import ActivityPicker from './ActivityPicker';
-import { useTimeTracking } from '../contexts';
+import { useTimeTracking, useToast } from '../contexts';
 import '../styles/components/TimeTrackingTab.css';
 
 interface TimeTrackingTabProps {
@@ -13,6 +13,7 @@ interface TimeTrackingTabProps {
 
 const TimeTrackingTab: React.FC<TimeTrackingTabProps> = ({ orderId }) => {
   const { startTracking } = useTimeTracking();
+  const { showToast } = useToast();
   const [entries, setEntries] = useState<TimeEntry[]>([]);
   const [stats, setStats] = useState<TimeTrackingStats | null>(null);
   const [activities, setActivities] = useState<Map<number, Activity>>(new Map());
@@ -62,7 +63,7 @@ const TimeTrackingTab: React.FC<TimeTrackingTabProps> = ({ orderId }) => {
       await loadTimeEntries();
     } catch (err) {
       console.error('Failed to start tracking:', err);
-      alert('Zeiterfassung konnte nicht gestartet werden');
+      showToast('Zeiterfassung konnte nicht gestartet werden', 'error');
     }
   };
 

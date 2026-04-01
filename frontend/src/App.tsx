@@ -1,9 +1,11 @@
 // Main App Component with Routing
 import React, { Suspense, lazy } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import { AuthProvider, OrderProvider, TimeTrackingProvider } from './contexts';
+import { AuthProvider, OrderProvider, TimeTrackingProvider, ToastProvider } from './contexts';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { MainLayout } from './layouts/MainLayout';
+import { ToastContainer } from './components/Toast';
+import { ConfirmDialog } from './components/ConfirmDialog';
 
 // Lazy load pages for code splitting and better performance
 // Note: Pages use named exports, so we need to destructure them
@@ -40,110 +42,115 @@ const PageLoader: React.FC = () => (
 const App: React.FC = () => {
   return (
     <BrowserRouter>
-      <AuthProvider>
-        <TimeTrackingProvider>
-          <OrderProvider>
-            <Suspense fallback={<PageLoader />}>
-              <Routes>
-                {/* Public Routes */}
-                <Route path="/login" element={<LoginPage />} />
-                <Route path="/register" element={<RegisterPage />} />
+      <ToastProvider>
+        <AuthProvider>
+          <TimeTrackingProvider>
+            <OrderProvider>
+              <Suspense fallback={<PageLoader />}>
+                <Routes>
+                  {/* Public Routes */}
+                  <Route path="/login" element={<LoginPage />} />
+                  <Route path="/register" element={<RegisterPage />} />
 
-              {/* Protected Routes */}
-              <Route
-                path="/"
-                element={
-                  <ProtectedRoute>
-                    <MainLayout />
-                  </ProtectedRoute>
-                }
-              >
-                <Route index element={<Navigate to="/dashboard" replace />} />
-                <Route path="dashboard" element={<DashboardPage />} />
+                  {/* Protected Routes */}
+                  <Route
+                    path="/"
+                    element={
+                      <ProtectedRoute>
+                        <MainLayout />
+                      </ProtectedRoute>
+                    }
+                  >
+                    <Route index element={<Navigate to="/dashboard" replace />} />
+                    <Route path="dashboard" element={<DashboardPage />} />
 
-                {/* Kunden — ADMIN und GOLDSMITH */}
-                <Route
-                  path="customers"
-                  element={
-                    <ProtectedRoute requiredRoles={['ADMIN', 'GOLDSMITH']}>
-                      <CustomersPage />
-                    </ProtectedRoute>
-                  }
-                />
-                <Route
-                  path="customers/:id"
-                  element={
-                    <ProtectedRoute requiredRoles={['ADMIN', 'GOLDSMITH']}>
-                      <CustomerDetailPage />
-                    </ProtectedRoute>
-                  }
-                />
+                    {/* Kunden — ADMIN und GOLDSMITH */}
+                    <Route
+                      path="customers"
+                      element={
+                        <ProtectedRoute requiredRoles={['ADMIN', 'GOLDSMITH']}>
+                          <CustomersPage />
+                        </ProtectedRoute>
+                      }
+                    />
+                    <Route
+                      path="customers/:id"
+                      element={
+                        <ProtectedRoute requiredRoles={['ADMIN', 'GOLDSMITH']}>
+                          <CustomerDetailPage />
+                        </ProtectedRoute>
+                      }
+                    />
 
-                {/* Materialien — ADMIN und GOLDSMITH */}
-                <Route
-                  path="materials"
-                  element={
-                    <ProtectedRoute requiredRoles={['ADMIN', 'GOLDSMITH']}>
-                      <MaterialsPage />
-                    </ProtectedRoute>
-                  }
-                />
+                    {/* Materialien — ADMIN und GOLDSMITH */}
+                    <Route
+                      path="materials"
+                      element={
+                        <ProtectedRoute requiredRoles={['ADMIN', 'GOLDSMITH']}>
+                          <MaterialsPage />
+                        </ProtectedRoute>
+                      }
+                    />
 
-                {/* Metallinventar — ADMIN und GOLDSMITH */}
-                <Route
-                  path="metal-inventory"
-                  element={
-                    <ProtectedRoute requiredRoles={['ADMIN', 'GOLDSMITH']}>
-                      <MetalInventoryPage />
-                    </ProtectedRoute>
-                  }
-                />
+                    {/* Metallinventar — ADMIN und GOLDSMITH */}
+                    <Route
+                      path="metal-inventory"
+                      element={
+                        <ProtectedRoute requiredRoles={['ADMIN', 'GOLDSMITH']}>
+                          <MetalInventoryPage />
+                        </ProtectedRoute>
+                      }
+                    />
 
-                <Route path="orders" element={<OrdersPage />} />
-                <Route path="orders/:orderId" element={<OrderDetailPage />} />
-                <Route path="time-tracking" element={<TimeTrackingPage />} />
+                    <Route path="orders" element={<OrdersPage />} />
+                    <Route path="orders/:orderId" element={<OrderDetailPage />} />
+                    <Route path="time-tracking" element={<TimeTrackingPage />} />
 
-                {/* Benutzerverwaltung — nur ADMIN */}
-                <Route
-                  path="users"
-                  element={
-                    <ProtectedRoute requiredRoles={['ADMIN']}>
-                      <UsersPage />
-                    </ProtectedRoute>
-                  }
-                />
+                    {/* Benutzerverwaltung — nur ADMIN */}
+                    <Route
+                      path="users"
+                      element={
+                        <ProtectedRoute requiredRoles={['ADMIN']}>
+                          <UsersPage />
+                        </ProtectedRoute>
+                      }
+                    />
 
-                <Route path="scanner" element={<ScannerPage />} />
-                <Route path="calendar" element={<CalendarPage />} />
+                    <Route path="scanner" element={<ScannerPage />} />
+                    <Route path="calendar" element={<CalendarPage />} />
 
-                {/* Rechnungen — ADMIN und GOLDSMITH */}
-                <Route
-                  path="invoices"
-                  element={
-                    <ProtectedRoute requiredRoles={['ADMIN', 'GOLDSMITH']}>
-                      <InvoicesPage />
-                    </ProtectedRoute>
-                  }
-                />
+                    {/* Rechnungen — ADMIN und GOLDSMITH */}
+                    <Route
+                      path="invoices"
+                      element={
+                        <ProtectedRoute requiredRoles={['ADMIN', 'GOLDSMITH']}>
+                          <InvoicesPage />
+                        </ProtectedRoute>
+                      }
+                    />
 
-                {/* Systemübersicht — nur ADMIN */}
-                <Route
-                  path="admin/system"
-                  element={
-                    <ProtectedRoute requiredRoles={['ADMIN']}>
-                      <AdminSystemPage />
-                    </ProtectedRoute>
-                  }
-                />
-              </Route>
+                    {/* Systemübersicht — nur ADMIN */}
+                    <Route
+                      path="admin/system"
+                      element={
+                        <ProtectedRoute requiredRoles={['ADMIN']}>
+                          <AdminSystemPage />
+                        </ProtectedRoute>
+                      }
+                    />
+                  </Route>
 
-              {/* Catch all - redirect to dashboard */}
-              <Route path="*" element={<Navigate to="/dashboard" replace />} />
-              </Routes>
-            </Suspense>
-          </OrderProvider>
-        </TimeTrackingProvider>
-      </AuthProvider>
+                  {/* Catch all - redirect to dashboard */}
+                  <Route path="*" element={<Navigate to="/dashboard" replace />} />
+                </Routes>
+              </Suspense>
+            </OrderProvider>
+          </TimeTrackingProvider>
+        </AuthProvider>
+        {/* Toast notifications and confirm dialogs rendered above all app content */}
+        <ToastContainer />
+        <ConfirmDialog />
+      </ToastProvider>
     </BrowserRouter>
   );
 };

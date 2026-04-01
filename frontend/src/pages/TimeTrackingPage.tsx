@@ -7,6 +7,7 @@ import { TimeSummaryCards } from '../components/time-tracking/TimeSummaryCards';
 import { TimeReportsSection } from '../components/time-tracking/TimeReportsSection';
 import { TimeEntryFormModal } from '../components/time-tracking/TimeEntryFormModal';
 import { formatDateTime, formatDuration as formatDurationUtil } from '../utils/formatters';
+import { useToast, useConfirm } from '../contexts';
 import '../styles/pages.css';
 import '../styles/time-tracking.css';
 
@@ -17,6 +18,8 @@ const formatDuration = (minutes: number | null): string => {
 };
 
 export const TimeTrackingPage: React.FC = () => {
+  const { showToast } = useToast();
+  const { showConfirm } = useConfirm();
   const [entries, setEntries] = useState<TimeEntryType[]>([]);
   const [activities, setActivities] = useState<ActivityType[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -114,9 +117,9 @@ export const TimeTrackingPage: React.FC = () => {
       await timeTrackingApi.create(data);
       await fetchEntries();
       setIsModalOpen(false);
-      alert('Zeiterfassung erfolgreich erstellt!');
+      showToast('Zeiterfassung erfolgreich erstellt!', 'success');
     } catch (err: any) {
-      alert(err.response?.data?.detail || 'Fehler beim Erstellen der Zeiterfassung');
+      showToast(err.response?.data?.detail || 'Fehler beim Erstellen der Zeiterfassung', 'error');
     } finally {
       setIsFormLoading(false);
     }
@@ -131,29 +134,32 @@ export const TimeTrackingPage: React.FC = () => {
       await fetchEntries();
       setIsModalOpen(false);
       setSelectedEntry(null);
-      alert('Zeiterfassung erfolgreich aktualisiert!');
+      showToast('Zeiterfassung erfolgreich aktualisiert!', 'success');
     } catch (err: any) {
-      alert(err.response?.data?.detail || 'Fehler beim Aktualisieren der Zeiterfassung');
+      showToast(err.response?.data?.detail || 'Fehler beim Aktualisieren der Zeiterfassung', 'error');
     } finally {
       setIsFormLoading(false);
     }
   }, [selectedEntry, fetchEntries]);
 
   const handleDeleteEntry = useCallback(async (entryId: string) => {
-    const confirmed = window.confirm(
-      'Möchten Sie diese Zeiterfassung wirklich löschen?'
-    );
+    const confirmed = await showConfirm({
+      title: 'Zeiteintrag loschen',
+      message: 'Mochten Sie diese Zeiterfassung wirklich loschen?',
+      confirmLabel: 'Loschen',
+      variant: 'danger',
+    });
 
     if (!confirmed) return;
 
     try {
       await timeTrackingApi.delete(entryId);
       await fetchEntries();
-      alert('Zeiterfassung erfolgreich gelöscht!');
+      showToast('Zeiterfassung erfolgreich geloscht!', 'success');
     } catch (err: any) {
-      alert(err.response?.data?.detail || 'Fehler beim Löschen der Zeiterfassung');
+      showToast(err.response?.data?.detail || 'Fehler beim Loschen der Zeiterfassung', 'error');
     }
-  }, [fetchEntries]);
+  }, [fetchEntries, showConfirm, showToast]);
 
   const openCreateModal = useCallback(() => {
     setSelectedEntry(null);

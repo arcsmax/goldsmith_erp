@@ -3,6 +3,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { scrapGoldApi, ScrapGold, ScrapGoldStatus } from '../../api/scrap-gold';
 import { AlloyCalculator, ALLOY_OPTIONS } from './AlloyCalculator';
 import { SignatureCanvas } from '../SignatureCanvas';
+import { useToast } from '../../contexts';
 import '../../styles/scrap-gold.css';
 
 interface ScrapGoldTabProps {
@@ -26,6 +27,7 @@ const getAlloyLabel = (alloy: number): string => {
 };
 
 export const ScrapGoldTab: React.FC<ScrapGoldTabProps> = ({ orderId, customerId }) => {
+  const { showToast } = useToast();
   const [scrapGold, setScrapGold] = useState<ScrapGold | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -61,7 +63,7 @@ export const ScrapGoldTab: React.FC<ScrapGoldTabProps> = ({ orderId, customerId 
       setScrapGold(created);
     } catch (err) {
       console.error('Failed to create scrap gold:', err);
-      alert('Altgold-Eintrag konnte nicht erstellt werden.');
+      showToast('Altgold-Eintrag konnte nicht erstellt werden.', 'error');
     } finally {
       setIsCreating(false);
     }
@@ -75,7 +77,7 @@ export const ScrapGoldTab: React.FC<ScrapGoldTabProps> = ({ orderId, customerId 
       await loadScrapGold();
     } catch (err) {
       console.error('Failed to add item:', err);
-      alert('Position konnte nicht hinzugefuegt werden.');
+      showToast('Position konnte nicht hinzugefuegt werden.', 'error');
     }
   };
 
@@ -87,7 +89,7 @@ export const ScrapGoldTab: React.FC<ScrapGoldTabProps> = ({ orderId, customerId 
       await loadScrapGold();
     } catch (err) {
       console.error('Failed to remove item:', err);
-      alert('Position konnte nicht entfernt werden.');
+      showToast('Position konnte nicht entfernt werden.', 'error');
     }
   };
 
@@ -103,7 +105,7 @@ export const ScrapGoldTab: React.FC<ScrapGoldTabProps> = ({ orderId, customerId 
       }
     } catch (err) {
       console.error('Failed to calculate:', err);
-      alert('Berechnung fehlgeschlagen.');
+      showToast('Berechnung fehlgeschlagen.', 'error');
     } finally {
       setIsCalculating(false);
     }
@@ -117,7 +119,7 @@ export const ScrapGoldTab: React.FC<ScrapGoldTabProps> = ({ orderId, customerId 
       setScrapGold(updated);
     } catch (err) {
       console.error('Failed to sign:', err);
-      alert('Unterschrift konnte nicht gespeichert werden.');
+      showToast('Unterschrift konnte nicht gespeichert werden.', 'error');
     }
   };
 

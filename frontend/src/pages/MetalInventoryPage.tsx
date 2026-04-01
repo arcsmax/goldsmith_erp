@@ -4,6 +4,7 @@ import { metalInventoryApi } from '../api';
 import { MetalPurchaseType, MetalPurchaseCreateInput, MetalPurchaseUpdateInput, MetalType } from '../types';
 import { MetalSummaryCards } from '../components/metal/MetalSummaryCards';
 import { MetalPurchaseFormModal } from '../components/metal/MetalPurchaseFormModal';
+import { useToast, useConfirm } from '../contexts';
 import '../styles/pages.css';
 import '../styles/metal-inventory.css';
 
@@ -31,6 +32,8 @@ const METAL_TYPE_CONFIG: Record<MetalType, MetalConfig> = {
 };
 
 export const MetalInventoryPage: React.FC = () => {
+  const { showToast } = useToast();
+  const { showConfirm } = useConfirm();
   const [purchases, setPurchases] = useState<MetalPurchaseType[]>([]);
   const [filteredPurchases, setFilteredPurchases] = useState<MetalPurchaseType[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -120,9 +123,9 @@ export const MetalInventoryPage: React.FC = () => {
       await metalInventoryApi.create(data);
       await fetchPurchases();
       setIsModalOpen(false);
-      alert('Metalleinkauf erfolgreich erstellt!');
+      showToast('Metalleinkauf erfolgreich erstellt!', 'success');
     } catch (err: any) {
-      alert(err.response?.data?.detail || 'Fehler beim Erstellen des Metalleinkaufs');
+      showToast(err.response?.data?.detail || 'Fehler beim Erstellen des Metalleinkaufs', 'error');
     } finally {
       setIsFormLoading(false);
     }
@@ -137,27 +140,30 @@ export const MetalInventoryPage: React.FC = () => {
       await fetchPurchases();
       setIsModalOpen(false);
       setSelectedPurchase(null);
-      alert('Metalleinkauf erfolgreich aktualisiert!');
+      showToast('Metalleinkauf erfolgreich aktualisiert!', 'success');
     } catch (err: any) {
-      alert(err.response?.data?.detail || 'Fehler beim Aktualisieren des Metalleinkaufs');
+      showToast(err.response?.data?.detail || 'Fehler beim Aktualisieren des Metalleinkaufs', 'error');
     } finally {
       setIsFormLoading(false);
     }
   };
 
   const handleDeletePurchase = async (purchaseId: number, metalType: string) => {
-    const confirmed = window.confirm(
-      `Möchten Sie diesen Metalleinkauf (${metalType}) wirklich löschen?`
-    );
+    const confirmed = await showConfirm({
+      title: 'Metalleinkauf loschen',
+      message: `Mochten Sie diesen Metalleinkauf (${metalType}) wirklich loschen?`,
+      confirmLabel: 'Loschen',
+      variant: 'danger',
+    });
 
     if (!confirmed) return;
 
     try {
       await metalInventoryApi.delete(purchaseId);
       await fetchPurchases();
-      alert('Metalleinkauf erfolgreich gelöscht!');
+      showToast('Metalleinkauf erfolgreich geloscht!', 'success');
     } catch (err: any) {
-      alert(err.response?.data?.detail || 'Fehler beim Löschen des Metalleinkaufs');
+      showToast(err.response?.data?.detail || 'Fehler beim Loschen des Metalleinkaufs', 'error');
     }
   };
 

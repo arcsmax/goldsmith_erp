@@ -1,7 +1,7 @@
 // Comments Tab Component - Digital Post-it system for order comments
 import React, { useState, useEffect, useCallback } from 'react';
 import { commentsApi, OrderComment } from '../api/comments';
-import { useAuth } from '../contexts';
+import { useAuth, useToast } from '../contexts';
 import '../styles/components/CommentsTab.css';
 
 interface CommentsTabProps {
@@ -60,6 +60,7 @@ const getInitials = (name: string | null): string => {
 
 export const CommentsTab: React.FC<CommentsTabProps> = ({ orderId }) => {
   const { user } = useAuth();
+  const { showToast } = useToast();
   const [comments, setComments] = useState<OrderComment[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -105,7 +106,7 @@ export const CommentsTab: React.FC<CommentsTabProps> = ({ orderId }) => {
       await loadComments();
     } catch (err) {
       console.error('Failed to add comment:', err);
-      alert('Kommentar konnte nicht hinzugefügt werden.');
+      showToast('Kommentar konnte nicht hinzugefuegt werden.', 'error');
     } finally {
       setIsSubmitting(false);
     }
@@ -143,7 +144,7 @@ export const CommentsTab: React.FC<CommentsTabProps> = ({ orderId }) => {
       await loadComments();
     } catch (err) {
       console.error('Failed to update comment:', err);
-      alert('Kommentar konnte nicht aktualisiert werden.');
+      showToast('Kommentar konnte nicht aktualisiert werden.', 'error');
     } finally {
       setIsSavingEdit(false);
     }
@@ -166,7 +167,7 @@ export const CommentsTab: React.FC<CommentsTabProps> = ({ orderId }) => {
       await loadComments();
     } catch (err) {
       console.error('Failed to delete comment:', err);
-      alert('Kommentar konnte nicht gelöscht werden.');
+      showToast('Kommentar konnte nicht geloscht werden.', 'error');
     }
   };
 

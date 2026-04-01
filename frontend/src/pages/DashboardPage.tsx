@@ -1,7 +1,7 @@
 // Enhanced Dashboard Page Component (2025) - Role-Specific Views
 import React, { useEffect, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useAuth } from '../contexts';
+import { useAuth, useToast } from '../contexts';
 import { DashboardKPIs } from '../components/dashboard/DashboardKPIs';
 import { AlertsWidget } from '../components/dashboard/AlertsWidget';
 import { DeadlinesWidget } from '../components/dashboard/DeadlinesWidget';
@@ -16,6 +16,7 @@ import '../styles/dashboard.css';
 // ============================================================
 const GoldsmithDashboard: React.FC = () => {
   const navigate = useNavigate();
+  const { showToast } = useToast();
   const [myOrders, setMyOrders] = useState<OrderType[]>([]);
   const [todayDeadlines, setTodayDeadlines] = useState<OrderType[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -81,7 +82,7 @@ const GoldsmithDashboard: React.FC = () => {
       const resp = await handoffsApi.getPending();
       setPendingHandoffs(Array.isArray(resp.data) ? resp.data : []);
     } catch (err: any) {
-      alert(err.response?.data?.detail || 'Fehler beim Annehmen der Übergabe');
+      showToast(err.response?.data?.detail || 'Fehler beim Annehmen der Übergabe', 'error');
     }
   };
 
@@ -93,7 +94,7 @@ const GoldsmithDashboard: React.FC = () => {
       const resp = await handoffsApi.getPending();
       setPendingHandoffs(Array.isArray(resp.data) ? resp.data : []);
     } catch (err: any) {
-      alert(err.response?.data?.detail || 'Fehler beim Ablehnen der Übergabe');
+      showToast(err.response?.data?.detail || 'Fehler beim Ablehnen der Übergabe', 'error');
     }
   };
 

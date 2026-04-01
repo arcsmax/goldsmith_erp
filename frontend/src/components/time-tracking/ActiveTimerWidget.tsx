@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { useStopwatch } from 'react-timer-hook';
 import { timeTrackingApi, ordersApi } from '../../api';
 import { OrderType, ActivityType, TimeEntryType } from '../../types';
+import { useToast, useConfirm } from '../../contexts';
 import '../../styles/time-tracking.css';
 
 interface TimerState {
@@ -17,6 +18,8 @@ interface TimerState {
 const STORAGE_KEY = 'goldsmith_active_timer';
 
 export const ActiveTimerWidget: React.FC = () => {
+  const { showToast } = useToast();
+  const { showConfirm } = useConfirm();
   const [orders, setOrders] = useState<OrderType[]>([]);
   const [activities, setActivities] = useState<ActivityType[]>([]);
   const [timerState, setTimerState] = useState<TimerState>({
@@ -159,9 +162,12 @@ export const ActiveTimerWidget: React.FC = () => {
   const handleStopTimer = async () => {
     if (!timerState.entryId) return;
 
-    const confirmed = window.confirm(
-      'Möchten Sie den Timer wirklich stoppen und die Zeiterfassung beenden?'
-    );
+    const confirmed = await showConfirm({
+      title: 'Timer stoppen',
+      message: 'Mochten Sie den Timer wirklich stoppen und die Zeiterfassung beenden?',
+      confirmLabel: 'Stoppen',
+      variant: 'danger',
+    });
 
     if (!confirmed) return;
 
@@ -184,7 +190,7 @@ export const ActiveTimerWidget: React.FC = () => {
       });
       clearTimerFromStorage();
 
-      alert('Zeiterfassung erfolgreich gespeichert!');
+      showToast('Zeiterfassung erfolgreich gespeichert!', 'success');
     } catch (err: any) {
       setError(err.response?.data?.detail || 'Fehler beim Stoppen des Timers');
     } finally {

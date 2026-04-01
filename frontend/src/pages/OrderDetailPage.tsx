@@ -3,7 +3,7 @@ import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ordersApi, materialsApi } from '../api';
 import { OrderType, MaterialType, OrderStatus } from '../types';
-import { useOrders, OrderTab } from '../contexts';
+import { useOrders, OrderTab, useToast } from '../contexts';
 import TimeTrackingTab from '../components/TimeTrackingTab';
 import { CommentsTab } from '../components/CommentsTab';
 import { ScrapGoldTab } from '../components/scrap-gold';
@@ -18,6 +18,7 @@ export const OrderDetailPage: React.FC = () => {
   const { orderId } = useParams<{ orderId: string }>();
   const navigate = useNavigate();
   const { setActiveOrder, setOrderTab, getOrderTab } = useOrders();
+  const { showToast } = useToast();
 
   const [order, setOrder] = useState<OrderType | null>(null);
   const [materials, setMaterials] = useState<MaterialType[]>([]);
@@ -69,7 +70,7 @@ export const OrderDetailPage: React.FC = () => {
       setOrder(updated);
       setActiveOrder(updated);
     } catch (err: any) {
-      alert('Fehler beim Aktualisieren des Status: ' + err.message);
+      showToast('Fehler beim Aktualisieren des Status: ' + err.message, 'error');
     }
   };
 

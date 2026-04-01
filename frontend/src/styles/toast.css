@@ -1,0 +1,429 @@
+/* Toast & ConfirmDialog Styles */
+/* Uses brand tokens from brand-tokens.css */
+
+/* ─── Toast Container ─── */
+.toast-container {
+  position: fixed;
+  bottom: 1.5rem;
+  right: 1.5rem;
+  z-index: 9000;
+  display: flex;
+  flex-direction: column-reverse;
+  gap: 0.625rem;
+  width: 22rem;
+  max-width: calc(100vw - 2rem);
+  pointer-events: none;
+}
+
+/* ─── Individual Toast ─── */
+.toast {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 0.875rem 1rem;
+  border-radius: 0.625rem;
+  border: 1px solid transparent;
+  box-shadow:
+    0 4px 6px -1px rgba(0, 0, 0, 0.12),
+    0 2px 4px -2px rgba(0, 0, 0, 0.08);
+  pointer-events: all;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+
+  /* Slide-in from right */
+  animation: toast-slide-in 0.28s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+.toast.toast-dismissing {
+  animation: toast-fade-out 0.22s ease-in forwards;
+}
+
+@keyframes toast-slide-in {
+  from {
+    opacity: 0;
+    transform: translateX(110%);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes toast-fade-out {
+  from {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+    max-height: 8rem;
+    margin-bottom: 0;
+  }
+  to {
+    opacity: 0;
+    transform: translateX(110%) scale(0.95);
+    max-height: 0;
+    margin-bottom: -0.625rem;
+    padding-top: 0;
+    padding-bottom: 0;
+  }
+}
+
+/* ─── Toast Variants ─── */
+.toast-success {
+  background: rgba(240, 253, 244, 0.95);
+  border-color: #86efac;
+  color: #14532d;
+}
+
+.toast-error {
+  background: rgba(254, 242, 242, 0.95);
+  border-color: #fca5a5;
+  color: #7f1d1d;
+}
+
+.toast-warning {
+  background: rgba(255, 251, 235, 0.95);
+  border-color: var(--color-brand-cta-300, #fcd34d);
+  color: #78350f;
+}
+
+.toast-info {
+  background: rgba(239, 246, 255, 0.95);
+  border-color: #93c5fd;
+  color: #1e3a5f;
+}
+
+/* Dark mode variants */
+@media (prefers-color-scheme: dark) {
+  .toast-success {
+    background: rgba(20, 83, 45, 0.92);
+    border-color: #16a34a;
+    color: #bbf7d0;
+  }
+
+  .toast-error {
+    background: rgba(127, 29, 29, 0.92);
+    border-color: #dc2626;
+    color: #fecaca;
+  }
+
+  .toast-warning {
+    background: rgba(120, 53, 15, 0.92);
+    border-color: var(--color-brand-cta-600, #d97706);
+    color: #fde68a;
+  }
+
+  .toast-info {
+    background: rgba(30, 58, 138, 0.92);
+    border-color: #3b82f6;
+    color: #bfdbfe;
+  }
+}
+
+/* Also respond to the .dark class set by ThemeContext */
+:root.dark .toast-success {
+  background: rgba(20, 83, 45, 0.92);
+  border-color: #16a34a;
+  color: #bbf7d0;
+}
+
+:root.dark .toast-error {
+  background: rgba(127, 29, 29, 0.92);
+  border-color: #dc2626;
+  color: #fecaca;
+}
+
+:root.dark .toast-warning {
+  background: rgba(120, 53, 15, 0.92);
+  border-color: var(--color-brand-cta-600, #d97706);
+  color: #fde68a;
+}
+
+:root.dark .toast-info {
+  background: rgba(30, 58, 138, 0.92);
+  border-color: #3b82f6;
+  color: #bfdbfe;
+}
+
+/* ─── Toast Icon ─── */
+.toast-icon {
+  flex-shrink: 0;
+  width: 1.25rem;
+  height: 1.25rem;
+  margin-top: 0.0625rem;
+}
+
+/* ─── Toast Body ─── */
+.toast-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.toast-message {
+  font-size: 0.875rem;
+  font-weight: 500;
+  line-height: 1.45;
+  word-break: break-word;
+}
+
+/* ─── Dismiss Button ─── */
+.toast-dismiss {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  border-radius: 0.25rem;
+  opacity: 0.6;
+  color: inherit;
+  padding: 0;
+  transition: opacity 0.15s ease, background 0.15s ease;
+  /* WCAG 44x44 touch target via padding compensation */
+  margin: -0.5rem -0.25rem -0.5rem 0;
+  padding: 0.5rem 0.25rem;
+}
+
+.toast-dismiss:hover {
+  opacity: 1;
+  background: rgba(0, 0, 0, 0.08);
+}
+
+.toast-dismiss svg {
+  display: block;
+  width: 0.875rem;
+  height: 0.875rem;
+}
+
+/* ─── Progress Bar ─── */
+.toast-progress {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  height: 3px;
+  border-radius: 0 0 0.625rem 0.625rem;
+  animation: toast-progress-shrink linear forwards;
+}
+
+.toast {
+  position: relative;
+  overflow: hidden;
+}
+
+.toast-success .toast-progress { background: #16a34a; }
+.toast-error .toast-progress   { background: #dc2626; }
+.toast-warning .toast-progress { background: var(--color-brand-cta-500, #f59e0b); }
+.toast-info .toast-progress    { background: #3b82f6; }
+
+@keyframes toast-progress-shrink {
+  from { width: 100%; }
+  to   { width: 0%; }
+}
+
+/* ─── Mobile: full-width ─── */
+@media (max-width: 480px) {
+  .toast-container {
+    bottom: 0;
+    right: 0;
+    left: 0;
+    width: 100%;
+    max-width: 100%;
+    gap: 0;
+    border-radius: 0;
+  }
+
+  .toast {
+    border-radius: 0;
+    border-left: none;
+    border-right: none;
+    border-bottom: none;
+  }
+}
+
+/* ─── ConfirmDialog Overlay ─── */
+.confirm-dialog-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9500;
+  background: rgba(15, 23, 42, 0.55);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+
+  animation: overlay-fade-in 0.18s ease forwards;
+}
+
+@keyframes overlay-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+/* ─── ConfirmDialog Panel ─── */
+.confirm-dialog {
+  background: var(--color-surface-card, #ffffff);
+  border-radius: 0.875rem;
+  box-shadow:
+    0 20px 40px -8px rgba(0, 0, 0, 0.22),
+    0 8px 16px -4px rgba(0, 0, 0, 0.12);
+  width: 100%;
+  max-width: 26rem;
+  padding: 1.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+
+  animation: dialog-scale-in 0.22s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+@keyframes dialog-scale-in {
+  from {
+    opacity: 0;
+    transform: scale(0.92) translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+:root.dark .confirm-dialog {
+  background: var(--color-brand-primary-800, #1e293b);
+  color: #f1f5f9;
+}
+
+/* ─── Dialog Header ─── */
+.confirm-dialog-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.875rem;
+}
+
+.confirm-dialog-icon {
+  flex-shrink: 0;
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.confirm-dialog-icon--danger {
+  background: #fee2e2;
+  color: #dc2626;
+}
+
+.confirm-dialog-icon--default {
+  background: #dbeafe;
+  color: #2563eb;
+}
+
+:root.dark .confirm-dialog-icon--danger {
+  background: rgba(220, 38, 38, 0.2);
+  color: #fca5a5;
+}
+
+:root.dark .confirm-dialog-icon--default {
+  background: rgba(37, 99, 235, 0.2);
+  color: #93c5fd;
+}
+
+.confirm-dialog-title {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--color-text-heading, #1a1a2e);
+  margin: 0;
+  padding-top: 0.3125rem;
+  line-height: 1.3;
+}
+
+:root.dark .confirm-dialog-title {
+  color: #f1f5f9;
+}
+
+/* ─── Dialog Message ─── */
+.confirm-dialog-message {
+  font-size: 0.9375rem;
+  color: var(--color-text-body, #374151);
+  line-height: 1.55;
+  margin: 0;
+  padding-left: 3.375rem; /* aligns with title text after icon */
+}
+
+:root.dark .confirm-dialog-message {
+  color: #cbd5e1;
+}
+
+/* ─── Dialog Actions ─── */
+.confirm-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.625rem;
+  padding-top: 0.5rem;
+}
+
+/* Cancel button — always neutral */
+.confirm-dialog-cancel {
+  min-height: 2.75rem; /* 44px touch target */
+  padding: 0.625rem 1.125rem;
+  border-radius: 0.5rem;
+  border: 1px solid var(--color-border-default, #e5e7eb);
+  background: transparent;
+  color: var(--color-text-body, #374151);
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.confirm-dialog-cancel:hover {
+  background: var(--color-brand-primary-50, #f8fafc);
+  border-color: var(--color-brand-primary-300, #cbd5e1);
+}
+
+:root.dark .confirm-dialog-cancel {
+  border-color: #475569;
+  color: #cbd5e1;
+}
+
+:root.dark .confirm-dialog-cancel:hover {
+  background: #334155;
+}
+
+/* Confirm button — variant-dependent */
+.confirm-dialog-confirm {
+  min-height: 2.75rem; /* 44px touch target */
+  padding: 0.625rem 1.25rem;
+  border-radius: 0.5rem;
+  border: none;
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease, transform 0.1s ease;
+}
+
+.confirm-dialog-confirm:active {
+  transform: scale(0.97);
+}
+
+.confirm-dialog-confirm--danger {
+  background: #dc2626;
+  color: #ffffff;
+}
+
+.confirm-dialog-confirm--danger:hover {
+  background: #b91c1c;
+}
+
+.confirm-dialog-confirm--default {
+  background: var(--color-interactive-primary, #d97706);
+  color: #ffffff;
+}
+
+.confirm-dialog-confirm--default:hover {
+  background: var(--color-interactive-primary-hover, #b45309);
+}

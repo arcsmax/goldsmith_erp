@@ -3,9 +3,12 @@ import React, { useEffect, useState } from 'react';
 import { usersApi } from '../api';
 import { UserType, UserCreateInput, UserUpdateInput } from '../types';
 import { UserFormModal } from '../components/users/UserFormModal';
+import { useToast, useConfirm } from '../contexts';
 import '../styles/pages.css';
 
 export const UsersPage: React.FC = () => {
+  const { showToast } = useToast();
+  const { showConfirm } = useConfirm();
   const [users, setUsers] = useState<UserType[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -36,9 +39,9 @@ export const UsersPage: React.FC = () => {
       await usersApi.create(data);
       await fetchUsers();
       setIsModalOpen(false);
-      alert('Benutzer erfolgreich erstellt!');
+      showToast('Benutzer erfolgreich erstellt!', 'success');
     } catch (err: any) {
-      alert(err.response?.data?.detail || 'Fehler beim Erstellen des Benutzers');
+      showToast(err.response?.data?.detail || 'Fehler beim Erstellen des Benutzers', 'error');
     } finally {
       setIsFormLoading(false);
     }
@@ -53,9 +56,9 @@ export const UsersPage: React.FC = () => {
       await fetchUsers();
       setIsModalOpen(false);
       setSelectedUser(null);
-      alert('Benutzer erfolgreich aktualisiert!');
+      showToast('Benutzer erfolgreich aktualisiert!', 'success');
     } catch (err: any) {
-      alert(err.response?.data?.detail || 'Fehler beim Aktualisieren des Benutzers');
+      showToast(err.response?.data?.detail || 'Fehler beim Aktualisieren des Benutzers', 'error');
     } finally {
       setIsFormLoading(false);
     }
@@ -70,32 +73,38 @@ export const UsersPage: React.FC = () => {
   };
 
   const handleDeactivateUser = async (user: UserType) => {
-    const confirmed = window.confirm(
-      `Möchten Sie den Benutzer "${user.email}" wirklich deaktivieren?\n\nDer Benutzer kann sich danach nicht mehr anmelden.`
-    );
+    const confirmed = await showConfirm({
+      title: 'Benutzer deaktivieren',
+      message: `Mochten Sie den Benutzer "${user.email}" wirklich deaktivieren? Der Benutzer kann sich danach nicht mehr anmelden.`,
+      confirmLabel: 'Deaktivieren',
+      variant: 'danger',
+    });
     if (!confirmed) return;
 
     try {
       await usersApi.deactivate(user.id);
       await fetchUsers();
-      alert('Benutzer erfolgreich deaktiviert.');
+      showToast('Benutzer erfolgreich deaktiviert.', 'success');
     } catch (err: any) {
-      alert(err.response?.data?.detail || 'Fehler beim Deaktivieren des Benutzers');
+      showToast(err.response?.data?.detail || 'Fehler beim Deaktivieren des Benutzers', 'error');
     }
   };
 
   const handleActivateUser = async (user: UserType) => {
-    const confirmed = window.confirm(
-      `Möchten Sie den Benutzer "${user.email}" wieder aktivieren?`
-    );
+    const confirmed = await showConfirm({
+      title: 'Benutzer aktivieren',
+      message: `Mochten Sie den Benutzer "${user.email}" wieder aktivieren?`,
+      confirmLabel: 'Aktivieren',
+      variant: 'default',
+    });
     if (!confirmed) return;
 
     try {
       await usersApi.activate(user.id);
       await fetchUsers();
-      alert('Benutzer erfolgreich aktiviert.');
+      showToast('Benutzer erfolgreich aktiviert.', 'success');
     } catch (err: any) {
-      alert(err.response?.data?.detail || 'Fehler beim Aktivieren des Benutzers');
+      showToast(err.response?.data?.detail || 'Fehler beim Aktivieren des Benutzers', 'error');
     }
   };
 

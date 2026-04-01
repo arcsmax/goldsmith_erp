@@ -3,10 +3,13 @@ import React, { useEffect, useState } from 'react';
 import { materialsApi } from '../api';
 import { MaterialType, MaterialCreateInput, MaterialUpdateInput } from '../types';
 import { MaterialFormModal } from '../components/materials/MaterialFormModal';
+import { useToast, useConfirm } from '../contexts';
 import '../styles/pages.css';
 import '../styles/materials.css';
 
 export const MaterialsPage: React.FC = () => {
+  const { showToast } = useToast();
+  const { showConfirm } = useConfirm();
   const [materials, setMaterials] = useState<MaterialType[]>([]);
   const [filteredMaterials, setFilteredMaterials] = useState<MaterialType[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -78,9 +81,9 @@ export const MaterialsPage: React.FC = () => {
       await materialsApi.create(data);
       await fetchMaterials();
       setIsModalOpen(false);
-      alert('Material erfolgreich erstellt!');
+      showToast('Material erfolgreich erstellt!', 'success');
     } catch (err: any) {
-      alert(err.response?.data?.detail || 'Fehler beim Erstellen des Materials');
+      showToast(err.response?.data?.detail || 'Fehler beim Erstellen des Materials', 'error');
     } finally {
       setIsFormLoading(false);
     }
@@ -95,29 +98,33 @@ export const MaterialsPage: React.FC = () => {
       await fetchMaterials();
       setIsModalOpen(false);
       setSelectedMaterial(null);
-      alert('Material erfolgreich aktualisiert!');
+      showToast('Material erfolgreich aktualisiert!', 'success');
     } catch (err: any) {
-      alert(err.response?.data?.detail || 'Fehler beim Aktualisieren des Materials');
+      showToast(err.response?.data?.detail || 'Fehler beim Aktualisieren des Materials', 'error');
     } finally {
       setIsFormLoading(false);
     }
   };
 
   const handleDeleteMaterial = async (materialId: number, materialName: string) => {
-    const confirmed = window.confirm(
-      `Möchten Sie das Material "${materialName}" wirklich löschen?`
-    );
+    const confirmed = await showConfirm({
+      title: 'Material loschen',
+      message: `Mochten Sie das Material "${materialName}" wirklich loschen?`,
+      confirmLabel: 'Loschen',
+      variant: 'danger',
+    });
 
     if (!confirmed) return;
 
     try {
       await materialsApi.delete(materialId);
       await fetchMaterials();
-      alert('Material erfolgreich gelöscht!');
+      showToast('Material erfolgreich geloscht!', 'success');
     } catch (err: any) {
-      alert(
+      showToast(
         err.response?.data?.detail ||
-          'Fehler beim Löschen des Materials. Es wird möglicherweise noch in Aufträgen verwendet.'
+          'Fehler beim Loschen des Materials. Es wird moglicherweise noch in Auftragen verwendet.',
+        'error'
       );
     }
   };

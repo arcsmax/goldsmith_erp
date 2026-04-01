@@ -2,7 +2,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { handoffsApi, HandoffCreateInput } from '../../api/handoffs';
 import { usersApi } from '../../api';
-import { useAuth } from '../../contexts';
+import { useAuth, useToast } from '../../contexts';
 import { UserType } from '../../types';
 
 // ============================================================
@@ -223,6 +223,7 @@ interface HandoffTabProps {
 
 const HandoffTab: React.FC<HandoffTabProps> = ({ orderId }) => {
   const { user: currentUser } = useAuth();
+  const { showToast } = useToast();
   const [handoffs, setHandoffs] = useState<Handoff[]>([]);
   const [users, setUsers] = useState<UserType[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -300,7 +301,7 @@ const HandoffTab: React.FC<HandoffTabProps> = ({ orderId }) => {
       await handoffsApi.accept(id);
       await loadHandoffs();
     } catch (err: any) {
-      alert(err.response?.data?.detail || 'Fehler beim Annehmen der Übergabe');
+      showToast(err.response?.data?.detail || 'Fehler beim Annehmen der Übergabe', 'error');
     }
   };
 
@@ -310,7 +311,7 @@ const HandoffTab: React.FC<HandoffTabProps> = ({ orderId }) => {
       await handoffsApi.decline(id, { response_notes: 'Abgelehnt' });
       await loadHandoffs();
     } catch (err: any) {
-      alert(err.response?.data?.detail || 'Fehler beim Ablehnen der Übergabe');
+      showToast(err.response?.data?.detail || 'Fehler beim Ablehnen der Übergabe', 'error');
     }
   };
 
