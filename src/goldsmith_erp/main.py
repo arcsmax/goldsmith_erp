@@ -15,9 +15,10 @@ from goldsmith_erp.core.logging import setup_logging
 from goldsmith_erp.middleware import RequestLoggingMiddleware, RequestMetricsMiddleware
 from goldsmith_erp.middleware.auth_required import AuthRequiredMiddleware
 from goldsmith_erp.middleware.security_headers import SecurityHeadersMiddleware
-from goldsmith_erp.api.routers import auth, orders, users, materials, activities, time_tracking, health, customers, metal_inventory, comments, scrap_gold, calendar, invoices, metal_prices, ml, measurements, analytics, notifications, handoffs, photos, metal_types, quotes, repairs
+from goldsmith_erp.api.routers import auth, orders, users, materials, activities, time_tracking, health, customers, metal_inventory, comments, scrap_gold, calendar, invoices, metal_prices, ml, measurements, analytics, notifications, handoffs, photos, metal_types, quotes, repairs, hallmarks, valuations
 from goldsmith_erp.api.routers import admin_email
 from goldsmith_erp.api.routers import customer_portal
+from goldsmith_erp.api.routers import theme as theme_router
 from goldsmith_erp.core.pubsub import subscribe_and_forward, publish_event
 from goldsmith_erp.services.system_monitor import system_monitor_loop
 
@@ -124,8 +125,11 @@ app.include_router(photos.router, prefix=f"{settings.API_V1_STR}", tags=["photos
 app.include_router(metal_types.router, prefix=f"{settings.API_V1_STR}", tags=["metal-types"])  # Custom metal type management
 app.include_router(quotes.router, prefix=f"{settings.API_V1_STR}/quotes", tags=["quotes"])  # Kostenvoranschlag
 app.include_router(repairs.router, prefix=f"{settings.API_V1_STR}/repairs", tags=["repairs"])  # Repair tracking (Reparaturverwaltung)
+app.include_router(hallmarks.router, prefix=f"{settings.API_V1_STR}", tags=["hallmarks"])  # Hallmarking / Punzierung
+app.include_router(valuations.router, prefix=f"{settings.API_V1_STR}", tags=["valuations"])  # Insurance valuation certificates / Wertgutachten
 app.include_router(admin_email.router, prefix=f"{settings.API_V1_STR}", tags=["admin-email"])  # Email/SMTP admin configuration
 app.include_router(customer_portal.router, prefix=f"{settings.API_V1_STR}/portal", tags=["customer-portal"])  # Public self-service portal
+app.include_router(theme_router.router, prefix=f"{settings.API_V1_STR}", tags=["theme"])  # Admin-configurable branding (GET public, PUT ADMIN-only)
 
 # WebSocket endpoint with Redis Pub/Sub integration
 @app.websocket("/ws/orders")

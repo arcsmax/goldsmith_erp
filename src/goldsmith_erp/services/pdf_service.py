@@ -818,6 +818,216 @@ def _render_quote_fpdf(
     return bytes(pdf.output())
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Valuation certificate renderer (Wertgutachten)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _render_valuation_certificate_fpdf(
+    certificate: Any,
+    customer: Any,
+    workshop_name: str,
+) -> bytes:
+    """
+    Build a bilingual insurance valuation certificate (Wertgutachten) PDF.
+
+    Layout:
+      - Bilingual header: WERTGUTACHTEN / INSURANCE VALUATION CERTIFICATE
+      - Certificate metadata (number, date, valid until)
+      - Item description (material + gemstones)
+      - Appraised value (Gutachtenwert)
+      - Goldsmith credentials + signature line
+      - German legal disclaimer
+    """
+    cert_nr = _safe_str(getattr(certificate, "certificate_number", ""))
+    footer_text = (
+        f"{workshop_name}  |  Wertgutachten {cert_nr}  |  "
+        f"{_fmt_date(getattr(certificate, 'valuation_date', None))}"
+    )
+    pdf = _GoldsmithPDF(workshop_name=workshop_name, footer_text=footer_text)
+
+    # ── Bilingual header ──────────────────────────────────────────────────────
+    pdf.set_font(_FONT_B, "", 16)
+    pdf.set_text_color(*_GOLD)
+    pdf.cell(0, 9, workshop_name, align="C", ln=True)
+
+    pdf.set_font(_FONT_B, "", 18)
+    pdf.set_text_color(60, 60, 60)
+    pdf.cell(0, 8, "WERTGUTACHTEN", align="C", ln=True)
+
+    pdf.set_font(_FONT, "", 10)
+    pdf.set_text_color(*_GRAY)
+    pdf.cell(0, 6, "INSURANCE VALUATION CERTIFICATE", align="C", ln=True)
+
+    pdf.set_text_color(*_DARK)
+    pdf.gold_rule()
+    pdf.ln(4)
+
+    # ── Certificate metadata ──────────────────────────────────────────────────
+    meta_y = pdf.get_y()
+
+    # Light-gold background
+    pdf.set_fill_color(*_LIGHT_GOLD_BG)
+    pdf.rect(10, meta_y, 190, 22, style="F")
+
+    pdf.set_xy(13, meta_y + 2)
+    pdf.set_font(_FONT_B, "", 7)
+    pdf.set_text_color(*_GOLD)
+    pdf.cell(60, 4, "GUTACHTEN-NR. / CERTIFICATE NO.")
+    pdf.set_x(80)
+    pdf.cell(60, 4, "DATUM / DATE")
+    pdf.set_x(147)
+    pdf.cell(0, 4, "GUELTIG BIS / VALID UNTIL", ln=True)
+
+    pdf.set_xy(13, meta_y + 7)
+    pdf.set_font(_FONT_B, "", 11)
+    pdf.set_text_color(*_DARK)
+    pdf.cell(60, 6, cert_nr)
+    pdf.set_x(80)
+    pdf.cell(60, 6, _fmt_date(getattr(certificate, "valuation_date", None)))
+    pdf.set_x(147)
+    pdf.cell(0, 6, _fmt_date(getattr(certificate, "valid_until", None)), ln=True)
+
+    pdf.set_y(meta_y + 25)
+    pdf.ln(3)
+
+    # ── Customer ──────────────────────────────────────────────────────────────
+    pdf.section_title("Eigentümer / Owner")
+
+    customer_name = _safe_str(getattr(customer, "name", "Kunde"))
+    pdf.set_font(_FONT_B, "", 10)
+    pdf.cell(0, 5, customer_name, ln=True)
+    pdf.set_font(_FONT, "", 9)
+    pdf.set_text_color(*_GRAY)
+    for attr in ("address", "city"):
+        val = _safe_str(getattr(customer, attr, None))
+        if val:
+            pdf.cell(0, 4.5, val, ln=True)
+    pdf.set_text_color(*_DARK)
+    pdf.ln(3)
+
+    # ── Item description ──────────────────────────────────────────────────────
+    pdf.section_title("Beschreibung / Item Description")
+
+    item_desc = _safe_str(getattr(certificate, "item_description", ""))
+    pdf.set_font(_FONT, "", 10)
+    pdf.multi_cell(0, 5, item_desc[:800])
+    pdf.ln(3)
+
+    # ── Material details ──────────────────────────────────────────────────────
+    pdf.section_title("Materialangaben / Material Details")
+
+    metal_type = _safe_str(getattr(certificate, "metal_type", None))
+    metal_weight_g = getattr(certificate, "metal_weight_g", None)
+    metal_purity = _safe_str(getattr(certificate, "metal_purity", None))
+
+    if metal_type:
+        pdf.kv_row("Metall / Metal:", metal_type, label_w=60)
+    if metal_purity:
+        pdf.kv_row("Feingehalt / Purity:", metal_purity, label_w=60)
+    if metal_weight_g is not None:
+        pdf.kv_row("Gewicht / Weight:", f"{metal_weight_g:.3f} g", label_w=60)
+
+    pdf.ln(2)
+
+    # ── Gemstones ─────────────────────────────────────────────────────────────
+    gemstones_desc = _safe_str(getattr(certificate, "gemstones_description", None))
+    if gemstones_desc:
+        pdf.section_title("Edelsteine / Gemstones")
+        pdf.set_font(_FONT, "", 9)
+        pdf.multi_cell(0, 4.5, gemstones_desc[:800])
+        pdf.ln(3)
+
+    # ── Appraised value ───────────────────────────────────────────────────────
+    pdf.section_title("Gutachtenwert / Appraised Value")
+
+    appraised_value = getattr(certificate, "appraised_value", 0.0)
+    label_w = 140
+    value_w = 38
+
+    pdf.set_fill_color(*_GOLD)
+    pdf.set_text_color(255, 255, 255)
+    pdf.set_font(_FONT_B, "", 12)
+    pdf.cell(label_w, 8, "Versicherungswert / Replacement Value:", fill=True)
+    pdf.cell(value_w, 8, _fmt_eur(appraised_value), align="R", fill=True, ln=True)
+    pdf.set_fill_color(255, 255, 255)
+    pdf.set_text_color(*_DARK)
+    pdf.ln(3)
+
+    pdf.set_font(_FONT, "", 8)
+    pdf.set_text_color(*_GRAY)
+    pdf.multi_cell(
+        0,
+        4,
+        "Der angegebene Wert entspricht dem Wiederbeschaffungswert zum Zeitpunkt der Bewertung. / "
+        "The stated value represents the replacement cost at the time of valuation.",
+    )
+    pdf.set_text_color(*_DARK)
+    pdf.ln(5)
+
+    # ── Goldsmith credentials + signature ─────────────────────────────────────
+    pdf.section_title("Gutachter / Appraiser")
+
+    goldsmith_name = _safe_str(getattr(certificate, "goldsmith_name", ""))
+    goldsmith_qual = _safe_str(getattr(certificate, "goldsmith_qualification", None))
+
+    pdf.set_font(_FONT_B, "", 10)
+    pdf.cell(0, 5, goldsmith_name, ln=True)
+    if goldsmith_qual:
+        pdf.set_font(_FONT, "", 9)
+        pdf.set_text_color(*_GRAY)
+        pdf.cell(0, 4.5, goldsmith_qual, ln=True)
+        pdf.set_text_color(*_DARK)
+    pdf.ln(3)
+
+    pdf.set_font(_FONT, "", 8)
+    pdf.set_text_color(*_GRAY)
+    pdf.cell(0, 4, workshop_name, ln=True)
+    pdf.set_text_color(*_DARK)
+    pdf.ln(8)
+
+    # Signature line
+    sig_y = pdf.get_y()
+    col_w = 88
+    pdf.set_draw_color(80, 80, 80)
+    pdf.set_line_width(0.4)
+    pdf.line(10, sig_y, 10 + col_w, sig_y)
+    pdf.set_line_width(0.2)
+    pdf.set_y(sig_y + 2)
+    pdf.set_font(_FONT, "", 7.5)
+    pdf.set_text_color(*_GRAY)
+    pdf.cell(col_w + 10, 4, f"Ort, Datum / Place, Date: ______________________", align="L")
+    pdf.set_y(sig_y + 2)
+    pdf.set_x(10 + col_w + 10)
+    pdf.cell(0, 4, "Unterschrift + Stempel / Signature + Stamp", align="L", ln=True)
+    pdf.set_text_color(*_DARK)
+    pdf.ln(8)
+
+    # ── Legal disclaimer ──────────────────────────────────────────────────────
+    legal = (
+        "Dieses Gutachten dient der Versicherungsbewertung und wurde nach bestem Wissen "
+        "und Gewissen erstellt. Der Gutachter haftet nicht fuer Schaeden, die aus der "
+        "Verwendung dieses Dokuments entstehen. Der Gutachtenwert stellt keinen Kaufpreis dar. "
+        "Gueltigkeit: 2 Jahre ab Ausstellungsdatum. Dieses Dokument ist nur gueltig mit "
+        "Originalunterschrift und Stempel des Gutachters. / "
+        "This certificate is for insurance valuation purposes only. "
+        "Valid for 2 years from the date of issue. "
+        "Original signature and stamp required for validity."
+    )
+    pdf.set_fill_color(245, 245, 245)
+    legal_y = pdf.get_y()
+    pdf.rect(10, legal_y, 190, 26, style="F")
+    pdf.set_xy(13, legal_y + 2)
+    pdf.set_font(_FONT_B, "", 7.5)
+    pdf.set_text_color(80, 80, 80)
+    pdf.cell(0, 4, "RECHTLICHER HINWEIS / LEGAL NOTICE", ln=True)
+    pdf.set_x(13)
+    pdf.set_font(_FONT, "", 7)
+    pdf.multi_cell(184, 3.5, legal)
+    pdf.set_text_color(*_DARK)
+
+    return bytes(pdf.output())
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Public service class
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -937,5 +1147,37 @@ class PDFService:
             quote=quote,
             customer=customer,
             line_items=line_items,
+            workshop_name=workshop_name,
+        )
+
+    @staticmethod
+    def render_valuation_certificate_pdf(
+        certificate: Any,
+        customer: Any,
+        workshop_name: str,
+    ) -> bytes:
+        """
+        Render a bilingual insurance valuation certificate (Wertgutachten) as PDF.
+
+        Args:
+            certificate:   ValuationCertificate ORM object or Pydantic response.
+                           Required attrs: certificate_number, valuation_date,
+                           valid_until, item_description, metal_type, metal_weight_g,
+                           metal_purity, gemstones_description, appraised_value,
+                           goldsmith_name, goldsmith_qualification.
+            customer:      Customer object with name, address, city attrs.
+            workshop_name: Business name from settings.
+
+        Returns:
+            Raw PDF bytes. Caller streams via StreamingResponse.
+        """
+        logger.info(
+            "Rendering valuation certificate PDF",
+            # Do not log appraised_value — it is financial data
+            extra={"certificate_number": certificate.certificate_number},
+        )
+        return _render_valuation_certificate_fpdf(
+            certificate=certificate,
+            customer=customer,
             workshop_name=workshop_name,
         )

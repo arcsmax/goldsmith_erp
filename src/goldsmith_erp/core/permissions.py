@@ -93,6 +93,16 @@ class Permission(str, Enum):
     REPAIR_CREATE = "repair:create"     # Create new repair intake
     REPAIR_EDIT = "repair:edit"         # Update repair status and notes
 
+    # Hallmark permissions (Punzierung)
+    HALLMARK_VIEW = "hallmark:view"     # View hallmark records
+    HALLMARK_CREATE = "hallmark:create" # Create hallmark record
+    HALLMARK_EDIT = "hallmark:edit"     # Update hallmark status
+
+    # Valuation certificate permissions (Wertgutachten — financial data)
+    VALUATION_VIEW = "valuation:view"       # View valuation certificates
+    VALUATION_CREATE = "valuation:create"   # Create certificate (ADMIN + GOLDSMITH)
+    VALUATION_EXPORT = "valuation:export"   # Download PDF (ADMIN only)
+
 
 # Role-Permission mapping
 ROLE_PERMISSIONS: dict[UserRole, List[Permission]] = {
@@ -142,6 +152,13 @@ ROLE_PERMISSIONS: dict[UserRole, List[Permission]] = {
         Permission.REPAIR_VIEW,
         Permission.REPAIR_CREATE,
         Permission.REPAIR_EDIT,
+        # Hallmarks — goldsmiths submit and track Punzierung
+        Permission.HALLMARK_VIEW,
+        Permission.HALLMARK_CREATE,
+        Permission.HALLMARK_EDIT,
+        # Valuation certificates — goldsmiths create and view Wertgutachten
+        Permission.VALUATION_VIEW,
+        Permission.VALUATION_CREATE,
     ],
     UserRole.VIEWER: [
         # View-only access
@@ -160,6 +177,9 @@ ROLE_PERMISSIONS: dict[UserRole, List[Permission]] = {
         Permission.HANDOFF_VIEW,
         # Repairs — viewers can see repair status (e.g. front desk)
         Permission.REPAIR_VIEW,
+        # Hallmarks — viewers can see hallmark status (informational)
+        Permission.HALLMARK_VIEW,
+        # Valuations — viewers cannot see financial valuation data
     ],
 }
 

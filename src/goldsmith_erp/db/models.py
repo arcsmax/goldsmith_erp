@@ -367,6 +367,8 @@ class Order(Base):
     comments = relationship("OrderComment", back_populates="order", cascade="all, delete-orphan", order_by="OrderComment.created_at.desc()")
     time_entries = relationship("TimeEntry", back_populates="order")
     handoffs = relationship("OrderHandoff", back_populates="order", cascade="all, delete-orphan", order_by="OrderHandoff.created_at.desc()")
+    hallmarks = relationship("OrderHallmark", back_populates="order", cascade="all, delete-orphan", order_by="OrderHallmark.created_at.desc()")
+    valuation_certificates = relationship("ValuationCertificate", back_populates="order", cascade="all, delete-orphan", order_by="ValuationCertificate.created_at.desc()")
 
 
 class OrderComment(Base):
@@ -1394,6 +1396,204 @@ class RepairPhoto(Base):
             f"<RepairPhoto repair={self.repair_job_id} "
             f"phase={self.phase.value}>"
         )
+
+# ============================================================================
+# HALLMARKING / PUNZIERUNG
+# ============================================================================
+
+
+class HallmarkType(str, enum.Enum):
+    """
+    Types of hallmarks applied to precious metal pieces.
+
+    German goldsmiths are required to hallmark pieces above threshold weights.
+    Each type corresponds to a distinct punch (Punze) applied to the metal.
+    """
+    FINENESS_MARK = "fineness_mark"         # Feingehaltsstempel (e.g. 585, 750)
+    MAKERS_MARK = "makers_mark"             # Herstellermarke / Meisterpunze
+    ASSAY_OFFICE = "assay_office"           # Beschauzeichen der Pruefstelle
+    COMMON_CONTROL = "common_control"       # Gemeinsames Kontrollzeichen (CCM)
+    DATE_LETTER = "date_letter"             # Datumsbuchstabe (used in UK/some EU)
+
+
+class HallmarkStatus(str, enum.Enum):
+    """
+    Lifecycle state of a hallmark application.
+
+    A hallmark starts PENDING, is SUBMITTED to the Pruefstelle (assay office),
+    and ends as APPROVED (Pruefzeugnis erteilt) then STAMPED (Punze aufgebracht).
+    """
+    PENDING = "pending"         # Noch nicht eingereicht
+    SUBMITTED = "submitted"     # Eingereicht an Pruefstelle
+    APPROVED = "approved"       # Genehmigt — Pruefzeugnis erteilt
+    REJECTED = "rejected"       # Abgelehnt — Nacharbeit erforderlich
+    STAMPED = "stamped"         # Punze physisch aufgebracht
+
+
+class OrderHallmark(Base):
+    """
+    Hallmarking record (Punzierung) per order.
+
+    German law (Edelmetallgesetz) requires pieces above certain weights
+    to carry a Feingehaltsstempel.  This table tracks one hallmark application
+    per row so an order can carry multiple distinct marks (e.g. fineness mark +
+    maker's mark in one workflow step, assay office stamp in another).
+
+    All hallmark records are financial/legal data — access is logged and
+    restricted to GOLDSMITH and ADMIN roles.
+    """
+    __tablename__ = "order_hallmarks"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    # Parent order
+    order_id = Column(
+        Integer,
+        ForeignKey("orders.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+
+    # Hallmark type and status
+    hallmark_type = Column(
+        SAEnum(HallmarkType),
+        nullable=False,
+        index=True,
+    )
+    status = Column(
+        SAEnum(HallmarkStatus),
+        nullable=False,
+        default=HallmarkStatus.PENDING,
+        index=True,
+    )
+
+    # Assay office details (Pruefstelle)
+    assay_office = Column(String(100), nullable=True)  # "Pforzheim", "Schwaebisch Gmuend"
+
+    # Certificate issued by assay office — unique per hallmark application
+    certificate_number = Column(String(100), unique=True, nullable=True, index=True)
+
+    # Timestamps for lifecycle steps
+    submitted_at = Column(DateTime, nullable=True)   # Eingereicht am
+    approved_at = Column(DateTime, nullable=True)    # Genehmigt am
+    stamped_at = Column(DateTime, nullable=True)     # Gestempelt am
+
+    # Free-text notes (e.g. rejection reason or goldsmith observations)
+    notes = Column(Text, nullable=True)
+
+    # Audit
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    created_by = Column(
+        Integer,
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+
+    # Relationships
+    order = relationship("Order", back_populates="hallmarks")
+    creator = relationship("User", foreign_keys=[created_by])
+
+    def __repr__(self) -> str:
+        return (
+            f"<OrderHallmark order={self.order_id} "
+            f"type={self.hallmark_type.value} "
+            f"status={self.status.value}>"
+        )
+
+
+# ============================================================================
+# INSURANCE VALUATION CERTIFICATES (WERTGUTACHTEN)
+# ============================================================================
+
+
+class ValuationCertificate(Base):
+    """
+    Wertgutachten — official insurance valuation certificate.
+
+    German goldsmiths issue these for customers who need to insure their
+    jewelry.  The certificate documents the piece in full (metal, gemstones,
+    workmanship) and states an appraised market replacement value in EUR.
+
+    Certificate numbers follow the format WG-YYYY-NNNN (sequential per year).
+    Certificates are valid for 2 years (typical insurance requirement).
+
+    SECURITY: valuation data (appraised_value) is financial data.
+    Access is restricted to GOLDSMITH and ADMIN roles and audit-logged.
+    """
+    __tablename__ = "valuation_certificates"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    # Certificate number: WG-2026-0001
+    certificate_number = Column(String(20), unique=True, nullable=False, index=True)
+
+    # Links
+    order_id = Column(
+        Integer,
+        ForeignKey("orders.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
+    customer_id = Column(
+        Integer,
+        ForeignKey("customers.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
+    created_by = Column(
+        Integer,
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+
+    # Item description — detailed enough for insurance purposes
+    item_description = Column(Text, nullable=False)
+
+    # Metal details
+    metal_type = Column(String(100), nullable=True)   # "Gelbgold 750 (18K)"
+    metal_weight_g = Column(Float, nullable=True)     # Metallgewicht in Gramm
+    metal_purity = Column(String(20), nullable=True)  # "750", "585", "950"
+
+    # Gemstone summary (free-text list — mirrors what is in Gemstone rows)
+    gemstones_description = Column(Text, nullable=True)
+
+    # Appraised value (Schätzwert) — financial data, restricted access
+    appraised_value = Column(Float, nullable=False)   # Gutachtenwert in EUR
+
+    # Validity
+    valuation_date = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
+    valid_until = Column(DateTime, nullable=False, index=True)  # +2 Jahre default
+
+    # Goldsmith credentials shown on certificate
+    goldsmith_name = Column(String(200), nullable=False)
+    goldsmith_qualification = Column(String(200), nullable=True)  # "Goldschmiedemeister"
+
+    # Generated PDF path (stored on disk / S3 in production)
+    pdf_path = Column(String(500), nullable=True)
+
+    # Audit
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    updated_at = Column(
+        DateTime,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+        nullable=False,
+    )
+
+    # Relationships
+    order = relationship("Order", back_populates="valuation_certificates")
+    customer = relationship("Customer")
+    creator = relationship("User", foreign_keys=[created_by])
+
+    def __repr__(self) -> str:
+        return (
+            f"<ValuationCertificate {self.certificate_number} "
+            f"order={self.order_id} "
+            f"value={self.appraised_value:.2f} EUR>"
+        )
+
 
 class CustomMetalType(Base):
     """User-defined metal types that extend the built-in MetalType enum.
