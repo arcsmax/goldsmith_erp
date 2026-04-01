@@ -5,7 +5,9 @@ import { useAuth, useTimeTracking } from '../contexts';
 import TimerWidget from '../components/TimerWidget';
 import { OfflineIndicator } from '../components/OfflineIndicator';
 import { NotificationBell } from '../components/NotificationBell';
+import { HealthDot } from '../components/HealthDot';
 import '../styles/layout.css';
+import '../styles/admin.css';
 
 export const MainLayout: React.FC = () => {
   const { user, logout, hasRole } = useAuth();
@@ -41,6 +43,7 @@ export const MainLayout: React.FC = () => {
   const canManageMaterials = hasRole(['ADMIN', 'GOLDSMITH']);
   const canManageUsers = hasRole(['ADMIN']);
   const canManageInvoices = hasRole(['ADMIN', 'GOLDSMITH']);
+  const isAdmin = hasRole(['ADMIN']);
 
   return (
     <div className="main-layout">
@@ -205,7 +208,26 @@ export const MainLayout: React.FC = () => {
                 Benutzer
               </Link>
             )}
+
+            {/* Systemübersicht — nur ADMIN */}
+            {isAdmin && (
+              <Link
+                to="/admin/system"
+                className={`nav-link ${isActivePath('/admin/system') ? 'active' : ''}`}
+                onClick={handleNavClick}
+              >
+                <span className="nav-icon">⚙️</span>
+                System
+              </Link>
+            )}
           </nav>
+
+          {/* Sidebar footer: HealthDot for ADMIN — shows live system status */}
+          {isAdmin && (
+            <div style={{ padding: '0.75rem 0.5rem', borderTop: '1px solid #f0f0f0', marginTop: 'auto' }}>
+              <HealthDot />
+            </div>
+          )}
         </aside>
 
         {/* Main Content */}

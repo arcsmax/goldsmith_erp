@@ -1,0 +1,346 @@
+/* Admin system page styles */
+
+/* ── Page wrapper ───────────────────────────────────────────────── */
+.admin-system-page {
+  padding: 1.5rem;
+  max-width: 1200px;
+}
+
+.admin-page-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 2rem;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.admin-page-header h1 {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--color-text-primary, #1a1a1a);
+  margin: 0;
+}
+
+.admin-last-updated {
+  font-size: 0.8rem;
+  color: var(--color-text-muted, #888);
+}
+
+/* ── Section headings ───────────────────────────────────────────── */
+.admin-section {
+  margin-bottom: 2rem;
+}
+
+.admin-section h2 {
+  font-size: 1rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-text-muted, #666);
+  margin: 0 0 0.75rem 0;
+}
+
+/* ── Status cards grid ──────────────────────────────────────────── */
+.status-cards-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 1rem;
+}
+
+.status-card {
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 0.75rem;
+  padding: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  position: relative;
+  overflow: hidden;
+}
+
+.status-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 4px;
+  border-radius: 0.75rem 0.75rem 0 0;
+}
+
+.status-card.status-ok::before,
+.status-card.status-up::before,
+.status-card.status-healthy::before {
+  background: #10b981;
+}
+
+.status-card.status-warning::before,
+.status-card.status-degraded::before {
+  background: #f59e0b;
+}
+
+.status-card.status-critical::before,
+.status-card.status-down::before,
+.status-card.status-unhealthy::before {
+  background: #ef4444;
+}
+
+.status-card-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-text-muted, #888);
+}
+
+.status-card-value {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #1a1a1a;
+  line-height: 1;
+}
+
+.status-card-sub {
+  font-size: 0.8rem;
+  color: var(--color-text-muted, #999);
+}
+
+/* ── Overall system status banner ───────────────────────────────── */
+.overall-status-banner {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.875rem 1.25rem;
+  border-radius: 0.5rem;
+  margin-bottom: 1rem;
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+
+.overall-status-banner.healthy {
+  background: #ecfdf5;
+  color: #065f46;
+  border: 1px solid #6ee7b7;
+}
+
+.overall-status-banner.degraded {
+  background: #fffbeb;
+  color: #92400e;
+  border: 1px solid #fcd34d;
+}
+
+.overall-status-banner.unhealthy {
+  background: #fef2f2;
+  color: #991b1b;
+  border: 1px solid #fca5a5;
+}
+
+/* ── Backup section ─────────────────────────────────────────────── */
+.backup-card {
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 0.75rem;
+  padding: 1.25rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.backup-info-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.backup-filename {
+  font-weight: 600;
+  font-size: 0.95rem;
+  color: #1a1a1a;
+  font-family: monospace;
+}
+
+.backup-meta {
+  font-size: 0.8rem;
+  color: #888;
+}
+
+.backup-no-data {
+  color: #ef4444;
+  font-weight: 600;
+}
+
+/* ── Metrics grid ───────────────────────────────────────────────── */
+.metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 0.75rem;
+}
+
+.metric-card {
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-radius: 0.625rem;
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.metric-label {
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #888;
+}
+
+.metric-value {
+  font-size: 1.375rem;
+  font-weight: 700;
+  color: #1a1a1a;
+  line-height: 1;
+}
+
+.metric-unit {
+  font-size: 0.75rem;
+  color: #aaa;
+}
+
+/* ── Buttons ────────────────────────────────────────────────────── */
+.btn-backup-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  background: #2563eb;
+  color: #fff;
+  border: none;
+  border-radius: 0.5rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.btn-backup-trigger:hover:not(:disabled) {
+  background: #1d4ed8;
+}
+
+.btn-backup-trigger:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* ── Health dot (sidebar footer widget) ─────────────────────────── */
+.health-dot-wrapper {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  cursor: pointer;
+  padding: 0.25rem 0.5rem;
+  border-radius: 0.375rem;
+  transition: background 0.15s;
+  text-decoration: none;
+  color: inherit;
+}
+
+.health-dot-wrapper:hover {
+  background: rgba(0, 0, 0, 0.06);
+}
+
+.health-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  position: relative;
+}
+
+.health-dot.healthy {
+  background: #10b981;
+  box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.25);
+}
+
+.health-dot.degraded {
+  background: #f59e0b;
+  box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.25);
+}
+
+.health-dot.unhealthy {
+  background: #ef4444;
+  box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.25);
+}
+
+.health-dot.loading {
+  background: #d1d5db;
+}
+
+/* Pulsing animation for non-healthy states */
+@keyframes dot-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+.health-dot.degraded,
+.health-dot.unhealthy {
+  animation: dot-pulse 1.8s ease-in-out infinite;
+}
+
+.health-dot-label {
+  font-size: 0.78rem;
+  color: #888;
+  font-weight: 500;
+}
+
+/* ── Loading / error states ─────────────────────────────────────── */
+.admin-loading {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 200px;
+  color: #888;
+  font-size: 0.9rem;
+}
+
+.admin-error-banner {
+  background: #fef2f2;
+  border: 1px solid #fca5a5;
+  color: #991b1b;
+  border-radius: 0.5rem;
+  padding: 0.875rem 1.25rem;
+  margin-bottom: 1rem;
+  font-size: 0.875rem;
+}
+
+/* ── Auto-refresh indicator ─────────────────────────────────────── */
+.admin-refresh-indicator {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  font-size: 0.78rem;
+  color: #aaa;
+}
+
+/* ── Responsive ─────────────────────────────────────────────────── */
+@media (max-width: 640px) {
+  .admin-system-page {
+    padding: 1rem;
+  }
+
+  .status-cards-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .metrics-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .backup-card {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}
