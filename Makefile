@@ -179,3 +179,130 @@ docker-start: start ## Alias for 'start' (Docker compatibility)
 docker-stop: stop ## Alias for 'stop' (Docker compatibility)
 docker-compose-up: start ## Alias for 'start' (Docker compatibility)
 docker-compose-down: stop ## Alias for 'stop' (Docker compatibility)
+
+# =============================================================================
+# Production targets (podman-compose.prod.yml)
+# =============================================================================
+
+.PHONY: setup prod-start prod-stop prod-restart prod-logs prod-status \
+        update backup-now restore install-service install-backup-cron rotate-secrets
+
+PROD_COMPOSE := podman-compose --env-file .env.production -f podman-compose.prod.yml
+
+setup: ## First-time production setup (interactive, idempotent)
+	@echo "$(GREEN)Goldsmith ERP – Ersteinrichtung startet…$(NC)"
+	@chmod +x setup.sh
+	@./setup.sh
+
+prod-start: ## Start all production services
+	@echo "$(GREEN)Produktionsdienste starten…$(NC)"
+	@$(PROD_COMPOSE) up -d
+	@echo "$(GREEN)✓ Produktionsdienste gestartet$(NC)"
+
+prod-stop: ## Stop all production services
+	@echo "$(YELLOW)Produktionsdienste stoppen…$(NC)"
+	@$(PROD_COMPOSE) down
+	@echo "$(GREEN)✓ Produktionsdienste gestoppt$(NC)"
+
+prod-restart: ## Restart all production services
+	@echo "$(YELLOW)Produktionsdienste neustarten…$(NC)"
+	@$(PROD_COMPOSE) restart
+	@echo "$(GREEN)✓ Produktionsdienste neugestartet$(NC)"
+
+prod-logs: ## Follow production logs (all services)
+	@$(PROD_COMPOSE) logs -f
+
+prod-status: ## Show production container status and health
+	@echo "$(GREEN)Produktionsstatus:$(NC)"
+	@$(PROD_COMPOSE) ps
+	@echo ""
+	@echo "$(YELLOW)Health-Checks:$(NC)"
+	@curl -sf http://localhost:8000/health && echo "$(GREEN)Backend: OK$(NC)" || echo "$(YELLOW)Backend: nicht erreichbar$(NC)"
+	@$(PROD_COMPOSE) exec -T db pg_isready -U $${POSTGRES_USER:-goldsmith} \
+		&& echo "$(GREEN)Datenbank: OK$(NC)" || echo "$(YELLOW)Datenbank: nicht erreichbar$(NC)"
+	@$(PROD_COMPOSE) exec -T redis redis-cli ping \
+		&& echo "$(GREEN)Redis: OK$(NC)" || echo "$(YELLOW)Redis: nicht erreichbar$(NC)"
+
+update: ## Pull latest images, rebuild, and restart production services
+	@echo "$(GREEN)Update: Container neu bauen und starten…$(NC)"
+	@$(PROD_COMPOSE) build --no-cache
+	@$(PROD_COMPOSE) up -d --remove-orphans
+	@$(PROD_COMPOSE) exec -T backend poetry run alembic upgrade head
+	@echo "$(GREEN)✓ Update abgeschlossen$(NC)"
+
+backup-now: ## Create a timestamped database backup immediately
+	@echo "$(GREEN)Datenbank-Backup erstellen…$(NC)"
+	@mkdir -p "$${BACKUP_DIR:-./backups}"
+	@$(PROD_COMPOSE) exec -T db pg_dump \
+		-U $${POSTGRES_USER:-goldsmith} $${POSTGRES_DB:-goldsmith} \
+		> "$${BACKUP_DIR:-./backups}/goldsmith_$(shell date +%Y%m%d_%H%M%S).sql"
+	@echo "$(GREEN)✓ Backup erstellt in $${BACKUP_DIR:-./backups}/$(NC)"
+
+restore: ## Restore database from backup (usage: make restore FILE=path/to/backup.sql)
+	@if [ -z "$(FILE)" ]; then \
+		echo "$(YELLOW)Verwendung: make restore FILE=pfad/zum/backup.sql$(NC)"; \
+		exit 1; \
+	fi
+	@echo "$(YELLOW)Datenbank wiederherstellen aus: $(FILE)$(NC)"
+	@read -p "Sicher? Alle aktuellen Daten werden überschrieben. [j/N] " -n 1 -r; \
+	echo; \
+	if [[ $$REPLY =~ ^[Jj]$$ ]]; then \
+		$(PROD_COMPOSE) exec -T db psql \
+			-U $${POSTGRES_USER:-goldsmith} $${POSTGRES_DB:-goldsmith} < $(FILE); \
+		echo "$(GREEN)✓ Wiederherstellung abgeschlossen$(NC)"; \
+	else \
+		echo "$(YELLOW)Wiederherstellung abgebrochen$(NC)"; \
+	fi
+
+install-service: ## Install Goldsmith ERP as a systemd user service (auto-start on boot)
+	@echo "$(GREEN)Systemd-Dienst installieren…$(NC)"
+	@mkdir -p ~/.config/systemd/user
+	@podman generate systemd --name goldsmith-backend-prod --files --new \
+		2>/dev/null || \
+	(echo "Fallback: Einfache Unit-Datei wird erstellt…"; \
+	cat > ~/.config/systemd/user/goldsmith-erp.service <<'EOF'
+[Unit]
+Description=Goldsmith ERP (Podman Compose)
+After=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=$(PWD)
+ExecStart=/usr/bin/podman-compose -f $(PWD)/podman-compose.prod.yml up -d
+ExecStop=/usr/bin/podman-compose -f $(PWD)/podman-compose.prod.yml down
+TimeoutStartSec=120
+
+[Install]
+WantedBy=default.target
+EOF
+)
+	@systemctl --user daemon-reload
+	@systemctl --user enable goldsmith-erp.service
+	@echo "$(GREEN)✓ Systemd-Dienst installiert und aktiviert$(NC)"
+	@echo "  Starten mit: systemctl --user start goldsmith-erp"
+
+install-backup-cron: ## Install daily 02:00 backup cron job
+	@echo "$(GREEN)Backup-Cronjob einrichten (täglich 02:00)…$(NC)"
+	@(crontab -l 2>/dev/null | grep -v 'goldsmith.*backup-now'; \
+	echo "0 2 * * * cd $(PWD) && make backup-now >> $(PWD)/logs/backup.log 2>&1") | crontab -
+	@echo "$(GREEN)✓ Backup-Cronjob installiert (täglich 02:00)$(NC)"
+	@echo "  Prüfen mit: crontab -l"
+
+rotate-secrets: ## Rotate SECRET_KEY and ENCRYPTION_KEY in .env.production (requires restart)
+	@echo "$(YELLOW)Warnung: Schlüsselrotation meldet alle Benutzer ab!$(NC)"
+	@read -p "Fortfahren? [j/N] " -n 1 -r; echo; \
+	if [[ $$REPLY =~ ^[Jj]$$ ]]; then \
+		NEW_SECRET=$$(python3 -c "import secrets; print(secrets.token_urlsafe(64))"); \
+		NEW_ENC=$$(python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"); \
+		BACKUP_FILE=".env.production.bak.$$(date +%Y%m%d_%H%M%S)"; \
+		cp .env.production "$$BACKUP_FILE"; \
+		chmod 600 "$$BACKUP_FILE"; \
+		sed -i.tmp "s|^SECRET_KEY=.*|SECRET_KEY=$$NEW_SECRET|" .env.production; \
+		sed -i.tmp "s|^ENCRYPTION_KEY=.*|ENCRYPTION_KEY=$$NEW_ENC|" .env.production; \
+		rm -f .env.production.tmp; \
+		echo "$(GREEN)✓ Schlüssel rotiert. Backup: $$BACKUP_FILE$(NC)"; \
+		echo "$(YELLOW)Dienste neustarten mit: make prod-restart$(NC)"; \
+	else \
+		echo "$(YELLOW)Rotation abgebrochen$(NC)"; \
+	fi
