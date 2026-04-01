@@ -1,11 +1,14 @@
 """Customer/CRM API Endpoints"""
 import logging
-from typing import List, Optional
+from datetime import datetime, timedelta
+from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from goldsmith_erp.api.deps import get_db, require_permission, Permission
-from goldsmith_erp.db.models import User
+from goldsmith_erp.db.models import Customer as CustomerModel, User
 from goldsmith_erp.models.customer import (
     CustomerCreate,
     CustomerRead,
@@ -233,6 +236,169 @@ async def update_customer(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to update customer"
         )
+
+
+@router.get("/{customer_id}/export", response_model=Dict[str, Any])
+async def gdpr_export_customer(
+    customer_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_permission(Permission.CUSTOMER_DELETE)),
+):
+    """
+    GDPR Art. 15 — Export all personal data held for a customer.
+
+    Returns the customer record along with all related data (orders,
+    measurements) as a JSON object.  Access is restricted to ADMIN role
+    (CUSTOMER_DELETE permission) because the export contains raw PII.
+
+    Permissions: Requires CUSTOMER_DELETE permission (Admin only).
+    """
+    # Load customer with all relationships using selectinload to avoid N+1
+    result = await db.execute(
+        select(CustomerModel)
+        .options(
+            selectinload(CustomerModel.orders),
+            selectinload(CustomerModel.measurements),
+        )
+        .filter(CustomerModel.id == customer_id)
+    )
+    customer = result.scalar_one_or_none()
+
+    if not customer:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Customer {customer_id} not found",
+        )
+
+    # Audit log — financial/PII data export must be traceable
+    logger.info(
+        "GDPR data export",
+        extra={
+            "audit": True,
+            "action": "gdpr_export",
+            "customer_id": customer_id,
+            "user_id": current_user.id,
+            "user_role": current_user.role.value,
+        },
+    )
+
+    # Serialize all data — omit relationship proxy objects and SQLAlchemy state
+    orders_data = []
+    for order in customer.orders:
+        orders_data.append({
+            "id": order.id,
+            "status": order.status,
+            "description": order.description,
+            "price": float(order.price) if order.price is not None else None,
+            "created_at": order.created_at.isoformat() if order.created_at else None,
+            "delivery_date": order.delivery_date.isoformat() if order.delivery_date else None,
+        })
+
+    measurements_data = []
+    for m in customer.measurements:
+        measurements_data.append({
+            "id": m.id,
+            "measurement_type": m.measurement_type.value if m.measurement_type else None,
+            "value": m.value,
+            "unit": m.unit,
+            "hand": m.hand.value if m.hand else None,
+            "finger": m.finger.value if m.finger else None,
+            "notes": m.notes,
+            "measured_at": m.measured_at.isoformat() if m.measured_at else None,
+        })
+
+    return {
+        "export_date": datetime.utcnow().isoformat(),
+        "customer": {
+            "id": customer.id,
+            "first_name": customer.first_name,
+            "last_name": customer.last_name,
+            "company_name": customer.company_name,
+            "email": customer.email,
+            "phone": customer.phone,
+            "mobile": customer.mobile,
+            "street": customer.street,
+            "city": customer.city,
+            "postal_code": customer.postal_code,
+            "country": customer.country,
+            "customer_type": customer.customer_type,
+            "source": customer.source,
+            "notes": customer.notes,
+            "tags": customer.tags,
+            "ring_size": customer.ring_size,
+            "chain_length_cm": customer.chain_length_cm,
+            "bracelet_length_cm": customer.bracelet_length_cm,
+            "allergies": customer.allergies,
+            "preferences": customer.preferences,
+            "birthday": customer.birthday.isoformat() if customer.birthday else None,
+            "is_active": customer.is_active,
+            "created_at": customer.created_at.isoformat() if customer.created_at else None,
+        },
+        "orders": orders_data,
+        "measurements": measurements_data,
+    }
+
+
+@router.delete("/{customer_id}/gdpr-erase", status_code=status.HTTP_200_OK)
+async def gdpr_erase_customer(
+    customer_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_permission(Permission.CUSTOMER_DELETE)),
+):
+    """
+    GDPR Art. 17 — Request erasure of all personal data for a customer.
+
+    Soft-deletes the customer immediately (is_active=False) and schedules
+    permanent hard-delete after a 30-day grace period.  The gdpr-cleanup.sh
+    cron job performs the hard-delete once the grace period has passed.
+
+    Permissions: Requires CUSTOMER_DELETE permission (Admin only).
+    """
+    result = await db.execute(
+        select(CustomerModel).filter(CustomerModel.id == customer_id)
+    )
+    customer = result.scalar_one_or_none()
+
+    if not customer:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Customer {customer_id} not found",
+        )
+
+    if customer.deletion_scheduled_at is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"Löschung bereits angefordert. "
+                f"Geplantes Löschdatum: {customer.deletion_scheduled_at.date().isoformat()}"
+            ),
+        )
+
+    deletion_date = datetime.utcnow() + timedelta(days=30)
+
+    customer.is_active = False
+    customer.deletion_scheduled_at = deletion_date
+    customer.updated_at = datetime.utcnow()
+
+    await db.commit()
+
+    # Audit log — GDPR erasure requests are legally significant
+    logger.info(
+        "GDPR erasure requested",
+        extra={
+            "audit": True,
+            "action": "gdpr_erase_request",
+            "customer_id": customer_id,
+            "user_id": current_user.id,
+            "deletion_scheduled": deletion_date.isoformat(),
+        },
+    )
+
+    return {
+        "message": "Löschung geplant",
+        "customer_id": customer_id,
+        "deletion_date": deletion_date.date().isoformat(),
+    }
 
 
 @router.delete("/{customer_id}", status_code=status.HTTP_204_NO_CONTENT)

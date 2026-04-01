@@ -184,6 +184,10 @@ class Customer(Base):
     created_at = Column(DateTime, default=datetime.utcnow, index=True)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
+    # GDPR Art. 17 — scheduled hard-delete date (set on erasure request).
+    # After this date the gdpr-cleanup.sh cron job permanently deletes the record.
+    deletion_scheduled_at = Column(DateTime, nullable=True, index=True)
+
     # Beziehungen
     orders = relationship("Order", back_populates="customer")
     measurements = relationship(
