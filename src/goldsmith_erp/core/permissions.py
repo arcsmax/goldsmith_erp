@@ -68,6 +68,11 @@ class Permission(str, Enum):
     # System permissions
     SYSTEM_CONFIG = "system:config"
 
+    # ML permissions
+    ML_PREDICT = "ml:predict"        # Predict duration for orders (all authenticated users)
+    ML_TRAIN = "ml:train"            # Trigger model training (ADMIN only)
+    ML_VIEW_STATS = "ml:view_stats"  # View model status, anomalies, activity stats (all)
+
 
 # Role-Permission mapping
 ROLE_PERMISSIONS: dict[UserRole, List[Permission]] = {
@@ -100,6 +105,9 @@ ROLE_PERMISSIONS: dict[UserRole, List[Permission]] = {
         Permission.INVOICE_EDIT,
         # Reports
         Permission.REPORTS_VIEW,
+        # ML — goldsmiths can run predictions and view stats
+        Permission.ML_PREDICT,
+        Permission.ML_VIEW_STATS,
     ],
     UserRole.VIEWER: [
         # View-only access
@@ -109,6 +117,9 @@ ROLE_PERMISSIONS: dict[UserRole, List[Permission]] = {
         Permission.ACTIVITY_VIEW,
         Permission.CUSTOMER_VIEW,
         Permission.REPORTS_VIEW,
+        # ML — viewers can see predictions and stats, not trigger training
+        Permission.ML_PREDICT,
+        Permission.ML_VIEW_STATS,
     ],
 }
 
