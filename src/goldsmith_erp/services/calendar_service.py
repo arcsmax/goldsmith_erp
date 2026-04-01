@@ -156,6 +156,7 @@ class CalendarService:
         query = (
             select(OrderModel)
             .where(OrderModel.deadline.isnot(None))
+            .where(OrderModel.is_deleted.is_(False))
             .options(selectinload(OrderModel.customer))
             .order_by(OrderModel.deadline)
         )

@@ -233,6 +233,7 @@ class ComparisonService:
                 selectinload(OrderModel.customer),
             )
             .where(OrderModel.id == order_id)
+            .where(OrderModel.is_deleted.is_(False))
         )
         order: Optional[OrderModel] = result.scalar_one_or_none()
 
@@ -322,6 +323,7 @@ class ComparisonService:
                 OrderModel.status.in_(_FINISHED_STATUSES),
                 OrderModel.completed_at >= date_from,
                 OrderModel.completed_at <= date_to,
+                OrderModel.is_deleted.is_(False),
             )
             .order_by(OrderModel.completed_at)
         )
@@ -590,6 +592,7 @@ class ComparisonService:
             .where(
                 OrderModel.id.in_(order_ids),
                 OrderModel.status.in_(_FINISHED_STATUSES),
+                OrderModel.is_deleted.is_(False),
             )
             .order_by(OrderModel.completed_at)
         )

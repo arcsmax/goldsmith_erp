@@ -1,5 +1,6 @@
 // CustomerInfoCard - Display customer information with data fetching
 import React, { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { customersApi } from '../../api';
 
 interface Customer {
@@ -23,6 +24,7 @@ interface CustomerInfoCardProps {
 }
 
 export const CustomerInfoCard: React.FC<CustomerInfoCardProps> = ({ customerId }) => {
+  const navigate = useNavigate();
   const [customer, setCustomer] = useState<Customer | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -137,7 +139,7 @@ export const CustomerInfoCard: React.FC<CustomerInfoCardProps> = ({ customerId }
       <div className="customer-actions">
         <button
           className="btn-customer-link"
-          onClick={() => (window.location.href = `/customers/${customer.id}`)}
+          onClick={() => navigate(`/customers/${customer.id}`)}
         >
           🔗 Kundenprofil ansehen
         </button>

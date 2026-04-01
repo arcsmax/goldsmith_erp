@@ -294,6 +294,7 @@ class InvoiceService:
                 selectinload(OrderModel.material_usage_records),
             )
             .where(OrderModel.id == order_id)
+            .where(OrderModel.is_deleted.is_(False))
         )
         return result.scalar_one_or_none()
 

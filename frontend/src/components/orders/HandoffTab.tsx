@@ -332,7 +332,7 @@ const HandoffTab: React.FC<HandoffTabProps> = ({ orderId }) => {
                 <option value="">— Bitte wählen —</option>
                 {users.map((u) => (
                   <option key={u.id} value={u.id}>
-                    {u.full_name || u.email} ({u.role})
+                    {u.first_name && u.last_name ? `${u.first_name} ${u.last_name}` : u.email} ({u.role})
                   </option>
                 ))}
               </select>

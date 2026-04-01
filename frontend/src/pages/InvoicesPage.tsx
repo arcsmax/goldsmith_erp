@@ -543,15 +543,6 @@ export const InvoicesPage: React.FC = () => {
   // Export dropdown
   const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
 
-  // Guard — this page is for ADMIN and GOLDSMITH only
-  if (!hasRole(['ADMIN', 'GOLDSMITH'])) {
-    return (
-      <div className="page-error">
-        Keine Berechtigung. Diese Seite ist nur für Goldschmiede und Administratoren zugänglich.
-      </div>
-    );
-  }
-
   const fetchInvoices = useCallback(async () => {
     try {
       setIsLoading(true);
@@ -575,6 +566,16 @@ export const InvoicesPage: React.FC = () => {
   useEffect(() => {
     fetchInvoices();
   }, [fetchInvoices]);
+
+  // Guard — this page is for ADMIN and GOLDSMITH only.
+  // Placed after all hooks so React's hook call order is always consistent.
+  if (!hasRole(['ADMIN', 'GOLDSMITH'])) {
+    return (
+      <div className="page-error">
+        Keine Berechtigung. Diese Seite ist nur für Goldschmiede und Administratoren zugänglich.
+      </div>
+    );
+  }
 
   const openCreateModal = async () => {
     try {

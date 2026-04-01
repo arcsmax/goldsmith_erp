@@ -309,7 +309,7 @@ class Order(Base):
     description = Column(String)
     price = Column(Float)  # Final customer price (can be manually set)
     status = Column(SAEnum(OrderStatusEnum), default=OrderStatusEnum.NEW, nullable=False)
-    customer_id = Column(Integer, ForeignKey("customers.id"), nullable=False, index=True)
+    customer_id = Column(Integer, ForeignKey("customers.id", ondelete="SET NULL"), nullable=True, index=True)
     deadline = Column(DateTime, nullable=True, index=True)  # Deadline für Kalender
     current_location = Column(String(50), nullable=True)  # Aktueller Lagerort
 
@@ -675,7 +675,7 @@ class ScrapGold(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     order_id = Column(Integer, ForeignKey("orders.id", ondelete="CASCADE"), nullable=False, index=True)
-    customer_id = Column(Integer, ForeignKey("customers.id"), nullable=False, index=True)
+    customer_id = Column(Integer, ForeignKey("customers.id", ondelete="SET NULL"), nullable=True, index=True)
     created_by = Column(Integer, ForeignKey("users.id"), nullable=False)
     status = Column(SAEnum(ScrapGoldStatus), default=ScrapGoldStatus.RECEIVED, nullable=False)
 

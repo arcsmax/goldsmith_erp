@@ -179,13 +179,12 @@ export const TimeTrackingProvider: React.FC<TimeTrackingProviderProps> = ({ chil
       setIsLoading(true);
       try {
         // Fetch running entry and activities in parallel
-        await Promise.all([
+        const [entry] = await Promise.all([
           refreshRunningEntry(),
           refreshActivities(),
         ]);
 
         // If there's a running entry, start polling
-        const entry = await refreshRunningEntry();
         if (entry) {
           startPolling();
         }

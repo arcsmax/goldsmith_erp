@@ -630,15 +630,15 @@ const ViewerDashboard: React.FC = () => {
 // ============================================================
 export const DashboardPage: React.FC = () => {
   const { user } = useAuth();
-  const userRole = user?.role || 'admin';
+  const userRole = (user?.role || 'ADMIN').toUpperCase();
 
   const getRoleLabel = (role: string): string => {
     switch (role) {
-      case 'goldsmith':
+      case 'GOLDSMITH':
         return 'Goldschmied';
-      case 'viewer':
+      case 'VIEWER':
         return 'Betrachter';
-      case 'admin':
+      case 'ADMIN':
       default:
         return 'Administrator';
     }
@@ -663,9 +663,9 @@ export const DashboardPage: React.FC = () => {
       </header>
 
       {/* Role-specific content */}
-      {userRole === 'goldsmith' && <GoldsmithDashboard />}
-      {userRole === 'viewer' && <ViewerDashboard />}
-      {(userRole === 'admin' || (userRole !== 'goldsmith' && userRole !== 'viewer')) && (
+      {userRole === 'GOLDSMITH' && <GoldsmithDashboard />}
+      {userRole === 'VIEWER' && <ViewerDashboard />}
+      {(userRole === 'ADMIN' || (userRole !== 'GOLDSMITH' && userRole !== 'VIEWER')) && (
         <AdminDashboard />
       )}
 
@@ -673,9 +673,9 @@ export const DashboardPage: React.FC = () => {
       <footer className="dashboard-footer">
         <p className="dashboard-info">
           💡 <strong>Tipp:</strong>{' '}
-          {userRole === 'goldsmith'
+          {userRole === 'GOLDSMITH'
             ? 'Klicken Sie auf einen Auftrag für Details'
-            : userRole === 'viewer'
+            : userRole === 'VIEWER'
               ? 'Sie haben Lesezugriff auf das Dashboard'
               : 'Klicken Sie auf die KPI-Karten für weitere Details'}
         </p>

@@ -223,6 +223,7 @@ class NotificationService:
                     OrderStatusEnum.COMPLETED,
                     OrderStatusEnum.DELIVERED,
                 ]),
+                Order.is_deleted.is_(False),
             )
         ).options(selectinload(Order.customer))
 

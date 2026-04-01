@@ -536,7 +536,7 @@ const RechnungenTab: React.FC<{ customerId: number }> = ({ customerId }) => {
         setIsLoading(true);
         // Import lazily to avoid circular imports
         const { invoicesApi } = await import('../api/invoices');
-        const data = await invoicesApi.getAll({ limit: 200 });
+        const data = await invoicesApi.getInvoices({ limit: 200 });
         const items = Array.isArray(data) ? data : (data as any).items || [];
         const customerInvoices = items.filter(
           (inv: any) => inv.customer_id === customerId

@@ -287,7 +287,7 @@ export const OrdersPage: React.FC = () => {
                   >
                     <td>#{order.id}</td>
                     <td>{order.title}</td>
-                    <td>{order.description.substring(0, 50)}...</td>
+                    <td>{(order.description ?? '').substring(0, 50)}...</td>
                     <td>
                       <span className={`status-badge status-${order.status}`}>
                         {getStatusLabel(order.status)}
