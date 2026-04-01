@@ -83,7 +83,7 @@ class TestCustomerCreation:
             customer_type="private"
         )
 
-        with pytest.raises(ValueError, match="already exists"):
+        with pytest.raises(ValueError, match="existiert bereits"):
             await CustomerService.create_customer(db_session, duplicate_data)
 
     async def test_create_customer_with_tags(self, db_session):
@@ -388,7 +388,7 @@ class TestCustomerUpdate:
             email=business_customer.email  # Try to use business customer's email
         )
 
-        with pytest.raises(ValueError, match="already exists"):
+        with pytest.raises(ValueError, match="existiert bereits"):
             await CustomerService.update_customer(
                 db_session, sample_customer.id, update_data
             )
