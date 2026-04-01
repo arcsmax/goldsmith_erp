@@ -394,6 +394,10 @@ class Material(Base):
     unit_price = Column(Float)
     stock = Column(Float)
     unit = Column(String)  # g, kg, stück, etc.
+    image_url = Column(String(500), nullable=True)
+    supplier = Column(String(200), nullable=True)
+    webshop_url = Column(String(500), nullable=True)
+    min_stock = Column(Float, default=10.0, nullable=False)
 
     # Beziehungen
     orders = relationship("Order", secondary=order_materials, back_populates="materials")

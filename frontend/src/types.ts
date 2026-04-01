@@ -8,6 +8,10 @@ export interface MaterialType {
   stock: number;
   unit: string;
   stock_value?: number;
+  image_url?: string;
+  supplier?: string;
+  webshop_url?: string;
+  min_stock?: number;
 }
 
 export interface MaterialCreateInput {
@@ -16,6 +20,10 @@ export interface MaterialCreateInput {
   unit_price: number;
   stock: number;
   unit: string;
+  image_url?: string;
+  supplier?: string;
+  webshop_url?: string;
+  min_stock?: number;
 }
 
 export interface MaterialUpdateInput {
@@ -24,6 +32,15 @@ export interface MaterialUpdateInput {
   unit_price?: number;
   stock?: number;
   unit?: string;
+  image_url?: string;
+  supplier?: string;
+  webshop_url?: string;
+  min_stock?: number;
+}
+
+export interface PurchaseListItem {
+  supplier: string | null;
+  materials: MaterialType[];
 }
 
 // ==================== CUSTOMER TYPES ====================
@@ -203,6 +220,15 @@ export interface OrderUpdateInput {
   price?: number;
   deadline?: string | null;
   status?: OrderStatus;
+
+  // Arbeitszettel (production work sheet) fields
+  actual_weight_g?: number | null;
+  labor_hours?: number | null;
+  alloy?: string | null;
+  ring_size_mm?: number | null;
+  surface_finish?: string | null;
+  current_location?: string | null;
+  special_instructions?: string | null;
 }
 
 // ==================== USER TYPES ====================

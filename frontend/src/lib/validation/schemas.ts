@@ -180,6 +180,13 @@ export const MaterialCreateSchema = z.object({
     .string()
     .min(1, 'Pflichtfeld')
     .max(20, 'Maximal 20 Zeichen erlaubt'),
+  supplier: z.string().max(200, 'Maximal 200 Zeichen erlaubt').optional(),
+  webshop_url: z.string().url('Ungültige URL').max(500, 'Maximal 500 Zeichen erlaubt').optional().or(z.literal('')),
+  min_stock: z
+    .number({ invalid_type_error: 'Muss eine Zahl sein' })
+    .min(0, 'Mindestbestand darf nicht negativ sein')
+    .max(1_000_000, 'Mindestbestand überschreitet das Maximum')
+    .default(10),
 });
 
 export type MaterialCreateFormData = z.input<typeof MaterialCreateSchema>;

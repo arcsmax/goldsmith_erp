@@ -34,6 +34,26 @@ class MaterialBase(BaseModel):
         max_length=20,
         description="Unit of measurement (e.g., 'g', 'kg', 'Stück', 'ct')"
     )
+    image_url: Optional[str] = Field(
+        None,
+        max_length=500,
+        description="URL of the material image"
+    )
+    supplier: Optional[str] = Field(
+        None,
+        max_length=200,
+        description="Supplier name"
+    )
+    webshop_url: Optional[str] = Field(
+        None,
+        max_length=500,
+        description="Supplier webshop URL for reordering"
+    )
+    min_stock: float = Field(
+        default=10.0,
+        ge=0,
+        description="Minimum stock threshold for low-stock alerts"
+    )
 
     @field_validator('unit_price')
     @classmethod
@@ -86,6 +106,26 @@ class MaterialUpdate(BaseModel):
         max_length=20,
         description="Unit of measurement"
     )
+    image_url: Optional[str] = Field(
+        None,
+        max_length=500,
+        description="URL of the material image"
+    )
+    supplier: Optional[str] = Field(
+        None,
+        max_length=200,
+        description="Supplier name"
+    )
+    webshop_url: Optional[str] = Field(
+        None,
+        max_length=500,
+        description="Supplier webshop URL for reordering"
+    )
+    min_stock: Optional[float] = Field(
+        None,
+        ge=0,
+        description="Minimum stock threshold for low-stock alerts"
+    )
 
     @field_validator('unit_price')
     @classmethod
@@ -128,5 +168,9 @@ class MaterialWithStock(MaterialRead):
             unit_price=material.unit_price,
             stock=material.stock,
             unit=material.unit,
+            image_url=material.image_url,
+            supplier=material.supplier,
+            webshop_url=material.webshop_url,
+            min_stock=material.min_stock,
             stock_value=material.stock * material.unit_price
         )
