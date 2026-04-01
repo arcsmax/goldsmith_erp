@@ -6,8 +6,10 @@ import TimerWidget from '../components/TimerWidget';
 import { OfflineIndicator } from '../components/OfflineIndicator';
 import { NotificationBell } from '../components/NotificationBell';
 import { HealthDot } from '../components/HealthDot';
+import { GlobalSearch } from '../components/GlobalSearch';
 import '../styles/layout.css';
 import '../styles/admin.css';
+import '../styles/components/GlobalSearch.css';
 
 export const MainLayout: React.FC = () => {
   const { user, logout, hasRole } = useAuth();
@@ -65,6 +67,8 @@ export const MainLayout: React.FC = () => {
           </button>
 
           <h1 className="logo">Goldsmith ERP</h1>
+
+          <GlobalSearch />
 
           <div className="user-menu">
             <Link to="/scanner" className="btn-scanner">

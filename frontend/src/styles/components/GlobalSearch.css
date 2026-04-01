@@ -1,0 +1,263 @@
+/* Global Search — header-embedded search with dropdown results */
+
+/* ==================== TRIGGER BUTTON ==================== */
+
+.global-search {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+/* Icon-only trigger button (collapsed state) */
+.global-search__trigger {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  min-width: 44px;
+  min-height: 44px;
+  background: rgba(255, 255, 255, 0.2);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 8px;
+  color: white;
+  cursor: pointer;
+  transition: background 0.2s;
+  /* WCAG 2.1 AA: 44×44px touch target */
+}
+
+.global-search__trigger:hover,
+.global-search__trigger:focus-visible {
+  background: rgba(255, 255, 255, 0.35);
+  outline: 2px solid rgba(255, 255, 255, 0.6);
+  outline-offset: 2px;
+}
+
+/* ==================== EXPANDED INPUT ==================== */
+
+.global-search__input-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+  /* On mobile the input grows to fill available header space */
+  width: min(360px, calc(100vw - 120px));
+}
+
+.global-search__input-icon {
+  position: absolute;
+  left: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: rgba(255, 255, 255, 0.7);
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+}
+
+.global-search__input {
+  width: 100%;
+  height: 44px;
+  padding: 0 80px 0 40px; /* room for icon left + spinner+close right */
+  background: rgba(255, 255, 255, 0.15);
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  border-radius: 8px;
+  color: white;
+  font-size: 0.95rem;
+  outline: none;
+  transition: background 0.2s, border-color 0.2s;
+  /* Cancel browser default search input styling */
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.global-search__input::placeholder {
+  color: rgba(255, 255, 255, 0.55);
+  font-size: 0.88rem;
+}
+
+.global-search__input:focus {
+  background: rgba(255, 255, 255, 0.22);
+  border-color: rgba(255, 255, 255, 0.7);
+  box-shadow: 0 0 0 3px rgba(251, 191, 36, 0.35);
+}
+
+/* Remove default browser "×" clear button from search input */
+.global-search__input::-webkit-search-cancel-button {
+  -webkit-appearance: none;
+}
+
+/* ==================== SPINNER & CLOSE ==================== */
+
+.global-search__spinner {
+  position: absolute;
+  right: 44px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 16px;
+  height: 16px;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-top-color: white;
+  border-radius: 50%;
+  animation: gs-spin 0.7s linear infinite;
+}
+
+@keyframes gs-spin {
+  to { transform: translateY(-50%) rotate(360deg); }
+}
+
+.global-search__close {
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 0.9rem;
+  cursor: pointer;
+  border-radius: 6px;
+  transition: background 0.15s, color 0.15s;
+  /* Part of the 44px touch target via parent height */
+}
+
+.global-search__close:hover,
+.global-search__close:focus-visible {
+  background: rgba(255, 255, 255, 0.2);
+  color: white;
+  outline: none;
+}
+
+/* ==================== DROPDOWN ==================== */
+
+.global-search__dropdown {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  background: white;
+  border: 1px solid var(--color-border-default, #e5e7eb);
+  border-radius: 10px;
+  box-shadow:
+    0 4px 6px rgba(0, 0, 0, 0.07),
+    0 12px 24px rgba(0, 0, 0, 0.12);
+  z-index: 500;
+  max-height: 420px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  /* Subtle glass effect matching the brand aesthetic */
+  backdrop-filter: blur(8px);
+}
+
+.global-search__empty {
+  padding: 1.25rem 1rem;
+  color: var(--color-text-muted, #6b7280);
+  font-size: 0.9rem;
+  text-align: center;
+  margin: 0;
+}
+
+/* ==================== GROUPS ==================== */
+
+.global-search__group {
+  padding: 0.25rem 0;
+}
+
+.global-search__group + .global-search__group {
+  border-top: 1px solid var(--color-border-default, #e5e7eb);
+}
+
+.global-search__group-label {
+  padding: 0.6rem 1rem 0.3rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--color-text-muted, #6b7280);
+  margin: 0;
+}
+
+/* ==================== RESULT ROW ==================== */
+
+.global-search__result {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  width: 100%;
+  padding: 0.65rem 1rem;
+  background: transparent;
+  border: none;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.12s;
+  /* WCAG touch target: each row is at minimum 44px tall */
+  min-height: 44px;
+}
+
+.global-search__result:hover,
+.global-search__result--active {
+  background: var(--color-brand-cta-50, #fffbeb);
+}
+
+.global-search__result:focus-visible {
+  outline: 2px solid var(--color-brand-cta-500, #f59e0b);
+  outline-offset: -2px;
+  border-radius: 4px;
+}
+
+.global-search__result-type-icon {
+  font-size: 1rem;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.global-search__result-text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 0; /* allow text truncation */
+}
+
+.global-search__result-label {
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: var(--color-text-heading, #1a1a2e);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.global-search__result-sublabel {
+  font-size: 0.78rem;
+  color: var(--color-text-muted, #6b7280);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ==================== MOBILE ==================== */
+
+@media (max-width: 640px) {
+  /* On mobile the expanded input fills the header */
+  .global-search__input-wrapper {
+    width: calc(100vw - 80px);
+  }
+
+  .global-search__input::placeholder {
+    font-size: 0.8rem;
+  }
+
+  /* Dropdown is full-width on mobile, anchored below header */
+  .global-search__dropdown {
+    position: fixed;
+    top: 64px; /* header height */
+    left: 0;
+    right: 0;
+    border-radius: 0 0 10px 10px;
+    max-height: 60vh;
+  }
+}

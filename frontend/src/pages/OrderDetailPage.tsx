@@ -143,12 +143,6 @@ export const OrderDetailPage: React.FC = () => {
           🔄 Status
         </button>
         <button
-          className={`tab ${activeTab === 'notes' ? 'active' : ''}`}
-          onClick={() => handleTabChange('notes')}
-        >
-          📝 Notizen
-        </button>
-        <button
           className={`tab ${activeTab === 'history' ? 'active' : ''}`}
           onClick={() => handleTabChange('history')}
         >
@@ -164,7 +158,7 @@ export const OrderDetailPage: React.FC = () => {
           className={`tab ${activeTab === 'comments' ? 'active' : ''}`}
           onClick={() => handleTabChange('comments')}
         >
-          💬 Kommentare
+          📝 Notizen & Kommentare
         </button>
         <button
           className={`tab ${activeTab === 'scrap-gold' ? 'active' : ''}`}
@@ -208,10 +202,6 @@ export const OrderDetailPage: React.FC = () => {
 
         {activeTab === 'status' && (
           <StatusTab order={order} onStatusChange={handleStatusChange} />
-        )}
-
-        {activeTab === 'notes' && (
-          <NotesTab orderId={order.id} />
         )}
 
         {activeTab === 'history' && (
@@ -379,37 +369,6 @@ const StatusTab: React.FC<{
           </button>
         ))}
       </div>
-    </div>
-  );
-};
-
-const NotesTab: React.FC<{ orderId: number }> = ({ orderId }) => {
-  const [notes, setNotes] = useState('');
-
-  useEffect(() => {
-    // Load notes from localStorage
-    const saved = localStorage.getItem(`order_notes_${orderId}`);
-    if (saved) setNotes(saved);
-  }, [orderId]);
-
-  const handleSave = () => {
-    localStorage.setItem(`order_notes_${orderId}`, notes);
-    alert('Notizen gespeichert!');
-  };
-
-  return (
-    <div className="tab-panel">
-      <h2>Notizen</h2>
-      <textarea
-        className="notes-textarea"
-        value={notes}
-        onChange={(e) => setNotes(e.target.value)}
-        placeholder="Notizen zu diesem Auftrag..."
-        rows={15}
-      />
-      <button onClick={handleSave} className="btn-primary">
-        Speichern
-      </button>
     </div>
   );
 };
