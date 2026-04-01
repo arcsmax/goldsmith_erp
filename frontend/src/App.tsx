@@ -27,6 +27,7 @@ const AdminSystemPage = lazy(() => import('./pages/AdminSystemPage').then(m => (
 const CustomerDetailPage = lazy(() => import('./pages/CustomerDetailPage').then(m => ({ default: m.CustomerDetailPage })));
 const RepairsPage = lazy(() => import('./pages/RepairsPage').then(m => ({ default: m.RepairsPage })));
 const RepairDetailPage = lazy(() => import('./pages/RepairDetailPage').then(m => ({ default: m.RepairDetailPage })));
+const CustomerPortalPage = lazy(() => import('./pages/CustomerPortalPage').then(m => ({ default: m.CustomerPortalPage })));
 
 // Loading fallback component
 const PageLoader: React.FC = () => (
@@ -54,6 +55,8 @@ const App: React.FC = () => {
                   {/* Public Routes */}
                   <Route path="/login" element={<LoginPage />} />
                   <Route path="/register" element={<RegisterPage />} />
+                  {/* Customer self-service portal — no login required */}
+                  <Route path="/portal" element={<CustomerPortalPage />} />
 
                   {/* Protected Routes */}
                   <Route

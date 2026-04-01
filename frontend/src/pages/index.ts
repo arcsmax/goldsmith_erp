@@ -11,3 +11,4 @@ export { TimeTrackingPage } from './TimeTrackingPage';
 export { UsersPage } from './UsersPage';
 export { ScannerPage } from './ScannerPage';
 export { CalendarPage } from './CalendarPage';
+export { CustomerPortalPage } from './CustomerPortalPage';
