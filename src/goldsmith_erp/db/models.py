@@ -162,6 +162,28 @@ class Customer(Base):
     # Beziehungen
     orders = relationship("Order", back_populates="customer")
 
+class OrderTypeEnum(str, enum.Enum):
+    """Type of jewelry piece being made — primary ML feature for duration prediction."""
+    RING = "ring"
+    CHAIN = "chain"
+    PENDANT = "pendant"
+    EARRINGS = "earrings"
+    BRACELET = "bracelet"
+    BROOCH = "brooch"
+    REPAIR = "repair"
+    CUSTOM = "custom"
+
+
+class FinishTypeEnum(str, enum.Enum):
+    """Surface finish type — correlates with polishing time in ML models."""
+    HIGH_POLISH = "high_polish"
+    MATTE = "matte"
+    BRUSHED = "brushed"
+    HAMMERED = "hammered"
+    OXIDIZED = "oxidized"
+    MIXED = "mixed"
+
+
 class Order(Base):
     __tablename__ = "orders"
 
@@ -196,6 +218,13 @@ class Order(Base):
     vat_rate = Column(Float, default=19.0)  # VAT rate (%)
     calculated_price = Column(Float, nullable=True)  # Auto-calculated final price
 
+    # ML Feature Fields — required for training duration and complexity models
+    order_type = Column(String(50), nullable=True, index=True)  # ring, chain, pendant, etc.
+    finish_type = Column(String(50), nullable=True)  # high_polish, matte, brushed, etc.
+    complexity_rating = Column(Integer, nullable=True)  # 1-5 stars (set at intake)
+    actual_hours = Column(Float, nullable=True)  # Auto-calculated from time entries on completion
+    completed_at = Column(DateTime, nullable=True)  # Timestamp when order reached COMPLETED/DELIVERED
+
     # Metadata
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -207,6 +236,7 @@ class Order(Base):
     material_usage_records = relationship("MaterialUsage", back_populates="order", cascade="all, delete-orphan")
     specific_metal_purchase = relationship("MetalPurchase")  # For SPECIFIC costing method
     comments = relationship("OrderComment", back_populates="order", cascade="all, delete-orphan", order_by="OrderComment.created_at.desc()")
+    time_entries = relationship("TimeEntry", back_populates="order")
 
 
 class OrderComment(Base):
@@ -280,7 +310,7 @@ class TimeEntry(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
     # Beziehungen
-    order = relationship("Order")
+    order = relationship("Order", back_populates="time_entries")
     user = relationship("User")
     activity = relationship("Activity", back_populates="time_entries")
     interruptions = relationship("Interruption", back_populates="time_entry", cascade="all, delete-orphan")

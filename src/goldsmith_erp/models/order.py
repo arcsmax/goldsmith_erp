@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Optional, List, TYPE_CHECKING
 from decimal import Decimal
 
-from goldsmith_erp.db.models import OrderStatusEnum, MetalType, CostingMethod
+from goldsmith_erp.db.models import OrderStatusEnum, MetalType, CostingMethod, OrderTypeEnum, FinishTypeEnum
 
 # Use TYPE_CHECKING to avoid circular import issues
 if TYPE_CHECKING:
@@ -102,6 +102,11 @@ class OrderCreate(OrderBase):
     profit_margin_percent: Optional[float] = Field(40.0, ge=0, le=100, description="Profit margin percentage")
     vat_rate: Optional[float] = Field(19.0, ge=0, le=100, description="VAT rate percentage")
 
+    # ML feature fields (optional at creation — can be filled during intake)
+    order_type: Optional[OrderTypeEnum] = Field(None, description="Type of jewelry piece (ring, chain, etc.)")
+    finish_type: Optional[FinishTypeEnum] = Field(None, description="Surface finish type")
+    complexity_rating: Optional[int] = Field(None, ge=1, le=5, description="Complexity 1-5 stars")
+
     @field_validator('deadline')
     @classmethod
     def validate_deadline(cls, v: Optional[datetime]) -> Optional[datetime]:
@@ -178,6 +183,11 @@ class OrderUpdate(BaseModel):
     profit_margin_percent: Optional[float] = Field(None, ge=0, le=100)
     vat_rate: Optional[float] = Field(None, ge=0, le=100)
 
+    # ML feature fields (updatable at any point during order lifecycle)
+    order_type: Optional[OrderTypeEnum] = Field(None, description="Type of jewelry piece")
+    finish_type: Optional[FinishTypeEnum] = Field(None, description="Surface finish type")
+    complexity_rating: Optional[int] = Field(None, ge=1, le=5, description="Complexity 1-5 stars")
+
     @field_validator('title', 'description', 'current_location')
     @classmethod
     def sanitize_text(cls, v: Optional[str]) -> Optional[str]:
@@ -246,6 +256,13 @@ class OrderRead(OrderBase):
     created_at: datetime
     updated_at: datetime
     materials: Optional[List[MaterialBase]] = None
+
+    # ML feature fields (read-only on responses — written by service layer)
+    order_type: Optional[OrderTypeEnum] = None
+    finish_type: Optional[FinishTypeEnum] = None
+    complexity_rating: Optional[int] = None
+    actual_hours: Optional[float] = None
+    completed_at: Optional[datetime] = None
 
     model_config = ConfigDict(from_attributes=True)
 

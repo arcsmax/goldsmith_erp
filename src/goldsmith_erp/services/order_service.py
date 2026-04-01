@@ -7,7 +7,7 @@ from datetime import datetime
 import json
 import logging
 
-from goldsmith_erp.db.models import Order as OrderModel, Material, Customer
+from goldsmith_erp.db.models import Order as OrderModel, Material, Customer, OrderStatusEnum
 from goldsmith_erp.models.order import OrderCreate, OrderUpdate
 from goldsmith_erp.core.pubsub import publish_event  # Import the Redis publish function
 from goldsmith_erp.db.transaction import transactional
@@ -125,15 +125,31 @@ class OrderService:
         Aktualisiert einen bestehenden Auftrag mit transaktionaler Integrität.
 
         All database operations are wrapped in a transaction to ensure ACID properties.
+
+        When status transitions to COMPLETED or DELIVERED for the first time,
+        the following ML data fields are auto-populated:
+          - completed_at: set to utcnow()
+          - actual_hours: calculated from closed time entries minus interruptions
         """
         # Zuerst prüfen, ob der Auftrag existiert
         order = await OrderService.get_order(db, order_id)
         if not order:
             return None
 
+        update_data = order_in.dict(exclude_unset=True)
+
+        # Detect completion transition: only set completed_at once (idempotent)
+        _completion_statuses = {OrderStatusEnum.COMPLETED, OrderStatusEnum.DELIVERED}
+        new_status = update_data.get("status")
+        is_completing = (
+            new_status in _completion_statuses
+            and order.status not in _completion_statuses
+        )
+        if is_completing and order.completed_at is None:
+            update_data["completed_at"] = datetime.utcnow()
+
         async with transactional(db):
             # Update durchführen
-            update_data = order_in.dict(exclude_unset=True)
             await db.execute(
                 update(OrderModel)
                 .where(OrderModel.id == order_id)
@@ -141,6 +157,12 @@ class OrderService:
             )
             # Flush to ensure update is visible in same transaction
             await db.flush()
+
+            # Auto-calculate actual_hours from time entries inside the same transaction.
+            # Import here to avoid circular dependency at module level.
+            if is_completing:
+                from goldsmith_erp.services.ml_data_service import MLDataService  # noqa: PLC0415
+                await MLDataService.auto_calculate_actual_hours(db, order_id)
 
         # Aktualisiertes Objekt holen after transaction commits
         updated_order = await OrderService.get_order(db, order_id)
