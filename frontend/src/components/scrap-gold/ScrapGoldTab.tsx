@@ -1,6 +1,7 @@
 // Scrap Gold Tab - Main component for Altgold management in order detail
 import React, { useState, useEffect, useCallback } from 'react';
 import { scrapGoldApi, ScrapGold, ScrapGoldStatus } from '../../api/scrap-gold';
+import type { ScrapGoldItem } from '../../api/scrap-gold';
 import { AlloyCalculator, ALLOY_OPTIONS } from './AlloyCalculator';
 import { SignatureCanvas } from '../SignatureCanvas';
 import { useToast } from '../../contexts';
@@ -90,6 +91,18 @@ export const ScrapGoldTab: React.FC<ScrapGoldTabProps> = ({ orderId, customerId 
     } catch (err) {
       console.error('Failed to remove item:', err);
       showToast('Position konnte nicht entfernt werden.', 'error');
+    }
+  };
+
+  const handleUploadPhoto = async (item: ScrapGoldItem, file: File) => {
+    if (!scrapGold) return;
+    try {
+      await scrapGoldApi.uploadItemPhoto(scrapGold.id, item.id, file);
+      await loadScrapGold();
+      showToast('Foto erfolgreich hochgeladen.', 'success');
+    } catch (err) {
+      console.error('Failed to upload photo:', err);
+      showToast('Foto konnte nicht hochgeladen werden.', 'error');
     }
   };
 
@@ -207,6 +220,7 @@ export const ScrapGoldTab: React.FC<ScrapGoldTabProps> = ({ orderId, customerId 
                 <th>Legierung</th>
                 <th>Gewicht (g)</th>
                 <th>Feingehalt (g)</th>
+                <th>Foto</th>
                 {isEditable && <th>Aktion</th>}
               </tr>
             </thead>
@@ -217,6 +231,30 @@ export const ScrapGoldTab: React.FC<ScrapGoldTabProps> = ({ orderId, customerId 
                   <td>{getAlloyLabel(item.alloy)}</td>
                   <td className="text-right">{item.weight_g.toFixed(2)}</td>
                   <td className="text-right">{item.fine_content_g.toFixed(3)}</td>
+                  <td className="scrap-gold-photo-cell">
+                    {item.photo_path ? (
+                      <img
+                        src={scrapGoldApi.getItemPhotoUrl(scrapGold.id, item.id)}
+                        alt={`Foto: ${item.description}`}
+                        width={40}
+                        height={40}
+                        style={{ objectFit: 'cover', borderRadius: '4px' }}
+                      />
+                    ) : isEditable ? (
+                      <input
+                        type="file"
+                        accept="image/jpeg,image/png,image/webp"
+                        style={{ fontSize: '0.75rem', maxWidth: '120px' }}
+                        onChange={(e) => {
+                          const f = e.target.files?.[0];
+                          if (f) handleUploadPhoto(item, f);
+                        }}
+                        title="Foto hochladen"
+                      />
+                    ) : (
+                      <span className="no-photo">--</span>
+                    )}
+                  </td>
                   {isEditable && (
                     <td>
                       <button

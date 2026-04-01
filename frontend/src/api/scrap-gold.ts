@@ -132,4 +132,29 @@ export const scrapGoldApi = {
     );
     return response.data;
   },
+
+  /**
+   * Upload a photo for a scrap gold item.
+   * Accepts JPEG, PNG, or WEBP; returns the updated item on success.
+   */
+  uploadItemPhoto: async (
+    scrapGoldId: number,
+    itemId: number,
+    file: File
+  ): Promise<ScrapGoldItem> => {
+    const formData = new FormData();
+    formData.append('file', file);
+    const response = await apiClient.post<ScrapGoldItem>(
+      `/scrap-gold/${scrapGoldId}/items/${itemId}/photo`,
+      formData,
+      { headers: { 'Content-Type': 'multipart/form-data' } }
+    );
+    return response.data;
+  },
+
+  /**
+   * Build the URL for serving a scrap gold item photo.
+   */
+  getItemPhotoUrl: (scrapGoldId: number, itemId: number): string =>
+    `/api/v1/scrap-gold/${scrapGoldId}/items/${itemId}/photo`,
 };
