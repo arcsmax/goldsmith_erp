@@ -226,6 +226,68 @@ export type CustomerCreateFormData = z.input<typeof CustomerCreateSchema>;
 export type CustomerCreateValidated = z.output<typeof CustomerCreateSchema>;
 
 // ---------------------------------------------------------------------------
+// User
+// ---------------------------------------------------------------------------
+
+export const UserRoleValues = ['ADMIN', 'GOLDSMITH', 'VIEWER', 'USER'] as const;
+export type UserRoleValue = (typeof UserRoleValues)[number];
+
+/**
+ * Schema for creating a new user (Admin only).
+ * Maps to backend UserCreate Pydantic model.
+ *
+ * Password is required on create; it is omitted from the update schema.
+ */
+export const UserCreateSchema = z.object({
+  email: z
+    .string()
+    .min(1, 'Pflichtfeld')
+    .email('Ungültige E-Mail-Adresse'),
+  password: z
+    .string()
+    .min(8, 'Passwort muss mindestens 8 Zeichen lang sein'),
+  first_name: z
+    .string()
+    .max(100, 'Maximal 100 Zeichen erlaubt')
+    .optional(),
+  last_name: z
+    .string()
+    .max(100, 'Maximal 100 Zeichen erlaubt')
+    .optional(),
+});
+
+export type UserCreateFormData = z.input<typeof UserCreateSchema>;
+export type UserCreateValidated = z.output<typeof UserCreateSchema>;
+
+/**
+ * Schema for updating an existing user (Admin only).
+ * Password is optional — leave blank to keep the current password.
+ */
+export const UserUpdateSchema = z.object({
+  email: z
+    .string()
+    .min(1, 'Pflichtfeld')
+    .email('Ungültige E-Mail-Adresse')
+    .optional(),
+  password: z
+    .string()
+    .min(8, 'Passwort muss mindestens 8 Zeichen lang sein')
+    .optional()
+    .or(z.literal('')),
+  first_name: z
+    .string()
+    .max(100, 'Maximal 100 Zeichen erlaubt')
+    .optional(),
+  last_name: z
+    .string()
+    .max(100, 'Maximal 100 Zeichen erlaubt')
+    .optional(),
+});
+
+export type UserUpdateFormData = z.input<typeof UserUpdateSchema>;
+export type UserUpdateValidated = z.output<typeof UserUpdateSchema>;
+
+// ---------------------------------------------------------------------------
 // Login
 // ---------------------------------------------------------------------------
 
