@@ -49,6 +49,39 @@
   font-size: 1.1rem;
 }
 
+/* Etikett drucken button — sits in header-right alongside the status badge */
+.btn-print-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-height: 44px;          /* WCAG 2.1 AA touch target */
+  min-width: 44px;
+  padding: 0.6rem 1.2rem;
+  background: #b45309;       /* amber-700 — goldsmith brand */
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s, box-shadow 0.2s;
+  white-space: nowrap;
+}
+
+.btn-print-label::before {
+  content: "\1F3F7";         /* label tag emoji as icon prefix */
+  font-style: normal;
+}
+
+.btn-print-label:hover {
+  background: #92400e;       /* amber-800 */
+  box-shadow: 0 2px 8px rgba(180, 83, 9, 0.35);
+}
+
+.btn-print-label:active {
+  background: #78350f;
+}
+
 /* Tabs */
 .order-tabs {
   display: flex;

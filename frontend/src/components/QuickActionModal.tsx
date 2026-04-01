@@ -10,6 +10,8 @@ interface QuickActionModalProps {
   onStartTimeTracking: (activityId: number, location?: string) => Promise<void>;
   onChangeLocation: (location: string) => Promise<void>;
   onViewMaterials: () => void;
+  /** Optional: open a label print window for this order. */
+  onPrintLabel?: () => Promise<void>;
 }
 
 type ModalView = 'actions' | 'activity-picker' | 'location-picker';
@@ -20,6 +22,7 @@ const QuickActionModal: React.FC<QuickActionModalProps> = ({
   onStartTimeTracking,
   onChangeLocation,
   onViewMaterials,
+  onPrintLabel,
 }) => {
   const [currentView, setCurrentView] = useState<ModalView>('actions');
   const [loading, setLoading] = useState(false);
@@ -129,6 +132,18 @@ const QuickActionModal: React.FC<QuickActionModalProps> = ({
                 <div className="quick-action-label">Material</div>
                 <div className="quick-action-hint">Materialien ansehen</div>
               </button>
+
+              {onPrintLabel && (
+                <button
+                  onClick={() => { onPrintLabel(); onClose(); }}
+                  className="quick-action-button quick-action-label"
+                  disabled={loading}
+                >
+                  <div className="quick-action-icon">🏷️</div>
+                  <div className="quick-action-label">Etikett drucken</div>
+                  <div className="quick-action-hint">QR-Etikett öffnen</div>
+                </button>
+              )}
             </div>
 
             {error && <div className="quick-action-error">{error}</div>}

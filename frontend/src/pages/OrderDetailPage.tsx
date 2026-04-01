@@ -75,6 +75,33 @@ export const OrderDetailPage: React.FC = () => {
     }
   };
 
+  const handlePrintLabel = async () => {
+    if (!order) return;
+    try {
+      const token = localStorage.getItem('access_token');
+      const response = await fetch(`/api/v1/orders/${order.id}/label`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!response.ok) {
+        showToast('Etikett konnte nicht geladen werden', 'error');
+        return;
+      }
+      const html = await response.text();
+      // Use a Blob URL so the label HTML loads into a new tab cleanly —
+      // the content comes exclusively from our authenticated API endpoint.
+      const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+      const blobUrl = URL.createObjectURL(blob);
+      const printWindow = window.open(blobUrl, '_blank');
+      if (printWindow) {
+        printWindow.focus();
+        // Free memory once the tab has loaded the blob
+        printWindow.addEventListener('load', () => URL.revokeObjectURL(blobUrl));
+      }
+    } catch {
+      showToast('Druckfehler – bitte erneut versuchen', 'error');
+    }
+  };
+
   if (isLoading) {
     return <div className="page-loading">Lade Auftrag...</div>;
   }
@@ -104,6 +131,13 @@ export const OrderDetailPage: React.FC = () => {
           </div>
         </div>
         <div className="header-right">
+          <button
+            className="btn-print-label"
+            onClick={handlePrintLabel}
+            title="Etikett mit QR-Code drucken"
+          >
+            Etikett drucken
+          </button>
           <span className={`status-badge status-${order.status}`}>
             {getStatusLabel(order.status)}
           </span>
