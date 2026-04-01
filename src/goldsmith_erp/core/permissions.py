@@ -73,6 +73,10 @@ class Permission(str, Enum):
     ML_TRAIN = "ml:train"            # Trigger model training (ADMIN only)
     ML_VIEW_STATS = "ml:view_stats"  # View model status, anomalies, activity stats (all)
 
+    # Notification permissions
+    NOTIFICATION_VIEW = "notification:view"          # Read own notifications
+    NOTIFICATION_CHECK_DEADLINES = "notification:check_deadlines"  # Trigger deadline scan (ADMIN)
+
 
 # Role-Permission mapping
 ROLE_PERMISSIONS: dict[UserRole, List[Permission]] = {
@@ -108,6 +112,8 @@ ROLE_PERMISSIONS: dict[UserRole, List[Permission]] = {
         # ML — goldsmiths can run predictions and view stats
         Permission.ML_PREDICT,
         Permission.ML_VIEW_STATS,
+        # Notifications — goldsmiths receive and read their own
+        Permission.NOTIFICATION_VIEW,
     ],
     UserRole.VIEWER: [
         # View-only access
@@ -120,6 +126,8 @@ ROLE_PERMISSIONS: dict[UserRole, List[Permission]] = {
         # ML — viewers can see predictions and stats, not trigger training
         Permission.ML_PREDICT,
         Permission.ML_VIEW_STATS,
+        # Notifications — viewers receive and read their own
+        Permission.NOTIFICATION_VIEW,
     ],
 }
 

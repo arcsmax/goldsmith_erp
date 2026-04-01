@@ -145,6 +145,38 @@ async def websocket_endpoint(websocket: WebSocket):
         except asyncio.CancelledError:
             logger.debug("Subscription task cancelled", extra={"channel": channel})
 
+
+# Per-user notification WebSocket — channel: ``notifications:{user_id}``
+# The frontend opens this socket for the currently logged-in user.
+# JWT authentication is enforced at the HTTP level by AuthRequiredMiddleware
+# before the WebSocket upgrade is accepted.
+@app.websocket("/ws/notifications/{user_id}")
+async def notification_websocket_endpoint(websocket: WebSocket, user_id: int):
+    await websocket.accept()
+    channel = f"notifications:{user_id}"
+    subscribe_task = asyncio.create_task(
+        subscribe_and_forward(websocket, channel)
+    )
+    try:
+        while True:
+            # Keep connection alive; no client messages expected on this channel
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        logger.info(
+            "Notification WebSocket disconnected",
+            extra={"channel": channel, "user_id": user_id},
+        )
+    finally:
+        subscribe_task.cancel()
+        try:
+            await subscribe_task
+        except asyncio.CancelledError:
+            logger.debug(
+                "Notification subscription task cancelled",
+                extra={"channel": channel},
+            )
+
+
 # Example: Add a test endpoint to trigger a publish
 @app.post("/trigger_order_update")
 async def trigger_update(message: str = "Test order update!"):
