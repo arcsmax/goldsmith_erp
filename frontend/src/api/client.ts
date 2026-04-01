@@ -12,6 +12,9 @@ const BASE_URL = '/api/v1';
 const apiClient: AxiosInstance = axios.create({
   baseURL: BASE_URL,
   timeout: 30000,
+  // withCredentials ensures HttpOnly cookies (access_token) are sent
+  // automatically with every request — required for cookie-based auth.
+  withCredentials: true,
   headers: {
     'Content-Type': 'application/json',
   },

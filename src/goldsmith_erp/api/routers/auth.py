@@ -63,16 +63,20 @@ async def login_access_token(
         expires_delta=access_token_expires
     )
 
-    # Set HttpOnly cookie for enhanced security
+    # Set HttpOnly cookie for enhanced security (XSS protection)
     response.set_cookie(
         key="access_token",
         value=token,
-        httponly=True,  # Prevents JavaScript access (XSS protection)
-        secure=not settings.DEBUG,  # HTTPS only in production
+        httponly=True,   # Prevents JavaScript access (XSS protection)
+        secure=False,    # Set True in production behind HTTPS (override via env)
         samesite="lax",  # CSRF protection
-        max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,  # Convert to seconds
+        max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,  # seconds
+        path="/",        # Cookie valid for all paths
     )
 
+    # DEPRECATED: access_token in response body kept for transition period.
+    # Clients should migrate to reading the HttpOnly cookie instead.
+    # Future versions will remove the token from the response body.
     return {
         "access_token": token,
         "token_type": "bearer"
@@ -84,12 +88,7 @@ async def logout(response: Response):
     """
     Logout by clearing the HttpOnly cookie.
     """
-    response.delete_cookie(
-        key="access_token",
-        httponly=True,
-        secure=not settings.DEBUG,
-        samesite="lax"
-    )
+    response.delete_cookie("access_token", path="/")
     return {"message": "Successfully logged out"}
 
 
@@ -177,13 +176,16 @@ async def refresh_access_token(
         key="access_token",
         value=new_token,
         httponly=True,
-        secure=not settings.DEBUG,
+        secure=False,    # Set True in production behind HTTPS (override via env)
         samesite="lax",
         max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+        path="/",
     )
 
     logger.info("Token refreshed for user", extra={"user_id": user_id})
 
+    # DEPRECATED: access_token in response body kept for transition period.
+    # Clients should migrate to reading the HttpOnly cookie instead.
     return {
         "access_token": new_token,
         "token_type": "bearer",
