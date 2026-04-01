@@ -11,6 +11,7 @@ Tests cover:
 - Name validation
 """
 import pytest
+import uuid
 from sqlalchemy import select
 
 from goldsmith_erp.services.user_service import UserService
@@ -19,14 +20,20 @@ from goldsmith_erp.db.models import User, UserRole
 from goldsmith_erp.core.security import verify_password
 
 
+def _uid() -> str:
+    """Return a short unique hex suffix to avoid email collisions across tests."""
+    return uuid.uuid4().hex[:8]
+
+
 @pytest.mark.asyncio
 class TestUserCreation:
     """Test user creation with security validation"""
 
     async def test_create_user_success(self, db_session):
         """Test successful user creation"""
+        email = f"newuser.{_uid()}@example.com"
         user_data = UserCreate(
-            email="newuser@example.com",
+            email=email,
             password="SecurePass123",
             first_name="John",
             last_name="Doe"
@@ -35,18 +42,18 @@ class TestUserCreation:
         user = await UserService.create_user(db_session, user_data)
 
         assert user.id is not None
-        assert user.email == "newuser@example.com"
+        assert user.email == email
         assert user.first_name == "John"
         assert user.last_name == "Doe"
         assert user.is_active is True
-        assert user.role == UserRole.USER  # Default role
+        assert user.role == UserRole.VIEWER  # Default role
         assert user.created_at is not None
 
     async def test_create_user_password_is_hashed(self, db_session):
         """CRITICAL SECURITY TEST: Passwords must NEVER be stored in plain text"""
         plain_password = "MySecretPass123"
         user_data = UserCreate(
-            email="secure@example.com",
+            email=f"secure.{_uid()}@example.com",
             password=plain_password,
             first_name="Secure",
             last_name="User"
@@ -64,9 +71,9 @@ class TestUserCreation:
         assert verify_password(plain_password, user.hashed_password) is True
 
     async def test_create_user_default_role_is_user(self, db_session):
-        """Test that new users default to USER role"""
+        """Test that new users default to VIEWER role"""
         user_data = UserCreate(
-            email="regular@example.com",
+            email=f"regular.{_uid()}@example.com",
             password="Pass1234",
             first_name="Regular",
             last_name="User"
@@ -74,12 +81,12 @@ class TestUserCreation:
 
         user = await UserService.create_user(db_session, user_data)
 
-        assert user.role == UserRole.USER
+        assert user.role == UserRole.VIEWER
 
     async def test_create_user_default_is_active_true(self, db_session):
         """Test that new users are active by default"""
         user_data = UserCreate(
-            email="active@example.com",
+            email=f"active.{_uid()}@example.com",
             password="Pass1234",
             first_name="Active",
             last_name="User"
@@ -92,7 +99,7 @@ class TestUserCreation:
     async def test_create_user_with_german_characters(self, db_session):
         """Test that German characters in names are supported"""
         user_data = UserCreate(
-            email="deutsch@example.com",
+            email=f"deutsch.{_uid()}@example.com",
             password="Pass1234",
             first_name="Jürgen",
             last_name="Müller-Schmidt"
@@ -147,12 +154,13 @@ class TestUserRetrieval:
 
     async def test_get_users_pagination(self, db_session):
         """Test user pagination"""
-        # Create 5 users
+        # Create 5 users — names must be letters-only (validator rejects digits)
+        names = ["Alpha", "Beta", "Gamma", "Delta", "Epsilon"]
         for i in range(5):
             user_data = UserCreate(
                 email=f"user{i}@example.com",
                 password="Pass1234",
-                first_name=f"User{i}",
+                first_name=names[i],
                 last_name="Test"
             )
             await UserService.create_user(db_session, user_data)
@@ -170,13 +178,14 @@ class TestUserRetrieval:
 
     async def test_get_users_ordered_by_created_at_desc(self, db_session):
         """Test that users are returned newest first"""
-        # Create 3 users
+        # Create 3 users — names must be letters-only (validator rejects digits)
+        ordered_names = ["First", "Second", "Third"]
         user_ids = []
         for i in range(3):
             user_data = UserCreate(
                 email=f"ordered{i}@example.com",
                 password="Pass1234",
-                first_name=f"Ordered{i}",
+                first_name=ordered_names[i],
                 last_name="Test"
             )
             user = await UserService.create_user(db_session, user_data)
@@ -195,11 +204,12 @@ class TestUserUpdate:
 
     async def test_update_user_email(self, db_session, sample_user):
         """Test updating user email"""
-        update_data = UserUpdate(email="newemail@example.com")
+        new_email = f"newemail.{_uid()}@example.com"
+        update_data = UserUpdate(email=new_email)
 
         updated = await UserService.update_user(db_session, sample_user.id, update_data)
 
-        assert updated.email == "newemail@example.com"
+        assert updated.email == new_email
 
     async def test_update_user_names(self, db_session, sample_user):
         """Test updating user names"""
@@ -439,7 +449,7 @@ class TestPasswordSecurity:
 
         for i, password in enumerate(valid_passwords):
             user_data = UserCreate(
-                email=f"valid{i}@example.com",
+                email=f"valid{i}.{_uid()}@example.com",
                 password=password,
                 first_name="Valid",
                 last_name="User"

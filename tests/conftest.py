@@ -2,22 +2,49 @@
 Pytest configuration and shared fixtures for Goldsmith ERP tests.
 
 Provides database sessions, test data fixtures, and authentication helpers.
+Uses an in-memory async SQLite database so unit tests run without PostgreSQL.
 """
 import asyncio
+import os
+import uuid
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import AsyncGenerator
 
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+from sqlalchemy.orm import sessionmaker
+
 from goldsmith_erp.main import app
-from goldsmith_erp.db.session import get_db, AsyncSessionLocal
+from goldsmith_erp.db.session import get_db
 from goldsmith_erp.db.models import (
-    User, Customer, Order, MetalPurchase, Material,
+    Base, User, Customer, Order, MetalPurchase, Material,
     MetalType, CostingMethod, OrderStatusEnum, UserRole
 )
 from goldsmith_erp.core.security import get_password_hash
-from sqlalchemy.ext.asyncio import AsyncSession
+
+
+# ---------------------------------------------------------------------------
+# Test database — file-backed SQLite, unique per session to allow parallel runs
+# ---------------------------------------------------------------------------
+
+_DB_FILENAME = f"unit_test_{uuid.uuid4().hex}.db"
+TEST_DATABASE_URL = f"sqlite+aiosqlite:///{_DB_FILENAME}"
+
+test_engine = create_async_engine(
+    TEST_DATABASE_URL,
+    connect_args={"check_same_thread": False},
+    echo=False,
+)
+
+TestSessionLocal = sessionmaker(
+    autocommit=False,
+    autoflush=False,
+    bind=test_engine,
+    class_=AsyncSession,
+    expire_on_commit=False,
+)
 
 
 @pytest.fixture(scope="session")
@@ -28,20 +55,40 @@ def event_loop():
     loop.close()
 
 
-@pytest_asyncio.fixture
-async def client():
-    """HTTP client for API testing"""
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
-        yield ac
+@pytest_asyncio.fixture(scope="session", autouse=True)
+async def create_tables():
+    """Create tables once per session; drop and delete the DB file afterwards."""
+    async with test_engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    yield
+    async with test_engine.begin() as conn:
+        await conn.run_sync(Base.metadata.drop_all)
+    await test_engine.dispose()
+    if os.path.exists(_DB_FILENAME):
+        os.remove(_DB_FILENAME)
 
 
 @pytest_asyncio.fixture
 async def db_session() -> AsyncGenerator[AsyncSession, None]:
-    """Database session for tests"""
-    async with AsyncSessionLocal() as session:
+    """Async SQLite session for a single test. Rolls back after each test."""
+    async with TestSessionLocal() as session:
         yield session
-        # Rollback after each test to keep tests isolated
         await session.rollback()
+
+
+@pytest_asyncio.fixture
+async def client(db_session: AsyncSession):
+    """HTTP client for API testing backed by the SQLite test database."""
+    app.dependency_overrides[get_db] = _override_get_db_factory(db_session)
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+        yield ac
+    app.dependency_overrides.clear()
+
+
+def _override_get_db_factory(session: AsyncSession):
+    async def _get_db_override():
+        yield session
+    return _get_db_override
 
 
 # =============================================================================
@@ -51,13 +98,13 @@ async def db_session() -> AsyncGenerator[AsyncSession, None]:
 
 @pytest_asyncio.fixture
 async def sample_user(db_session: AsyncSession) -> User:
-    """Create a test user"""
+    """Create a test user with GOLDSMITH role"""
     user = User(
-        email="test@example.com",
+        email=f"test_{uuid.uuid4().hex[:8]}@example.com",
         hashed_password=get_password_hash("testpassword123"),
         first_name="Test",
         last_name="User",
-        role=UserRole.USER,
+        role=UserRole.GOLDSMITH,
         is_active=True
     )
     db_session.add(user)
@@ -70,7 +117,7 @@ async def sample_user(db_session: AsyncSession) -> User:
 async def admin_user(db_session: AsyncSession) -> User:
     """Create a test admin user"""
     user = User(
-        email="admin@example.com",
+        email=f"admin_{uuid.uuid4().hex[:8]}@example.com",
         hashed_password=get_password_hash("adminpassword123"),
         first_name="Admin",
         last_name="User",
@@ -93,7 +140,6 @@ def sample_user_password() -> str:
 async def auth_headers(sample_user: User) -> dict:
     """Authentication headers for API requests with real JWT token"""
     from goldsmith_erp.core.security import create_access_token
-    from datetime import timedelta
 
     token = create_access_token(
         data={"sub": str(sample_user.id)},
@@ -106,7 +152,6 @@ async def auth_headers(sample_user: User) -> dict:
 async def admin_auth_headers(admin_user: User) -> dict:
     """Admin authentication headers for API requests with real JWT token"""
     from goldsmith_erp.core.security import create_access_token
-    from datetime import timedelta
 
     token = create_access_token(
         data={"sub": str(admin_user.id)},
@@ -119,11 +164,11 @@ async def admin_auth_headers(admin_user: User) -> dict:
 async def inactive_user(db_session: AsyncSession) -> User:
     """Create an inactive user for testing"""
     user = User(
-        email="inactive@example.com",
+        email=f"inactive_{uuid.uuid4().hex[:8]}@example.com",
         hashed_password=get_password_hash("testpassword123"),
         first_name="Inactive",
         last_name="User",
-        role=UserRole.USER,
+        role=UserRole.GOLDSMITH,
         is_active=False  # Inactive!
     )
     db_session.add(user)
@@ -139,11 +184,11 @@ async def inactive_user(db_session: AsyncSession) -> User:
 
 @pytest_asyncio.fixture
 async def sample_customer(db_session: AsyncSession) -> Customer:
-    """Create a test customer"""
+    """Create a test customer — first_name/last_name match test search assertions"""
     customer = Customer(
-        first_name="John",
-        last_name="Doe",
-        email="john.doe@example.com",
+        first_name="Max",
+        last_name="Mustermann",
+        email=f"max.mustermann_{uuid.uuid4().hex[:8]}@example.com",
         phone="+49 123 456789",
         customer_type="private",
         is_active=True
@@ -156,12 +201,12 @@ async def sample_customer(db_session: AsyncSession) -> Customer:
 
 @pytest_asyncio.fixture
 async def business_customer(db_session: AsyncSession) -> Customer:
-    """Create a test business customer"""
+    """Create a test business customer — company_name matches test search assertions"""
     customer = Customer(
         first_name="Jane",
         last_name="Smith",
-        company_name="Smith Jewelry GmbH",
-        email="jane.smith@smithjewelry.com",
+        company_name="Edelmetall GmbH",
+        email=f"jane.smith_{uuid.uuid4().hex[:8]}@smithjewelry.com",
         phone="+49 987 654321",
         customer_type="business",
         is_active=True
@@ -346,7 +391,7 @@ async def sample_activity(db_session: AsyncSession):
     activity = Activity(
         name="Fabrication",
         category="fabrication",
-        icon="🔨",
+        icon="hammer",
         color="#3498db",
         usage_count=0,
         is_custom=False,
@@ -366,7 +411,7 @@ async def polishing_activity(db_session: AsyncSession):
     activity = Activity(
         name="Polishing",
         category="finishing",
-        icon="✨",
+        icon="sparkles",
         color="#2ecc71",
         usage_count=0,
         is_custom=False,
@@ -387,8 +432,6 @@ async def sample_time_entry(
 ):
     """Create a completed time entry for testing"""
     from goldsmith_erp.db.models import TimeEntry
-    import uuid
-    from datetime import timedelta
 
     start_time = datetime.utcnow() - timedelta(hours=2)
     end_time = datetime.utcnow()
@@ -423,8 +466,6 @@ async def active_time_entry(
 ):
     """Create an active (running) time entry"""
     from goldsmith_erp.db.models import TimeEntry
-    import uuid
-    from datetime import timedelta
 
     entry = TimeEntry(
         id=str(uuid.uuid4()),
