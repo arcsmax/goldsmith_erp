@@ -112,6 +112,12 @@ class Settings(BaseSettings):
     # reverse proxy (HTTPS). Keep False for local network / dev environments.
     COOKIE_SECURE: bool = False
 
+    # ── Photo Upload ─────────────────────────────────────────────────────────────
+    # Directory where uploaded order photos and thumbnails are stored.
+    # Relative paths are resolved from the project root at runtime.
+    PHOTO_STORAGE_PATH: str = "./uploads/photos"
+    PHOTO_MAX_SIZE_MB: int = 8
+
     # ── Metal Price Service ──────────────────────────────────────────────────────
     # Optional external API for live spot prices.
     # When unset the service falls back to DB history then hardcoded defaults.

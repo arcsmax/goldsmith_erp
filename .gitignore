@@ -434,3 +434,6 @@ dump.rdb
 src/goldsmith_erp/ml/models/*.joblib
 src/goldsmith_erp/ml/models/*.json
 src/goldsmith_erp/ml/models/*/
+
+# User-uploaded photos — stored on disk, not in version control.
+uploads/
