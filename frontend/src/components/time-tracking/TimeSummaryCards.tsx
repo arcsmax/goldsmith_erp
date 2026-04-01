@@ -59,7 +59,9 @@ export const TimeSummaryCards: React.FC<TimeSummaryCardsProps> = ({ onPeriodChan
       const data = await timeTrackingApi.getSummary({ start_date, end_date });
       setStats(data);
     } catch (err: any) {
-      setError(err.response?.data?.detail || 'Fehler beim Laden der Statistiken');
+      // getSummary endpoint not yet implemented — silently degrade
+      console.debug('Time tracking summary not available:', err.message);
+      setStats(null);
     } finally {
       setIsLoading(false);
     }

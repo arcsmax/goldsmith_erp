@@ -81,7 +81,8 @@ export const TimeReportsSection: React.FC = () => {
       })));
 
     } catch (err: any) {
-      setError(err.response?.data?.detail || 'Fehler beim Laden der Berichte');
+      // Reports endpoint not yet implemented — silently degrade
+      console.debug('Time tracking reports not available:', err.message);
     } finally {
       setIsLoading(false);
     }

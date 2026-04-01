@@ -130,6 +130,11 @@
   flex-direction: column;
 }
 
+/* Close button row — hidden on desktop, visible on mobile only */
+.sidebar-close-row {
+  display: none;
+}
+
 /* Overlay backdrop — hidden by default */
 .sidebar-overlay {
   display: none;
