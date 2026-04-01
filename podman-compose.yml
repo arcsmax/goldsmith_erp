@@ -53,7 +53,7 @@ services:
       context: .
       dockerfile: Containerfile
     container_name: goldsmith-backend
-    command: ["bash", "-c", "cd /app/src && poetry run python /app/scripts/init-db.py; cd /app && poetry run alembic stamp head 2>/dev/null; cd /app/src && poetry run uvicorn goldsmith_erp.main:app --host 0.0.0.0 --port 8000 --reload"]
+    command: ["bash", "-c", "cd /app && poetry run alembic upgrade head && cd /app/src && poetry run uvicorn goldsmith_erp.main:app --host 0.0.0.0 --port 8000 --reload"]
     volumes:
       - ./src:/app/src:Z
       - ./pyproject.toml:/app/pyproject.toml:Z

@@ -70,7 +70,8 @@ services:
       dockerfile: Containerfile
     container_name: goldsmith-backend-prod
     command: >
-      bash -c "poetry run uvicorn goldsmith_erp.main:app
+      bash -c "cd /app && poetry run alembic upgrade head &&
+               cd /app/src && poetry run uvicorn goldsmith_erp.main:app
                --host 0.0.0.0 --port 8000
                --workers 2
                --no-access-log"
