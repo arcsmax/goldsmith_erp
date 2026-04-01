@@ -12,11 +12,12 @@ from typing import List
 
 from goldsmith_erp.core.config import settings
 from goldsmith_erp.core.logging import setup_logging
-from goldsmith_erp.middleware import RequestLoggingMiddleware
+from goldsmith_erp.middleware import RequestLoggingMiddleware, RequestMetricsMiddleware
 from goldsmith_erp.middleware.auth_required import AuthRequiredMiddleware
 from goldsmith_erp.middleware.security_headers import SecurityHeadersMiddleware
 from goldsmith_erp.api.routers import auth, orders, users, materials, activities, time_tracking, health, customers, metal_inventory, comments, scrap_gold, calendar, invoices, metal_prices, ml, measurements, analytics, notifications, handoffs
 from goldsmith_erp.core.pubsub import subscribe_and_forward, publish_event
+from goldsmith_erp.services.system_monitor import system_monitor_loop
 
 # Setup structured logging
 setup_logging()
@@ -80,9 +81,10 @@ app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # Add security middleware (order matters - from outermost to innermost)
-app.add_middleware(AuthRequiredMiddleware)      # Deny-by-default auth check
-app.add_middleware(RequestSizeLimitMiddleware)  # Check size first
-app.add_middleware(RequestLoggingMiddleware)    # Then log
+app.add_middleware(AuthRequiredMiddleware)       # Deny-by-default auth check
+app.add_middleware(RequestSizeLimitMiddleware)   # Check size first
+app.add_middleware(RequestLoggingMiddleware)     # Then log
+app.add_middleware(RequestMetricsMiddleware)     # Lightweight request metrics (innermost before CORS)
 
 # CORS-Middleware einrichten
 app.add_middleware(
@@ -183,6 +185,13 @@ async def notification_websocket_endpoint(websocket: WebSocket, user_id: int):
 async def trigger_update(message: str = "Test order update!"):
     await publish_event("order_updates", f"Simulated Update: {message}")
     return {"message": "Event published"}
+
+
+@app.on_event("startup")
+async def start_background_tasks() -> None:
+    """Register long-running background tasks on application startup."""
+    asyncio.create_task(system_monitor_loop())
+    logger.info("System monitor background task registered")
 
 if __name__ == "__main__":
     uvicorn.run(
