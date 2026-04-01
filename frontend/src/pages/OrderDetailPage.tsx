@@ -11,6 +11,7 @@ import { CostBreakdownCard } from '../components/orders/CostBreakdownCard';
 import { MetalInventoryCard } from '../components/orders/MetalInventoryCard';
 import { CustomerInfoCard } from '../components/orders/CustomerInfoCard';
 import { SollIstTab } from '../components/orders/SollIstTab';
+import HandoffTab from '../components/orders/HandoffTab';
 import '../styles/order-detail.css';
 
 export const OrderDetailPage: React.FC = () => {
@@ -171,6 +172,12 @@ export const OrderDetailPage: React.FC = () => {
         >
           🥇 Altgold
         </button>
+        <button
+          className={`tab ${activeTab === 'handoff' ? 'active' : ''}`}
+          onClick={() => handleTabChange('handoff')}
+        >
+          🤝 Übergabe
+        </button>
         {(order.status === 'completed' || order.status === 'delivered') && (
           <button
             className={`tab ${activeTab === 'soll-ist' ? 'active' : ''}`}
@@ -221,6 +228,10 @@ export const OrderDetailPage: React.FC = () => {
 
         {activeTab === 'scrap-gold' && (
           <ScrapGoldTab orderId={order.id} customerId={order.customer_id} />
+        )}
+
+        {activeTab === 'handoff' && (
+          <HandoffTab orderId={order.id} />
         )}
 
         {activeTab === 'soll-ist' && (

@@ -63,4 +63,24 @@
   --text-color-link: var(--color-brand-cta-600);
   --border-color-focus: var(--color-brand-cta-500);
   --ring-color-focus: var(--color-brand-cta-500);
+
+  /* Surface tokens */
+  --color-surface-header-start: var(--color-brand-cta-600);
+  --color-surface-header-end: var(--color-brand-cta-800);
+  --color-surface-header-gradient: linear-gradient(135deg, var(--color-surface-header-start), var(--color-surface-header-end));
+  --color-surface-page: #faf8f4;
+  --color-surface-card: #ffffff;
+
+  /* Interactive tokens */
+  --color-interactive-primary: var(--color-brand-cta-600);
+  --color-interactive-primary-hover: var(--color-brand-cta-700);
+
+  /* Text tokens */
+  --color-text-heading: #1a1a2e;
+  --color-text-body: #374151;
+  --color-text-muted: #6b7280;
+
+  /* Border tokens */
+  --color-border-default: #e5e7eb;
+  --color-border-focus: var(--color-brand-cta-500);
 }

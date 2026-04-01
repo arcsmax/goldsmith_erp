@@ -80,7 +80,7 @@
   align-items: center;
   gap: 0.5rem;
   padding: 1rem 1.5rem;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: var(--color-surface-header-gradient);
   color: white;
   border: none;
   border-radius: 12px;
@@ -88,12 +88,12 @@
   font-weight: 600;
   cursor: pointer;
   transition: all 0.3s ease;
-  box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3);
+  box-shadow: 0 2px 8px rgba(180, 83, 9, 0.3);
 }
 
 .btn-quick-action:hover {
   transform: translateY(-2px);
-  box-shadow: 0 4px 16px rgba(102, 126, 234, 0.4);
+  box-shadow: 0 4px 16px rgba(180, 83, 9, 0.4);
 }
 
 /* Dashboard Sections */
@@ -159,7 +159,7 @@
   left: 0;
   right: 0;
   height: 4px;
-  background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+  background: var(--color-surface-header-gradient);
   opacity: 0;
   transition: opacity 0.3s ease;
 }
@@ -652,7 +652,7 @@
   padding: 2rem;
   border-radius: 12px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-  border-left: 4px solid #667eea;
+  border-left: 4px solid var(--color-interactive-primary);
 }
 
 .stat-card.warning {

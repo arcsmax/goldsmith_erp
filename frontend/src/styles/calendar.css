@@ -39,8 +39,8 @@
 
 .calendar-nav-btn:hover {
   background: #f3f4f6;
-  border-color: #667eea;
-  color: #667eea;
+  border-color: var(--color-interactive-primary);
+  color: var(--color-interactive-primary);
 }
 
 .calendar-month-label {
@@ -89,7 +89,7 @@
   padding: 0.75rem 0.5rem;
   text-align: center;
   font-weight: 600;
-  color: #667eea;
+  color: var(--color-interactive-primary);
   font-size: 0.85rem;
   text-transform: uppercase;
   letter-spacing: 0.5px;
@@ -125,11 +125,11 @@
 }
 
 .calendar-day.today {
-  background-color: #ede9fe;
+  background-color: var(--color-brand-cta-100);
 }
 
 .calendar-day.today .calendar-day-number {
-  background: #667eea;
+  background: var(--color-interactive-primary);
   color: white;
   border-radius: 50%;
   width: 26px;
@@ -173,7 +173,7 @@
 }
 
 .calendar-order-item:hover {
-  background-color: rgba(102, 126, 234, 0.1);
+  background-color: rgba(217, 119, 6, 0.1);
 }
 
 .calendar-order-item .order-title {
@@ -213,7 +213,7 @@
 /* More orders indicator */
 .calendar-more {
   font-size: 0.7rem;
-  color: #667eea;
+  color: var(--color-interactive-primary);
   padding: 0.1rem 0.35rem;
   cursor: default;
   font-weight: 500;
@@ -366,14 +366,14 @@
 }
 
 .btn-primary {
-  background: #667eea;
+  background: var(--color-interactive-primary);
   color: white;
-  border-color: #667eea;
+  border-color: var(--color-interactive-primary);
 }
 
 .btn-primary:hover:not(:disabled) {
-  background: #5a6fd6;
-  border-color: #5a6fd6;
+  background: var(--color-interactive-primary-hover);
+  border-color: var(--color-interactive-primary-hover);
 }
 
 .btn-secondary {
@@ -528,8 +528,8 @@
 .form-select:focus,
 .form-textarea:focus {
   outline: none;
-  border-color: #667eea;
-  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.2);
+  border-color: var(--color-border-focus);
+  box-shadow: 0 0 0 3px rgba(217, 119, 6, 0.2);
 }
 
 .form-textarea {
@@ -598,7 +598,7 @@
 
   .calendar-nav-btn:hover {
     background: #333;
-    border-color: #667eea;
+    border-color: var(--color-interactive-primary);
   }
 
   .calendar-legend {
@@ -616,7 +616,7 @@
   .calendar-table thead th {
     background-color: #333;
     border-bottom-color: #444;
-    color: #8b9cf7;
+    color: var(--color-brand-cta-400);
   }
 
   .calendar-table td {
@@ -632,7 +632,7 @@
   }
 
   .calendar-day.today {
-    background-color: rgba(102, 126, 234, 0.15);
+    background-color: rgba(217, 119, 6, 0.15);
   }
 
   .calendar-day.other-month {
@@ -644,11 +644,11 @@
   }
 
   .calendar-order-item:hover {
-    background-color: rgba(102, 126, 234, 0.2);
+    background-color: rgba(217, 119, 6, 0.2);
   }
 
   .calendar-more {
-    color: #8b9cf7;
+    color: var(--color-brand-cta-400);
   }
 
   .calendar-status-bar {
@@ -703,7 +703,7 @@
   .form-input:focus,
   .form-select:focus,
   .form-textarea:focus {
-    border-color: #8b9cf7;
-    box-shadow: 0 0 0 3px rgba(139, 156, 247, 0.2);
+    border-color: var(--color-brand-cta-400);
+    box-shadow: 0 0 0 3px rgba(251, 191, 36, 0.2);
   }
 }

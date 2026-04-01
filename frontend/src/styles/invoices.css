@@ -219,8 +219,8 @@
 .create-invoice-modal .form-group select:focus,
 .create-invoice-modal .form-group textarea:focus {
   outline: none;
-  border-color: #667eea;
-  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+  border-color: var(--color-border-focus);
+  box-shadow: 0 0 0 3px rgba(217, 119, 6, 0.1);
 }
 
 .create-invoice-modal .modal-footer {

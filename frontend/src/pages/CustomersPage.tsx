@@ -1,5 +1,6 @@
 // CustomersPage - Customer Management
 import React, { useEffect, useState, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { customersApi } from '../api';
 import { Customer, CustomerListItem, CustomerCategory } from '../types';
 import { CustomerFormModal } from '../components/CustomerFormModal';
@@ -7,6 +8,7 @@ import '../styles/pages.css';
 import '../styles/customers.css';
 
 export const CustomersPage: React.FC = () => {
+  const navigate = useNavigate();
   const [customers, setCustomers] = useState<CustomerListItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -272,8 +274,7 @@ export const CustomersPage: React.FC = () => {
                   <React.Fragment key={customer.id}>
                   <tr
                     style={{ cursor: 'pointer' }}
-                    onClick={() => handleToggleDetail(customer.id)}
-                    className={expandedCustomerId === customer.id ? 'row-expanded' : ''}
+                    onClick={() => navigate(`/customers/${customer.id}`)}
                   >
                     <td>#{customer.id}</td>
                     <td>

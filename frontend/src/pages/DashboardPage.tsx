@@ -6,6 +6,7 @@ import { DashboardKPIs } from '../components/dashboard/DashboardKPIs';
 import { AlertsWidget } from '../components/dashboard/AlertsWidget';
 import { DeadlinesWidget } from '../components/dashboard/DeadlinesWidget';
 import { ordersApi } from '../api';
+import { handoffsApi } from '../api/handoffs';
 import { OrderType } from '../types';
 import '../styles/pages.css';
 import '../styles/dashboard.css';
@@ -18,6 +19,8 @@ const GoldsmithDashboard: React.FC = () => {
   const [myOrders, setMyOrders] = useState<OrderType[]>([]);
   const [todayDeadlines, setTodayDeadlines] = useState<OrderType[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [pendingHandoffs, setPendingHandoffs] = useState<any[]>([]);
+  const [isLoadingHandoffs, setIsLoadingHandoffs] = useState(true);
 
   const fetchGoldsmithData = useCallback(async () => {
     try {
@@ -55,6 +58,44 @@ const GoldsmithDashboard: React.FC = () => {
   useEffect(() => {
     fetchGoldsmithData();
   }, [fetchGoldsmithData]);
+
+  useEffect(() => {
+    const loadHandoffs = async () => {
+      try {
+        setIsLoadingHandoffs(true);
+        const resp = await handoffsApi.getPending();
+        const data = resp.data;
+        setPendingHandoffs(Array.isArray(data) ? data : []);
+      } catch {
+        setPendingHandoffs([]);
+      } finally {
+        setIsLoadingHandoffs(false);
+      }
+    };
+    loadHandoffs();
+  }, []);
+
+  const handleAcceptHandoff = async (id: number) => {
+    try {
+      await handoffsApi.accept(id);
+      const resp = await handoffsApi.getPending();
+      setPendingHandoffs(Array.isArray(resp.data) ? resp.data : []);
+    } catch (err: any) {
+      alert(err.response?.data?.detail || 'Fehler beim Annehmen der Übergabe');
+    }
+  };
+
+  const handleDeclineHandoff = async (id: number) => {
+    const reason = window.prompt('Begründung für die Ablehnung:');
+    if (reason === null) return;
+    try {
+      await handoffsApi.decline(id, { response_notes: reason || 'Abgelehnt' });
+      const resp = await handoffsApi.getPending();
+      setPendingHandoffs(Array.isArray(resp.data) ? resp.data : []);
+    } catch (err: any) {
+      alert(err.response?.data?.detail || 'Fehler beim Ablehnen der Übergabe');
+    }
+  };
 
   return (
     <>
@@ -132,6 +173,98 @@ const GoldsmithDashboard: React.FC = () => {
                       </span>
                     )}
                   </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+
+      {/* Offene Übergaben */}
+      <section className="dashboard-section">
+        <div className="widget-header">
+          <span className="widget-header-icon">🤝</span>
+          <h2>Offene Übergaben ({pendingHandoffs.length})</h2>
+        </div>
+        {isLoadingHandoffs ? (
+          <div className="deadlines-loading">Lade Übergaben...</div>
+        ) : pendingHandoffs.length === 0 ? (
+          <div className="no-deadlines">
+            <div className="no-deadlines-icon">✅</div>
+            <p>Keine offenen Übergaben</p>
+          </div>
+        ) : (
+          <div className="deadlines-list">
+            {pendingHandoffs.map((handoff) => (
+              <div
+                key={handoff.id}
+                className="deadline-item deadline-soon"
+                style={{ cursor: 'default' }}
+              >
+                <div className="deadline-content">
+                  <h4 className="deadline-title">
+                    Auftrag #{handoff.order_id} — {handoff.handoff_type}
+                  </h4>
+                  <div className="deadline-meta">
+                    <span className="deadline-customer">
+                      Von: {handoff.from_user?.full_name || `#${handoff.from_user_id}`}
+                    </span>
+                    {handoff.notes && (
+                      <span style={{ fontStyle: 'italic', color: '#6b7280' }}>
+                        {handoff.notes}
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: '0.5rem', flexShrink: 0 }}>
+                  <button
+                    style={{
+                      background: '#10b981',
+                      color: 'white',
+                      border: 'none',
+                      padding: '0.5rem 1rem',
+                      borderRadius: '6px',
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                      minHeight: '44px',
+                      fontSize: '0.875rem',
+                    }}
+                    onClick={() => handleAcceptHandoff(handoff.id)}
+                  >
+                    Annehmen
+                  </button>
+                  <button
+                    style={{
+                      background: 'white',
+                      color: '#dc2626',
+                      border: '2px solid #ef4444',
+                      padding: '0.5rem 1rem',
+                      borderRadius: '6px',
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                      minHeight: '44px',
+                      fontSize: '0.875rem',
+                    }}
+                    onClick={() => handleDeclineHandoff(handoff.id)}
+                  >
+                    Ablehnen
+                  </button>
+                  <button
+                    style={{
+                      background: 'white',
+                      color: '#6b7280',
+                      border: '2px solid #e5e7eb',
+                      padding: '0.5rem 1rem',
+                      borderRadius: '6px',
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                      minHeight: '44px',
+                      fontSize: '0.875rem',
+                    }}
+                    onClick={() => navigate(`/orders/${handoff.order_id}`)}
+                  >
+                    Auftrag
+                  </button>
                 </div>
               </div>
             ))}

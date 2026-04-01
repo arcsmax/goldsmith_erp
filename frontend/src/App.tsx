@@ -21,6 +21,7 @@ const ScannerPage = lazy(() => import('./pages/ScannerPage').then(m => ({ defaul
 const CalendarPage = lazy(() => import('./pages/CalendarPage').then(m => ({ default: m.CalendarPage })));
 const InvoicesPage = lazy(() => import('./pages/InvoicesPage').then(m => ({ default: m.InvoicesPage })));
 const AdminSystemPage = lazy(() => import('./pages/AdminSystemPage').then(m => ({ default: m.AdminSystemPage })));
+const CustomerDetailPage = lazy(() => import('./pages/CustomerDetailPage').then(m => ({ default: m.CustomerDetailPage })));
 
 // Loading fallback component
 const PageLoader: React.FC = () => (
@@ -66,6 +67,14 @@ const App: React.FC = () => {
                   element={
                     <ProtectedRoute requiredRoles={['ADMIN', 'GOLDSMITH']}>
                       <CustomersPage />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="customers/:id"
+                  element={
+                    <ProtectedRoute requiredRoles={['ADMIN', 'GOLDSMITH']}>
+                      <CustomerDetailPage />
                     </ProtectedRoute>
                   }
                 />

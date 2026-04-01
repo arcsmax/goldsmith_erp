@@ -140,7 +140,7 @@
   font-size: 0.75rem;
   font-weight: 500;
   color: white;
-  background: #667eea; /* matches header gradient start */
+  background: var(--color-interactive-primary);
   border-radius: 9999px;
   padding: 0.15rem 0.6rem;
 }
@@ -190,7 +190,7 @@
   width: 16px;
   height: 16px;
   border: 2px solid #e5e7eb;
-  border-top-color: #667eea;
+  border-top-color: var(--color-interactive-primary);
   border-radius: 50%;
   animation: notificationSpin 0.7s linear infinite;
   flex-shrink: 0;
@@ -229,7 +229,7 @@
 }
 
 .notification-item__inner:focus-visible {
-  outline: 2px solid #667eea;
+  outline: 2px solid var(--color-interactive-primary);
   outline-offset: -2px;
 }
 
@@ -316,7 +316,7 @@
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: #667eea;
+  background: var(--color-interactive-primary);
   margin-top: 6px;
 }
 
@@ -356,7 +356,7 @@
 }
 
 .notification-dropdown__mark-all:focus-visible {
-  outline: 2px solid #667eea;
+  outline: 2px solid var(--color-interactive-primary);
   outline-offset: 2px;
 }
 

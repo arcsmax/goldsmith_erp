@@ -10,7 +10,7 @@
 /* ==================== HEADER ==================== */
 
 .main-header {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: var(--color-surface-header-gradient);
   color: white;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
   position: sticky;
@@ -167,13 +167,13 @@
 
 .nav-link:hover {
   background-color: #f3f4f6;
-  color: #667eea;
+  color: var(--color-interactive-primary);
 }
 
 .nav-link.active {
-  background-color: #ede9fe;
-  color: #667eea;
-  border-left-color: #667eea;
+  background-color: var(--color-brand-cta-100);
+  color: var(--color-interactive-primary);
+  border-left-color: var(--color-interactive-primary);
 }
 
 .nav-icon {

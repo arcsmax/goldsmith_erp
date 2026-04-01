@@ -65,13 +65,13 @@
 
 .scan-input:focus {
   outline: none;
-  border-color: #667eea;
-  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+  border-color: var(--color-border-focus);
+  box-shadow: 0 0 0 3px rgba(217, 119, 6, 0.1);
 }
 
 .btn-scan {
   padding: 1rem 2rem;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: var(--color-surface-header-gradient);
   color: white;
   border: none;
   border-radius: 8px;
@@ -84,7 +84,7 @@
 
 .btn-scan:hover:not(:disabled) {
   transform: translateY(-2px);
-  box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+  box-shadow: 0 5px 15px rgba(180, 83, 9, 0.4);
 }
 
 .btn-scan:disabled {
@@ -163,15 +163,15 @@
 
 .scanned-item:hover {
   background: white;
-  border-color: #667eea;
+  border-color: var(--color-interactive-primary);
   transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.2);
+  box-shadow: 0 4px 12px rgba(180, 83, 9, 0.2);
 }
 
 .scanned-id {
   font-weight: 700;
   font-size: 1.2rem;
-  color: #667eea;
+  color: var(--color-interactive-primary);
 }
 
 .scanned-time {

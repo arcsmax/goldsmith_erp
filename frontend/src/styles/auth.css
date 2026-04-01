@@ -5,7 +5,7 @@
   justify-content: center;
   align-items: center;
   min-height: 100vh;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: var(--color-surface-header-gradient);
   padding: 2rem;
 }
 
@@ -67,7 +67,7 @@
 
 .form-group input:focus {
   outline: none;
-  border-color: #667eea;
+  border-color: var(--color-border-focus);
 }
 
 .form-group input:disabled {
@@ -77,7 +77,7 @@
 
 .btn-primary {
   padding: 0.875rem;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: var(--color-surface-header-gradient);
   color: white;
   border: none;
   border-radius: 8px;
@@ -90,7 +90,7 @@
 
 .btn-primary:hover:not(:disabled) {
   transform: translateY(-2px);
-  box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+  box-shadow: 0 5px 15px rgba(180, 83, 9, 0.4);
 }
 
 .btn-primary:disabled {
@@ -116,7 +116,7 @@
 }
 
 .auth-link a {
-  color: #667eea;
+  color: var(--color-interactive-primary);
   text-decoration: none;
   font-weight: 600;
 }

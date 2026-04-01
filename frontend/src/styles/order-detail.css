@@ -33,8 +33,8 @@
 
 .btn-back:hover {
   background: #f3f4f6;
-  border-color: #667eea;
-  color: #667eea;
+  border-color: var(--color-interactive-primary);
+  color: var(--color-interactive-primary);
 }
 
 .order-title h1 {
@@ -72,13 +72,13 @@
 }
 
 .tab:hover {
-  color: #667eea;
+  color: var(--color-interactive-primary);
   background: #f3f4f6;
 }
 
 .tab.active {
-  color: #667eea;
-  border-bottom-color: #667eea;
+  color: var(--color-interactive-primary);
+  border-bottom-color: var(--color-interactive-primary);
   font-weight: 600;
 }
 
@@ -200,7 +200,7 @@
 }
 
 .status-btn.active {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: var(--color-surface-header-gradient);
   color: white;
   border-color: transparent;
 }
@@ -224,7 +224,7 @@
 
 .notes-textarea:focus {
   outline: none;
-  border-color: #667eea;
+  border-color: var(--color-border-focus);
 }
 
 /* History Tab */
@@ -256,10 +256,10 @@
   top: 0.25rem;
   width: 1rem;
   height: 1rem;
-  background: #667eea;
+  background: var(--color-interactive-primary);
   border-radius: 50%;
   border: 3px solid white;
-  box-shadow: 0 0 0 2px #667eea;
+  box-shadow: 0 0 0 2px var(--color-interactive-primary);
 }
 
 .timeline-content {
@@ -301,17 +301,17 @@
 /* ==================== CUSTOMER INFO CARD ==================== */
 
 .customer-info-card {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: var(--color-surface-header-gradient);
   border-radius: 12px;
   padding: 1.5rem;
   color: white;
-  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+  box-shadow: 0 4px 12px rgba(180, 83, 9, 0.3);
   transition: all 0.3s;
 }
 
 .customer-info-card:hover {
   transform: translateY(-2px);
-  box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
+  box-shadow: 0 6px 20px rgba(180, 83, 9, 0.4);
 }
 
 .customer-info-card.loading {
@@ -412,7 +412,7 @@
 
 .btn-customer-link {
   background: white;
-  color: #667eea;
+  color: var(--color-interactive-primary);
   border: none;
   padding: 0.75rem 1.5rem;
   border-radius: 8px;
@@ -527,7 +527,7 @@
 
 .cost-divider.thick {
   height: 2px;
-  background: #667eea;
+  background: var(--color-interactive-primary);
 }
 
 .cost-subtotal {
@@ -547,7 +547,7 @@
 }
 
 .cost-total {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: var(--color-surface-header-gradient);
   padding: 1.5rem 2rem;
   color: white;
 }
@@ -669,7 +669,7 @@
 }
 
 .metal-info-value.highlight {
-  color: #667eea;
+  color: var(--color-interactive-primary);
   font-size: 1.2rem;
 }
 
@@ -1080,5 +1080,421 @@
 
   .customer-name {
     font-size: 1.25rem;
+  }
+}
+
+/* ==================== HANDOFF TAB ==================== */
+
+.handoff-tab {
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+}
+
+/* Section titles */
+.handoff-section-title {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: #333;
+  margin: 0 0 1.25rem 0;
+  padding-bottom: 0.5rem;
+  border-bottom: 2px solid #e5e7eb;
+}
+
+/* ── Create form ── */
+.handoff-form-section {
+  background: #f9fafb;
+  border-radius: 10px;
+  padding: 1.5rem;
+  border: 1px solid #e5e7eb;
+}
+
+.handoff-form__fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+}
+
+.handoff-form .form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.handoff-form .form-group--full {
+  grid-column: 1 / -1;
+}
+
+.handoff-form .form-group label {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #374151;
+}
+
+.handoff-form .form-group select,
+.handoff-form .form-group textarea {
+  padding: 0.625rem 0.875rem;
+  border: 2px solid #e5e7eb;
+  border-radius: 8px;
+  font-size: 0.95rem;
+  font-family: inherit;
+  background: white;
+  min-height: 44px;
+  transition: border-color 0.2s;
+}
+
+.handoff-form .form-group select:focus,
+.handoff-form .form-group textarea:focus {
+  outline: none;
+  border-color: var(--color-border-focus);
+  box-shadow: 0 0 0 3px rgba(217, 119, 6, 0.1);
+}
+
+.handoff-form .form-group textarea {
+  resize: vertical;
+  min-height: 88px;
+}
+
+.handoff-form__submit {
+  margin-top: 1rem;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.btn-handoff-submit {
+  background: var(--color-surface-header-gradient);
+  color: white;
+  border: none;
+  padding: 0.75rem 1.75rem;
+  border-radius: 8px;
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  min-height: 44px;
+}
+
+.btn-handoff-submit:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(180, 83, 9, 0.4);
+}
+
+.btn-handoff-submit:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.handoff-form__error {
+  color: #dc2626;
+  background: #fee2e2;
+  border: 1px solid #fca5a5;
+  border-radius: 6px;
+  padding: 0.625rem 0.875rem;
+  font-size: 0.9rem;
+  margin: 0.5rem 0 0;
+}
+
+.handoff-form__success {
+  color: #065f46;
+  background: #d1fae5;
+  border: 1px solid #6ee7b7;
+  border-radius: 6px;
+  padding: 0.625rem 0.875rem;
+  font-size: 0.9rem;
+  margin: 0.5rem 0 0;
+}
+
+/* ── History ── */
+.handoff-history-section {
+  padding: 0 0.25rem;
+}
+
+.handoff-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.875rem;
+}
+
+.handoff-loading,
+.handoff-empty {
+  text-align: center;
+  padding: 2rem;
+  color: #6b7280;
+  font-size: 0.95rem;
+}
+
+.handoff-error {
+  color: #dc2626;
+  padding: 1rem;
+  background: #fee2e2;
+  border-radius: 8px;
+}
+
+/* ── Handoff Card ── */
+.handoff-card {
+  background: white;
+  border: 2px solid #e5e7eb;
+  border-radius: 10px;
+  padding: 1.25rem;
+  transition: border-color 0.2s;
+}
+
+.handoff-card.handoff-status--pending {
+  border-left: 4px solid #f59e0b;
+}
+
+.handoff-card.handoff-status--accepted {
+  border-left: 4px solid #10b981;
+}
+
+.handoff-card.handoff-status--declined {
+  border-left: 4px solid #ef4444;
+  opacity: 0.8;
+}
+
+.handoff-card__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+  margin-bottom: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.handoff-card__route {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: 600;
+  font-size: 0.95rem;
+  color: #1f2937;
+}
+
+.handoff-card__arrow {
+  color: #6b7280;
+  font-size: 1.1rem;
+}
+
+.handoff-card__meta {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.handoff-card__type {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #374151;
+  background: #f3f4f6;
+  padding: 0.2rem 0.75rem;
+  border-radius: 12px;
+}
+
+/* Status badge */
+.handoff-status-badge {
+  display: inline-block;
+  padding: 0.2rem 0.75rem;
+  border-radius: 12px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+.handoff-status-badge.handoff-status--pending {
+  background: #fef3c7;
+  color: #92400e;
+  border-left: none;
+}
+
+.handoff-status-badge.handoff-status--accepted {
+  background: #d1fae5;
+  color: #065f46;
+  border-left: none;
+}
+
+.handoff-status-badge.handoff-status--declined {
+  background: #fee2e2;
+  color: #991b1b;
+  border-left: none;
+}
+
+.handoff-card__notes {
+  font-size: 0.9rem;
+  color: #374151;
+  margin: 0 0 0.75rem;
+  padding: 0.625rem 0.875rem;
+  background: #f9fafb;
+  border-radius: 6px;
+  border-left: 3px solid #d1d5db;
+  line-height: 1.5;
+}
+
+.handoff-card__response-notes {
+  font-size: 0.875rem;
+  color: #6b7280;
+  margin: 0.5rem 0 0;
+  font-style: italic;
+}
+
+.handoff-card__footer {
+  display: flex;
+  gap: 1.25rem;
+  flex-wrap: wrap;
+  margin-top: 0.5rem;
+}
+
+.handoff-card__date {
+  font-size: 0.78rem;
+  color: #9ca3af;
+}
+
+/* ── Card action buttons ── */
+.handoff-card__actions {
+  margin-top: 1rem;
+  padding-top: 0.875rem;
+  border-top: 1px solid #e5e7eb;
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.btn-handoff-accept {
+  background: #10b981;
+  color: white;
+  border: none;
+  padding: 0.625rem 1.25rem;
+  border-radius: 8px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  min-height: 44px;
+}
+
+.btn-handoff-accept:hover:not(:disabled) {
+  background: #059669;
+}
+
+.btn-handoff-accept:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.btn-handoff-decline-trigger {
+  background: white;
+  border: 2px solid #ef4444;
+  color: #ef4444;
+  padding: 0.625rem 1.25rem;
+  border-radius: 8px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  min-height: 44px;
+}
+
+.btn-handoff-decline-trigger:hover:not(:disabled) {
+  background: #fee2e2;
+}
+
+.btn-handoff-decline-trigger:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.handoff-decline-form {
+  width: 100%;
+}
+
+.handoff-decline-textarea {
+  width: 100%;
+  padding: 0.625rem 0.875rem;
+  border: 2px solid #e5e7eb;
+  border-radius: 8px;
+  font-size: 0.9rem;
+  font-family: inherit;
+  resize: vertical;
+  margin-bottom: 0.75rem;
+}
+
+.handoff-decline-textarea:focus {
+  outline: none;
+  border-color: #ef4444;
+}
+
+.handoff-decline-form__actions {
+  display: flex;
+  gap: 0.75rem;
+}
+
+.btn-handoff-decline {
+  background: #ef4444;
+  color: white;
+  border: none;
+  padding: 0.625rem 1.25rem;
+  border-radius: 8px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s;
+  min-height: 44px;
+}
+
+.btn-handoff-decline:hover:not(:disabled) {
+  background: #dc2626;
+}
+
+.btn-handoff-decline:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.btn-handoff-cancel {
+  background: white;
+  border: 2px solid #e5e7eb;
+  color: #374151;
+  padding: 0.625rem 1.25rem;
+  border-radius: 8px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s;
+  min-height: 44px;
+}
+
+.btn-handoff-cancel:hover {
+  background: #f3f4f6;
+}
+
+/* ==================== RESPONSIVE — HANDOFF TAB ==================== */
+
+@media (max-width: 768px) {
+  .handoff-form__fields {
+    grid-template-columns: 1fr;
+  }
+
+  .handoff-form__submit {
+    justify-content: stretch;
+  }
+
+  .btn-handoff-submit {
+    width: 100%;
+  }
+
+  .handoff-card__header {
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .handoff-card__actions {
+    flex-direction: column;
+  }
+
+  .btn-handoff-accept,
+  .btn-handoff-decline-trigger {
+    width: 100%;
+    justify-content: center;
   }
 }
