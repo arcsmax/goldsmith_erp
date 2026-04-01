@@ -12,43 +12,201 @@ import '../styles/pages.css';
 import '../styles/dashboard.css';
 
 // ============================================================
-// Goldsmith Dashboard View
+// Goldsmith Dashboard — unified work queue
 // ============================================================
+
+interface TodoItem {
+  id: string;
+  type: 'handoff' | 'deadline' | 'fitting' | 'order';
+  priority: 'urgent' | 'high' | 'medium' | 'low';
+  title: string;
+  subtitle: string;
+  deadline?: string;
+  orderId?: number;
+  handoffId?: number;
+  action: string;
+  /** Raw handoff object, only present for type === 'handoff' */
+  handoffData?: any;
+}
+
+// Priority sort order: urgent first
+const PRIORITY_ORDER: Record<TodoItem['priority'], number> = {
+  urgent: 0,
+  high: 1,
+  medium: 2,
+  low: 3,
+};
+
+const PRIORITY_BORDER: Record<TodoItem['priority'], string> = {
+  urgent: '#dc2626',
+  high: '#f59e0b',
+  medium: '#eab308',
+  low: '#3b82f6',
+};
+
+const PRIORITY_BG: Record<TodoItem['priority'], string> = {
+  urgent: '#fef2f2',
+  high: '#fffbeb',
+  medium: '#fefce8',
+  low: '#eff6ff',
+};
+
+const PRIORITY_BADGE_BG: Record<TodoItem['priority'], string> = {
+  urgent: '#dc2626',
+  high: '#f59e0b',
+  medium: '#eab308',
+  low: '#3b82f6',
+};
+
+const PRIORITY_LABEL: Record<TodoItem['priority'], string> = {
+  urgent: 'DRINGEND',
+  high: 'HOCH',
+  medium: 'MITTEL',
+  low: 'NORMAL',
+};
+
+function formatRelativeDeadline(deadlineStr: string): string {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const deadline = new Date(deadlineStr);
+  deadline.setHours(0, 0, 0, 0);
+  const diffDays = Math.round((deadline.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+  if (diffDays < 0) return `${Math.abs(diffDays)} Tag${Math.abs(diffDays) === 1 ? '' : 'e'} überfällig`;
+  if (diffDays === 0) return 'heute';
+  if (diffDays === 1) return 'morgen';
+  return `in ${diffDays} Tagen`;
+}
+
+function buildTodoList(orders: OrderType[], handoffs: any[]): TodoItem[] {
+  const items: TodoItem[] = [];
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const in3Days = new Date(today);
+  in3Days.setDate(today.getDate() + 3);
+
+  // Pending handoffs — always URGENT
+  for (const handoff of handoffs) {
+    items.push({
+      id: `handoff-${handoff.id}`,
+      type: 'handoff',
+      priority: 'urgent',
+      title: `Übergabe: Auftrag #${handoff.order_id} — ${handoff.handoff_type}`,
+      subtitle: `Von: ${handoff.from_user?.full_name || `#${handoff.from_user_id}`}${handoff.notes ? ` · ${handoff.notes}` : ''}`,
+      orderId: handoff.order_id,
+      handoffId: handoff.id,
+      action: 'Annehmen/Ablehnen',
+      handoffData: handoff,
+    });
+  }
+
+  for (const order of orders) {
+    if (order.status === 'completed' || order.status === 'delivered') continue;
+
+    const customerName =
+      order.customer
+        ? `${order.customer.first_name} ${order.customer.last_name}`.trim()
+        : undefined;
+    const subtitle = customerName ? `Kunde: ${customerName}` : 'Kein Kunde hinterlegt';
+
+    // Deadline today — URGENT
+    if (order.deadline) {
+      const dl = new Date(order.deadline);
+      dl.setHours(0, 0, 0, 0);
+
+      if (dl.getTime() === today.getTime()) {
+        items.push({
+          id: `deadline-today-${order.id}`,
+          type: 'deadline',
+          priority: 'urgent',
+          title: order.title,
+          subtitle,
+          deadline: order.deadline,
+          orderId: order.id,
+          action: 'Bearbeiten',
+        });
+        continue;
+      }
+
+      // Deadline within 3 days — HIGH
+      if (dl > today && dl <= in3Days) {
+        items.push({
+          id: `deadline-soon-${order.id}`,
+          type: 'deadline',
+          priority: 'high',
+          title: order.title,
+          subtitle,
+          deadline: order.deadline,
+          orderId: order.id,
+          action: 'Bearbeiten',
+        });
+        continue;
+      }
+    }
+
+    // Waiting for fitting — MEDIUM
+    if (order.status === 'waiting_for_fitting') {
+      items.push({
+        id: `fitting-${order.id}`,
+        type: 'fitting',
+        priority: 'medium',
+        title: order.title,
+        subtitle,
+        deadline: order.deadline,
+        orderId: order.id,
+        action: 'Anprobe planen',
+      });
+      continue;
+    }
+
+    // In progress or confirmed — LOW
+    if (order.status === 'in_progress' || order.status === 'confirmed') {
+      items.push({
+        id: `order-${order.id}`,
+        type: 'order',
+        priority: 'low',
+        title: order.title,
+        subtitle,
+        deadline: order.deadline,
+        orderId: order.id,
+        action: 'Bearbeiten',
+      });
+    }
+  }
+
+  // Sort by priority then soonest deadline
+  items.sort((a, b) => {
+    const prioA = PRIORITY_ORDER[a.priority];
+    const prioB = PRIORITY_ORDER[b.priority];
+    if (prioA !== prioB) return prioA - prioB;
+    if (a.deadline && b.deadline) {
+      return new Date(a.deadline).getTime() - new Date(b.deadline).getTime();
+    }
+    if (a.deadline) return -1;
+    if (b.deadline) return 1;
+    return 0;
+  });
+
+  return items;
+}
+
 const GoldsmithDashboard: React.FC = () => {
   const navigate = useNavigate();
   const { showToast } = useToast();
-  const [myOrders, setMyOrders] = useState<OrderType[]>([]);
-  const [todayDeadlines, setTodayDeadlines] = useState<OrderType[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const [orders, setOrders] = useState<OrderType[]>([]);
   const [pendingHandoffs, setPendingHandoffs] = useState<any[]>([]);
-  const [isLoadingHandoffs, setIsLoadingHandoffs] = useState(true);
+  const [isLoading, setIsLoading] = useState(true);
 
-  const fetchGoldsmithData = useCallback(async () => {
+  const loadAll = useCallback(async () => {
+    setIsLoading(true);
     try {
-      setIsLoading(true);
-      const ordersData = await ordersApi.getAll({ limit: 1000 });
+      const [ordersData, handoffResp] = await Promise.all([
+        ordersApi.getAll({ limit: 1000 }),
+        handoffsApi.getPending().catch(() => ({ data: [] })),
+      ]);
       const ordersList = Array.isArray(ordersData) ? ordersData : ordersData.items || [];
-
-      // "Meine Auftraege" - orders assigned to current user or in_progress
-      const assigned = ordersList.filter(
-        (o) => o.status === 'in_progress' || o.status === 'new'
-      );
-      setMyOrders(assigned);
-
-      // "Heutige Deadlines" - orders due today
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      const tomorrow = new Date(today);
-      tomorrow.setDate(tomorrow.getDate() + 1);
-
-      const dueTodayOrders = ordersList.filter((o) => {
-        if (o.status === 'completed' || o.status === 'delivered') return false;
-        if (!o.deadline) return false;
-        const deadlineDate = new Date(o.deadline);
-        deadlineDate.setHours(0, 0, 0, 0);
-        return deadlineDate >= today && deadlineDate < tomorrow;
-      });
-      setTodayDeadlines(dueTodayOrders);
+      setOrders(ordersList);
+      setPendingHandoffs(Array.isArray(handoffResp.data) ? handoffResp.data : []);
     } catch (err) {
       console.error('Fehler beim Laden der Goldschmied-Daten:', err);
     } finally {
@@ -57,30 +215,13 @@ const GoldsmithDashboard: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    fetchGoldsmithData();
-  }, [fetchGoldsmithData]);
-
-  useEffect(() => {
-    const loadHandoffs = async () => {
-      try {
-        setIsLoadingHandoffs(true);
-        const resp = await handoffsApi.getPending();
-        const data = resp.data;
-        setPendingHandoffs(Array.isArray(data) ? data : []);
-      } catch {
-        setPendingHandoffs([]);
-      } finally {
-        setIsLoadingHandoffs(false);
-      }
-    };
-    loadHandoffs();
-  }, []);
+    loadAll();
+  }, [loadAll]);
 
   const handleAcceptHandoff = async (id: number) => {
     try {
       await handoffsApi.accept(id);
-      const resp = await handoffsApi.getPending();
-      setPendingHandoffs(Array.isArray(resp.data) ? resp.data : []);
+      await loadAll();
     } catch (err: any) {
       showToast(err.response?.data?.detail || 'Fehler beim Annehmen der Übergabe', 'error');
     }
@@ -91,169 +232,160 @@ const GoldsmithDashboard: React.FC = () => {
     if (reason === null) return;
     try {
       await handoffsApi.decline(id, { response_notes: reason || 'Abgelehnt' });
-      const resp = await handoffsApi.getPending();
-      setPendingHandoffs(Array.isArray(resp.data) ? resp.data : []);
+      await loadAll();
     } catch (err: any) {
       showToast(err.response?.data?.detail || 'Fehler beim Ablehnen der Übergabe', 'error');
     }
   };
 
+  const todoItems = buildTodoList(orders, pendingHandoffs);
+
   return (
     <>
-      {/* Meine Auftraege */}
+      {/* Mein Arbeitsvorrat */}
       <section className="dashboard-section">
         <div className="widget-header">
-          <span className="widget-header-icon">🔨</span>
-          <h2>Meine Aufträge ({myOrders.length})</h2>
+          <span className="widget-header-icon">&#x1F528;</span>
+          <h2>Mein Arbeitsvorrat ({todoItems.length} Aufgabe{todoItems.length !== 1 ? 'n' : ''})</h2>
         </div>
-        {isLoading ? (
-          <div className="deadlines-loading">Lade Aufträge...</div>
-        ) : myOrders.length === 0 ? (
-          <div className="no-deadlines">
-            <div className="no-deadlines-icon">✅</div>
-            <p>Keine aktiven Aufträge vorhanden</p>
-          </div>
-        ) : (
-          <div className="deadlines-list">
-            {myOrders.slice(0, 8).map((order) => (
-              <div
-                key={order.id}
-                className={`deadline-item ${order.status === 'in_progress' ? 'deadline-soon' : 'deadline-ok'}`}
-                onClick={() => navigate(`/orders/${order.id}`)}
-              >
-                <div className="deadline-content">
-                  <h4 className="deadline-title">{order.title}</h4>
-                  <div className="deadline-meta">
-                    <span className={`status-badge status-${order.status}`}>
-                      {order.status === 'new' ? 'Neu' : 'In Bearbeitung'}
-                    </span>
-                    {order.deadline && (
-                      <span className="deadline-date">
-                        📅 {new Date(order.deadline).toLocaleDateString('de-DE')}
-                      </span>
-                    )}
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </section>
 
-      {/* Heutige Deadlines */}
-      <section className="dashboard-section">
-        <div className="widget-header">
-          <span className="widget-header-icon">🔴</span>
-          <h2>Heutige Deadlines ({todayDeadlines.length})</h2>
-        </div>
         {isLoading ? (
-          <div className="deadlines-loading">Lade Deadlines...</div>
-        ) : todayDeadlines.length === 0 ? (
+          <div className="deadlines-loading">Lade Aufgaben...</div>
+        ) : todoItems.length === 0 ? (
           <div className="no-deadlines">
-            <div className="no-deadlines-icon">✅</div>
-            <p>Keine Deadlines heute</p>
+            <div className="no-deadlines-icon">&#x2713;</div>
+            <p>Keine offenen Aufgaben — alles erledigt!</p>
           </div>
         ) : (
           <div className="deadlines-list">
-            {todayDeadlines.map((order) => (
+            {todoItems.map((item) => (
               <div
-                key={order.id}
-                className="deadline-item deadline-urgent"
-                onClick={() => navigate(`/orders/${order.id}`)}
+                key={item.id}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '1rem',
+                  padding: '1.25rem',
+                  background: PRIORITY_BG[item.priority],
+                  borderRadius: '8px',
+                  borderLeft: `4px solid ${PRIORITY_BORDER[item.priority]}`,
+                  transition: 'all 0.2s ease',
+                  cursor: item.type !== 'handoff' ? 'pointer' : 'default',
+                }}
+                onClick={item.type !== 'handoff' && item.orderId !== undefined
+                  ? () => navigate(`/orders/${item.orderId}`)
+                  : undefined}
+                onMouseEnter={(e) => {
+                  (e.currentTarget as HTMLDivElement).style.transform = 'translateX(4px)';
+                }}
+                onMouseLeave={(e) => {
+                  (e.currentTarget as HTMLDivElement).style.transform = '';
+                }}
               >
-                <div className="deadline-badge deadline-urgent">
-                  <div className="deadline-days">!</div>
-                  <div className="deadline-label">HEUTE</div>
+                {/* Priority badge */}
+                <div
+                  style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    minWidth: '70px',
+                    padding: '0.625rem 0.5rem',
+                    borderRadius: '6px',
+                    background: PRIORITY_BADGE_BG[item.priority],
+                    color: 'white',
+                    fontWeight: 700,
+                    flexShrink: 0,
+                    fontSize: '0.7rem',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.5px',
+                    textAlign: 'center',
+                    lineHeight: 1.2,
+                  }}
+                >
+                  {PRIORITY_LABEL[item.priority]}
                 </div>
-                <div className="deadline-content">
-                  <h4 className="deadline-title">{order.title}</h4>
-                  <div className="deadline-meta">
-                    {order.customer && (
-                      <span className="deadline-customer">
-                        👤 {order.customer.first_name} {order.customer.last_name}
-                      </span>
-                    )}
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </section>
 
-      {/* Offene Übergaben */}
-      <section className="dashboard-section">
-        <div className="widget-header">
-          <span className="widget-header-icon">🤝</span>
-          <h2>Offene Übergaben ({pendingHandoffs.length})</h2>
-        </div>
-        {isLoadingHandoffs ? (
-          <div className="deadlines-loading">Lade Übergaben...</div>
-        ) : pendingHandoffs.length === 0 ? (
-          <div className="no-deadlines">
-            <div className="no-deadlines-icon">✅</div>
-            <p>Keine offenen Übergaben</p>
-          </div>
-        ) : (
-          <div className="deadlines-list">
-            {pendingHandoffs.map((handoff) => (
-              <div
-                key={handoff.id}
-                className="deadline-item deadline-soon"
-                style={{ cursor: 'default' }}
-              >
-                <div className="deadline-content">
-                  <h4 className="deadline-title">
-                    Auftrag #{handoff.order_id} — {handoff.handoff_type}
+                {/* Content */}
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <h4 className="deadline-title" style={{ marginBottom: '0.375rem' }}>
+                    {item.title}
                   </h4>
                   <div className="deadline-meta">
-                    <span className="deadline-customer">
-                      Von: {handoff.from_user?.full_name || `#${handoff.from_user_id}`}
-                    </span>
-                    {handoff.notes && (
-                      <span style={{ fontStyle: 'italic', color: '#6b7280' }}>
-                        {handoff.notes}
+                    <span className="deadline-customer">{item.subtitle}</span>
+                    {item.deadline && (
+                      <span className="deadline-date">
+                        &#x1F4C5; {formatRelativeDeadline(item.deadline)}
                       </span>
                     )}
+                    <span
+                      className={`status-badge status-${item.type === 'handoff' ? 'new' : item.type === 'fitting' ? 'in_progress' : 'in_progress'}`}
+                      style={{ fontSize: '0.8rem' }}
+                    >
+                      {item.action}
+                    </span>
                   </div>
                 </div>
-                <div style={{ display: 'flex', gap: '0.5rem', flexShrink: 0 }}>
-                  <button
-                    style={{
-                      background: '#10b981',
-                      color: 'white',
-                      border: 'none',
-                      padding: '0.5rem 1rem',
-                      borderRadius: '6px',
-                      fontWeight: 600,
-                      cursor: 'pointer',
-                      minHeight: '44px',
-                      fontSize: '0.875rem',
-                    }}
-                    onClick={() => handleAcceptHandoff(handoff.id)}
-                  >
-                    Annehmen
-                  </button>
+
+                {/* Actions */}
+                {item.type === 'handoff' && item.handoffId !== undefined ? (
+                  <div style={{ display: 'flex', gap: '0.5rem', flexShrink: 0 }}>
+                    <button
+                      style={{
+                        background: '#10b981',
+                        color: 'white',
+                        border: 'none',
+                        padding: '0.5rem 1rem',
+                        borderRadius: '6px',
+                        fontWeight: 600,
+                        cursor: 'pointer',
+                        minHeight: '44px',
+                        fontSize: '0.875rem',
+                      }}
+                      onClick={(e) => { e.stopPropagation(); handleAcceptHandoff(item.handoffId!); }}
+                    >
+                      Annehmen
+                    </button>
+                    <button
+                      style={{
+                        background: 'white',
+                        color: '#dc2626',
+                        border: '2px solid #ef4444',
+                        padding: '0.5rem 1rem',
+                        borderRadius: '6px',
+                        fontWeight: 600,
+                        cursor: 'pointer',
+                        minHeight: '44px',
+                        fontSize: '0.875rem',
+                      }}
+                      onClick={(e) => { e.stopPropagation(); handleDeclineHandoff(item.handoffId!); }}
+                    >
+                      Ablehnen
+                    </button>
+                    {item.orderId !== undefined && (
+                      <button
+                        style={{
+                          background: 'white',
+                          color: '#6b7280',
+                          border: '2px solid #e5e7eb',
+                          padding: '0.5rem 1rem',
+                          borderRadius: '6px',
+                          fontWeight: 600,
+                          cursor: 'pointer',
+                          minHeight: '44px',
+                          fontSize: '0.875rem',
+                        }}
+                        onClick={(e) => { e.stopPropagation(); navigate(`/orders/${item.orderId}`); }}
+                      >
+                        Auftrag
+                      </button>
+                    )}
+                  </div>
+                ) : (
                   <button
                     style={{
                       background: 'white',
-                      color: '#dc2626',
-                      border: '2px solid #ef4444',
-                      padding: '0.5rem 1rem',
-                      borderRadius: '6px',
-                      fontWeight: 600,
-                      cursor: 'pointer',
-                      minHeight: '44px',
-                      fontSize: '0.875rem',
-                    }}
-                    onClick={() => handleDeclineHandoff(handoff.id)}
-                  >
-                    Ablehnen
-                  </button>
-                  <button
-                    style={{
-                      background: 'white',
-                      color: '#6b7280',
+                      color: '#374151',
                       border: '2px solid #e5e7eb',
                       padding: '0.5rem 1rem',
                       borderRadius: '6px',
@@ -261,12 +393,16 @@ const GoldsmithDashboard: React.FC = () => {
                       cursor: 'pointer',
                       minHeight: '44px',
                       fontSize: '0.875rem',
+                      flexShrink: 0,
                     }}
-                    onClick={() => navigate(`/orders/${handoff.order_id}`)}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (item.orderId !== undefined) navigate(`/orders/${item.orderId}`);
+                    }}
                   >
-                    Auftrag
+                    {item.action}
                   </button>
-                </div>
+                )}
               </div>
             ))}
           </div>
@@ -276,7 +412,7 @@ const GoldsmithDashboard: React.FC = () => {
       {/* Quick Action: Zeiterfassung starten */}
       <section className="dashboard-section">
         <div className="widget-header">
-          <span className="widget-header-icon">⏱️</span>
+          <span className="widget-header-icon">&#x23F1;&#xFE0F;</span>
           <h2>Schnellaktionen</h2>
         </div>
         <div className="dashboard-quick-actions">
@@ -284,13 +420,13 @@ const GoldsmithDashboard: React.FC = () => {
             className="btn-quick-action"
             onClick={() => navigate('/time-tracking')}
           >
-            ⏱️ Zeiterfassung starten
+            &#x23F1;&#xFE0F; Zeiterfassung starten
           </button>
           <button
             className="btn-quick-action"
             onClick={() => navigate('/scanner')}
           >
-            📱 QR-Scanner öffnen
+            &#x1F4F1; QR-Scanner öffnen
           </button>
         </div>
       </section>
