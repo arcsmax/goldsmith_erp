@@ -291,7 +291,7 @@ async def gdpr_export_customer(
             "description": order.description,
             "price": float(order.price) if order.price is not None else None,
             "created_at": order.created_at.isoformat() if order.created_at else None,
-            "delivery_date": order.delivery_date.isoformat() if order.delivery_date else None,
+            "deadline": order.deadline.isoformat() if order.deadline else None,
         })
 
     measurements_data = []
