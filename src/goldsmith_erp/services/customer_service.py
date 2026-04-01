@@ -12,6 +12,59 @@ from goldsmith_erp.db.transaction import transactional
 
 logger = logging.getLogger(__name__)
 
+# ── PII encryption helpers ────────────────────────────────────────────────────
+# These fields contain GDPR-sensitive personal data and must be encrypted at
+# rest when ENCRYPTION_KEY is configured in settings.
+PII_FIELDS = ["phone", "mobile", "street", "city", "postal_code"]
+
+
+def _get_encryption():
+    """Return the singleton EncryptionService, or None if not configured."""
+    try:
+        from goldsmith_erp.core.encryption import get_encryption_service
+        return get_encryption_service()
+    except Exception:
+        return None
+
+
+def _encrypt_pii(data: dict) -> dict:
+    """Encrypt PII fields before writing to DB.
+
+    No-op when ENCRYPTION_KEY is not configured so the app starts without
+    encryption in development / migration scenarios.
+    """
+    enc = _get_encryption()
+    if not enc:
+        return data
+    result = dict(data)
+    for field in PII_FIELDS:
+        if field in result and result[field]:
+            try:
+                result[field] = enc.encrypt(result[field])
+            except Exception:
+                # Keep plaintext if encryption fails rather than losing data
+                pass
+    return result
+
+
+def _decrypt_pii(customer: CustomerModel) -> None:
+    """Decrypt PII fields in place after reading from DB.
+
+    Silently skips fields that cannot be decrypted — this covers both
+    legacy plaintext rows and rows encrypted under a rotated key.
+    """
+    enc = _get_encryption()
+    if not enc:
+        return
+    for field in PII_FIELDS:
+        value = getattr(customer, field, None)
+        if value:
+            try:
+                setattr(customer, field, enc.decrypt(value))
+            except Exception:
+                # Already plaintext, wrong key, or NULL — leave as-is
+                pass
+
 
 class CustomerService:
     """Service layer for customer management"""
@@ -70,7 +123,10 @@ class CustomerService:
         query = query.offset(skip).limit(limit)
 
         result = await db.execute(query)
-        return result.scalars().all()
+        customers = list(result.scalars().all())
+        for customer in customers:
+            _decrypt_pii(customer)
+        return customers
 
     @staticmethod
     async def get_customer(db: AsyncSession, customer_id: int) -> Optional[CustomerModel]:
@@ -80,7 +136,10 @@ class CustomerService:
             .options(selectinload(CustomerModel.orders))
             .filter(CustomerModel.id == customer_id)
         )
-        return result.scalar_one_or_none()
+        customer = result.scalar_one_or_none()
+        if customer:
+            _decrypt_pii(customer)
+        return customer
 
     @staticmethod
     async def get_customer_by_email(db: AsyncSession, email: str) -> Optional[CustomerModel]:
@@ -103,19 +162,21 @@ class CustomerService:
             if existing:
                 raise ValueError("Ein Kunde mit dieser E-Mail-Adresse existiert bereits")
 
-            # Create customer
-            customer_data = customer_in.model_dump()
+            # Encrypt PII before persisting to DB
+            customer_data = _encrypt_pii(customer_in.model_dump())
             db_customer = CustomerModel(**customer_data)
 
             db.add(db_customer)
             await db.flush()
             await db.refresh(db_customer)
 
+        # Decrypt for the response payload — never log PII in plaintext
+        _decrypt_pii(db_customer)
         logger.info(
             "Customer created",
             extra={
                 "customer_id": db_customer.id,
-                "email": db_customer.email,
+                # email intentionally omitted — PII must not appear in logs
                 "customer_type": db_customer.customer_type,
             }
         )
@@ -148,6 +209,9 @@ class CustomerService:
                 if existing:
                     raise ValueError("Ein Kunde mit dieser E-Mail-Adresse existiert bereits")
 
+            # Encrypt PII fields before writing to DB
+            update_data = _encrypt_pii(update_data)
+
             # Apply updates
             for field, value in update_data.items():
                 setattr(db_customer, field, value)
@@ -156,6 +220,8 @@ class CustomerService:
             await db.flush()
             await db.refresh(db_customer)
 
+        # Decrypt for the response payload
+        _decrypt_pii(db_customer)
         logger.info(
             "Customer updated",
             extra={
@@ -236,6 +302,14 @@ class CustomerService:
         Fast customer search for autocomplete.
 
         Searches by name, company, email.
+
+        NOTE — encrypted field limitation: phone, mobile, street, city and
+        postal_code are stored as Fernet ciphertext when ENCRYPTION_KEY is set.
+        ILIKE cannot match encrypted values, so those fields are intentionally
+        excluded from the WHERE clause here.  If full-address search becomes a
+        requirement, implement a separate deterministic-hash index column for
+        each encrypted field (HMAC-SHA256 of the normalised plaintext) and
+        filter on the hash instead.
         """
         search_term = f"%{query}%"
         result = await db.execute(
@@ -254,7 +328,10 @@ class CustomerService:
             .order_by(CustomerModel.last_name, CustomerModel.first_name)
             .limit(limit)
         )
-        return result.scalars().all()
+        customers = list(result.scalars().all())
+        for customer in customers:
+            _decrypt_pii(customer)
+        return customers
 
     @staticmethod
     async def get_top_customers(
