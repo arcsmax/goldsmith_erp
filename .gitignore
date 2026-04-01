@@ -428,3 +428,9 @@ dump.rdb
 .mcp.json
 .serena/.gitignore
 .serena/project.yml
+
+# Trained ML model files — environment-specific, rebuilt on each deployment.
+# Keep the .gitkeep so the directory exists in the repo.
+src/goldsmith_erp/ml/models/*.joblib
+src/goldsmith_erp/ml/models/*.json
+src/goldsmith_erp/ml/models/*/
