@@ -124,12 +124,10 @@ export const ActiveTimerWidget: React.FC = () => {
       const startTime = new Date().toISOString();
 
       // Create time entry in backend
-      const entry = await timeTrackingApi.create({
+      const entry = await timeTrackingApi.start({
         order_id: timerState.orderId,
         activity_id: timerState.activityId,
-        start_time: startTime,
         location: timerState.location || undefined,
-        notes: timerState.notes || undefined,
       });
 
       const newState: TimerState = {

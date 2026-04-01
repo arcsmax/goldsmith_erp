@@ -23,7 +23,7 @@ class TimeEntryStart(BaseModel):
     """Schema zum Starten einer Time-Entry mit Input Validation."""
     order_id: int = Field(..., gt=0, description="Order ID (must be positive)")
     activity_id: int = Field(..., gt=0, description="Activity ID (must be positive)")
-    user_id: int = Field(..., gt=0, description="User ID (must be positive)")
+    user_id: Optional[int] = Field(None, gt=0, description="User ID — auto-set from auth token")
     location: Optional[str] = Field(
         None,
         min_length=1,
@@ -41,7 +41,7 @@ class TimeEntryStop(BaseModel):
 
 class TimeEntryCreate(TimeEntryBase):
     """Schema für manuelle TimeEntry-Erstellung (mit Start/End) mit Input Validation."""
-    user_id: int = Field(..., gt=0, description="User ID (must be positive)")
+    user_id: Optional[int] = Field(None, gt=0, description="User ID — auto-set from auth token")
     start_time: datetime
     end_time: Optional[datetime] = None
     duration_minutes: Optional[int] = Field(
