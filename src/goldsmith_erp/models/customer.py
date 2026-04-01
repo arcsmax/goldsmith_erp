@@ -38,7 +38,7 @@ class CustomerBase(BaseModel):
             raise ValueError("Name cannot be empty")
         v = v.strip()
         # Allow letters, spaces, hyphens, apostrophes, and common diacritics
-        if not re.match(r"^[a-zA-ZäöüÄÖÜßàáâãèéêìíîòóôõùúûçñ\s'\-]+$", v):
+        if not re.match(r"^[a-zA-ZäöüÄÖÜßàáâãèéêìíîòóôõùúûçñ\s'\-\.]+$", v):
             raise ValueError("Name contains invalid characters")
         return v
 
@@ -144,7 +144,7 @@ class CustomerUpdate(BaseModel):
         if not v or not v.strip():
             raise ValueError("Name cannot be empty")
         v = v.strip()
-        if not re.match(r"^[a-zA-ZäöüÄÖÜßàáâãèéêìíîòóôõùúûçñ\s'\-]+$", v):
+        if not re.match(r"^[a-zA-ZäöüÄÖÜßàáâãèéêìíîòóôõùúûçñ\s'\-\.]+$", v):
             raise ValueError("Name contains invalid characters")
         return v
 

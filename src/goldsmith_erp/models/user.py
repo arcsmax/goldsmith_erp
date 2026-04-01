@@ -31,7 +31,7 @@ class UserBase(BaseModel):
         # Strip leading/trailing whitespace
         v = v.strip()
         # Allow only letters, spaces, hyphens, and apostrophes
-        if not re.match(r"^[a-zA-ZäöüÄÖÜß\s'-]+$", v):
+        if not re.match(r"^[a-zA-ZäöüÄÖÜß\s'\-.]+$", v):
             raise ValueError(
                 "Name contains invalid characters. Only letters, spaces, hyphens, and apostrophes allowed."
             )
@@ -94,7 +94,7 @@ class UserUpdate(BaseModel):
         if v is None:
             return v
         v = v.strip()
-        if not re.match(r"^[a-zA-ZäöüÄÖÜß\s'-]+$", v):
+        if not re.match(r"^[a-zA-ZäöüÄÖÜß\s'\-.]+$", v):
             raise ValueError(
                 "Name contains invalid characters. Only letters, spaces, hyphens, and apostrophes allowed."
             )
