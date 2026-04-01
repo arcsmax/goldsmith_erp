@@ -53,13 +53,19 @@ class OrderService:
         return missing
 
     @staticmethod
-    async def get_orders(db: AsyncSession, skip: int = 0, limit: int = 100) -> List[OrderModel]:
+    async def get_orders(
+        db: AsyncSession,
+        skip: int = 0,
+        limit: int = 100,
+        customer_id: Optional[int] = None,
+    ) -> List[OrderModel]:
         """
         Holt alle Aufträge mit Pagination.
 
         Uses eager loading to prevent N+1 queries when accessing relationships.
+        Optionally filters by customer_id to avoid client-side filtering over large datasets.
         """
-        result = await db.execute(
+        query = (
             select(OrderModel)
             .options(
                 selectinload(OrderModel.materials),
@@ -68,9 +74,10 @@ class OrderService:
             )
             .where(OrderModel.is_deleted == False)  # noqa: E712 — SQLAlchemy requires == not is
             .order_by(OrderModel.created_at.desc())
-            .offset(skip)
-            .limit(limit)
         )
+        if customer_id is not None:
+            query = query.where(OrderModel.customer_id == customer_id)
+        result = await db.execute(query.offset(skip).limit(limit))
         return result.scalars().all()
 
     @staticmethod

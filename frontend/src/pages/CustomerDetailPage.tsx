@@ -5,7 +5,8 @@ import { customersApi, ordersApi } from '../api';
 import { measurementsApi } from '../api/measurements';
 import { photosApi } from '../api/photos';
 import AuthenticatedImage from '../components/AuthenticatedImage';
-import { Customer, CustomerMeasurement, OrderType } from '../types';
+import { CustomerFormModal } from '../components/CustomerFormModal';
+import { Customer, CustomerMeasurement, CustomerCreateInput, CustomerUpdateInput, OrderType } from '../types';
 import '../styles/customer-detail.css';
 
 type CustomerDetailTab = 'stammdaten' | 'masse' | 'auftraege' | 'rechnungen';
@@ -39,10 +40,13 @@ const formatDate = (dateStr?: string | null): string => {
 // Sub-components
 // ============================================================
 
-const StammdatenTab: React.FC<{ customer: Customer }> = ({ customer }) => (
+const StammdatenTab: React.FC<{ customer: Customer; onEdit: () => void }> = ({ customer, onEdit }) => (
   <div className="cdetail-panel tab-panel">
     <div className="cdetail-panel__header">
       <h2>Stammdaten</h2>
+      <button className="btn-primary" onClick={onEdit}>
+        Bearbeiten
+      </button>
     </div>
 
     <div className="cdetail-info-grid">
@@ -386,10 +390,9 @@ const AuftraegeTab: React.FC<{ customerId: number }> = ({ customerId }) => {
     const load = async () => {
       try {
         setIsLoading(true);
-        // Fetch all orders and filter client-side (no customer filter param yet)
-        const allOrders = await ordersApi.getAll({ limit: 1000 });
-        const customerOrders = allOrders.filter((o) => o.customer_id === customerId);
-        // Sort: newest first
+        // Use server-side customer_id filter to avoid loading all orders client-side
+        const customerOrders = await ordersApi.getAll({ customer_id: customerId, limit: 50 });
+        // Sort: newest first (backend already orders by created_at desc, but enforce here too)
         customerOrders.sort(
           (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
         );
@@ -604,26 +607,43 @@ export const CustomerDetailPage: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<CustomerDetailTab>('stammdaten');
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+
+  const loadCustomer = useCallback(async (customerId: number) => {
+    try {
+      setIsLoading(true);
+      setError(null);
+      const data = await customersApi.getById(customerId);
+      setCustomer(data);
+    } catch (err: any) {
+      setError(err.response?.data?.detail || 'Fehler beim Laden des Kunden');
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
     if (!id) {
       navigate('/customers');
       return;
     }
-    const load = async () => {
-      try {
-        setIsLoading(true);
-        setError(null);
-        const data = await customersApi.getById(parseInt(id));
-        setCustomer(data);
-      } catch (err: any) {
-        setError(err.response?.data?.detail || 'Fehler beim Laden des Kunden');
-      } finally {
-        setIsLoading(false);
-      }
-    };
-    load();
-  }, [id, navigate]);
+    loadCustomer(parseInt(id));
+  }, [id, navigate, loadCustomer]);
+
+  const handleEditSubmit = useCallback(async (data: CustomerCreateInput | CustomerUpdateInput) => {
+    if (!customer) return;
+    try {
+      setIsSaving(true);
+      await customersApi.update(customer.id, data as CustomerUpdateInput);
+      setIsEditModalOpen(false);
+      await loadCustomer(customer.id);
+    } catch (err: any) {
+      throw err;
+    } finally {
+      setIsSaving(false);
+    }
+  }, [customer, loadCustomer]);
 
   if (isLoading) {
     return <div className="page-loading">Lade Kunde...</div>;
@@ -730,11 +750,22 @@ export const CustomerDetailPage: React.FC = () => {
 
       {/* Tab Content */}
       <div className="cdetail-tab-content" role="tabpanel">
-        {activeTab === 'stammdaten' && <StammdatenTab customer={customer} />}
+        {activeTab === 'stammdaten' && (
+          <StammdatenTab customer={customer} onEdit={() => setIsEditModalOpen(true)} />
+        )}
         {activeTab === 'masse' && <MasseTab customer={customer} />}
         {activeTab === 'auftraege' && <AuftraegeTab customerId={customerId} />}
         {activeTab === 'rechnungen' && <RechnungenTab customerId={customerId} />}
       </div>
+
+      {/* Edit Customer Modal */}
+      <CustomerFormModal
+        isOpen={isEditModalOpen}
+        onClose={() => setIsEditModalOpen(false)}
+        onSubmit={handleEditSubmit}
+        customer={customer}
+        isLoading={isSaving}
+      />
     </div>
   );
 };

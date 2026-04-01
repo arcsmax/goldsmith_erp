@@ -1,6 +1,7 @@
 // Soll/Ist Vergleich — Estimated vs. Actual comparison tab for completed orders
 import React, { useEffect, useState } from 'react';
-import { ordersApi } from '../../api';
+import { ordersApi, invoicesApi } from '../../api';
+import { useToast } from '../../contexts';
 import { OrderComparison, ComparisonMetric, ActivityBreakdownComparison } from '../../types';
 
 interface SollIstTabProps {
@@ -144,10 +145,13 @@ const AccuracyBadge: React.FC<{ score: number | null }> = ({ score }) => {
 const COMPLETED_STATUSES = ['completed', 'delivered'];
 
 export const SollIstTab: React.FC<SollIstTabProps> = ({ orderId, orderStatus }) => {
+  const { showToast } = useToast();
   const [data, setData] = useState<OrderComparison | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [hasLoaded, setHasLoaded] = useState(false);
+  const [existingInvoiceId, setExistingInvoiceId] = useState<number | null | undefined>(undefined);
+  const [isCreatingInvoice, setIsCreatingInvoice] = useState(false);
 
   const isEligible = COMPLETED_STATUSES.includes(orderStatus);
 
@@ -158,8 +162,19 @@ export const SollIstTab: React.FC<SollIstTabProps> = ({ orderId, orderStatus }) 
       setIsLoading(true);
       setError(null);
       try {
-        const result = await ordersApi.getComparison(orderId);
+        const [result, invoiceResp] = await Promise.all([
+          ordersApi.getComparison(orderId),
+          invoicesApi.getInvoices({ limit: 5 }).catch(() => null),
+        ]);
         setData(result);
+        // Check if any invoice already belongs to this order
+        if (invoiceResp) {
+          const items = Array.isArray(invoiceResp) ? invoiceResp : (invoiceResp as any).items ?? [];
+          const match = items.find((inv: any) => inv.order_id === orderId);
+          setExistingInvoiceId(match ? match.id : null);
+        } else {
+          setExistingInvoiceId(null);
+        }
       } catch (err: any) {
         setError(err.response?.data?.detail || 'Fehler beim Laden der Vergleichsdaten');
       } finally {
@@ -170,6 +185,31 @@ export const SollIstTab: React.FC<SollIstTabProps> = ({ orderId, orderStatus }) 
 
     load();
   }, [orderId, isEligible, hasLoaded]);
+
+  const handleCreateInvoice = async () => {
+    setIsCreatingInvoice(true);
+    try {
+      // Due date 30 days from today
+      const due = new Date();
+      due.setDate(due.getDate() + 30);
+      const invoice = await invoicesApi.createFromOrder({
+        order_id: orderId,
+        due_date: due.toISOString(),
+      });
+      setExistingInvoiceId(invoice.id);
+      showToast(
+        `Rechnung ${invoice.invoice_number} wurde erstellt. Jetzt unter Rechnungen sichtbar.`,
+        'success'
+      );
+    } catch (err: any) {
+      showToast(
+        err.response?.data?.detail || 'Fehler beim Erstellen der Rechnung',
+        'error'
+      );
+    } finally {
+      setIsCreatingInvoice(false);
+    }
+  };
 
   if (!isEligible) {
     return (
@@ -265,6 +305,26 @@ export const SollIstTab: React.FC<SollIstTabProps> = ({ orderId, orderStatus }) 
         <h3>Aufschlüsselung nach Aktivität</h3>
         <ActivityTable rows={data.activity_breakdown} />
       </section>
+
+      {/* Invoice shortcut — visible once invoice status is known */}
+      {existingInvoiceId === null && (
+        <div className="soll-ist-invoice-action">
+          <button
+            className="btn-primary soll-ist-invoice-btn"
+            onClick={handleCreateInvoice}
+            disabled={isCreatingInvoice}
+          >
+            {isCreatingInvoice ? 'Rechnung wird erstellt...' : 'Rechnung erstellen'}
+          </button>
+        </div>
+      )}
+      {existingInvoiceId !== null && existingInvoiceId !== undefined && (
+        <div className="soll-ist-invoice-action">
+          <span className="soll-ist-invoice-exists">
+            Rechnung vorhanden (ID&nbsp;{existingInvoiceId})
+          </span>
+        </div>
+      )}
     </div>
   );
 };

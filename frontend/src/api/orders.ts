@@ -12,15 +12,17 @@ export interface LocationHistoryEntry {
 
 export const ordersApi = {
   /**
-   * Get all orders with pagination
-   * @param options - Optional object with skip and limit parameters
+   * Get all orders with pagination and optional server-side filtering.
+   * @param options - skip, limit, and optional customer_id filter
    */
-  getAll: async (options?: { skip?: number; limit?: number }): Promise<OrderType[]> => {
+  getAll: async (options?: { skip?: number; limit?: number; customer_id?: number }): Promise<OrderType[]> => {
     const skip = options?.skip ?? 0;
     const limit = options?.limit ?? 100;
-    const response = await apiClient.get<OrderType[]>('/orders/', {
-      params: { skip, limit },
-    });
+    const params: Record<string, unknown> = { skip, limit };
+    if (options?.customer_id !== undefined) {
+      params.customer_id = options.customer_id;
+    }
+    const response = await apiClient.get<OrderType[]>('/orders/', { params });
     return response.data;
   },
 

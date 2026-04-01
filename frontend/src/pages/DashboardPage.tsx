@@ -480,6 +480,28 @@ const AdminDashboard: React.FC = () => {
         </section>
       </div>
 
+      {/* Quick Actions for office staff */}
+      <section className="dashboard-section">
+        <div className="widget-header">
+          <span className="widget-header-icon">&#x26A1;</span>
+          <h2>Schnellaktionen</h2>
+        </div>
+        <div className="dashboard-quick-actions">
+          <button
+            className="btn-quick-action"
+            onClick={() => navigate('/invoices')}
+          >
+            &#x1F4CB; Rechnungen
+          </button>
+          <button
+            className="btn-quick-action"
+            onClick={() => navigate('/materials')}
+          >
+            &#x1F4E6; Materialbestellungen
+          </button>
+        </div>
+      </section>
+
       {/* Neue Auftraege Section */}
       <section className="dashboard-section">
         <div className="widget-header">
