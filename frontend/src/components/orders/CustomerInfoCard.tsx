@@ -10,6 +10,10 @@ interface Customer {
   email: string;
   phone?: string | null;
   mobile?: string | null;
+  street?: string | null;
+  city?: string | null;
+  postal_code?: string | null;
+  country?: string | null;
   customer_type: 'private' | 'business';
   is_active: boolean;
 }
@@ -92,6 +96,23 @@ export const CustomerInfoCard: React.FC<CustomerInfoCardProps> = ({ customerId }
             <a href={`tel:${primaryPhone}`} className="detail-link">
               {primaryPhone}
             </a>
+          </div>
+        )}
+
+        {(customer.street || customer.city || customer.postal_code || customer.country) && (
+          <div className="customer-detail-line">
+            <span className="detail-icon">📍</span>
+            <span className="detail-text">
+              {[
+                customer.street,
+                customer.postal_code && customer.city
+                  ? `${customer.postal_code} ${customer.city}`
+                  : customer.postal_code || customer.city,
+                customer.country,
+              ]
+                .filter(Boolean)
+                .join(', ')}
+            </span>
           </div>
         )}
 

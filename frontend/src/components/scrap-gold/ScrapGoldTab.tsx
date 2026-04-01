@@ -20,10 +20,12 @@ const STATUS_CONFIG: Record<ScrapGoldStatus, { label: string; className: string 
 };
 
 /**
- * Formats alloy number to human-readable label
+ * Formats alloy value to human-readable label.
+ * Accepts both number (585) and string ("585") because the backend
+ * may return alloy as a string while the frontend stores it as a number.
  */
-const getAlloyLabel = (alloy: number): string => {
-  const option = ALLOY_OPTIONS.find((o) => o.value === alloy);
+const getAlloyLabel = (alloy: number | string): string => {
+  const option = ALLOY_OPTIONS.find((o) => o.value === Number(alloy));
   return option ? option.label : `${alloy}`;
 };
 
@@ -70,7 +72,7 @@ export const ScrapGoldTab: React.FC<ScrapGoldTabProps> = ({ orderId, customerId 
     }
   };
 
-  const handleAddItem = async (description: string, alloy: number, weightG: number) => {
+  const handleAddItem = async (description: string, alloy: string, weightG: number) => {
     if (!scrapGold) return;
 
     try {

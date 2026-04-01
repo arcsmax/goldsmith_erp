@@ -76,7 +76,7 @@ interface HandoffCardProps {
   handoff: Handoff;
   currentUserId: number;
   onAccept: (id: number) => Promise<void>;
-  onDecline: (id: number) => Promise<void>;
+  onDecline: (id: number, notes: string) => Promise<void>;
 }
 
 const HandoffCard: React.FC<HandoffCardProps> = ({
@@ -107,7 +107,7 @@ const HandoffCard: React.FC<HandoffCardProps> = ({
     if (!declineNotes.trim()) return;
     setIsActing(true);
     try {
-      await onDecline(handoff.id);
+      await onDecline(handoff.id, declineNotes.trim());
       setShowDeclineForm(false);
     } finally {
       setIsActing(false);
@@ -305,10 +305,9 @@ const HandoffTab: React.FC<HandoffTabProps> = ({ orderId }) => {
     }
   };
 
-  const handleDecline = async (id: number) => {
-    // The notes are handled inside HandoffCard before calling this
+  const handleDecline = async (id: number, notes: string) => {
     try {
-      await handoffsApi.decline(id, { response_notes: 'Abgelehnt' });
+      await handoffsApi.decline(id, { response_notes: notes });
       await loadHandoffs();
     } catch (err: any) {
       showToast(err.response?.data?.detail || 'Fehler beim Ablehnen der Übergabe', 'error');

@@ -19,7 +19,7 @@ export const ALLOY_OPTIONS: AlloyOption[] = [
 ];
 
 interface AlloyCalculatorProps {
-  onAddItem: (description: string, alloy: number, weightG: number) => void;
+  onAddItem: (description: string, alloy: string, weightG: number) => void;
   isDisabled?: boolean;
 }
 
@@ -57,7 +57,7 @@ export const AlloyCalculator: React.FC<AlloyCalculatorProps> = ({
     if (isNaN(weight) || weight <= 0) return;
     if (!description.trim()) return;
 
-    onAddItem(description.trim(), selectedAlloy, weight);
+    onAddItem(description.trim(), String(selectedAlloy), weight);
 
     // Reset form
     setDescription('');

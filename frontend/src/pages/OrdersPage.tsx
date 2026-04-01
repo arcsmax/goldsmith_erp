@@ -85,10 +85,18 @@ export const OrdersPage: React.FC = () => {
   const handleCreateOrder = async (data: OrderCreateInput) => {
     try {
       setIsFormLoading(true);
-      await ordersApi.create(data);
+      const newOrder = await ordersApi.create(data);
       await fetchOrders();
       setIsModalOpen(false);
-      showToast('Auftrag erfolgreich erstellt!', 'success');
+      if (newOrder.has_scrap_gold) {
+        showToast(
+          'Altgold-Erfassung ausstehend — bitte im Auftrag die Altgold-Daten eingeben',
+          'warning'
+        );
+        navigate(`/orders/${newOrder.id}`);
+      } else {
+        showToast('Auftrag erfolgreich erstellt!', 'success');
+      }
     } catch (err: any) {
       showToast(err.response?.data?.detail || 'Fehler beim Erstellen des Auftrags', 'error');
     } finally {

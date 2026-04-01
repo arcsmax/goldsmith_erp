@@ -543,6 +543,11 @@ export const OrderFormModal: React.FC<OrderFormModalProps> = ({
                     value={formData.fitting_date}
                     onChange={handleChange}
                   />
+                  {!formData.fitting_date && (
+                    <small className="form-hint" style={{ color: '#888' }}>
+                      Ohne Anprobe-Datum wird der Status nach Bestätigung auf "Warten auf Anprobe" gesetzt.
+                    </small>
+                  )}
                 </div>
 
                 {/* Altgold */}
