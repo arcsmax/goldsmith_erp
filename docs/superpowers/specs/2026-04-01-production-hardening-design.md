@@ -91,6 +91,28 @@ volumes:
 
 No reverse proxy — local network doesn't need TLS. Document how to add Caddy later if internet exposure is ever needed.
 
+### Host Firewall Configuration
+
+`setup.sh` checks for and optionally configures the host firewall to ensure ports are accessible on the local network but not exposed beyond it:
+
+- Detect firewall tool: `ufw` (Ubuntu/Debian), `firewalld` (Fedora/RHEL), or macOS `pf`
+- If firewall is active: offer to open ports 3000 and 8000 for the local subnet only
+  - `ufw allow from 192.168.0.0/16 to any port 3000,8000 proto tcp`
+  - `firewall-cmd --add-port=3000/tcp --add-port=8000/tcp --zone=home`
+- If no firewall detected: warn and suggest enabling one
+- Skip on macOS (not typical for local network servers, and `pf` is complex)
+
+### Local Network Discovery (mDNS)
+
+For local network access without remembering IP addresses, `setup.sh` optionally configures mDNS so the workshop can access the ERP at `goldsmith.local:3000`:
+
+- On Linux: check for `avahi-daemon`, offer to install and configure
+  - Creates `/etc/avahi/services/goldsmith-erp.service` advertising `_http._tcp` on port 3000
+  - Hostname becomes discoverable as `<hostname>.local`
+- On macOS: mDNS (Bonjour) is built-in, no configuration needed
+- This is optional — if the goldsmith prefers a static IP, skip this step
+- Print the `.local` URL alongside the IP URL in the setup completion message
+
 ### Systemd Integration
 
 - `make install-service` generates and installs a systemd unit via `podman generate systemd`
@@ -122,6 +144,7 @@ No reverse proxy — local network doesn't need TLS. Document how to add Caddy l
 - Output: `$BACKUP_DIR/goldsmith_erp_YYYY-MM-DD_HHMMSS.sql.gz` (gzipped)
 - Retention: keep last 7 daily + last 4 weekly + last 3 monthly (configurable)
 - Old backups beyond retention are deleted automatically
+- After dump: verify integrity with `gzip -t` on the output file — if corrupted, log error and do NOT delete previous backup
 - Exit code 0 on success, non-zero on failure (for cron/systemd monitoring)
 
 **Scheduling:**
@@ -207,6 +230,20 @@ A new page in the React frontend, accessible only to ADMIN role. Shows at-a-glan
 4. **Alerts:**
    - Any active system warnings (disk >80%, backup failed, Redis down)
    - Uses the existing notification system to push alerts to admin
+
+### Global Health Indicator (Admin-Only)
+
+Beyond the full admin dashboard, a small health dot in the MainLayout sidebar/footer — visible only to ADMIN users — provides immediate at-a-glance feedback without navigating to `/admin/system`.
+
+- **Green dot:** All systems healthy, last backup succeeded
+- **Yellow dot:** Non-critical warning (disk >80%, cloud sync failed but local backup OK)
+- **Red dot:** Critical issue (backup failed, Redis down, disk >95%)
+
+The dot fetches from the lightweight `/health` endpoint every 60 seconds. Clicking it navigates to `/admin/system`. This is a single `<HealthDot />` component in MainLayout, ~30 lines.
+
+### Metrics Persistence Note
+
+In-memory request metrics (response times, request counts) reset on container restart — acceptable for performance monitoring. However, business metrics displayed on the dashboard ("Orders this month", "Active users") must come from database queries, not in-memory counters, so they survive restarts. The `/api/v1/admin/system-info` endpoint separates these two categories explicitly.
 
 ### Backend Health Endpoints
 
