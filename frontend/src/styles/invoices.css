@@ -484,6 +484,66 @@
   }
 }
 
+/* ==================== PRINT STYLESHEET ==================== */
+
+@media print {
+  /* Hide navigation, chrome, and interactive controls */
+  .main-header,
+  .main-sidebar,
+  .sidebar-overlay,
+  .page-header,
+  .invoices-controls,
+  .invoices-table,
+  .invoice-summary-bar,
+  .toast-container,
+  .timer-widget,
+  .pagination-controls,
+  .main-footer,
+  .btn-print,
+  .btn-download-pdf,
+  .invoice-detail-panel .btn-secondary,
+  .invoice-detail-panel .detail-header button {
+    display: none !important;
+  }
+
+  /* Expand the detail panel to fill the printed page */
+  .invoice-detail-panel {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    box-shadow: none;
+    border: none;
+    border-radius: 0;
+    padding: 0;
+    margin: 0;
+  }
+
+  /* Ensure the rest of the page layout does not interfere */
+  .main-layout,
+  .main-content-wrapper,
+  .main-content,
+  .page-container {
+    display: block !important;
+    overflow: visible !important;
+  }
+
+  /* Typography adjustments for print */
+  body {
+    font-size: 11pt;
+    color: #000;
+  }
+
+  .invoice-number {
+    color: #000;
+  }
+
+  /* Keep totals block legible on white paper */
+  .totals-row.totals-grand .totals-value {
+    color: #000;
+  }
+}
+
 @media (max-width: 640px) {
   .invoices-table,
   .invoices-table thead,

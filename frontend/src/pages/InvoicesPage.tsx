@@ -412,13 +412,23 @@ const InvoiceDetailPanel: React.FC<InvoiceDetailPanelProps> = ({ invoiceId, onCl
               </span>
               <StatusBadge status={invoice.status} />
             </div>
-            <button
-              className="btn-secondary"
-              onClick={onClose}
-              style={{ minHeight: 44, padding: '0.5rem 1rem' }}
-            >
-              Schließen
-            </button>
+            <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
+              <button
+                className="btn-secondary btn-print"
+                onClick={() => window.print()}
+                style={{ minHeight: 44, padding: '0.5rem 1rem' }}
+                title="Rechnung drucken"
+              >
+                Drucken
+              </button>
+              <button
+                className="btn-secondary"
+                onClick={onClose}
+                style={{ minHeight: 44, padding: '0.5rem 1rem' }}
+              >
+                Schließen
+              </button>
+            </div>
           </div>
 
           <div className="detail-meta">
