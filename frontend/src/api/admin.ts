@@ -98,3 +98,50 @@ export const triggerBackup = async (): Promise<{ status: string; note?: string }
   );
   return response.data;
 };
+
+// ---------------------------------------------------------------------------
+// Email configuration types & calls (ADMIN only)
+// ---------------------------------------------------------------------------
+
+export interface EmailConfig {
+  smtp_host: string | null;
+  smtp_port: number;
+  smtp_user: string | null;
+  smtp_from: string | null;
+  email_notifications_enabled: boolean;
+  password_configured: boolean;
+}
+
+export interface EmailConfigUpdate {
+  smtp_host?: string | null;
+  smtp_port?: number;
+  smtp_user?: string | null;
+  smtp_password?: string | null;
+  smtp_from?: string | null;
+  email_notifications_enabled?: boolean;
+}
+
+export interface EmailTestResult {
+  success: boolean;
+  message: string;
+}
+
+/** Fetch current SMTP configuration (ADMIN only). */
+export const getEmailConfig = async (): Promise<EmailConfig> => {
+  const response = await apiClient.get<EmailConfig>('/admin/email-config');
+  return response.data;
+};
+
+/** Update SMTP configuration (ADMIN only). */
+export const updateEmailConfig = async (
+  data: EmailConfigUpdate
+): Promise<EmailConfig> => {
+  const response = await apiClient.put<EmailConfig>('/admin/email-config', data);
+  return response.data;
+};
+
+/** Send a test email to verify SMTP setup (ADMIN only). */
+export const sendTestEmail = async (to: string): Promise<EmailTestResult> => {
+  const response = await apiClient.post<EmailTestResult>('/admin/email-test', { to });
+  return response.data;
+};

@@ -3,11 +3,17 @@ import React, { useCallback, useEffect, useState } from 'react';
 import {
   BackupInfo,
   BusinessMetrics,
+  EmailConfig,
+  EmailConfigUpdate,
+  EmailTestResult,
   FullHealth,
   RequestMetrics,
   SystemInfo,
+  getEmailConfig,
   getSystemInfo,
+  sendTestEmail,
   triggerBackup,
+  updateEmailConfig,
 } from '../api/admin';
 import '../styles/admin.css';
 
@@ -216,6 +222,204 @@ const MetricsSection: React.FC<{
 );
 
 // ---------------------------------------------------------------------------
+// Section: Email / SMTP Configuration
+// ---------------------------------------------------------------------------
+
+const EmailConfigSection: React.FC = () => {
+  const [config, setConfig] = useState<EmailConfig | null>(null);
+  const [draft, setDraft] = useState<EmailConfigUpdate>({});
+  const [testEmail, setTestEmail] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
+  const [isTesting, setIsTesting] = useState(false);
+  const [message, setMessage] = useState<{ text: string; ok: boolean } | null>(null);
+
+  useEffect(() => {
+    getEmailConfig()
+      .then((c) => {
+        setConfig(c);
+        setDraft({
+          smtp_host: c.smtp_host ?? '',
+          smtp_port: c.smtp_port,
+          smtp_user: c.smtp_user ?? '',
+          smtp_from: c.smtp_from ?? '',
+          email_notifications_enabled: c.email_notifications_enabled,
+        });
+      })
+      .catch(() => {
+        setMessage({ text: 'E-Mail-Konfiguration konnte nicht geladen werden.', ok: false });
+      });
+  }, []);
+
+  const handleSave = async () => {
+    setIsSaving(true);
+    setMessage(null);
+    try {
+      const updated = await updateEmailConfig(draft);
+      setConfig(updated);
+      setMessage({ text: 'Einstellungen gespeichert.', ok: true });
+    } catch {
+      setMessage({ text: 'Speichern fehlgeschlagen.', ok: false });
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleTest = async () => {
+    if (!testEmail.trim()) {
+      setMessage({ text: 'Bitte eine Empfängeradresse eingeben.', ok: false });
+      return;
+    }
+    setIsTesting(true);
+    setMessage(null);
+    try {
+      const result: EmailTestResult = await sendTestEmail(testEmail.trim());
+      setMessage({ text: result.message, ok: result.success });
+    } catch {
+      setMessage({ text: 'Test-E-Mail konnte nicht gesendet werden.', ok: false });
+    } finally {
+      setIsTesting(false);
+    }
+  };
+
+  const field = (label: string, node: React.ReactNode) => (
+    <div style={{ marginBottom: '12px' }}>
+      <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: '#5a4a2a', marginBottom: '4px' }}>
+        {label}
+      </label>
+      {node}
+    </div>
+  );
+
+  const inputStyle: React.CSSProperties = {
+    width: '100%',
+    padding: '7px 10px',
+    border: '1px solid #d5c9ae',
+    borderRadius: '5px',
+    fontSize: '0.9rem',
+    background: '#fefcf7',
+    color: '#2c2416',
+    boxSizing: 'border-box',
+  };
+
+  return (
+    <div className="admin-section">
+      <h2>E-Mail-Konfiguration</h2>
+
+      {message && (
+        <div
+          className="admin-error-banner"
+          style={{
+            background: message.ok ? '#f0fdf4' : '#fef2f2',
+            borderColor: message.ok ? '#86efac' : '#fca5a5',
+            color: message.ok ? '#15803d' : '#b91c1c',
+            marginBottom: '16px',
+          }}
+        >
+          {message.text}
+        </div>
+      )}
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 24px' }}>
+        <div>
+          {field('SMTP Host',
+            <input
+              style={inputStyle}
+              type="text"
+              placeholder="z. B. smtp.gmail.com"
+              value={draft.smtp_host ?? ''}
+              onChange={(e) => setDraft((d) => ({ ...d, smtp_host: e.target.value }))}
+            />
+          )}
+          {field('SMTP Port',
+            <input
+              style={inputStyle}
+              type="number"
+              min={1}
+              max={65535}
+              value={draft.smtp_port ?? 587}
+              onChange={(e) => setDraft((d) => ({ ...d, smtp_port: Number(e.target.value) }))}
+            />
+          )}
+          {field('SMTP Benutzer',
+            <input
+              style={inputStyle}
+              type="text"
+              placeholder="user@domain.de"
+              value={draft.smtp_user ?? ''}
+              onChange={(e) => setDraft((d) => ({ ...d, smtp_user: e.target.value }))}
+            />
+          )}
+        </div>
+        <div>
+          {field(
+            `SMTP Passwort${config?.password_configured ? ' (gesetzt — zum Ändern neu eingeben)' : ''}`,
+            <input
+              style={inputStyle}
+              type="password"
+              placeholder={config?.password_configured ? '••••••••' : 'Passwort eingeben'}
+              onChange={(e) => setDraft((d) => ({ ...d, smtp_password: e.target.value || undefined }))}
+            />
+          )}
+          {field('Absender-Adresse',
+            <input
+              style={inputStyle}
+              type="email"
+              placeholder="werkstatt@goldschmiede.de"
+              value={draft.smtp_from ?? ''}
+              onChange={(e) => setDraft((d) => ({ ...d, smtp_from: e.target.value }))}
+            />
+          )}
+          <div style={{ marginTop: '20px' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', fontWeight: 600, color: '#5a4a2a' }}>
+              <input
+                type="checkbox"
+                checked={draft.email_notifications_enabled ?? false}
+                onChange={(e) => setDraft((d) => ({ ...d, email_notifications_enabled: e.target.checked }))}
+                style={{ width: '18px', height: '18px', accentColor: '#7c5c1e' }}
+              />
+              Kunden-E-Mails aktivieren
+            </label>
+            <p style={{ fontSize: '0.76rem', color: '#8a7a5a', marginTop: '4px', marginLeft: '28px' }}>
+              Sendet automatisch E-Mails bei Auftragsbestätigung, Abholbereitschaft und Anproben.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div style={{ display: 'flex', gap: '12px', marginTop: '20px', flexWrap: 'wrap', alignItems: 'flex-end' }}>
+        <button
+          className="btn-backup-trigger"
+          onClick={handleSave}
+          disabled={isSaving}
+          style={{ minWidth: '160px' }}
+        >
+          {isSaving ? 'Wird gespeichert…' : 'Einstellungen speichern'}
+        </button>
+
+        <div style={{ display: 'flex', gap: '8px', flexGrow: 1, maxWidth: '420px' }}>
+          <input
+            style={{ ...inputStyle, flexGrow: 1 }}
+            type="email"
+            placeholder="Test-Empfänger: name@domain.de"
+            value={testEmail}
+            onChange={(e) => setTestEmail(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && handleTest()}
+          />
+          <button
+            className="btn-backup-trigger"
+            onClick={handleTest}
+            disabled={isTesting}
+            style={{ whiteSpace: 'nowrap' }}
+          >
+            {isTesting ? 'Wird gesendet…' : 'Test-E-Mail senden'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ---------------------------------------------------------------------------
 // Main Page
 // ---------------------------------------------------------------------------
 
@@ -315,6 +519,8 @@ export const AdminSystemPage: React.FC = () => {
           />
         </>
       )}
+
+      <EmailConfigSection />
     </div>
   );
 };
