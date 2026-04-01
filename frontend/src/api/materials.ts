@@ -92,4 +92,16 @@ export const materialsApi = {
     const response = await apiClient.get<PurchaseListItem[]>('/materials/purchase-list');
     return response.data;
   },
+
+  /**
+   * Upload an image for a material. Calls POST /materials/{id}/image with FormData.
+   */
+  uploadImage: async (id: number, file: File): Promise<MaterialType> => {
+    const formData = new FormData();
+    formData.append('file', file);
+    const response = await apiClient.post<MaterialType>(`/materials/${id}/image`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    return response.data;
+  },
 };

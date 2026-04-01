@@ -179,10 +179,18 @@ export const MaterialsPage: React.FC = () => {
     setFilteredMaterials(filtered);
   };
 
-  const handleCreateMaterial = async (data: MaterialCreateInput) => {
+  const handleCreateMaterial = async (data: MaterialCreateInput & { _imageFile?: File }) => {
     try {
       setIsFormLoading(true);
-      await materialsApi.create(data);
+      const { _imageFile, ...createData } = data;
+      const created = await materialsApi.create(createData);
+      if (_imageFile) {
+        try {
+          await materialsApi.uploadImage(created.id, _imageFile);
+        } catch (imgErr: any) {
+          showToast('Material erstellt, aber Bild-Upload fehlgeschlagen.', 'error');
+        }
+      }
       await fetchMaterials();
       setIsModalOpen(false);
       showToast('Material erfolgreich erstellt!', 'success');
@@ -193,12 +201,20 @@ export const MaterialsPage: React.FC = () => {
     }
   };
 
-  const handleUpdateMaterial = async (data: MaterialUpdateInput) => {
+  const handleUpdateMaterial = async (data: MaterialUpdateInput & { _imageFile?: File }) => {
     if (!selectedMaterial) return;
 
     try {
       setIsFormLoading(true);
-      await materialsApi.update(selectedMaterial.id, data);
+      const { _imageFile, ...updateData } = data;
+      await materialsApi.update(selectedMaterial.id, updateData);
+      if (_imageFile) {
+        try {
+          await materialsApi.uploadImage(selectedMaterial.id, _imageFile);
+        } catch (imgErr: any) {
+          showToast('Material aktualisiert, aber Bild-Upload fehlgeschlagen.', 'error');
+        }
+      }
       await fetchMaterials();
       setIsModalOpen(false);
       setSelectedMaterial(null);
@@ -248,11 +264,13 @@ export const MaterialsPage: React.FC = () => {
     setSelectedMaterial(null);
   };
 
-  const handleFormSubmit = async (data: MaterialCreateInput | MaterialUpdateInput) => {
+  const handleFormSubmit = async (
+    data: (MaterialCreateInput | MaterialUpdateInput) & { _imageFile?: File }
+  ) => {
     if (selectedMaterial) {
       await handleUpdateMaterial(data);
     } else {
-      await handleCreateMaterial(data as MaterialCreateInput);
+      await handleCreateMaterial(data as MaterialCreateInput & { _imageFile?: File });
     }
   };
 

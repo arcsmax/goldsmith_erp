@@ -85,8 +85,6 @@ export const MainLayout: React.FC = () => {
         </div>
       </header>
 
-      {/* Offline status banner — non-blocking, auto-dismisses on reconnect */}
-      <OfflineIndicator />
 
       {/* Overlay backdrop for mobile sidebar */}
       <div

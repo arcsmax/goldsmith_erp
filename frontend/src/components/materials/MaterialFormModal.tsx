@@ -112,11 +112,13 @@ export const MaterialFormModal: React.FC<MaterialFormModalProps> = ({
       return;
     }
 
-    const submitData: MaterialCreateInput = {
+    const submitData: MaterialCreateInput & { _imageFile?: File } = {
       ...result.data,
       // image_url is set server-side after the upload POST; pass through
       // existing value when editing so the field is not cleared on save.
       image_url: imageFile ? undefined : (material?.image_url ?? undefined),
+      // Carry the selected File so the parent can call uploadImage after save.
+      _imageFile: imageFile ?? undefined,
     };
 
     await onSubmit(submitData);

@@ -361,10 +361,15 @@ const StatusTab: React.FC<{
   onStatusChange: (status: OrderStatus) => void;
 }> = ({ order, onStatusChange }) => {
   const statuses: { value: OrderStatus; label: string; color: string }[] = [
-    { value: 'new', label: 'Neu', color: '#3b82f6' },
+    { value: 'draft', label: 'Entwurf', color: '#9ca3af' },
+    { value: 'confirmed', label: 'Bestätigt', color: '#3b82f6' },
     { value: 'in_progress', label: 'In Bearbeitung', color: '#f59e0b' },
+    { value: 'waiting_for_fitting', label: 'Wartet auf Anprobe', color: '#f97316' },
+    { value: 'fitting_done', label: 'Anprobe abgeschlossen', color: '#eab308' },
+    { value: 'ready_for_setting', label: 'Bereit für Steinbesatz', color: '#06b6d4' },
+    { value: 'quality_check', label: 'Endkontrolle', color: '#8b5cf6' },
     { value: 'completed', label: 'Fertiggestellt', color: '#10b981' },
-    { value: 'delivered', label: 'Ausgeliefert', color: '#8b5cf6' },
+    { value: 'delivered', label: 'Ausgeliefert', color: '#6366f1' },
   ];
 
   return (
@@ -423,7 +428,13 @@ const HistoryTab: React.FC<{ order: OrderType }> = ({ order }) => (
 const getStatusLabel = (status: string): string => {
   const labels: Record<string, string> = {
     new: 'Neu',
+    draft: 'Entwurf',
+    confirmed: 'Bestätigt',
     in_progress: 'In Bearbeitung',
+    waiting_for_fitting: 'Wartet auf Anprobe',
+    fitting_done: 'Anprobe abgeschlossen',
+    ready_for_setting: 'Bereit für Steinbesatz',
+    quality_check: 'Endkontrolle',
     completed: 'Fertiggestellt',
     delivered: 'Ausgeliefert',
   };

@@ -235,6 +235,25 @@ export interface OrderCreateInput {
   customer_id: number;
   deadline?: string;
   status?: OrderStatus;
+
+  // Metal & costing
+  metal_type?: MetalType;
+  estimated_weight_g?: number;
+  scrap_percentage?: number;
+  costing_method_used?: CostingMethod;
+
+  // Goldsmith intake / Pflichtfelder
+  alloy?: string;
+  ring_size_mm?: number;
+  surface_finish?: string;
+  fitting_date?: string;
+  has_scrap_gold?: boolean;
+  special_instructions?: string;
+
+  // Order classification
+  order_type?: string;
+  complexity_rating?: number;
+  finish_type?: string;
 }
 
 export interface OrderUpdateInput {
@@ -244,14 +263,27 @@ export interface OrderUpdateInput {
   deadline?: string | null;
   status?: OrderStatus;
 
+  // Metal & costing
+  metal_type?: MetalType | null;
+  estimated_weight_g?: number | null;
+  scrap_percentage?: number | null;
+  costing_method_used?: CostingMethod | null;
+
   // Arbeitszettel (production work sheet) fields
   actual_weight_g?: number | null;
   labor_hours?: number | null;
   alloy?: string | null;
   ring_size_mm?: number | null;
   surface_finish?: string | null;
+  fitting_date?: string | null;
+  has_scrap_gold?: boolean | null;
   current_location?: string | null;
   special_instructions?: string | null;
+
+  // Order classification
+  order_type?: string | null;
+  complexity_rating?: number | null;
+  finish_type?: string | null;
 }
 
 // ==================== USER TYPES ====================

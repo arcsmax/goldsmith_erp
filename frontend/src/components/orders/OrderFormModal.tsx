@@ -200,7 +200,8 @@ export const OrderFormModal: React.FC<OrderFormModalProps> = ({
     formData.description.trim() !== '' &&
     formData.customer_id !== '' &&
     formData.deadline !== '' &&
-    formData.metal_type !== '';
+    formData.metal_type !== '' &&
+    formData.alloy !== '';
 
   // Pflichtfelder completion indicator for the Auftrag tab
   // These are the fields needed before status can be set to 'confirmed'
