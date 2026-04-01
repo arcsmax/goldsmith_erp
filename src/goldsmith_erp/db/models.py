@@ -18,11 +18,21 @@ Base = declarative_base()
 
 
 class OrderStatusEnum(str, enum.Enum):
-    """Enumerated order statuses for consistency and validation."""
-    NEW = "new"
+    """Enumerated order statuses for consistency and validation.
+
+    Follows the goldsmith production pipeline:
+    Auftrag -> Entwurf -> Guss -> Montage -> Fassung -> Oberflaeche -> QK -> Auslieferung
+    """
+    DRAFT = "draft"
+    CONFIRMED = "confirmed"
     IN_PROGRESS = "in_progress"
+    WAITING_FOR_FITTING = "waiting_for_fitting"
+    FITTING_DONE = "fitting_done"
+    READY_FOR_SETTING = "ready_for_setting"
+    QUALITY_CHECK = "quality_check"
     COMPLETED = "completed"
     DELIVERED = "delivered"
+    NEW = "new"  # Legacy backward compatibility
 
 
 class UserRole(str, enum.Enum):
@@ -332,6 +342,18 @@ class Order(Base):
     actual_hours = Column(Float, nullable=True)  # Auto-calculated from time entries on completion
     completed_at = Column(DateTime, nullable=True)  # Timestamp when order reached COMPLETED/DELIVERED
 
+    # Goldsmith Intake Fields (Pflichtfelder for order confirmation)
+    alloy = Column(String(20), nullable=True, index=True)  # '585', '750', '333', etc.
+    ring_size_mm = Column(Float, nullable=True)  # Per-order ring size (mm inner circumference)
+    surface_finish = Column(String(50), nullable=True)  # 'Hochglanz', 'Matt', etc.
+    fitting_date = Column(DateTime, nullable=True)  # Anprobe-Datum
+    has_scrap_gold = Column(Boolean, default=False)  # Altgold vorhanden?
+    special_instructions = Column(Text, nullable=True)  # Sonderwuensche
+
+    # Soft delete
+    is_deleted = Column(Boolean, default=False, index=True)
+    deleted_at = Column(DateTime, nullable=True)
+
     # Metadata
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -403,7 +425,7 @@ class TimeEntry(Base):
     __tablename__ = "time_entries"
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    order_id = Column(Integer, ForeignKey("orders.id"), nullable=False, index=True)
+    order_id = Column(Integer, ForeignKey("orders.id", ondelete="RESTRICT"), nullable=False, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     activity_id = Column(Integer, ForeignKey("activities.id"), nullable=False, index=True)
     start_time = Column(DateTime, nullable=False, index=True)

@@ -107,6 +107,14 @@ class OrderCreate(OrderBase):
     finish_type: Optional[FinishTypeEnum] = Field(None, description="Surface finish type")
     complexity_rating: Optional[int] = Field(None, ge=1, le=5, description="Complexity 1-5 stars")
 
+    # Goldsmith Intake Fields (Pflichtfelder for order confirmation)
+    alloy: Optional[str] = Field(None, max_length=20, description="Legierung: 333, 375, 585, 750, 900, 999, Ag925, Ag800, Pt950")
+    ring_size_mm: Optional[float] = Field(None, ge=30.0, le=100.0, description="Ringmass in mm (innerer Umfang)")
+    surface_finish: Optional[str] = Field(None, max_length=50, description="Oberflaechenbearbeitung: Hochglanz, Matt, Gebuerstet, etc.")
+    fitting_date: Optional[datetime] = Field(None, description="Anprobe-Datum")
+    has_scrap_gold: Optional[bool] = Field(False, description="Altgold vorhanden?")
+    special_instructions: Optional[str] = Field(None, max_length=2000, description="Sonderwuensche des Kunden")
+
     @field_validator('deadline')
     @classmethod
     def validate_deadline(cls, v: Optional[datetime]) -> Optional[datetime]:
@@ -188,6 +196,14 @@ class OrderUpdate(BaseModel):
     finish_type: Optional[FinishTypeEnum] = Field(None, description="Surface finish type")
     complexity_rating: Optional[int] = Field(None, ge=1, le=5, description="Complexity 1-5 stars")
 
+    # Goldsmith Intake Fields
+    alloy: Optional[str] = Field(None, max_length=20, description="Legierung: 333, 375, 585, 750, 900, 999, Ag925, Ag800, Pt950")
+    ring_size_mm: Optional[float] = Field(None, ge=30.0, le=100.0, description="Ringmass in mm (innerer Umfang)")
+    surface_finish: Optional[str] = Field(None, max_length=50, description="Oberflaechenbearbeitung")
+    fitting_date: Optional[datetime] = Field(None, description="Anprobe-Datum")
+    has_scrap_gold: Optional[bool] = Field(None, description="Altgold vorhanden?")
+    special_instructions: Optional[str] = Field(None, max_length=2000, description="Sonderwuensche des Kunden")
+
     @field_validator('title', 'description', 'current_location')
     @classmethod
     def sanitize_text(cls, v: Optional[str]) -> Optional[str]:
@@ -263,6 +279,14 @@ class OrderRead(OrderBase):
     complexity_rating: Optional[int] = None
     actual_hours: Optional[float] = None
     completed_at: Optional[datetime] = None
+
+    # Goldsmith Intake Fields
+    alloy: Optional[str] = None
+    ring_size_mm: Optional[float] = None
+    surface_finish: Optional[str] = None
+    fitting_date: Optional[datetime] = None
+    has_scrap_gold: Optional[bool] = None
+    special_instructions: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
 
