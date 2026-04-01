@@ -55,6 +55,85 @@ class EmailService:
     """Static-method email service — all methods are safe to call fire-and-forget."""
 
     # ------------------------------------------------------------------
+    # Template preview (dry-run / no SMTP required)
+    # ------------------------------------------------------------------
+
+    # Sample context data keyed by template stem (without .html extension).
+    _PREVIEW_CONTEXTS: dict[str, dict] = {
+        "order_confirmed": {
+            "order_id": 1042,
+            "deadline": "15.04.2026",
+        },
+        "repair_received": {
+            "order_id": 1043,
+            "description": "Goldring 750 — Stein gefasst und poliert",
+            "bag_number": "T-2026-087",
+        },
+        "quote_sent": {
+            "quote_number": "KV-2026-019",
+            "total": "1.240,00 €",
+            "valid_until": "30.04.2026",
+        },
+        "ready_for_pickup": {
+            "order_id": 1044,
+        },
+        "pickup_complete": {
+            "order_id": 1045,
+        },
+        "fitting_reminder": {
+            "order_id": 1046,
+            "date": "12.04.2026 um 14:00 Uhr",
+        },
+    }
+
+    @classmethod
+    def render_preview(cls, template_name: str) -> tuple[str, str]:
+        """
+        Render a template with sample data for admin preview.
+
+        Parameters
+        ----------
+        template_name:
+            Template stem without ``.html`` extension (e.g. ``order_confirmed``).
+
+        Returns
+        -------
+        Tuple of (html_content, subject) where html_content is the rendered
+        HTML string and subject is the email subject line for that template.
+
+        Raises
+        ------
+        ValueError
+            If ``template_name`` is not a recognised template.
+        TemplateNotFound
+            Propagated from Jinja2 if the .html file is missing.
+        """
+        known_templates = set(cls._PREVIEW_CONTEXTS.keys())
+        if template_name not in known_templates:
+            raise ValueError(
+                f"Unknown template '{template_name}'. "
+                f"Available: {sorted(known_templates)}"
+            )
+        context = cls._PREVIEW_CONTEXTS[template_name]
+        html = cls._render_template(f"{template_name}.html", context)
+        if not html:
+            raise ValueError(
+                f"Template '{template_name}.html' could not be rendered. "
+                "Check the templates directory and Jinja2 syntax."
+            )
+        # Build a representative subject line for each template.
+        subjects: dict[str, str] = {
+            "order_confirmed": f"[Vorschau] Ihr Auftrag #1042 wurde bestätigt",
+            "repair_received": f"[Vorschau] Ihre Reparatur #1043 wurde angenommen",
+            "quote_sent": f"[Vorschau] Ihr Kostenvoranschlag KV-2026-019",
+            "ready_for_pickup": f"[Vorschau] Ihr Schmuckstück ist fertig zur Abholung",
+            "pickup_complete": f"[Vorschau] Vielen Dank für Ihren Auftrag #1045",
+            "fitting_reminder": f"[Vorschau] Erinnerung: Ihre Anprobe am 12.04.2026",
+        }
+        subject = subjects.get(template_name, f"[Vorschau] {template_name}")
+        return html, subject
+
+    # ------------------------------------------------------------------
     # Core send primitive
     # ------------------------------------------------------------------
 

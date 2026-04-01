@@ -23,6 +23,7 @@ import logging
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
 
 from goldsmith_erp.api.deps import get_current_admin_user
@@ -223,3 +224,106 @@ async def send_test_email(
             "Bitte Backend-Logs auf SMTP-Fehler prüfen."
         ),
     )
+
+
+# ---------------------------------------------------------------------------
+# Email template preview (dry-run — no SMTP required)
+# ---------------------------------------------------------------------------
+
+_AVAILABLE_TEMPLATES = [
+    "order_confirmed",
+    "repair_received",
+    "quote_sent",
+    "ready_for_pickup",
+    "pickup_complete",
+    "fitting_reminder",
+]
+
+
+@router.get(
+    "/admin/email-preview/{template_name}",
+    response_class=HTMLResponse,
+    summary="E-Mail-Vorlage als HTML-Vorschau rendern",
+    description=(
+        "Rendert eine E-Mail-Vorlage mit Beispieldaten und gibt das fertige HTML "
+        "zurück, ohne eine E-Mail zu versenden. Nützlich zum Prüfen des Layouts "
+        "ohne SMTP-Konfiguration. ADMIN-only.\n\n"
+        f"Verfügbare Vorlagen: ``{'``, ``'.join(_AVAILABLE_TEMPLATES)}``"
+    ),
+    responses={
+        200: {"content": {"text/html": {}}, "description": "Rendered HTML email body"},
+        404: {"description": "Template not found"},
+        422: {"description": "Unknown template name"},
+    },
+)
+async def preview_email_template(
+    template_name: str,
+    _current_user: UserModel = Depends(get_current_admin_user),
+) -> HTMLResponse:
+    """
+    Render a named email template with sample data.
+
+    When SMTP is not configured this is the primary way admins can verify
+    that templates render correctly before going live.  The rendered HTML is
+    wrapped in a thin outer document so browsers display it faithfully.
+
+    Parameters
+    ----------
+    template_name:
+        One of the known template stems:
+        order_confirmed | repair_received | quote_sent |
+        ready_for_pickup | pickup_complete | fitting_reminder
+    """
+    if template_name not in _AVAILABLE_TEMPLATES:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                f"Unbekannte Vorlage '{template_name}'. "
+                f"Verfügbar: {', '.join(_AVAILABLE_TEMPLATES)}"
+            ),
+        )
+
+    try:
+        html, subject = EmailService.render_preview(template_name)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+
+    # Wrap in a minimal chrome so the browser shows it as a stand-alone page
+    # and the admin can see the subject line at the top.
+    preview_wrapper = f"""<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Vorschau: {template_name}</title>
+  <style>
+    body {{ margin: 0; font-family: Arial, sans-serif; background: #f5f5f5; }}
+    .preview-banner {{
+      background: #1e293b; color: #f1f5f9;
+      padding: 12px 24px; font-size: 13px;
+      display: flex; gap: 24px; align-items: center;
+    }}
+    .preview-banner strong {{ color: #fbbf24; }}
+    .preview-frame {{ padding: 24px; }}
+  </style>
+</head>
+<body>
+  <div class="preview-banner">
+    <span>Vorlage: <strong>{template_name}</strong></span>
+    <span>Betreff: <strong>{subject}</strong></span>
+    <span style="margin-left:auto;opacity:0.6;">Nur Vorschau — keine E-Mail wurde versendet</span>
+  </div>
+  <div class="preview-frame">
+    {html}
+  </div>
+</body>
+</html>"""
+
+    logger.info(
+        "Email template preview rendered",
+        extra={"template": template_name, "admin_id": _current_user.id},
+    )
+    return HTMLResponse(content=preview_wrapper, status_code=200)
