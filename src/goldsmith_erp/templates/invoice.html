@@ -1,0 +1,448 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Rechnung {{ invoice.invoice_number }}</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: Arial, Helvetica, sans-serif;
+    font-size: 10pt;
+    color: #222;
+    background: #fff;
+  }
+
+  .page {
+    width: 210mm;
+    min-height: 297mm;
+    padding: 20mm 20mm 25mm 20mm;
+    margin: 0 auto;
+  }
+
+  /* ---- Header ---- */
+  .header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 10mm;
+    border-bottom: 2px solid #8b6914;
+    padding-bottom: 6mm;
+  }
+
+  .workshop-name {
+    font-size: 18pt;
+    font-weight: bold;
+    color: #8b6914;
+    letter-spacing: 1px;
+  }
+
+  .workshop-tagline {
+    font-size: 8pt;
+    color: #666;
+    margin-top: 2px;
+  }
+
+  .document-title {
+    text-align: right;
+  }
+
+  .document-title h1 {
+    font-size: 22pt;
+    font-weight: bold;
+    color: #333;
+    letter-spacing: 2px;
+  }
+
+  .invoice-number {
+    font-size: 11pt;
+    color: #8b6914;
+    font-weight: bold;
+    margin-top: 2px;
+  }
+
+  /* ---- Address Block ---- */
+  .address-section {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 10mm;
+  }
+
+  .address-block {
+    width: 48%;
+  }
+
+  .address-block h3 {
+    font-size: 7pt;
+    text-transform: uppercase;
+    color: #999;
+    letter-spacing: 1px;
+    border-bottom: 1px solid #ddd;
+    padding-bottom: 2px;
+    margin-bottom: 4px;
+  }
+
+  .address-block p {
+    font-size: 10pt;
+    line-height: 1.5;
+    color: #222;
+  }
+
+  /* ---- Invoice Meta ---- */
+  .invoice-meta {
+    display: flex;
+    justify-content: flex-end;
+    margin-bottom: 8mm;
+  }
+
+  .meta-table {
+    border-collapse: collapse;
+    font-size: 9pt;
+  }
+
+  .meta-table td {
+    padding: 2px 8px 2px 0;
+    vertical-align: top;
+  }
+
+  .meta-table td:first-child {
+    color: #666;
+    white-space: nowrap;
+    font-weight: normal;
+  }
+
+  .meta-table td:last-child {
+    font-weight: bold;
+    text-align: right;
+  }
+
+  /* ---- Line Items Table ---- */
+  .items-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 6mm;
+    font-size: 9.5pt;
+  }
+
+  .items-table thead tr {
+    background-color: #8b6914;
+    color: #fff;
+  }
+
+  .items-table thead th {
+    padding: 5px 8px;
+    text-align: left;
+    font-weight: bold;
+    font-size: 8.5pt;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+
+  .items-table thead th.right {
+    text-align: right;
+  }
+
+  .items-table tbody tr {
+    border-bottom: 1px solid #e8e8e8;
+  }
+
+  .items-table tbody tr:nth-child(even) {
+    background-color: #fafafa;
+  }
+
+  .items-table tbody tr:last-child {
+    border-bottom: 2px solid #ccc;
+  }
+
+  .items-table tbody td {
+    padding: 5px 8px;
+    vertical-align: top;
+  }
+
+  .items-table tbody td.right {
+    text-align: right;
+  }
+
+  .items-table tbody td.pos {
+    color: #888;
+    font-size: 8.5pt;
+    width: 28px;
+  }
+
+  /* ---- Totals ---- */
+  .totals-section {
+    display: flex;
+    justify-content: flex-end;
+    margin-bottom: 8mm;
+  }
+
+  .totals-table {
+    border-collapse: collapse;
+    font-size: 10pt;
+    min-width: 200px;
+  }
+
+  .totals-table tr td {
+    padding: 3px 8px;
+  }
+
+  .totals-table tr td:first-child {
+    color: #555;
+    text-align: left;
+  }
+
+  .totals-table tr td:last-child {
+    text-align: right;
+    font-weight: normal;
+  }
+
+  .totals-table .subtotal-row td {
+    padding-top: 6px;
+    border-top: 1px solid #ddd;
+  }
+
+  .totals-table .altgold-row td {
+    color: #8b6914;
+    font-style: italic;
+  }
+
+  .totals-table .tax-row td {
+    color: #555;
+    font-size: 9pt;
+  }
+
+  .totals-table .total-row {
+    background-color: #8b6914;
+    color: #fff;
+  }
+
+  .totals-table .total-row td {
+    padding: 6px 8px;
+    font-weight: bold;
+    font-size: 11pt;
+    color: #fff;
+  }
+
+  /* ---- Notes ---- */
+  .notes-section {
+    margin-bottom: 8mm;
+    padding: 4mm;
+    background-color: #f9f5ec;
+    border-left: 3px solid #8b6914;
+  }
+
+  .notes-section h4 {
+    font-size: 8pt;
+    text-transform: uppercase;
+    color: #8b6914;
+    margin-bottom: 3px;
+    letter-spacing: 1px;
+  }
+
+  .notes-section p {
+    font-size: 9pt;
+    color: #444;
+    line-height: 1.4;
+  }
+
+  /* ---- Footer ---- */
+  .footer {
+    position: fixed;
+    bottom: 10mm;
+    left: 20mm;
+    right: 20mm;
+    border-top: 1px solid #ccc;
+    padding-top: 4mm;
+    display: flex;
+    justify-content: space-between;
+    font-size: 8pt;
+    color: #888;
+  }
+
+  .footer-col h5 {
+    font-size: 7pt;
+    text-transform: uppercase;
+    color: #aaa;
+    letter-spacing: 0.5px;
+    margin-bottom: 2px;
+  }
+
+  .footer-col p {
+    line-height: 1.5;
+  }
+
+  .payment-info {
+    margin-bottom: 6mm;
+    font-size: 9pt;
+    color: #444;
+  }
+
+  .payment-info strong {
+    color: #222;
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <!-- Header -->
+  <div class="header">
+    <div>
+      <div class="workshop-name">{{ workshop_name }}</div>
+      <div class="workshop-tagline">Goldschmiede &amp; Atelier</div>
+    </div>
+    <div class="document-title">
+      <h1>RECHNUNG</h1>
+      <div class="invoice-number">{{ invoice.invoice_number }}</div>
+    </div>
+  </div>
+
+  <!-- Addresses -->
+  <div class="address-section">
+    <div class="address-block">
+      <h3>Rechnungssteller</h3>
+      <p>
+        <strong>{{ workshop_name }}</strong><br>
+        {{ workshop_address | default("Musterstraße 1", true) }}<br>
+        {{ workshop_city | default("12345 Musterstadt", true) }}<br>
+        {{ workshop_phone | default("Tel: +49 (0) 123 456789", true) }}<br>
+        {{ workshop_email | default("info@goldschmiede.de", true) }}
+      </p>
+    </div>
+    <div class="address-block">
+      <h3>Rechnungsempfänger</h3>
+      <p>
+        <strong>{{ customer.name }}</strong><br>
+        {% if customer.address %}{{ customer.address }}<br>{% endif %}
+        {% if customer.city %}{{ customer.city }}<br>{% endif %}
+        {% if customer.email %}{{ customer.email }}<br>{% endif %}
+        {% if customer.phone %}{{ customer.phone }}{% endif %}
+      </p>
+    </div>
+  </div>
+
+  <!-- Invoice Meta -->
+  <div class="invoice-meta">
+    <table class="meta-table">
+      <tr>
+        <td>Rechnungsdatum:</td>
+        <td>{{ invoice.issue_date.strftime("%d.%m.%Y") }}</td>
+      </tr>
+      <tr>
+        <td>Fälligkeitsdatum:</td>
+        <td>{{ invoice.due_date.strftime("%d.%m.%Y") }}</td>
+      </tr>
+      {% if service_period_start and service_period_end %}
+      <tr>
+        <td>Leistungszeitraum:</td>
+        <td>{{ service_period_start }} – {{ service_period_end }}</td>
+      </tr>
+      {% endif %}
+      <tr>
+        <td>Auftragsnummer:</td>
+        <td>{{ invoice.order_id }}</td>
+      </tr>
+      {% if invoice.payment_method %}
+      <tr>
+        <td>Zahlungsart:</td>
+        <td>{{ invoice.payment_method }}</td>
+      </tr>
+      {% endif %}
+    </table>
+  </div>
+
+  <!-- Line Items -->
+  <table class="items-table">
+    <thead>
+      <tr>
+        <th style="width: 30px;">Pos.</th>
+        <th>Beschreibung</th>
+        <th class="right" style="width: 70px;">Menge</th>
+        <th class="right" style="width: 90px;">Einzelpreis</th>
+        <th class="right" style="width: 90px;">Gesamtpreis</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for item in line_items %}
+      <tr>
+        <td class="pos">{{ loop.index }}</td>
+        <td>{{ item.description }}</td>
+        <td class="right">{{ "%.2f"|format(item.quantity) }}</td>
+        <td class="right">{{ "%.2f"|format(item.unit_price) }} €</td>
+        <td class="right">{{ "%.2f"|format(item.total) }} €</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <!-- Totals -->
+  <div class="totals-section">
+    <table class="totals-table">
+      <tr class="subtotal-row">
+        <td>Zwischensumme (netto):</td>
+        <td>{{ "%.2f"|format(invoice.subtotal) }} €</td>
+      </tr>
+      {% if altgold_credit and altgold_credit > 0 %}
+      <tr class="altgold-row">
+        <td>Gutschrift Altgold:</td>
+        <td>–{{ "%.2f"|format(altgold_credit) }} €</td>
+      </tr>
+      {% endif %}
+      <tr class="tax-row">
+        <td>MwSt {{ "%.0f"|format(invoice.tax_rate) }}%:</td>
+        <td>{{ "%.2f"|format(invoice.tax_amount) }} €</td>
+      </tr>
+      <tr class="total-row">
+        <td>Gesamtbetrag:</td>
+        <td>{{ "%.2f"|format(invoice.total) }} €</td>
+      </tr>
+    </table>
+  </div>
+
+  {% if invoice.notes %}
+  <!-- Notes -->
+  <div class="notes-section">
+    <h4>Hinweise</h4>
+    <p>{{ invoice.notes }}</p>
+  </div>
+  {% endif %}
+
+  <!-- Payment Info -->
+  <div class="payment-info">
+    Bitte überweisen Sie den Gesamtbetrag von <strong>{{ "%.2f"|format(invoice.total) }} €</strong>
+    bis zum <strong>{{ invoice.due_date.strftime("%d.%m.%Y") }}</strong> auf das unten angegebene Konto.<br>
+    Verwendungszweck: <strong>{{ invoice.invoice_number }}</strong>
+  </div>
+
+</div>
+
+<!-- Footer (fixed, repeats on all pages) -->
+<div class="footer">
+  <div class="footer-col">
+    <h5>Bankverbindung</h5>
+    <p>
+      {{ bank_name | default("Musterbank", true) }}<br>
+      IBAN: {{ bank_iban | default("DE00 0000 0000 0000 0000 00", true) }}<br>
+      BIC: {{ bank_bic | default("MUBKDEXXXX", true) }}
+    </p>
+  </div>
+  <div class="footer-col">
+    <h5>Steuernummer</h5>
+    <p>
+      StNr: {{ tax_number | default("000/000/00000", true) }}<br>
+      USt-IdNr: {{ vat_id | default("DE000000000", true) }}
+    </p>
+  </div>
+  <div class="footer-col">
+    <h5>Kontakt</h5>
+    <p>
+      {{ workshop_name }}<br>
+      {{ workshop_address | default("Musterstraße 1", true) }}<br>
+      {{ workshop_city | default("12345 Musterstadt", true) }}
+    </p>
+  </div>
+</div>
+
+</body>
+</html>

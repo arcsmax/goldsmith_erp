@@ -1,0 +1,384 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ankaufsbeleg – Altgold</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: Arial, Helvetica, sans-serif;
+    font-size: 10pt;
+    color: #222;
+    background: #fff;
+  }
+
+  .page {
+    width: 210mm;
+    min-height: 297mm;
+    padding: 20mm 20mm 25mm 20mm;
+    margin: 0 auto;
+  }
+
+  /* ---- Header ---- */
+  .header {
+    text-align: center;
+    border-bottom: 3px solid #8b6914;
+    padding-bottom: 6mm;
+    margin-bottom: 8mm;
+  }
+
+  .workshop-name {
+    font-size: 16pt;
+    font-weight: bold;
+    color: #8b6914;
+    letter-spacing: 1px;
+    margin-bottom: 3px;
+  }
+
+  .document-title {
+    font-size: 20pt;
+    font-weight: bold;
+    color: #333;
+    letter-spacing: 3px;
+    margin-top: 4px;
+  }
+
+  .receipt-date {
+    font-size: 9pt;
+    color: #666;
+    margin-top: 3px;
+  }
+
+  /* ---- Party Info ---- */
+  .party-section {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 8mm;
+    padding: 4mm;
+    background-color: #f9f5ec;
+    border: 1px solid #d4b35a;
+    border-radius: 2px;
+  }
+
+  .party-block {
+    width: 48%;
+  }
+
+  .party-block h3 {
+    font-size: 7pt;
+    text-transform: uppercase;
+    color: #8b6914;
+    letter-spacing: 1px;
+    border-bottom: 1px solid #d4b35a;
+    padding-bottom: 2px;
+    margin-bottom: 4px;
+    font-weight: bold;
+  }
+
+  .party-block p {
+    font-size: 10pt;
+    line-height: 1.6;
+    color: #333;
+  }
+
+  /* ---- Items Table ---- */
+  .section-title {
+    font-size: 8.5pt;
+    font-weight: bold;
+    text-transform: uppercase;
+    color: #8b6914;
+    letter-spacing: 1px;
+    margin-bottom: 3mm;
+    border-bottom: 1px solid #d4b35a;
+    padding-bottom: 2px;
+  }
+
+  .items-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 6mm;
+    font-size: 9.5pt;
+  }
+
+  .items-table thead tr {
+    background-color: #8b6914;
+    color: #fff;
+  }
+
+  .items-table thead th {
+    padding: 5px 8px;
+    text-align: left;
+    font-size: 8.5pt;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+
+  .items-table thead th.right {
+    text-align: right;
+  }
+
+  .items-table tbody tr {
+    border-bottom: 1px solid #e8e8e8;
+  }
+
+  .items-table tbody tr:nth-child(even) {
+    background-color: #fafafa;
+  }
+
+  .items-table tbody td {
+    padding: 5px 8px;
+    vertical-align: top;
+  }
+
+  .items-table tbody td.right {
+    text-align: right;
+  }
+
+  /* ---- Summary ---- */
+  .summary-section {
+    margin-bottom: 8mm;
+  }
+
+  .summary-table {
+    float: right;
+    border-collapse: collapse;
+    font-size: 10pt;
+    min-width: 220px;
+  }
+
+  .summary-table td {
+    padding: 3px 8px;
+  }
+
+  .summary-table td:first-child {
+    color: #555;
+  }
+
+  .summary-table td:last-child {
+    text-align: right;
+    font-weight: bold;
+  }
+
+  .summary-table .divider td {
+    border-top: 1px solid #ccc;
+    padding-top: 5px;
+  }
+
+  .summary-table .total-row {
+    background-color: #8b6914;
+  }
+
+  .summary-table .total-row td {
+    color: #fff;
+    font-weight: bold;
+    font-size: 11pt;
+    padding: 6px 8px;
+  }
+
+  .clearfix::after {
+    content: "";
+    display: table;
+    clear: both;
+  }
+
+  /* ---- Signature ---- */
+  .signature-section {
+    margin-top: 8mm;
+    margin-bottom: 8mm;
+    clear: both;
+  }
+
+  .signature-box {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+  }
+
+  .sig-left, .sig-right {
+    width: 45%;
+  }
+
+  .sig-line {
+    border-bottom: 1px solid #333;
+    height: 20mm;
+    margin-bottom: 3px;
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+  }
+
+  .sig-line img {
+    max-height: 18mm;
+    max-width: 100%;
+  }
+
+  .sig-label {
+    font-size: 8pt;
+    color: #666;
+    text-align: center;
+  }
+
+  /* ---- Legal Text ---- */
+  .legal-section {
+    margin-top: 6mm;
+    padding: 4mm;
+    background-color: #f5f5f5;
+    border: 1px solid #ddd;
+    border-radius: 2px;
+  }
+
+  .legal-section h4 {
+    font-size: 8pt;
+    font-weight: bold;
+    text-transform: uppercase;
+    color: #444;
+    letter-spacing: 0.5px;
+    margin-bottom: 3px;
+  }
+
+  .legal-section p {
+    font-size: 8pt;
+    color: #555;
+    line-height: 1.5;
+  }
+
+  /* ---- Footer ---- */
+  .footer {
+    position: fixed;
+    bottom: 10mm;
+    left: 20mm;
+    right: 20mm;
+    border-top: 1px solid #ccc;
+    padding-top: 3mm;
+    font-size: 7.5pt;
+    color: #999;
+    text-align: center;
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <!-- Header -->
+  <div class="header">
+    <div class="workshop-name">{{ workshop_name }}</div>
+    <div class="document-title">ANKAUFSBELEG</div>
+    <div class="receipt-date">
+      Datum: {{ scrap_gold.created_at.strftime("%d.%m.%Y") }}
+      &nbsp;|&nbsp;
+      Beleg-Nr.: AG-{{ "%05d"|format(scrap_gold.id) }}
+    </div>
+  </div>
+
+  <!-- Parties -->
+  <div class="party-section">
+    <div class="party-block">
+      <h3>Ankäufer</h3>
+      <p>
+        <strong>{{ workshop_name }}</strong><br>
+        {{ workshop_address | default("Musterstraße 1", true) }}<br>
+        {{ workshop_city | default("12345 Musterstadt", true) }}<br>
+        {{ workshop_phone | default("Tel: +49 (0) 123 456789", true) }}
+      </p>
+    </div>
+    <div class="party-block">
+      <h3>Verkäufer (Kunde)</h3>
+      <p>
+        <strong>{{ customer.name }}</strong><br>
+        {% if customer.address %}{{ customer.address }}<br>{% endif %}
+        {% if customer.city %}{{ customer.city }}<br>{% endif %}
+        {% if customer.phone %}{{ customer.phone }}{% endif %}
+      </p>
+    </div>
+  </div>
+
+  <!-- Items -->
+  <div class="section-title">Positionen – Abgegebenes Altgold</div>
+  <table class="items-table">
+    <thead>
+      <tr>
+        <th>Beschreibung</th>
+        <th>Legierung</th>
+        <th class="right">Gewicht (g)</th>
+        <th class="right">Feingehalt (g)</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for item in items %}
+      <tr>
+        <td>{{ item.description }}</td>
+        <td>{{ item.alloy }}</td>
+        <td class="right">{{ "%.3f"|format(item.weight_g) }}</td>
+        <td class="right">{{ "%.3f"|format(item.fine_content_g) }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <!-- Summary -->
+  <div class="summary-section clearfix">
+    <table class="summary-table">
+      <tr class="divider">
+        <td>Gesamt-Feingold:</td>
+        <td>{{ "%.3f"|format(scrap_gold.total_fine_gold_g) }} g</td>
+      </tr>
+      {% if scrap_gold.gold_price_per_g %}
+      <tr>
+        <td>Goldpreis/g:</td>
+        <td>{{ "%.2f"|format(scrap_gold.gold_price_per_g) }} €</td>
+      </tr>
+      {% endif %}
+      <tr class="total-row">
+        <td>Gesamtwert:</td>
+        <td>{{ "%.2f"|format(scrap_gold.total_value_eur) }} €</td>
+      </tr>
+    </table>
+  </div>
+
+  <!-- Signature -->
+  <div class="signature-section">
+    <div class="section-title">Unterschrift</div>
+    <div class="signature-box">
+      <div class="sig-left">
+        <div class="sig-line">
+          {% if signature_base64 %}
+          <img src="data:image/png;base64,{{ signature_base64 }}" alt="Unterschrift Kunde" />
+          {% endif %}
+        </div>
+        <div class="sig-label">Unterschrift Verkäufer / Kunde</div>
+      </div>
+      <div class="sig-right">
+        <div class="sig-line"></div>
+        <div class="sig-label">Unterschrift Goldschmiede / Ankäufer</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Legal Text -->
+  <div class="legal-section">
+    <h4>Rechtlicher Hinweis</h4>
+    <p>
+      Der Kunde bestätigt die Abgabe des oben genannten Altgolds und die Richtigkeit der angegebenen Gewichte
+      und Legierungen. Der Kaufpreis wurde vollständig in bar/per Überweisung ausgezahlt. Der Kunde versichert,
+      rechtmäßiger Eigentümer der übergebenen Gegenstände zu sein und diese unbeschränkt veräußern zu dürfen.
+      Weitere Ansprüche gegen {{ workshop_name }} bezüglich dieser Transaktion sind hiermit ausgeschlossen.
+      <br><br>
+      Aufbewahrungs- und Identifizierungspflichten gemäß GwG (Geldwäschegesetz) wurden erfüllt.
+      Dieser Beleg wird gemäß gesetzlicher Aufbewahrungspflicht für 10 Jahre archiviert.
+    </p>
+  </div>
+
+</div>
+
+<!-- Footer -->
+<div class="footer">
+  {{ workshop_name }}
+  {% if workshop_address %} | {{ workshop_address }}, {{ workshop_city | default("") }}{% endif %}
+  | Ankaufsbeleg AG-{{ "%05d"|format(scrap_gold.id) }}
+  | Datum: {{ scrap_gold.created_at.strftime("%d.%m.%Y") }}
+</div>
+
+</body>
+</html>

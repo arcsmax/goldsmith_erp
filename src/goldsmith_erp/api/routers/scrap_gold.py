@@ -1,17 +1,31 @@
 """API Router for Scrap Gold (Altgold) management."""
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.ext.asyncio import AsyncSession
+import io
+import logging
 from typing import List, Optional
 
+from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from goldsmith_erp.api.deps import get_current_user
-from goldsmith_erp.db.session import get_db
-from goldsmith_erp.db.models import User
-from goldsmith_erp.models.scrap_gold import (
-    ScrapGoldCreate, ScrapGoldRead, ScrapGoldItemCreate,
-    ScrapGoldItemRead, ScrapGoldSignRequest, AlloyCalculation, ALLOY_RATIOS
-)
-from goldsmith_erp.services.scrap_gold_service import ScrapGoldService
+from goldsmith_erp.core.config import settings
 from goldsmith_erp.core.permissions import Permission, require_permission
+from goldsmith_erp.db.models import Customer, User
+from goldsmith_erp.db.session import get_db
+from goldsmith_erp.models.scrap_gold import (
+    AlloyCalculation,
+    ALLOY_RATIOS,
+    ScrapGoldCreate,
+    ScrapGoldItemCreate,
+    ScrapGoldItemRead,
+    ScrapGoldRead,
+    ScrapGoldSignRequest,
+)
+from goldsmith_erp.services.pdf_service import PDFService
+from goldsmith_erp.services.scrap_gold_service import ScrapGoldService
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -121,4 +135,88 @@ async def calculate_alloy(
         weight_g=weight_g,
         fine_content_g=fine_content,
         fine_content_percent=ALLOY_RATIOS[alloy] * 100
+    )
+
+
+@router.get("/scrap-gold/{scrap_gold_id}/receipt.pdf")
+@require_permission(Permission.ORDER_VIEW)
+async def download_scrap_gold_receipt(
+    scrap_gold_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Ankaufsbeleg als PDF herunterladen (Download scrap gold receipt as PDF).
+
+    Generates a German Ankaufsbeleg including all Altgold items, Feingold
+    calculations, Gesamtwert, customer signature, and legal Geldwäschegesetz text.
+
+    The signature image (if present) is embedded as a PNG in the PDF.
+
+    Returns a streaming PDF response (application/pdf).
+    """
+    scrap_gold = await ScrapGoldService.get_by_id(db, scrap_gold_id)
+    if not scrap_gold:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Altgold-Eintrag {scrap_gold_id} nicht gefunden",
+        )
+
+    customer_result = await db.execute(
+        select(Customer).where(Customer.id == scrap_gold.customer_id)
+    )
+    customer = customer_result.scalar_one_or_none()
+    if not customer:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Kunde {scrap_gold.customer_id} nicht gefunden",
+        )
+
+    class _CustomerAdapter:
+        def __init__(self, c: Customer) -> None:
+            self.name = f"{c.first_name} {c.last_name}".strip()
+            self.address = c.street or ""
+            city_parts = []
+            if c.postal_code:
+                city_parts.append(c.postal_code)
+            if c.city:
+                city_parts.append(c.city)
+            self.city = " ".join(city_parts)
+            self.phone = c.phone or ""
+
+    # Extract base64 signature data (strip data URI prefix if present)
+    sig_b64: Optional[str] = None
+    raw_sig = getattr(scrap_gold, "signature_data", None)
+    if raw_sig:
+        if "," in raw_sig:
+            sig_b64 = raw_sig.split(",", 1)[1]
+        else:
+            sig_b64 = raw_sig
+
+    try:
+        pdf_bytes = PDFService.render_scrap_gold_receipt(
+            scrap_gold=scrap_gold,
+            items=scrap_gold.items,
+            customer=_CustomerAdapter(customer),
+            workshop_name=settings.WORKSHOP_NAME,
+            signature_base64=sig_b64,
+        )
+    except Exception:
+        logger.exception(
+            "PDF generation failed for scrap gold receipt",
+            extra={"scrap_gold_id": scrap_gold_id},
+        )
+        raise HTTPException(
+            status_code=500,
+            detail="PDF-Generierung fehlgeschlagen. Bitte versuchen Sie es später erneut.",
+        )
+
+    filename = f"ankaufsbeleg_AG-{scrap_gold_id:05d}.pdf"
+    return StreamingResponse(
+        io.BytesIO(pdf_bytes),
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Content-Length": str(len(pdf_bytes)),
+        },
     )

@@ -12,25 +12,35 @@ Endpoints:
   PUT    /api/v1/invoices/{invoice_id}     - Update invoice status/notes
   POST   /api/v1/invoices/{invoice_id}/mark-paid   - Mark as paid
   POST   /api/v1/invoices/{invoice_id}/cancel      - Cancel invoice
+  GET    /api/v1/invoices/{invoice_id}/pdf         - Download invoice as PDF
 """
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy.ext.asyncio import AsyncSession
-from typing import List, Optional
+import io
+import logging
 from datetime import datetime
+from typing import List, Optional
+
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import StreamingResponse
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from goldsmith_erp.api.deps import get_current_user
+from goldsmith_erp.core.config import settings
+from goldsmith_erp.core.permissions import Permission, require_permission
+from goldsmith_erp.db.models import Customer, Invoice, InvoiceStatus, User
 from goldsmith_erp.db.session import get_db
-from goldsmith_erp.db.models import User, InvoiceStatus
 from goldsmith_erp.models.invoice import (
     InvoiceCreate,
-    InvoiceUpdate,
-    InvoiceResponse,
     InvoiceListResponse,
+    InvoiceResponse,
+    InvoiceUpdate,
     MarkPaidRequest,
 )
 from goldsmith_erp.services.invoice_service import InvoiceService
-from goldsmith_erp.core.permissions import Permission, require_permission
+from goldsmith_erp.services.pdf_service import PDFService
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -186,3 +196,91 @@ async def cancel_invoice(
             detail=f"Rechnung {invoice_id} nicht gefunden",
         )
     return invoice
+
+
+@router.get("/{invoice_id}/pdf")
+@require_permission(Permission.INVOICE_VIEW)
+async def download_invoice_pdf(
+    invoice_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Rechnung als PDF herunterladen (Download invoice as PDF).
+
+    Generates a German-format Rechnung PDF including all Rechnungspositionen,
+    MwSt breakdown, and payment instructions.
+
+    Restricted to ADMIN and GOLDSMITH roles (INVOICE_VIEW permission).
+    Access is audit-logged by the service layer as financial data.
+
+    Returns a streaming PDF response (application/pdf).
+    """
+    invoice = await InvoiceService.get_invoice(db, invoice_id, current_user)
+    if not invoice:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Rechnung {invoice_id} nicht gefunden",
+        )
+
+    # Load the associated customer — customer_id is stored on the invoice.
+    customer_result = await db.execute(
+        select(Customer).where(Customer.id == invoice.customer_id)
+    )
+    customer = customer_result.scalar_one_or_none()
+    if not customer:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Kunde {invoice.customer_id} nicht gefunden",
+        )
+
+    # Build a thin adapter so PDFService sees a uniform .name, .address, .city
+    # without depending on the ORM model's internal field names.
+    class _CustomerAdapter:
+        name: str
+        address: str
+        city: str
+        email: str
+        phone: str
+
+        def __init__(self, c: Customer) -> None:
+            self.name = f"{c.first_name} {c.last_name}".strip()
+            parts = []
+            if c.street:
+                parts.append(c.street)
+            self.address = ", ".join(parts)
+            city_parts = []
+            if c.postal_code:
+                city_parts.append(c.postal_code)
+            if c.city:
+                city_parts.append(c.city)
+            self.city = " ".join(city_parts)
+            self.email = c.email or ""
+            self.phone = c.phone or ""
+
+    try:
+        pdf_bytes = PDFService.render_invoice_pdf(
+            invoice=invoice,
+            customer=_CustomerAdapter(customer),
+            line_items=invoice.line_items,
+            workshop_name=settings.WORKSHOP_NAME,
+        )
+    except Exception:
+        logger.exception(
+            "PDF generation failed for invoice",
+            extra={"invoice_id": invoice_id},
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="PDF-Generierung fehlgeschlagen. Bitte versuchen Sie es später erneut.",
+        )
+
+    filename = f"rechnung_{invoice.invoice_number}.pdf"
+    return StreamingResponse(
+        io.BytesIO(pdf_bytes),
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Content-Length": str(len(pdf_bytes)),
+        },
+    )
