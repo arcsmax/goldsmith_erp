@@ -12,6 +12,7 @@ import { MetalInventoryCard } from '../components/orders/MetalInventoryCard';
 import { CustomerInfoCard } from '../components/orders/CustomerInfoCard';
 import { SollIstTab } from '../components/orders/SollIstTab';
 import HandoffTab from '../components/orders/HandoffTab';
+import ArbeitszettelTab from '../components/orders/ArbeitszettelTab';
 import '../styles/order-detail.css';
 
 export const OrderDetailPage: React.FC = () => {
@@ -173,6 +174,14 @@ export const OrderDetailPage: React.FC = () => {
         >
           🤝 Übergabe
         </button>
+        {order.status !== 'draft' && (
+          <button
+            className={`tab ${activeTab === 'arbeitszettel' ? 'active' : ''}`}
+            onClick={() => handleTabChange('arbeitszettel')}
+          >
+            🔧 Arbeitszettel
+          </button>
+        )}
         {(order.status === 'completed' || order.status === 'delivered') && (
           <button
             className={`tab ${activeTab === 'soll-ist' ? 'active' : ''}`}
@@ -223,6 +232,16 @@ export const OrderDetailPage: React.FC = () => {
 
         {activeTab === 'handoff' && (
           <HandoffTab orderId={order.id} />
+        )}
+
+        {activeTab === 'arbeitszettel' && (
+          <ArbeitszettelTab
+            order={order}
+            onOrderUpdated={(updated) => {
+              setOrder(updated);
+              setActiveOrder(updated);
+            }}
+          />
         )}
 
         {activeTab === 'soll-ist' && (
