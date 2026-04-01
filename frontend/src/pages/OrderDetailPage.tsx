@@ -138,6 +138,15 @@ export const OrderDetailPage: React.FC = () => {
           >
             Etikett drucken
           </button>
+          {order.customer_id && (
+            <button
+              className="btn-create-quote"
+              onClick={() => navigate(`/quotes?order_id=${order.id}&customer_id=${order.customer_id}`)}
+              title="Kostenvoranschlag fuer diesen Auftrag erstellen"
+            >
+              Angebot erstellen
+            </button>
+          )}
           <span className={`status-badge status-${order.status}`}>
             {getStatusLabel(order.status)}
           </span>

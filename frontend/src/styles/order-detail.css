@@ -82,6 +82,39 @@
   background: #78350f;
 }
 
+/* Kostenvoranschlag erstellen — next to print label button */
+.btn-create-quote {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-height: 44px;
+  min-width: 44px;
+  padding: 0.6rem 1.2rem;
+  background: #d97706;       /* amber-600 — gold accent */
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s, box-shadow 0.2s;
+  white-space: nowrap;
+}
+
+.btn-create-quote::before {
+  content: "F4DD";        /* memo emoji */
+  font-style: normal;
+}
+
+.btn-create-quote:hover {
+  background: #b45309;
+  box-shadow: 0 2px 8px rgba(180, 83, 9, 0.35);
+}
+
+.btn-create-quote:active {
+  background: #92400e;
+}
+
 /* Tabs */
 .order-tabs {
   display: flex;
