@@ -50,14 +50,21 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       const token = localStorage.getItem('access_token');
       const savedUser = localStorage.getItem('user');
 
-      if (token) {
+      if (token && savedUser) {
+        // Token and user both exist in localStorage — restore without network call.
+        // The token will be validated on the first real API request.
         try {
-          // Try to fetch current user to validate token
+          setUser(JSON.parse(savedUser));
+        } catch {
+          localStorage.removeItem('user');
+        }
+      } else if (token) {
+        // Token exists but no saved user — validate by fetching
+        try {
           const currentUser = await authApi.getCurrentUser();
           setUser(currentUser);
           localStorage.setItem('user', JSON.stringify(currentUser));
         } catch (error) {
-          // Token is invalid, clear storage
           console.error('Failed to fetch user, clearing auth:', error);
           localStorage.removeItem('access_token');
           localStorage.removeItem('user');
