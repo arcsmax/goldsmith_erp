@@ -102,6 +102,16 @@ class Settings(BaseSettings):
     BACKUP_DIR: str = "~/goldsmith-backups"
     BACKUP_CLOUD_URL: Optional[str] = None
 
+    # ── Email / SMTP ─────────────────────────────────────────────────────────────
+    # All fields are optional — the email service degrades gracefully when unset.
+    # Set EMAIL_NOTIFICATIONS_ENABLED=true and the SMTP_* fields to activate.
+    SMTP_HOST: Optional[str] = None
+    SMTP_PORT: int = 587
+    SMTP_USER: Optional[str] = None
+    SMTP_PASSWORD: Optional[str] = None
+    SMTP_FROM: Optional[str] = None
+    EMAIL_NOTIFICATIONS_ENABLED: bool = False
+
     # ── Encryption ───────────────────────────────────────────────────────────────
     # Fernet key for PII field encryption at rest. Generate with setup.sh.
     # Optional: app starts without it but PII fields will not be encrypted.
