@@ -16,18 +16,17 @@ import math
 import os
 from typing import Any
 
-import numpy as np
-
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Optional ML dependency guard.
-# xgboost and scikit-learn live in [tool.poetry.extras] ml, not the core
-# dependencies.  Import them lazily so the module can be imported even when
-# the extras are not installed; training will raise ImportError loudly while
-# prediction uses the cold-start heuristic path.
+# numpy, xgboost and scikit-learn live in [tool.poetry.extras] ml, not the
+# core dependencies.  Import them lazily so the module can be imported even
+# when the extras are not installed; training will raise ImportError loudly
+# while prediction uses the cold-start heuristic path.
 # ---------------------------------------------------------------------------
 try:
+    import numpy as np
     import joblib
     import pandas as pd
     from sklearn.metrics import mean_squared_error, r2_score

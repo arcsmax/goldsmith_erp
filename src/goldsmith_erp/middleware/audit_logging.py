@@ -25,8 +25,15 @@ from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.types import ASGIApp
 
-from goldsmith_erp.db.session import get_session
-from goldsmith_erp.db.models import CustomerAuditLog
+try:
+    from goldsmith_erp.db.session import get_db as get_session
+except ImportError:
+    get_session = None  # type: ignore[assignment]
+
+try:
+    from goldsmith_erp.db.models import CustomerAuditLog
+except ImportError:
+    CustomerAuditLog = None  # type: ignore[assignment,misc]
 
 logger = logging.getLogger(__name__)
 
