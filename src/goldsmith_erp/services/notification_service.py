@@ -364,6 +364,168 @@ class NotificationService:
         )
         return created_count
 
+    @staticmethod
+    async def check_pickup_reminders(db: AsyncSession) -> int:
+        """
+        Scan COMPLETED orders and notify ADMIN + GOLDSMITH users that the order
+        is ready for pickup.
+
+        Rules:
+        - Only orders with status COMPLETED and is_deleted == False.
+        - Severity is INFO normally; WARNING when the order has been completed
+          for more than 3 days.
+        - Deduplicate: skip if an unread PICKUP_READY notification already exists
+          for the same order today.
+
+        Returns the number of notifications created.
+        """
+        now = datetime.utcnow()
+        today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        today_end = today_start + timedelta(days=1)
+
+        stmt = select(Order).where(
+            and_(
+                Order.status == OrderStatusEnum.COMPLETED,
+                Order.is_deleted.is_(False),
+            )
+        )
+        result = await db.execute(stmt)
+        orders = result.scalars().all()
+
+        users_stmt = select(User).where(
+            and_(
+                User.is_active.is_(True),
+                User.role.in_([UserRole.ADMIN, UserRole.GOLDSMITH]),
+            )
+        )
+        users_result = await db.execute(users_stmt)
+        target_users = users_result.scalars().all()
+
+        created_count = 0
+        for order in orders:
+            completed_at = getattr(order, "completed_at", None)
+            days_waiting = (now - completed_at).days if completed_at else 0
+            severity = (
+                NotificationSeverityEnum.WARNING
+                if days_waiting > 3
+                else NotificationSeverityEnum.INFO
+            )
+
+            title = f"Auftrag #{order.id} abholbereit"
+            message = (
+                f"Auftrag #{order.id} \"{order.title}\" ist fertig und wartet auf Abholung."
+            )
+
+            for user in target_users:
+                existing_stmt = select(Notification).where(
+                    and_(
+                        Notification.user_id == user.id,
+                        Notification.related_order_id == order.id,
+                        Notification.notification_type == NotificationTypeEnum.PICKUP_READY,
+                        Notification.is_read.is_(False),
+                        Notification.created_at >= today_start,
+                        Notification.created_at < today_end,
+                    )
+                )
+                existing_result = await db.execute(existing_stmt)
+                if existing_result.scalar_one_or_none() is not None:
+                    continue
+
+                await NotificationService.create_notification(
+                    db=db,
+                    user_id=user.id,
+                    title=title,
+                    message=message,
+                    notification_type=NotificationTypeEnum.PICKUP_READY,
+                    severity=severity,
+                    related_order_id=order.id,
+                    related_customer_id=order.customer_id,
+                )
+                created_count += 1
+
+        logger.info(
+            "Pickup reminder scan complete",
+            extra={"orders_checked": len(orders), "notifications_created": created_count},
+        )
+        return created_count
+
+    @staticmethod
+    async def check_fitting_reminders(db: AsyncSession) -> int:
+        """
+        Scan orders in WAITING_FOR_FITTING status and notify ADMIN + GOLDSMITH
+        users to arrange a fitting appointment with the customer.
+
+        Rules:
+        - Only orders with status WAITING_FOR_FITTING and is_deleted == False.
+        - Severity is always WARNING.
+        - Deduplicate: skip if an unread FITTING_REMINDER notification already
+          exists for the same order today.
+
+        Returns the number of notifications created.
+        """
+        now = datetime.utcnow()
+        today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        today_end = today_start + timedelta(days=1)
+
+        stmt = select(Order).where(
+            and_(
+                Order.status == OrderStatusEnum.WAITING_FOR_FITTING,
+                Order.is_deleted.is_(False),
+            )
+        )
+        result = await db.execute(stmt)
+        orders = result.scalars().all()
+
+        users_stmt = select(User).where(
+            and_(
+                User.is_active.is_(True),
+                User.role.in_([UserRole.ADMIN, UserRole.GOLDSMITH]),
+            )
+        )
+        users_result = await db.execute(users_stmt)
+        target_users = users_result.scalars().all()
+
+        created_count = 0
+        for order in orders:
+            title = f"Anprobe erforderlich: Auftrag #{order.id}"
+            message = (
+                f"Anprobe fuer Auftrag #{order.id} \"{order.title}\" "
+                f"-- Termin mit Kunden vereinbaren."
+            )
+
+            for user in target_users:
+                existing_stmt = select(Notification).where(
+                    and_(
+                        Notification.user_id == user.id,
+                        Notification.related_order_id == order.id,
+                        Notification.notification_type == NotificationTypeEnum.FITTING_REMINDER,
+                        Notification.is_read.is_(False),
+                        Notification.created_at >= today_start,
+                        Notification.created_at < today_end,
+                    )
+                )
+                existing_result = await db.execute(existing_stmt)
+                if existing_result.scalar_one_or_none() is not None:
+                    continue
+
+                await NotificationService.create_notification(
+                    db=db,
+                    user_id=user.id,
+                    title=title,
+                    message=message,
+                    notification_type=NotificationTypeEnum.FITTING_REMINDER,
+                    severity=NotificationSeverityEnum.WARNING,
+                    related_order_id=order.id,
+                    related_customer_id=order.customer_id,
+                )
+                created_count += 1
+
+        logger.info(
+            "Fitting reminder scan complete",
+            extra={"orders_checked": len(orders), "notifications_created": created_count},
+        )
+        return created_count
+
     # ------------------------------------------------------------------
     # Real-time delivery
     # ------------------------------------------------------------------
