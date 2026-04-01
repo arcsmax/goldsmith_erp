@@ -8,8 +8,6 @@ not been trained.  Endpoints that require an unavailable module return HTTP 503
 with a German error message rather than crashing.
 """
 
-from __future__ import annotations
-
 import asyncio
 import logging
 import time
@@ -222,7 +220,7 @@ async def _run_prediction(request: DurationPredictionRequest) -> DurationPredict
 )
 @require_permission(Permission.ML_PREDICT)
 async def predict_duration(
-    request: DurationPredictionRequest,
+    body: DurationPredictionRequest,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> DurationPredictionResponse:
@@ -232,7 +230,7 @@ async def predict_duration(
     When the model has not been trained yet, a rule-based heuristic estimate
     is returned with `model_status: "not_trained"` and `is_heuristic: true`.
     """
-    return await _run_prediction(request)
+    return await _run_prediction(body)
 
 
 @router.get(
