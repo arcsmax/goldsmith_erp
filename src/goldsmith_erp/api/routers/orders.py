@@ -1,7 +1,7 @@
 # src/goldsmith_erp/api/routers/orders.py
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 from datetime import datetime
 
 from goldsmith_erp.api.deps import get_current_user
@@ -9,6 +9,7 @@ from goldsmith_erp.db.session import get_db
 from goldsmith_erp.db.models import User
 from goldsmith_erp.models.order import OrderCreate, OrderRead, OrderUpdate, LocationChangeRequest, LocationHistoryRead
 from goldsmith_erp.services.order_service import OrderService
+from goldsmith_erp.services.cost_calculation_service import CostCalculationService
 from goldsmith_erp.core.permissions import Permission, require_permission
 
 router = APIRouter()
@@ -18,11 +19,12 @@ router = APIRouter()
 async def list_orders(
     skip: int = 0,
     limit: int = 100,
+    customer_id: Optional[int] = Query(None, description="Filter by customer ID"),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
     """Liste aller Aufträge."""
-    return await OrderService.get_orders(db, skip, limit)
+    return await OrderService.get_orders(db, skip, limit, customer_id=customer_id)
 
 
 @router.get("/calendar/deadlines")
@@ -100,7 +102,10 @@ async def update_order(
     order = await OrderService.get_order(db, order_id)
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
-    return await OrderService.update_order(db, order_id, order_in)
+    try:
+        return await OrderService.update_order(db, order_id, order_in)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
 
 @router.post("/{order_id}/location", response_model=OrderRead)
 @require_permission(Permission.ORDER_EDIT)
@@ -131,6 +136,27 @@ async def get_order_location_history(
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
     return await OrderService.get_location_history(db, order_id)
+
+
+@router.post("/{order_id}/calculate-cost")
+@require_permission(Permission.ORDER_EDIT)
+async def calculate_order_cost(
+    order_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+) -> Dict[str, Any]:
+    """Vorkalkulation: Kosten fuer einen Auftrag berechnen und gespeicherte Felder aktualisieren."""
+    order = await OrderService.get_order(db, order_id)
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    try:
+        breakdown = await CostCalculationService.calculate_order_cost(db, order_id)
+        await CostCalculationService.update_order_calculated_price(db, order_id, breakdown)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    result = breakdown.to_dict()
+    result["order_id"] = order_id
+    return result
 
 
 @router.delete("/{order_id}")

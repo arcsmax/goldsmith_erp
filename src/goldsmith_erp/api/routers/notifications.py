@@ -105,7 +105,7 @@ async def mark_all_notifications_read(
     Returns the count of notifications that were updated.
     """
     count = await NotificationService.mark_all_read(db=db, user_id=current_user.id)
-    return {"updated": count}
+    return {"updated_count": count}
 
 
 @router.post("/check-deadlines", response_model=dict)

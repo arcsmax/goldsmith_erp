@@ -1,18 +1,20 @@
 # src/goldsmith_erp/api/routers/materials.py
 
+import itertools
 import logging
 import uuid
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from typing import List
+from typing import Any, Dict, List
 from pydantic import BaseModel
 
 from goldsmith_erp.api.deps import get_current_user
 from goldsmith_erp.core.config import settings
 from goldsmith_erp.db.session import get_db
-from goldsmith_erp.db.models import User as UserModel
+from goldsmith_erp.db.models import Material as MaterialModel, User as UserModel
 from goldsmith_erp.models.material import MaterialCreate, MaterialRead, MaterialUpdate, MaterialWithStock
 from goldsmith_erp.services.material_service import MaterialService
 from goldsmith_erp.services.photo_service import _detect_image_type, _MAX_MAGIC_BYTES, PhotoValidationError
@@ -90,6 +92,54 @@ async def create_material(
     # Material erstellen
     material = await MaterialService.create_material(db, material_in)
     return material
+
+
+@router.get("/purchase-list")
+@require_permission(Permission.MATERIAL_VIEW)
+async def get_purchase_list(
+    db: AsyncSession = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user),
+) -> List[Dict[str, Any]]:
+    """
+    Einkaufsliste: Materialien deren Bestand den Mindestbestand erreicht oder unterschritten hat.
+
+    - **Authentifizierung erforderlich**
+    - Gibt Materialien zurueck, bei denen stock <= min_stock
+    - Gruppiert nach Lieferant (supplier); Materialien ohne Lieferant unter "Kein Lieferant"
+
+    **Use Case**: Einkauf planen — auf einen Blick sehen, was bei welchem Lieferanten bestellt werden muss.
+    """
+    result = await db.execute(
+        select(MaterialModel)
+        .where(MaterialModel.stock <= MaterialModel.min_stock)
+        .order_by(MaterialModel.supplier.nullslast(), MaterialModel.name)
+    )
+    materials = result.scalars().all()
+
+    # Group by supplier; None maps to a human-readable fallback key
+    def _supplier_key(m: MaterialModel) -> str:
+        return m.supplier or "Kein Lieferant"
+
+    purchase_list = []
+    for supplier, group in itertools.groupby(materials, key=_supplier_key):
+        purchase_list.append(
+            {
+                "supplier": supplier,
+                "materials": [
+                    {
+                        "id": m.id,
+                        "name": m.name,
+                        "unit": m.unit,
+                        "stock": m.stock,
+                        "min_stock": m.min_stock,
+                        "webshop_url": m.webshop_url,
+                    }
+                    for m in group
+                ],
+            }
+        )
+
+    return purchase_list
 
 
 @router.get("/{material_id}", response_model=MaterialRead)

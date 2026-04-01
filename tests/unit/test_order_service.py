@@ -449,7 +449,7 @@ class TestOrderDeletion:
         result = await OrderService.delete_order(db_session, 99999)
 
         assert result["success"] is False
-        assert "not found" in result["message"].lower()
+        assert "nicht gefunden" in result["message"].lower()
 
     async def test_delete_order_with_materials(self, db_session, sample_customer, sample_material):
         """Test deleting order that has materials linked"""

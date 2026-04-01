@@ -372,25 +372,49 @@ class NotificationService:
 
         Rules:
         - Only orders with status COMPLETED and is_deleted == False.
-        - Severity is INFO normally; WARNING when the order has been completed
-          for more than 3 days.
+        - Only fire when EITHER:
+            a) The order's deadline is within the next 2 days (urgent pickup), OR
+            b) The order has been in COMPLETED state for more than 3 days (overdue pickup).
+        - Severity is INFO for deadline-approaching orders; WARNING for orders
+          waiting more than 3 days without delivery.
         - Deduplicate: skip if an unread PICKUP_READY notification already exists
           for the same order today.
+        - Include customer name in the notification message.
 
         Returns the number of notifications created.
         """
         now = datetime.utcnow()
         today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
         today_end = today_start + timedelta(days=1)
+        overdue_threshold = now - timedelta(days=3)
+        deadline_window = now + timedelta(days=2)
 
-        stmt = select(Order).where(
-            and_(
-                Order.status == OrderStatusEnum.COMPLETED,
-                Order.is_deleted.is_(False),
+        stmt = (
+            select(Order)
+            .where(
+                and_(
+                    Order.status == OrderStatusEnum.COMPLETED,
+                    Order.is_deleted.is_(False),
+                )
             )
+            .options(selectinload(Order.customer))
         )
         result = await db.execute(stmt)
-        orders = result.scalars().all()
+        all_completed = result.scalars().all()
+
+        # Apply business-rule filter in Python to avoid complex OR SQL
+        orders = [
+            o for o in all_completed
+            if (
+                # Condition a: deadline approaching within 2 days
+                (o.deadline is not None and o.deadline <= deadline_window)
+                # Condition b: completed more than 3 days ago without delivery
+                or (
+                    getattr(o, "completed_at", None) is not None
+                    and o.completed_at <= overdue_threshold
+                )
+            )
+        ]
 
         users_stmt = select(User).where(
             and_(
@@ -411,10 +435,19 @@ class NotificationService:
                 else NotificationSeverityEnum.INFO
             )
 
+            customer_name = (
+                f"{order.customer.first_name} {order.customer.last_name}"
+                if order.customer
+                else f"Kunde #{order.customer_id}"
+            )
+
             title = f"Auftrag #{order.id} abholbereit"
             message = (
-                f"Auftrag #{order.id} \"{order.title}\" ist fertig und wartet auf Abholung."
+                f"Auftrag #{order.id} \"{order.title}\" fuer {customer_name} "
+                f"ist fertig und wartet auf Abholung."
             )
+            if days_waiting > 3:
+                message += f" Wartet seit {days_waiting} Tagen."
 
             for user in target_users:
                 existing_stmt = select(Notification).where(
@@ -445,7 +478,11 @@ class NotificationService:
 
         logger.info(
             "Pickup reminder scan complete",
-            extra={"orders_checked": len(orders), "notifications_created": created_count},
+            extra={
+                "orders_checked": len(all_completed),
+                "orders_eligible": len(orders),
+                "notifications_created": created_count,
+            },
         )
         return created_count
 
