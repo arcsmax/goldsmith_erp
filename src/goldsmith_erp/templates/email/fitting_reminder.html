@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}Anprobe-Erinnerung — {{ workshop_name }}{% endblock %}
+
+{% block body %}
+<h2>Erinnerung: Ihre Anprobe</h2>
+
+<p>Wir möchten Sie freundlich an Ihre geplante Anprobe erinnern.</p>
+
+<dl class="info-box">
+  <dt>Auftrag</dt>
+  <dd>#{{ order_id }}</dd>
+
+  <dt>Termin</dt>
+  <dd><strong>{{ date }}</strong></dd>
+</dl>
+
+<p>Falls Sie den Termin nicht wahrnehmen können oder Fragen haben, kontaktieren Sie uns bitte rechtzeitig, damit wir einen neuen Termin vereinbaren können.</p>
+
+<p>Wir freuen uns auf Ihren Besuch!</p>
+{% endblock %}

@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}Auftragsbestätigung #{{ order_id }} — {{ workshop_name }}{% endblock %}
+
+{% block body %}
+<h2>Ihr Auftrag wurde bestätigt</h2>
+
+<p>Vielen Dank für Ihren Auftrag. Wir haben Ihre Bestellung aufgenommen und werden sie mit größter Sorgfalt bearbeiten.</p>
+
+<dl class="info-box">
+  <dt>Auftragsnummer</dt>
+  <dd>#{{ order_id }}</dd>
+
+  <dt>Voraussichtliche Fertigstellung</dt>
+  <dd>{{ deadline }}</dd>
+</dl>
+
+<p>Wir melden uns, sobald Ihr Schmuckstück fertiggestellt ist und zur Abholung bereitsteht.</p>
+
+<p>Bei Fragen stehen wir Ihnen gerne persönlich in unserer Werkstatt zur Verfügung.</p>
+{% endblock %}

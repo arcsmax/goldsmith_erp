@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}{{ workshop_name }}{% endblock %}</title>
+  <style>
+    /* Reset */
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: Arial, Helvetica, sans-serif;
+      font-size: 15px;
+      line-height: 1.6;
+      background-color: #f5f1eb;
+      color: #2c2416;
+    }
+    /* Wrapper */
+    .email-wrapper {
+      max-width: 600px;
+      margin: 24px auto;
+      background: #ffffff;
+      border-radius: 8px;
+      overflow: hidden;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    }
+    /* Header */
+    .email-header {
+      background-color: #7c5c1e;
+      padding: 28px 36px;
+    }
+    .email-header h1 {
+      color: #f5e6c8;
+      font-size: 22px;
+      font-weight: bold;
+      letter-spacing: 0.5px;
+    }
+    .email-header p {
+      color: #c9a96e;
+      font-size: 13px;
+      margin-top: 4px;
+    }
+    /* Body */
+    .email-body {
+      padding: 36px;
+    }
+    .email-body h2 {
+      font-size: 20px;
+      color: #7c5c1e;
+      margin-bottom: 16px;
+    }
+    .email-body p {
+      color: #3a2e1e;
+      margin-bottom: 14px;
+    }
+    /* Info box */
+    .info-box {
+      background: #fdf6e8;
+      border-left: 4px solid #c9a96e;
+      padding: 16px 20px;
+      border-radius: 4px;
+      margin: 20px 0;
+    }
+    .info-box dt {
+      font-size: 12px;
+      font-weight: bold;
+      color: #7c5c1e;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-top: 10px;
+    }
+    .info-box dt:first-child { margin-top: 0; }
+    .info-box dd {
+      font-size: 15px;
+      color: #2c2416;
+      margin-left: 0;
+    }
+    /* CTA button */
+    .cta-button {
+      display: inline-block;
+      margin-top: 20px;
+      padding: 12px 28px;
+      background-color: #7c5c1e;
+      color: #fff !important;
+      text-decoration: none;
+      border-radius: 5px;
+      font-weight: bold;
+      font-size: 15px;
+    }
+    /* Footer */
+    .email-footer {
+      background-color: #f5f1eb;
+      border-top: 1px solid #e0d5c0;
+      padding: 20px 36px;
+      font-size: 12px;
+      color: #7a6a50;
+      text-align: center;
+    }
+    .email-footer a {
+      color: #7c5c1e;
+      text-decoration: none;
+    }
+    /* Responsive */
+    @media (max-width: 620px) {
+      .email-wrapper { margin: 0; border-radius: 0; }
+      .email-header, .email-body, .email-footer { padding: 20px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="email-wrapper">
+    <div class="email-header">
+      <h1>{{ workshop_name }}</h1>
+      <p>Meisterhafte Goldschmiedekunst</p>
+    </div>
+
+    <div class="email-body">
+      {% block body %}{% endblock %}
+    </div>
+
+    <div class="email-footer">
+      <p>
+        <strong>{{ workshop_name }}</strong><br>
+        Diese E-Mail wurde automatisch versandt. Bitte antworten Sie direkt in der Werkstatt.<br>
+        &copy; {{ workshop_name }} — Alle Rechte vorbehalten.
+      </p>
+    </div>
+  </div>
+</body>
+</html>

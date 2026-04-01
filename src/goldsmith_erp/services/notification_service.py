@@ -24,6 +24,7 @@ from sqlalchemy.orm import selectinload
 
 from goldsmith_erp.core.pubsub import publish_event
 from goldsmith_erp.db.models import (
+    Customer,
     Material,
     Notification,
     NotificationPreference,
@@ -37,6 +38,20 @@ from goldsmith_erp.db.models import (
 from goldsmith_erp.models.notification import NotificationCreate, NotificationRead
 
 logger = logging.getLogger(__name__)
+
+# Notification types that should trigger a customer email when a customer
+# is associated with the notification. Internal-only types (LOW_STOCK,
+# DEADLINE_WARNING, HANDOFF, COMMENT) are excluded — those are for
+# workshop staff only.
+_CUSTOMER_EMAIL_TYPES: frozenset[NotificationTypeEnum] = frozenset(
+    [
+        NotificationTypeEnum.ORDER_STATUS,
+        NotificationTypeEnum.PICKUP_READY,
+        NotificationTypeEnum.FITTING_REMINDER,
+        NotificationTypeEnum.REPAIR_RECEIVED,
+        NotificationTypeEnum.REPAIR_READY,
+    ]
+)
 
 # Threshold below which a material stock triggers a LOW_STOCK alert.
 # Using a simple fixed threshold for MVP — can be per-material later.
@@ -83,6 +98,15 @@ class NotificationService:
 
         # Publish to Redis AFTER commit so the DB row is durable first.
         await NotificationService._publish_notification(notification)
+
+        # Attempt customer email — failure must never block the caller.
+        if notification_type in _CUSTOMER_EMAIL_TYPES and (
+            related_customer_id or related_order_id
+        ):
+            await NotificationService._try_send_customer_email(
+                db=db,
+                notification=notification,
+            )
 
         logger.info(
             "Notification created",
@@ -563,6 +587,108 @@ class NotificationService:
             extra={"orders_checked": len(orders), "notifications_created": created_count},
         )
         return created_count
+
+    # ------------------------------------------------------------------
+    # Customer email delivery (graceful degradation)
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    async def _try_send_customer_email(
+        db: AsyncSession,
+        notification: Notification,
+    ) -> None:
+        """
+        Attempt to send a customer-facing email for order-lifecycle events.
+
+        This method resolves the customer email from the DB and dispatches the
+        appropriate typed EmailService method. All exceptions are caught here —
+        email failure must NEVER propagate to the caller.
+
+        PII note: the customer email address is resolved from the DB each time
+        and never stored on the Notification row.
+        """
+        # Import lazily to avoid circular imports at module load time.
+        from goldsmith_erp.services.email_service import EmailService
+
+        try:
+            customer_email: Optional[str] = None
+            order: Optional[Order] = None
+
+            # Resolve customer email — prefer direct customer link, fall back
+            # to order's customer.
+            if notification.related_customer_id:
+                stmt = select(Customer).where(
+                    Customer.id == notification.related_customer_id
+                )
+                result = await db.execute(stmt)
+                customer = result.scalar_one_or_none()
+                if customer:
+                    customer_email = getattr(customer, "email", None)
+
+            if not customer_email and notification.related_order_id:
+                stmt = (
+                    select(Order)
+                    .where(Order.id == notification.related_order_id)
+                    .options(selectinload(Order.customer))
+                )
+                result = await db.execute(stmt)
+                order = result.scalar_one_or_none()
+                if order and order.customer:
+                    customer_email = getattr(order.customer, "email", None)
+
+            if not customer_email:
+                logger.debug(
+                    "No customer email found for notification, skipping email",
+                    extra={"notification_id": notification.id},
+                )
+                return
+
+            ntype = notification.notification_type
+            order_id = notification.related_order_id or 0
+
+            if ntype == NotificationTypeEnum.PICKUP_READY:
+                await EmailService.send_ready_for_pickup(
+                    to=customer_email,
+                    order_id=order_id,
+                )
+            elif ntype == NotificationTypeEnum.FITTING_REMINDER:
+                # Fitting date is embedded in the notification message for now;
+                # pass the message as a proxy until a structured field exists.
+                await EmailService.send_fitting_reminder(
+                    to=customer_email,
+                    order_id=order_id,
+                    fitting_date=notification.message[:80],
+                )
+            elif ntype == NotificationTypeEnum.REPAIR_RECEIVED:
+                await EmailService.send_repair_received(
+                    to=customer_email,
+                    order_id=order_id,
+                    description=notification.message[:120],
+                    bag_number=str(order_id),
+                )
+            elif ntype == NotificationTypeEnum.REPAIR_READY:
+                await EmailService.send_ready_for_pickup(
+                    to=customer_email,
+                    order_id=order_id,
+                )
+            elif ntype == NotificationTypeEnum.ORDER_STATUS:
+                await EmailService.send_order_confirmed(
+                    to=customer_email,
+                    order_id=order_id,
+                    deadline=None,
+                )
+            # All other types: no customer email — silently skip.
+
+        except Exception as exc:
+            logger.error(
+                "Customer email dispatch failed — notification already persisted",
+                extra={
+                    "notification_id": notification.id,
+                    "type": notification.notification_type.value,
+                    "error": str(exc),
+                },
+                exc_info=True,
+            )
 
     # ------------------------------------------------------------------
     # Real-time delivery

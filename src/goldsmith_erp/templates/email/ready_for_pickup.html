@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}Ihr Schmuckstück ist fertig — {{ workshop_name }}{% endblock %}
+
+{% block body %}
+<h2>Ihr Schmuckstück ist fertig!</h2>
+
+<p>Wir freuen uns, Ihnen mitteilen zu können, dass Ihr Auftrag <strong>#{{ order_id }}</strong> abgeschlossen ist.</p>
+
+<div class="info-box">
+  <p style="margin:0; font-size:16px; color:#7c5c1e; font-weight:bold;">Ihr Schmuckstück wartet auf Sie.</p>
+</div>
+
+<p>Bitte kommen Sie zu unserer Werkstatt, um Ihr Stück abzuholen. Öffnungszeiten finden Sie auf unserer Website oder erfragen Sie diese telefonisch.</p>
+
+<p>Bringen Sie zur Abholung bitte Ihre Auftragsnummer oder — sofern erhalten — Ihre Tütennummer mit.</p>
+
+<p>Wir freuen uns auf Ihren Besuch!</p>
+{% endblock %}

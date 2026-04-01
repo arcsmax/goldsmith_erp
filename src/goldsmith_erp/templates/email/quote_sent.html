@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}Kostenvoranschlag KV-{{ quote_number }} — {{ workshop_name }}{% endblock %}
+
+{% block body %}
+<h2>Ihr Kostenvoranschlag</h2>
+
+<p>Anbei erhalten Sie Ihren Kostenvoranschlag. Bitte prüfen Sie diesen und teilen Sie uns Ihre Entscheidung mit.</p>
+
+<dl class="info-box">
+  <dt>Kostenvoranschlag</dt>
+  <dd>KV-{{ quote_number }}</dd>
+
+  <dt>Gesamtbetrag (inkl. MwSt.)</dt>
+  <dd><strong>{{ total }}&nbsp;&euro;</strong></dd>
+
+  <dt>Gültig bis</dt>
+  <dd>{{ valid_until }}</dd>
+</dl>
+
+<p>Den vollständigen Kostenvoranschlag finden Sie als PDF-Anhang in dieser E-Mail.</p>
+
+<p>Bitte kontaktieren Sie uns für eine Auftragsbestätigung oder bei Fragen persönlich in unserer Werkstatt oder telefonisch.</p>
+{% endblock %}

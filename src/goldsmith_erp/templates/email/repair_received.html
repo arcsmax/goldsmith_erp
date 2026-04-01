@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}Reparatur #{{ order_id }} angenommen — {{ workshop_name }}{% endblock %}
+
+{% block body %}
+<h2>Ihre Reparatur wurde angenommen</h2>
+
+<p>Wir haben Ihr Schmuckstück erhalten und sorgfältig in unsere Werkstatt aufgenommen.</p>
+
+<dl class="info-box">
+  <dt>Reparaturauftrag</dt>
+  <dd>#{{ order_id }}</dd>
+
+  <dt>Beschreibung des Gegenstands</dt>
+  <dd>{{ description }}</dd>
+
+  <dt>Tütennummer</dt>
+  <dd>{{ bag_number }}</dd>
+</dl>
+
+<p>Bitte notieren Sie sich Ihre Tütennummer — Sie benötigen diese bei der Abholung.</p>
+
+<p>Unser Goldschmied wird Ihr Stück zeitnah begutachten. Wir kontaktieren Sie, sobald ein Kostenvoranschlag vorliegt oder die Reparatur abgeschlossen ist.</p>
+{% endblock %}

@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}Vielen Dank für Ihren Auftrag — {{ workshop_name }}{% endblock %}
+
+{% block body %}
+<h2>Vielen Dank für Ihren Auftrag</h2>
+
+<p>Es war uns eine Freude, für Sie zu arbeiten. Anbei finden Sie Ihre Rechnung für Auftrag <strong>#{{ order_id }}</strong>.</p>
+
+<div class="info-box">
+  <p style="margin:0; color:#3a2e1e;">Die Rechnung ist als PDF-Anhang beigefügt. Bitte prüfen Sie diese und kontaktieren Sie uns bei Unklarheiten.</p>
+</div>
+
+<p>Wir hoffen, dass Sie Freude an Ihrem Schmuckstück haben. Für Pflege, Reparatur oder einen neuen Auftrag sind wir jederzeit gerne für Sie da.</p>
+
+<p>Herzlichen Dank für Ihr Vertrauen in unsere Handwerkskunst.</p>
+{% endblock %}
