@@ -38,11 +38,23 @@ async def get_redis_client():
 
 
 async def publish_event(channel: str, message: str) -> None:
+    """Publish a message to Redis. Retries with exponential backoff. Never raises.
+
+    Attempts up to 3 times with 0.5s / 1s delays between retries.
+    On final failure the error is logged and the caller continues unaffected —
+    a Redis outage must never bring down the application.
     """
-    Publish a message to the given Redis channel with automatic cleanup.
-    """
-    async with get_redis_client() as client:
-        await client.publish(channel, message)
+    for attempt in range(3):
+        try:
+            async with get_redis_client() as client:
+                await client.publish(channel, message)
+                return
+        except Exception as e:
+            if attempt < 2:
+                await asyncio.sleep(0.5 * (2 ** attempt))
+                logger.warning(f"Redis publish retry {attempt + 1}/3: {e}")
+            else:
+                logger.error(f"Redis publish failed after 3 attempts: {e}")
 
 
 async def _subscribe(channel: str) -> AsyncIterator[dict]:
