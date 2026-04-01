@@ -4,6 +4,8 @@ Metal Inventory API Router
 Endpoints for managing metal purchases, inventory tracking, and material usage.
 """
 
+from datetime import datetime
+
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List, Optional
@@ -17,7 +19,9 @@ from ...models.metal_inventory import (
     InventoryStatistics,
     OrderMaterialAllocation
 )
+from ...models.inventory_forecast import InventoryForecastResponse, MetalForecastItem
 from ...services.metal_inventory_service import MetalInventoryService
+from ...ml.inventory_forecast import InventoryForecaster
 from ...api.deps import get_current_user, require_permission, Permission
 
 router = APIRouter(prefix="/metal-inventory", tags=["metal-inventory"])
@@ -455,3 +459,95 @@ async def preview_material_allocation(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to preview allocation"
         )
+
+
+# ============================================================================
+# Inventory Depletion Forecast
+# ============================================================================
+
+
+@router.get("/forecast", response_model=InventoryForecastResponse)
+async def get_inventory_forecast(
+    lookback_days: int = Query(
+        90,
+        ge=7,
+        le=365,
+        description="Days of consumption history to use for the rate calculation (7–365)",
+    ),
+    lead_time_days: int = Query(
+        7,
+        ge=1,
+        le=90,
+        description="Supplier lead time in calendar days (default 7)",
+    ),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_permission(Permission.MATERIAL_VIEW)),
+) -> InventoryForecastResponse:
+    """
+    Predict depletion date and reorder point for every metal type in inventory.
+
+    Uses simple linear regression over weekly consumption from MaterialUsage
+    records.  Only metal types with at least one purchase record are included.
+
+    **Color coding guidance:**
+    - `weeks_until_depletion > 4` — green (comfortable buffer)
+    - `2 <= weeks_until_depletion <= 4` — amber (order soon)
+    - `weeks_until_depletion < 2` or `reorder_is_overdue` — red (urgent)
+
+    **Permissions:** `material:view` (ADMIN, GOLDSMITH, VIEWER)
+    """
+    logger.info(
+        "Inventory forecast requested",
+        extra={
+            "user_id": current_user.id,
+            "lookback_days": lookback_days,
+            "lead_time_days": lead_time_days,
+        },
+    )
+
+    forecast_items: List[MetalForecastItem] = []
+
+    for metal_type in MetalType:
+        try:
+            reorder = await InventoryForecaster.predict_reorder_point(
+                db, metal_type, lead_time_days=lead_time_days
+            )
+            if reorder is None:
+                # No purchase history — skip this metal type.
+                continue
+
+            forecast = await InventoryForecaster.predict_depletion_date(
+                db, metal_type, lookback_days=lookback_days
+            )
+            if forecast is None:
+                continue
+
+            forecast_items.append(
+                MetalForecastItem(
+                    metal_type=metal_type,
+                    remaining_stock_g=forecast.remaining_stock_g,
+                    weekly_consumption_g=forecast.weekly_consumption_g,
+                    depletion_date=forecast.depletion_date,
+                    weeks_until_depletion=forecast.weeks_until_depletion,
+                    reorder_by=reorder.reorder_by,
+                    reorder_is_overdue=reorder.is_overdue,
+                    reorder_message=reorder.message,
+                    confidence=forecast.confidence,
+                    confidence_note=forecast.confidence_note,
+                )
+            )
+
+        except Exception as exc:
+            # Log and skip; a failing forecast for one metal must not block others.
+            logger.error(
+                "Failed to compute forecast for metal type",
+                extra={"metal_type": metal_type.value, "error": str(exc)},
+                exc_info=True,
+            )
+
+    return InventoryForecastResponse(
+        forecasts=forecast_items,
+        generated_at=datetime.utcnow().date(),
+        lookback_days=lookback_days,
+        lead_time_days=lead_time_days,
+    )

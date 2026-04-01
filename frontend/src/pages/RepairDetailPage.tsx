@@ -10,6 +10,8 @@ import type {
   RepairPhoto,
   RepairPhotoPhase,
 } from '../types';
+import { PhotoCompare } from '../components/PhotoCompare';
+import type { PhotoItem } from '../components/PhotoCompare';
 import '../styles/repairs.css';
 
 // ─── helpers ────────────────────────────────────────────────────────────────
@@ -327,6 +329,11 @@ function CompleteModal({ repairId, estimatedCost, onClose, onDone }: CompleteMod
 
 const PHASES: RepairPhotoPhase[] = ['intake', 'during_repair', 'completed'];
 
+/** Map RepairPhoto to the generic PhotoItem shape expected by PhotoCompare. */
+function toPhotoItem(p: RepairPhoto): PhotoItem {
+  return { id: p.id, file_path: p.file_path, notes: p.notes, timestamp: p.timestamp };
+}
+
 function PhotosTab({
   repair,
   onPhotoAdded,
@@ -367,29 +374,34 @@ function PhotosTab({
     }
   };
 
+  const intakePhotos = photosByPhase('intake').map(toPhotoItem);
+  const duringPhotos = photosByPhase('during_repair').map(toPhotoItem);
+  const completedPhotos = photosByPhase('completed').map(toPhotoItem);
+
   return (
     <div className="repair-tab-panel">
       {error && <div className="repairs-error">{error}</div>}
-      {PHASES.map(phase => (
-        <div key={phase} className="photos-phase-group">
-          <div className="photos-phase-title">{PHASE_LABELS[phase]}</div>
-          <div className="photos-grid">
-            {photosByPhase(phase).map(photo => (
-              <div key={photo.id} className="photo-thumb">
-                {photo.file_path.startsWith('blob:') ||
-                photo.file_path.startsWith('/') ||
-                photo.file_path.startsWith('http') ? (
-                  <img src={photo.file_path} alt={photo.notes ?? 'Reparaturfoto'} />
-                ) : (
-                  <div className="photo-thumb-placeholder">
-                    <span style={{ fontSize: '1.5rem' }}>&#128247;</span>
-                    <span>{photo.notes ?? photo.file_path.split('/').pop()}</span>
-                  </div>
-                )}
-              </div>
-            ))}
-            {/* Upload button */}
-            <label className="photo-upload-btn" title={`Foto hinzufügen (${PHASE_LABELS[phase]})`}>
+
+      {/* Before / After comparison view */}
+      <PhotoCompare
+        beforePhotos={intakePhotos}
+        duringPhotos={duringPhotos}
+        afterPhotos={completedPhotos}
+      />
+
+      {/* Upload controls — one per phase, shown below the comparison */}
+      <div style={{ marginTop: '1.5rem', paddingTop: '1rem', borderTop: '1px solid var(--color-border-default)' }}>
+        <p style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)', marginTop: 0, marginBottom: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600 }}>
+          Foto hinzufuegen
+        </p>
+        <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
+          {PHASES.map(phase => (
+            <label
+              key={phase}
+              className="photo-upload-btn"
+              style={{ flex: '1 1 140px', minWidth: 140, aspectRatio: 'unset', padding: '0.6rem 1rem', height: 'auto', minHeight: 44 }}
+              title={`Foto hinzufuegen (${PHASE_LABELS[phase]})`}
+            >
               <input
                 type="file"
                 accept="image/*"
@@ -398,17 +410,17 @@ function PhotosTab({
                 disabled={uploadingPhase !== null}
               />
               {uploadingPhase === phase ? (
-                <span style={{ fontSize: '0.75rem' }}>Wird hochgeladen…</span>
+                <span style={{ fontSize: '0.8rem' }}>Wird hochgeladen…</span>
               ) : (
                 <>
-                  <span style={{ fontSize: '1.5rem' }}>+</span>
-                  <span>Foto</span>
+                  <span style={{ fontSize: '1.1rem' }}>+</span>
+                  <span style={{ fontSize: '0.82rem' }}>{PHASE_LABELS[phase]}</span>
                 </>
               )}
             </label>
-          </div>
+          ))}
         </div>
-      ))}
+      </div>
     </div>
   );
 }

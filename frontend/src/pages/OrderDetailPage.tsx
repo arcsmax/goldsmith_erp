@@ -2,7 +2,7 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ordersApi, materialsApi } from '../api';
-import { OrderType, MaterialType, OrderStatus } from '../types';
+import { OrderType, MaterialType, OrderStatus, OrderPhoto } from '../types';
 import { useOrders, OrderTab, useToast } from '../contexts';
 import TimeTrackingTab from '../components/TimeTrackingTab';
 import { CommentsTab } from '../components/CommentsTab';
@@ -13,6 +13,8 @@ import { CustomerInfoCard } from '../components/orders/CustomerInfoCard';
 import { SollIstTab } from '../components/orders/SollIstTab';
 import HandoffTab from '../components/orders/HandoffTab';
 import ArbeitszettelTab from '../components/orders/ArbeitszettelTab';
+import { PhotoCompare } from '../components/PhotoCompare';
+import { photosApi } from '../api/photos';
 import '../styles/order-detail.css';
 
 export const OrderDetailPage: React.FC = () => {
@@ -23,6 +25,7 @@ export const OrderDetailPage: React.FC = () => {
 
   const [order, setOrder] = useState<OrderType | null>(null);
   const [materials, setMaterials] = useState<MaterialType[]>([]);
+  const [orderPhotos, setOrderPhotos] = useState<OrderPhoto[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -49,6 +52,14 @@ export const OrderDetailPage: React.FC = () => {
       // Load materials if available
       if (orderData.materials && orderData.materials.length > 0) {
         setMaterials(orderData.materials);
+      }
+
+      // Load order photos (best-effort — don't block page render on failure)
+      try {
+        const photosResponse = await photosApi.getForOrder(id);
+        setOrderPhotos(photosResponse.data ?? []);
+      } catch {
+        // Photo loading failure is non-critical; silently ignore
       }
     } catch (err: any) {
       setError(err.response?.data?.detail || 'Fehler beim Laden des Auftrags');
@@ -212,6 +223,12 @@ export const OrderDetailPage: React.FC = () => {
           🥇 Altgold
         </button>
         <button
+          className={`tab ${activeTab === 'fotos' ? 'active' : ''}`}
+          onClick={() => handleTabChange('fotos')}
+        >
+          Fotos ({orderPhotos.length})
+        </button>
+        <button
           className={`tab ${activeTab === 'handoff' ? 'active' : ''}`}
           onClick={() => handleTabChange('handoff')}
         >
@@ -271,6 +288,10 @@ export const OrderDetailPage: React.FC = () => {
 
         {activeTab === 'scrap-gold' && (
           <ScrapGoldTab orderId={order.id} customerId={order.customer_id} />
+        )}
+
+        {activeTab === 'fotos' && (
+          <OrderPhotosTab photos={orderPhotos} />
         )}
 
         {activeTab === 'handoff' && (
@@ -466,6 +487,29 @@ const HistoryTab: React.FC<{ order: OrderType }> = ({ order }) => (
     </div>
   </div>
 );
+
+// ─── Fotos tab ────────────────────────────────────────────────────────────────
+
+const OrderPhotosTab: React.FC<{ photos: OrderPhoto[] }> = ({ photos }) => {
+  const photoItems = photos.map(p => ({
+    id: Number(p.id.replace(/-/g, '').slice(0, 8)) || Math.random(),
+    file_path: p.file_path,
+    notes: p.notes,
+    timestamp: p.timestamp,
+  }));
+
+  return (
+    <div className="tab-panel">
+      <h2>Auftragsdokumentationen</h2>
+      <PhotoCompare
+        beforePhotos={[]}
+        afterPhotos={[]}
+        gridMode
+        allPhotos={photoItems}
+      />
+    </div>
+  );
+};
 
 // Helper function
 const getStatusLabel = (status: string): string => {

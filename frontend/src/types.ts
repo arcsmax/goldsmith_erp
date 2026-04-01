@@ -948,6 +948,19 @@ export interface OrderComparison {
   has_significant_deviation: boolean;
 }
 
+// ==================== ORDER PHOTO TYPES ====================
+
+export interface OrderPhoto {
+  id: string;            // UUID
+  order_id: number;
+  file_path: string;
+  notes?: string | null;
+  timestamp: string;     // ISO datetime
+  taken_by: number;
+  user_name?: string | null;
+  time_entry_id?: string | null;
+}
+
 // ==================== REPAIR TYPES ====================
 
 export type RepairJobStatus =
