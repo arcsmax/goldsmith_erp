@@ -354,15 +354,35 @@ export const ScrapGoldTab: React.FC<ScrapGoldTabProps> = ({ orderId, customerId 
               </div>
             )}
 
-            {/* PDF download — links to the backend receipt endpoint */}
-            <a
-              href={`/api/v1/scrap-gold/${scrapGold.id}/receipt.pdf`}
-              download={`Ankaufsbeleg-${scrapGold.id}.pdf`}
+            {/* PDF download — authenticated fetch required; plain <a> would return 401 */}
+            <button
               className="btn-pdf-download"
               aria-label="Ankaufsbeleg als PDF herunterladen"
+              onClick={async () => {
+                try {
+                  const token = localStorage.getItem('access_token');
+                  const response = await fetch(
+                    `/api/v1/scrap-gold/${scrapGold.id}/receipt.pdf`,
+                    { headers: { Authorization: `Bearer ${token}` } }
+                  );
+                  if (!response.ok) {
+                    showToast('PDF konnte nicht heruntergeladen werden.', 'error');
+                    return;
+                  }
+                  const blob = await response.blob();
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement('a');
+                  a.href = url;
+                  a.download = `Ankaufsbeleg_${scrapGold.id}.pdf`;
+                  a.click();
+                  URL.revokeObjectURL(url);
+                } catch {
+                  showToast('PDF konnte nicht heruntergeladen werden.', 'error');
+                }
+              }}
             >
               PDF herunterladen
-            </a>
+            </button>
           </div>
         ) : (
           <div className="signature-pending">

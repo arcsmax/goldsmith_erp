@@ -501,6 +501,31 @@ const RechnungenTab: React.FC<{ customerId: number }> = ({ customerId }) => {
   const [invoices, setInvoices] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [downloadingId, setDownloadingId] = useState<number | null>(null);
+
+  const handleDownloadPdf = async (invoiceId: number, invoiceNumber: string) => {
+    try {
+      setDownloadingId(invoiceId);
+      const token = localStorage.getItem('access_token');
+      const response = await fetch(`/api/v1/invoices/${invoiceId}/pdf`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!response.ok) {
+        return;
+      }
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `Rechnung_${invoiceNumber || invoiceId}.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      // Silently ignore — backend PDF endpoint may not be implemented yet
+    } finally {
+      setDownloadingId(null);
+    }
+  };
 
   useEffect(() => {
     const load = async () => {
@@ -552,6 +577,14 @@ const RechnungenTab: React.FC<{ customerId: number }> = ({ customerId }) => {
                   {Number(inv.total_amount).toFixed(2)} €
                 </span>
               )}
+              <button
+                className="btn-pdf-download"
+                aria-label={`Rechnung ${inv.invoice_number || inv.id} als PDF herunterladen`}
+                disabled={downloadingId === inv.id}
+                onClick={() => handleDownloadPdf(inv.id, inv.invoice_number || String(inv.id))}
+              >
+                {downloadingId === inv.id ? '...' : 'PDF'}
+              </button>
             </div>
           ))}
         </div>

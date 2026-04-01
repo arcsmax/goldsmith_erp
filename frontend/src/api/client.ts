@@ -81,7 +81,9 @@ apiClient.interceptors.response.use(
     // --- 401 handling ---
     if (error.response?.status === 401) {
       // Never retry the refresh endpoint itself — that would be an infinite loop.
-      const isRefreshEndpoint = originalRequest.url?.includes('/auth/refresh');
+      // The auth router is mounted at /api/v1 with no /auth sub-prefix, so the
+      // actual path is /api/v1/refresh (not /api/v1/auth/refresh).
+      const isRefreshEndpoint = originalRequest.url?.includes('/refresh');
       if (isRefreshEndpoint) {
         // Refresh failed — clear storage and redirect to login
         localStorage.removeItem('access_token');
@@ -119,10 +121,12 @@ apiClient.interceptors.response.use(
       try {
         // Attempt token refresh.  The current token is sent via the request
         // interceptor above (it is still in localStorage at this point).
+        // The auth router is mounted at /api/v1 with no /auth sub-prefix.
+        // The actual backend path is POST /api/v1/refresh.
         const refreshResponse = await apiClient.post<{
           access_token: string;
           token_type: string;
-        }>('/auth/refresh');
+        }>('/refresh');
 
         const newToken = refreshResponse.data.access_token;
 
