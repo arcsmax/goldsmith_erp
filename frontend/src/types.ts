@@ -757,6 +757,87 @@ export interface MarkPaidInput {
   payment_method?: string;
 }
 
+// ==================== QUOTE TYPES ====================
+
+export type QuoteStatus = 'DRAFT' | 'SENT' | 'APPROVED' | 'REJECTED' | 'EXPIRED' | 'CONVERTED';
+
+export type QuoteLineType = 'material' | 'labor' | 'gemstone' | 'other';
+
+export interface QuoteLineItem {
+  id: number;
+  quote_id: number;
+  line_type: QuoteLineType;
+  description: string;
+  quantity: number;
+  unit_price: number;
+  total: number;
+}
+
+/** Full quote including line items (used for detail view). */
+export interface Quote {
+  id: number;
+  quote_number: string; // KV-YYYY-NNNN
+  order_id?: number | null;
+  customer_id: number;
+  created_by: number;
+  status: QuoteStatus;
+  valid_until: string;    // ISO datetime
+  approved_at?: string | null;
+  rejected_at?: string | null;
+  converted_at?: string | null;
+  subtotal: number;       // Zwischensumme (net)
+  tax_rate: number;       // MwSt-Satz in Prozent
+  tax_amount: number;     // MwSt-Betrag
+  total: number;          // Gesamtbetrag (gross)
+  customer_signature_data?: string | null;
+  notes?: string | null;
+  created_at: string;
+  updated_at: string;
+  line_items: QuoteLineItem[];
+}
+
+/** Lightweight quote for list views. */
+export interface QuoteListItem {
+  id: number;
+  quote_number: string;
+  order_id?: number | null;
+  customer_id: number;
+  status: QuoteStatus;
+  valid_until: string;
+  total: number;
+  created_at: string;
+}
+
+export interface QuoteListResponse {
+  items: QuoteListItem[];
+  total: number;
+  skip: number;
+  limit: number;
+}
+
+export interface QuoteCreateInput {
+  order_id?: number;
+  customer_id: number;
+  tax_rate?: number;   // defaults to 19.0
+  valid_days?: number; // defaults to 14
+  notes?: string;
+}
+
+export interface QuoteUpdateInput {
+  status?: QuoteStatus;
+  valid_until?: string;
+  notes?: string;
+  tax_rate?: number;
+}
+
+export interface ApproveQuoteInput {
+  signature_data?: string | null; // base64 PNG
+}
+
+export interface RejectQuoteInput {
+  reason?: string;
+}
+
 // ==================== CALENDAR TYPES ====================
 
 /** Mirror of CalendarEventType enum from db/models.py */
@@ -865,4 +946,111 @@ export interface OrderComparison {
   activity_breakdown: ActivityBreakdownComparison[];
   overall_accuracy_score: number | null;
   has_significant_deviation: boolean;
+}
+
+// ==================== REPAIR TYPES ====================
+
+export type RepairJobStatus =
+  | 'received'
+  | 'diagnosed'
+  | 'quoted'
+  | 'approved'
+  | 'in_repair'
+  | 'quality_check'
+  | 'ready'
+  | 'picked_up'
+  | 'cancelled';
+
+export type RepairItemType =
+  | 'ring'
+  | 'chain'
+  | 'bracelet'
+  | 'earring'
+  | 'watch'
+  | 'brooch'
+  | 'other';
+
+export type RepairPhotoPhase = 'intake' | 'during_repair' | 'completed';
+
+export interface RepairCustomerSummary {
+  id: number;
+  first_name: string;
+  last_name: string;
+  email: string;
+  phone?: string | null;
+}
+
+export interface RepairPhoto {
+  id: number;
+  repair_job_id: number;
+  phase: RepairPhotoPhase;
+  file_path: string;
+  timestamp: string;
+  taken_by?: number | null;
+  notes?: string | null;
+}
+
+export interface RepairJob {
+  id: number;
+  repair_number: string;
+  bag_number: string;
+  customer_id?: number | null;
+  customer?: RepairCustomerSummary | null;
+  received_by?: number | null;
+  item_description: string;
+  item_type: RepairItemType;
+  metal_type?: string | null;
+  estimated_value?: number | null;
+  status: RepairJobStatus;
+  diagnosis_notes?: string | null;
+  estimated_cost?: number | null;
+  actual_cost?: number | null;
+  estimated_completion_date?: string | null;
+  actual_completion_date?: string | null;
+  customer_notified_at?: string | null;
+  picked_up_at?: string | null;
+  is_deleted: boolean;
+  created_at: string;
+  updated_at: string;
+  photos: RepairPhoto[];
+}
+
+export interface RepairJobListItem {
+  id: number;
+  repair_number: string;
+  bag_number: string;
+  customer_id?: number | null;
+  customer?: RepairCustomerSummary | null;
+  item_description: string;
+  item_type: RepairItemType;
+  metal_type?: string | null;
+  status: RepairJobStatus;
+  estimated_cost?: number | null;
+  estimated_completion_date?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface RepairJobCreateInput {
+  customer_id?: number | null;
+  item_description: string;
+  item_type: RepairItemType;
+  metal_type?: string | null;
+  estimated_value?: number | null;
+  estimated_completion_date?: string | null;
+}
+
+export interface RepairDiagnoseInput {
+  diagnosis_notes: string;
+  estimated_cost: number;
+  estimated_completion_date?: string | null;
+}
+
+export interface RepairCompleteInput {
+  actual_cost: number;
+  notes?: string | null;
+}
+
+export interface RepairStatusUpdateInput {
+  notes?: string | null;
 }

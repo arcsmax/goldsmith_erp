@@ -22,8 +22,11 @@ const UsersPage = lazy(() => import('./pages/UsersPage').then(m => ({ default: m
 const ScannerPage = lazy(() => import('./pages/ScannerPage').then(m => ({ default: m.ScannerPage })));
 const CalendarPage = lazy(() => import('./pages/CalendarPage').then(m => ({ default: m.CalendarPage })));
 const InvoicesPage = lazy(() => import('./pages/InvoicesPage').then(m => ({ default: m.InvoicesPage })));
+const QuotesPage = lazy(() => import('./pages/QuotesPage').then(m => ({ default: m.QuotesPage })));
 const AdminSystemPage = lazy(() => import('./pages/AdminSystemPage').then(m => ({ default: m.AdminSystemPage })));
 const CustomerDetailPage = lazy(() => import('./pages/CustomerDetailPage').then(m => ({ default: m.CustomerDetailPage })));
+const RepairsPage = lazy(() => import('./pages/RepairsPage').then(m => ({ default: m.RepairsPage })));
+const RepairDetailPage = lazy(() => import('./pages/RepairDetailPage').then(m => ({ default: m.RepairDetailPage })));
 
 // Loading fallback component
 const PageLoader: React.FC = () => (
@@ -104,6 +107,25 @@ const App: React.FC = () => {
 
                     <Route path="orders" element={<OrdersPage />} />
                     <Route path="orders/:orderId" element={<OrderDetailPage />} />
+
+                    {/* Reparaturen — ADMIN und GOLDSMITH */}
+                    <Route
+                      path="repairs"
+                      element={
+                        <ProtectedRoute requiredRoles={['ADMIN', 'GOLDSMITH']}>
+                          <RepairsPage />
+                        </ProtectedRoute>
+                      }
+                    />
+                    <Route
+                      path="repairs/:id"
+                      element={
+                        <ProtectedRoute requiredRoles={['ADMIN', 'GOLDSMITH']}>
+                          <RepairDetailPage />
+                        </ProtectedRoute>
+                      }
+                    />
+
                     <Route path="time-tracking" element={<TimeTrackingPage />} />
 
                     {/* Benutzerverwaltung — nur ADMIN */}
@@ -125,6 +147,16 @@ const App: React.FC = () => {
                       element={
                         <ProtectedRoute requiredRoles={['ADMIN', 'GOLDSMITH']}>
                           <InvoicesPage />
+                        </ProtectedRoute>
+                      }
+                    />
+
+                    {/* Angebote (Kostenvoranschlag) — ADMIN und GOLDSMITH */}
+                    <Route
+                      path="quotes"
+                      element={
+                        <ProtectedRoute requiredRoles={['ADMIN', 'GOLDSMITH']}>
+                          <QuotesPage />
                         </ProtectedRoute>
                       }
                     />

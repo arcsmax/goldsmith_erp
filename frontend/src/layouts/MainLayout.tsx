@@ -143,6 +143,18 @@ export const MainLayout: React.FC = () => {
               Aufträge
             </Link>
 
+            {/* Reparaturen — ADMIN und GOLDSMITH */}
+            {canManageCustomers && (
+              <Link
+                to="/repairs"
+                className={`nav-link ${isActivePath('/repairs') ? 'active' : ''}`}
+                onClick={handleNavClick}
+              >
+                <span className="nav-icon">🔧</span>
+                Reparaturen
+              </Link>
+            )}
+
             {/* Materialien — ADMIN und GOLDSMITH */}
             {canManageMaterials && (
               <Link
@@ -196,6 +208,18 @@ export const MainLayout: React.FC = () => {
               >
                 <span className="nav-icon">🧾</span>
                 Rechnungen
+              </Link>
+            )}
+
+            {/* Angebote (Kostenvoranschlag) — ADMIN und GOLDSMITH */}
+            {canManageInvoices && (
+              <Link
+                to="/quotes"
+                className={`nav-link ${isActivePath('/quotes') ? 'active' : ''}`}
+                onClick={handleNavClick}
+              >
+                <span className="nav-icon">📝</span>
+                Angebote
               </Link>
             )}
 
