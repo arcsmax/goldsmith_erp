@@ -1,5 +1,6 @@
 # src/goldsmith_erp/api/routers/orders.py
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import HTMLResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Any, Dict, List, Optional
 from datetime import datetime
@@ -10,6 +11,8 @@ from goldsmith_erp.db.models import User
 from goldsmith_erp.models.order import OrderCreate, OrderRead, OrderUpdate, LocationChangeRequest, LocationHistoryRead
 from goldsmith_erp.services.order_service import OrderService
 from goldsmith_erp.services.cost_calculation_service import CostCalculationService
+from goldsmith_erp.services.label_service import LabelService
+from goldsmith_erp.core.config import settings
 from goldsmith_erp.core.permissions import Permission, require_permission
 
 router = APIRouter()
@@ -157,6 +160,38 @@ async def calculate_order_cost(
     result = breakdown.to_dict()
     result["order_id"] = order_id
     return result
+
+
+@router.get("/{order_id}/label", response_class=HTMLResponse)
+@require_permission(Permission.ORDER_VIEW)
+async def get_order_label(
+    order_id: int,
+    width_mm: int = Query(89, ge=50, le=210, description="Label width in mm"),
+    height_mm: int = Query(36, ge=20, le=297, description="Label height in mm"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> HTMLResponse:
+    """Druckbares HTML-Etikett mit QR-Code fuer einen Auftrag.
+
+    Returns a self-contained HTML document sized for label paper
+    (default 89x36mm).  The page auto-triggers the browser print
+    dialog on load.
+
+    QR payload: ``ORDER:<id>`` — decoded by ScannerPage.
+    """
+    order = await OrderService.get_order(db, order_id)
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+
+    workshop_name = getattr(settings, "APP_NAME", "Goldschmiede")
+    html = LabelService.generate_order_label_html(
+        order=order,
+        customer=order.customer,
+        workshop_name=workshop_name,
+        label_width_mm=width_mm,
+        label_height_mm=height_mm,
+    )
+    return HTMLResponse(content=html, status_code=200)
 
 
 @router.delete("/{order_id}")
