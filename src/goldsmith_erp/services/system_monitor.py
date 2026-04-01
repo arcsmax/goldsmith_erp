@@ -236,16 +236,22 @@ async def _run_one_cycle() -> None:
                 exc_info=True,
             )
 
-        # Business-level notification scans — independent of system health checks
-        # so a health-check failure does not suppress stock alerts.
-        try:
-            await NotificationService.check_low_stock_alerts(db)
-        except Exception as exc:
-            logger.error(
-                "Low stock alert scan failed in monitor cycle",
-                extra={"error": str(exc)},
-                exc_info=True,
-            )
+        # Business-level notification scans — run independently of the system
+        # health block so a health-check failure does not suppress business alerts.
+        for _scan_name, _scan_coro in (
+            ("deadline_warnings", NotificationService.check_deadline_warnings(db)),
+            ("low_stock_alerts", NotificationService.check_low_stock_alerts(db)),
+            ("pickup_reminders", NotificationService.check_pickup_reminders(db)),
+            ("fitting_reminders", NotificationService.check_fitting_reminders(db)),
+        ):
+            try:
+                await _scan_coro
+            except Exception as exc:
+                logger.error(
+                    "Notification scan failed",
+                    extra={"scan": _scan_name, "error": str(exc)},
+                    exc_info=True,
+                )
 
 
 async def system_monitor_loop() -> None:
