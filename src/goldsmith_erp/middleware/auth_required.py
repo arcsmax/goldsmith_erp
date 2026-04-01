@@ -38,6 +38,10 @@ PUBLIC_PREFIXES = [
     # Note: the auth router is mounted at /api/v1 (no /auth sub-prefix), so the
     # actual path is /api/v1/refresh, not /api/v1/auth/refresh.
     f"{settings.API_V1_STR}/refresh",
+    # Customer self-service portal — public, no login required.
+    # Customers look up their order/repair status by reference number + email.
+    # The router itself is rate-limited (10/minute per IP) against enumeration.
+    f"{settings.API_V1_STR}/portal",
 ]
 
 
