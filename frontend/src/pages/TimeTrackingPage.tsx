@@ -1,6 +1,7 @@
 // Time Tracking Page Component - Optimized
 import React, { useEffect, useState, useCallback, useMemo } from 'react';
-import { timeTrackingApi } from '../api';
+import { timeTrackingApi, activitiesApi } from '../api';
+import apiClient from '../api/client';
 import { TimeEntryType, TimeEntryCreateInput, TimeEntryUpdateInput, ActivityType } from '../types';
 import { ActiveTimerWidget } from '../components/time-tracking/ActiveTimerWidget';
 import { TimeSummaryCards } from '../components/time-tracking/TimeSummaryCards';
@@ -40,7 +41,9 @@ export const TimeTrackingPage: React.FC = () => {
     try {
       setIsLoading(true);
       setError(null);
-      const data = await timeTrackingApi.getAll({ limit: 100 }); // first page — server-side pagination
+      // Fetch recent time entries — use getForUser with current user or fall back to manual listing
+      const response = await apiClient.get('/time-tracking/', { params: { limit: 100 } });
+      const data = Array.isArray(response.data) ? response.data : response.data.items || [];
       setEntries(data);
     } catch (err: any) {
       setError(err.response?.data?.detail || 'Fehler beim Laden der Zeiteinträge');
@@ -51,10 +54,11 @@ export const TimeTrackingPage: React.FC = () => {
 
   const fetchActivities = useCallback(async () => {
     try {
-      const data = await timeTrackingApi.getAllActivities();
+      const data = await activitiesApi.getAll();
       setActivities(data);
     } catch (err: any) {
-      setError('Fehler beim Laden der Aktivitäten');
+      console.error('Fehler beim Laden der Aktivitäten:', err);
+      setActivities([]);
     }
   }, []);
 

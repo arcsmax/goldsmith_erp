@@ -1,7 +1,7 @@
 // Active Timer Widget Component
 import React, { useState, useEffect } from 'react';
 import { useStopwatch } from 'react-timer-hook';
-import { timeTrackingApi, ordersApi } from '../../api';
+import { timeTrackingApi, ordersApi, activitiesApi } from '../../api';
 import { OrderType, ActivityType, TimeEntryType } from '../../types';
 import { useToast, useConfirm } from '../../contexts';
 import '../../styles/time-tracking.css';
@@ -61,7 +61,7 @@ export const ActiveTimerWidget: React.FC = () => {
 
   const fetchActivities = async () => {
     try {
-      const data = await timeTrackingApi.getAllActivities();
+      const data = await activitiesApi.getAll();
       setActivities(data);
     } catch (err: any) {
       console.error('Failed to fetch activities:', err);
@@ -294,6 +294,28 @@ export const ActiveTimerWidget: React.FC = () => {
                   </option>
                 ))}
               </select>
+              <button
+                type="button"
+                onClick={async () => {
+                  const name = window.prompt('Neue Aktivität erstellen:\nName:');
+                  if (!name?.trim()) return;
+                  try {
+                    await activitiesApi.create({
+                      name: name.trim(),
+                      category: 'fabrication',
+                      icon: '🔧',
+                      color: '#d97706',
+                    });
+                    await fetchActivities();
+                  } catch (err) {
+                    console.error('Fehler beim Erstellen:', err);
+                  }
+                }}
+                style={{ padding: '0.5rem', minHeight: '44px', marginLeft: '0.5rem', borderRadius: '8px', cursor: 'pointer' }}
+                title="Neue Aktivität erstellen"
+              >
+                + Neu
+              </button>
             </div>
 
             <div className="form-group">
