@@ -86,6 +86,12 @@ h1 {
   }
 }
 
+/* Global form element styles — ensure light theme on all inputs */
+input, select, textarea {
+  color: #213547;
+  background-color: #ffffff;
+}
+
 /* Button styles */
 button {
   border-radius: 8px;

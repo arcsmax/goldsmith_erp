@@ -28,12 +28,12 @@ export const DashboardKPIs: React.FC = () => {
 
       // Fetch all data in parallel
       const [ordersData, inventoryData, timeData] = await Promise.all([
-        ordersApi.getAll({ limit: 100 }), // reasonable page size for workshop scale
-        metalInventoryApi.getTotalValue(),
-        timeTrackingApi.getSummary({
+        ordersApi.getAll({ limit: 100 }),
+        metalInventoryApi.getStatistics().catch(() => ({ total_value: 0 })),
+        timeTrackingApi.getSummary?.({
           start_date: getWeekStart().toISOString().split('T')[0],
           end_date: getTodayEnd().toISOString().split('T')[0],
-        }).catch(() => ({ total_hours: 0, billable_hours: 0, entries_count: 0, average_session_minutes: 0 })),
+        }).catch(() => ({ total_hours: 0 })) ?? Promise.resolve({ total_hours: 0 }),
       ]);
 
       const orders = Array.isArray(ordersData) ? ordersData : ordersData.items || [];
