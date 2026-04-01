@@ -19,13 +19,10 @@ const statusLabel: Record<HealthStatus, string> = {
   error: 'Fehler',
 };
 
-export const HealthDot: React.FC = () => {
-  const { hasRole } = useAuth();
+/** Inner component — only rendered when the user IS an admin. */
+const HealthDotInner: React.FC = () => {
   const navigate = useNavigate();
   const [healthStatus, setHealthStatus] = useState<HealthStatus>('loading');
-
-  // Only render for ADMIN users
-  if (!hasRole(['ADMIN'])) return null;
 
   const fetchHealth = async () => {
     try {
@@ -42,14 +39,10 @@ export const HealthDot: React.FC = () => {
     return () => clearInterval(timer);
   }, []);
 
-  const handleClick = () => {
-    navigate('/admin/system');
-  };
-
   return (
     <button
       className="health-dot-wrapper"
-      onClick={handleClick}
+      onClick={() => navigate('/admin/system')}
       title={`Systemstatus: ${statusLabel[healthStatus]} — zum Admin-Dashboard`}
       aria-label={`Systemstatus: ${statusLabel[healthStatus]}`}
       style={{ background: 'none', border: 'none' }}
@@ -61,4 +54,11 @@ export const HealthDot: React.FC = () => {
       <span className="health-dot-label">System</span>
     </button>
   );
+};
+
+/** Public component — renders nothing for non-admin users. */
+export const HealthDot: React.FC = () => {
+  const { hasRole } = useAuth();
+  if (!hasRole(['ADMIN'])) return null;
+  return <HealthDotInner />;
 };
