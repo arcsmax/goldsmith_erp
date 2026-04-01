@@ -221,9 +221,9 @@ if [[ -n "${ADMIN_EMAIL}" ]]; then
 
     if ! COMPOSE_PROD run --rm \
         -e DATABASE_URL="${DATABASE_URL}" \
+        -e ADMIN_PASSWORD="${ADMIN_PASSWORD}" \
         backend python /app/scripts/create-admin.py \
             --email "${ADMIN_EMAIL}" \
-            --password "${ADMIN_PASSWORD}" \
             --first-name "${ADMIN_FIRST_NAME}" \
             --last-name "${ADMIN_LAST_NAME}"; then
         err "Admin-Erstellung fehlgeschlagen."

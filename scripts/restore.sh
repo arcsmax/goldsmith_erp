@@ -93,9 +93,9 @@ fi
 echo ""
 log_info "Wiederherstellung startet…"
 
-# ── Stop backend ──────────────────────────────────────────────────────────────
-log_info "Stoppe Backend-Service…"
-${COMPOSE_CMD} stop backend
+# ── Stop backend and Redis ────────────────────────────────────────────────────
+log_info "Stoppe Backend- und Redis-Service…"
+${COMPOSE_CMD} stop backend redis
 
 # ── Drop and recreate the database ───────────────────────────────────────────
 log_info "Lösche und erstelle Datenbank '${POSTGRES_DB}' neu…"
@@ -118,7 +118,10 @@ log_info "Führe Datenbankmigrationen aus (alembic upgrade head)…"
 ${COMPOSE_CMD} run --rm backend \
     sh -c "cd /app/src && poetry run alembic upgrade head"
 
-# ── Restart all services ──────────────────────────────────────────────────────
+# ── Restart Redis first, then all remaining services ─────────────────────────
+log_info "Starte Redis neu…"
+${COMPOSE_CMD} up -d redis
+
 log_info "Starte alle Services neu…"
 ${COMPOSE_CMD} up -d
 
