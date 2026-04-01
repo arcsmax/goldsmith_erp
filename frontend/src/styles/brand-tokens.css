@@ -83,4 +83,12 @@
   /* Border tokens */
   --color-border-default: #e5e7eb;
   --color-border-focus: var(--color-brand-cta-500);
+
+  /* Informational / status blue — used for info alerts, active timer, chart accents */
+  --color-info-500: #3b82f6;
+  --color-info-600: #2563eb;
+  --color-info-bg: #eff6ff;
+
+  /* Legacy blue (time-tracking chart variables) */
+  --color-chart-primary: #3b82f6;
 }

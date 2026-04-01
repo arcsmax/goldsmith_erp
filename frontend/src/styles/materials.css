@@ -58,7 +58,7 @@
 .modal-header h2 {
   margin: 0;
   font-size: 1.5rem;
-  color: #333;
+  color: var(--color-text-heading);
   font-weight: 700;
 }
 
@@ -66,7 +66,7 @@
   background: none;
   border: none;
   font-size: 2rem;
-  color: #666;
+  color: var(--color-text-muted);
   cursor: pointer;
   padding: 0;
   width: 2rem;
@@ -80,7 +80,7 @@
 
 .modal-close:hover {
   background: #f3f4f6;
-  color: #333;
+  color: var(--color-text-heading);
 }
 
 /* ==================== FORM STYLES ==================== */
@@ -105,7 +105,7 @@
 
 .form-group label {
   font-weight: 600;
-  color: #333;
+  color: var(--color-text-body);
   font-size: 0.95rem;
 }
 
@@ -199,7 +199,7 @@
 
 .btn-secondary {
   background: white;
-  color: #666;
+  color: var(--color-text-muted);
   border: 2px solid #e5e7eb;
 }
 
@@ -320,7 +320,7 @@
 
 .filter-group label {
   font-weight: 600;
-  color: #666;
+  color: var(--color-text-muted);
   font-size: 0.95rem;
 }
 

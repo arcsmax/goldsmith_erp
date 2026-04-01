@@ -7,9 +7,9 @@
   --timer-running: #27ae60;
   --timer-paused: #f39c12;
   --timer-stopped: #95a5a6;
-  --timer-gradient-start: #3498db;
-  --timer-gradient-end: #2980b9;
-  --chart-primary: #3498db;
+  --timer-gradient-start: var(--color-info-500);
+  --timer-gradient-end: var(--color-info-600);
+  --chart-primary: var(--color-chart-primary);
   --chart-secondary: #2ecc71;
   --chart-tertiary: #e74c3c;
 }
@@ -104,7 +104,7 @@
 
 .timer-minimal-order {
   font-size: 1rem;
-  color: #666;
+  color: var(--color-text-muted);
 }
 
 .timer-error {
@@ -200,7 +200,7 @@
 
 .info-label {
   font-weight: 600;
-  color: #666;
+  color: var(--color-text-muted);
 }
 
 .info-value {
@@ -347,7 +347,7 @@
 .summary-card .card-header h3 {
   margin: 0;
   font-size: 1rem;
-  color: #666;
+  color: var(--color-text-muted);
   font-weight: 600;
 }
 

@@ -21,14 +21,14 @@
 .auth-box h1 {
   font-size: 2rem;
   margin-bottom: 0.5rem;
-  color: #333;
+  color: var(--color-text-heading);
   text-align: center;
 }
 
 .auth-box h2 {
   font-size: 1.5rem;
   margin-bottom: 2rem;
-  color: #666;
+  color: var(--color-text-muted);
   text-align: center;
   font-weight: 400;
 }
@@ -53,7 +53,7 @@
 
 .form-group label {
   font-weight: 500;
-  color: #333;
+  color: var(--color-text-body);
   font-size: 0.95rem;
 }
 
@@ -112,7 +112,7 @@
 .auth-link {
   text-align: center;
   margin-top: 1.5rem;
-  color: #666;
+  color: var(--color-text-muted);
 }
 
 .auth-link a {
