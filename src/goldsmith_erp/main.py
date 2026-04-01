@@ -19,6 +19,7 @@ from goldsmith_erp.api.routers import auth, orders, users, materials, activities
 from goldsmith_erp.api.routers import admin_email
 from goldsmith_erp.api.routers import customer_portal
 from goldsmith_erp.api.routers import theme as theme_router
+from goldsmith_erp.api.routers import imports as imports_router
 from goldsmith_erp.core.pubsub import subscribe_and_forward, publish_event
 from goldsmith_erp.services.system_monitor import system_monitor_loop
 
@@ -130,6 +131,7 @@ app.include_router(valuations.router, prefix=f"{settings.API_V1_STR}", tags=["va
 app.include_router(admin_email.router, prefix=f"{settings.API_V1_STR}", tags=["admin-email"])  # Email/SMTP admin configuration
 app.include_router(customer_portal.router, prefix=f"{settings.API_V1_STR}/portal", tags=["customer-portal"])  # Public self-service portal
 app.include_router(theme_router.router, prefix=f"{settings.API_V1_STR}", tags=["theme"])  # Admin-configurable branding (GET public, PUT ADMIN-only)
+app.include_router(imports_router.router, prefix=f"{settings.API_V1_STR}", tags=["import"])  # Bulk CSV data import (ADMIN-only)
 
 # WebSocket endpoint with Redis Pub/Sub integration
 @app.websocket("/ws/orders")

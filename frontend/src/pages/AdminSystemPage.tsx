@@ -1,5 +1,5 @@
 // Admin System Page — displays health, backup, metrics and alerts for ADMINs
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   BackupInfo,
   BusinessMetrics,
@@ -7,10 +7,13 @@ import {
   EmailConfigUpdate,
   EmailTestResult,
   FullHealth,
+  ImportResult,
   RequestMetrics,
   SystemInfo,
+  downloadCustomerCsvTemplate,
   getEmailConfig,
   getSystemInfo,
+  importCustomersCsv,
   sendTestEmail,
   triggerBackup,
   updateEmailConfig,
@@ -423,6 +426,129 @@ const EmailConfigSection: React.FC = () => {
 };
 
 // ---------------------------------------------------------------------------
+// Section: Customer CSV Import
+// ---------------------------------------------------------------------------
+
+const CustomerImportSection: React.FC = () => {
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [isImporting, setIsImporting] = useState(false);
+  const [result, setResult] = useState<ImportResult | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0] ?? null;
+    setSelectedFile(file);
+    setResult(null);
+    setError(null);
+  };
+
+  const handleImport = async () => {
+    if (!selectedFile) {
+      setError('Bitte wählen Sie zuerst eine CSV-Datei aus.');
+      return;
+    }
+    setIsImporting(true);
+    setResult(null);
+    setError(null);
+    try {
+      const importResult = await importCustomersCsv(selectedFile);
+      setResult(importResult);
+      setSelectedFile(null);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    } catch (err: unknown) {
+      const detail =
+        (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail ??
+        'Import fehlgeschlagen. Bitte Backend-Logs prüfen.';
+      setError(typeof detail === 'string' ? detail : JSON.stringify(detail));
+    } finally {
+      setIsImporting(false);
+    }
+  };
+
+  const inputStyle: React.CSSProperties = {
+    padding: '7px 10px',
+    border: '1px solid #d5c9ae',
+    borderRadius: '5px',
+    fontSize: '0.9rem',
+    background: '#fefcf7',
+    color: '#2c2416',
+  };
+
+  return (
+    <div className="admin-section">
+      <h2>Kunden-Import (CSV)</h2>
+      <p style={{ fontSize: '0.875rem', color: 'var(--color-text-muted)', marginBottom: '16px' }}>
+        Importieren Sie Bestandskunden aus einer CSV-Datei. Doppelte E-Mail-Adressen werden
+        übersprungen. Pflichtfelder: <code>first_name</code>, <code>last_name</code>, <code>email</code>.
+      </p>
+
+      <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'center', marginBottom: '12px' }}>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".csv,text/csv,text/plain"
+          onChange={handleFileChange}
+          style={{ ...inputStyle, cursor: 'pointer', flex: '1 1 260px' }}
+          aria-label="CSV-Datei auswählen"
+        />
+        <button
+          className="btn-backup-trigger"
+          onClick={handleImport}
+          disabled={isImporting || !selectedFile}
+          style={{ whiteSpace: 'nowrap' }}
+        >
+          {isImporting ? 'Wird importiert…' : 'Importieren'}
+        </button>
+        <button
+          className="btn-backup-trigger"
+          onClick={downloadCustomerCsvTemplate}
+          style={{ whiteSpace: 'nowrap', background: '#fff', color: '#7c5c1e', border: '1px solid #d5c9ae' }}
+        >
+          Vorlage herunterladen
+        </button>
+      </div>
+
+      {error && (
+        <div
+          className="admin-error-banner"
+          style={{ background: '#fef2f2', borderColor: '#fca5a5', color: '#b91c1c' }}
+        >
+          {error}
+        </div>
+      )}
+
+      {result && (
+        <div
+          className="admin-error-banner"
+          style={{
+            background: result.error_count === 0 ? '#f0fdf4' : '#fffbeb',
+            borderColor: result.error_count === 0 ? '#86efac' : '#fcd34d',
+            color: result.error_count === 0 ? '#15803d' : '#92400e',
+          }}
+        >
+          <strong>
+            {result.imported_count} importiert
+            {result.skipped_count > 0 && `, ${result.skipped_count} übersprungen`}
+            {result.error_count > 0 && `, ${result.error_count} Fehler`}
+          </strong>
+          {result.errors.length > 0 && (
+            <ul style={{ marginTop: '8px', paddingLeft: '20px', fontSize: '0.82rem' }}>
+              {result.errors.map((e, i) => (
+                <li key={i}>
+                  Zeile {e.row_number}
+                  {e.field ? ` (${e.field})` : ''}: {e.message}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ---------------------------------------------------------------------------
 // Section: Appearance (Erscheinungsbild)
 // ---------------------------------------------------------------------------
 
@@ -815,6 +941,7 @@ export const AdminSystemPage: React.FC = () => {
       )}
 
       <EmailConfigSection />
+      <CustomerImportSection />
       <ThemeConfigSection />
     </div>
   );
