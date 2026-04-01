@@ -1,7 +1,7 @@
 // Metal Inventory Page Component
 import React, { useEffect, useState } from 'react';
 import { metalInventoryApi } from '../api';
-import { MetalPurchaseType, MetalPurchaseCreateInput, MetalPurchaseUpdateInput, MetalType } from '../types';
+import { MetalPurchaseListItem, MetalPurchaseType, MetalPurchaseCreateInput, MetalPurchaseUpdateInput, MetalType } from '../types';
 import { MetalSummaryCards } from '../components/metal/MetalSummaryCards';
 import { MetalPurchaseFormModal } from '../components/metal/MetalPurchaseFormModal';
 import { useToast, useConfirm } from '../contexts';
@@ -34,13 +34,13 @@ const METAL_TYPE_CONFIG: Record<MetalType, MetalConfig> = {
 export const MetalInventoryPage: React.FC = () => {
   const { showToast } = useToast();
   const { showConfirm } = useConfirm();
-  const [purchases, setPurchases] = useState<MetalPurchaseType[]>([]);
-  const [filteredPurchases, setFilteredPurchases] = useState<MetalPurchaseType[]>([]);
+  const [purchases, setPurchases] = useState<MetalPurchaseListItem[]>([]);
+  const [filteredPurchases, setFilteredPurchases] = useState<MetalPurchaseListItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isFormLoading, setIsFormLoading] = useState(false);
-  const [selectedPurchase, setSelectedPurchase] = useState<MetalPurchaseType | null>(null);
+  const [selectedPurchase, setSelectedPurchase] = useState<MetalPurchaseListItem | null>(null);
 
   // Filters & Sort
   const [searchQuery, setSearchQuery] = useState('');
@@ -62,7 +62,7 @@ export const MetalInventoryPage: React.FC = () => {
     try {
       setIsLoading(true);
       setError(null);
-      const data = await metalInventoryApi.getAll();
+      const data = await metalInventoryApi.listPurchases({ include_depleted: true });
       setPurchases(data);
     } catch (err: any) {
       setError(err.response?.data?.detail || 'Fehler beim Laden der Metalleinkäufe');
@@ -120,7 +120,7 @@ export const MetalInventoryPage: React.FC = () => {
   const handleCreatePurchase = async (data: MetalPurchaseCreateInput) => {
     try {
       setIsFormLoading(true);
-      await metalInventoryApi.create(data);
+      await metalInventoryApi.createPurchase(data);
       await fetchPurchases();
       setIsModalOpen(false);
       showToast('Metalleinkauf erfolgreich erstellt!', 'success');
@@ -136,7 +136,7 @@ export const MetalInventoryPage: React.FC = () => {
 
     try {
       setIsFormLoading(true);
-      await metalInventoryApi.update(selectedPurchase.id, data);
+      await metalInventoryApi.updatePurchase(selectedPurchase.id, data);
       await fetchPurchases();
       setIsModalOpen(false);
       setSelectedPurchase(null);
@@ -148,23 +148,13 @@ export const MetalInventoryPage: React.FC = () => {
     }
   };
 
-  const handleDeletePurchase = async (purchaseId: number, metalType: string) => {
-    const confirmed = await showConfirm({
-      title: 'Metalleinkauf loschen',
-      message: `Mochten Sie diesen Metalleinkauf (${metalType}) wirklich loschen?`,
-      confirmLabel: 'Loschen',
-      variant: 'danger',
-    });
-
-    if (!confirmed) return;
-
-    try {
-      await metalInventoryApi.delete(purchaseId);
-      await fetchPurchases();
-      showToast('Metalleinkauf erfolgreich geloscht!', 'success');
-    } catch (err: any) {
-      showToast(err.response?.data?.detail || 'Fehler beim Loschen des Metalleinkaufs', 'error');
-    }
+  // The backend does not expose a DELETE endpoint for metal purchases.
+  // Purchases are immutable financial records — only metadata can be updated.
+  const handleDeletePurchase = (_purchaseId: number, _metalType: string) => {
+    showToast(
+      'Metalleinkäufe können nicht gelöscht werden. Sie sind unveränderliche Finanzbelege.',
+      'error'
+    );
   };
 
   const openCreateModal = () => {

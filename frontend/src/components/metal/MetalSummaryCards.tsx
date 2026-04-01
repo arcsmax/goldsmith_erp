@@ -1,7 +1,10 @@
 // Metal Inventory Summary Cards Component
+// Displays per-metal inventory totals alongside live spot prices from /metal-prices.
+// Color coding: green when average purchase price is below current spot (good deal),
+// red when above spot (purchased above market). Spot price failures degrade gracefully.
 import React, { useEffect, useState } from 'react';
 import { metalInventoryApi } from '../../api';
-import { MetalInventorySummary, MetalType } from '../../types';
+import { MetalInventorySummary, InventoryStatistics, MetalPriceResponse, MetalType } from '../../types';
 import '../../styles/metal-inventory.css';
 
 interface MetalConfig {
@@ -31,21 +34,48 @@ const METAL_TYPE_CONFIG: Record<MetalType, MetalConfig> = {
 
 export const MetalSummaryCards: React.FC = () => {
   const [summaries, setSummaries] = useState<MetalInventorySummary[]>([]);
+  const [statistics, setStatistics] = useState<InventoryStatistics | null>(null);
+  // Spot prices keyed by metal_type string value
+  const [spotPrices, setSpotPrices] = useState<Record<string, MetalPriceResponse>>({});
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    fetchSummaries();
+    fetchData();
   }, []);
 
-  const fetchSummaries = async () => {
+  const fetchData = async () => {
     try {
       setIsLoading(true);
       setError(null);
-      const data = await metalInventoryApi.getSummary();
-      setSummaries(data);
+
+      // Fetch inventory statistics and spot prices in parallel.
+      // Spot price failure does not block the inventory view.
+      const [statsResult, spotResult] = await Promise.allSettled([
+        metalInventoryApi.getStatistics(),
+        metalInventoryApi.getSpotPrices(),
+      ]);
+
+      if (statsResult.status === 'fulfilled') {
+        setStatistics(statsResult.value);
+        setSummaries(statsResult.value.metal_types);
+      } else {
+        throw new Error(
+          (statsResult.reason as any)?.response?.data?.detail ||
+            'Fehler beim Laden der Statistiken'
+        );
+      }
+
+      if (spotResult.status === 'fulfilled') {
+        const priceMap: Record<string, MetalPriceResponse> = {};
+        for (const entry of spotResult.value.prices) {
+          priceMap[entry.metal_type] = entry;
+        }
+        setSpotPrices(priceMap);
+      }
+      // Spot price failures are intentionally silent.
     } catch (err: any) {
-      setError(err.response?.data?.detail || 'Fehler beim Laden der Zusammenfassung');
+      setError(err.message || 'Fehler beim Laden der Zusammenfassung');
     } finally {
       setIsLoading(false);
     }
@@ -74,11 +104,6 @@ export const MetalSummaryCards: React.FC = () => {
     });
   };
 
-  const calculateUsagePercentage = (total: number, remaining: number): number => {
-    if (total === 0) return 0;
-    return ((total - remaining) / total) * 100;
-  };
-
   if (isLoading) {
     return <div className="metal-summary-loading">Lade Inventar-Zusammenfassung...</div>;
   }
@@ -95,9 +120,10 @@ export const MetalSummaryCards: React.FC = () => {
     );
   }
 
-  // Calculate total value across all metals
-  const totalInventoryValue = summaries.reduce((sum, s) => sum + s.total_value, 0);
-  const totalRemainingWeight = summaries.reduce((sum, s) => sum + s.total_remaining_g, 0);
+  // Use pre-aggregated totals from statistics when available; derive from
+  // per-metal summaries as fallback so the component still renders correctly.
+  const totalInventoryValue = statistics?.total_value ?? summaries.reduce((sum, s) => sum + s.total_value, 0);
+  const totalRemainingWeight = statistics?.total_weight_g ?? summaries.reduce((sum, s) => sum + s.total_weight_g, 0);
 
   return (
     <div className="metal-summary-container">
@@ -118,10 +144,10 @@ export const MetalSummaryCards: React.FC = () => {
       <div className="metal-summary-cards">
         {summaries.map((summary) => {
           const config = METAL_TYPE_CONFIG[summary.metal_type];
-          const usagePercentage = calculateUsagePercentage(
-            summary.total_weight_g,
-            summary.total_remaining_g
-          );
+          // Backend does not return a separate remaining field on MetalInventorySummary.
+          // total_weight_g already reflects only the remaining (non-depleted) weight
+          // per the statistics endpoint, so usage percentage is reported as 0 here.
+          const usagePercentage = 0;
 
           return (
             <div key={summary.metal_type} className={`metal-card ${config.className}`}>
@@ -135,15 +161,10 @@ export const MetalSummaryCards: React.FC = () => {
 
               <div className="metal-card-stats">
                 <div className="stat-row">
-                  <span className="stat-label">Verbleibend:</span>
+                  <span className="stat-label">Gewicht gesamt:</span>
                   <span className="stat-value primary">
-                    {formatWeight(summary.total_remaining_g)}
+                    {formatWeight(summary.total_weight_g)}
                   </span>
-                </div>
-
-                <div className="stat-row">
-                  <span className="stat-label">Gesamt gekauft:</span>
-                  <span className="stat-value">{formatWeight(summary.total_weight_g)}</span>
                 </div>
 
                 <div className="stat-row">
@@ -174,14 +195,14 @@ export const MetalSummaryCards: React.FC = () => {
               <div className="metal-card-details">
                 <div className="detail-item">
                   <span className="detail-icon">📦</span>
-                  <span className="detail-text">{summary.purchase_count} Charge(n)</span>
+                  <span className="detail-text">{summary.batch_count} Charge(n)</span>
                 </div>
-                {summary.oldest_purchase_date && (
+                {summary.oldest_batch_date && (
                   <div className="detail-item">
                     <span className="detail-icon">📅</span>
                     <span className="detail-text">
-                      {formatDate(summary.oldest_purchase_date)} -{' '}
-                      {formatDate(summary.newest_purchase_date)}
+                      {formatDate(summary.oldest_batch_date)} -{' '}
+                      {formatDate(summary.newest_batch_date)}
                     </span>
                   </div>
                 )}

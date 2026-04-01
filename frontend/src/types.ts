@@ -179,7 +179,7 @@ export type OrderStatus =
 
 // MetalType defined in Metal Inventory section below
 
-export type CostingMethod = 'FIFO' | 'LIFO' | 'AVERAGE' | 'SPECIFIC';
+export type CostingMethod = 'fifo' | 'lifo' | 'average' | 'specific';
 
 export interface OrderType {
   id: number;
@@ -376,27 +376,103 @@ export interface MetalPurchaseCreateInput {
 }
 
 export interface MetalPurchaseUpdateInput {
-  date_purchased?: string;
-  metal_type?: MetalType;
-  weight_g?: number;
-  remaining_weight_g?: number;
-  price_total?: number;
-  price_per_gram?: number;
   supplier?: string;
   invoice_number?: string;
   notes?: string;
   lot_number?: string;
 }
 
+/** Matches MetalPurchaseListItem in backend models/metal_inventory.py */
+export interface MetalPurchaseListItem {
+  id: number;
+  metal_type: MetalType;
+  date_purchased: string;
+  weight_g: number;
+  remaining_weight_g: number;
+  price_per_gram: number;
+  remaining_value: number;
+  supplier?: string | null;
+  is_depleted: boolean;
+}
+
+/** Matches MetalInventorySummary in backend models/metal_inventory.py */
 export interface MetalInventorySummary {
   metal_type: MetalType;
   total_weight_g: number;
-  total_remaining_g: number;
   total_value: number;
   average_price_per_gram: number;
-  purchase_count: number;
-  oldest_purchase_date?: string;
-  newest_purchase_date?: string;
+  batch_count: number;
+  oldest_batch_date?: string | null;
+  newest_batch_date?: string | null;
+}
+
+/** Matches InventoryStatistics in backend models/metal_inventory.py */
+export interface InventoryStatistics {
+  total_value: number;
+  total_weight_g: number;
+  metal_types: MetalInventorySummary[];
+  depleted_batches_count: number;
+  low_stock_alerts: string[];
+}
+
+/** Matches MaterialUsageCreate in backend models/metal_inventory.py */
+export interface MaterialUsageCreateInput {
+  order_id: number;
+  weight_used_g: number;
+  notes?: string;
+  costing_method?: CostingMethod;
+  metal_purchase_id?: number;
+}
+
+/** Matches MaterialUsageRead in backend models/metal_inventory.py */
+export interface MaterialUsageRead {
+  id: number;
+  order_id: number;
+  metal_purchase_id: number;
+  weight_used_g: number;
+  cost_at_time: number;
+  price_per_gram_at_time: number;
+  costing_method: CostingMethod;
+  used_at: string;
+  created_at: string;
+  notes?: string | null;
+  metal_type?: MetalType | null;
+}
+
+/** Matches MetalAllocation in backend models/metal_inventory.py */
+export interface MetalAllocation {
+  metal_purchase_id: number;
+  metal_type: MetalType;
+  weight_allocated_g: number;
+  price_per_gram: number;
+  cost: number;
+  date_purchased: string;
+}
+
+/** Matches OrderMaterialAllocation in backend models/metal_inventory.py */
+export interface OrderMaterialAllocation {
+  order_id: number;
+  required_weight_g: number;
+  allocations: MetalAllocation[];
+  total_cost: number;
+  costing_method: CostingMethod;
+}
+
+export type MetalPriceSource = 'api' | 'manual' | 'fallback';
+
+/** Matches MetalPriceResponse in backend models/metal_price.py */
+export interface MetalPriceResponse {
+  metal_type: MetalType;
+  price_per_gram: number;
+  currency: string;
+  source: MetalPriceSource;
+  updated_at: string;
+}
+
+/** Matches MetalPriceListResponse in backend models/metal_price.py */
+export interface MetalPriceListResponse {
+  prices: MetalPriceResponse[];
+  count: number;
 }
 
 // ==================== TIME TRACKING TYPES ====================

@@ -1,7 +1,7 @@
 // Metal Purchase Form Modal Component
 import React, { useState, useEffect } from 'react';
 import {
-  MetalPurchaseType,
+  MetalPurchaseListItem,
   MetalPurchaseCreateInput,
   MetalPurchaseUpdateInput,
   MetalType,
@@ -12,7 +12,7 @@ interface MetalPurchaseFormModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSubmit: (data: MetalPurchaseCreateInput | MetalPurchaseUpdateInput) => Promise<void>;
-  purchase?: MetalPurchaseType | null;
+  purchase?: MetalPurchaseListItem | null;
   isLoading?: boolean;
 }
 
@@ -82,18 +82,22 @@ export const MetalPurchaseFormModal: React.FC<MetalPurchaseFormModalProps> = ({
   useEffect(() => {
     if (isOpen) {
       if (purchase) {
-        // Edit mode: populate form with purchase data
+        // Edit mode: populate form with purchase data.
+        // weight_g and price_total are shown read-only; they cannot be changed
+        // via PATCH (backend only accepts metadata fields).
         setFormData({
           date_purchased: purchase.date_purchased
             ? new Date(purchase.date_purchased).toISOString().split('T')[0]
             : new Date().toISOString().split('T')[0],
           metal_type: purchase.metal_type,
           weight_g: purchase.weight_g.toString(),
-          price_total: purchase.price_total.toString(),
+          // price_total is not returned by the list endpoint; derive it from
+          // price_per_gram * weight_g as a display-only approximation.
+          price_total: (purchase.price_per_gram * purchase.weight_g).toFixed(2),
           supplier: purchase.supplier || '',
-          invoice_number: purchase.invoice_number || '',
-          notes: purchase.notes || '',
-          lot_number: purchase.lot_number || '',
+          invoice_number: '',
+          notes: '',
+          lot_number: '',
         });
         setAutoGenerateLotNumber(false);
       } else {
@@ -178,16 +182,30 @@ export const MetalPurchaseFormModal: React.FC<MetalPurchaseFormModalProps> = ({
 
     if (!validate()) return;
 
-    const submitData: MetalPurchaseCreateInput | MetalPurchaseUpdateInput = {
-      date_purchased: formData.date_purchased,
-      metal_type: formData.metal_type as MetalType,
-      weight_g: parseFloat(formData.weight_g),
-      price_total: parseFloat(formData.price_total),
-      supplier: formData.supplier || undefined,
-      invoice_number: formData.invoice_number || undefined,
-      notes: formData.notes || undefined,
-      lot_number: formData.lot_number || undefined,
-    };
+    let submitData: MetalPurchaseCreateInput | MetalPurchaseUpdateInput;
+
+    if (isEditMode) {
+      // PATCH only accepts metadata — weight and price cannot change after creation.
+      const updateData: MetalPurchaseUpdateInput = {
+        supplier: formData.supplier || undefined,
+        invoice_number: formData.invoice_number || undefined,
+        notes: formData.notes || undefined,
+        lot_number: formData.lot_number || undefined,
+      };
+      submitData = updateData;
+    } else {
+      const createData: MetalPurchaseCreateInput = {
+        date_purchased: formData.date_purchased,
+        metal_type: formData.metal_type as MetalType,
+        weight_g: parseFloat(formData.weight_g),
+        price_total: parseFloat(formData.price_total),
+        supplier: formData.supplier || undefined,
+        invoice_number: formData.invoice_number || undefined,
+        notes: formData.notes || undefined,
+        lot_number: formData.lot_number || undefined,
+      };
+      submitData = createData;
+    }
 
     await onSubmit(submitData);
   };
