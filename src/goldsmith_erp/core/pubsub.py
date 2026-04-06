@@ -82,8 +82,7 @@ async def subscribe_and_forward(
     Subscribe to Redis channel and forward each message to WebSocket.
     Cleans up on disconnect or error.
     """
-    # ensure WS type hint
-    await ws.accept()
+    # Note: caller is responsible for ws.accept() before invoking this function
     try:
         async for msg in _subscribe(channel):
             data = msg["data"]

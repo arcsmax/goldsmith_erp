@@ -375,7 +375,7 @@ class Order(Base):
     handoffs = relationship("OrderHandoff", back_populates="order", cascade="all, delete-orphan", order_by="OrderHandoff.created_at.desc()")
     hallmarks = relationship("OrderHallmark", back_populates="order", cascade="all, delete-orphan", order_by="OrderHallmark.created_at.desc()")
     valuation_certificates = relationship("ValuationCertificate", back_populates="order", cascade="all, delete-orphan", order_by="ValuationCertificate.created_at.desc()")
-    items = relationship("OrderItem", back_populates="order", cascade="all, delete-orphan")
+    order_items = relationship("OrderItem", back_populates="order", cascade="all, delete-orphan")
     status_history = relationship("OrderStatusHistory", back_populates="order", cascade="all, delete-orphan")
 
 
@@ -1656,11 +1656,20 @@ class CustomerAuditLog(Base):
     __tablename__ = "customer_audit_logs"
 
     id = Column(Integer, primary_key=True, index=True)
-    customer_id = Column(Integer, ForeignKey("customers.id", ondelete="SET NULL"), nullable=True)
+    customer_id = Column(Integer, ForeignKey("customers.id", ondelete="SET NULL"), nullable=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     action = Column(String(50), nullable=False)
+    entity = Column(String(50), nullable=True)
+    entity_id = Column(Integer, nullable=True)
+    field_name = Column(String(100), nullable=True)
+    old_value = Column(Text, nullable=True)
+    new_value = Column(Text, nullable=True)
+    user_email = Column(String(255), nullable=True)
+    user_role = Column(String(50), nullable=True)
+    user_agent = Column(String(500), nullable=True)
     details = Column(JSON, nullable=True)
     ip_address = Column(String(45), nullable=True)
+    timestamp = Column(DateTime, default=datetime.utcnow, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
 
@@ -1669,7 +1678,7 @@ class GDPRRequest(Base):
     __tablename__ = "gdpr_requests"
 
     id = Column(Integer, primary_key=True, index=True)
-    customer_id = Column(Integer, ForeignKey("customers.id", ondelete="CASCADE"), nullable=False)
+    customer_id = Column(Integer, ForeignKey("customers.id", ondelete="SET NULL"), nullable=True)
     request_type = Column(String(20), nullable=False)
     status = Column(String(20), nullable=False, default="pending")
     requested_at = Column(DateTime, default=datetime.utcnow, nullable=False)
@@ -1688,14 +1697,14 @@ class OrderItem(Base):
     __tablename__ = "order_items"
 
     id = Column(Integer, primary_key=True, index=True)
-    order_id = Column(Integer, ForeignKey("orders.id", ondelete="CASCADE"), nullable=False)
+    order_id = Column(Integer, ForeignKey("orders.id", ondelete="CASCADE"), nullable=False, index=True)
     description = Column(String(500), nullable=False)
     quantity = Column(Integer, default=1, nullable=False)
     unit_price = Column(Float, nullable=True)
     material_id = Column(Integer, ForeignKey("materials.id", ondelete="SET NULL"), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
-    order = relationship("Order", back_populates="items")
+    order = relationship("Order", back_populates="order_items")
 
 
 class OrderStatusHistory(Base):
@@ -1703,7 +1712,7 @@ class OrderStatusHistory(Base):
     __tablename__ = "order_status_history"
 
     id = Column(Integer, primary_key=True, index=True)
-    order_id = Column(Integer, ForeignKey("orders.id", ondelete="CASCADE"), nullable=False)
+    order_id = Column(Integer, ForeignKey("orders.id", ondelete="CASCADE"), nullable=False, index=True)
     from_status = Column(String(50), nullable=True)
     to_status = Column(String(50), nullable=False)
     changed_by = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
@@ -1711,6 +1720,7 @@ class OrderStatusHistory(Base):
     notes = Column(String(500), nullable=True)
 
     order = relationship("Order", back_populates="status_history")
+    user = relationship("User", foreign_keys=[changed_by])
 
 
 # ============================================================================

@@ -96,10 +96,8 @@ apiClient.interceptors.response.use(
         // Another refresh is in flight — queue this request and wait.
         return new Promise<unknown>((resolve, reject) => {
           failedQueue.push({
-            resolve: (token: string) => {
-              if (originalRequest.headers) {
-                originalRequest.headers.Authorization = `Bearer ${token}`;
-              }
+            resolve: (_token: string) => {
+              // Cookie is refreshed automatically — just retry the request
               resolve(apiClient(originalRequest));
             },
             reject,

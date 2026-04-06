@@ -47,37 +47,25 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
    */
   useEffect(() => {
     const initializeAuth = async () => {
-      const token = localStorage.getItem('access_token');
+      // Restore cached user for instant render (will be validated below)
       const savedUser = localStorage.getItem('user');
-
-      if (token && savedUser) {
-        // Token and user both exist in localStorage — restore without network call.
-        // The token will be validated on the first real API request.
+      if (savedUser) {
         try {
           setUser(JSON.parse(savedUser));
         } catch {
           localStorage.removeItem('user');
         }
-      } else if (token) {
-        // Token exists but no saved user — validate by fetching
-        try {
-          const currentUser = await authApi.getCurrentUser();
-          setUser(currentUser);
-          localStorage.setItem('user', JSON.stringify(currentUser));
-        } catch (error) {
-          console.error('Failed to fetch user, clearing auth:', error);
-          localStorage.removeItem('access_token');
-          localStorage.removeItem('user');
-          setUser(null);
-        }
-      } else if (savedUser) {
-        // Restore user from localStorage if token exists
-        try {
-          setUser(JSON.parse(savedUser));
-        } catch (error) {
-          console.error('Failed to parse saved user:', error);
-          localStorage.removeItem('user');
-        }
+      }
+
+      // Always validate the HttpOnly cookie by calling the server
+      try {
+        const currentUser = await authApi.getCurrentUser();
+        setUser(currentUser);
+        localStorage.setItem('user', JSON.stringify(currentUser));
+      } catch {
+        // Cookie invalid or expired — clear state
+        setUser(null);
+        localStorage.removeItem('user');
       }
 
       setIsLoading(false);
