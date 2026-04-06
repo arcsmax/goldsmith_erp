@@ -179,12 +179,8 @@ export const importCustomersCsv = async (file: File): Promise<ImportResult> => {
 
 /** Download the CSV import template (ADMIN only). */
 export const downloadCustomerCsvTemplate = (): void => {
-  // Use the axios baseURL so auth header is automatically included via interceptor.
-  // We open the URL directly so the browser triggers a file download.
-  const baseUrl = (apiClient.defaults.baseURL ?? '').replace(/\/$/, '');
-  const token = localStorage.getItem('access_token');
-  // Build a temporary anchor with the auth token as a query param would expose it,
-  // so we fetch and create a blob URL instead.
+  // Fetch the CSV template via apiClient (HttpOnly cookie sent automatically)
+  // and trigger a file download via a blob URL.
   apiClient
     .get('/import/customers/template', { responseType: 'blob' })
     .then((res) => {
@@ -199,8 +195,8 @@ export const downloadCustomerCsvTemplate = (): void => {
     })
     .catch(() => {
       // Fallback: direct link (works if session cookie auth is in place)
+      const baseUrl = (apiClient.defaults.baseURL ?? '').replace(/\/$/, '');
       window.open(`${baseUrl}/import/customers/template`, '_blank');
     });
-  void baseUrl; // suppress unused-var lint
   void token;
 };

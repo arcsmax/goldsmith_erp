@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useOrders, useTimeTracking } from '../contexts';
 import { ordersApi } from '../api';
+import apiClient from '../api/client';
 import { OrderType } from '../types';
 import QuickActionModal from '../components/QuickActionModal';
 import '../styles/scanner.css';
@@ -144,14 +145,10 @@ export const ScannerPage: React.FC = () => {
   const handlePrintLabelFromScan = async () => {
     if (!scannedOrder) return;
     try {
-      const token = localStorage.getItem('access_token');
-      const response = await fetch(`/api/v1/orders/${scannedOrder.id}/label`, {
-        headers: { Authorization: `Bearer ${token}` },
+      const response = await apiClient.get(`/orders/${scannedOrder.id}/label`, {
+        responseType: 'blob',
       });
-      if (!response.ok) return;
-      const html = await response.text();
-      // Render via Blob URL — no direct HTML injection into the current DOM
-      const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+      const blob = new Blob([response.data], { type: 'text/html;charset=utf-8' });
       const blobUrl = URL.createObjectURL(blob);
       const printWindow = window.open(blobUrl, '_blank');
       if (printWindow) {

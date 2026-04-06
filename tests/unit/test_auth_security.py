@@ -254,7 +254,7 @@ class TestAuthenticationLogin:
         assert payload["sub"] == str(sample_user.id)
 
     async def test_login_sets_httponly_cookie(self, client, sample_user, sample_user_password):
-        """Test that login sets HttpOnly cookie"""
+        """Test that login sets HttpOnly cookie with correct security flags"""
         response = await client.post(
             f"{settings.API_V1_STR}/login/access-token",
             data={
@@ -266,6 +266,15 @@ class TestAuthenticationLogin:
         assert response.status_code == 200
         # Check if access_token cookie is set
         assert "access_token" in response.cookies
+
+        # Verify Set-Cookie header flags
+        set_cookie_headers = response.headers.get_list("set-cookie")
+        access_token_cookie = next(
+            (h for h in set_cookie_headers if "access_token=" in h), None
+        )
+        assert access_token_cookie is not None, "access_token cookie not set"
+        assert "httponly" in access_token_cookie.lower(), "Cookie missing HttpOnly flag"
+        assert "samesite=lax" in access_token_cookie.lower(), "Cookie missing SameSite=Lax"
 
     async def test_login_with_invalid_email(self, client):
         """Test login with non-existent email returns 401"""
@@ -315,10 +324,12 @@ class TestAuthenticationLogin:
         assert response.status_code == 200
         assert response.json()["message"] == "Successfully logged out"
 
-        # Cookie should be cleared (set to empty or with expired date)
-        # Note: httpx doesn't show deleted cookies clearly,
-        # but we can check the response sets the cookie
-        # In a real browser, the cookie would be removed
+        # Verify the Set-Cookie header expires/invalidates the cookie
+        set_cookie_headers = response.headers.get_list("set-cookie")
+        assert any(
+            "max-age=0" in h.lower() or "expires=" in h.lower()
+            for h in set_cookie_headers
+        ), "Logout should set max-age=0 or expires to clear the cookie"
 
 
 @pytest.mark.asyncio

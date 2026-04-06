@@ -79,8 +79,9 @@ apiClient.interceptors.response.use(
       // actual path is /api/v1/refresh (not /api/v1/auth/refresh).
       const isRefreshEndpoint = originalRequest.url?.includes('/refresh');
       if (isRefreshEndpoint) {
-        // Refresh failed — clear user cache and redirect to login
+        // Refresh failed — clear user cache, notify React context, and redirect to login
         localStorage.removeItem('user');
+        window.dispatchEvent(new Event('auth:session-expired'));
         if (window.location.pathname !== '/login') {
           window.location.href = '/login';
         }
@@ -123,6 +124,7 @@ apiClient.interceptors.response.use(
         // Refresh failed — reject all queued requests and force re-login
         processQueue(refreshError, null);
         localStorage.removeItem('user');
+        window.dispatchEvent(new Event('auth:session-expired'));
         if (window.location.pathname !== '/login') {
           window.location.href = '/login';
         }

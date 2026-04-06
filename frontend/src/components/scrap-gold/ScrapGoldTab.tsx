@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { scrapGoldApi, ScrapGold, ScrapGoldStatus } from '../../api/scrap-gold';
 import type { ScrapGoldItem } from '../../api/scrap-gold';
+import apiClient from '../../api/client';
 import { AlloyCalculator, ALLOY_OPTIONS } from './AlloyCalculator';
 import { SignatureCanvas } from '../SignatureCanvas';
 import { useToast } from '../../contexts';
@@ -362,16 +363,11 @@ export const ScrapGoldTab: React.FC<ScrapGoldTabProps> = ({ orderId, customerId 
               aria-label="Ankaufsbeleg als PDF herunterladen"
               onClick={async () => {
                 try {
-                  const token = localStorage.getItem('access_token');
-                  const response = await fetch(
-                    `/api/v1/scrap-gold/${scrapGold.id}/receipt.pdf`,
-                    { headers: { Authorization: `Bearer ${token}` } }
+                  const response = await apiClient.get(
+                    `/scrap-gold/${scrapGold.id}/receipt.pdf`,
+                    { responseType: 'blob' }
                   );
-                  if (!response.ok) {
-                    showToast('PDF konnte nicht heruntergeladen werden.', 'error');
-                    return;
-                  }
-                  const blob = await response.blob();
+                  const blob = response.data;
                   const url = URL.createObjectURL(blob);
                   const a = document.createElement('a');
                   a.href = url;

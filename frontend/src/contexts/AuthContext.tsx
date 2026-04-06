@@ -42,6 +42,20 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const isAdmin = user?.role?.toUpperCase() === 'ADMIN';
 
   /**
+   * Listen for session-expired events dispatched by the API client interceptor
+   * when token refresh fails. This bridges the gap between the non-React
+   * interceptor and React context state.
+   */
+  useEffect(() => {
+    const handleSessionExpired = () => {
+      setUser(null);
+      localStorage.removeItem('user');
+    };
+    window.addEventListener('auth:session-expired', handleSessionExpired);
+    return () => window.removeEventListener('auth:session-expired', handleSessionExpired);
+  }, []);
+
+  /**
    * Initialize auth state on mount
    * Check if token exists and fetch user data
    */

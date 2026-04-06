@@ -2,6 +2,7 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ordersApi, materialsApi } from '../api';
+import apiClient from '../api/client';
 import { OrderType, MaterialType, OrderStatus, OrderPhoto } from '../types';
 import { useOrders, OrderTab, useToast } from '../contexts';
 import TimeTrackingTab from '../components/TimeTrackingTab';
@@ -89,18 +90,10 @@ export const OrderDetailPage: React.FC = () => {
   const handlePrintLabel = async () => {
     if (!order) return;
     try {
-      const token = localStorage.getItem('access_token');
-      const response = await fetch(`/api/v1/orders/${order.id}/label`, {
-        headers: { Authorization: `Bearer ${token}` },
+      const response = await apiClient.get(`/orders/${order.id}/label`, {
+        responseType: 'blob',
       });
-      if (!response.ok) {
-        showToast('Etikett konnte nicht geladen werden', 'error');
-        return;
-      }
-      const html = await response.text();
-      // Use a Blob URL so the label HTML loads into a new tab cleanly —
-      // the content comes exclusively from our authenticated API endpoint.
-      const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+      const blob = new Blob([response.data], { type: 'text/html;charset=utf-8' });
       const blobUrl = URL.createObjectURL(blob);
       const printWindow = window.open(blobUrl, '_blank');
       if (printWindow) {

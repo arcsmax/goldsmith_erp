@@ -6,6 +6,7 @@ import uuid
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi.responses import FileResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Any, Dict, List
@@ -367,8 +368,8 @@ async def upload_material_image(
             detail="Could not save image to disk",
         )
 
-    # Store relative URL — the static files mount exposes /uploads/...
-    image_url = f"/uploads/materials/{material_id}/{filename}"
+    # Store API URL — served by the authenticated GET /{material_id}/image endpoint
+    image_url = f"/api/v1/materials/{material_id}/image"
 
     from goldsmith_erp.models.material import MaterialUpdate as _MaterialUpdate
     updated = await MaterialService.update_material(
@@ -385,6 +386,46 @@ async def upload_material_image(
         extra={"material_id": material_id, "image_url": image_url},
     )
     return updated
+
+
+@router.get("/{material_id}/image")
+@require_permission(Permission.MATERIAL_VIEW)
+async def get_material_image(
+    material_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user),
+):
+    """
+    Material-Bild ausliefern (authentifiziert).
+
+    - **Authentifizierung erforderlich**
+    - Liefert die Bilddatei für das angegebene Material
+
+    **Use Case**: Material-Bild im Frontend anzeigen.
+    """
+    material = await MaterialService.get_material_by_id(db, material_id)
+    if not material or not material.image_url:
+        raise HTTPException(status_code=404, detail="Bild nicht gefunden")
+
+    # image_url is stored as "/api/v1/materials/{id}/image" (new) or
+    # "/uploads/materials/{id}/{filename}" (legacy).  In both cases the
+    # actual file lives under  <uploads_dir>/materials/{id}/{filename}.
+    uploads_dir = Path(settings.PHOTO_STORAGE_PATH).resolve().parent  # ./uploads
+
+    # For the new API-based URL we need the filename from disk
+    material_dir = uploads_dir / "materials" / str(material_id)
+    if material_dir.is_dir():
+        # Pick the first image file in the directory (there should be exactly one)
+        image_files = [
+            f for f in material_dir.iterdir()
+            if f.is_file() and f.suffix.lower() in (".jpg", ".jpeg", ".png", ".webp")
+        ]
+        if image_files:
+            # Use most recently modified file
+            file_path = max(image_files, key=lambda p: p.stat().st_mtime)
+            return FileResponse(file_path)
+
+    raise HTTPException(status_code=404, detail="Bilddatei nicht gefunden")
 
 
 @router.get("/analytics/stock-value", response_model=StockValueResponse)

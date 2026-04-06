@@ -2,6 +2,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { customersApi, ordersApi } from '../api';
+import apiClient from '../api/client';
 import { measurementsApi } from '../api/measurements';
 import { photosApi } from '../api/photos';
 import AuthenticatedImage from '../components/AuthenticatedImage';
@@ -509,14 +510,10 @@ const RechnungenTab: React.FC<{ customerId: number }> = ({ customerId }) => {
   const handleDownloadPdf = async (invoiceId: number, invoiceNumber: string) => {
     try {
       setDownloadingId(invoiceId);
-      const token = localStorage.getItem('access_token');
-      const response = await fetch(`/api/v1/invoices/${invoiceId}/pdf`, {
-        headers: { Authorization: `Bearer ${token}` },
+      const response = await apiClient.get(`/invoices/${invoiceId}/pdf`, {
+        responseType: 'blob',
       });
-      if (!response.ok) {
-        return;
-      }
-      const blob = await response.blob();
+      const blob = response.data;
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;

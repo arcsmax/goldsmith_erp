@@ -1,6 +1,7 @@
 // Invoice Management Page — Rechnungsverwaltung
 import React, { useEffect, useState, useCallback } from 'react';
 import { useAuth, useToast, useConfirm } from '../contexts';
+import apiClient from '../api/client';
 import { invoicesApi } from '../api/invoices';
 import { ordersApi } from '../api/orders';
 import {
@@ -673,27 +674,11 @@ export const InvoicesPage: React.FC = () => {
     if (filterTo) params.set('date_to', new Date(filterTo).toISOString());
     if (filterStatus && format === 'datev') params.set('status', filterStatus);
 
-    const token = localStorage.getItem('access_token');
-    const url = `/api/v1/invoices/export/${format}?${params.toString()}`;
+    const url = `/invoices/export/${format}?${params.toString()}`;
 
     try {
-      const response = await fetch(url, {
-        method: 'GET',
-        headers: {
-          Authorization: token ? `Bearer ${token}` : '',
-        },
-      });
-
-      if (!response.ok) {
-        const err = await response.json().catch(() => ({}));
-        showToast(
-          err.detail || `Export fehlgeschlagen (HTTP ${response.status}).`,
-          'error'
-        );
-        return;
-      }
-
-      const blob = await response.blob();
+      const response = await apiClient.get(url, { responseType: 'blob' });
+      const blob = response.data;
       const blobUrl = URL.createObjectURL(blob);
       const today = new Date().toISOString().substring(0, 10).replace(/-/g, '');
       const filename = `${format}_export_${today}.csv`;

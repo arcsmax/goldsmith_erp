@@ -172,7 +172,7 @@ class TestRefreshEndpoint:
         assert payload["sub"] == str(sample_user.id)
 
     async def test_refresh_sets_httponly_cookie(self, client, sample_user):
-        """Successful refresh must set the HttpOnly access_token cookie."""
+        """Successful refresh must set the HttpOnly access_token cookie with correct flags."""
         token = _valid_token(user_id=sample_user.id)
 
         response = await client.post(
@@ -182,6 +182,15 @@ class TestRefreshEndpoint:
 
         assert response.status_code == 200
         assert "access_token" in response.cookies
+
+        # Verify Set-Cookie header flags
+        set_cookie_headers = response.headers.get_list("set-cookie")
+        access_token_cookie = next(
+            (h for h in set_cookie_headers if "access_token=" in h), None
+        )
+        assert access_token_cookie is not None, "access_token cookie not set"
+        assert "httponly" in access_token_cookie.lower(), "Cookie missing HttpOnly flag"
+        assert "samesite=lax" in access_token_cookie.lower(), "Cookie missing SameSite=Lax"
 
     async def test_refresh_within_grace_window_succeeds(self, client, sample_user):
         """Token expired 1 minute ago (inside 5-min grace) must refresh successfully."""

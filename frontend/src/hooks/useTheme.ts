@@ -10,6 +10,7 @@
  */
 
 import { useEffect } from 'react';
+import apiClient from '../api/client';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -135,25 +136,9 @@ export function useTheme(): void {
  */
 export async function saveTheme(
   settings: ThemeSettings,
-  token: string
 ): Promise<ThemeSettings> {
-  const resp = await fetch(THEME_ENDPOINT, {
-    method: 'PUT',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`,
-    },
-    body: JSON.stringify(settings),
-  });
-
-  if (!resp.ok) {
-    const err = await resp.json().catch(() => ({}));
-    throw new Error(
-      (err as { detail?: string }).detail ?? `HTTP ${resp.status}`
-    );
-  }
-
-  const saved: ThemeSettings = await resp.json();
+  const resp = await apiClient.put('/theme', settings);
+  const saved: ThemeSettings = resp.data;
   applyTheme(saved);
   writeCache(saved);
   return saved;
@@ -163,11 +148,7 @@ export async function saveTheme(
  * Fetch the current theme from the backend (bypasses cache).
  * Used by the admin editor to populate the initial form state.
  */
-export async function fetchTheme(token?: string): Promise<ThemeSettings> {
-  const headers: Record<string, string> = { Accept: 'application/json' };
-  if (token) headers['Authorization'] = `Bearer ${token}`;
-
-  const resp = await fetch(THEME_ENDPOINT, { headers });
-  if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-  return resp.json();
+export async function fetchTheme(): Promise<ThemeSettings> {
+  const resp = await apiClient.get('/theme');
+  return resp.data;
 }

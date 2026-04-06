@@ -655,8 +655,7 @@ const ThemeConfigSection: React.FC = () => {
 
   // Load current settings on mount
   useEffect(() => {
-    const token = localStorage.getItem('access_token') ?? '';
-    fetchTheme(token)
+    fetchTheme()
       .then(settings => {
         setDraft(settings);
       })
@@ -677,11 +676,10 @@ const ThemeConfigSection: React.FC = () => {
   };
 
   const handleSave = async () => {
-    const token = localStorage.getItem('access_token') ?? '';
     setIsSaving(true);
     setMessage(null);
     try {
-      const saved = await saveTheme(draft, token);
+      const saved = await saveTheme(draft);
       setDraft(saved);
       setMessage({ text: 'Einstellungen gespeichert.', ok: true });
     } catch (err: unknown) {
