@@ -264,7 +264,7 @@ export const MainLayout: React.FC = () => {
 
       {/* Footer */}
       <footer className="main-footer">
-        <p>&copy; 2025 Goldsmith ERP. Alle Rechte vorbehalten.</p>
+        <p>&copy; {new Date().getFullYear()} Goldsmith ERP. Alle Rechte vorbehalten.</p>
       </footer>
 
       {/* Timer Widget - Sticky, always visible when tracking */}

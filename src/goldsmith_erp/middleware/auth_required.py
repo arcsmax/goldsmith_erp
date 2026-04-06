@@ -22,7 +22,7 @@ PUBLIC_PATHS = [
     f"{settings.API_V1_STR}/openapi.json",
     f"{settings.API_V1_STR}/login",
     f"{settings.API_V1_STR}/logout",
-    f"{settings.API_V1_STR}/register",
+    f"{settings.API_V1_STR}/users/register",
 ]
 
 # Prefixes that do NOT require authentication
@@ -30,7 +30,7 @@ PUBLIC_PREFIXES = [
     "/docs",
     "/redoc",
     "/static",
-    "/uploads",
+    # "/uploads" removed — photos served via authenticated router endpoints
     f"{settings.API_V1_STR}/login",
     f"{settings.API_V1_STR}/auth/mfa",
     # The refresh endpoint must bypass the middleware's strict expiry check so that

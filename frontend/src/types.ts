@@ -179,7 +179,7 @@ export type OrderStatus =
 
 // MetalType defined in Metal Inventory section below
 
-export type CostingMethod = 'fifo' | 'lifo' | 'average' | 'specific';
+export type CostingMethod = 'FIFO' | 'LIFO' | 'AVERAGE' | 'SPECIFIC';
 
 export interface OrderType {
   id: number;

@@ -2,7 +2,7 @@
 import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import { timeTrackingApi, activitiesApi } from '../api';
 import apiClient from '../api/client';
-import { TimeEntryType, TimeEntryCreateInput, TimeEntryUpdateInput, ActivityType } from '../types';
+import { TimeEntry, TimeEntryStartInput, TimeEntryUpdateInput, Activity } from '../types';
 import { ActiveTimerWidget } from '../components/time-tracking/ActiveTimerWidget';
 import { TimeSummaryCards } from '../components/time-tracking/TimeSummaryCards';
 import { TimeReportsSection } from '../components/time-tracking/TimeReportsSection';
@@ -21,13 +21,13 @@ const formatDuration = (minutes: number | null): string => {
 export const TimeTrackingPage: React.FC = () => {
   const { showToast } = useToast();
   const { showConfirm } = useConfirm();
-  const [entries, setEntries] = useState<TimeEntryType[]>([]);
-  const [activities, setActivities] = useState<ActivityType[]>([]);
+  const [entries, setEntries] = useState<TimeEntry[]>([]);
+  const [activities, setActivities] = useState<Activity[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isFormLoading, setIsFormLoading] = useState(false);
-  const [selectedEntry, setSelectedEntry] = useState<TimeEntryType | null>(null);
+  const [selectedEntry, setSelectedEntry] = useState<TimeEntry | null>(null);
 
   // Filters & Sort
   const [searchQuery, setSearchQuery] = useState('');
@@ -69,7 +69,7 @@ export const TimeTrackingPage: React.FC = () => {
 
   // Create activity lookup map for O(1) performance
   const activityMap = useMemo(() => {
-    const map = new Map<number, ActivityType>();
+    const map = new Map<number, Activity>();
     activities.forEach(activity => map.set(activity.id, activity));
     return map;
   }, [activities]);
@@ -170,7 +170,7 @@ export const TimeTrackingPage: React.FC = () => {
     setIsModalOpen(true);
   }, []);
 
-  const openEditModal = useCallback((entry: TimeEntryType, e: React.MouseEvent) => {
+  const openEditModal = useCallback((entry: TimeEntry, e: React.MouseEvent) => {
     e.stopPropagation();
     setSelectedEntry(entry);
     setIsModalOpen(true);

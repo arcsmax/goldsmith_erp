@@ -74,13 +74,8 @@ async def login_access_token(
         path="/",        # Cookie valid for all paths
     )
 
-    # DEPRECATED: access_token in response body kept for transition period.
-    # Clients should migrate to reading the HttpOnly cookie instead.
-    # Future versions will remove the token from the response body.
-    return {
-        "access_token": token,
-        "token_type": "bearer"
-    }
+    # Token is set via HttpOnly cookie only — not exposed in response body.
+    return {"message": "Login successful"}
 
 
 @router.post("/logout")
@@ -184,9 +179,5 @@ async def refresh_access_token(
 
     logger.info("Token refreshed for user", extra={"user_id": user_id})
 
-    # DEPRECATED: access_token in response body kept for transition period.
-    # Clients should migrate to reading the HttpOnly cookie instead.
-    return {
-        "access_token": new_token,
-        "token_type": "bearer",
-    }
+    # Token is set via HttpOnly cookie only — not exposed in response body.
+    return {"message": "Token refreshed"}

@@ -1,5 +1,5 @@
 // Time Tracking Context - Global time tracking state management
-import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef, ReactNode } from 'react';
 import { timeTrackingApi } from '../api/time-tracking';
 import { activitiesApi } from '../api/activities';
 import {
@@ -42,7 +42,7 @@ export const TimeTrackingProvider: React.FC<TimeTrackingProviderProps> = ({ chil
   const [activities, setActivities] = useState<Activity[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
-  const [pollingInterval, setPollingInterval] = useState<NodeJS.Timeout | null>(null);
+  const pollingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   /**
    * Fetch running entry from server
@@ -141,28 +141,23 @@ export const TimeTrackingProvider: React.FC<TimeTrackingProviderProps> = ({ chil
    * Start polling for running entry
    */
   const startPolling = useCallback(() => {
-    // Clear any existing interval
-    if (pollingInterval) {
-      clearInterval(pollingInterval);
+    if (pollingIntervalRef.current) {
+      clearInterval(pollingIntervalRef.current);
     }
-
-    // Poll every 5 seconds
-    const interval = setInterval(() => {
+    pollingIntervalRef.current = setInterval(() => {
       refreshRunningEntry();
     }, 5000);
-
-    setPollingInterval(interval);
-  }, [pollingInterval, refreshRunningEntry]);
+  }, [refreshRunningEntry]);
 
   /**
    * Stop polling
    */
   const stopPolling = useCallback(() => {
-    if (pollingInterval) {
-      clearInterval(pollingInterval);
-      setPollingInterval(null);
+    if (pollingIntervalRef.current) {
+      clearInterval(pollingIntervalRef.current);
+      pollingIntervalRef.current = null;
     }
-  }, [pollingInterval]);
+  }, []);
 
   /**
    * Clear error

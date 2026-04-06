@@ -62,9 +62,9 @@ class TestLoginEndpoint:
 
         assert response.status_code == 200
         body = response.json()
-        assert "access_token" in body
-        assert body["token_type"] == "bearer"
-        assert len(body["access_token"]) > 20
+        assert "message" in body
+        # Token is now in HttpOnly cookie, not response body
+        assert "access_token" in response.cookies
 
     @pytest.mark.asyncio
     async def test_login_wrong_password_returns_401(
@@ -166,7 +166,8 @@ class TestProtectedEndpointAccess:
             data={"username": "auth_flow@example.com", "password": "FlowPass123!"},
         )
         assert login_resp.status_code == 200
-        token = login_resp.json()["access_token"]
+        # Token is in HttpOnly cookie
+        token = login_resp.cookies["access_token"]
 
         # Step 2: use token on protected endpoint
         protected_resp = await client.get(

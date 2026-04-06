@@ -5,7 +5,8 @@ from pathlib import Path
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from fastapi.staticfiles import StaticFiles
+from jose import jwt, JWTError
+from goldsmith_erp.core.security import ALGORITHM
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
@@ -83,13 +84,9 @@ app = FastAPI(
     openapi_url=f"{settings.API_V1_STR}/openapi.json"
 )
 
-# Serve uploaded files (photos, material images, scrap gold docs)
+# Ensure uploads directory exists (photos served via authenticated router endpoints)
 _uploads_dir = Path(settings.PHOTO_STORAGE_PATH).parent  # ./uploads
-if _uploads_dir.exists():
-    app.mount("/uploads", StaticFiles(directory=str(_uploads_dir)), name="uploads")
-else:
-    _uploads_dir.mkdir(parents=True, exist_ok=True)
-    app.mount("/uploads", StaticFiles(directory=str(_uploads_dir)), name="uploads")
+_uploads_dir.mkdir(parents=True, exist_ok=True)
 
 # Add rate limiting state and error handler
 app.state.limiter = limiter
@@ -106,8 +103,8 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.BACKEND_CORS_ORIGINS,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Content-Type", "Authorization", "X-Requested-With"],
 )
 
 # Security headers middleware (innermost - decorates all responses with security headers)
@@ -144,34 +141,43 @@ app.include_router(customer_portal.router, prefix=f"{settings.API_V1_STR}/portal
 app.include_router(theme_router.router, prefix=f"{settings.API_V1_STR}", tags=["theme"])  # Admin-configurable branding (GET public, PUT ADMIN-only)
 app.include_router(imports_router.router, prefix=f"{settings.API_V1_STR}", tags=["import"])  # Bulk CSV data import (ADMIN-only)
 
+async def _authenticate_websocket(websocket: WebSocket) -> int | None:
+    """Extract and validate JWT from WebSocket cookie or query param."""
+    token = websocket.cookies.get("access_token")
+    if not token:
+        token = websocket.query_params.get("token")
+    if not token:
+        return None
+    try:
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[ALGORITHM])
+        user_id = payload.get("sub")
+        return int(user_id) if user_id else None
+    except (JWTError, ValueError, TypeError):
+        return None
+
+
 # WebSocket endpoint with Redis Pub/Sub integration
 @app.websocket("/ws/orders")
 async def websocket_endpoint(websocket: WebSocket):
+    user_id = await _authenticate_websocket(websocket)
+    if user_id is None:
+        await websocket.close(code=4001, reason="Authentication required")
+        return
     await websocket.accept()
-    # Define the channel to listen to
     channel = "order_updates"
-    # Start the task to listen to Redis and forward to this specific websocket
-    subscribe_task = asyncio.create_task(
-        subscribe_and_forward(websocket, channel)
-    )
+    subscribe_task = asyncio.create_task(subscribe_and_forward(websocket, channel))
     try:
-        # Keep the connection alive, potentially handle incoming messages if needed
         while True:
-            # You might still want to handle incoming WebSocket messages
-            # for bidirectional communication
             data = await websocket.receive_text()
-            # Process client message if needed, but don't broadcast directly
-            # Instead, you could publish to Redis to ensure all systems receive it
-            await publish_event(channel, f"Client message: {data}")
+            logger.debug("WS client message", extra={"channel": channel, "user_id": user_id})
     except WebSocketDisconnect:
         logger.info("WebSocket disconnected", extra={"channel": channel})
     finally:
-        # Clean up the subscription task when the websocket disconnects
         subscribe_task.cancel()
         try:
             await subscribe_task
         except asyncio.CancelledError:
-            logger.debug("Subscription task cancelled", extra={"channel": channel})
+            pass
 
 
 # Per-user notification WebSocket — channel: ``notifications:{user_id}``
@@ -180,29 +186,24 @@ async def websocket_endpoint(websocket: WebSocket):
 # before the WebSocket upgrade is accepted.
 @app.websocket("/ws/notifications/{user_id}")
 async def notification_websocket_endpoint(websocket: WebSocket, user_id: int):
+    authenticated_user_id = await _authenticate_websocket(websocket)
+    if authenticated_user_id is None or authenticated_user_id != user_id:
+        await websocket.close(code=4001, reason="Authentication required")
+        return
     await websocket.accept()
     channel = f"notifications:{user_id}"
-    subscribe_task = asyncio.create_task(
-        subscribe_and_forward(websocket, channel)
-    )
+    subscribe_task = asyncio.create_task(subscribe_and_forward(websocket, channel))
     try:
         while True:
-            # Keep connection alive; no client messages expected on this channel
             await websocket.receive_text()
     except WebSocketDisconnect:
-        logger.info(
-            "Notification WebSocket disconnected",
-            extra={"channel": channel, "user_id": user_id},
-        )
+        logger.info("Notification WebSocket disconnected", extra={"channel": channel, "user_id": user_id})
     finally:
         subscribe_task.cancel()
         try:
             await subscribe_task
         except asyncio.CancelledError:
-            logger.debug(
-                "Notification subscription task cancelled",
-                extra={"channel": channel},
-            )
+            pass
 
 
 @app.on_event("startup")

@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float, DateTime, ForeignKey, Table, Boolean, Enum as SAEnum, Text
+from sqlalchemy import Column, Integer, String, Float, DateTime, ForeignKey, Table, Boolean, Enum as SAEnum, Text, Index, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSON
 from sqlalchemy.orm import relationship
 from sqlalchemy.ext.declarative import declarative_base
@@ -198,6 +198,12 @@ class Customer(Base):
     # After this date the gdpr-cleanup.sh cron job permanently deletes the record.
     deletion_scheduled_at = Column(DateTime, nullable=True, index=True)
 
+    # Soft delete
+    is_deleted = Column(Boolean, default=False, nullable=False, index=True)
+    deleted_at = Column(DateTime, nullable=True)
+    deleted_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+    deletion_reason = Column(String(500), nullable=True)
+
     # Beziehungen
     orders = relationship("Order", back_populates="customer")
     measurements = relationship(
@@ -369,6 +375,8 @@ class Order(Base):
     handoffs = relationship("OrderHandoff", back_populates="order", cascade="all, delete-orphan", order_by="OrderHandoff.created_at.desc()")
     hallmarks = relationship("OrderHallmark", back_populates="order", cascade="all, delete-orphan", order_by="OrderHallmark.created_at.desc()")
     valuation_certificates = relationship("ValuationCertificate", back_populates="order", cascade="all, delete-orphan", order_by="ValuationCertificate.created_at.desc()")
+    items = relationship("OrderItem", back_populates="order", cascade="all, delete-orphan")
+    status_history = relationship("OrderStatusHistory", back_populates="order", cascade="all, delete-orphan")
 
 
 class OrderComment(Base):
@@ -1053,6 +1061,7 @@ class NotificationTypeEnum(str, enum.Enum):
     COMMENT = "comment"                     # Neuer Kommentar an einem Auftrag
     REPAIR_RECEIVED = "repair_received"     # Reparaturauftrag eingegangen
     REPAIR_READY = "repair_ready"           # Reparatur abholbereit
+    BIRTHDAY_REMINDER = "birthday_reminder"
 
 
 class NotificationSeverityEnum(str, enum.Enum):
@@ -1125,6 +1134,9 @@ class NotificationPreference(Base):
     and how far in advance deadline warnings are triggered.
     """
     __tablename__ = "notification_preferences"
+    __table_args__ = (
+        UniqueConstraint('user_id', 'notification_type', name='uq_notification_pref'),
+    )
 
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(
@@ -1632,3 +1644,80 @@ class CustomMetalType(Base):
 
     def __repr__(self) -> str:
         return f"<CustomMetalType code={self.code!r} display_name={self.display_name!r}>"
+
+
+# ============================================================================
+# CUSTOMER AUDIT & GDPR
+# ============================================================================
+
+
+class CustomerAuditLog(Base):
+    """Audit trail for customer data access and changes."""
+    __tablename__ = "customer_audit_logs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    customer_id = Column(Integer, ForeignKey("customers.id", ondelete="SET NULL"), nullable=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    action = Column(String(50), nullable=False)
+    details = Column(JSON, nullable=True)
+    ip_address = Column(String(45), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class GDPRRequest(Base):
+    """Tracks GDPR data export and erasure requests."""
+    __tablename__ = "gdpr_requests"
+
+    id = Column(Integer, primary_key=True, index=True)
+    customer_id = Column(Integer, ForeignKey("customers.id", ondelete="CASCADE"), nullable=False)
+    request_type = Column(String(20), nullable=False)
+    status = Column(String(20), nullable=False, default="pending")
+    requested_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    completed_at = Column(DateTime, nullable=True)
+    requested_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+    notes = Column(Text, nullable=True)
+
+
+# ============================================================================
+# ORDER LINE ITEMS & STATUS HISTORY
+# ============================================================================
+
+
+class OrderItem(Base):
+    """Individual line items within an order."""
+    __tablename__ = "order_items"
+
+    id = Column(Integer, primary_key=True, index=True)
+    order_id = Column(Integer, ForeignKey("orders.id", ondelete="CASCADE"), nullable=False)
+    description = Column(String(500), nullable=False)
+    quantity = Column(Integer, default=1, nullable=False)
+    unit_price = Column(Float, nullable=True)
+    material_id = Column(Integer, ForeignKey("materials.id", ondelete="SET NULL"), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    order = relationship("Order", back_populates="items")
+
+
+class OrderStatusHistory(Base):
+    """Tracks order status transitions."""
+    __tablename__ = "order_status_history"
+
+    id = Column(Integer, primary_key=True, index=True)
+    order_id = Column(Integer, ForeignKey("orders.id", ondelete="CASCADE"), nullable=False)
+    from_status = Column(String(50), nullable=True)
+    to_status = Column(String(50), nullable=False)
+    changed_by = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    changed_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    notes = Column(String(500), nullable=True)
+
+    order = relationship("Order", back_populates="status_history")
+
+
+# ============================================================================
+# PERFORMANCE INDEXES
+# ============================================================================
+
+# Performance indexes for frequent query patterns
+Index('ix_time_entries_end_time', TimeEntry.end_time)
+Index('ix_notifications_user_read', Notification.user_id, Notification.is_read)
+Index('ix_orders_customer_deleted', Order.customer_id, Order.is_deleted)

@@ -26,7 +26,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [isLoading, setIsLoading] = useState<boolean>(true);
 
   // Check if user is authenticated
-  const isAuthenticated = !!user && !!localStorage.getItem('access_token');
+  const isAuthenticated = !!user;
 
   /**
    * Check whether the current user holds at least one of the given roles.

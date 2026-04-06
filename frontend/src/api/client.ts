@@ -58,13 +58,7 @@ function processQueue(error: unknown, token: string | null): void {
 // Request interceptor — attach current access token
 // ---------------------------------------------------------------------------
 apiClient.interceptors.request.use(
-  (config: InternalAxiosRequestConfig) => {
-    const token = localStorage.getItem('access_token');
-    if (token && config.headers) {
-      config.headers.Authorization = `Bearer ${token}`;
-    }
-    return config;
-  },
+  (config: InternalAxiosRequestConfig) => config,
   (error: AxiosError) => Promise.reject(error)
 );
 
@@ -85,8 +79,7 @@ apiClient.interceptors.response.use(
       // actual path is /api/v1/refresh (not /api/v1/auth/refresh).
       const isRefreshEndpoint = originalRequest.url?.includes('/refresh');
       if (isRefreshEndpoint) {
-        // Refresh failed — clear storage and redirect to login
-        localStorage.removeItem('access_token');
+        // Refresh failed — clear user cache and redirect to login
         localStorage.removeItem('user');
         if (window.location.pathname !== '/login') {
           window.location.href = '/login';
@@ -123,28 +116,14 @@ apiClient.interceptors.response.use(
         // interceptor above (it is still in localStorage at this point).
         // The auth router is mounted at /api/v1 with no /auth sub-prefix.
         // The actual backend path is POST /api/v1/refresh.
-        const refreshResponse = await apiClient.post<{
-          access_token: string;
-          token_type: string;
-        }>('/refresh');
+        await apiClient.post('/refresh');
 
-        const newToken = refreshResponse.data.access_token;
-
-        // Persist the new token
-        localStorage.setItem('access_token', newToken);
-
-        // Drain the queue with the new token
-        processQueue(null, newToken);
-
-        // Retry the original request with the fresh token
-        if (originalRequest.headers) {
-          originalRequest.headers.Authorization = `Bearer ${newToken}`;
-        }
+        // Cookie refreshed automatically — drain queue and retry
+        processQueue(null, 'refreshed');
         return apiClient(originalRequest);
       } catch (refreshError) {
         // Refresh failed — reject all queued requests and force re-login
         processQueue(refreshError, null);
-        localStorage.removeItem('access_token');
         localStorage.removeItem('user');
         if (window.location.pathname !== '/login') {
           window.location.href = '/login';

@@ -245,11 +245,11 @@ class TestAuthenticationLogin:
 
         assert response.status_code == 200
         data = response.json()
-        assert "access_token" in data
-        assert data["token_type"] == "bearer"
+        assert "message" in data
 
-        # Verify token is valid
-        token = data["access_token"]
+        # Verify HttpOnly cookie was set with a valid JWT
+        assert "access_token" in response.cookies
+        token = response.cookies["access_token"]
         payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[ALGORITHM])
         assert payload["sub"] == str(sample_user.id)
 

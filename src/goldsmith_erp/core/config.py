@@ -1,10 +1,11 @@
 # src/goldsmith_erp/core/config.py
 
+import logging
 import secrets
 from pathlib import Path
 from typing import Any, Optional
 
-from pydantic import Field, PostgresDsn, RedisDsn, field_validator
+from pydantic import Field, PostgresDsn, RedisDsn, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -121,6 +122,23 @@ class Settings(BaseSettings):
     # Set True in production when TLS is terminated at the load balancer or
     # reverse proxy (HTTPS). Keep False for local network / dev environments.
     COOKIE_SECURE: bool = False
+
+    @model_validator(mode="after")
+    def _check_encryption_key(self) -> "Settings":
+        """Fail-fast in production if ENCRYPTION_KEY is not set."""
+        if not self.ENCRYPTION_KEY:
+            if not self.DEBUG:
+                raise ValueError(
+                    "ENCRYPTION_KEY must be set in production (DEBUG=False). "
+                    "Generate with: python -c \"from cryptography.fernet import Fernet; "
+                    "print(Fernet.generate_key().decode())\""
+                )
+            else:
+                logging.getLogger(__name__).warning(
+                    "ENCRYPTION_KEY not set — PII fields will NOT be encrypted. "
+                    "This is only acceptable in development."
+                )
+        return self
 
     # ── Photo Upload ─────────────────────────────────────────────────────────────
     # Directory where uploaded order photos and thumbnails are stored.

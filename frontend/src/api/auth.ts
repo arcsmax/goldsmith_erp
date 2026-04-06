@@ -18,11 +18,6 @@ export const authApi = {
       },
     });
 
-    // Store token in localStorage
-    if (response.data.access_token) {
-      localStorage.setItem('access_token', response.data.access_token);
-    }
-
     return response.data;
   },
 
@@ -48,10 +43,10 @@ export const authApi = {
   },
 
   /**
-   * Logout user (client-side only - clear token)
+   * Logout user — clear HttpOnly cookie via server + local user cache
    */
   logout: () => {
-    localStorage.removeItem('access_token');
+    apiClient.post('/logout').catch(() => {});
     localStorage.removeItem('user');
   },
 };

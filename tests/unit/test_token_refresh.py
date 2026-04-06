@@ -149,10 +149,10 @@ class TestRefreshEndpoint:
 
         assert response.status_code == 200
         data = response.json()
-        assert "access_token" in data
-        assert data["token_type"] == "bearer"
-        # The new token must be a different string (fresh expiry)
-        assert data["access_token"] != token
+        assert "message" in data
+        # Verify HttpOnly cookie was refreshed
+        assert "access_token" in response.cookies
+        assert response.cookies["access_token"] != token
 
     async def test_refresh_returns_valid_jwt(self, client, sample_user):
         """The returned access_token must be a valid, decodable JWT."""
@@ -164,7 +164,9 @@ class TestRefreshEndpoint:
         )
 
         assert response.status_code == 200
-        new_token = response.json()["access_token"]
+        # Token is in cookie, not response body
+        assert "access_token" in response.cookies
+        new_token = response.cookies["access_token"]
 
         payload = jwt.decode(new_token, settings.SECRET_KEY, algorithms=[ALGORITHM])
         assert payload["sub"] == str(sample_user.id)
@@ -193,7 +195,7 @@ class TestRefreshEndpoint:
         )
 
         assert response.status_code == 200
-        assert "access_token" in response.json()
+        assert "access_token" in response.cookies
 
     async def test_refresh_beyond_grace_window_returns_401(self, client, sample_user):
         """Token expired 10 minutes ago (outside 5-min grace) must be rejected."""
@@ -274,7 +276,7 @@ class TestRefreshEndpoint:
         response = await client.post(f"{settings.API_V1_STR}/refresh")
 
         assert response.status_code == 200
-        assert "access_token" in response.json()
+        assert "access_token" in response.cookies
 
         # Clean up the cookie so it does not bleed into subsequent tests
         client.cookies.delete("access_token")
@@ -289,7 +291,9 @@ class TestRefreshEndpoint:
         )
 
         assert response.status_code == 200
-        new_token = response.json()["access_token"]
+        # Token is in cookie, not response body
+        assert "access_token" in response.cookies
+        new_token = response.cookies["access_token"]
 
         payload = jwt.decode(new_token, settings.SECRET_KEY, algorithms=[ALGORITHM])
         assert payload["exp"] > datetime.now(timezone.utc).timestamp()
