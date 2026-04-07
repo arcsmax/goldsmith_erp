@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { TimeEntry, TimeEntryStopInput } from '../types';
+import { TimeEntry, TimeEntryStopInput, OrderType, Activity } from '../types';
 import { timeTrackingApi } from '../api/time-tracking';
+import { ordersApi } from '../api/orders';
+import { activitiesApi } from '../api/activities';
 import '../styles/components/TimerWidget.css';
 
 interface TimerWidgetProps {
@@ -23,8 +25,15 @@ const TimerWidget: React.FC<TimerWidgetProps> = ({
 }) => {
   const [elapsedTime, setElapsedTime] = useState(0);
   const [isPaused, setIsPaused] = useState(false);
-  const [isCollapsed, setIsCollapsed] = useState(false);
+  const [isCollapsed, setIsCollapsed] = useState(true); // Start collapsed
+  const [showStartForm, setShowStartForm] = useState(false);
   const [showStopDialog, setShowStopDialog] = useState(false);
+  // Start form state
+  const [orders, setOrders] = useState<OrderType[]>([]);
+  const [activities, setActivities] = useState<Activity[]>([]);
+  const [selectedOrderId, setSelectedOrderId] = useState<number | null>(null);
+  const [selectedActivityId, setSelectedActivityId] = useState<number | null>(null);
+  const [startLoading, setStartLoading] = useState(false);
   const [stopData, setStopData] = useState<StopDialogData>({
     complexity_rating: 3,
     quality_rating: 4,
@@ -154,25 +163,140 @@ const TimerWidget: React.FC<TimerWidgetProps> = ({
     );
   };
 
+  const fetchStartFormData = useCallback(async () => {
+    try {
+      const [o, a] = await Promise.all([
+        ordersApi.getAll({ limit: 100 }),
+        activitiesApi.getAll(),
+      ]);
+      setOrders(o);
+      setActivities(a);
+    } catch (err) {
+      console.error('Failed to load form data:', err);
+    }
+  }, []);
+
+  const handleStartTimer = async () => {
+    if (!selectedOrderId || !selectedActivityId) return;
+    try {
+      setStartLoading(true);
+      setError(null);
+      await timeTrackingApi.start({
+        order_id: selectedOrderId,
+        activity_id: selectedActivityId,
+      });
+      setShowStartForm(false);
+      setSelectedOrderId(null);
+      setSelectedActivityId(null);
+      if (onRefresh) onRefresh();
+    } catch (err: any) {
+      const detail = err.response?.data?.detail || '';
+      if (detail.includes('bereits eine laufende') || detail.includes('already')) {
+        // Already running — just close form and refresh to show it
+        setShowStartForm(false);
+        if (onRefresh) onRefresh();
+      } else {
+        setError(detail || 'Fehler beim Starten');
+      }
+    } finally {
+      setStartLoading(false);
+    }
+  };
+
+  const handleFabClick = () => {
+    if (runningEntry) {
+      // Running entry exists — expand the timer display
+      setIsCollapsed(false);
+      setShowStartForm(false);
+    } else {
+      // No running entry — open start form
+      setShowStartForm((prev) => !prev);
+      if (!showStartForm) fetchStartFormData();
+    }
+  };
+
   // Collapsed FAB button — always visible in bottom-right
-  if (isCollapsed || !runningEntry) {
+  if (isCollapsed && !showStartForm) {
     return (
       <button
         className={`timer-fab ${runningEntry ? 'timer-fab--active' : ''}`}
-        onClick={() => {
-          if (runningEntry) {
-            setIsCollapsed(false);
-          } else {
-            // Navigate to time tracking page to start a new entry
-            window.location.href = '/time-tracking';
-          }
-        }}
+        onClick={handleFabClick}
         title={runningEntry ? `${formatTime(elapsedTime)} — Klicken zum Öffnen` : 'Zeiterfassung starten'}
       >
         <span className="timer-fab-icon">⏱️</span>
         {runningEntry && (
           <span className="timer-fab-time">{formatTime(elapsedTime)}</span>
         )}
+      </button>
+    );
+  }
+
+  // Start form overlay — when no entry is running
+  if (showStartForm && !runningEntry) {
+    return (
+      <div className="timer-widget timer-widget--start-form">
+        <div className="timer-header-row">
+          <h3>⏱️ Zeiterfassung starten</h3>
+          <button
+            className="timer-close-btn"
+            onClick={() => { setShowStartForm(false); setIsCollapsed(true); }}
+            title="Schließen"
+          >
+            ✕
+          </button>
+        </div>
+
+        {error && <div className="timer-error">{error}</div>}
+
+        <div className="timer-start-form">
+          <label>Auftrag</label>
+          <select
+            value={selectedOrderId || ''}
+            onChange={(e) => setSelectedOrderId(Number(e.target.value) || null)}
+          >
+            <option value="">-- Auftrag wählen --</option>
+            {orders.map((o) => (
+              <option key={o.id} value={o.id}>
+                #{o.id} - {o.title}
+                {o.customer && ` (${o.customer.first_name} ${o.customer.last_name})`}
+              </option>
+            ))}
+          </select>
+
+          <label>Aktivität</label>
+          <select
+            value={selectedActivityId || ''}
+            onChange={(e) => setSelectedActivityId(Number(e.target.value) || null)}
+          >
+            <option value="">-- Aktivität wählen --</option>
+            {activities.map((a) => (
+              <option key={a.id} value={a.id}>
+                {a.icon && `${a.icon} `}{a.name}
+              </option>
+            ))}
+          </select>
+
+          <button
+            className="timer-start-btn"
+            onClick={handleStartTimer}
+            disabled={startLoading || !selectedOrderId || !selectedActivityId}
+          >
+            {startLoading ? 'Wird gestartet...' : '▶️ Timer starten'}
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // No running entry and form not open — just show FAB
+  if (!runningEntry) {
+    return (
+      <button
+        className="timer-fab"
+        onClick={handleFabClick}
+        title="Zeiterfassung starten"
+      >
+        <span className="timer-fab-icon">⏱️</span>
       </button>
     );
   }
