@@ -4,6 +4,18 @@
  */
 
 /**
+ * Parse a server timestamp as UTC.
+ * The backend stores UTC datetimes but omits the 'Z' suffix.
+ * Without this, JavaScript's Date constructor interprets them as local time,
+ * causing a timezone-offset shift (e.g. +2h in CEST).
+ */
+export const parseUTC = (dateString: string): Date => {
+  if (!dateString) return new Date(NaN);
+  const s = dateString.endsWith('Z') ? dateString : dateString + 'Z';
+  return new Date(s);
+};
+
+/**
  * Format a number as currency (EUR)
  * @param amount - The amount to format
  * @param decimals - Number of decimal places (default: 2)
@@ -45,7 +57,7 @@ export const formatDate = (
     day: '2-digit',
   }
 ): string => {
-  return new Date(dateString).toLocaleDateString('de-DE', options);
+  return parseUTC(dateString).toLocaleDateString('de-DE', options);
 };
 
 /**
@@ -54,7 +66,7 @@ export const formatDate = (
  * @returns Formatted datetime string (e.g., "11.11.2025, 10:30")
  */
 export const formatDateTime = (dateString: string): string => {
-  return new Date(dateString).toLocaleString('de-DE', {
+  return parseUTC(dateString).toLocaleString('de-DE', {
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',

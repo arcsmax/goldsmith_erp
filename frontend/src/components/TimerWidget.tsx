@@ -54,7 +54,12 @@ const TimerWidget: React.FC<TimerWidgetProps> = ({
   useEffect(() => {
     if (!runningEntry || isPaused) return;
 
-    const startTime = new Date(runningEntry.start_time).getTime();
+    // Server sends UTC timestamps without 'Z' suffix — append it so
+    // JavaScript doesn't interpret them as local time.
+    const isoStart = runningEntry.start_time.endsWith('Z')
+      ? runningEntry.start_time
+      : runningEntry.start_time + 'Z';
+    const startTime = new Date(isoStart).getTime();
 
     const updateElapsed = () => {
       const now = Date.now();

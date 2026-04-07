@@ -70,7 +70,9 @@ export const ActiveTimerWidget: React.FC = () => {
 
   /** Resume the stopwatch with the correct elapsed time from a start timestamp. */
   const resumeStopwatchFrom = (startTime: string) => {
-    const elapsed = Date.now() - new Date(startTime).getTime();
+    // Server sends UTC without 'Z' — append it so JS doesn't treat as local time
+    const utcStart = startTime.endsWith('Z') ? startTime : startTime + 'Z';
+    const elapsed = Date.now() - new Date(utcStart).getTime();
     const offsetDate = new Date();
     offsetDate.setSeconds(offsetDate.getSeconds() + Math.floor(elapsed / 1000));
     reset(offsetDate, true); // reset to offset and auto-start
