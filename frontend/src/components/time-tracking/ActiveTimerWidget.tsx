@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { useStopwatch } from 'react-timer-hook';
 import { timeTrackingApi, ordersApi, activitiesApi } from '../../api';
-import { OrderType, ActivityType, TimeEntryType } from '../../types';
+import { OrderType, Activity, TimeEntry } from '../../types';
 import { useToast, useConfirm } from '../../contexts';
 import '../../styles/time-tracking.css';
 
@@ -21,7 +21,7 @@ export const ActiveTimerWidget: React.FC = () => {
   const { showToast } = useToast();
   const { showConfirm } = useConfirm();
   const [orders, setOrders] = useState<OrderType[]>([]);
-  const [activities, setActivities] = useState<ActivityType[]>([]);
+  const [activities, setActivities] = useState<Activity[]>([]);
   const [timerState, setTimerState] = useState<TimerState>({
     entryId: null,
     orderId: null,
@@ -38,11 +38,11 @@ export const ActiveTimerWidget: React.FC = () => {
     autoStart: false,
   });
 
-  // Load orders and activities on mount
+  // Load orders, activities, and check for running entry on mount
   useEffect(() => {
     fetchOrders();
     fetchActivities();
-    restoreTimerFromStorage();
+    restoreFromServerOrStorage();
   }, []);
 
   const fetchOrders = async () => {
@@ -68,23 +68,37 @@ export const ActiveTimerWidget: React.FC = () => {
     }
   };
 
-  const restoreTimerFromStorage = () => {
+  const restoreFromServerOrStorage = async () => {
+    // 1. Check server for a running entry (authoritative source)
+    try {
+      const running = await timeTrackingApi.getRunning();
+      if (running && running.id && !running.end_time) {
+        const serverState: TimerState = {
+          entryId: running.id,
+          orderId: running.order_id,
+          activityId: running.activity_id,
+          location: running.location || '',
+          notes: running.notes || '',
+          startTime: running.start_time,
+        };
+        setTimerState(serverState);
+        saveTimerToStorage(serverState);
+        start();
+        setIsExpanded(true);
+        return;
+      }
+    } catch (err) {
+      // Server check failed — fall through to localStorage
+      console.warn('Could not fetch running entry from server:', err);
+    }
+
+    // 2. Fallback: restore from localStorage
     try {
       const savedTimer = localStorage.getItem(STORAGE_KEY);
       if (savedTimer) {
         const state: TimerState = JSON.parse(savedTimer);
         setTimerState(state);
-
-        // Calculate elapsed time and resume timer
         if (state.startTime) {
-          const startDate = new Date(state.startTime);
-          const elapsed = Date.now() - startDate.getTime();
-          const elapsedSeconds = Math.floor(elapsed / 1000);
-
-          // Create offset timestamp for useStopwatch
-          const offsetTimestamp = new Date();
-          offsetTimestamp.setSeconds(offsetTimestamp.getSeconds() + elapsedSeconds);
-
           start();
           setIsExpanded(true);
         }
@@ -210,7 +224,7 @@ export const ActiveTimerWidget: React.FC = () => {
     return orders.find((o) => o.id === timerState.orderId);
   };
 
-  const getSelectedActivity = (): ActivityType | undefined => {
+  const getSelectedActivity = (): Activity | undefined => {
     return activities.find((a) => a.id === timerState.activityId);
   };
 
