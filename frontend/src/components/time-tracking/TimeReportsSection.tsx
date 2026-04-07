@@ -1,8 +1,11 @@
 // Time Reports Section Component with Recharts
 import React, { useEffect, useState } from 'react';
-import { timeTrackingApi } from '../../api';
-import { ActivityBreakdownData, WeeklyTimeData } from '../../types';
-import { format, subDays, startOfWeek, endOfWeek } from 'date-fns';
+import { timeTrackingApi, activitiesApi } from '../../api';
+import apiClient from '../../api/client';
+import { TimeEntry, Activity } from '../../types';
+import { parseUTC } from '../../utils/formatters';
+import { format, subDays, startOfWeek, getDay } from 'date-fns';
+import { de } from 'date-fns/locale';
 import {
   LineChart,
   Line,
@@ -50,39 +53,92 @@ export const TimeReportsSection: React.FC = () => {
       setIsLoading(true);
       setError(null);
 
-      const now = new Date();
-      const startDate = format(subDays(now, 30), 'yyyy-MM-dd');
-      const endDate = format(now, 'yyyy-MM-dd');
+      // Get current user ID and their entries
+      const meResponse = await apiClient.get('/users/me');
+      const userId = meResponse.data.id;
+      const entries: TimeEntry[] = await timeTrackingApi.getForUser(userId);
+      const allActivities: Activity[] = await activitiesApi.getAll();
+      const activityMap = new Map(allActivities.map(a => [a.id, a]));
 
-      // Fetch weekly trend data
-      const weeklyResult = await timeTrackingApi.getWeeklyReport({ weeks: 4 });
-      const formattedWeeklyData = weeklyResult.map((week: WeeklyTimeData) => ({
-        week: format(new Date(week.week_start), 'dd.MM'),
-        hours: parseFloat(week.total_hours.toFixed(1)),
-        entries: week.entries_count,
-      }));
-      setWeeklyData(formattedWeeklyData);
+      // Only use completed entries with duration
+      const completed = entries.filter(e => e.end_time && e.duration_minutes);
 
-      // Fetch activity breakdown
-      const activityResult = await timeTrackingApi.getActivityBreakdown({
-        start_date: startDate,
-        end_date: endDate,
-      });
-      setActivityData(activityResult);
+      // --- Weekly trend (last 4 weeks) ---
+      const weekBuckets = new Map<string, { hours: number; entries: number }>();
+      for (let i = 3; i >= 0; i--) {
+        const weekStart = startOfWeek(subDays(new Date(), i * 7), { weekStartsOn: 1 });
+        const key = format(weekStart, 'dd.MM');
+        weekBuckets.set(key, { hours: 0, entries: 0 });
+      }
+      for (const e of completed) {
+        const entryDate = parseUTC(e.start_time);
+        const weekStart = startOfWeek(entryDate, { weekStartsOn: 1 });
+        const key = format(weekStart, 'dd.MM');
+        const bucket = weekBuckets.get(key);
+        if (bucket) {
+          bucket.hours += (e.duration_minutes || 0) / 60;
+          bucket.entries += 1;
+        }
+      }
+      setWeeklyData(
+        Array.from(weekBuckets.entries()).map(([week, data]) => ({
+          week,
+          hours: parseFloat(data.hours.toFixed(1)),
+          entries: data.entries,
+        }))
+      );
 
-      // Fetch daily distribution
-      const dailyResult = await timeTrackingApi.getDailyDistribution({
-        start_date: startDate,
-        end_date: endDate,
-      });
-      setDailyData(dailyResult.map((d) => ({
-        day: d.day,
-        hours: parseFloat(d.hours.toFixed(1)),
-      })));
+      // --- Activity breakdown (last 30 days) ---
+      const thirtyDaysAgo = subDays(new Date(), 30);
+      const actHours = new Map<number, number>();
+      let totalMinutes = 0;
+      for (const e of completed) {
+        if (parseUTC(e.start_time) >= thirtyDaysAgo) {
+          const mins = e.duration_minutes || 0;
+          actHours.set(e.activity_id, (actHours.get(e.activity_id) || 0) + mins);
+          totalMinutes += mins;
+        }
+      }
+      const actBreakdown = Array.from(actHours.entries()).map(([actId, mins]) => {
+        const act = activityMap.get(actId);
+        return {
+          activity_name: act ? `${act.icon || ''} ${act.name}`.trim() : `Aktivität #${actId}`,
+          hours: parseFloat((mins / 60).toFixed(1)),
+          percentage: totalMinutes > 0 ? (mins / totalMinutes) * 100 : 0,
+          color: act?.color || undefined,
+        };
+      }).sort((a, b) => b.hours - a.hours);
+      setActivityData(actBreakdown);
+
+      // --- Daily distribution (average hours per weekday) ---
+      const dayNames = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];
+      const dayTotals = new Array(7).fill(0);
+      const dayCounts = new Array(7).fill(0);
+      const seenWeekDays = new Set<string>();
+      for (const e of completed) {
+        if (parseUTC(e.start_time) >= thirtyDaysAgo) {
+          const d = parseUTC(e.start_time);
+          const dayIdx = getDay(d); // 0=Sun
+          dayTotals[dayIdx] += (e.duration_minutes || 0) / 60;
+          const weekKey = `${dayIdx}-${format(d, 'yyyy-ww')}`;
+          if (!seenWeekDays.has(weekKey)) {
+            seenWeekDays.add(weekKey);
+            dayCounts[dayIdx] += 1;
+          }
+        }
+      }
+      // Start from Monday
+      const orderedDays = [1, 2, 3, 4, 5, 6, 0];
+      setDailyData(
+        orderedDays.map(i => ({
+          day: dayNames[i],
+          hours: parseFloat((dayCounts[i] > 0 ? dayTotals[i] / dayCounts[i] : 0).toFixed(1)),
+        }))
+      );
 
     } catch (err: any) {
-      // Reports endpoint not yet implemented — silently degrade
-      console.debug('Time tracking reports not available:', err.message);
+      console.error('Failed to compute reports:', err);
+      setError('Berichte konnten nicht geladen werden');
     } finally {
       setIsLoading(false);
     }
