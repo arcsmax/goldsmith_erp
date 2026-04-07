@@ -168,7 +168,14 @@ export const ActiveTimerWidget: React.FC = () => {
       start();
       setIsExpanded(true);
     } catch (err: any) {
-      setError(err.response?.data?.detail || 'Fehler beim Starten des Timers');
+      const detail = err.response?.data?.detail || '';
+      // If server says "already running", auto-recover by restoring the existing entry
+      if (detail.includes('bereits eine laufende') || detail.includes('already')) {
+        await restoreFromServerOrStorage();
+        setError(null); // Clear error — we recovered
+      } else {
+        setError(detail || 'Fehler beim Starten des Timers');
+      }
     } finally {
       setIsLoading(false);
     }
@@ -251,8 +258,10 @@ export const ActiveTimerWidget: React.FC = () => {
     return activities.find((a) => a.id === timerState.activityId);
   };
 
-  if (!isExpanded && isRunning) {
-    // Minimized view when timer is running
+  const hasActiveEntry = !!timerState.entryId;
+
+  if (!isExpanded && hasActiveEntry) {
+    // Minimized view when an entry is active (running or paused)
     return (
       <div className="timer-widget minimized">
         <div className="timer-minimal-content" onClick={() => setIsExpanded(true)}>
@@ -267,10 +276,10 @@ export const ActiveTimerWidget: React.FC = () => {
   }
 
   return (
-    <div className={`timer-widget ${isRunning ? 'running' : 'stopped'}`}>
+    <div className={`timer-widget ${hasActiveEntry ? 'running' : 'stopped'}`}>
       <div className="timer-header">
         <h2>⏱️ Zeiterfassung</h2>
-        {isRunning && (
+        {hasActiveEntry && (
           <button
             className="btn-minimize"
             onClick={() => setIsExpanded(false)}
@@ -283,8 +292,8 @@ export const ActiveTimerWidget: React.FC = () => {
 
       {error && <div className="timer-error">❌ {error}</div>}
 
-      {!isRunning ? (
-        // Timer Setup Form
+      {!hasActiveEntry ? (
+        // Timer Setup Form — shown only when no entry is active
         <div className="timer-setup">
           <div className="timer-form">
             <div className="form-group">
