@@ -1,5 +1,61 @@
 /* Timer Widget Styles */
 
+/* Floating Action Button — always visible, bottom-right */
+.timer-fab {
+  position: fixed;
+  bottom: 1.5rem;
+  right: 1.5rem;
+  z-index: 1050;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem;
+  background: linear-gradient(135deg, #64748b 0%, #475569 100%);
+  color: white;
+  border: none;
+  border-radius: 50px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+  cursor: pointer;
+  font-size: 0.9rem;
+  font-weight: 600;
+  transition: all 0.3s ease;
+  animation: slideIn 0.3s ease-out;
+}
+
+.timer-fab:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
+}
+
+.timer-fab--active {
+  background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+  box-shadow: 0 4px 16px rgba(59, 130, 246, 0.4);
+  animation: slideIn 0.3s ease-out, fabPulse 2s ease-in-out infinite;
+}
+
+@keyframes fabPulse {
+  0%, 100% { box-shadow: 0 4px 16px rgba(59, 130, 246, 0.4); }
+  50% { box-shadow: 0 4px 24px rgba(59, 130, 246, 0.6); }
+}
+
+.timer-fab-icon {
+  font-size: 1.2rem;
+}
+
+.timer-fab-time {
+  font-family: 'Monaco', 'Courier New', monospace;
+  font-size: 0.85rem;
+  letter-spacing: 0.05em;
+}
+
+/* Collapse button inside expanded widget */
+.timer-button-collapse {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.2);
+  padding: 0.5rem 0.6rem;
+  font-size: 0.75rem;
+}
+
 .timer-widget {
   position: fixed;
   bottom: 1.5rem;
@@ -365,5 +421,11 @@
 
   .timer-button {
     font-size: 0.8rem;
+  }
+
+  .timer-fab {
+    bottom: 1rem;
+    right: 1rem;
+    padding: 0.6rem 0.8rem;
   }
 }

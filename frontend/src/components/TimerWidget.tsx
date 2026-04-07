@@ -23,6 +23,7 @@ const TimerWidget: React.FC<TimerWidgetProps> = ({
 }) => {
   const [elapsedTime, setElapsedTime] = useState(0);
   const [isPaused, setIsPaused] = useState(false);
+  const [isCollapsed, setIsCollapsed] = useState(false);
   const [showStopDialog, setShowStopDialog] = useState(false);
   const [stopData, setStopData] = useState<StopDialogData>({
     complexity_rating: 3,
@@ -153,13 +154,32 @@ const TimerWidget: React.FC<TimerWidgetProps> = ({
     );
   };
 
-  if (!runningEntry) {
-    return null; // Don't show widget if no timer running
+  // Collapsed FAB button — always visible in bottom-right
+  if (isCollapsed || !runningEntry) {
+    return (
+      <button
+        className={`timer-fab ${runningEntry ? 'timer-fab--active' : ''}`}
+        onClick={() => {
+          if (runningEntry) {
+            setIsCollapsed(false);
+          } else {
+            // Navigate to time tracking page to start a new entry
+            window.location.href = '/time-tracking';
+          }
+        }}
+        title={runningEntry ? `${formatTime(elapsedTime)} — Klicken zum Öffnen` : 'Zeiterfassung starten'}
+      >
+        <span className="timer-fab-icon">⏱️</span>
+        {runningEntry && (
+          <span className="timer-fab-time">{formatTime(elapsedTime)}</span>
+        )}
+      </button>
+    );
   }
 
   return (
     <>
-      {/* Timer Widget (Sticky) */}
+      {/* Timer Widget (Sticky, expanded) */}
       <div className={`timer-widget ${isPaused ? 'paused' : ''}`}>
         <div className="timer-widget-content">
           <div className="timer-info">
@@ -186,6 +206,13 @@ const TimerWidget: React.FC<TimerWidgetProps> = ({
               disabled={loading}
             >
               ⏹️ Stopp
+            </button>
+            <button
+              onClick={() => setIsCollapsed(true)}
+              className="timer-button timer-button-collapse"
+              title="Minimieren"
+            >
+              ▼
             </button>
           </div>
         </div>
