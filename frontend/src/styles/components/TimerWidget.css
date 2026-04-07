@@ -142,12 +142,12 @@
   cursor: not-allowed;
 }
 
-.timer-widget {
+.timer-widget:not(.timer-widget--start-form) {
   position: fixed;
   bottom: 1.5rem;
   right: 1.5rem;
-  background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
-  color: white;
+  background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%) !important;
+  color: white !important;
   border-radius: 12px;
   padding: 1rem 1.5rem;
   box-shadow: 0 8px 24px rgba(59, 130, 246, 0.3);
@@ -157,8 +157,12 @@
   animation: slideIn 0.3s ease-out;
 }
 
-.timer-widget.paused {
-  background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+.timer-widget:not(.timer-widget--start-form) * {
+  color: white !important;
+}
+
+.timer-widget.paused:not(.timer-widget--start-form) {
+  background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%) !important;
   box-shadow: 0 8px 24px rgba(245, 158, 11, 0.3);
 }
 

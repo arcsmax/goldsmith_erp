@@ -88,17 +88,12 @@ h1 {
   }
 }
 
-/* Ensure dark text throughout the app — Tailwind v4 preflight resets
+/* Ensure dark text in content areas — Tailwind v4 preflight resets
    color to 'inherit' which can cause white-on-white when parent has
-   color:white (e.g. header). These rules enforce readability. */
-.main-content, .main-content * {
-  color: inherit;
-}
+   color:white (e.g. header). These rules enforce readability
+   without interfering with fixed-position widgets that set their own colors. */
 .page-container {
   color: var(--color-text-body, #374151);
-}
-.modal, .modal * {
-  color: #333;
 }
 
 /* Global form element styles — ensure light theme on all inputs */
