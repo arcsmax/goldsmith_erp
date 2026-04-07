@@ -68,6 +68,14 @@ export const ActiveTimerWidget: React.FC = () => {
     }
   };
 
+  /** Resume the stopwatch with the correct elapsed time from a start timestamp. */
+  const resumeStopwatchFrom = (startTime: string) => {
+    const elapsed = Date.now() - new Date(startTime).getTime();
+    const offsetDate = new Date();
+    offsetDate.setSeconds(offsetDate.getSeconds() + Math.floor(elapsed / 1000));
+    reset(offsetDate, true); // reset to offset and auto-start
+  };
+
   const restoreFromServerOrStorage = async () => {
     // 1. Check server for a running entry (authoritative source)
     try {
@@ -83,12 +91,11 @@ export const ActiveTimerWidget: React.FC = () => {
         };
         setTimerState(serverState);
         saveTimerToStorage(serverState);
-        start();
+        resumeStopwatchFrom(running.start_time);
         setIsExpanded(true);
         return;
       }
     } catch (err) {
-      // Server check failed — fall through to localStorage
       console.warn('Could not fetch running entry from server:', err);
     }
 
@@ -99,7 +106,7 @@ export const ActiveTimerWidget: React.FC = () => {
         const state: TimerState = JSON.parse(savedTimer);
         setTimerState(state);
         if (state.startTime) {
-          start();
+          resumeStopwatchFrom(state.startTime);
           setIsExpanded(true);
         }
       }
@@ -188,10 +195,10 @@ export const ActiveTimerWidget: React.FC = () => {
       setError(null);
 
       // Stop the time entry in backend (sets end_time)
-      await timeTrackingApi.stop(timerState.entryId);
+      await timeTrackingApi.stop(timerState.entryId, {});
 
-      // Reset timer
-      reset();
+      // Reset timer to 00:00:00, don't auto-start
+      reset(undefined, false);
       setTimerState({
         entryId: null,
         orderId: null,
