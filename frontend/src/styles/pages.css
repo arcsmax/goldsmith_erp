@@ -14,8 +14,10 @@
   animation: fadeIn 0.2s;
 }
 
-.modal {
+.modal,
+.modal-content {
   background: white;
+  color: #333;
   border-radius: 12px;
   width: 90%;
   max-width: 600px;
