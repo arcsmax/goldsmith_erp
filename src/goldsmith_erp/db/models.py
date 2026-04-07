@@ -149,7 +149,12 @@ class User(Base):
     hashed_password = Column(String)
     first_name = Column(String)
     last_name = Column(String)
-    role = Column(SAEnum(UserRole), default=UserRole.VIEWER, nullable=False, index=True)
+    role = Column(
+        SAEnum(UserRole, values_callable=lambda e: [x.value for x in e]),
+        default=UserRole.VIEWER,
+        nullable=False,
+        index=True,
+    )
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
