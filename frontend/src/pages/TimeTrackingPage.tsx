@@ -299,7 +299,13 @@ export const TimeTrackingPage: React.FC = () => {
                   const isRunning = !entry.end_time;
 
                   return (
-                    <tr key={entry.id} className={isRunning ? 'running' : ''}>
+                    <tr
+                      key={entry.id}
+                      className={isRunning ? 'running clickable' : ''}
+                      onClick={isRunning ? () => window.dispatchEvent(new Event('timer:expand')) : undefined}
+                      style={isRunning ? { cursor: 'pointer' } : undefined}
+                      title={isRunning ? 'Klicken um Timer zu öffnen' : undefined}
+                    >
                       <td>#{entry.id.slice(0, 8)}</td>
                       <td>{formatDateTime(entry.start_time)}</td>
                       <td>{entry.end_time ? formatDateTime(entry.end_time) : 'Läuft...'}</td>

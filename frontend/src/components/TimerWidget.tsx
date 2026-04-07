@@ -25,7 +25,14 @@ const TimerWidget: React.FC<TimerWidgetProps> = ({
 }) => {
   const [elapsedTime, setElapsedTime] = useState(0);
   const [isPaused, setIsPaused] = useState(false);
-  const [isCollapsed, setIsCollapsed] = useState(true); // Start collapsed
+  const [isCollapsed, setIsCollapsed] = useState(true);
+
+  // Listen for external "expand timer" events (e.g. clicking a running entry row)
+  useEffect(() => {
+    const handleExpand = () => { setIsCollapsed(false); setShowStartForm(false); };
+    window.addEventListener('timer:expand', handleExpand);
+    return () => window.removeEventListener('timer:expand', handleExpand);
+  }, []);
   const [showStartForm, setShowStartForm] = useState(false);
   const [showStopDialog, setShowStopDialog] = useState(false);
   // Start form state
