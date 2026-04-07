@@ -41,9 +41,10 @@ export const TimeTrackingPage: React.FC = () => {
     try {
       setIsLoading(true);
       setError(null);
-      // Fetch recent time entries — use getForUser with current user or fall back to manual listing
-      const response = await apiClient.get('/time-tracking/', { params: { limit: 100 } });
-      const data = Array.isArray(response.data) ? response.data : response.data.items || [];
+      // Fetch current user's time entries via /users/me then /time-tracking/user/{id}
+      const meResponse = await apiClient.get('/users/me');
+      const userId = meResponse.data.id;
+      const data = await timeTrackingApi.getForUser(userId);
       setEntries(data);
     } catch (err: any) {
       setError(err.response?.data?.detail || 'Fehler beim Laden der Zeiteinträge');
