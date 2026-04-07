@@ -3,7 +3,7 @@ import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import { timeTrackingApi, activitiesApi } from '../api';
 import apiClient from '../api/client';
 import { TimeEntry, TimeEntryStartInput, TimeEntryUpdateInput, Activity } from '../types';
-import { ActiveTimerWidget } from '../components/time-tracking/ActiveTimerWidget';
+// Timer handled by global FAB widget in MainLayout
 import { TimeSummaryCards } from '../components/time-tracking/TimeSummaryCards';
 import { TimeReportsSection } from '../components/time-tracking/TimeReportsSection';
 import { TimeEntryFormModal } from '../components/time-tracking/TimeEntryFormModal';
@@ -192,8 +192,7 @@ export const TimeTrackingPage: React.FC = () => {
 
   return (
     <div className="page-container">
-      {/* Active Timer Widget */}
-      <ActiveTimerWidget />
+      {/* Timer is handled by the global FAB widget in MainLayout */}
 
       {/* Summary Cards */}
       <TimeSummaryCards />

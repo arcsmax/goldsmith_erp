@@ -75,26 +75,11 @@ const TimerWidget: React.FC<TimerWidgetProps> = ({
     return `${minutes}:${secs.toString().padStart(2, '0')}`;
   };
 
-  const handlePauseResume = async () => {
+  const handlePauseResume = () => {
     if (!runningEntry) return;
-
-    try {
-      if (isPaused) {
-        // Resume - just update UI state
-        setIsPaused(false);
-      } else {
-        // Pause - add interruption
-        setIsPaused(true);
-        await timeTrackingApi.addInterruption(runningEntry.id, {
-          reason: 'manual_pause',
-          duration_minutes: 0, // Will be calculated on resume
-        });
-      }
-    } catch (err) {
-      console.error('Failed to pause/resume:', err);
-      setError('Pause/Resume fehlgeschlagen');
-      setIsPaused(!isPaused); // Revert state
-    }
+    // Pause/resume is a local UI action only — the backend timer keeps running.
+    // The actual elapsed time is always calculated from start_time to end_time.
+    setIsPaused((prev) => !prev);
   };
 
   const handleStopClick = () => {
@@ -133,9 +118,17 @@ const TimerWidget: React.FC<TimerWidgetProps> = ({
       if (onRefresh) {
         onRefresh();
       }
-    } catch (err) {
-      console.error('Failed to stop timer:', err);
-      setError('Timer stoppen fehlgeschlagen');
+    } catch (err: any) {
+      const detail = err.response?.data?.detail || '';
+      // If already stopped, treat as success and clean up
+      if (detail.includes('bereits gestoppt') || err.response?.status === 400) {
+        setShowStopDialog(false);
+        onStop();
+        if (onRefresh) onRefresh();
+      } else {
+        console.error('Failed to stop timer:', err);
+        setError(detail || 'Timer stoppen fehlgeschlagen');
+      }
     } finally {
       setLoading(false);
     }
