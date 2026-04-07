@@ -196,6 +196,7 @@
   padding: 2rem;
   overflow-y: auto;
   min-width: 0; /* Prevent flex blowout */
+  color: var(--color-text-body, #374151); /* Ensure dark text in content area */
 }
 
 /* ==================== FOOTER ==================== */

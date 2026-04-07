@@ -36,6 +36,8 @@ body {
   margin: 0;
   min-width: 320px;
   min-height: 100vh;
+  color: var(--text-dark, #213547);
+  background-color: var(--background-light, #ffffff);
 }
 
 #root {
@@ -86,10 +88,28 @@ h1 {
   }
 }
 
+/* Ensure dark text throughout the app — Tailwind v4 preflight resets
+   color to 'inherit' which can cause white-on-white when parent has
+   color:white (e.g. header). These rules enforce readability. */
+.main-content, .main-content * {
+  color: inherit;
+}
+.page-container {
+  color: var(--color-text-body, #374151);
+}
+.modal, .modal * {
+  color: #333;
+}
+
 /* Global form element styles — ensure light theme on all inputs */
 input, select, textarea {
   color: #213547;
   background-color: #ffffff;
+}
+
+/* Tables — ensure readability */
+table, th, td {
+  color: #333;
 }
 
 /* Button styles */
