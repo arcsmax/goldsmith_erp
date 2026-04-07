@@ -95,11 +95,15 @@ export const ActiveTimerWidget: React.FC = () => {
         setIsExpanded(true);
         return;
       }
+      // Server responded OK but no running entry — clear any stale localStorage
+      clearTimerFromStorage();
+      return;
     } catch (err) {
+      // Server unreachable — fall through to localStorage as offline fallback
       console.warn('Could not fetch running entry from server:', err);
     }
 
-    // 2. Fallback: restore from localStorage
+    // 2. Offline fallback: restore from localStorage (only if server was unreachable)
     try {
       const savedTimer = localStorage.getItem(STORAGE_KEY);
       if (savedTimer) {
@@ -211,7 +215,19 @@ export const ActiveTimerWidget: React.FC = () => {
 
       showToast('Zeiterfassung erfolgreich gespeichert!', 'success');
     } catch (err: any) {
-      setError(err.response?.data?.detail || 'Fehler beim Stoppen des Timers');
+      const detail = err.response?.data?.detail || '';
+      // "already stopped" means the entry was stopped elsewhere — still clean up locally
+      if (detail.includes('bereits gestoppt') || err.response?.status === 400) {
+        reset(undefined, false);
+        setTimerState({
+          entryId: null, orderId: null, activityId: null,
+          location: '', notes: '', startTime: null,
+        });
+        clearTimerFromStorage();
+        showToast('Zeiterfassung war bereits beendet.', 'info');
+      } else {
+        setError(detail || 'Fehler beim Stoppen des Timers');
+      }
     } finally {
       setIsLoading(false);
     }
