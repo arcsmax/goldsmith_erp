@@ -1,8 +1,13 @@
-from sqlalchemy import Column, Integer, String, Float, DateTime, ForeignKey, Table, Boolean, Enum as SAEnum, Text, Index, UniqueConstraint
+from sqlalchemy import Column, Integer, String, Float, DateTime, ForeignKey, Table, Boolean, Enum as _SAEnum, Text, Index, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSON
 from sqlalchemy.orm import relationship
 from sqlalchemy.ext.declarative import declarative_base
 from datetime import datetime
+
+
+def SAEnum(enum_class, **kwargs):
+    """Wrapper that ensures Python enum .value (lowercase) is stored in PostgreSQL."""
+    return _SAEnum(enum_class, values_callable=lambda e: [x.value for x in e], **kwargs)
 import enum
 import uuid
 
@@ -149,12 +154,7 @@ class User(Base):
     hashed_password = Column(String)
     first_name = Column(String)
     last_name = Column(String)
-    role = Column(
-        SAEnum(UserRole, values_callable=lambda e: [x.value for x in e]),
-        default=UserRole.VIEWER,
-        nullable=False,
-        index=True,
-    )
+    role = Column(SAEnum(UserRole), default=UserRole.VIEWER, nullable=False, index=True)
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
