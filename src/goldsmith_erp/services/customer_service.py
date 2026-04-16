@@ -1,16 +1,29 @@
 """Customer Service - Business logic for customer/CRM operations"""
 import logging
-from typing import List, Optional, Dict, Any
+import re
+from typing import List, Optional, Dict, Any, Tuple
 from datetime import datetime
 from sqlalchemy import select, func, and_, or_, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from goldsmith_erp.db.models import Customer as CustomerModel, Order as OrderModel
+from goldsmith_erp.db.models import (
+    Customer as CustomerModel,
+    CustomerAuditLog,
+    GDPRRequest,
+    Order as OrderModel,
+    OrderComment,
+    TimeEntry,
+)
 from goldsmith_erp.models.customer import CustomerCreate, CustomerUpdate
 from goldsmith_erp.db.transaction import transactional
 
 logger = logging.getLogger(__name__)
+
+# Sentinel token that replaces scrubbed PII in free-text fields.
+# Chosen so that repeated scrubs are idempotent: once a field contains
+# only [REDACTED] tokens, no further PII tokens can match.
+REDACTION_TOKEN = "[REDACTED]"
 
 # ── PII encryption helpers ────────────────────────────────────────────────────
 # These fields contain GDPR-sensitive personal data and must be encrypted at
@@ -397,3 +410,322 @@ class CustomerService:
             })
 
         return customers
+
+    # ═══════════════════════════════════════════════════════════════════════
+    # GDPR Art. 17 — PII scrubbing across related free-text fields
+    # ═══════════════════════════════════════════════════════════════════════
+
+    @staticmethod
+    def _collect_pii_tokens(customer: CustomerModel) -> List[str]:
+        """Return a deduplicated list of PII tokens to redact from free text.
+
+        PII tokens are pulled from the customer's own fields. Encrypted
+        fields (phone / mobile / street / city / postal_code) must already
+        be decrypted by the caller — this function assumes plaintext.
+
+        Tokens include:
+        - first_name, last_name (separate tokens so partial matches work)
+        - company_name (as a single multi-word token)
+        - email address (full string)
+        - phone, mobile (digits-only variant plus the raw value)
+
+        Returns tokens sorted by length descending so the regex engine
+        matches the longest possible sequence first (e.g. "Maria Mueller"
+        is matched as two separate word tokens before "Maria" alone).
+        Tokens shorter than 3 characters are discarded to avoid
+        over-redaction of common short substrings.
+        """
+        tokens: List[str] = []
+        seen = set()
+
+        def _add(value: Optional[str]) -> None:
+            if not value:
+                return
+            stripped = value.strip()
+            if len(stripped) < 3:
+                return
+            key = stripped.lower()
+            if key in seen:
+                return
+            seen.add(key)
+            tokens.append(stripped)
+
+        # Name fields — stored plaintext on the customer row
+        _add(customer.first_name)
+        _add(customer.last_name)
+        _add(customer.company_name)
+
+        # Email — stored plaintext
+        _add(customer.email)
+
+        # Phone numbers — encrypted at rest but expected to be decrypted
+        # by the caller (CustomerService.get_customer or explicit _decrypt_pii).
+        _add(customer.phone)
+        _add(customer.mobile)
+
+        # Add digits-only variants of phone numbers to catch formatted
+        # vs. unformatted leaks ("+49 123 456789" vs. "49123456789").
+        for phone_field in (customer.phone, customer.mobile):
+            if phone_field:
+                digits = re.sub(r"\D", "", phone_field)
+                if len(digits) >= 5:
+                    _add(digits)
+
+        # Longest first so "Maria Mueller" is attempted before "Maria".
+        tokens.sort(key=len, reverse=True)
+        return tokens
+
+    @staticmethod
+    def _redact_text(text: Optional[str], tokens: List[str]) -> Tuple[Optional[str], int]:
+        """Replace every case-insensitive occurrence of every token with `[REDACTED]`.
+
+        Returns a tuple (redacted_text, redaction_count). `text=None` returns
+        (None, 0) unchanged.
+
+        Matching rules:
+        - Case-insensitive.
+        - Each token is escaped before compilation — no regex injection.
+        - Tokens containing only ASCII word characters use word-boundary
+          anchors so "Max" does not match inside "Maximum".
+        - Tokens with non-word characters (e.g. phone numbers with "+", emails
+          with "@") are matched verbatim since \\b does not fire usefully
+          around those chars.
+        - REDACTION_TOKEN itself is not matched; idempotent on repeat calls.
+
+        Args:
+            text: Free-text value to scrub (may be None).
+            tokens: PII tokens from `_collect_pii_tokens`.
+
+        Returns:
+            Tuple of (scrubbed_text, number_of_replacements).
+        """
+        if text is None:
+            return None, 0
+        if not tokens:
+            return text, 0
+
+        total_replacements = 0
+        scrubbed = text
+        for token in tokens:
+            if not token:
+                continue
+            escaped = re.escape(token)
+            # Use word boundaries only when the token is entirely word chars;
+            # emails and phone numbers contain punctuation that \b treats
+            # inconsistently.
+            if re.fullmatch(r"\w+", token):
+                pattern = re.compile(rf"\b{escaped}\b", re.IGNORECASE)
+            else:
+                pattern = re.compile(escaped, re.IGNORECASE)
+
+            scrubbed, n = pattern.subn(REDACTION_TOKEN, scrubbed)
+            total_replacements += n
+
+        return scrubbed, total_replacements
+
+    @staticmethod
+    async def scrub_customer_pii(
+        db: AsyncSession,
+        customer_id: int,
+        *,
+        performed_by: Optional[int] = None,
+    ) -> Dict[str, int]:
+        """Scrub customer PII from free-text fields on related records.
+
+        Implements the free-text half of GDPR Art. 17 erasure: customer
+        names, phone numbers, and e-mail addresses that were typed into
+        order descriptions, special instructions, order comments, and
+        time-entry notes are replaced with `[REDACTED]`. The customer row
+        itself is NOT modified here — the caller is responsible for setting
+        `deletion_scheduled_at` / `is_active` on the customer.
+
+        Scope of scrubbing (per H2 in V1.1-AMENDMENTS.md):
+        - orders.description
+        - orders.special_instructions
+        - order_comments.text
+        - time_entries.notes
+
+        Guarantees:
+        - Atomic: all updates commit together or roll back together.
+        - Idempotent: calling twice produces the same result (no double-
+          redaction, no stacked `[REDACTED] [REDACTED]` tokens beyond what
+          the first call produced).
+        - Audit: writes one CustomerAuditLog row summarising the scrub
+          and one GDPRRequest row (progresses H3).
+        - No PII in logs: structured log records use the customer_id only.
+
+        Args:
+            db: Async SQLAlchemy session.
+            customer_id: Primary key of the customer whose PII is being
+                scrubbed.
+            performed_by: Optional user id of the administrator who
+                triggered the erasure. Written to the audit log.
+
+        Returns:
+            Dict counting redactions per field, e.g.
+            ``{"orders.description": 2, "orders.special_instructions": 0,
+              "order_comments.text": 1, "time_entries.notes": 0,
+              "total": 3}``.
+            Returns ``{"total": 0, ...}`` if the customer does not exist
+            (caller should 404 before calling this).
+        """
+        # Step 1: fetch customer and decrypt PII (needed for matching tokens).
+        customer_result = await db.execute(
+            select(CustomerModel).filter(CustomerModel.id == customer_id)
+        )
+        customer = customer_result.scalar_one_or_none()
+
+        counts: Dict[str, int] = {
+            "orders.description": 0,
+            "orders.special_instructions": 0,
+            "order_comments.text": 0,
+            "time_entries.notes": 0,
+            "total": 0,
+        }
+
+        if customer is None:
+            return counts
+
+        # Decrypt phone / mobile / address fields in-place so the matcher
+        # sees plaintext values. _decrypt_pii is a no-op when encryption
+        # is not configured.
+        _decrypt_pii(customer)
+
+        tokens = CustomerService._collect_pii_tokens(customer)
+        if not tokens:
+            # Nothing to match — write an audit log and exit cleanly.
+            await CustomerService._write_scrub_audit_logs(
+                db,
+                customer_id=customer_id,
+                performed_by=performed_by,
+                counts=counts,
+                token_count=0,
+            )
+            return counts
+
+        # Step 2: scrub orders.description and orders.special_instructions.
+        orders_result = await db.execute(
+            select(OrderModel).filter(OrderModel.customer_id == customer_id)
+        )
+        orders = list(orders_result.scalars().all())
+        order_ids = [o.id for o in orders]
+
+        for order in orders:
+            new_desc, desc_count = CustomerService._redact_text(
+                order.description, tokens
+            )
+            if desc_count > 0:
+                order.description = new_desc
+                counts["orders.description"] += desc_count
+
+            new_instr, instr_count = CustomerService._redact_text(
+                order.special_instructions, tokens
+            )
+            if instr_count > 0:
+                order.special_instructions = new_instr
+                counts["orders.special_instructions"] += instr_count
+
+        # Step 3: scrub order_comments.text for all comments on the
+        # customer's orders.
+        if order_ids:
+            comments_result = await db.execute(
+                select(OrderComment).filter(OrderComment.order_id.in_(order_ids))
+            )
+            for comment in comments_result.scalars().all():
+                new_text, text_count = CustomerService._redact_text(
+                    comment.text, tokens
+                )
+                if text_count > 0:
+                    comment.text = new_text
+                    counts["order_comments.text"] += text_count
+
+            # Step 4: scrub time_entries.notes for all time entries on the
+            # customer's orders.
+            time_entries_result = await db.execute(
+                select(TimeEntry).filter(TimeEntry.order_id.in_(order_ids))
+            )
+            for entry in time_entries_result.scalars().all():
+                new_notes, notes_count = CustomerService._redact_text(
+                    entry.notes, tokens
+                )
+                if notes_count > 0:
+                    entry.notes = new_notes
+                    counts["time_entries.notes"] += notes_count
+
+        counts["total"] = sum(
+            v for k, v in counts.items() if k != "total"
+        )
+
+        # Step 5: write audit records.
+        await CustomerService._write_scrub_audit_logs(
+            db,
+            customer_id=customer_id,
+            performed_by=performed_by,
+            counts=counts,
+            token_count=len(tokens),
+        )
+
+        # Flush so the caller's transaction commits the updates atomically.
+        # We do NOT commit here — the caller owns the transaction boundary.
+        await db.flush()
+
+        logger.info(
+            "GDPR PII scrub complete",
+            extra={
+                "audit": True,
+                "action": "gdpr_pii_scrub",
+                "customer_id": customer_id,
+                "user_id": performed_by,
+                "redaction_count": counts["total"],
+                "token_count": len(tokens),
+            },
+        )
+
+        return counts
+
+    @staticmethod
+    async def _write_scrub_audit_logs(
+        db: AsyncSession,
+        *,
+        customer_id: int,
+        performed_by: Optional[int],
+        counts: Dict[str, int],
+        token_count: int,
+    ) -> None:
+        """Write CustomerAuditLog + GDPRRequest rows documenting the scrub.
+
+        Called from `scrub_customer_pii`. Separated so tests can assert on
+        the audit side-effect without re-running the scrub logic.
+        """
+        audit_log = CustomerAuditLog(
+            customer_id=customer_id,
+            user_id=performed_by,
+            action="gdpr_pii_scrub",
+            entity="customer",
+            entity_id=customer_id,
+            details={
+                "counts": counts,
+                "token_count": token_count,
+                "scope": [
+                    "orders.description",
+                    "orders.special_instructions",
+                    "order_comments.text",
+                    "time_entries.notes",
+                ],
+            },
+            timestamp=datetime.utcnow(),
+        )
+        db.add(audit_log)
+
+        gdpr_request = GDPRRequest(
+            customer_id=customer_id,
+            request_type="erasure",
+            status="completed",
+            requested_by=performed_by,
+            completed_at=datetime.utcnow(),
+            notes=(
+                f"Art. 17 erasure — scrubbed {counts['total']} PII occurrence(s) "
+                f"across {token_count} token(s) in related free-text fields."
+            ),
+        )
+        db.add(gdpr_request)
