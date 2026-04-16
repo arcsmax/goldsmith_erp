@@ -15,11 +15,11 @@ Date: 2025-11-06
 """
 
 import pytest
-from datetime import datetime, timedelta
+from datetime import datetime
 from sqlalchemy.ext.asyncio import AsyncSession
 
 # NOTE: These tests require GDPR models (CustomerAuditLog) and the GDPR-extended Customer
-# (customer_number, legal_basis, consent fields, is_deleted, deletion_reason, retention_deadline)
+# (customer_number, legal_basis, consent fields, is_deleted, deletion_reason)
 # not yet present in main's db/models.py.
 # Un-skip after applying migration: docs/superpowers/plans/2026-03-31-apply-coffee-lab-patterns.md
 pytestmark = pytest.mark.skip(reason="Requires GDPR schema migration (CustomerAuditLog, GDPR Customer fields)")
@@ -305,51 +305,13 @@ async def test_pii_encryption(customer_repository: CustomerRepository, db_sessio
 # ═══════════════════════════════════════════════════════════════════════════
 # Data Retention Tests
 # ═══════════════════════════════════════════════════════════════════════════
-
-@pytest.mark.asyncio
-async def test_get_customers_for_deletion(customer_repository: CustomerRepository):
-    """Test retrieving customers past retention deadline."""
-    # Create customer with expired retention
-    customer = await customer_repository.create(
-        customer_number="CUST-202511-0011",
-        first_name="Frank",
-        last_name="Hoffmann",
-        email="frank@example.de",
-        legal_basis="contract",
-        retention_deadline=datetime.utcnow() - timedelta(days=1),  # Yesterday
-    )
-
-    # Get customers for deletion
-    expired = await customer_repository.get_customers_for_deletion()
-
-    assert len(expired) > 0
-    assert any(c.id == customer.id for c in expired)
-
-
-@pytest.mark.asyncio
-async def test_update_retention_deadline(customer_repository: CustomerRepository):
-    """Test updating retention deadline."""
-    # Create customer
-    customer = await customer_repository.create(
-        customer_number="CUST-202511-0012",
-        first_name="Julia",
-        last_name="Koch",
-        email="julia@example.de",
-        legal_basis="contract",
-    )
-
-    # Update retention
-    last_order = datetime.utcnow()
-    updated = await customer_repository.update_retention_deadline(
-        customer_id=customer.id,
-        last_order_date=last_order,
-        retention_period_days=365,  # 1 year
-    )
-
-    assert updated is not None
-    assert updated.last_order_date == last_order
-    # Retention deadline should be ~1 year from now
-    assert updated.retention_deadline > datetime.utcnow() + timedelta(days=360)
+#
+# Tests for `get_customers_for_deletion` and `update_retention_deadline` were
+# removed in the pre-V1.1 GDPR hotfix (H1 in V1.1-AMENDMENTS.md) because the
+# underlying methods referenced columns that do not exist on the Customer
+# model. The retention engine will live on `orders` / `material_usage` /
+# `time_entries` via per-entity `retention_class` columns (V1.1 Migration 2).
+# Reintroduce retention tests against THOSE columns, not on `customers`.
 
 
 # ═══════════════════════════════════════════════════════════════════════════

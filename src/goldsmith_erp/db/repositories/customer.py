@@ -6,15 +6,20 @@ comprehensive GDPR compliance features including:
 - Audit logging for all data access
 - Soft delete support
 - Consent management
-- Data retention policies
 - Data subject rights (access, erasure, portability)
 - PII encryption/decryption
+
+Note: Retention-engine methods were removed in the pre-V1.1 GDPR hotfix
+(see V1.1-AMENDMENTS.md H1) because they referenced columns that do not
+exist on the Customer model. The retention engine will be implemented in
+V1.1 Migration 2 against per-entity `retention_class` columns on `orders`,
+`material_usage`, and `time_entries` (not on `customers`).
 
 Author: Claude AI
 Date: 2025-11-06
 """
 
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import List, Optional, Dict, Any
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, or_, and_, func, update
@@ -38,7 +43,6 @@ class CustomerRepository(BaseRepository[Customer]):
     - Audit logging (GDPR Article 30)
     - Soft delete (GDPR Article 17)
     - Consent tracking (GDPR Article 7)
-    - Data retention (GDPR Article 5(1)(e))
     - PII encryption/decryption
 
     Usage:
@@ -533,75 +537,19 @@ class CustomerRepository(BaseRepository[Customer]):
     # ═══════════════════════════════════════════════════════════════════════
     # GDPR Data Retention
     # ═══════════════════════════════════════════════════════════════════════
-
-    async def get_customers_for_deletion(
-        self,
-        category: Optional[str] = None,
-    ) -> List[Customer]:
-        """
-        Get customers whose retention deadline has passed (GDPR Article 5(1)(e)).
-
-        Args:
-            category: Optional retention category filter
-
-        Returns:
-            List of customers ready for deletion/anonymization
-        """
-        query = select(Customer).where(
-            and_(
-                Customer.retention_deadline <= datetime.utcnow(),
-                Customer.is_deleted == False,
-            )
-        )
-
-        if category:
-            query = query.where(Customer.data_retention_category == category)
-
-        result = await self.session.execute(query)
-        customers = list(result.scalars().all())
-
-        # Decrypt PII
-        customers = [self._decrypt_customer_pii(c) for c in customers]
-
-        return customers
-
-    async def update_retention_deadline(
-        self,
-        customer_id: int,
-        last_order_date: datetime,
-        retention_period_days: int = 3650,  # 10 years default
-    ) -> Optional[Customer]:
-        """
-        Update customer retention deadline based on last order.
-
-        Args:
-            customer_id: Customer ID
-            last_order_date: Date of last order
-            retention_period_days: Retention period in days (default: 10 years)
-
-        Returns:
-            Updated customer or None
-        """
-        customer = await self.get_by_id(customer_id, log_access=False)
-        if not customer:
-            return None
-
-        customer.last_order_date = last_order_date
-        customer.retention_deadline = last_order_date + timedelta(days=retention_period_days)
-
-        await self._log_audit(
-            customer_id=customer.id,
-            action="retention_updated",
-            entity="customer",
-            entity_id=customer.id,
-            purpose=f"Updated retention deadline to {customer.retention_deadline}",
-        )
-
-        await self.session.commit()
-        await self.session.refresh(customer)
-
-        customer = self._decrypt_customer_pii(customer)
-        return customer
+    #
+    # The retention-engine methods that previously lived here
+    # (`get_customers_for_deletion`, `update_retention_deadline`) referenced
+    # columns (`retention_deadline`, `data_retention_category`,
+    # `last_order_date`) that do NOT exist on the `Customer` model. They were
+    # dead code that would have crashed on first call. Removed as part of the
+    # pre-V1.1 GDPR hotfix (H1 in V1.1-AMENDMENTS.md).
+    #
+    # V1.1 Migration 2 (Amendment A2.7) introduces `orders.retention_class`
+    # plus retention tags on `material_usage` / `time_entries`. The real
+    # retention engine will be implemented against those columns, not on the
+    # `customers` table. Do not re-introduce columns on `customers` without a
+    # migration and explicit buy-in from Anna + Henrik.
 
     # ═══════════════════════════════════════════════════════════════════════
     # GDPR Audit Logging (Article 30)
