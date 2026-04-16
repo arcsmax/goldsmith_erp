@@ -1,9 +1,61 @@
 from pydantic import BaseModel, EmailStr, ConfigDict, Field, field_validator
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Optional
 import re
 
 from goldsmith_erp.db.models import UserRole
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# GDPR Art. 17 — anonymize_user() result + error contract
+# ─────────────────────────────────────────────────────────────────────────────
+# See docs/superpowers/plans/qr-barcode-workflow/V1.1-ANONYMIZE-USER-CONTRACT.md §5.
+
+
+@dataclass
+class AnonymizationResult:
+    """Outcome of a call to `UserService.anonymize_user`.
+
+    The dataclass intentionally carries only non-PII summary data so it is
+    safe to log or return as JSON. The raw HMAC tracking token is treated
+    as admin-only and is also written to `gdpr_requests.notes`.
+    """
+
+    user_id: int
+    """Original user id — preserved on the row to satisfy RESTRICT FKs."""
+
+    sentinel_user_id: int
+    """Id of the global sentinel row that now owns all anonymised FKs."""
+
+    fk_updates: dict = field(default_factory=dict)
+    """Per-table row count of FK references rewritten to the sentinel."""
+
+    tracking_hmac: str = ""
+    """Short (16-char) HMAC(salt, user_id) token for audit correlation."""
+
+    gdpr_request_id: int = 0
+    """Primary key of the `gdpr_requests` row recorded for this erasure."""
+
+    already_anonymized: bool = False
+    """True on an idempotent re-call (no FK updates, no exception)."""
+
+
+class UserNotFound(Exception):
+    """Raised when `anonymize_user` receives an id that does not exist."""
+
+
+class LastAdminError(Exception):
+    """Raised when anonymisation would leave the workshop with zero active admins."""
+
+
+class SentinelMissing(Exception):
+    """Bootstrap error — the global sentinel row was expected but absent.
+
+    Indicates the Slice 0 migration did not run, or the row was manually
+    deleted. The service lazily recreates the sentinel to be robust, so
+    raising this exception should be a last resort.
+    """
 
 
 class UserBase(BaseModel):
