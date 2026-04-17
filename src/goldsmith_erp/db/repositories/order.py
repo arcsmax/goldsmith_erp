@@ -610,60 +610,25 @@ class OrderRepository(BaseRepository[Order]):
 
         return status_history
 
-    async def change_order_status(
-        self,
-        order_id: int,
-        new_status: str,
-        reason: Optional[str] = None,
-        notes: Optional[str] = None,
-        ip_address: Optional[str] = None,
-        user_agent: Optional[str] = None,
-    ) -> Optional[Order]:
-        """
-        Change order status with history tracking.
-
-        Args:
-            order_id: Order ID
-            new_status: New status
-            reason: Reason for status change
-            notes: Additional notes
-            ip_address: IP address
-            user_agent: User agent
-
-        Returns:
-            Updated order or None if not found
-        """
-        order = await self.get_by_id(order_id)
-        if not order:
-            return None
-
-        old_status = order.status
-
-        # Add status history
-        await self.add_status_history(
-            order_id=order_id,
-            old_status=old_status,
-            new_status=new_status,
-            reason=reason,
-            notes=notes,
-            ip_address=ip_address,
-            user_agent=user_agent,
-        )
-
-        # Update order status and date fields
-        updates = {"status": new_status}
-
-        if new_status == "in_progress" and not order.started_at:
-            updates["started_at"] = datetime.utcnow()
-        elif new_status == "completed":
-            updates["completed_at"] = datetime.utcnow()
-            updates["actual_completion_date"] = datetime.utcnow()
-        elif new_status == "delivered":
-            updates["delivered_at"] = datetime.utcnow()
-        elif new_status == "cancelled":
-            updates["cancelled_at"] = datetime.utcnow()
-
-        return await self.update_order(order_id, **updates)
+    # NOTE (Slice 6 / H14 resolution, 2026-04-16):
+    # ``change_order_status`` was removed from this repository because it
+    # wrote ``Order.status`` directly and bypassed the Punzierungs-Check
+    # guard (M4 / R8 / A5.3) that lives in
+    # ``OrderService.update_order`` / ``OrderService.advance_status``.
+    #
+    # A static search across src/ and tests/ confirmed ZERO callers for
+    # the method (and zero callers for ``OrderRepository`` as a whole at
+    # the time of Slice 6). The method was therefore safe to delete
+    # rather than rewrite.
+    #
+    # All Order-status transitions MUST go through
+    # :meth:`goldsmith_erp.services.order_service.OrderService.update_order`
+    # or :meth:`~OrderService.advance_status`. Any new status-write path
+    # must call ``_check_punzierung_requirement`` (or route through
+    # ``OrderService.update_order`` which does).
+    #
+    # The hygiene test ``tests/unit/test_order_repository_hygiene.py``
+    # enforces that this method does not reappear on the class.
 
     # ═══════════════════════════════════════════════════════════════════════
     # Cost Calculations
