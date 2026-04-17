@@ -1041,9 +1041,14 @@ class TestScrubH5CrossField:
         mueller_maria: Customer,
         admin: User,
     ):
-        """CustomerAuditLog.details.counts must include every H5 key so
-        the DPO can attest per-field coverage."""
-        order = await _make_order(db_session, mueller_maria, description="Ring")
+        """CustomerAuditLog.details.counts must include every declared
+        SCRUBBABLE_FIELDS key + ``total`` so the DPO can attest per-field
+        coverage. Expected keys are derived from ``SCRUBBABLE_FIELDS`` —
+        the test is automatically extended when new targets are added.
+        """
+        from goldsmith_erp.services.customer_service import SCRUBBABLE_FIELDS
+
+        await _make_order(db_session, mueller_maria, description="Ring")
         db_session.add(RepairJob(
             repair_number=f"REP-2026-{uuid.uuid4().hex[:6]}",
             bag_number="A1",
@@ -1067,21 +1072,7 @@ class TestScrubH5CrossField:
         )
         log = result.scalar_one()
         expected_keys = {
-            "orders.description",
-            "orders.special_instructions",
-            "order_comments.text",
-            "time_entries.notes",
-            "order_status_history.notes",
-            "order_handoffs.notes",
-            "order_handoffs.response_notes",
-            "gemstones.notes",
-            "repair_jobs.item_description",
-            "repair_jobs.diagnosis_notes",
-            "valuation_certificates.item_description",
-            "valuation_certificates.gemstones_description",
-            "quotes.notes",
-            "quotes.customer_signature_data",
-            "total",
-        }
+            target.counter_key for target in SCRUBBABLE_FIELDS
+        } | {"total"}
         assert set(log.details["counts"].keys()) == expected_keys
         assert log.details["counts"]["repair_jobs.item_description"] == 2

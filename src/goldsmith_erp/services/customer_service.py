@@ -748,6 +748,83 @@ class CustomerService:
         return scrubbed, total_replacements
 
     @staticmethod
+    async def _resolve_link_rows(
+        db: AsyncSession,
+        target: "ScrubTarget",
+        *,
+        customer_id: int,
+        order_ids: List[int],
+        repair_job_ids: List[int],
+        scrap_gold_ids: List[int],
+        quote_ids: List[int],
+        invoice_ids: List[int],
+    ) -> List[Any]:
+        """Fetch every row on ``target.model`` belonging to this customer.
+
+        Looks up the ``target.link`` kind and applies the corresponding SQL
+        filter. Returns [] for link kinds that resolve to no rows (e.g. the
+        customer has no orders and the target link is ``order_id``) so the
+        caller can skip cleanly.
+
+        Separated from the scrub loop so tests can exercise the linkage
+        logic per-link-kind and so a future reviewer can add a new link
+        kind in exactly one place.
+        """
+        model = target.model
+        link = target.link
+
+        if link == "customer_id":
+            stmt = select(model).filter(model.customer_id == customer_id)
+        elif link == "order_id":
+            if not order_ids:
+                return []
+            stmt = select(model).filter(model.order_id.in_(order_ids))
+        elif link == "repair_job_id":
+            if not repair_job_ids:
+                return []
+            stmt = select(model).filter(
+                model.repair_job_id.in_(repair_job_ids)
+            )
+        elif link == "scrap_gold_id":
+            if not scrap_gold_ids:
+                return []
+            stmt = select(model).filter(
+                model.scrap_gold_id.in_(scrap_gold_ids)
+            )
+        elif link == "quote_id":
+            if not quote_ids:
+                return []
+            stmt = select(model).filter(model.quote_id.in_(quote_ids))
+        elif link == "invoice_id":
+            if not invoice_ids:
+                return []
+            stmt = select(model).filter(model.invoice_id.in_(invoice_ids))
+        elif link == "calendar_event_order":
+            # Calendar events link to orders via a NULL-able order_id. Only
+            # scrub events attached to this customer's orders; standalone
+            # workshop-task events (order_id = NULL) are not customer data.
+            if not order_ids:
+                return []
+            stmt = select(model).filter(model.order_id.in_(order_ids))
+        elif link == "notification_any":
+            # Notifications have two optional linkage columns:
+            #   - related_customer_id (direct)
+            #   - related_order_id (indirect via customer's orders)
+            # Scrub any notification referencing either.
+            clauses = [model.related_customer_id == customer_id]
+            if order_ids:
+                clauses.append(model.related_order_id.in_(order_ids))
+            stmt = select(model).filter(or_(*clauses))
+        else:
+            raise ValueError(
+                f"ScrubTarget has unknown link kind: {link!r} "
+                f"(target {target.counter_key})"
+            )
+
+        result = await db.execute(stmt)
+        return list(result.scalars().all())
+
+    @staticmethod
     async def scrub_customer_pii(
         db: AsyncSession,
         customer_id: int,
@@ -763,30 +840,16 @@ class CustomerService:
         for setting ``deletion_scheduled_at`` / ``is_active`` on the
         customer.
 
-        Scope of scrubbing:
-
-        H2 (initial hotfix):
-        - orders.description
-        - orders.special_instructions
-        - order_comments.text
-        - time_entries.notes
-
-        H5 (extension — this commit):
-        - order_status_history.notes
-        - order_handoffs.notes
-        - order_handoffs.response_notes
-        - gemstones.notes  (via order_id → customer_id)
-        - repair_jobs.item_description  (customer_id direct)
-        - repair_jobs.diagnosis_notes   (customer_id direct)
-        - valuation_certificates.item_description       (customer_id direct)
-        - valuation_certificates.gemstones_description  (customer_id direct)
-        - quotes.notes                                  (customer_id direct)
-        - quotes.customer_signature_data                (customer_id direct;
-          entire blob replaced with ``[REDACTED_SIGNATURE]`` sentinel —
-          freetext overlays on the signature image are opaque to regex)
+        Scope is DECLARATIVE: every field covered is listed in
+        ``SCRUBBABLE_FIELDS`` (module-level constant). Adding a new field
+        is a single row there. See
+        ``docs/superpowers/plans/qr-barcode-workflow/PII-SCRUB-AUDIT.md``
+        for the full schema audit that justifies each entry.
 
         Guarantees:
-        - Atomic: all updates commit together or roll back together.
+        - Atomic: all updates commit together or roll back together
+          (caller owns the transaction boundary; this function only
+          flushes, never commits).
         - Idempotent: calling twice produces the same result (no double-
           redaction, no stacked ``[REDACTED] [REDACTED]`` tokens beyond
           what the first call produced).
@@ -804,10 +867,11 @@ class CustomerService:
 
         Returns:
             Dict counting redactions per field. Keys enumerate every field
-            in the scrub scope — a value of 0 means the field was examined
-            but contained no PII tokens. ``total`` is the sum across all
-            fields. Returns all-zero counts if the customer does not exist
-            (caller should 404 before calling this).
+            in the scrub scope (from ``SCRUBBABLE_FIELDS``) — a value of 0
+            means the field was examined but contained no PII tokens.
+            ``total`` is the sum across all fields. Returns all-zero
+            counts if the customer does not exist (caller should 404
+            before calling this).
         """
         # Step 1: fetch customer and decrypt PII (needed for matching tokens).
         customer_result = await db.execute(
@@ -815,26 +879,11 @@ class CustomerService:
         )
         customer = customer_result.scalar_one_or_none()
 
+        # Counter dict: one entry per ScrubTarget + a "total".
         counts: Dict[str, int] = {
-            # H2 scope
-            "orders.description": 0,
-            "orders.special_instructions": 0,
-            "order_comments.text": 0,
-            "time_entries.notes": 0,
-            # H5 scope — order-scoped free-text
-            "order_status_history.notes": 0,
-            "order_handoffs.notes": 0,
-            "order_handoffs.response_notes": 0,
-            "gemstones.notes": 0,
-            # H5 scope — customer-scoped free-text
-            "repair_jobs.item_description": 0,
-            "repair_jobs.diagnosis_notes": 0,
-            "valuation_certificates.item_description": 0,
-            "valuation_certificates.gemstones_description": 0,
-            "quotes.notes": 0,
-            "quotes.customer_signature_data": 0,
-            "total": 0,
+            target.counter_key: 0 for target in SCRUBBABLE_FIELDS
         }
+        counts["total"] = 0
 
         if customer is None:
             return counts
@@ -856,189 +905,109 @@ class CustomerService:
             )
             return counts
 
-        # Step 2: scrub orders.description and orders.special_instructions.
-        orders_result = await db.execute(
-            select(OrderModel).filter(OrderModel.customer_id == customer_id)
-        )
-        orders = list(orders_result.scalars().all())
-        order_ids = [o.id for o in orders]
-
-        for order in orders:
-            new_desc, desc_count = CustomerService._redact_text(
-                order.description, tokens
-            )
-            if desc_count > 0:
-                order.description = new_desc
-                counts["orders.description"] += desc_count
-
-            new_instr, instr_count = CustomerService._redact_text(
-                order.special_instructions, tokens
-            )
-            if instr_count > 0:
-                order.special_instructions = new_instr
-                counts["orders.special_instructions"] += instr_count
-
-        # Step 3: scrub order_comments.text for all comments on the
-        # customer's orders.
-        if order_ids:
-            comments_result = await db.execute(
-                select(OrderComment).filter(OrderComment.order_id.in_(order_ids))
-            )
-            for comment in comments_result.scalars().all():
-                new_text, text_count = CustomerService._redact_text(
-                    comment.text, tokens
-                )
-                if text_count > 0:
-                    comment.text = new_text
-                    counts["order_comments.text"] += text_count
-
-            # Step 4: scrub time_entries.notes for all time entries on the
-            # customer's orders.
-            time_entries_result = await db.execute(
-                select(TimeEntry).filter(TimeEntry.order_id.in_(order_ids))
-            )
-            for entry in time_entries_result.scalars().all():
-                new_notes, notes_count = CustomerService._redact_text(
-                    entry.notes, tokens
-                )
-                if notes_count > 0:
-                    entry.notes = new_notes
-                    counts["time_entries.notes"] += notes_count
-
-            # ── H5 order-scoped fields ──────────────────────────────────
-            # Step 5: scrub order_status_history.notes — this is the short
-            # free-text column written when an order's status transitions
-            # (e.g. "Bei Abholung durch Frau Schmidt bemerkt...").
-            status_history_result = await db.execute(
-                select(OrderStatusHistory).filter(
-                    OrderStatusHistory.order_id.in_(order_ids)
+        # Step 2: resolve the customer's owned parent-row IDs once. Every
+        # ScrubTarget link_kind that is not ``customer_id`` reads from
+        # one of these lists, so we compute them up-front and pass them
+        # through rather than re-querying per target.
+        order_ids = [
+            o.id
+            for o in (
+                await db.execute(
+                    select(OrderModel).filter(
+                        OrderModel.customer_id == customer_id
+                    )
                 )
             )
-            for history in status_history_result.scalars().all():
-                new_notes, notes_count = CustomerService._redact_text(
-                    history.notes, tokens
-                )
-                if notes_count > 0:
-                    history.notes = new_notes
-                    counts["order_status_history.notes"] += notes_count
-
-            # Step 6: scrub order_handoffs.notes + response_notes — both
-            # can reference customer names ("Frau Mueller holt morgen ab").
-            handoffs_result = await db.execute(
-                select(OrderHandoff).filter(
-                    OrderHandoff.order_id.in_(order_ids)
+            .scalars()
+            .all()
+        ]
+        repair_job_ids = [
+            r.id
+            for r in (
+                await db.execute(
+                    select(RepairJob).filter(
+                        RepairJob.customer_id == customer_id
+                    )
                 )
             )
-            for handoff in handoffs_result.scalars().all():
-                new_notes, notes_count = CustomerService._redact_text(
-                    handoff.notes, tokens
+            .scalars()
+            .all()
+        ]
+        scrap_gold_ids = [
+            s.id
+            for s in (
+                await db.execute(
+                    select(ScrapGold).filter(
+                        ScrapGold.customer_id == customer_id
+                    )
                 )
-                if notes_count > 0:
-                    handoff.notes = new_notes
-                    counts["order_handoffs.notes"] += notes_count
-
-                new_response, response_count = CustomerService._redact_text(
-                    handoff.response_notes, tokens
+            )
+            .scalars()
+            .all()
+        ]
+        quote_ids = [
+            q.id
+            for q in (
+                await db.execute(
+                    select(Quote).filter(Quote.customer_id == customer_id)
                 )
-                if response_count > 0:
-                    handoff.response_notes = new_response
-                    counts["order_handoffs.response_notes"] += response_count
-
-            # Step 7: scrub gemstones.notes — gemstone provenance notes
-            # often quote the customer (e.g. "Stein vom Kunden Meier").
-            # Gemstones are attached to orders, so filter through order_ids.
-            gemstones_result = await db.execute(
-                select(Gemstone).filter(Gemstone.order_id.in_(order_ids))
             )
-            for gem in gemstones_result.scalars().all():
-                new_notes, notes_count = CustomerService._redact_text(
-                    gem.notes, tokens
+            .scalars()
+            .all()
+        ]
+        invoice_ids = [
+            i.id
+            for i in (
+                await db.execute(
+                    select(Invoice).filter(
+                        Invoice.customer_id == customer_id
+                    )
                 )
-                if notes_count > 0:
-                    gem.notes = new_notes
-                    counts["gemstones.notes"] += notes_count
-
-        # ── H5 customer-scoped fields (no order_ids dependency) ─────────
-        # These tables carry a direct customer_id FK, so they are scrubbed
-        # even if the customer has zero orders (e.g. standalone repair
-        # jobs, standalone quotes).
-
-        # Step 8: scrub repair_jobs.item_description + diagnosis_notes.
-        repairs_result = await db.execute(
-            select(RepairJob).filter(RepairJob.customer_id == customer_id)
-        )
-        for repair in repairs_result.scalars().all():
-            new_desc, desc_count = CustomerService._redact_text(
-                repair.item_description, tokens
             )
-            if desc_count > 0:
-                repair.item_description = new_desc
-                counts["repair_jobs.item_description"] += desc_count
+            .scalars()
+            .all()
+        ]
 
-            new_diag, diag_count = CustomerService._redact_text(
-                repair.diagnosis_notes, tokens
+        # Step 3: walk SCRUBBABLE_FIELDS — one pass per target.
+        for target in SCRUBBABLE_FIELDS:
+            rows = await CustomerService._resolve_link_rows(
+                db,
+                target,
+                customer_id=customer_id,
+                order_ids=order_ids,
+                repair_job_ids=repair_job_ids,
+                scrap_gold_ids=scrap_gold_ids,
+                quote_ids=quote_ids,
+                invoice_ids=invoice_ids,
             )
-            if diag_count > 0:
-                repair.diagnosis_notes = new_diag
-                counts["repair_jobs.diagnosis_notes"] += diag_count
 
-        # Step 9: scrub valuation_certificates.{item_description,
-        # gemstones_description}. The H5 row in V1.1-AMENDMENTS.md names
-        # ``notes`` / ``customer_signature_data`` on this table, but those
-        # columns do not exist on the model. The PII leak surface is on
-        # ``item_description`` + ``gemstones_description`` (printed on the
-        # certificate next to the customer name) — those fields are what
-        # actually need Art. 17 scrubbing here.
-        valuations_result = await db.execute(
-            select(ValuationCertificate).filter(
-                ValuationCertificate.customer_id == customer_id
-            )
-        )
-        for valuation in valuations_result.scalars().all():
-            new_item, item_count = CustomerService._redact_text(
-                valuation.item_description, tokens
-            )
-            if item_count > 0:
-                valuation.item_description = new_item
-                counts["valuation_certificates.item_description"] += item_count
-
-            new_gems, gems_count = CustomerService._redact_text(
-                valuation.gemstones_description, tokens
-            )
-            if gems_count > 0:
-                valuation.gemstones_description = new_gems
-                counts["valuation_certificates.gemstones_description"] += gems_count
-
-        # Step 10: scrub quotes.notes + customer_signature_data. The
-        # signature blob is base64-encoded PNG — regex cannot reliably
-        # redact freetext overlays inside the image, so the ENTIRE blob
-        # is replaced with the SIGNATURE_REDACTION_TOKEN sentinel. One
-        # replacement per populated field counts as a single redaction.
-        quotes_result = await db.execute(
-            select(Quote).filter(Quote.customer_id == customer_id)
-        )
-        for quote in quotes_result.scalars().all():
-            new_notes, notes_count = CustomerService._redact_text(
-                quote.notes, tokens
-            )
-            if notes_count > 0:
-                quote.notes = new_notes
-                counts["quotes.notes"] += notes_count
-
-            # Signature blob: treat as all-or-nothing. Skip if already
-            # redacted (idempotency) or empty.
-            if (
-                quote.customer_signature_data
-                and quote.customer_signature_data != SIGNATURE_REDACTION_TOKEN
-            ):
-                quote.customer_signature_data = SIGNATURE_REDACTION_TOKEN
-                counts["quotes.customer_signature_data"] += 1
+            for row in rows:
+                if target.binary:
+                    # Binary (signature blob) — all-or-nothing replacement.
+                    value = getattr(row, target.column)
+                    if (
+                        value
+                        and value != SIGNATURE_REDACTION_TOKEN
+                    ):
+                        setattr(
+                            row,
+                            target.column,
+                            SIGNATURE_REDACTION_TOKEN,
+                        )
+                        counts[target.counter_key] += 1
+                else:
+                    new_value, n = CustomerService._redact_text(
+                        getattr(row, target.column), tokens
+                    )
+                    if n > 0:
+                        setattr(row, target.column, new_value)
+                        counts[target.counter_key] += n
 
         counts["total"] = sum(
             v for k, v in counts.items() if k != "total"
         )
 
-        # Step 5: write audit records.
+        # Step 4: write audit records (CustomerAuditLog + GDPRRequest).
         await CustomerService._write_scrub_audit_logs(
             db,
             customer_id=customer_id,
@@ -1060,6 +1029,7 @@ class CustomerService:
                 "user_id": performed_by,
                 "redaction_count": counts["total"],
                 "token_count": len(tokens),
+                "scrubbable_field_count": len(SCRUBBABLE_FIELDS),
             },
         )
 
@@ -1078,7 +1048,15 @@ class CustomerService:
 
         Called from `scrub_customer_pii`. Separated so tests can assert on
         the audit side-effect without re-running the scrub logic.
+
+        ``details.scope`` is derived from ``SCRUBBABLE_FIELDS`` so adding
+        a new target automatically extends the audit payload.
         """
+        scope_keys = [target.counter_key for target in SCRUBBABLE_FIELDS]
+        scrubbed_field_count = sum(
+            1 for key in scope_keys if counts.get(key, 0) > 0
+        )
+
         audit_log = CustomerAuditLog(
             customer_id=customer_id,
             user_id=performed_by,
@@ -1088,24 +1066,8 @@ class CustomerService:
             details={
                 "counts": counts,
                 "token_count": token_count,
-                "scope": [
-                    # H2 scope
-                    "orders.description",
-                    "orders.special_instructions",
-                    "order_comments.text",
-                    "time_entries.notes",
-                    # H5 scope
-                    "order_status_history.notes",
-                    "order_handoffs.notes",
-                    "order_handoffs.response_notes",
-                    "gemstones.notes",
-                    "repair_jobs.item_description",
-                    "repair_jobs.diagnosis_notes",
-                    "valuation_certificates.item_description",
-                    "valuation_certificates.gemstones_description",
-                    "quotes.notes",
-                    "quotes.customer_signature_data",
-                ],
+                "scope": scope_keys,
+                "scrubbed_field_count": scrubbed_field_count,
             },
             timestamp=datetime.utcnow(),
         )
@@ -1118,8 +1080,9 @@ class CustomerService:
             requested_by=performed_by,
             completed_at=datetime.utcnow(),
             notes=(
-                f"Art. 17 erasure — scrubbed {counts['total']} PII occurrence(s) "
-                f"across {token_count} token(s) in related free-text fields."
+                f"Art. 17 erasure — scrubbed {counts['total']} PII "
+                f"occurrence(s) across {token_count} token(s) in "
+                f"{scrubbed_field_count}/{len(scope_keys)} covered fields."
             ),
         )
         db.add(gdpr_request)
