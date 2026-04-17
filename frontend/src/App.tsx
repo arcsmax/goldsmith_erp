@@ -1,7 +1,7 @@
 // Main App Component with Routing
 import React, { Suspense, lazy } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import { AuthProvider, OrderProvider, TimeTrackingProvider, ToastProvider } from './contexts';
+import { AuthProvider, OrderProvider, ScannerProvider, TimeTrackingProvider, ToastProvider } from './contexts';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { MainLayout } from './layouts/MainLayout';
 import { ToastContainer } from './components/Toast';
@@ -52,9 +52,10 @@ const App: React.FC = () => {
     <BrowserRouter>
       <ToastProvider>
         <AuthProvider>
-          <TimeTrackingProvider>
-            <OrderProvider>
-              <Suspense fallback={<PageLoader />}>
+          <ScannerProvider>
+            <TimeTrackingProvider>
+              <OrderProvider>
+                <Suspense fallback={<PageLoader />}>
                 <Routes>
                   {/* Public Routes */}
                   <Route path="/login" element={<LoginPage />} />
@@ -181,10 +182,11 @@ const App: React.FC = () => {
 
                   {/* Catch all - redirect to dashboard */}
                   <Route path="*" element={<Navigate to="/dashboard" replace />} />
-                </Routes>
-              </Suspense>
-            </OrderProvider>
-          </TimeTrackingProvider>
+                  </Routes>
+                </Suspense>
+              </OrderProvider>
+            </TimeTrackingProvider>
+          </ScannerProvider>
         </AuthProvider>
         {/* Toast notifications and confirm dialogs rendered above all app content */}
         <ToastContainer />
