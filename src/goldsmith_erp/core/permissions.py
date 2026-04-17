@@ -103,6 +103,16 @@ class Permission(str, Enum):
     VALUATION_CREATE = "valuation:create"   # Create certificate (ADMIN + GOLDSMITH)
     VALUATION_EXPORT = "valuation:export"   # Download PDF (ADMIN only)
 
+    # Scanner permissions (V1.1 QR/Barcode workflow)
+    # Granted to all three roles — the service layer performs role-based
+    # content projection, so VIEWER may call /scan/resolve but will never
+    # see financial fields (cf. ORDER_FIELDS_BY_ROLE allow-lists in
+    # services/scanner_service.py). Write operations (/scan/log,
+    # /scan/log/batch) use the same permission because they write an
+    # audit row, not a business mutation — the business mutation is a
+    # separate endpoint guarded by its own permission.
+    SCAN_READ = "scan:read"
+
 
 # Role-Permission mapping
 ROLE_PERMISSIONS: dict[UserRole, List[Permission]] = {
@@ -159,6 +169,8 @@ ROLE_PERMISSIONS: dict[UserRole, List[Permission]] = {
         # Valuation certificates — goldsmiths create and view Wertgutachten
         Permission.VALUATION_VIEW,
         Permission.VALUATION_CREATE,
+        # Scanner (V1.1) — goldsmiths are the primary scanner users
+        Permission.SCAN_READ,
     ],
     UserRole.VIEWER: [
         # View-only access
@@ -180,6 +192,9 @@ ROLE_PERMISSIONS: dict[UserRole, List[Permission]] = {
         # Hallmarks — viewers can see hallmark status (informational)
         Permission.HALLMARK_VIEW,
         # Valuations — viewers cannot see financial valuation data
+        # Scanner (V1.1) — viewers may scan; content projection ensures
+        # no financial fields are returned to their role.
+        Permission.SCAN_READ,
     ],
 }
 
