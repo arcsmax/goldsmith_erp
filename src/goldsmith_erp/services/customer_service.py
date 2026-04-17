@@ -10,10 +10,16 @@ from sqlalchemy.orm import selectinload
 from goldsmith_erp.db.models import (
     Customer as CustomerModel,
     CustomerAuditLog,
+    Gemstone,
     GDPRRequest,
     Order as OrderModel,
     OrderComment,
+    OrderHandoff,
+    OrderStatusHistory,
+    Quote,
+    RepairJob,
     TimeEntry,
+    ValuationCertificate,
 )
 from goldsmith_erp.models.customer import CustomerCreate, CustomerUpdate
 from goldsmith_erp.db.transaction import transactional
@@ -24,6 +30,13 @@ logger = logging.getLogger(__name__)
 # Chosen so that repeated scrubs are idempotent: once a field contains
 # only [REDACTED] tokens, no further PII tokens can match.
 REDACTION_TOKEN = "[REDACTED]"
+
+# Sentinel placeholder for signature blob fields (base64 PNG / binary-ish).
+# Unlike the free-text REDACTION_TOKEN we cannot pattern-match inside a base64
+# blob for individual PII tokens — freetext overlays on a signature image are
+# opaque to regex. For GDPR Art. 17 we replace the ENTIRE field with this
+# sentinel. Idempotent because the sentinel contains no PII tokens.
+SIGNATURE_REDACTION_TOKEN = "[REDACTED_SIGNATURE]"
 
 # ── PII encryption helpers ────────────────────────────────────────────────────
 # These fields contain GDPR-sensitive personal data and must be encrypted at
@@ -534,24 +547,41 @@ class CustomerService:
 
         Implements the free-text half of GDPR Art. 17 erasure: customer
         names, phone numbers, and e-mail addresses that were typed into
-        order descriptions, special instructions, order comments, and
-        time-entry notes are replaced with `[REDACTED]`. The customer row
-        itself is NOT modified here — the caller is responsible for setting
-        `deletion_scheduled_at` / `is_active` on the customer.
+        workflow free-text fields are replaced with ``[REDACTED]``. The
+        customer row itself is NOT modified here — the caller is responsible
+        for setting ``deletion_scheduled_at`` / ``is_active`` on the
+        customer.
 
-        Scope of scrubbing (per H2 in V1.1-AMENDMENTS.md):
+        Scope of scrubbing:
+
+        H2 (initial hotfix):
         - orders.description
         - orders.special_instructions
         - order_comments.text
         - time_entries.notes
 
+        H5 (extension — this commit):
+        - order_status_history.notes
+        - order_handoffs.notes
+        - order_handoffs.response_notes
+        - gemstones.notes  (via order_id → customer_id)
+        - repair_jobs.item_description  (customer_id direct)
+        - repair_jobs.diagnosis_notes   (customer_id direct)
+        - valuation_certificates.item_description       (customer_id direct)
+        - valuation_certificates.gemstones_description  (customer_id direct)
+        - quotes.notes                                  (customer_id direct)
+        - quotes.customer_signature_data                (customer_id direct;
+          entire blob replaced with ``[REDACTED_SIGNATURE]`` sentinel —
+          freetext overlays on the signature image are opaque to regex)
+
         Guarantees:
         - Atomic: all updates commit together or roll back together.
         - Idempotent: calling twice produces the same result (no double-
-          redaction, no stacked `[REDACTED] [REDACTED]` tokens beyond what
-          the first call produced).
+          redaction, no stacked ``[REDACTED] [REDACTED]`` tokens beyond
+          what the first call produced).
         - Audit: writes one CustomerAuditLog row summarising the scrub
-          and one GDPRRequest row (progresses H3).
+          (with per-field counts in ``details.counts``) and one
+          GDPRRequest row (progresses H3).
         - No PII in logs: structured log records use the customer_id only.
 
         Args:
@@ -562,11 +592,10 @@ class CustomerService:
                 triggered the erasure. Written to the audit log.
 
         Returns:
-            Dict counting redactions per field, e.g.
-            ``{"orders.description": 2, "orders.special_instructions": 0,
-              "order_comments.text": 1, "time_entries.notes": 0,
-              "total": 3}``.
-            Returns ``{"total": 0, ...}`` if the customer does not exist
+            Dict counting redactions per field. Keys enumerate every field
+            in the scrub scope — a value of 0 means the field was examined
+            but contained no PII tokens. ``total`` is the sum across all
+            fields. Returns all-zero counts if the customer does not exist
             (caller should 404 before calling this).
         """
         # Step 1: fetch customer and decrypt PII (needed for matching tokens).
@@ -576,10 +605,23 @@ class CustomerService:
         customer = customer_result.scalar_one_or_none()
 
         counts: Dict[str, int] = {
+            # H2 scope
             "orders.description": 0,
             "orders.special_instructions": 0,
             "order_comments.text": 0,
             "time_entries.notes": 0,
+            # H5 scope — order-scoped free-text
+            "order_status_history.notes": 0,
+            "order_handoffs.notes": 0,
+            "order_handoffs.response_notes": 0,
+            "gemstones.notes": 0,
+            # H5 scope — customer-scoped free-text
+            "repair_jobs.item_description": 0,
+            "repair_jobs.diagnosis_notes": 0,
+            "valuation_certificates.item_description": 0,
+            "valuation_certificates.gemstones_description": 0,
+            "quotes.notes": 0,
+            "quotes.customer_signature_data": 0,
             "total": 0,
         }
 
@@ -652,6 +694,135 @@ class CustomerService:
                     entry.notes = new_notes
                     counts["time_entries.notes"] += notes_count
 
+            # ── H5 order-scoped fields ──────────────────────────────────
+            # Step 5: scrub order_status_history.notes — this is the short
+            # free-text column written when an order's status transitions
+            # (e.g. "Bei Abholung durch Frau Schmidt bemerkt...").
+            status_history_result = await db.execute(
+                select(OrderStatusHistory).filter(
+                    OrderStatusHistory.order_id.in_(order_ids)
+                )
+            )
+            for history in status_history_result.scalars().all():
+                new_notes, notes_count = CustomerService._redact_text(
+                    history.notes, tokens
+                )
+                if notes_count > 0:
+                    history.notes = new_notes
+                    counts["order_status_history.notes"] += notes_count
+
+            # Step 6: scrub order_handoffs.notes + response_notes — both
+            # can reference customer names ("Frau Mueller holt morgen ab").
+            handoffs_result = await db.execute(
+                select(OrderHandoff).filter(
+                    OrderHandoff.order_id.in_(order_ids)
+                )
+            )
+            for handoff in handoffs_result.scalars().all():
+                new_notes, notes_count = CustomerService._redact_text(
+                    handoff.notes, tokens
+                )
+                if notes_count > 0:
+                    handoff.notes = new_notes
+                    counts["order_handoffs.notes"] += notes_count
+
+                new_response, response_count = CustomerService._redact_text(
+                    handoff.response_notes, tokens
+                )
+                if response_count > 0:
+                    handoff.response_notes = new_response
+                    counts["order_handoffs.response_notes"] += response_count
+
+            # Step 7: scrub gemstones.notes — gemstone provenance notes
+            # often quote the customer (e.g. "Stein vom Kunden Meier").
+            # Gemstones are attached to orders, so filter through order_ids.
+            gemstones_result = await db.execute(
+                select(Gemstone).filter(Gemstone.order_id.in_(order_ids))
+            )
+            for gem in gemstones_result.scalars().all():
+                new_notes, notes_count = CustomerService._redact_text(
+                    gem.notes, tokens
+                )
+                if notes_count > 0:
+                    gem.notes = new_notes
+                    counts["gemstones.notes"] += notes_count
+
+        # ── H5 customer-scoped fields (no order_ids dependency) ─────────
+        # These tables carry a direct customer_id FK, so they are scrubbed
+        # even if the customer has zero orders (e.g. standalone repair
+        # jobs, standalone quotes).
+
+        # Step 8: scrub repair_jobs.item_description + diagnosis_notes.
+        repairs_result = await db.execute(
+            select(RepairJob).filter(RepairJob.customer_id == customer_id)
+        )
+        for repair in repairs_result.scalars().all():
+            new_desc, desc_count = CustomerService._redact_text(
+                repair.item_description, tokens
+            )
+            if desc_count > 0:
+                repair.item_description = new_desc
+                counts["repair_jobs.item_description"] += desc_count
+
+            new_diag, diag_count = CustomerService._redact_text(
+                repair.diagnosis_notes, tokens
+            )
+            if diag_count > 0:
+                repair.diagnosis_notes = new_diag
+                counts["repair_jobs.diagnosis_notes"] += diag_count
+
+        # Step 9: scrub valuation_certificates.{item_description,
+        # gemstones_description}. The H5 row in V1.1-AMENDMENTS.md names
+        # ``notes`` / ``customer_signature_data`` on this table, but those
+        # columns do not exist on the model. The PII leak surface is on
+        # ``item_description`` + ``gemstones_description`` (printed on the
+        # certificate next to the customer name) — those fields are what
+        # actually need Art. 17 scrubbing here.
+        valuations_result = await db.execute(
+            select(ValuationCertificate).filter(
+                ValuationCertificate.customer_id == customer_id
+            )
+        )
+        for valuation in valuations_result.scalars().all():
+            new_item, item_count = CustomerService._redact_text(
+                valuation.item_description, tokens
+            )
+            if item_count > 0:
+                valuation.item_description = new_item
+                counts["valuation_certificates.item_description"] += item_count
+
+            new_gems, gems_count = CustomerService._redact_text(
+                valuation.gemstones_description, tokens
+            )
+            if gems_count > 0:
+                valuation.gemstones_description = new_gems
+                counts["valuation_certificates.gemstones_description"] += gems_count
+
+        # Step 10: scrub quotes.notes + customer_signature_data. The
+        # signature blob is base64-encoded PNG — regex cannot reliably
+        # redact freetext overlays inside the image, so the ENTIRE blob
+        # is replaced with the SIGNATURE_REDACTION_TOKEN sentinel. One
+        # replacement per populated field counts as a single redaction.
+        quotes_result = await db.execute(
+            select(Quote).filter(Quote.customer_id == customer_id)
+        )
+        for quote in quotes_result.scalars().all():
+            new_notes, notes_count = CustomerService._redact_text(
+                quote.notes, tokens
+            )
+            if notes_count > 0:
+                quote.notes = new_notes
+                counts["quotes.notes"] += notes_count
+
+            # Signature blob: treat as all-or-nothing. Skip if already
+            # redacted (idempotency) or empty.
+            if (
+                quote.customer_signature_data
+                and quote.customer_signature_data != SIGNATURE_REDACTION_TOKEN
+            ):
+                quote.customer_signature_data = SIGNATURE_REDACTION_TOKEN
+                counts["quotes.customer_signature_data"] += 1
+
         counts["total"] = sum(
             v for k, v in counts.items() if k != "total"
         )
@@ -707,10 +878,22 @@ class CustomerService:
                 "counts": counts,
                 "token_count": token_count,
                 "scope": [
+                    # H2 scope
                     "orders.description",
                     "orders.special_instructions",
                     "order_comments.text",
                     "time_entries.notes",
+                    # H5 scope
+                    "order_status_history.notes",
+                    "order_handoffs.notes",
+                    "order_handoffs.response_notes",
+                    "gemstones.notes",
+                    "repair_jobs.item_description",
+                    "repair_jobs.diagnosis_notes",
+                    "valuation_certificates.item_description",
+                    "valuation_certificates.gemstones_description",
+                    "quotes.notes",
+                    "quotes.customer_signature_data",
                 ],
             },
             timestamp=datetime.utcnow(),
