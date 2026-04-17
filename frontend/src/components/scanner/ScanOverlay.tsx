@@ -42,11 +42,16 @@ import { ScannerRouter } from '../../lib/scan-router';
 import { NetworkAliasResolver } from '../../lib/network-alias-resolver';
 import { NetworkTransport } from '../../lib/network-transport';
 import { useScannerContext } from '../../contexts/ScannerContext';
+import { useTimeTracking } from '../../contexts/TimeTrackingContext';
 import type {
   ResolveResponse,
   ScanContext,
   Transport,
 } from '../../types/scanner';
+import { QuickActionModalV2 } from './QuickActionModalV2';
+import { dispatchAction, type ActionHooks } from './ActionHandlers';
+import { ModalStackHost } from '../../lib/modal-stack';
+import { useNavigate } from 'react-router-dom';
 import '../../styles/components/ScanOverlay.css';
 
 // ---------------------------------------------------------------------------
@@ -135,6 +140,8 @@ export const ScanOverlay: React.FC<ScanOverlayProps> = ({ transport }) => {
     lastScan,
     currentLocation,
   } = useScannerContext();
+  const { runningEntry, refreshRunningEntry } = useTimeTracking();
+  const navigate = useNavigate();
 
   const [isActive, setIsActive] = useState<boolean>(true);
   const [lastResolveResponse, setLastResolveResponse] =
@@ -149,14 +156,45 @@ export const ScanOverlay: React.FC<ScanOverlayProps> = ({ transport }) => {
   // Construct the router once per component lifetime. The transport is
   // injectable for tests; prod uses NetworkTransport which consumes the
   // shared apiClient (baseURL `/api/v1`).
+  const activeTransport = useMemo<Transport>(
+    () => transport ?? new NetworkTransport(),
+    [transport],
+  );
   const router = useMemo<ScannerRouter>(() => {
-    const tp = transport ?? new NetworkTransport();
-    return new ScannerRouter(new NetworkAliasResolver(), tp);
-  }, [transport]);
+    return new ScannerRouter(new NetworkAliasResolver(), activeTransport);
+  }, [activeTransport]);
 
   // -------------------------------------------------------------------------
   // Scan handling
   // -------------------------------------------------------------------------
+
+  // Hooks bundle consumed by ActionHandlers. Closures over context values
+  // are stable across renders because each value the closure reads is
+  // supplied at call time — the hooks object itself is rebuilt per render
+  // but the bundle is cheap and one level deep.
+  const hooks: ActionHooks = useMemo(
+    () => ({
+      navigate: (path: string) => navigate(path),
+      toast: (_message: string, _severity?: 'success' | 'info' | 'warning' | 'error') => {
+        // Toast wiring is deliberately minimal inside the overlay; the
+        // consumer app hoists ToastProvider one level up. ActionHandler
+        // error strings surface on the QuickActionModalV2 error banner
+        // already.
+        void _message;
+        void _severity;
+      },
+      closeOverlay: () => {
+        setLastResolveResponse(null);
+        setErrorMessage(null);
+        setIsActive(false);
+        closeScanner();
+      },
+      refreshTimer: async () => {
+        await refreshRunningEntry();
+      },
+    }),
+    [navigate, closeScanner, refreshRunningEntry],
+  );
 
   const handleScan = useCallback(
     async (payload: string, source: ScanSource): Promise<void> => {
@@ -365,30 +403,49 @@ export const ScanOverlay: React.FC<ScanOverlayProps> = ({ transport }) => {
           ) : null}
 
           {lastResolveResponse !== null ? (
-            <div className="scan-overlay__result">
-              {/* Slice 11 replaces this placeholder with QuickActionModalV2.
-                  Kept minimal and testable: an entity summary + a continue CTA. */}
-              <div
-                className="scan-overlay__result-placeholder"
-                data-testid="scan-overlay-result"
-              >
-                <p className="scan-overlay__result-label">Gescannt</p>
-                <pre className="scan-overlay__result-pre">
-                  {JSON.stringify(lastResolveResponse, null, 2)}
-                </pre>
-              </div>
-              <button
-                type="button"
-                className="scan-overlay__continue"
-                onClick={handleContinue}
-                data-testid="scan-overlay-continue"
-              >
-                Weiterscannen
-              </button>
+            <div
+              className="scan-overlay__result"
+              data-testid="scan-overlay-result"
+            >
+              <QuickActionModalV2
+                resolveResponse={lastResolveResponse}
+                onAction={async (actionId: string): Promise<void> => {
+                  await dispatchAction(actionId, {
+                    response: lastResolveResponse,
+                    scanContext: makeScanContext('manual', currentLocation),
+                    transport: activeTransport,
+                    hooks,
+                    activityId: null,
+                    runningEntryId: runningEntry?.id ?? null,
+                  });
+                }}
+                onClose={handleClose}
+                onContinueScanning={handleContinue}
+                onStatusHintClick={() => {
+                  const entityType =
+                    lastResolveResponse.entity?.entity_type ?? '';
+                  const entityIdVal = lastResolveResponse.entity?.entity_id;
+                  if (entityIdVal === undefined) return;
+                  const map: Record<string, string> = {
+                    order: `/orders/${entityIdVal}`,
+                    repair: `/repairs/${entityIdVal}`,
+                    metal_purchase: `/metal-inventory/purchases/${entityIdVal}`,
+                    material: `/materials/${entityIdVal}`,
+                  };
+                  const target = map[entityType];
+                  if (target) {
+                    navigate(target);
+                    handleClose();
+                  }
+                }}
+              />
             </div>
           ) : null}
         </div>
       </div>
+      {/* Stacked modals (AlloyMismatchModal, PunzierungsCheckModal) render
+          above the overlay via the promise-based modal-stack helper. */}
+      <ModalStackHost />
     </div>
   );
 };
