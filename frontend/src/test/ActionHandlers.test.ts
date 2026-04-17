@@ -6,8 +6,9 @@
 //     weight-entry + AlloyMismatchModal retry flow is exercised via the
 //     exported `consumeWithMismatchRetry` primitive, not through the
 //     handler directly, because V1.1 doesn't yet embed weight entry).
-//   * switch_timer emits stop+start; on 409 TIMER_POSSIBLY_STALE shows the
-//     warning toast placeholder and bails out (no start).
+//   * switch_timer POSTs to /time-tracking/<id>/switch (H18 — one atomic
+//     round-trip, not stop+start); on 409 TIMER_POSSIBLY_STALE shows the
+//     warning toast placeholder and bails out.
 //   * punzierung_check fires PunzierungsCheckModal via modal-stack,
 //     PATCHes /orders/{id} with the marks, toasts success.
 
@@ -246,29 +247,38 @@ describe('stop_timer handler', () => {
 // ---------------------------------------------------------------------------
 
 describe('switch_timer handler', () => {
-  it('stops old timer then starts new one', async () => {
+  it('POSTs to /time-tracking/<id>/switch with new_order_id + activity_id', async () => {
+    // H18 — one atomic round-trip, not stop+start.
     const ctx = baseContext(orderResponse(99), {
       runningEntryId: 'running-1',
     });
     await ACTION_HANDLERS.switch_timer(ctx);
-    // Called twice — stop then start.
     const calls = (apiClient.post as unknown as ReturnType<typeof vi.fn>).mock
       .calls;
-    expect(calls[0][0]).toBe('/time-tracking/running-1/stop');
-    expect(calls[1][0]).toBe('/time-tracking/start');
-    expect(calls[1][1]).toEqual(
-      expect.objectContaining({ order_id: 99, activity_id: 1 }),
+    expect(calls.length).toBe(1);
+    expect(calls[0][0]).toBe('/time-tracking/running-1/switch');
+    expect(calls[0][1]).toEqual(
+      expect.objectContaining({ new_order_id: 99, activity_id: 1 }),
     );
+    // Idempotency transport contract — Idempotency-Key + X-Client-Created-At
+    // must ride with every scan-triggered switch so V1.1.5 dedupe lands
+    // without a second client change.
+    const config = calls[0][2] as { headers: Record<string, string> };
+    expect(config.headers['Idempotency-Key']).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
+    );
+    expect(typeof config.headers['X-Client-Created-At']).toBe('string');
     expect(ctx.hooks.refreshTimer).toHaveBeenCalled();
     expect(ctx.hooks.closeOverlay).toHaveBeenCalled();
   });
 
   it('falls back to start_timer when no running entry is present', async () => {
+    // Without a running entry there is nothing to switch — we degrade
+    // to the plain start_timer path. Only one POST and it hits /start.
     const ctx = baseContext(orderResponse(99), { runningEntryId: null });
     await ACTION_HANDLERS.switch_timer(ctx);
     const calls = (apiClient.post as unknown as ReturnType<typeof vi.fn>).mock
       .calls;
-    // Only the start call should fire.
     expect(calls.length).toBe(1);
     expect(calls[0][0]).toBe('/time-tracking/start');
   });
@@ -280,23 +290,25 @@ describe('switch_timer handler', () => {
         data: { detail: { code: 'TIMER_POSSIBLY_STALE' } },
       },
     };
-    (apiClient.post as unknown as ReturnType<typeof vi.fn>)
-      .mockRejectedValueOnce(err)
-      // subsequent start never called
-      .mockResolvedValueOnce({ data: {} });
+    (apiClient.post as unknown as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+      err,
+    );
     const ctx = baseContext(orderResponse(99), {
       runningEntryId: 'running-1',
     });
     await ACTION_HANDLERS.switch_timer(ctx);
     expect(ctx.hooks.toast).toHaveBeenCalled();
-    // Start was NOT attempted.
+    // No fallback start on 409 — the user has to acknowledge the stale
+    // guard (Mittagspause modal stub toasts the warning today, V1.2
+    // swaps it for a real modal).
     const calls = (apiClient.post as unknown as ReturnType<typeof vi.fn>).mock
       .calls;
     expect(calls.length).toBe(1);
-    expect(calls[0][0]).toBe('/time-tracking/running-1/stop');
+    expect(calls[0][0]).toBe('/time-tracking/running-1/switch');
+    expect(ctx.hooks.closeOverlay).not.toHaveBeenCalled();
   });
 
-  it('rethrows non-stale stop errors', async () => {
+  it('rethrows non-stale errors from /switch', async () => {
     const err = {
       response: { status: 500, data: { detail: 'Internal' } },
     };

@@ -8,9 +8,9 @@
 //   3. QuickActionModalV2 renders with "Timer wechseln" as the primary
 //      action.
 //   4. User taps "Timer wechseln".
-//   5. ORDER:1 timer is stopped (POST /time-tracking/<id>/stop).
-//   6. ORDER:2 timer is started (POST /time-tracking/start).
-//   7. The overlay closes.
+//   5. A single atomic POST lands on /time-tracking/<id>/switch — H18
+//      replaced the stop+start emulation with the dedicated endpoint.
+//   6. The overlay closes.
 //
 // The test mocks apiClient directly so we never hit the network. It is
 // deliberately lightweight — bigger surface tests belong in each
@@ -197,7 +197,7 @@ function renderScenario(): {
 // ---------------------------------------------------------------------------
 
 describe('Slice 11 primary value scenario — scan ORDER:2 → switch_timer', () => {
-  it('scans ORDER:2, taps Timer wechseln, stops ORDER:1 timer + starts ORDER:2 timer', async () => {
+  it('scans ORDER:2, taps Timer wechseln, fires a single atomic /switch POST', async () => {
     const { openOverlay } = renderScenario();
     openOverlay();
 
@@ -214,21 +214,28 @@ describe('Slice 11 primary value scenario — scan ORDER:2 → switch_timer', ()
     // Tap the action.
     await user.click(switchBtn);
 
-    // Assert the sequence: stop(entry-original) then start(order_id: 2).
+    // H18 — one atomic POST, not stop+start.
     await waitFor(() => {
-      expect(mocks.apiPost.mock.calls.length).toBeGreaterThanOrEqual(2);
+      expect(mocks.apiPost.mock.calls.length).toBeGreaterThanOrEqual(1);
     });
     const calls = mocks.apiPost.mock.calls;
-    const stopCall = calls.find((c) => c[0] === '/time-tracking/entry-original/stop');
-    const startCall = calls.find((c) => c[0] === '/time-tracking/start');
-    expect(stopCall).toBeDefined();
-    expect(startCall).toBeDefined();
-    expect(startCall?.[1]).toEqual(
+    const switchCall = calls.find(
+      (c) => c[0] === '/time-tracking/entry-original/switch',
+    );
+    expect(switchCall).toBeDefined();
+    expect(switchCall?.[1]).toEqual(
       expect.objectContaining({
-        order_id: 2,
+        new_order_id: 2,
         activity_id: 9,
       }),
     );
+    // No legacy stop / start emulation calls survive.
+    const legacyStop = calls.find(
+      (c) => c[0] === '/time-tracking/entry-original/stop',
+    );
+    const legacyStart = calls.find((c) => c[0] === '/time-tracking/start');
+    expect(legacyStop).toBeUndefined();
+    expect(legacyStart).toBeUndefined();
 
     // Timer refresh fired so TimerWidget will re-render.
     expect(mocks.refreshTimer).toHaveBeenCalled();
