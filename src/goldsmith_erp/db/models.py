@@ -1,16 +1,20 @@
-from sqlalchemy import Column, Integer, String, Float, DateTime, ForeignKey, Table, Boolean, Enum as SAEnum, Text
-from sqlalchemy.dialects.postgresql import JSON
-from sqlalchemy.orm import relationship
-from sqlalchemy.ext.declarative import declarative_base
-from datetime import datetime
 import enum
 import uuid
+from datetime import datetime
+
+from sqlalchemy import Boolean, Column, DateTime
+from sqlalchemy import Enum as SAEnum
+from sqlalchemy import Float, ForeignKey, Integer, String, Table, Text
+from sqlalchemy.dialects.postgresql import JSON
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import relationship
 
 Base = declarative_base()
 
 
 class OrderStatusEnum(str, enum.Enum):
     """Enumerated order statuses for consistency and validation."""
+
     NEW = "new"
     IN_PROGRESS = "in_progress"
     COMPLETED = "completed"
@@ -19,18 +23,20 @@ class OrderStatusEnum(str, enum.Enum):
 
 class UserRole(str, enum.Enum):
     """User roles for RBAC (Role-Based Access Control)."""
-    ADMIN = "admin"        # Full system access
+
+    ADMIN = "admin"  # Full system access
     GOLDSMITH = "goldsmith"  # Production workers (orders, time tracking, materials)
-    VIEWER = "viewer"      # View-only access    # Standard user access
+    VIEWER = "viewer"  # View-only access    # Standard user access
 
 
 class MetalType(str, enum.Enum):
     """Standard metal types used in goldsmith workshop"""
-    GOLD_24K = "gold_24k"      # 999.9 Feingold
-    GOLD_22K = "gold_22k"      # 916 Gold
-    GOLD_18K = "gold_18k"      # 750 Gold
-    GOLD_14K = "gold_14k"      # 585 Gold
-    GOLD_9K = "gold_9k"        # 375 Gold
+
+    GOLD_24K = "gold_24k"  # 999.9 Feingold
+    GOLD_22K = "gold_22k"  # 916 Gold
+    GOLD_18K = "gold_18k"  # 750 Gold
+    GOLD_14K = "gold_14k"  # 585 Gold
+    GOLD_9K = "gold_9k"  # 375 Gold
     SILVER_999 = "silver_999"  # Feinsilber
     SILVER_925 = "silver_925"  # Sterling Silber
     SILVER_800 = "silver_800"  # Altsilber
@@ -45,32 +51,35 @@ class MetalType(str, enum.Enum):
 
 class CostingMethod(str, enum.Enum):
     """Inventory costing method for material consumption"""
-    FIFO = "fifo"              # First In, First Out
-    LIFO = "lifo"              # Last In, First Out
-    AVERAGE = "average"        # Weighted Average Cost
-    SPECIFIC = "specific"      # Specific Identification (manual selection)
+
+    FIFO = "fifo"  # First In, First Out
+    LIFO = "lifo"  # Last In, First Out
+    AVERAGE = "average"  # Weighted Average Cost
+    SPECIFIC = "specific"  # Specific Identification (manual selection)
 
 
 class ScrapGoldStatus(str, enum.Enum):
     """Status of scrap gold processing."""
-    RECEIVED = "received"      # Items documented
+
+    RECEIVED = "received"  # Items documented
     CALCULATED = "calculated"  # Fine content calculated
-    SIGNED = "signed"          # Customer signed receipt
-    CREDITED = "credited"      # Applied to invoice
+    SIGNED = "signed"  # Customer signed receipt
+    CREDITED = "credited"  # Applied to invoice
 
 
 class AlloyType(str, enum.Enum):
     """Standard gold/silver alloy types with fine content ratio."""
-    GOLD_999 = "999"    # 99.9% Feingold
-    GOLD_900 = "900"    # 90.0%
-    GOLD_750 = "750"    # 75.0% (18K)
-    GOLD_585 = "585"    # 58.5% (14K)
-    GOLD_375 = "375"    # 37.5% (9K)
-    GOLD_333 = "333"    # 33.3% (8K)
-    SILVER_999 = "ag999" # 99.9% Feinsilber
-    SILVER_925 = "ag925" # 92.5% Sterling
-    SILVER_800 = "ag800" # 80.0%
-    PLATINUM_950 = "pt950" # 95.0%
+
+    GOLD_999 = "999"  # 99.9% Feingold
+    GOLD_900 = "900"  # 90.0%
+    GOLD_750 = "750"  # 75.0% (18K)
+    GOLD_585 = "585"  # 58.5% (14K)
+    GOLD_375 = "375"  # 37.5% (9K)
+    GOLD_333 = "333"  # 33.3% (8K)
+    SILVER_999 = "ag999"  # 99.9% Feinsilber
+    SILVER_925 = "ag925"  # 92.5% Sterling
+    SILVER_800 = "ag800"  # 80.0%
+    PLATINUM_950 = "pt950"  # 95.0%
 
 
 # Many-to-Many zwischen Material und Order
@@ -80,6 +89,7 @@ order_materials = Table(
     Column("order_id", Integer, ForeignKey("orders.id"), primary_key=True),
     Column("material_id", Integer, ForeignKey("materials.id"), primary_key=True),
 )
+
 
 class User(Base):
     __tablename__ = "users"
@@ -96,6 +106,7 @@ class User(Base):
 
 class Customer(Base):
     """Customer/Client Model for CRM"""
+
     __tablename__ = "customers"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -126,7 +137,9 @@ class Customer(Base):
     chain_length_cm = Column(Float, nullable=True)  # Preferred chain length in cm
     bracelet_length_cm = Column(Float, nullable=True)  # Preferred bracelet length in cm
     allergies = Column(String(500), nullable=True)  # e.g., "Nickel", "Kupfer"
-    preferences = Column(JSON, default=dict)  # {"bevorzugt": "Platin", "style": "modern"}
+    preferences = Column(
+        JSON, default=dict
+    )  # {"bevorzugt": "Platin", "style": "modern"}
     birthday = Column(DateTime, nullable=True)  # For marketing/gift vouchers
 
     # Metadata
@@ -137,6 +150,7 @@ class Customer(Base):
     # Beziehungen
     orders = relationship("Order", back_populates="customer")
 
+
 class Order(Base):
     __tablename__ = "orders"
 
@@ -144,23 +158,37 @@ class Order(Base):
     title = Column(String)
     description = Column(String)
     price = Column(Float)  # Final customer price (can be manually set)
-    status = Column(SAEnum(OrderStatusEnum), default=OrderStatusEnum.NEW, nullable=False)
-    customer_id = Column(Integer, ForeignKey("customers.id"), nullable=False, index=True)
+    status = Column(
+        SAEnum(OrderStatusEnum), default=OrderStatusEnum.NEW, nullable=False
+    )
+    customer_id = Column(
+        Integer, ForeignKey("customers.id"), nullable=False, index=True
+    )
     deadline = Column(DateTime, nullable=True, index=True)  # Deadline für Kalender
     current_location = Column(String(50), nullable=True)  # Aktueller Lagerort
 
     # Weight & Material Calculation
     estimated_weight_g = Column(Float, nullable=True)  # Estimated metal weight in grams
     actual_weight_g = Column(Float, nullable=True)  # Actual weight after completion
-    scrap_percentage = Column(Float, default=5.0)  # Material loss percentage (default 5%)
+    scrap_percentage = Column(
+        Float, default=5.0
+    )  # Material loss percentage (default 5%)
 
     # Metal Inventory Integration
-    metal_type = Column(SAEnum(MetalType), nullable=True, index=True)  # Which metal type to use
-    costing_method_used = Column(SAEnum(CostingMethod), default=CostingMethod.FIFO, nullable=True)  # Costing method
-    specific_metal_purchase_id = Column(Integer, ForeignKey("metal_purchases.id", ondelete="SET NULL"), nullable=True)  # For SPECIFIC method
+    metal_type = Column(
+        SAEnum(MetalType), nullable=True, index=True
+    )  # Which metal type to use
+    costing_method_used = Column(
+        SAEnum(CostingMethod), default=CostingMethod.FIFO, nullable=True
+    )  # Costing method
+    specific_metal_purchase_id = Column(
+        Integer, ForeignKey("metal_purchases.id", ondelete="SET NULL"), nullable=True
+    )  # For SPECIFIC method
 
     # Cost Calculation
-    material_cost_calculated = Column(Float, nullable=True)  # Auto-calculated material cost
+    material_cost_calculated = Column(
+        Float, nullable=True
+    )  # Auto-calculated material cost
     material_cost_override = Column(Float, nullable=True)  # Manual override if needed
     labor_hours = Column(Float, nullable=True)  # Estimated or actual work hours
     hourly_rate = Column(Float, default=75.00)  # Labor rate (EUR/hour)
@@ -177,19 +205,35 @@ class Order(Base):
 
     # Beziehungen
     customer = relationship("Customer", back_populates="orders")
-    materials = relationship("Material", secondary=order_materials, back_populates="orders")
-    gemstones = relationship("Gemstone", back_populates="order", cascade="all, delete-orphan")
-    material_usage_records = relationship("MaterialUsage", back_populates="order", cascade="all, delete-orphan")
-    specific_metal_purchase = relationship("MetalPurchase")  # For SPECIFIC costing method
-    comments = relationship("OrderComment", back_populates="order", cascade="all, delete-orphan", order_by="OrderComment.created_at.desc()")
+    materials = relationship(
+        "Material", secondary=order_materials, back_populates="orders"
+    )
+    gemstones = relationship(
+        "Gemstone", back_populates="order", cascade="all, delete-orphan"
+    )
+    material_usage_records = relationship(
+        "MaterialUsage", back_populates="order", cascade="all, delete-orphan"
+    )
+    specific_metal_purchase = relationship(
+        "MetalPurchase"
+    )  # For SPECIFIC costing method
+    comments = relationship(
+        "OrderComment",
+        back_populates="order",
+        cascade="all, delete-orphan",
+        order_by="OrderComment.created_at.desc()",
+    )
 
 
 class OrderComment(Base):
     """Order-scoped comments (Digitale Post-its) for inter-team communication."""
+
     __tablename__ = "order_comments"
 
     id = Column(Integer, primary_key=True, index=True)
-    order_id = Column(Integer, ForeignKey("orders.id", ondelete="CASCADE"), nullable=False, index=True)
+    order_id = Column(
+        Integer, ForeignKey("orders.id", ondelete="CASCADE"), nullable=False, index=True
+    )
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     text = Column(Text, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, index=True)
@@ -211,16 +255,21 @@ class Material(Base):
     unit = Column(String)  # g, kg, stück, etc.
 
     # Beziehungen
-    orders = relationship("Order", secondary=order_materials, back_populates="materials")
+    orders = relationship(
+        "Order", secondary=order_materials, back_populates="materials"
+    )
 
 
 class Activity(Base):
     """Aktivitäts-Presets für Time-Tracking"""
+
     __tablename__ = "activities"
 
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(100), nullable=False)
-    category = Column(String(50), nullable=False, index=True)  # fabrication, administration, waiting
+    category = Column(
+        String(50), nullable=False, index=True
+    )  # fabrication, administration, waiting
     icon = Column(String(10))  # Emoji
     color = Column(String(7))  # Hex color #FF6B6B
     usage_count = Column(Integer, default=0, index=True)
@@ -237,12 +286,15 @@ class Activity(Base):
 
 class TimeEntry(Base):
     """Haupt-Zeiterfassung"""
+
     __tablename__ = "time_entries"
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     order_id = Column(Integer, ForeignKey("orders.id"), nullable=False, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
-    activity_id = Column(Integer, ForeignKey("activities.id"), nullable=False, index=True)
+    activity_id = Column(
+        Integer, ForeignKey("activities.id"), nullable=False, index=True
+    )
     start_time = Column(DateTime, nullable=False, index=True)
     end_time = Column(DateTime, nullable=True)
     duration_minutes = Column(Integer, nullable=True)
@@ -258,16 +310,24 @@ class TimeEntry(Base):
     order = relationship("Order")
     user = relationship("User")
     activity = relationship("Activity", back_populates="time_entries")
-    interruptions = relationship("Interruption", back_populates="time_entry", cascade="all, delete-orphan")
+    interruptions = relationship(
+        "Interruption", back_populates="time_entry", cascade="all, delete-orphan"
+    )
     photos = relationship("OrderPhoto", back_populates="time_entry")
 
 
 class Interruption(Base):
     """Unterbrechungen während der Arbeit"""
+
     __tablename__ = "interruptions"
 
     id = Column(Integer, primary_key=True, index=True)
-    time_entry_id = Column(String(36), ForeignKey("time_entries.id", ondelete="CASCADE"), nullable=False, index=True)
+    time_entry_id = Column(
+        String(36),
+        ForeignKey("time_entries.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
     reason = Column(String(100), nullable=False)  # customer_call, material_fetch, etc.
     duration_minutes = Column(Integer, nullable=False)
     timestamp = Column(DateTime, default=datetime.utcnow)
@@ -278,6 +338,7 @@ class Interruption(Base):
 
 class LocationHistory(Base):
     """Lagerort-Verlauf für Aufträge"""
+
     __tablename__ = "location_history"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -293,11 +354,14 @@ class LocationHistory(Base):
 
 class OrderPhoto(Base):
     """Foto-Dokumentation für Aufträge"""
+
     __tablename__ = "order_photos"
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     order_id = Column(Integer, ForeignKey("orders.id"), nullable=False, index=True)
-    time_entry_id = Column(String(36), ForeignKey("time_entries.id", ondelete="SET NULL"), nullable=True)
+    time_entry_id = Column(
+        String(36), ForeignKey("time_entries.id", ondelete="SET NULL"), nullable=True
+    )
     file_path = Column(String(500), nullable=False)
     timestamp = Column(DateTime, default=datetime.utcnow, index=True)
     taken_by = Column(Integer, ForeignKey("users.id"), nullable=False)
@@ -311,13 +375,18 @@ class OrderPhoto(Base):
 
 class Gemstone(Base):
     """Edelsteine für Aufträge"""
+
     __tablename__ = "gemstones"
 
     id = Column(Integer, primary_key=True, index=True)
-    order_id = Column(Integer, ForeignKey("orders.id", ondelete="CASCADE"), nullable=False, index=True)
+    order_id = Column(
+        Integer, ForeignKey("orders.id", ondelete="CASCADE"), nullable=False, index=True
+    )
 
     # Gemstone Details
-    type = Column(String(50), nullable=False)  # 'diamond', 'ruby', 'sapphire', 'emerald'
+    type = Column(
+        String(50), nullable=False
+    )  # 'diamond', 'ruby', 'sapphire', 'emerald'
     carat = Column(Float, nullable=True)  # Weight in carats
     quality = Column(String(20), nullable=True)  # 'VS1', 'VVS2', etc. (clarity)
     color = Column(String(20), nullable=True)  # 'D', 'E', 'F' for diamonds
@@ -330,7 +399,9 @@ class Gemstone(Base):
     total_cost = Column(Float, nullable=True)  # cost × quantity
 
     # Setting
-    setting_type = Column(String(100), nullable=True)  # 'Prong', 'Bezel', 'Channel', etc.
+    setting_type = Column(
+        String(100), nullable=True
+    )  # 'Prong', 'Bezel', 'Channel', etc.
 
     # Optional certificate info
     certificate_number = Column(String(100), nullable=True)
@@ -354,12 +425,15 @@ class MetalPurchase(Base):
     Each purchase represents a batch of metal bought at a specific price.
     Remaining weight decreases as metal is used for orders.
     """
+
     __tablename__ = "metal_purchases"
 
     id = Column(Integer, primary_key=True, index=True)
 
     # Purchase Details
-    date_purchased = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
+    date_purchased = Column(
+        DateTime, nullable=False, default=datetime.utcnow, index=True
+    )
     metal_type = Column(SAEnum(MetalType), nullable=False, index=True)
 
     # Weight & Pricing
@@ -378,10 +452,14 @@ class MetalPurchase(Base):
 
     # Timestamps
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    updated_at = Column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+    )
 
     # Relationships
-    usage_records = relationship("MaterialUsage", back_populates="metal_purchase", cascade="all, delete-orphan")
+    usage_records = relationship(
+        "MaterialUsage", back_populates="metal_purchase", cascade="all, delete-orphan"
+    )
 
     @property
     def used_weight_g(self) -> float:
@@ -416,21 +494,35 @@ class MaterialUsage(Base):
     Links orders to specific metal purchases, recording exact weight consumed
     and cost at the time of use (for accurate accounting).
     """
+
     __tablename__ = "material_usage"
 
     id = Column(Integer, primary_key=True, index=True)
 
     # Links
-    order_id = Column(Integer, ForeignKey("orders.id", ondelete="CASCADE"), nullable=False, index=True)
-    metal_purchase_id = Column(Integer, ForeignKey("metal_purchases.id", ondelete="RESTRICT"), nullable=False, index=True)
+    order_id = Column(
+        Integer, ForeignKey("orders.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    metal_purchase_id = Column(
+        Integer,
+        ForeignKey("metal_purchases.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
 
     # Usage Details
     weight_used_g = Column(Float, nullable=False)  # How much was consumed
-    cost_at_time = Column(Float, nullable=False)   # Cost when used (weight * price_per_gram)
-    price_per_gram_at_time = Column(Float, nullable=False)  # Snapshot of price when used
+    cost_at_time = Column(
+        Float, nullable=False
+    )  # Cost when used (weight * price_per_gram)
+    price_per_gram_at_time = Column(
+        Float, nullable=False
+    )  # Snapshot of price when used
 
     # Costing Method Used
-    costing_method = Column(SAEnum(CostingMethod), nullable=False, default=CostingMethod.FIFO)
+    costing_method = Column(
+        SAEnum(CostingMethod), nullable=False, default=CostingMethod.FIFO
+    )
 
     # Timestamps
     used_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
@@ -454,16 +546,26 @@ class InventoryAdjustment(Base):
     Maintains audit trail for any changes to metal inventory that aren't
     from normal purchase or order consumption.
     """
+
     __tablename__ = "inventory_adjustments"
 
     id = Column(Integer, primary_key=True, index=True)
 
     # Link to metal purchase
-    metal_purchase_id = Column(Integer, ForeignKey("metal_purchases.id", ondelete="RESTRICT"), nullable=False, index=True)
+    metal_purchase_id = Column(
+        Integer,
+        ForeignKey("metal_purchases.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
 
     # Adjustment Details
-    adjustment_type = Column(String(50), nullable=False)  # 'loss', 'theft', 'reclamation', 'correction', 'return'
-    weight_change_g = Column(Float, nullable=False)  # Positive for additions, negative for reductions
+    adjustment_type = Column(
+        String(50), nullable=False
+    )  # 'loss', 'theft', 'reclamation', 'correction', 'return'
+    weight_change_g = Column(
+        Float, nullable=False
+    )  # Positive for additions, negative for reductions
 
     # Reason & Documentation
     reason = Column(Text, nullable=False)
@@ -477,18 +579,27 @@ class InventoryAdjustment(Base):
     adjusted_by = relationship("User")
 
     def __repr__(self):
-        return f"<InventoryAdjustment {self.adjustment_type} {self.weight_change_g:+.2f}g>"
+        return (
+            f"<InventoryAdjustment {self.adjustment_type} {self.weight_change_g:+.2f}g>"
+        )
 
 
 class ScrapGold(Base):
     """Scrap gold (Altgold) intake record linked to an order."""
+
     __tablename__ = "scrap_gold"
 
     id = Column(Integer, primary_key=True, index=True)
-    order_id = Column(Integer, ForeignKey("orders.id", ondelete="CASCADE"), nullable=False, index=True)
-    customer_id = Column(Integer, ForeignKey("customers.id"), nullable=False, index=True)
+    order_id = Column(
+        Integer, ForeignKey("orders.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    customer_id = Column(
+        Integer, ForeignKey("customers.id"), nullable=False, index=True
+    )
     created_by = Column(Integer, ForeignKey("users.id"), nullable=False)
-    status = Column(SAEnum(ScrapGoldStatus), default=ScrapGoldStatus.RECEIVED, nullable=False)
+    status = Column(
+        SAEnum(ScrapGoldStatus), default=ScrapGoldStatus.RECEIVED, nullable=False
+    )
 
     # Calculated totals
     total_fine_gold_g = Column(Float, default=0.0)
@@ -509,15 +620,23 @@ class ScrapGold(Base):
     order = relationship("Order")
     customer = relationship("Customer")
     creator = relationship("User")
-    items = relationship("ScrapGoldItem", back_populates="scrap_gold", cascade="all, delete-orphan")
+    items = relationship(
+        "ScrapGoldItem", back_populates="scrap_gold", cascade="all, delete-orphan"
+    )
 
 
 class ScrapGoldItem(Base):
     """Individual scrap gold item within a scrap gold intake."""
+
     __tablename__ = "scrap_gold_items"
 
     id = Column(Integer, primary_key=True, index=True)
-    scrap_gold_id = Column(Integer, ForeignKey("scrap_gold.id", ondelete="CASCADE"), nullable=False, index=True)
+    scrap_gold_id = Column(
+        Integer,
+        ForeignKey("scrap_gold.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
     description = Column(String(200), nullable=False)  # "Alter Ehering", "Kette"
     alloy = Column(SAEnum(AlloyType), nullable=False)
     weight_g = Column(Float, nullable=False)  # Total weight in grams
