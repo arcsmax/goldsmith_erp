@@ -214,6 +214,7 @@ class OrderService:
                 "order_updates",
                 json.dumps({
                     "action": "create",
+                    "source": "manual",  # A5.4 — non-scan creation
                     "order_id": db_order.id,
                     "status": db_order.status.value if hasattr(db_order.status, "value") else db_order.status,
                     "data": {
@@ -265,6 +266,7 @@ class OrderService:
             order_id,
             order_in,
             verified_by_user_id=user_id,
+            origin="scan",
         )
         return updated
 
@@ -275,6 +277,7 @@ class OrderService:
         order_in: OrderUpdate,
         *,
         verified_by_user_id: Optional[int] = None,
+        origin: str = "manual",
     ) -> Optional[OrderModel]:
         """
         Aktualisiert einen bestehenden Auftrag mit transaktionaler Integrität.
@@ -376,29 +379,93 @@ class OrderService:
         # Aktualisiertes Objekt holen after transaction commits
         updated_order = await OrderService.get_order(db, order_id)
 
-        # Publish event to Redis AFTER successful transaction commit
-        try:
-            await publish_event(
-                "order_updates",
-                json.dumps({
-                    "action": "update",
-                    "order_id": order_id,
-                    "status": updated_order.status.value if hasattr(updated_order.status, "value") else updated_order.status,
-                    "data": {
-                        "id": updated_order.id,
-                        "customer_id": updated_order.customer_id,
-                        "title": updated_order.title if hasattr(updated_order, "title") else None,
-                        "updated_at": updated_order.updated_at.isoformat() if hasattr(updated_order, "updated_at") else None,
-                        "status": updated_order.status.value if hasattr(updated_order.status, "value") else updated_order.status,
-                        "price": str(updated_order.price) if updated_order.price else None,
-                    }
-                })
-            )
-        except Exception as e:
-            # Log but don't fail the request if event publishing fails
-            logger.error(f"Failed to publish order update event: {str(e)}", exc_info=True)
+        # A5.4 + A5.5 — publish with source=origin envelope + in-app
+        # notification on failure so stale-widget retry loops don't
+        # create duplicate scans.
+        await OrderService._safe_publish_order_event(
+            db=db,
+            order=updated_order,
+            action="update",
+            source=origin,
+            user_id=verified_by_user_id,
+        )
 
         return updated_order
+
+    @staticmethod
+    async def _safe_publish_order_event(
+        *,
+        db: AsyncSession,
+        order: OrderModel,
+        action: str,
+        source: str,
+        user_id: Optional[int],
+    ) -> None:
+        """Publish order_updates + notify user on pubsub failure (A5.4 / A5.5)."""
+        envelope = {
+            "action": action,
+            "source": source,
+            "order_id": order.id,
+            "status": (
+                order.status.value if hasattr(order.status, "value") else order.status
+            ),
+            "data": {
+                "id": order.id,
+                "customer_id": order.customer_id,
+                "title": order.title if hasattr(order, "title") else None,
+                "updated_at": (
+                    order.updated_at.isoformat()
+                    if hasattr(order, "updated_at") and order.updated_at
+                    else None
+                ),
+                "status": (
+                    order.status.value
+                    if hasattr(order.status, "value")
+                    else order.status
+                ),
+                "price": str(order.price) if order.price else None,
+            },
+        }
+        publish_ok = False
+        try:
+            await publish_event("order_updates", json.dumps(envelope))
+            publish_ok = True
+        except Exception as e:
+            logger.error(
+                f"Failed to publish order update event: {str(e)}",
+                exc_info=True,
+            )
+
+        if publish_ok or user_id is None:
+            return
+
+        try:
+            from goldsmith_erp.services.notification_service import (  # noqa: PLC0415
+                NotificationService,
+            )
+            from goldsmith_erp.db.models import (  # noqa: PLC0415
+                NotificationSeverityEnum,
+                NotificationTypeEnum,
+            )
+
+            await NotificationService.create_notification(
+                db=db,
+                user_id=user_id,
+                title="Auftragsaenderung nicht live verteilt",
+                message=(
+                    "Die Aenderung wurde gespeichert, aber andere Geraete "
+                    "erfahren sie nicht automatisch. Bitte Seite neu laden."
+                ),
+                notification_type=NotificationTypeEnum.SYSTEM,
+                severity=NotificationSeverityEnum.WARNING,
+                related_order_id=order.id,
+            )
+        except Exception as notify_exc:
+            logger.error(
+                "Failed to write order pubsub-failure notification",
+                extra={"user_id": user_id, "order_id": order.id, "error": str(notify_exc)},
+                exc_info=True,
+            )
     
     @staticmethod
     async def delete_order(db: AsyncSession, order_id: int) -> Dict[str, Any]:
