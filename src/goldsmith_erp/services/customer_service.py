@@ -1,6 +1,7 @@
 """Customer Service - Business logic for customer/CRM operations"""
 import logging
 import re
+from dataclasses import dataclass
 from typing import List, Optional, Dict, Any, Tuple
 from datetime import datetime
 from sqlalchemy import select, func, and_, or_, desc
@@ -8,16 +9,29 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from goldsmith_erp.db.models import (
+    CalendarEvent,
     Customer as CustomerModel,
     CustomerAuditLog,
+    CustomerMeasurement,
     Gemstone,
     GDPRRequest,
+    Invoice,
+    InvoiceLineItem,
+    MaterialUsage,
+    Notification,
     Order as OrderModel,
     OrderComment,
+    OrderHallmark,
     OrderHandoff,
+    OrderItem,
+    OrderPhoto,
     OrderStatusHistory,
     Quote,
+    QuoteLineItem,
     RepairJob,
+    RepairPhoto,
+    ScrapGold,
+    ScrapGoldItem,
     TimeEntry,
     ValuationCertificate,
 )
@@ -37,6 +51,203 @@ REDACTION_TOKEN = "[REDACTED]"
 # opaque to regex. For GDPR Art. 17 we replace the ENTIRE field with this
 # sentinel. Idempotent because the sentinel contains no PII tokens.
 SIGNATURE_REDACTION_TOKEN = "[REDACTED_SIGNATURE]"
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Declarative scrub target model (H8 + final-sweep pattern)
+# ═══════════════════════════════════════════════════════════════════════════
+#
+# Each ScrubTarget entry in SCRUBBABLE_FIELDS describes one text column on
+# one table that may leak customer PII on GDPR Art. 17 erasure. The scrubber
+# walks this list at runtime — adding a new leakable field is one row here,
+# not N hand-written SQL statements scattered through the service.
+#
+# ``link`` enumerates how a row on the target table is joined back to the
+# customer whose PII is being scrubbed. This is explicit (not inferred) so
+# reviewers can audit coverage without running the code.
+#
+# See docs/superpowers/plans/qr-barcode-workflow/PII-SCRUB-AUDIT.md for the
+# full schema audit that produced this list.
+
+
+@dataclass(frozen=True)
+class ScrubTarget:
+    """One scrubbable text/binary column on a customer-linked table.
+
+    Attributes
+    ----------
+    model:
+        SQLAlchemy model class for the target table.
+    column:
+        Attribute name of the text column on the model.
+    link:
+        How to find rows belonging to a customer. One of:
+
+        - ``"customer_id"``: ``model.customer_id == customer_id``
+        - ``"order_id"``: ``model.order_id IN customer's order ids``
+        - ``"repair_job_id"``: ``model.repair_job_id IN customer's repair_job ids``
+        - ``"scrap_gold_id"``: ``model.scrap_gold_id IN customer's scrap_gold ids``
+        - ``"quote_id"``: ``model.quote_id IN customer's quote ids``
+        - ``"invoice_id"``: ``model.invoice_id IN customer's invoice ids``
+        - ``"notification_any"``: ``related_customer_id == cust OR
+          related_order_id IN order_ids`` (notifications have two optional
+          linkage columns)
+        - ``"calendar_event_order"``: ``order_id IN order_ids``; calendar
+          events attached to a customer's orders only.
+
+    counter_key:
+        The key in the ``counts`` dict returned by ``scrub_customer_pii``.
+        By convention, ``"<tablename>.<column>"``.
+    binary:
+        When ``True`` the scrubber replaces the ENTIRE field value with
+        ``SIGNATURE_REDACTION_TOKEN`` rather than regex-scrubbing PII tokens.
+        Used for opaque base64 signature blobs.
+    """
+
+    model: type
+    column: str
+    link: str
+    counter_key: str
+    binary: bool = False
+
+
+# The declarative scrub list — SINGLE source of truth for PII-leak coverage.
+#
+# Ordered for readability: existing H2/H5 entries at top (matches the code
+# flow in scrub_customer_pii prior to the final-sweep refactor; preserving
+# order avoids behavioural diffs in counters for any caller relying on it —
+# e.g. audit log consumers). Final-sweep additions at the bottom.
+#
+# If a new PII-leakable column is discovered: add a row here AND update
+# PII-SCRUB-AUDIT.md. Parametrised tests pick it up automatically.
+SCRUBBABLE_FIELDS: List[ScrubTarget] = [
+    # ── H2 scope ────────────────────────────────────────────────────────
+    ScrubTarget(OrderModel, "description", "customer_id", "orders.description"),
+    ScrubTarget(
+        OrderModel,
+        "special_instructions",
+        "customer_id",
+        "orders.special_instructions",
+    ),
+    ScrubTarget(OrderComment, "text", "order_id", "order_comments.text"),
+    ScrubTarget(TimeEntry, "notes", "order_id", "time_entries.notes"),
+    # ── H5 scope ────────────────────────────────────────────────────────
+    ScrubTarget(
+        OrderStatusHistory,
+        "notes",
+        "order_id",
+        "order_status_history.notes",
+    ),
+    ScrubTarget(OrderHandoff, "notes", "order_id", "order_handoffs.notes"),
+    ScrubTarget(
+        OrderHandoff,
+        "response_notes",
+        "order_id",
+        "order_handoffs.response_notes",
+    ),
+    ScrubTarget(Gemstone, "notes", "order_id", "gemstones.notes"),
+    ScrubTarget(
+        RepairJob,
+        "item_description",
+        "customer_id",
+        "repair_jobs.item_description",
+    ),
+    ScrubTarget(
+        RepairJob,
+        "diagnosis_notes",
+        "customer_id",
+        "repair_jobs.diagnosis_notes",
+    ),
+    ScrubTarget(
+        ValuationCertificate,
+        "item_description",
+        "customer_id",
+        "valuation_certificates.item_description",
+    ),
+    ScrubTarget(
+        ValuationCertificate,
+        "gemstones_description",
+        "customer_id",
+        "valuation_certificates.gemstones_description",
+    ),
+    ScrubTarget(Quote, "notes", "customer_id", "quotes.notes"),
+    ScrubTarget(
+        Quote,
+        "customer_signature_data",
+        "customer_id",
+        "quotes.customer_signature_data",
+        binary=True,
+    ),
+    # ── Final-sweep (2026-04-17) — definitive coverage ─────────────────
+    ScrubTarget(OrderModel, "title", "customer_id", "orders.title"),
+    ScrubTarget(
+        CustomerMeasurement,
+        "notes",
+        "customer_id",
+        "customer_measurements.notes",
+    ),
+    ScrubTarget(OrderPhoto, "notes", "order_id", "order_photos.notes"),
+    ScrubTarget(
+        RepairPhoto,
+        "notes",
+        "repair_job_id",
+        "repair_photos.notes",
+    ),
+    ScrubTarget(OrderHallmark, "notes", "order_id", "order_hallmarks.notes"),
+    ScrubTarget(OrderItem, "description", "order_id", "order_items.description"),
+    ScrubTarget(Invoice, "notes", "customer_id", "invoices.notes"),
+    ScrubTarget(
+        InvoiceLineItem,
+        "description",
+        "invoice_id",
+        "invoice_line_items.description",
+    ),
+    ScrubTarget(
+        QuoteLineItem,
+        "description",
+        "quote_id",
+        "quote_line_items.description",
+    ),
+    ScrubTarget(ScrapGold, "notes", "customer_id", "scrap_gold.notes"),
+    ScrubTarget(
+        ScrapGold,
+        "signature_data",
+        "customer_id",
+        "scrap_gold.signature_data",
+        binary=True,
+    ),
+    ScrubTarget(
+        ScrapGoldItem,
+        "description",
+        "scrap_gold_id",
+        "scrap_gold_items.description",
+    ),
+    ScrubTarget(MaterialUsage, "notes", "order_id", "material_usage.notes"),
+    ScrubTarget(
+        CalendarEvent,
+        "title",
+        "calendar_event_order",
+        "calendar_events.title",
+    ),
+    ScrubTarget(
+        CalendarEvent,
+        "description",
+        "calendar_event_order",
+        "calendar_events.description",
+    ),
+    ScrubTarget(
+        Notification,
+        "title",
+        "notification_any",
+        "notifications.title",
+    ),
+    ScrubTarget(
+        Notification,
+        "message",
+        "notification_any",
+        "notifications.message",
+    ),
+]
 
 # ── PII encryption helpers ────────────────────────────────────────────────────
 # These fields contain GDPR-sensitive personal data and must be encrypted at
