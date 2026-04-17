@@ -610,6 +610,12 @@ class TimeTrackingService:
         # ------------------------------------------------------------------
         now = datetime.utcnow()
         old_entry_snapshot_end: Optional[datetime] = None
+        # Capture id as plain string BEFORE the transaction — after rollback,
+        # ORM attribute access triggers a lazy-reload that requires a greenlet
+        # context the async session no longer owns (fixes MissingGreenlet).
+        old_entry_id_snapshot: Optional[str] = (
+            old_entry.id if old_entry is not None else None
+        )
         new_entry: Optional[TimeEntryModel] = None
 
         try:
@@ -619,7 +625,7 @@ class TimeTrackingService:
                 duration = int((now - old_entry.start_time).total_seconds() / 60)
                 await db.execute(
                     update(TimeEntryModel)
-                    .where(TimeEntryModel.id == old_entry.id)
+                    .where(TimeEntryModel.id == old_entry_id_snapshot)
                     .values(end_time=now, duration_minutes=duration)
                 )
 
@@ -641,15 +647,16 @@ class TimeTrackingService:
             # Roll back everything — if the new-entry insert failed the
             # old entry's stop must not stick.
             await db.rollback()
-            if old_entry is not None and old_entry_snapshot_end is None:
+            if old_entry_id_snapshot is not None and old_entry_snapshot_end is None:
                 # Belt-and-braces: make sure the old entry is still
                 # running in case any partial state escaped. The commit
                 # above is the only path to persistence, so a rollback
                 # here should leave old_entry untouched — this restore
-                # is defensive only.
+                # is defensive only. Uses the pre-captured id snapshot
+                # because the ORM object is detached after rollback.
                 await db.execute(
                     update(TimeEntryModel)
-                    .where(TimeEntryModel.id == old_entry.id)
+                    .where(TimeEntryModel.id == old_entry_id_snapshot)
                     .values(end_time=None, duration_minutes=None)
                 )
                 await db.commit()
