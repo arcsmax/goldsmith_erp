@@ -61,6 +61,15 @@ export interface ScannerContextValue {
    */
   benchModeEnabled: boolean;
   toggleBenchMode: () => void;
+
+  /**
+   * Epoch-ms timestamp of the most recent FAB tap (A10.2). Consumed by
+   * NetworkTransport.executeAction per A7.1 when logging scan events so the
+   * backend can compute FAB-tap-to-timer median (spec §14.a row b). Null
+   * before the first FAB tap; updated by `recordFabTap()` on every user tap.
+   */
+  lastClientTapAt: number | null;
+  recordFabTap: () => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -162,9 +171,11 @@ export const ScannerProvider: React.FC<ScannerProviderProps> = ({
   const [benchModeEnabled, setBenchModeEnabled] = useState<boolean>(() =>
     safeReadBenchMode(),
   );
+  const [lastClientTapAt, setLastClientTapAt] = useState<number | null>(null);
 
   const openScanner = useCallback(() => setScanOverlayOpen(true), []);
   const closeScanner = useCallback(() => setScanOverlayOpen(false), []);
+  const recordFabTap = useCallback(() => setLastClientTapAt(Date.now()), []);
 
   const setInputSource = useCallback((source: ScanInputSource) => {
     setInputSourceState(source);
@@ -226,6 +237,8 @@ export const ScannerProvider: React.FC<ScannerProviderProps> = ({
       setCurrentLocation,
       benchModeEnabled,
       toggleBenchMode,
+      lastClientTapAt,
+      recordFabTap,
     }),
     [
       lastScan,
@@ -238,6 +251,8 @@ export const ScannerProvider: React.FC<ScannerProviderProps> = ({
       setCurrentLocation,
       benchModeEnabled,
       toggleBenchMode,
+      lastClientTapAt,
+      recordFabTap,
     ],
   );
 

@@ -3,6 +3,10 @@ import React, { useState, useCallback } from 'react';
 import { Outlet, Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth, useTimeTracking } from '../contexts';
 import TimerWidget from '../components/TimerWidget';
+// Slice 10 — global scanner FAB + overlay, reachable from every
+// authenticated page. Stacks cleanly above TimerWidget via the
+// --fab-bottom CSS token (see styles/components/ScanFab.css).
+import { ScanFab, ScanOverlay } from '../components/scanner';
 import { OfflineIndicator } from '../components/OfflineIndicator';
 import { NotificationBell } from '../components/NotificationBell';
 import { HealthDot } from '../components/HealthDot';
@@ -273,6 +277,16 @@ export const MainLayout: React.FC = () => {
         onStop={handleTimerStop}
         onRefresh={refreshRunningEntry}
       />
+
+      {/* Scanner FAB (Slice 10). Stacks above TimerWidget when a timer runs
+          via .scan-fab--stacked. Hidden on /login + /register via ScanFab's
+          own route guard. */}
+      <ScanFab />
+
+      {/* Scanner overlay (Slice 10). Mounted here so every authenticated
+          page renders over it. The overlay is position:fixed with
+          z-index 1500 — above TimerWidget (1050) and ScanFab (1060). */}
+      <ScanOverlay />
     </div>
   );
 };
