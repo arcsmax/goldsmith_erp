@@ -16,6 +16,7 @@ import type {
   ResolveResponse,
   ScanContext,
   ScanEvent,
+  ScanLogRead,
 } from '../types/scanner';
 
 // Singleton — Transport is stateless, so one instance is fine.
@@ -45,6 +46,10 @@ export async function logScan(event: ScanEvent): Promise<void> {
  * Log a batch of scan events — used by the offline-queue flush in V1.1.5+,
  * and by the legacy `localStorage('last_scanned_orders')` migration in Slice 12.
  * Honors idempotency per-row on the server side.
+ *
+ * The batch endpoint requires the Slice-2 Idempotency header pair; we
+ * auto-generate them when the caller doesn't care (legacy migration is the
+ * primary caller and simply wants one-shot delivery).
  */
 export async function logScanBatch(
   events: ScanEvent[],
@@ -52,7 +57,29 @@ export async function logScanBatch(
   const { data } = await apiClient.post<BatchLogResponse>(
     '/scan/log/batch',
     { events },
+    {
+      headers: {
+        'Idempotency-Key': crypto.randomUUID(),
+        'X-Client-Created-At': new Date().toISOString(),
+      },
+    },
   );
+  return data;
+}
+
+/**
+ * Fetch the caller's recent scan history. Slice 12 — backs the "Letzte Scans"
+ * list on ScannerPage.
+ *
+ * Only the JWT user's own history is accessible in V1.1 — the `user_id`
+ * query param is a fixed `"me"` sentinel on the server side.
+ */
+export async function getScanLogHistory(
+  limit: number = 20,
+): Promise<ScanLogRead[]> {
+  const { data } = await apiClient.get<ScanLogRead[]>('/scan/log', {
+    params: { user_id: 'me', limit },
+  });
   return data;
 }
 

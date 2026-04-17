@@ -229,6 +229,57 @@ async def log_scan_batch(
 
 
 # --------------------------------------------------------------------------- #
+# GET /log  — recent scan history for the calling user (Slice 12)
+# --------------------------------------------------------------------------- #
+
+
+@router.get(
+    "/log",
+    response_model=List[ScanLogRead],
+    summary="Recent scan history for the calling user",
+    description=(
+        "Return the most recent ``scan_logs`` rows for the authenticated "
+        "user. Backs the 'Letzte Scans' list on the ScannerPage (Slice 12). "
+        "Cross-user lookups are NOT allowed in V1.1 — the user_id is "
+        "derived from the JWT; the optional ``user_id`` query parameter "
+        "accepts only the sentinel value ``me`` (kept in the signature "
+        "so the frontend spec can round-trip without surprises)."
+    ),
+)
+@require_permission(Permission.SCAN_READ)
+async def list_scan_logs(
+    user_id: str = Query(
+        "me",
+        description=(
+            "Must be the literal string 'me'. Provided for self-"
+            "documenting URL shape; the authoritative user id is "
+            "sourced from the JWT."
+        ),
+    ),
+    limit: int = Query(
+        20,
+        ge=1,
+        le=100,
+        description="Max rows to return. Hard-capped at 100.",
+    ),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> List[ScanLogRead]:
+    """Return the JWT user's most recent scan events."""
+    if user_id != "me":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Only 'me' is accepted for user_id in V1.1.",
+        )
+    rows = await ScannerService.list_scan_logs_for_user(
+        db=db,
+        user_id=current_user.id,
+        limit=limit,
+    )
+    return [_scan_log_to_read(row) for row in rows]
+
+
+# --------------------------------------------------------------------------- #
 # GET /search  — multi-entity search (role-filtered)
 # --------------------------------------------------------------------------- #
 

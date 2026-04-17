@@ -475,6 +475,35 @@ class ScannerService:
             raise
 
     @staticmethod
+    async def list_scan_logs_for_user(
+        db: AsyncSession,
+        user_id: int,
+        limit: int = 20,
+    ) -> List[ScanLogModel]:
+        """Return the most recent ``scan_logs`` rows for ``user_id``.
+
+        Slice 12 ("Letzte Scans" list on ScannerPage). Ordered by
+        ``scanned_at DESC`` with a hard upper bound of 100 on ``limit``
+        so a misconfigured client cannot paginate through the entire
+        partitioned table with one call.
+
+        The row's ``user_id`` is enforced server-side — the caller is
+        responsible for supplying the JWT-derived id. A client that
+        passes ``user_id=me`` on the query string receives only its
+        own history; cross-user queries are not allowed in V1.1.
+        """
+        capped_limit = max(1, min(limit, 100))
+        stmt = (
+            select(ScanLogModel)
+            .where(ScanLogModel.user_id == user_id)
+            .order_by(ScanLogModel.scanned_at.desc())
+            .limit(capped_limit)
+        )
+        result = await db.execute(stmt)
+        rows = result.scalars().all()
+        return list(rows)
+
+    @staticmethod
     async def log_scan_batch(
         db: AsyncSession,
         user_id: int,
