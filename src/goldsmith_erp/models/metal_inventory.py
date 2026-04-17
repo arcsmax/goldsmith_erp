@@ -155,6 +155,20 @@ class MaterialUsageBase(BaseModel):
         return round(v, 3)  # Round to 3 decimal places for precision
 
 
+class OverrideReasonCategoryEnum(str, Enum):
+    """Audit-filter categories for an alloy-mismatch override (A2.4 / Thomas §3).
+
+    The category is a structured facet joined to the freetext
+    ``override_reason`` so audit queries can slice 30 days of overrides
+    without scanning plain-text reasons.
+    """
+
+    CHARGE_ABWEICHUNG = "charge_abweichung"  # Lieferant lieferte falsche Legierung
+    KLEINTEIL = "kleinteil"  # Kleine Menge, reicht aus
+    NOTFALL = "notfall"  # Keine Zeit fuer neue Bestellung
+    SONSTIGES = "sonstiges"  # Freitext erforderlich
+
+
 class MaterialUsageCreate(MaterialUsageBase):
     """
     Schema for creating material usage record.
@@ -162,9 +176,35 @@ class MaterialUsageCreate(MaterialUsageBase):
     Supports two modes:
     1. Automatic (FIFO/LIFO/AVERAGE): System selects metal batch
     2. Manual (SPECIFIC): User specifies metal_purchase_id
+
+    Slice 5 / R10 additions:
+    ``alloy_override`` opts into a mismatch between the order's alloy
+    spec and the metal_purchase's metal_type. When True, both
+    ``override_reason`` (3–200 chars) and ``override_reason_category``
+    are REQUIRED; the server persists all three to MaterialUsage for
+    the 10-year financial audit trail (HGB §257).
     """
     costing_method: CostingMethod = Field(default=CostingMethod.FIFO)
     metal_purchase_id: Optional[int] = Field(None, description="Required if costing_method=SPECIFIC")
+
+    # A2.3 / R10 — alloy override + audit-trail fields.
+    alloy_override: bool = Field(
+        default=False,
+        description=(
+            "If True, consume even when metal_purchase alloy != order alloy. "
+            "Requires override_reason AND override_reason_category."
+        ),
+    )
+    override_reason: Optional[str] = Field(
+        default=None,
+        min_length=3,
+        max_length=200,
+        description="Freetext audit justification (3–200 chars).",
+    )
+    override_reason_category: Optional[OverrideReasonCategoryEnum] = Field(
+        default=None,
+        description="Structured audit facet — paired with override_reason.",
+    )
 
     @field_validator('metal_purchase_id')
     @classmethod
@@ -173,6 +213,35 @@ class MaterialUsageCreate(MaterialUsageBase):
         costing_method = info.data.get('costing_method')
         if costing_method == CostingMethod.SPECIFIC and v is None:
             raise ValueError("metal_purchase_id is required when using SPECIFIC costing method")
+        return v
+
+    @field_validator('override_reason_category')
+    @classmethod
+    def _require_override_payload(cls, v, info):
+        """Require both reason + category when alloy_override is True.
+
+        The field_validator runs after alloy_override is parsed; use
+        ``info.data`` to look up the sibling values.
+        """
+        alloy_override = info.data.get('alloy_override', False)
+        override_reason = info.data.get('override_reason')
+        if alloy_override:
+            if v is None:
+                raise ValueError(
+                    "override_reason_category is required when alloy_override=True"
+                )
+            if not override_reason:
+                raise ValueError(
+                    "override_reason is required when alloy_override=True"
+                )
+        else:
+            # If no override requested, reject stray reason/category to
+            # keep the audit trail clean.
+            if v is not None or override_reason:
+                raise ValueError(
+                    "override_reason / override_reason_category only "
+                    "allowed when alloy_override=True"
+                )
         return v
 
     model_config = {
@@ -190,6 +259,16 @@ class MaterialUsageCreate(MaterialUsageBase):
                     "costing_method": "specific",
                     "metal_purchase_id": 5,
                     "notes": "Specific batch requested by customer"
+                },
+                {
+                    "order_id": 125,
+                    "weight_used_g": 2.0,
+                    "costing_method": "specific",
+                    "metal_purchase_id": 6,
+                    "alloy_override": True,
+                    "override_reason": "Kleiner Rest, Kunde akzeptiert Abweichung schriftlich.",
+                    "override_reason_category": "kleinteil",
+                    "notes": "Rest aus Schmelzerei"
                 }
             ]
         }
