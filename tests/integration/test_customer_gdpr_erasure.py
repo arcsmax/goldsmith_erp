@@ -14,9 +14,11 @@ and assert that after a single request:
   - gdpr_requests gains an `erasure` row (H3 progress)
   - The response body reports the redaction counts
 
-See H2 in docs/superpowers/plans/qr-barcode-workflow/V1.1-AMENDMENTS.md.
+See H2 + H5 in docs/superpowers/plans/qr-barcode-workflow/V1.1-AMENDMENTS.md.
 """
 from __future__ import annotations
+
+from datetime import datetime, timedelta
 
 import pytest
 from httpx import AsyncClient
@@ -30,6 +32,11 @@ from goldsmith_erp.db.models import (
     Order,
     OrderComment,
     OrderStatusEnum,
+    OrderStatusHistory,
+    RepairItemType,
+    RepairJob,
+    RepairJobStatus,
+    ValuationCertificate,
 )
 
 
@@ -253,3 +260,144 @@ class TestGdprErasureScrubsPii:
             select(Order).filter(Order.id == order_id)
         )
         assert second_result.scalar_one().description == description_after_first
+
+
+class TestGdprErasureScrubsH5Fields:
+    """H5: end-to-end coverage of the 8 additional PII-leak fields.
+
+    Single API call must scrub every H5 surface that the customer has
+    data in — valuation certificate, repair job, order-status-history
+    note, etc. Proves Art. 17 compliance at the HTTP boundary, not
+    just at the service layer.
+    """
+
+    @pytest.mark.asyncio
+    async def test_single_erase_scrubs_valuation_repair_and_status_history(
+        self,
+        client: AsyncClient,
+        db_session: AsyncSession,
+        test_customer: Customer,
+        admin_user,
+        admin_auth_headers: dict,
+    ):
+        pii_name = test_customer.first_name
+        pii_surname = test_customer.last_name
+
+        # Order + status history (order-scoped H5 surface)
+        order = Order(
+            title="Trauring",
+            description=f"Ring fuer {pii_name} {pii_surname}",
+            customer_id=test_customer.id,
+            status=OrderStatusEnum.COMPLETED,
+            price=0.0,
+        )
+        db_session.add(order)
+        await db_session.commit()
+        await db_session.refresh(order)
+
+        history = OrderStatusHistory(
+            order_id=order.id,
+            from_status="in_progress",
+            to_status="completed",
+            changed_by=admin_user.id,
+            notes=f"Bei Abholung durch {pii_surname} bemerkt",
+        )
+        db_session.add(history)
+
+        # Valuation certificate (customer-scoped H5 surface)
+        valuation = ValuationCertificate(
+            certificate_number="WG-2026-H5-01",
+            order_id=order.id,
+            customer_id=test_customer.id,
+            created_by=admin_user.id,
+            item_description=f"Wertgutachten fuer {pii_name} {pii_surname}",
+            gemstones_description=None,
+            appraised_value=1500.0,
+            valuation_date=datetime.utcnow(),
+            valid_until=datetime.utcnow() + timedelta(days=730),
+            goldsmith_name="Integration Test Goldsmith",
+        )
+        db_session.add(valuation)
+
+        # Repair job (customer-scoped H5 surface, no order link needed)
+        repair = RepairJob(
+            repair_number="REP-2026-H5-01",
+            bag_number="H5-BAG-01",
+            customer_id=test_customer.id,
+            received_by=admin_user.id,
+            item_description=f"Ring von {pii_name} {pii_surname}",
+            item_type=RepairItemType.RING,
+            status=RepairJobStatus.RECEIVED,
+            diagnosis_notes=f"{pii_surname} wuenscht Politur",
+        )
+        db_session.add(repair)
+
+        await db_session.commit()
+        await db_session.refresh(history)
+        await db_session.refresh(valuation)
+        await db_session.refresh(repair)
+
+        history_id = history.id
+        valuation_id = valuation.id
+        repair_id = repair.id
+
+        # Act — single API call
+        response = await client.delete(
+            f"/api/v1/customers/{test_customer.id}/gdpr-erase",
+            headers=admin_auth_headers,
+        )
+        assert response.status_code == 200
+        body = response.json()
+        assert "pii_redactions" in body
+        counts = body["pii_redactions"]
+
+        # Counts must reflect redactions in every H5 surface we populated
+        assert counts["order_status_history.notes"] >= 1
+        assert counts["valuation_certificates.item_description"] >= 2
+        assert counts["repair_jobs.item_description"] >= 2
+        assert counts["repair_jobs.diagnosis_notes"] >= 1
+
+        # DB state — every H5 field must have the PII replaced
+        scrubbed_history = (
+            await db_session.execute(
+                select(OrderStatusHistory).filter(
+                    OrderStatusHistory.id == history_id
+                )
+            )
+        ).scalar_one()
+        assert pii_surname not in scrubbed_history.notes
+        assert "[REDACTED]" in scrubbed_history.notes
+
+        scrubbed_valuation = (
+            await db_session.execute(
+                select(ValuationCertificate).filter(
+                    ValuationCertificate.id == valuation_id
+                )
+            )
+        ).scalar_one()
+        assert pii_name not in scrubbed_valuation.item_description
+        assert pii_surname not in scrubbed_valuation.item_description
+        assert "[REDACTED]" in scrubbed_valuation.item_description
+
+        scrubbed_repair = (
+            await db_session.execute(
+                select(RepairJob).filter(RepairJob.id == repair_id)
+            )
+        ).scalar_one()
+        assert pii_name not in scrubbed_repair.item_description
+        assert pii_surname not in scrubbed_repair.item_description
+        assert pii_surname not in scrubbed_repair.diagnosis_notes
+        assert "[REDACTED]" in scrubbed_repair.item_description
+        assert "[REDACTED]" in scrubbed_repair.diagnosis_notes
+
+        # Audit log records the H5 counts
+        audit = (
+            await db_session.execute(
+                select(CustomerAuditLog).filter(
+                    CustomerAuditLog.customer_id == test_customer.id,
+                    CustomerAuditLog.action == "gdpr_pii_scrub",
+                )
+            )
+        ).scalar_one()
+        assert audit.details["counts"]["repair_jobs.item_description"] >= 2
+        assert audit.details["counts"]["valuation_certificates.item_description"] >= 2

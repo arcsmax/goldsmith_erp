@@ -3,14 +3,26 @@ Unit tests for GDPR Art. 17 customer PII erasure scrubbing.
 
 Covers `CustomerService.scrub_customer_pii` and the private helpers that
 drive it. The scrubber scrubs PII from related free-text fields when a
-customer is erased — see H2 in docs/superpowers/plans/qr-barcode-workflow/
-V1.1-AMENDMENTS.md.
+customer is erased — see H2 and H5 in
+docs/superpowers/plans/qr-barcode-workflow/V1.1-AMENDMENTS.md.
 
 Scope per H2:
   - orders.description
   - orders.special_instructions
   - order_comments.text
   - time_entries.notes
+
+Additional scope per H5 (extension):
+  - order_status_history.notes
+  - order_handoffs.notes
+  - order_handoffs.response_notes
+  - gemstones.notes
+  - repair_jobs.item_description
+  - repair_jobs.diagnosis_notes
+  - valuation_certificates.item_description
+  - valuation_certificates.gemstones_description
+  - quotes.notes
+  - quotes.customer_signature_data (blob → [REDACTED_SIGNATURE])
 """
 from __future__ import annotations
 
@@ -27,16 +39,28 @@ from goldsmith_erp.db.models import (
     Customer,
     CustomerAuditLog,
     GDPRRequest,
+    Gemstone,
+    HandoffStatusEnum,
+    HandoffTypeEnum,
     Order,
     OrderComment,
+    OrderHandoff,
     OrderStatusEnum,
+    OrderStatusHistory,
+    Quote,
+    QuoteStatus,
+    RepairItemType,
+    RepairJob,
+    RepairJobStatus,
     TimeEntry,
     User,
     UserRole,
+    ValuationCertificate,
 )
 from goldsmith_erp.services.customer_service import (
     CustomerService,
     REDACTION_TOKEN,
+    SIGNATURE_REDACTION_TOKEN,
 )
 
 
@@ -530,3 +554,534 @@ class TestScrubCustomerPii:
             select(CustomerAuditLog).filter(CustomerAuditLog.customer_id == 999_999)
         )
         assert audit_result.scalar_one_or_none() is None
+
+
+# ---------------------------------------------------------------------------
+# H5 extension tests — 8 additional free-text fields per V1.1-AMENDMENTS.md
+# ---------------------------------------------------------------------------
+
+
+class TestScrubH5OrderScopedFields:
+    """Fields discovered by the H2 hotfix agent that live on tables
+    reached via ``order_id`` (gemstones, order_status_history,
+    order_handoffs)."""
+
+    @pytest.mark.asyncio
+    async def test_scrub_redacts_order_status_history_notes(
+        self,
+        db_session: AsyncSession,
+        mueller_maria: Customer,
+        admin: User,
+    ):
+        order = await _make_order(db_session, mueller_maria, description="Ring")
+        history = OrderStatusHistory(
+            order_id=order.id,
+            from_status="in_progress",
+            to_status="completed",
+            changed_by=admin.id,
+            notes="Bei Abholung durch Maria Mueller bemerkt — Ring zu klein.",
+        )
+        db_session.add(history)
+        await db_session.commit()
+        await db_session.refresh(history)
+
+        counts = await CustomerService.scrub_customer_pii(
+            db_session, customer_id=mueller_maria.id, performed_by=admin.id,
+        )
+        await db_session.commit()
+        await db_session.refresh(history)
+
+        assert "Maria" not in history.notes
+        assert "Mueller" not in history.notes
+        assert REDACTION_TOKEN in history.notes
+        assert counts["order_status_history.notes"] == 2
+
+    @pytest.mark.asyncio
+    async def test_scrub_redacts_order_handoff_notes_and_response(
+        self,
+        db_session: AsyncSession,
+        mueller_maria: Customer,
+        admin: User,
+    ):
+        order = await _make_order(db_session, mueller_maria, description="Ring")
+        handoff = OrderHandoff(
+            order_id=order.id,
+            from_user_id=admin.id,
+            to_user_id=admin.id,
+            handoff_type=HandoffTypeEnum.PASS_TO_NEXT,
+            status=HandoffStatusEnum.ACCEPTED,
+            notes="Maria Mueller holt Freitag ab",
+            response_notes="Uebernahme OK — Mueller informiert",
+        )
+        db_session.add(handoff)
+        await db_session.commit()
+        await db_session.refresh(handoff)
+
+        counts = await CustomerService.scrub_customer_pii(
+            db_session, customer_id=mueller_maria.id, performed_by=admin.id,
+        )
+        await db_session.commit()
+        await db_session.refresh(handoff)
+
+        assert "Maria" not in handoff.notes
+        assert "Mueller" not in handoff.notes
+        assert REDACTION_TOKEN in handoff.notes
+        assert "Mueller" not in handoff.response_notes
+        assert REDACTION_TOKEN in handoff.response_notes
+        assert counts["order_handoffs.notes"] == 2
+        assert counts["order_handoffs.response_notes"] == 1
+
+    @pytest.mark.asyncio
+    async def test_scrub_redacts_gemstone_notes(
+        self,
+        db_session: AsyncSession,
+        mueller_maria: Customer,
+        admin: User,
+    ):
+        order = await _make_order(db_session, mueller_maria, description="Ring")
+        gem = Gemstone(
+            order_id=order.id,
+            type="diamond",
+            cost=500.0,
+            quantity=1,
+            notes="Stein vom Kunden Maria Mueller mitgebracht",
+        )
+        db_session.add(gem)
+        await db_session.commit()
+        await db_session.refresh(gem)
+
+        counts = await CustomerService.scrub_customer_pii(
+            db_session, customer_id=mueller_maria.id, performed_by=admin.id,
+        )
+        await db_session.commit()
+        await db_session.refresh(gem)
+
+        assert "Maria" not in gem.notes
+        assert "Mueller" not in gem.notes
+        assert REDACTION_TOKEN in gem.notes
+        assert counts["gemstones.notes"] == 2
+
+
+class TestScrubH5CustomerScopedFields:
+    """Fields on tables that carry a direct ``customer_id`` FK
+    (repair_jobs, valuation_certificates, quotes). These are scrubbed
+    even when the customer has no orders."""
+
+    @pytest.mark.asyncio
+    async def test_scrub_redacts_repair_job_fields(
+        self,
+        db_session: AsyncSession,
+        mueller_maria: Customer,
+        admin: User,
+    ):
+        repair = RepairJob(
+            repair_number=f"REP-2026-{uuid.uuid4().hex[:6]}",
+            bag_number="A1",
+            customer_id=mueller_maria.id,
+            received_by=admin.id,
+            item_description="Goldring Frau Maria Mueller - Stein nachfassen",
+            item_type=RepairItemType.RING,
+            status=RepairJobStatus.RECEIVED,
+            diagnosis_notes="Kunde (Maria Mueller) wuenscht neuen Stein",
+        )
+        db_session.add(repair)
+        await db_session.commit()
+        await db_session.refresh(repair)
+
+        counts = await CustomerService.scrub_customer_pii(
+            db_session, customer_id=mueller_maria.id, performed_by=admin.id,
+        )
+        await db_session.commit()
+        await db_session.refresh(repair)
+
+        assert "Maria" not in repair.item_description
+        assert "Mueller" not in repair.item_description
+        assert "Maria" not in repair.diagnosis_notes
+        assert "Mueller" not in repair.diagnosis_notes
+        # "Maria Mueller" → 2 redactions in each of the two fields
+        assert counts["repair_jobs.item_description"] == 2
+        assert counts["repair_jobs.diagnosis_notes"] == 2
+
+    @pytest.mark.asyncio
+    async def test_scrub_redacts_valuation_certificate_fields(
+        self,
+        db_session: AsyncSession,
+        mueller_maria: Customer,
+        admin: User,
+    ):
+        """``valuation_certificates`` has no ``notes`` column on the model.
+        The PII-leak surface claimed by H5 lives on ``item_description`` and
+        ``gemstones_description`` instead — those are what we scrub.
+        """
+        order = await _make_order(db_session, mueller_maria, description="Ring")
+        valuation = ValuationCertificate(
+            certificate_number=f"WG-2026-{uuid.uuid4().hex[:6]}",
+            order_id=order.id,
+            customer_id=mueller_maria.id,
+            created_by=admin.id,
+            item_description=(
+                "Trauring Wertgutachten fuer Maria Mueller, 750 Gelbgold"
+            ),
+            gemstones_description=(
+                "Ein Brillant, vom Kunden Mueller mitgebracht"
+            ),
+            appraised_value=2500.0,
+            valuation_date=datetime.utcnow(),
+            valid_until=datetime.utcnow() + timedelta(days=730),
+            goldsmith_name="Test Goldsmith",
+        )
+        db_session.add(valuation)
+        await db_session.commit()
+        await db_session.refresh(valuation)
+
+        counts = await CustomerService.scrub_customer_pii(
+            db_session, customer_id=mueller_maria.id, performed_by=admin.id,
+        )
+        await db_session.commit()
+        await db_session.refresh(valuation)
+
+        assert "Maria" not in valuation.item_description
+        assert "Mueller" not in valuation.item_description
+        assert "Mueller" not in valuation.gemstones_description
+        assert counts["valuation_certificates.item_description"] == 2
+        assert counts["valuation_certificates.gemstones_description"] == 1
+
+    @pytest.mark.asyncio
+    async def test_scrub_redacts_quote_notes(
+        self,
+        db_session: AsyncSession,
+        mueller_maria: Customer,
+        admin: User,
+    ):
+        quote = Quote(
+            quote_number=f"KV-2026-{uuid.uuid4().hex[:6]}",
+            customer_id=mueller_maria.id,
+            created_by=admin.id,
+            status=QuoteStatus.DRAFT,
+            valid_until=datetime.utcnow() + timedelta(days=14),
+            notes="Sonderkonditionen fuer Stammkundin Maria Mueller vereinbart",
+        )
+        db_session.add(quote)
+        await db_session.commit()
+        await db_session.refresh(quote)
+
+        counts = await CustomerService.scrub_customer_pii(
+            db_session, customer_id=mueller_maria.id, performed_by=admin.id,
+        )
+        await db_session.commit()
+        await db_session.refresh(quote)
+
+        assert "Maria" not in quote.notes
+        assert "Mueller" not in quote.notes
+        assert counts["quotes.notes"] == 2
+
+    @pytest.mark.asyncio
+    async def test_scrub_replaces_customer_signature_blob(
+        self,
+        db_session: AsyncSession,
+        mueller_maria: Customer,
+        admin: User,
+    ):
+        """The base64 signature blob is replaced wholesale — regex cannot
+        reach into image bytes, so we swap the entire field for a sentinel.
+        """
+        fake_signature_base64 = (
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lE"
+            "QVR42mNkAAIAAAoAAv/lxKUAAAAASUVORK5CYII="
+        )
+        quote = Quote(
+            quote_number=f"KV-2026-{uuid.uuid4().hex[:6]}",
+            customer_id=mueller_maria.id,
+            created_by=admin.id,
+            status=QuoteStatus.APPROVED,
+            valid_until=datetime.utcnow() + timedelta(days=14),
+            customer_signature_data=fake_signature_base64,
+        )
+        db_session.add(quote)
+        await db_session.commit()
+        await db_session.refresh(quote)
+
+        counts = await CustomerService.scrub_customer_pii(
+            db_session, customer_id=mueller_maria.id, performed_by=admin.id,
+        )
+        await db_session.commit()
+        await db_session.refresh(quote)
+
+        assert quote.customer_signature_data == SIGNATURE_REDACTION_TOKEN
+        assert counts["quotes.customer_signature_data"] == 1
+
+    @pytest.mark.asyncio
+    async def test_scrub_skips_empty_customer_signature(
+        self,
+        db_session: AsyncSession,
+        mueller_maria: Customer,
+        admin: User,
+    ):
+        """Empty signature field → zero redactions, no audit noise."""
+        quote = Quote(
+            quote_number=f"KV-2026-{uuid.uuid4().hex[:6]}",
+            customer_id=mueller_maria.id,
+            created_by=admin.id,
+            status=QuoteStatus.DRAFT,
+            valid_until=datetime.utcnow() + timedelta(days=14),
+            customer_signature_data=None,
+        )
+        db_session.add(quote)
+        await db_session.commit()
+        await db_session.refresh(quote)
+
+        counts = await CustomerService.scrub_customer_pii(
+            db_session, customer_id=mueller_maria.id, performed_by=admin.id,
+        )
+        await db_session.commit()
+        await db_session.refresh(quote)
+
+        assert quote.customer_signature_data is None
+        assert counts["quotes.customer_signature_data"] == 0
+
+
+class TestScrubH5CrossField:
+    """Whole-surface tests: combine many fields in one call, verify
+    idempotency, verify non-PII content is untouched."""
+
+    @pytest.mark.asyncio
+    async def test_scrub_covers_all_h5_fields_in_single_call(
+        self,
+        db_session: AsyncSession,
+        mueller_maria: Customer,
+        admin: User,
+    ):
+        """One scrub call → PII redacted in all H5 fields that have data."""
+        order = await _make_order(
+            db_session,
+            mueller_maria,
+            description="Ring fuer Maria Mueller",
+        )
+
+        # Populate every H5 field with "Maria Mueller" PII.
+        db_session.add_all([
+            OrderStatusHistory(
+                order_id=order.id,
+                to_status="completed",
+                notes="Maria Mueller abgeholt",
+            ),
+            OrderHandoff(
+                order_id=order.id,
+                from_user_id=admin.id,
+                to_user_id=admin.id,
+                handoff_type=HandoffTypeEnum.MARK_COMPLETE,
+                status=HandoffStatusEnum.ACCEPTED,
+                notes="Maria Mueller bereit zur Abholung",
+                response_notes="Mueller informiert",
+            ),
+            Gemstone(
+                order_id=order.id,
+                type="diamond",
+                cost=100.0,
+                quantity=1,
+                notes="Stein von Maria Mueller",
+            ),
+            RepairJob(
+                repair_number=f"REP-2026-{uuid.uuid4().hex[:6]}",
+                bag_number="A1",
+                customer_id=mueller_maria.id,
+                item_description="Ring Maria Mueller",
+                item_type=RepairItemType.RING,
+                status=RepairJobStatus.RECEIVED,
+                diagnosis_notes="Mueller wuenscht Polieren",
+            ),
+            ValuationCertificate(
+                certificate_number=f"WG-2026-{uuid.uuid4().hex[:6]}",
+                order_id=order.id,
+                customer_id=mueller_maria.id,
+                item_description="Wertgutachten Maria Mueller",
+                gemstones_description="Brillant, Mueller-Sammlung",
+                appraised_value=500.0,
+                valuation_date=datetime.utcnow(),
+                valid_until=datetime.utcnow() + timedelta(days=730),
+                goldsmith_name="Test",
+            ),
+            Quote(
+                quote_number=f"KV-2026-{uuid.uuid4().hex[:6]}",
+                customer_id=mueller_maria.id,
+                created_by=admin.id,
+                status=QuoteStatus.APPROVED,
+                valid_until=datetime.utcnow() + timedelta(days=14),
+                notes="Quote fuer Maria Mueller",
+                customer_signature_data="SGVsbG8gTXVlbGxlcg==",  # "Hello Mueller" b64
+            ),
+        ])
+        await db_session.commit()
+
+        counts = await CustomerService.scrub_customer_pii(
+            db_session, customer_id=mueller_maria.id, performed_by=admin.id,
+        )
+        await db_session.commit()
+
+        # Every H5 field counter must be non-zero.
+        assert counts["order_status_history.notes"] >= 2
+        assert counts["order_handoffs.notes"] >= 2
+        assert counts["order_handoffs.response_notes"] >= 1
+        assert counts["gemstones.notes"] >= 2
+        assert counts["repair_jobs.item_description"] >= 2
+        assert counts["repair_jobs.diagnosis_notes"] >= 1
+        assert counts["valuation_certificates.item_description"] >= 2
+        assert counts["valuation_certificates.gemstones_description"] >= 1
+        assert counts["quotes.notes"] >= 2
+        assert counts["quotes.customer_signature_data"] == 1
+
+    @pytest.mark.asyncio
+    async def test_scrub_is_idempotent_across_h5_fields(
+        self,
+        db_session: AsyncSession,
+        mueller_maria: Customer,
+        admin: User,
+    ):
+        """Second scrub on the same records → zero redactions, no errors."""
+        order = await _make_order(
+            db_session, mueller_maria, description="Ring Mueller",
+        )
+        db_session.add_all([
+            OrderStatusHistory(
+                order_id=order.id,
+                to_status="completed",
+                notes="Maria Mueller abgeholt",
+            ),
+            RepairJob(
+                repair_number=f"REP-2026-{uuid.uuid4().hex[:6]}",
+                bag_number="A1",
+                customer_id=mueller_maria.id,
+                item_description="Ring Mueller",
+                item_type=RepairItemType.RING,
+                status=RepairJobStatus.RECEIVED,
+            ),
+            Quote(
+                quote_number=f"KV-2026-{uuid.uuid4().hex[:6]}",
+                customer_id=mueller_maria.id,
+                created_by=admin.id,
+                status=QuoteStatus.APPROVED,
+                valid_until=datetime.utcnow() + timedelta(days=14),
+                notes="Notes Mueller",
+                customer_signature_data="c2lnbmF0dXJl",  # "signature"
+            ),
+        ])
+        await db_session.commit()
+
+        first = await CustomerService.scrub_customer_pii(
+            db_session, customer_id=mueller_maria.id, performed_by=admin.id,
+        )
+        await db_session.commit()
+
+        second = await CustomerService.scrub_customer_pii(
+            db_session, customer_id=mueller_maria.id, performed_by=admin.id,
+        )
+        await db_session.commit()
+
+        assert first["total"] > 0
+        # Every H5 field must show zero on the second pass.
+        for field in (
+            "order_status_history.notes",
+            "order_handoffs.notes",
+            "order_handoffs.response_notes",
+            "gemstones.notes",
+            "repair_jobs.item_description",
+            "repair_jobs.diagnosis_notes",
+            "valuation_certificates.item_description",
+            "valuation_certificates.gemstones_description",
+            "quotes.notes",
+            "quotes.customer_signature_data",
+        ):
+            assert second[field] == 0, f"{field} double-redacted: {second[field]}"
+
+    @pytest.mark.asyncio
+    async def test_scrub_leaves_non_pii_h5_content_untouched(
+        self,
+        db_session: AsyncSession,
+        mueller_maria: Customer,
+        admin: User,
+    ):
+        """Fields containing only material codes / dates must not change."""
+        order = await _make_order(db_session, mueller_maria, description="Ring")
+        safe_notes = "Status 2026-04-16: 585 Gelbgold, 4 mm, poliert"
+        history = OrderStatusHistory(
+            order_id=order.id,
+            to_status="completed",
+            notes=safe_notes,
+        )
+        safe_repair_desc = "Goldring 750 — Politur und neue Rhodinierung"
+        repair = RepairJob(
+            repair_number=f"REP-2026-{uuid.uuid4().hex[:6]}",
+            bag_number="A1",
+            customer_id=mueller_maria.id,
+            item_description=safe_repair_desc,
+            item_type=RepairItemType.RING,
+            status=RepairJobStatus.RECEIVED,
+        )
+        db_session.add_all([history, repair])
+        await db_session.commit()
+        await db_session.refresh(history)
+        await db_session.refresh(repair)
+
+        counts = await CustomerService.scrub_customer_pii(
+            db_session, customer_id=mueller_maria.id, performed_by=admin.id,
+        )
+        await db_session.commit()
+        await db_session.refresh(history)
+        await db_session.refresh(repair)
+
+        assert history.notes == safe_notes
+        assert repair.item_description == safe_repair_desc
+        assert counts["order_status_history.notes"] == 0
+        assert counts["repair_jobs.item_description"] == 0
+
+    @pytest.mark.asyncio
+    async def test_audit_log_includes_h5_per_field_counts(
+        self,
+        db_session: AsyncSession,
+        mueller_maria: Customer,
+        admin: User,
+    ):
+        """CustomerAuditLog.details.counts must include every H5 key so
+        the DPO can attest per-field coverage."""
+        order = await _make_order(db_session, mueller_maria, description="Ring")
+        db_session.add(RepairJob(
+            repair_number=f"REP-2026-{uuid.uuid4().hex[:6]}",
+            bag_number="A1",
+            customer_id=mueller_maria.id,
+            item_description="Ring Maria Mueller",
+            item_type=RepairItemType.RING,
+            status=RepairJobStatus.RECEIVED,
+        ))
+        await db_session.commit()
+
+        await CustomerService.scrub_customer_pii(
+            db_session, customer_id=mueller_maria.id, performed_by=admin.id,
+        )
+        await db_session.commit()
+
+        result = await db_session.execute(
+            select(CustomerAuditLog).filter(
+                CustomerAuditLog.customer_id == mueller_maria.id,
+                CustomerAuditLog.action == "gdpr_pii_scrub",
+            )
+        )
+        log = result.scalar_one()
+        expected_keys = {
+            "orders.description",
+            "orders.special_instructions",
+            "order_comments.text",
+            "time_entries.notes",
+            "order_status_history.notes",
+            "order_handoffs.notes",
+            "order_handoffs.response_notes",
+            "gemstones.notes",
+            "repair_jobs.item_description",
+            "repair_jobs.diagnosis_notes",
+            "valuation_certificates.item_description",
+            "valuation_certificates.gemstones_description",
+            "quotes.notes",
+            "quotes.customer_signature_data",
+            "total",
+        }
+        assert set(log.details["counts"].keys()) == expected_keys
+        assert log.details["counts"]["repair_jobs.item_description"] == 2
