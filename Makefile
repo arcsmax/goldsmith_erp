@@ -149,6 +149,11 @@ security: ## Run security scan with bandit
 	@echo "$(GREEN)Running security scan...$(NC)"
 	@$(COMPOSE) exec backend poetry run bandit -r src/
 
+check-bundle: ## V1.1 Slice 13 — scanner-route bundle-size gate (<=250 KB gzip)
+	@echo "$(GREEN)Building frontend and running scanner bundle gate...$(NC)"
+	@cd frontend && yarn build
+	@node frontend/scripts/check-scanner-bundle.mjs
+
 # Pod operations (alternative to compose)
 pod-create: ## Create Kubernetes-style pod
 	@echo "$(GREEN)Creating pod from manifest...$(NC)"

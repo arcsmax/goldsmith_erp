@@ -1,0 +1,52 @@
+name: Scanner Bundle-Size Gate
+
+# V1.1 / Slice 13 / amendment A13 / spec §14.a row f.
+# Enforces scanner-route chunk <= 250 KB gzip (WARN / fail PR) and
+# stops ship at > 400 KB gzip.
+#
+# Runs on every PR touching frontend/ as well as any push to main so the
+# trend CSV is updated post-merge. Per TESTABILITY-REVIEW §4 row f:
+# "Confirm CI runs on every PR, not just main" -- both triggers are wired.
+#
+# Security note: this workflow consumes no untrusted event input. All
+# `run:` steps execute fixed commands against repository-checked-out code.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'frontend/**'
+      - '.github/workflows/bundle-size-gate.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'frontend/**'
+      - '.github/workflows/bundle-size-gate.yml'
+
+jobs:
+  bundle-gate:
+    name: Scanner bundle <= 250 KB gzip
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+      - name: Enable Corepack
+        run: corepack enable
+      - name: Install dependencies
+        working-directory: ./frontend
+        run: yarn install --frozen-lockfile
+      - name: Build frontend
+        working-directory: ./frontend
+        run: yarn build
+      - name: Run scanner-bundle gate
+        # Script exit codes: 0 OK, 2 WARN breach, 3 FAIL breach, 4 no chunks.
+        run: node frontend/scripts/check-scanner-bundle.mjs
+      - name: Upload dist assets manifest
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist-assets-manifest
+          path: frontend/dist/assets/
+          retention-days: 14
