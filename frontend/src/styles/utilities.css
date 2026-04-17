@@ -46,6 +46,26 @@
   &:hover { background-color: #b91c1c; }
 }
 
+@utility btn-warning {
+  /* Amber "documented deviation" button — Slice 11 AlloyMismatchModal override.
+     Jason V1.1-UI-DESIGN-SPEC §1 + A11.1 — visibly distinct from btn-primary
+     gold CTA so an alloy override is never the happy-path tap. */
+  padding-left: 1.5rem;
+  padding-right: 1.5rem;
+  padding-top: 0.75rem;
+  padding-bottom: 0.75rem;
+  background-color: var(--color-warning-500);
+  color: white;
+  border-radius: 0.5rem;
+  min-height: 44px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.15s, opacity 0.15s;
+  &:hover:not(:disabled) { background-color: var(--color-warning-600); }
+  &:focus { outline: 2px solid var(--color-warning-600); outline-offset: 2px; }
+  &:disabled { opacity: 0.5; cursor: not-allowed; }
+}
+
 @utility btn-ghost {
   padding-left: 1rem;
   padding-right: 1rem;
