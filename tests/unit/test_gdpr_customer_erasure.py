@@ -1627,6 +1627,19 @@ async def _f_notifications_message(db, customer, admin, pii_value):
     return notif
 
 
+async def _f_customers_notes(db, customer, admin, pii_value):
+    """F1: set the customer's own ``notes`` column.
+
+    Unlike the other factories, this one does NOT create a new parent
+    row — the existing `customer` fixture IS the target row, linked
+    via ``link="direct"``.
+    """
+    customer.notes = pii_value
+    await db.commit()
+    await db.refresh(customer)
+    return customer
+
+
 # Per-target factory map. Keyed by counter_key for traceability against
 # SCRUBBABLE_FIELDS. The parametrised test asserts this map covers every
 # SCRUBBABLE_FIELDS entry — so adding a new target without adding a factory
@@ -1663,6 +1676,8 @@ _FACTORY_MAP = {
     "calendar_events.description": _f_calendar_events_description,
     "notifications.title": _f_notifications_title,
     "notifications.message": _f_notifications_message,
+    # F1 (2026-04-16) — customers.notes — link="direct"
+    "customers.notes": _f_customers_notes,
 }
 
 
