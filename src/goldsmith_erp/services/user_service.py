@@ -83,9 +83,14 @@ ANONYMIZABLE_FK_TARGETS: list[tuple[str, str]] = [
     ("customer_audit_logs", "user_id"),
     ("gdpr_requests", "requested_by"),
     ("order_status_history", "changed_by"),
-    # Slice 1 (Migration 1) will extend this list with:
-    #   ("scan_logs", "user_id"),
-    #   ("barcode_aliases", "created_by"),
+    # Slice 1 (Migration 1) — QR/barcode workflow. Each of these FK
+    # columns is declared ON DELETE RESTRICT at the DB level, so the
+    # only path to removing a user referenced by any of these rows is
+    # through `anonymize_user`. Registering them here is the one-line
+    # extension the Slice 0 contract anticipated.
+    ("scan_logs", "user_id"),
+    ("barcode_aliases", "created_by"),
+    ("label_templates", "created_by"),
 ]
 
 
