@@ -32,6 +32,34 @@ vi.mock('@yudiel/react-qr-scanner', () => {
   };
 });
 
+// --- Mock TimeTrackingContext to avoid initializing the real provider. ---
+// Slice 11 wiring pulls useTimeTracking() into ScanOverlay for the
+// hooks.refreshTimer bridge + runningEntry sourcing. The test matrix is
+// infrastructure-agnostic so we stub the hook with a minimal shape.
+vi.mock('../contexts/TimeTrackingContext', () => ({
+  useTimeTracking: () => ({
+    runningEntry: null,
+    activities: [],
+    isLoading: false,
+    error: null,
+    startTracking: vi.fn(),
+    stopTracking: vi.fn(),
+    switchTracking: vi.fn(),
+    refreshRunningEntry: vi.fn(async () => {}),
+    refreshActivities: vi.fn(async () => {}),
+    clearError: vi.fn(),
+  }),
+}));
+
+// --- react-router-dom — supply a minimal useNavigate stub. ----------------
+vi.mock('react-router-dom', async (orig) => {
+  const actual = (await orig()) as Record<string, unknown>;
+  return {
+    ...actual,
+    useNavigate: () => vi.fn(),
+  };
+});
+
 // --- HTMLMediaElement shims for jsdom/happy-dom audio kit. --------------
 // @ts-expect-error happy-dom stub
 HTMLMediaElement.prototype.play = vi.fn(() => Promise.resolve());
@@ -235,7 +263,10 @@ describe('ScanOverlay scan flow', () => {
 
     const result = await screen.findByTestId('scan-overlay-result');
     expect(result.textContent).toContain('42');
-    expect(screen.getByTestId('scan-overlay-continue')).toBeInTheDocument();
+    // Slice 11 — the placeholder JSON block is replaced by
+    // QuickActionModalV2; the "Weiterscannen" CTA now lives inside the
+    // modal footer (testid `qa-continue`).
+    expect(screen.getByTestId('qa-continue')).toBeInTheDocument();
   });
 
   it('Weiterscannen clears the result and re-arms the scanner', async () => {
@@ -248,7 +279,7 @@ describe('ScanOverlay scan flow', () => {
     await user.type(input, 'ORDER:42{Enter}');
 
     await screen.findByTestId('scan-overlay-result');
-    await user.click(screen.getByTestId('scan-overlay-continue'));
+    await user.click(screen.getByTestId('qa-continue'));
 
     await waitFor(() =>
       expect(screen.queryByTestId('scan-overlay-result')).toBeNull(),
