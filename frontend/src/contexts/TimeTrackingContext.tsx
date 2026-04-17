@@ -24,12 +24,14 @@ interface TimeTrackingContextType {
   startTracking: (orderId: number, activityId: number, location?: string) => Promise<void>;
   stopTracking: (entryId: string, stopData: TimeEntryStopInput) => Promise<void>;
   /**
-   * Slice 11 — atomic stop-old + start-new. In V1.1 there is no dedicated
-   * backend switch endpoint (TimeTrackingService.switch_timer is exposed
-   * via the scan-driven path only). Client emulates by stop-then-start;
-   * the server enforces per-user ownership on stop. A 409
-   * TIMER_POSSIBLY_STALE surfaces as a thrown error with `.code` so the
-   * caller can render the Mittagspause modal (A11.5).
+   * H18 — atomic stop-old + start-new via the dedicated
+   * POST /time-tracking/{entry_id}/switch endpoint. The service-layer
+   * `switch_timer` enforces per-user scope (A5.1) and the stale-timer
+   * guard (A5.2) in a single transaction + single pubsub event.
+   *
+   * A 409 TIMER_POSSIBLY_STALE surfaces as a thrown error with `.code`
+   * set, so `ActionHandlers.switch_timer` can render the Mittagspause
+   * modal (A11.5).
    */
   switchTracking: (
     orderId: number,
@@ -154,10 +156,22 @@ export const TimeTrackingProvider: React.FC<TimeTrackingProviderProps> = ({ chil
   };
 
   /**
-   * Slice 11 — switchTracking.
+   * H18 — switchTracking via dedicated POST /switch endpoint.
    *
-   * Atomic stop-old + start-new. Throws on 409 TIMER_POSSIBLY_STALE with
-   * a `.code` field the caller can sniff to render the Mittagspause modal.
+   * Calls the backend's atomic switch_timer service in a single HTTP
+   * round-trip. The server does stop-old + start-new in one transaction
+   * and publishes a single `time_tracking_updates` event. No risk of a
+   * dangling timer on network failure between stop and start (the failure
+   * mode the V1.1 stop+start emulation had).
+   *
+   * A 409 TIMER_POSSIBLY_STALE is forwarded to callers with `.code` set
+   * so `ActionHandlers.switch_timer` can render the Mittagspause modal
+   * (A11.5).
+   *
+   * If no timer is running we surface an explicit error rather than
+   * silently start one — callers that want the degrade-to-start path
+   * (e.g. ActionHandlers) check `runningEntryId` first and dispatch
+   * `start_timer` themselves.
    */
   const switchTracking = useCallback(
     async (
@@ -169,49 +183,49 @@ export const TimeTrackingProvider: React.FC<TimeTrackingProviderProps> = ({ chil
         setIsLoading(true);
         setError(null);
 
-        if (runningEntry) {
-          try {
-            await apiClient.post(
-              `/time-tracking/${runningEntry.id}/stop`,
-              {},
-              options?.idempotencyKey
-                ? { headers: { 'Idempotency-Key': options.idempotencyKey } }
-                : undefined,
-            );
-          } catch (stopErr: any) {
-            // Surface stale-timer guard to caller (A5.2 / A11.5).
-            const detail = stopErr?.response?.data?.detail;
-            if (
-              stopErr?.response?.status === 409 &&
-              detail &&
-              typeof detail === 'object' &&
-              (detail as { code?: string }).code === 'TIMER_POSSIBLY_STALE'
-            ) {
-              const staleError = new Error(
-                'Timer laeuft auffaellig lange — Mittagspause abziehen?',
-              );
-              (staleError as any).code = 'TIMER_POSSIBLY_STALE';
-              throw staleError;
-            }
-            throw stopErr;
-          }
+        if (!runningEntry) {
+          throw new Error('Kein laufender Timer — Wechsel nicht möglich.');
         }
 
+        const idempotencyKey = options?.idempotencyKey ?? crypto.randomUUID();
         const response = await apiClient.post<TimeEntry>(
-          '/time-tracking/start',
+          `/time-tracking/${runningEntry.id}/switch`,
           {
-            order_id: orderId,
+            new_order_id: orderId,
             activity_id: activityId,
             location: options?.location,
           },
-          options?.idempotencyKey
-            ? { headers: { 'Idempotency-Key': options.idempotencyKey } }
-            : undefined,
+          {
+            headers: {
+              'Idempotency-Key': idempotencyKey,
+              'X-Client-Created-At': new Date().toISOString(),
+            },
+          },
         );
         const entry = response.data;
         setRunningEntry(entry);
+        await refreshRunningEntry();
         return entry;
       } catch (err: any) {
+        // Forward 409 TIMER_POSSIBLY_STALE to callers with a normalised
+        // `.code` field so ActionHandlers.switch_timer can render the
+        // Mittagspause modal (A11.5). Today the handler just toasts —
+        // V1.2 will split out a dedicated modal.
+        const detail = err?.response?.data?.detail;
+        if (
+          err?.response?.status === 409 &&
+          detail &&
+          typeof detail === 'object' &&
+          (detail as { code?: string }).code === 'TIMER_POSSIBLY_STALE'
+        ) {
+          const staleError = new Error(
+            'Timer läuft auffällig lange — Mittagspause abziehen?',
+          );
+          (staleError as any).code = 'TIMER_POSSIBLY_STALE';
+          (staleError as any).detail = detail;
+          setError(staleError.message);
+          throw staleError;
+        }
         console.error('Failed to switch tracking:', err);
         setError(err.message || 'Timer konnte nicht gewechselt werden');
         throw err;
@@ -219,7 +233,7 @@ export const TimeTrackingProvider: React.FC<TimeTrackingProviderProps> = ({ chil
         setIsLoading(false);
       }
     },
-    [runningEntry],
+    [runningEntry, refreshRunningEntry],
   );
 
   /**
