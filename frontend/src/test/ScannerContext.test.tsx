@@ -98,12 +98,14 @@ describe('ScannerProvider basic behaviour', () => {
     expect(v.inputSource).toBe('manual');
     expect(v.currentLocation).toBeNull();
     expect(v.benchModeEnabled).toBe(false);
+    expect(v.lastClientTapAt).toBeNull();
     expect(typeof v.openScanner).toBe('function');
     expect(typeof v.closeScanner).toBe('function');
     expect(typeof v.setLastScan).toBe('function');
     expect(typeof v.setInputSource).toBe('function');
     expect(typeof v.setCurrentLocation).toBe('function');
     expect(typeof v.toggleBenchMode).toBe('function');
+    expect(typeof v.recordFabTap).toBe('function');
   });
 });
 

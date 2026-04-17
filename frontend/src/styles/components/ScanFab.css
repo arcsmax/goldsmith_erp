@@ -1,0 +1,133 @@
+/* ScanFab — global scan floating-action-button (Slice 10).
+ *
+ * Z-index stack (coordinated with TimerWidget):
+ *   1050  TimerWidget FAB (and its expanded states)
+ *   1060  ScanFab                     <- this file
+ *   1500  ScanOverlay (camera modal)
+ *
+ * The `--fab-bottom` token lets TimerWidget and ScanFab share a single
+ * source of truth for the bottom offset so the stacked layout stays aligned
+ * across breakpoints (A10.1 — iPad 9. Gen portrait position check).
+ */
+
+:root {
+  --fab-bottom: 1.5rem;
+  /* Offset applied when a timer is running so ScanFab floats ABOVE the
+   * timer FAB rather than overlapping it. 72px = 56px button + 16px gap. */
+  --scan-fab-stack-offset: 72px;
+}
+
+.scan-fab {
+  position: fixed;
+  bottom: var(--fab-bottom);
+  right: var(--fab-bottom);
+  z-index: 1060;
+
+  /* Sizing: >= --touch-comfort (56px). Uses min-width/height so the icon
+   * slot stays square on all breakpoints. */
+  width: var(--touch-comfort, 56px);
+  height: var(--touch-comfort, 56px);
+  min-width: 48px;
+  min-height: 48px;
+
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+
+  /* Jason's spec: amber/gold gradient — NOT the alloy-mismatch amber.
+   * We reuse --color-brand-cta-* (gold) for CTAs; hover moves toward the
+   * warning-500 amber as a subtle "you're about to do something active"
+   * signal without turning the button into a warning surface. */
+  background: linear-gradient(
+    135deg,
+    var(--color-brand-cta-500, #f59e0b) 0%,
+    var(--color-brand-cta-600, #d97706) 100%
+  );
+  color: #ffffff;
+  border: none;
+  border-radius: 50%;
+  box-shadow: 0 6px 18px rgba(217, 119, 6, 0.35);
+
+  cursor: pointer;
+  transition:
+    transform 180ms ease,
+    box-shadow 180ms ease,
+    background 180ms ease;
+
+  /* Subtle slide-in on mount so the FAB doesn't pop in abruptly. */
+  animation: scan-fab-enter 220ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+.scan-fab:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 24px rgba(224, 128, 32, 0.45);
+  background: linear-gradient(
+    135deg,
+    var(--color-brand-cta-500, #f59e0b) 0%,
+    var(--color-warning-500, #e08020) 100%
+  );
+}
+
+.scan-fab:focus-visible {
+  outline: 3px solid var(--color-warning-500, #e08020);
+  outline-offset: 3px;
+}
+
+.scan-fab:active {
+  transform: translateY(0);
+  box-shadow: 0 4px 10px rgba(217, 119, 6, 0.3);
+}
+
+/* Stacked — a timer is currently running, TimerWidget FAB/widget occupies
+ * the normal bottom slot, so we float above it. A10.1 + plan §10. */
+.scan-fab--stacked {
+  bottom: calc(var(--fab-bottom) + var(--scan-fab-stack-offset));
+}
+
+.scan-fab__icon {
+  /* SVG uses currentColor → inherits white. */
+  display: block;
+}
+
+/* Slide-up animation — reuses TimerWidget's cadence. */
+@keyframes scan-fab-enter {
+  from {
+    transform: translateY(16px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+/* Reduced-motion: strip the slide-in and hover transform. Tactile/focus
+ * states remain. */
+@media (prefers-reduced-motion: reduce) {
+  .scan-fab {
+    animation: none;
+    transition: background 120ms linear;
+  }
+  .scan-fab:hover {
+    transform: none;
+  }
+  .scan-fab:active {
+    transform: none;
+  }
+}
+
+/* Phone — keep the FAB inside the safe area on small screens. */
+@media (max-width: 480px) {
+  :root {
+    --fab-bottom: 1rem;
+  }
+  .scan-fab {
+    width: 48px;
+    height: 48px;
+  }
+  .scan-fab--stacked {
+    /* TimerWidget collapses to 48-ish on small screens; reuse the token. */
+    bottom: calc(var(--fab-bottom) + var(--scan-fab-stack-offset));
+  }
+}
