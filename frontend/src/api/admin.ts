@@ -200,3 +200,31 @@ export const downloadCustomerCsvTemplate = (): void => {
     });
   void token;
 };
+
+// ---------------------------------------------------------------------------
+// V1.1 Slice 13 — scan-metrics dashboard (ADMIN only)
+// ---------------------------------------------------------------------------
+
+/**
+ * V1.1 acceptance-gate metrics (spec §14.a rows a–f). All ratios are
+ * 0–100 floats; `null` means the window had zero denominator (e.g. fresh
+ * install, no eligible rows). The dashboard renders "—" for null.
+ */
+export interface ScanMetrics {
+  scan_adoption_pct_30d: number | null;
+  scan_breadth_pct_7d: number | null;
+  fab_tap_to_timer_ms_p50: number | null;
+  fab_tap_to_timer_ms_p95: number | null;
+  alloy_override_count_30d: number;
+  camera_fallback_count_30d: number;
+  usb_hid_scan_count_30d: number;
+  window_days_primary: number;
+  window_days_breadth: number;
+  computed_at: string;
+}
+
+/** Fetch V1.1 scan-adoption gate metrics (ADMIN only). */
+export const getScanMetrics = async (): Promise<ScanMetrics> => {
+  const response = await apiClient.get<ScanMetrics>('/admin/scan-metrics');
+  return response.data;
+};
