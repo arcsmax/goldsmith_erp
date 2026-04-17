@@ -91,4 +91,14 @@
 
   /* Legacy blue (time-tracking chart variables) */
   --color-chart-primary: #3b82f6;
+
+  /* Warning amber — alloy-mismatch / scan-region / denied-state surfaces
+   * (Jason V1.1-UI-DESIGN-SPEC §1; NOT red — red reads as blocker). */
+  --color-warning-500: #e08020;
+  --color-warning-600: #b8651a;
+  --color-warning-bg: #fff4e6;
+
+  /* Touch sizing (WCAG + goldsmith glove tolerance). */
+  --touch-min: 44px;
+  --touch-comfort: 56px;
 }
