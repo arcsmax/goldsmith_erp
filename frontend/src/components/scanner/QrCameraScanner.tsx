@@ -202,20 +202,24 @@ export function QrCameraScanner(props: QrCameraScannerProps): JSX.Element {
       return;
     }
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
+      // Probe stream — grab camera briefly to read torch + enumerate
+      // devices, then RELEASE immediately. @yudiel/react-qr-scanner
+      // (LazyScanner) opens its own stream when renderGranted() mounts;
+      // if we hold onto the probe stream the second getUserMedia can
+      // return a black/degraded track on some browsers (Chromium on
+      // macOS + iOS Safari observed). Releasing before setPermission
+      // ensures the Scanner component gets a clean track.
+      const probe = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: { ideal: facingMode } },
         audio: false,
       });
-      streamRef.current = stream;
 
-      // Probe torch capability on the first video track (if supported).
-      const [videoTrack] = stream.getVideoTracks();
-      if (typeof videoTrack !== 'undefined') {
-        const capabilities = (
-          videoTrack.getCapabilities?.() ?? {}
-        ) as MediaTrackCapabilities & { torch?: boolean };
-        setTorchSupported(capabilities.torch === true);
-      }
+      // V1.1 note: torch control is disabled because our probe releases the
+      // stream before LazyScanner mounts, and we don't have a handle on the
+      // Scanner's internal stream to toggle torch on. V1.2 will wire
+      // @yudiel/react-qr-scanner's built-in torch component
+      // (components.torch=true) to replace our native control.
+      setTorchSupported(false);
 
       // Enumerate devices to decide if a flip button is worth showing.
       try {
@@ -226,6 +230,13 @@ export function QrCameraScanner(props: QrCameraScannerProps): JSX.Element {
         // enumerateDevices can reject (e.g. Firefox private mode) — ignore.
         setCameraCount(1);
       }
+
+      // Release the probe stream BEFORE LazyScanner mounts — otherwise
+      // the Scanner's getUserMedia call can land on a degraded track.
+      for (const track of probe.getTracks()) {
+        track.stop();
+      }
+      streamRef.current = null;
 
       setPermission('granted');
     } catch (err) {
