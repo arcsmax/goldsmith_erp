@@ -48,6 +48,13 @@ from typing import Sequence, Union
 from alembic import op
 import sqlalchemy as sa
 
+from goldsmith_erp.db.migration_helpers import (
+    add_column_if_not_exists,
+    create_index_if_not_exists,
+    drop_column_if_exists,
+    drop_index_if_exists,
+)
+
 # revision identifiers, used by Alembic.
 revision: str = "20260417_anonymize_user"
 down_revision: Union[str, None] = "20260406_review"
@@ -63,11 +70,21 @@ SENTINEL_FIRST_NAME = "<deleted>"
 SENTINEL_ROLE_VALUE = "viewer"  # UserRole.VIEWER.value
 
 
+# DESIGN NOTE (2026-04-17)
+# ========================
+# Like `20260406_review`, this migration uses idempotent wrappers so that
+# fresh DBs (which already contain every column declared in the ORM via
+# `v1_initial`'s `create_all()`) can still `upgrade head` cleanly on BOTH
+# SQLite and PostgreSQL. On a fresh DB the column/index ops here become
+# no-ops; the sentinel-row seed remains guarded by its own SELECT.
+# See `alembic/helpers.py` for the full design note.
+
+
 def upgrade() -> None:
     # ------------------------------------------------------------------
     # 1. Add anonymisation columns to `users`.
     # ------------------------------------------------------------------
-    op.add_column(
+    add_column_if_not_exists(
         "users",
         sa.Column(
             "is_deleted",
@@ -76,21 +93,21 @@ def upgrade() -> None:
             server_default=sa.false(),
         ),
     )
-    op.add_column(
+    add_column_if_not_exists(
         "users",
         sa.Column("deleted_at", sa.DateTime(timezone=True), nullable=True),
     )
-    op.add_column(
+    add_column_if_not_exists(
         "users",
         sa.Column("anonymization_hash", sa.String(length=64), nullable=True),
     )
     # V1.2 forward-compat slot — see DECISIONS-2026-04-16 SQ1.
-    op.add_column(
+    add_column_if_not_exists(
         "users",
         sa.Column("tenant_id", sa.Integer(), nullable=True),
     )
-    op.create_index("ix_users_is_deleted", "users", ["is_deleted"])
-    op.create_index("ix_users_tenant_id", "users", ["tenant_id"])
+    create_index_if_not_exists("ix_users_is_deleted", "users", ["is_deleted"])
+    create_index_if_not_exists("ix_users_tenant_id", "users", ["tenant_id"])
 
     # ------------------------------------------------------------------
     # 2. Seed the global sentinel row.
@@ -172,9 +189,9 @@ def downgrade() -> None:
         {"email": SENTINEL_EMAIL},
     )
 
-    op.drop_index("ix_users_tenant_id", table_name="users")
-    op.drop_index("ix_users_is_deleted", table_name="users")
-    op.drop_column("users", "tenant_id")
-    op.drop_column("users", "anonymization_hash")
-    op.drop_column("users", "deleted_at")
-    op.drop_column("users", "is_deleted")
+    drop_index_if_exists("ix_users_tenant_id", "users")
+    drop_index_if_exists("ix_users_is_deleted", "users")
+    drop_column_if_exists("users", "tenant_id")
+    drop_column_if_exists("users", "anonymization_hash")
+    drop_column_if_exists("users", "deleted_at")
+    drop_column_if_exists("users", "is_deleted")

@@ -6,11 +6,24 @@ New enum value: BIRTHDAY_REMINDER on NotificationTypeEnum
 Composite indexes for common query patterns
 UniqueConstraint on notification_preferences (user_id, notification_type)
 
-NOTE: The parent migration (v1_initial) uses Base.metadata.create_all(), which
-means fresh databases will already have these tables/columns.  This migration
-is for databases that were created before these models were added to models.py.
-If running against a freshly-created DB you may need to stamp this revision:
-    alembic stamp 20260406_review
+DESIGN NOTE (2026-04-17)
+========================
+The parent migration (`v1_initial`) uses `Base.metadata.create_all()`, which
+means fresh databases ALREADY contain every table / column / index / constraint
+declared in the ORM — including the ones this migration was written to add.
+Running `op.add_column` / `op.create_table` unconditionally against such a
+fresh DB fails on SQLite (`duplicate column name`) and on PostgreSQL
+(`DuplicateColumn` / `DuplicateTable`).
+
+This migration therefore uses idempotent wrappers from `alembic.helpers` that
+introspect the live bind before emitting DDL. The net effect:
+  - Fresh DB (v1_initial just ran, ORM is authoritative):      all ops skipped.
+  - Legacy DB (upgraded from a v1_initial that pre-dated these
+    ORM additions):                                             ops performed.
+
+Either path ends with an identical, consistent schema. This preserves
+`Base.metadata.create_all()` as the canonical source of truth for fresh DBs
+while keeping this migration useful for older deployments.
 
 Revision ID: 20260406_review
 Revises: v1_initial
@@ -23,6 +36,18 @@ from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import JSON
 
+from goldsmith_erp.db.migration_helpers import (
+    add_column_if_not_exists,
+    create_fk_if_not_exists,
+    create_index_if_not_exists,
+    create_table_if_not_exists,
+    create_unique_constraint_if_not_exists,
+    drop_column_if_exists,
+    drop_constraint_if_exists,
+    drop_index_if_exists,
+    drop_table_if_exists,
+)
+
 # revision identifiers, used by Alembic.
 revision: str = "20260406_review"
 down_revision: Union[str, None] = "v1_initial"
@@ -34,35 +59,35 @@ def upgrade() -> None:
     # ------------------------------------------------------------------
     # 1. Customer soft-delete columns
     # ------------------------------------------------------------------
-    op.add_column(
+    add_column_if_not_exists(
         "customers",
         sa.Column("is_deleted", sa.Boolean(), nullable=False, server_default="false"),
     )
-    op.add_column(
+    add_column_if_not_exists(
         "customers",
         sa.Column("deleted_at", sa.DateTime(), nullable=True),
     )
-    op.add_column(
+    add_column_if_not_exists(
         "customers",
         sa.Column("deleted_by", sa.Integer(), nullable=True),
     )
-    op.create_foreign_key(
+    create_fk_if_not_exists(
         "fk_customers_deleted_by_users",
         "customers",
         "users",
         ["deleted_by"],
         ["id"],
     )
-    op.add_column(
+    add_column_if_not_exists(
         "customers",
         sa.Column("deletion_reason", sa.String(500), nullable=True),
     )
-    op.create_index("ix_customers_is_deleted", "customers", ["is_deleted"])
+    create_index_if_not_exists("ix_customers_is_deleted", "customers", ["is_deleted"])
 
     # ------------------------------------------------------------------
     # 2. CustomerAuditLog table
     # ------------------------------------------------------------------
-    op.create_table(
+    create_table_if_not_exists(
         "customer_audit_logs",
         sa.Column("id", sa.Integer(), primary_key=True, autoincrement=True),
         sa.Column(
@@ -96,7 +121,7 @@ def upgrade() -> None:
     # ------------------------------------------------------------------
     # 3. GDPRRequest table
     # ------------------------------------------------------------------
-    op.create_table(
+    create_table_if_not_exists(
         "gdpr_requests",
         sa.Column("id", sa.Integer(), primary_key=True, autoincrement=True),
         sa.Column(
@@ -121,7 +146,7 @@ def upgrade() -> None:
     # ------------------------------------------------------------------
     # 4. OrderItem table
     # ------------------------------------------------------------------
-    op.create_table(
+    create_table_if_not_exists(
         "order_items",
         sa.Column("id", sa.Integer(), primary_key=True, autoincrement=True),
         sa.Column(
@@ -146,7 +171,7 @@ def upgrade() -> None:
     # ------------------------------------------------------------------
     # 5. OrderStatusHistory table
     # ------------------------------------------------------------------
-    op.create_table(
+    create_table_if_not_exists(
         "order_status_history",
         sa.Column("id", sa.Integer(), primary_key=True, autoincrement=True),
         sa.Column(
@@ -171,18 +196,18 @@ def upgrade() -> None:
     # ------------------------------------------------------------------
     # 6. Performance indexes for common query patterns
     # ------------------------------------------------------------------
-    op.create_index("ix_time_entries_end_time", "time_entries", ["end_time"])
-    op.create_index(
+    create_index_if_not_exists("ix_time_entries_end_time", "time_entries", ["end_time"])
+    create_index_if_not_exists(
         "ix_notifications_user_read", "notifications", ["user_id", "is_read"]
     )
-    op.create_index(
+    create_index_if_not_exists(
         "ix_orders_customer_deleted", "orders", ["customer_id", "is_deleted"]
     )
 
     # ------------------------------------------------------------------
     # 7. UniqueConstraint on notification_preferences
     # ------------------------------------------------------------------
-    op.create_unique_constraint(
+    create_unique_constraint_if_not_exists(
         "uq_notification_pref",
         "notification_preferences",
         ["user_id", "notification_type"],
@@ -191,11 +216,14 @@ def upgrade() -> None:
     # ------------------------------------------------------------------
     # 8. BIRTHDAY_REMINDER enum value on NotificationTypeEnum
     #    (PostgreSQL requires ALTER TYPE ... ADD VALUE; IF NOT EXISTS is
-    #     safe to run even if the value is already present.)
+    #     safe to run even if the value is already present. SQLite stores
+    #     enums as strings so this is a no-op there.)
     # ------------------------------------------------------------------
-    op.execute(
-        "ALTER TYPE notificationtypeenum ADD VALUE IF NOT EXISTS 'birthday_reminder'"
-    )
+    bind = op.get_bind()
+    if bind.dialect.name == "postgresql":
+        op.execute(
+            "ALTER TYPE notificationtypeenum ADD VALUE IF NOT EXISTS 'birthday_reminder'"
+        )
 
 
 def downgrade() -> None:
@@ -204,29 +232,33 @@ def downgrade() -> None:
     # To fully remove it, you would need to recreate the enum type.
 
     # 7. Drop unique constraint
-    op.drop_constraint("uq_notification_pref", "notification_preferences", type_="unique")
+    drop_constraint_if_exists(
+        "uq_notification_pref", "notification_preferences", type_="unique"
+    )
 
     # 6. Drop composite indexes
-    op.drop_index("ix_orders_customer_deleted", table_name="orders")
-    op.drop_index("ix_notifications_user_read", table_name="notifications")
-    op.drop_index("ix_time_entries_end_time", table_name="time_entries")
+    drop_index_if_exists("ix_orders_customer_deleted", "orders")
+    drop_index_if_exists("ix_notifications_user_read", "notifications")
+    drop_index_if_exists("ix_time_entries_end_time", "time_entries")
 
     # 5. Drop order_status_history
-    op.drop_table("order_status_history")
+    drop_table_if_exists("order_status_history")
 
     # 4. Drop order_items
-    op.drop_table("order_items")
+    drop_table_if_exists("order_items")
 
     # 3. Drop gdpr_requests
-    op.drop_table("gdpr_requests")
+    drop_table_if_exists("gdpr_requests")
 
     # 2. Drop customer_audit_logs
-    op.drop_table("customer_audit_logs")
+    drop_table_if_exists("customer_audit_logs")
 
     # 1. Drop customer soft-delete columns (reverse order of creation)
-    op.drop_index("ix_customers_is_deleted", table_name="customers")
-    op.drop_constraint("fk_customers_deleted_by_users", "customers", type_="foreignkey")
-    op.drop_column("customers", "deletion_reason")
-    op.drop_column("customers", "deleted_by")
-    op.drop_column("customers", "deleted_at")
-    op.drop_column("customers", "is_deleted")
+    drop_index_if_exists("ix_customers_is_deleted", "customers")
+    drop_constraint_if_exists(
+        "fk_customers_deleted_by_users", "customers", type_="foreignkey"
+    )
+    drop_column_if_exists("customers", "deletion_reason")
+    drop_column_if_exists("customers", "deleted_by")
+    drop_column_if_exists("customers", "deleted_at")
+    drop_column_if_exists("customers", "is_deleted")
