@@ -2554,6 +2554,13 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@types/emscripten@npm:^1.41.5":
+  version: 1.41.5
+  resolution: "@types/emscripten@npm:1.41.5"
+  checksum: 10c0/ae816da716f896434e59df7a71b67c71ae7e85ca067a32aef1616572fc4757459515d42ade6f5b8fd8d69733a9dbd0cf23010fec5b2f41ce52c09501aa350e45
+  languageName: node
+  linkType: hard
+
 "@types/estree@npm:0.0.39":
   version: 0.0.39
   resolution: "@types/estree@npm:0.0.39"
@@ -2742,6 +2749,19 @@ __metadata:
     convert-source-map: "npm:^2.0.0"
     tinyrainbow: "npm:^3.1.0"
   checksum: 10c0/d96475e0703b6e5208c6c0f570c1235278cbac3f3913a9aa4203a3e617c9eaca85a184bfd5d13cf366b84754df787ab8bc85242c5e0c63105ee7176c186a2136
+  languageName: node
+  linkType: hard
+
+"@yudiel/react-qr-scanner@npm:^2.5.1":
+  version: 2.5.1
+  resolution: "@yudiel/react-qr-scanner@npm:2.5.1"
+  dependencies:
+    barcode-detector: "npm:3.0.8"
+    webrtc-adapter: "npm:9.0.3"
+  peerDependencies:
+    react: ^17 || ^18 || ^19
+    react-dom: ^17 || ^18 || ^19
+  checksum: 10c0/2d7b6eae9104bf1147ea78abe3dac2239459900b62c07f4ce10a0f64c1d7980a9abdc3951d88614235ac926a23953cbf4f2176430b417c40c03a78611d3cfc54
   languageName: node
   linkType: hard
 
@@ -2953,6 +2973,15 @@ __metadata:
   version: 4.0.4
   resolution: "balanced-match@npm:4.0.4"
   checksum: 10c0/07e86102a3eb2ee2a6a1a89164f29d0dbaebd28f2ca3f5ca786f36b8b23d9e417eb3be45a4acf754f837be5ac0a2317de90d3fcb7f4f4dc95720a1f36b26a17b
+  languageName: node
+  linkType: hard
+
+"barcode-detector@npm:3.0.8":
+  version: 3.0.8
+  resolution: "barcode-detector@npm:3.0.8"
+  dependencies:
+    zxing-wasm: "npm:2.2.4"
+  checksum: 10c0/5103fa7a1f438cf34fbbe5773f14406fd666c5857270a08e59bf81c2b7d24091e7af068b341fa7977211b35bc83ade2fae0fb51f885af00f50a541ca29f9ff8f
   languageName: node
   linkType: hard
 
@@ -3932,6 +3961,7 @@ __metadata:
     "@types/react": "npm:^18.2.43"
     "@types/react-dom": "npm:^18.2.17"
     "@vitejs/plugin-react": "npm:^4.3.4"
+    "@yudiel/react-qr-scanner": "npm:^2.5.1"
     axios: "npm:^1.13.2"
     date-fns: "npm:^4.1.0"
     happy-dom: "npm:^20.0.10"
@@ -5886,6 +5916,13 @@ __metadata:
   languageName: node
   linkType: hard
 
+"sdp@npm:^3.2.0":
+  version: 3.2.2
+  resolution: "sdp@npm:3.2.2"
+  checksum: 10c0/62913cbd92b0cca8feb17850dee9e331d6e38402385d4985aac80bde6b35032bfb7453c00096c4d7e6a91a9d73a7ba6235c2368998a54a8edd1c0dd4ec94d9e3
+  languageName: node
+  linkType: hard
+
 "semver@npm:^6.3.1":
   version: 6.3.1
   resolution: "semver@npm:6.3.1"
@@ -6837,6 +6874,15 @@ __metadata:
   languageName: node
   linkType: hard
 
+"webrtc-adapter@npm:9.0.3":
+  version: 9.0.3
+  resolution: "webrtc-adapter@npm:9.0.3"
+  dependencies:
+    sdp: "npm:^3.2.0"
+  checksum: 10c0/bb8c1626cc0e18bd34c03074fc6a541666dbe473c8f063c5d0ea2a3a3a4887f498212a131c936777f660382185f44941476609a50df5f1543015240623375725
+  languageName: node
+  linkType: hard
+
 "whatwg-mimetype@npm:^3.0.0":
   version: 3.0.0
   resolution: "whatwg-mimetype@npm:3.0.0"
@@ -7238,5 +7284,17 @@ __metadata:
   version: 4.3.6
   resolution: "zod@npm:4.3.6"
   checksum: 10c0/860d25a81ab41d33aa25f8d0d07b091a04acb426e605f396227a796e9e800c44723ed96d0f53a512b57be3d1520f45bf69c0cb3b378a232a00787a2609625307
+  languageName: node
+  linkType: hard
+
+"zxing-wasm@npm:2.2.4":
+  version: 2.2.4
+  resolution: "zxing-wasm@npm:2.2.4"
+  dependencies:
+    "@types/emscripten": "npm:^1.41.5"
+    type-fest: "npm:^5.2.0"
+  peerDependencies:
+    "@types/emscripten": ">=1.39.6"
+  checksum: 10c0/96562006f629736f1bd41ef6f3ca5ec738a50e422bb99b7ae5e879a33bf4dcb82970afa2cc7427f3ebcc1c03ad391341a1861d02d72da3ebe9e660cdf397d96f
   languageName: node
   linkType: hard
