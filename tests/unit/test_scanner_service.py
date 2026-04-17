@@ -464,20 +464,96 @@ class TestActionComputation:
         assert "punzierung_check" not in action_ids
 
     @pytest.mark.asyncio
-    async def test_metal_viewer_read_only_actions(
+    async def test_metal_viewer_no_actions_h13(
         self, db_session, viewer_user, sample_metal_purchase
     ):
-        """VIEWER on METAL: no consume_material, no reorder."""
+        """H13 — VIEWER on METAL has no field-level access
+        (METAL_FIELDS_VIEWER is empty). The action list must also be
+        empty: surfacing ``open_entity`` and then landing on a
+        'kein Zugriff' page is sloppy UX. Entity projection stays
+        resolved=True + empty dict — only the actions disappear.
+        """
         resp = await ScannerService.resolve_payload(
             db_session,
             f"METAL:{sample_metal_purchase.id}",
             ScanContext(),
             viewer_user,
         )
+        assert resp.resolved is True
+        assert resp.entity == {}
+        assert resp.actions == []
         action_ids = {a.id for a in resp.actions}
         assert "consume_material" not in action_ids
         assert "reorder" not in action_ids
-        assert "open_entity" in action_ids
+        assert "open_entity" not in action_ids
+
+
+# --------------------------------------------------------------------------- #
+# H13 — empty-projection guard: no actions when role has no field access
+# --------------------------------------------------------------------------- #
+
+
+class TestH13EmptyProjectionGuard:
+    """Pins the behaviour that when the allow-list projection for
+    (entity_type, role) is empty, ``compute_actions`` returns [].
+    Today that matches exactly one combination: METAL + VIEWER.
+    Future additions of empty projections (e.g. HYPOTHETICAL: INVOICE
+    + VIEWER) would inherit the behaviour.
+    """
+
+    def test_is_empty_projection_helper_identifies_metal_viewer(self):
+        from goldsmith_erp.services.scanner_service import (
+            _is_empty_projection,
+        )
+
+        assert _is_empty_projection("metal_purchase", UserRole.VIEWER) is True
+        # GOLDSMITH and ADMIN have non-empty METAL projections.
+        assert (
+            _is_empty_projection("metal_purchase", UserRole.GOLDSMITH)
+            is False
+        )
+        assert _is_empty_projection("metal_purchase", UserRole.ADMIN) is False
+        # Other entity types do not have empty VIEWER projections.
+        assert _is_empty_projection("order", UserRole.VIEWER) is False
+        assert _is_empty_projection("repair", UserRole.VIEWER) is False
+        assert _is_empty_projection("material", UserRole.VIEWER) is False
+        # Unknown entity type — returns False so normal path runs.
+        assert _is_empty_projection("activity", UserRole.VIEWER) is False
+
+    @pytest.mark.asyncio
+    async def test_metal_viewer_actions_list_is_exactly_empty(
+        self, db_session, viewer_user, sample_metal_purchase
+    ):
+        """The action list for METAL+VIEWER must be [] — not a list
+        containing only ``open_entity``, not any other single-action
+        fallback. Pins the H13 outcome precisely.
+        """
+        resp = await ScannerService.resolve_payload(
+            db_session,
+            f"METAL:{sample_metal_purchase.id}",
+            ScanContext(),
+            viewer_user,
+        )
+        assert resp.actions == [], (
+            f"Expected [] but got {[a.id for a in resp.actions]}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_metal_viewer_entity_still_resolves_with_empty_dict(
+        self, db_session, viewer_user, sample_metal_purchase
+    ):
+        """H13 only hides actions — entity still resolves (so the
+        client knows the payload was valid) with the empty field
+        projection (financial-entity lockout remains).
+        """
+        resp = await ScannerService.resolve_payload(
+            db_session,
+            f"METAL:{sample_metal_purchase.id}",
+            ScanContext(),
+            viewer_user,
+        )
+        assert resp.resolved is True
+        assert resp.entity == {}
 
 
 # --------------------------------------------------------------------------- #

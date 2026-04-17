@@ -986,6 +986,20 @@ def _compute_actions_sync(
     context: ScanContext,
     user_role: UserRole,
 ) -> List[ActionItem]:
+    # H13 — if the role's allow-list projection is empty for this
+    # entity type, the user has no field-level access. Returning a
+    # non-empty action list (e.g. ``open_entity``) in that case is a
+    # sloppy UX: tapping the action lands on a "kein Zugriff" detail
+    # page. Cleanest signal is an empty action list — the Quick-Action
+    # Modal then renders the entity identifier only, no actions.
+    #
+    # Currently this triggers for VIEWER on METAL (METAL_FIELDS_VIEWER
+    # is a deliberately empty frozenset). Future entity types that
+    # add an empty-projection role inherit the same behaviour for
+    # free.
+    if _is_empty_projection(entity_type, user_role):
+        return []
+
     if entity_type == "order":
         return _compute_order_actions(entity, context, user_role)
     if entity_type == "repair":
@@ -996,6 +1010,32 @@ def _compute_actions_sync(
         return _compute_material_actions(entity, context, user_role)
     # ACTIVITY / INTERRUPT — no actions (toast-only).
     return []
+
+
+# Map of entity_type string to the role-keyed allow-list dict. Defined
+# after the *_FIELDS_BY_ROLE constants exist (below). The lookup is
+# populated lazily in _is_empty_projection to avoid a forward-reference
+# tangle with the module's load order.
+_FIELDS_BY_ROLE_LOOKUP: Dict[str, Dict[UserRole, FrozenSet[str]]] = {}
+
+
+def _is_empty_projection(entity_type: str, user_role: UserRole) -> bool:
+    """H13 — true if the role's allow-list for this entity is empty."""
+    global _FIELDS_BY_ROLE_LOOKUP
+    if not _FIELDS_BY_ROLE_LOOKUP:
+        _FIELDS_BY_ROLE_LOOKUP = {
+            "order": ORDER_FIELDS_BY_ROLE,
+            "repair": REPAIR_FIELDS_BY_ROLE,
+            "metal_purchase": METAL_FIELDS_BY_ROLE,
+            "material": MATERIAL_FIELDS_BY_ROLE,
+        }
+    table = _FIELDS_BY_ROLE_LOOKUP.get(entity_type)
+    if table is None:
+        # activity / interruption have no field projection — not empty,
+        # just not applicable. Default to False so the normal action
+        # path runs.
+        return False
+    return len(table.get(user_role, frozenset())) == 0
 
 
 def _compute_order_actions(
@@ -1075,10 +1115,11 @@ def _compute_metal_actions(
 ) -> List[ActionItem]:
     actions: List[ActionItem] = []
     if user_role == UserRole.VIEWER:
-        # VIEWER has no write access to financial entities; only the
-        # "open" action is available (and even that may render a
-        # "kein Zugriff" error downstream — this is a UI concern).
-        actions.append(_ACTION_OPEN_ENTITY)
+        # Dead branch after H13 — the empty-projection guard in
+        # `_compute_actions_sync` returns [] before this function is
+        # reached for VIEWER on METAL. Kept defensively so a future
+        # call that bypasses the top-level guard still returns an
+        # empty list (no access to financial entity).
         return actions
     # GOLDSMITH / ADMIN
     actions.append(_ACTION_CONSUME_METAL)
