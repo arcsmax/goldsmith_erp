@@ -201,3 +201,66 @@
     grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
   }
 }
+
+/* ---------- Slice 12 additions ---------- */
+
+.scanner-section-heading {
+  font-size: 1rem;
+  font-weight: 600;
+  color: #444;
+  margin: 1.5rem 0 0.75rem;
+  text-align: left;
+}
+
+.scanner-camera-section,
+.scanner-manual-section {
+  text-align: left;
+}
+
+.btn-scan-secondary {
+  margin-top: 0.5rem;
+  padding: 0.75rem 1.5rem;
+  background: transparent;
+  color: var(--color-border-focus, #d97706);
+  border: 2px solid var(--color-border-focus, #d97706);
+  border-radius: 8px;
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.scanner-history-empty,
+.scanner-history-error {
+  color: #666;
+  text-align: left;
+  padding: 0.75rem 0;
+  margin: 0;
+}
+
+.scanner-history-error {
+  color: #b91c1c;
+}
+
+.scanned-item-row {
+  list-style: none;
+}
+
+.scanned-action {
+  display: block;
+  margin-top: 0.25rem;
+  font-size: 0.8rem;
+  color: #6b7280;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+

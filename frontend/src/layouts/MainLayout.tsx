@@ -7,6 +7,10 @@ import TimerWidget from '../components/TimerWidget';
 // authenticated page. Stacks cleanly above TimerWidget via the
 // --fab-bottom CSS token (see styles/components/ScanFab.css).
 import { ScanFab, ScanOverlay } from '../components/scanner';
+// Slice 12 / A12.1 — one-time toast nudge when a likely USB-HID scanner
+// burst is detected while Werkbank-Modus is off. Default-OFF HID is
+// invisible; the nudge is Lena's killer #2 mitigation.
+import { HidBurstNudge } from '../components/HidBurstNudge';
 import { OfflineIndicator } from '../components/OfflineIndicator';
 import { NotificationBell } from '../components/NotificationBell';
 import { HealthDot } from '../components/HealthDot';
@@ -287,6 +291,12 @@ export const MainLayout: React.FC = () => {
           page renders over it. The overlay is position:fixed with
           z-index 1500 — above TimerWidget (1050) and ScanFab (1060). */}
       <ScanOverlay />
+
+      {/* HID burst-detection nudge (A12.1). Invisible — attaches a
+          document-level keydown listener and triggers a one-time toast
+          when a suspected USB scanner burst fires while Werkbank-Modus
+          is off and the user is a goldsmith. */}
+      <HidBurstNudge />
     </div>
   );
 };
