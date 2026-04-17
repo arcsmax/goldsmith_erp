@@ -93,6 +93,12 @@ ANONYMIZABLE_FK_TARGETS: list[tuple[str, str]] = [
     ("scan_logs", "user_id"),
     ("barcode_aliases", "created_by"),
     ("label_templates", "created_by"),
+    # Slice 2 (Migration 2) — security floor. Two new FK columns to
+    # users(id) land as ON DELETE RESTRICT on orders and material_usage.
+    # Same anonymisation contract — registry extension is the one-line
+    # diff the contract anticipated.
+    ("orders", "punzierung_verified_by"),
+    ("material_usage", "user_id"),
 ]
 
 

@@ -11,6 +11,7 @@ from sqlalchemy import (
     Table,
     Text,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSON
 from sqlalchemy.ext.declarative import declarative_base
@@ -198,6 +199,15 @@ class User(Base):
     # SQ1). Nullable in V1.1; V1.2 migration will make it NOT NULL after
     # backfilling a tenant for every user + sentinel row.
     tenant_id = Column(Integer, nullable=True, index=True)
+
+    # A2.1 — excludes fixture / seed accounts from the 30-day scan-adoption
+    # metric (Lena §1). Default FALSE so existing users are unaffected.
+    is_test_user = Column(
+        Boolean,
+        nullable=False,
+        server_default=text("FALSE"),
+        default=False,
+    )
 
 
 class Customer(Base):
@@ -433,6 +443,38 @@ class Order(Base):
     has_scrap_gold = Column(Boolean, default=False)  # Altgold vorhanden?
     special_instructions = Column(Text, nullable=True)  # Sonderwuensche
 
+    # ── Slice 2 — Punzierungs-Check + retention tagging ────────────────
+    # A2.5 / A2.8 — audit evidence for Feingehaltsgesetz / DIN 8238.
+    # Set by the PunzierungsCheckModal flow; marks list is populated with
+    # values from A3.2 (e.g. "feingehalt_585", "meisterzeichen").
+    punzierung_verified_at = Column(DateTime(timezone=True), nullable=True)
+    punzierung_verified_by = Column(
+        Integer,
+        ForeignKey(
+            "users.id",
+            name="fk_orders_punzierung_verified_by_users",
+            ondelete="RESTRICT",
+        ),
+        nullable=True,
+    )
+    # JSONB on PostgreSQL (via the dialect JSON alias); JSON/TEXT on SQLite.
+    # Server-side default is an empty array so readers never see NULL.
+    punzierung_verified_marks = Column(
+        JSON,
+        nullable=False,
+        server_default=text("'[]'"),
+        default=list,
+    )
+    # A2.7 — retention bucket. Orders default to indefinite_business;
+    # A2.8 promotes this to 'hallmark_10y' the first time a mark is
+    # recorded (service-layer write path, Slice 5).
+    retention_class = Column(
+        String(32),
+        nullable=False,
+        server_default=text("'indefinite_business'"),
+        default="indefinite_business",
+    )
+
     # Soft delete
     is_deleted = Column(Boolean, default=False, index=True)
     deleted_at = Column(DateTime, nullable=True)
@@ -577,6 +619,36 @@ class TimeEntry(Base):
     notes = Column(Text)
     extra_metadata = Column(JSON)  # Flexible für zusätzliche Daten
     created_at = Column(DateTime, default=datetime.utcnow)
+
+    # ── Slice 2 — origin + correction tracking + retention ────────────
+    # A2-origin — Lena §1 adoption metric. Values: 'manual' | 'scan' |
+    # 'recovery' | 'import'. Back-populated to 'manual' for pre-Slice-2
+    # rows by the migration; every new row must set this explicitly.
+    origin = Column(
+        String(20),
+        nullable=False,
+        server_default=text("'manual'"),
+        default="manual",
+    )
+    # A2.2 — self-FK to the entry this row corrects (admin payroll fix).
+    # ON DELETE SET NULL so that deleting the original entry (rare, only
+    # via admin tools) leaves the correction in place as a standalone row.
+    correction_of = Column(
+        String(36),
+        ForeignKey(
+            "time_entries.id",
+            name="fk_time_entries_correction_of_self",
+            ondelete="SET NULL",
+        ),
+        nullable=True,
+    )
+    # A2.7 — HGB §257 requires 10-year financial retention.
+    retention_class = Column(
+        String(32),
+        nullable=False,
+        server_default=text("'financial_10y'"),
+        default="financial_10y",
+    )
 
     # Beziehungen
     order = relationship("Order", back_populates="time_entries")
@@ -803,9 +875,45 @@ class MaterialUsage(Base):
     # Notes
     notes = Column(Text, nullable=True)
 
+    # ── Slice 2 — alloy override audit + retention + user FK ──────────
+    # A2 / R10 — captured when a goldsmith overrides the alloy mismatch
+    # (metal_purchase.alloy != order.alloy). Default FALSE so legacy rows
+    # back-populate correctly.
+    alloy_override = Column(
+        Boolean,
+        nullable=False,
+        server_default=text("FALSE"),
+        default=False,
+    )
+    # A2.3 — DB-nullable freetext reason. Pydantic enforces 3–200 chars.
+    override_reason = Column(Text, nullable=True)
+    # A2.4 — enum-like category. Allowed values enforced at Pydantic layer:
+    #   charge_abweichung | kleinteil | notfall | sonstiges
+    override_reason_category = Column(String(32), nullable=True)
+    # A2.7 — HGB §257: 10-year retention for financial audit.
+    retention_class = Column(
+        String(32),
+        nullable=False,
+        server_default=text("'financial_10y'"),
+        default="financial_10y",
+    )
+    # NEW in Slice 2 — column wasn't in the ORM previously. Anna B2
+    # assumed it existed. Nullable so we can backfill via a later slice
+    # if needed; new writes (Slice 5) will set it from current_user.id.
+    user_id = Column(
+        Integer,
+        ForeignKey(
+            "users.id",
+            name="fk_material_usage_user_id_users",
+            ondelete="RESTRICT",
+        ),
+        nullable=True,
+    )
+
     # Relationships
     order = relationship("Order", back_populates="material_usage_records")
     metal_purchase = relationship("MetalPurchase", back_populates="usage_records")
+    user = relationship("User", foreign_keys=[user_id])
 
     def __repr__(self):
         return f"<MaterialUsage Order#{self.order_id} used {self.weight_used_g}g @ {self.price_per_gram_at_time:.2f} EUR/g>"
@@ -2210,3 +2318,36 @@ Index(
     postgresql_where=ScanLog.idempotency_key.isnot(None),
 )
 Index("idx_template_entity_type", LabelTemplate.entity_type)
+
+# Slice 2 — security floor + audit indexes. Names match the Alembic
+# migration (20260419_security_floor) so both create_all() and
+# `alembic upgrade head` produce identical index shapes.
+#
+# Composite index for the 30-day scan-adoption metric query (Lena §1).
+Index(
+    "idx_time_entries_origin_created_at",
+    TimeEntry.origin,
+    TimeEntry.created_at,
+)
+# Partial on PG / plain on SQLite — the migration emits the WHERE clause
+# conditionally, and create_all honours the kwargs below on PG only.
+Index(
+    "idx_time_entries_correction_of",
+    TimeEntry.correction_of,
+    postgresql_where=TimeEntry.correction_of.isnot(None),
+)
+Index(
+    "idx_orders_punzierung_verified_at",
+    Order.punzierung_verified_at,
+    postgresql_where=Order.punzierung_verified_at.isnot(None),
+)
+Index(
+    "idx_users_is_test_user",
+    User.is_test_user,
+    postgresql_where=User.is_test_user.is_(True),
+)
+# retention_class indexes — small, selective buckets for the future
+# retention engine.
+Index("idx_orders_retention_class", Order.retention_class)
+Index("idx_material_usage_retention_class", MaterialUsage.retention_class)
+Index("idx_time_entries_retention_class", TimeEntry.retention_class)
