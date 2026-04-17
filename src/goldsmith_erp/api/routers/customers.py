@@ -351,6 +351,112 @@ async def gdpr_export_customer(
     }
 
 
+# ---------------------------------------------------------------------------
+# H10 helpers — GDPR request lifecycle tracking.
+# ---------------------------------------------------------------------------
+
+
+async def _write_pending_gdpr_request(
+    db: AsyncSession,
+    *,
+    customer_id: int,
+    performed_by: int,
+    idem: IdempotencyContext,
+) -> Optional[int]:
+    """Write a ``gdpr_requests`` row with status='PENDING' in its own
+    committed transaction. Returns the new row id, or None if the
+    write failed (so the caller knows the terminal-state update will
+    be skipped).
+
+    The row is committed immediately — the subsequent main erasure
+    transaction cannot roll it back, so every erasure attempt
+    (including those that 404, 409, or fail inside scrub) appears in
+    the Art. 30 Verzeichnis der Verarbeitungstätigkeiten.
+    """
+    try:
+        pending = GDPRRequest(
+            customer_id=customer_id,
+            request_type="erasure",
+            status="PENDING",
+            requested_at=datetime.utcnow(),
+            requested_by=performed_by,
+            notes=(
+                "Art. 17 erasure request received — awaiting "
+                "scrub + file sweep."
+                + (
+                    f" idempotency_key={idem.key}"
+                    if idem.key is not None
+                    else ""
+                )
+            ),
+        )
+        db.add(pending)
+        await db.commit()
+        await db.refresh(pending)
+        new_id = pending.id
+        logger.info(
+            "GDPR request PENDING row written",
+            extra={
+                "audit": True,
+                "action": "gdpr_request_pending_written",
+                "gdpr_request_id": new_id,
+                "customer_id": customer_id,
+                "user_id": performed_by,
+            },
+        )
+        return new_id
+    except Exception:  # noqa: BLE001 — pre-request audit is best-effort
+        # Roll back so the caller's subsequent commit doesn't carry
+        # stale state, then log and fall through — absence of an
+        # Art. 30 row is separately visible in the failure log.
+        try:
+            await db.rollback()
+        except Exception:  # noqa: BLE001
+            pass
+        logger.error(
+            "Failed to write PENDING gdpr_requests row — request proceeds "
+            "without Art. 30 entry",
+            extra={
+                "audit": True,
+                "action": "gdpr_request_pending_write_failed",
+                "customer_id": customer_id,
+                "user_id": performed_by,
+            },
+            exc_info=True,
+        )
+        return None
+
+
+async def _finalize_pending_gdpr_request(
+    db: AsyncSession,
+    *,
+    gdpr_request_id: int,
+    new_status: str,
+    notes_suffix: Optional[str],
+) -> None:
+    """Update a PENDING ``gdpr_requests`` row to a terminal status.
+
+    Commits on the existing session state. Caller may wrap in its own
+    try/except so the original exception of the request is not masked
+    if this update fails.
+    """
+    result = await db.execute(
+        select(GDPRRequest).filter(GDPRRequest.id == gdpr_request_id)
+    )
+    row = result.scalar_one_or_none()
+    if row is None:
+        return
+    row.status = new_status
+    if new_status not in ("PENDING",):
+        row.completed_at = datetime.utcnow()
+    if notes_suffix:
+        existing = row.notes or ""
+        row.notes = (
+            f"{existing}\n{notes_suffix}" if existing else notes_suffix
+        )
+    await db.commit()
+
+
 @router.delete("/{customer_id}/gdpr-erase")
 async def gdpr_erase_customer(
     response: Response,
@@ -366,48 +472,113 @@ async def gdpr_erase_customer(
     """
     GDPR Art. 17 — Request erasure of all personal data for a customer.
 
-    Four things happen atomically in a single DB transaction:
+    Lifecycle of the ``gdpr_requests`` Art. 30 row (H10 — audit-complete
+    for DPO sign-off):
+
+      * **PENDING** — written as a committed sub-transaction before any
+        work. Guarantees that every erasure request — including those
+        that 404, 409, or fail before scrub starts — appears in the
+        Art. 30 Verzeichnis.
+      * **completed** — scrub + file sweep both succeeded.
+      * **PARTIAL_FILE_ERASURE** — DB scrub succeeded but at least one
+        file deletion failed. Admin follow-up required.
+      * **FAILED** — validation / not-found / unexpected exception.
+        ``notes`` records the error type (never PII).
+
+    Four things happen during the main transaction:
       1. Customer is deactivated (is_active=False) and scheduled for
          hard-delete after a 30-day grace period.
       2. Customer PII (names, phone, email) is scrubbed from related
          free-text fields — order descriptions, special instructions,
          order comments, time-entry notes, and the customer's own
          ``notes`` column (F1). See `CustomerService.scrub_customer_pii`
-         for the full scope.
+         for the full scope. Invoked with ``skip_gdpr_request=True``
+         because this endpoint owns the Art. 30 row lifecycle.
       3. Filesystem artefacts referenced by customer-linked rows
          (generated PDFs, order/repair photos, scrap-gold receipts) are
          deleted by `FileErasureService.erase_customer_files` (O1/O2).
-      4. Audit rows are written to `customer_audit_logs` and a tracking
-         row to `gdpr_requests` (Art. 30 record of processing).
+      4. ``customer_audit_logs`` rows are written and the
+         ``gdpr_requests`` row promoted to its terminal status.
 
     Response status codes:
       - **200 OK** — every file erased cleanly.
       - **207 Multi-Status** — DB scrub succeeded but at least one file
-        deletion failed (permission denied, path-traversal refusal,
-        IO error). The response body reports the failing paths; the
-        corresponding DB rows still reference the file so an admin
-        can re-run or manually handle. The ``gdpr_requests`` row is
-        updated to ``status='PARTIAL_FILE_ERASURE'`` for audit.
+        deletion failed. The response body reports the failing paths.
+      - **404** — customer not found. GDPR request row written with
+        ``status='FAILED'``, notes='customer_not_found'.
+      - **409** — customer already scheduled for deletion. Row written
+        with ``status='FAILED'``, notes='already_scheduled'.
       - **500** — unexpected error during scrub or file sweep; the
-        whole transaction is rolled back.
+        main transaction is rolled back but the PENDING GDPR row is
+        promoted to FAILED in a follow-up save.
 
     The gdpr-cleanup.sh cron job performs the actual customer-row
     hard-delete once the 30-day grace period has passed.
 
     Permissions: Requires CUSTOMER_DELETE permission (Admin only).
     """
+
+    # Snapshot the admin user id in a plain int so subsequent rollbacks
+    # of the session don't trigger an expired-attribute reload on
+    # `current_user` (which happens under an exception path and
+    # produces a confusing greenlet error).
+    admin_user_id: int = int(current_user.id)
+
+    # --- H10: PENDING request row written in its OWN transaction ---------
+    # Written before ANY other work so validation / 404 / 409 paths also
+    # appear in gdpr_requests. Committed immediately; the main erasure
+    # transaction updates this row to the terminal status later.
+    gdpr_request_id = await _write_pending_gdpr_request(
+        db,
+        customer_id=customer_id,
+        performed_by=admin_user_id,
+        idem=idem,
+    )
+
+    async def _finalize_gdpr_request(
+        new_status: str, notes_suffix: Optional[str] = None
+    ) -> None:
+        """Update the PENDING row to a terminal status in a fresh txn.
+
+        Uses a dedicated try/except so that a DB error during the
+        audit-row update cannot mask the caller's original exception.
+        """
+        if gdpr_request_id is None:
+            return
+        try:
+            await _finalize_pending_gdpr_request(
+                db,
+                gdpr_request_id=gdpr_request_id,
+                new_status=new_status,
+                notes_suffix=notes_suffix,
+            )
+        except Exception:  # noqa: BLE001 — audit row update is best-effort
+            logger.error(
+                "GDPR request finalisation failed — row remains PENDING",
+                extra={
+                    "audit": True,
+                    "action": "gdpr_request_finalize_failed",
+                    "gdpr_request_id": gdpr_request_id,
+                    "customer_id": customer_id,
+                    "attempted_status": new_status,
+                },
+                exc_info=True,
+            )
+
     result = await db.execute(
         select(CustomerModel).filter(CustomerModel.id == customer_id)
     )
     customer = result.scalar_one_or_none()
 
     if not customer:
+        await _finalize_gdpr_request("FAILED", notes_suffix="customer_not_found")
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Customer {customer_id} not found",
         )
 
     if customer.deletion_scheduled_at is not None:
+        await _finalize_gdpr_request("FAILED", notes_suffix="already_scheduled")
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=(
@@ -427,12 +598,14 @@ async def gdpr_erase_customer(
         customer.deletion_scheduled_at = deletion_date
         customer.updated_at = datetime.utcnow()
 
-        # Scrub PII from related free-text records. This also writes
-        # CustomerAuditLog + GDPRRequest entries.
+        # Scrub PII from related free-text records. skip_gdpr_request=True
+        # because THIS endpoint manages the full request lifecycle
+        # (PENDING row already written above).
         scrub_counts = await CustomerService.scrub_customer_pii(
             db,
             customer_id=customer_id,
-            performed_by=current_user.id,
+            performed_by=admin_user_id,
+            skip_gdpr_request=True,
         )
 
         # File-level erasure — deletes actual files on disk referenced
@@ -441,35 +614,8 @@ async def gdpr_erase_customer(
         file_erasure_result = await file_erasure.erase_customer_files(
             db,
             customer_id=customer_id,
-            performed_by=current_user.id,
+            performed_by=admin_user_id,
         )
-
-        # If the file sweep had per-file failures, promote the
-        # pending GDPRRequest row (written by scrub_customer_pii with
-        # status='completed') to 'PARTIAL_FILE_ERASURE' so the DPO
-        # can see at a glance that manual follow-up is required.
-        if file_erasure_result.files_failed > 0:
-            gdpr_request_result = await db.execute(
-                select(GDPRRequest)
-                .filter(
-                    GDPRRequest.customer_id == customer_id,
-                    GDPRRequest.request_type == "erasure",
-                )
-                .order_by(GDPRRequest.id.desc())
-                .limit(1)
-            )
-            gdpr_request = gdpr_request_result.scalar_one_or_none()
-            if gdpr_request is not None:
-                gdpr_request.status = "PARTIAL_FILE_ERASURE"
-                existing_notes = gdpr_request.notes or ""
-                failure_summary = (
-                    f"\nFile-erasure partial failure: "
-                    f"{file_erasure_result.files_failed} file(s) could not "
-                    f"be deleted. Admin follow-up required. See "
-                    f"customer_audit_logs.action='gdpr_file_erasure' for "
-                    f"per-file errors."
-                )
-                gdpr_request.notes = existing_notes + failure_summary
 
         await db.commit()
     except Exception:
@@ -480,13 +626,42 @@ async def gdpr_erase_customer(
                 "audit": True,
                 "action": "gdpr_erase_request_failed",
                 "customer_id": customer_id,
-                "user_id": current_user.id,
+                "user_id": admin_user_id,
+                "gdpr_request_id": gdpr_request_id,
             },
             exc_info=True,
+        )
+        await _finalize_gdpr_request(
+            "FAILED", notes_suffix="scrub_or_file_erasure_exception"
         )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="GDPR erasure failed — no changes persisted.",
+        )
+
+    # --- Success path — promote PENDING row to terminal status ----------
+    if file_erasure_result.files_failed > 0:
+        partial_note = (
+            f"File-erasure partial failure: "
+            f"{file_erasure_result.files_failed} file(s) could not be "
+            f"deleted. Admin follow-up required. See "
+            f"customer_audit_logs.action='gdpr_file_erasure' for "
+            f"per-file errors."
+        )
+        await _finalize_gdpr_request(
+            "PARTIAL_FILE_ERASURE",
+            notes_suffix=(
+                f"Art. 17 erasure — scrubbed {scrub_counts.get('total', 0)} "
+                f"PII occurrence(s); {partial_note}"
+            ),
+        )
+    else:
+        await _finalize_gdpr_request(
+            "completed",
+            notes_suffix=(
+                f"Art. 17 erasure — scrubbed {scrub_counts.get('total', 0)} "
+                f"PII occurrence(s); all files erased cleanly."
+            ),
         )
 
     # Audit log — GDPR erasure requests are legally significant.
@@ -499,7 +674,7 @@ async def gdpr_erase_customer(
             "audit": True,
             "action": "gdpr_erase_request",
             "customer_id": customer_id,
-            "user_id": current_user.id,
+            "user_id": admin_user_id,
             "deletion_scheduled": deletion_date.isoformat(),
             "pii_redaction_count": scrub_counts.get("total", 0),
             "idempotency_key": str(idem.key) if idem.key else None,

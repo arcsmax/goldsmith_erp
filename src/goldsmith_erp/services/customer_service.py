@@ -846,6 +846,7 @@ class CustomerService:
         customer_id: int,
         *,
         performed_by: Optional[int] = None,
+        skip_gdpr_request: bool = False,
     ) -> Dict[str, int]:
         """Scrub customer PII from free-text fields on related records.
 
@@ -880,6 +881,13 @@ class CustomerService:
                 scrubbed.
             performed_by: Optional user id of the administrator who
                 triggered the erasure. Written to the audit log.
+            skip_gdpr_request: If True, do NOT write a GDPRRequest row
+                from this call. The caller (typically the
+                ``/gdpr-erase`` router) is responsible for writing the
+                Art. 30 tracking row with the full request lifecycle
+                (PENDING → COMPLETED / PARTIAL / FAILED). Default False
+                preserves backward compatibility for standalone callers
+                (tests, admin-panel bulk scrub, future batch jobs).
 
         Returns:
             Dict counting redactions per field. Keys enumerate every field
@@ -1023,13 +1031,18 @@ class CustomerService:
             v for k, v in counts.items() if k != "total"
         )
 
-        # Step 4: write audit records (CustomerAuditLog + GDPRRequest).
+        # Step 4: write audit records (CustomerAuditLog always, plus
+        # optionally GDPRRequest). The ``/gdpr-erase`` router sets
+        # skip_gdpr_request=True because it manages the Art. 30 row
+        # across the full request lifecycle (PENDING at entry → final
+        # status on exit) — see H10 in V1.1-POST-WAVE5-COMPLIANCE-AUDIT.
         await CustomerService._write_scrub_audit_logs(
             db,
             customer_id=customer_id,
             performed_by=performed_by,
             counts=counts,
             token_count=len(tokens),
+            write_gdpr_request=not skip_gdpr_request,
         )
 
         # Flush so the caller's transaction commits the updates atomically.
@@ -1059,14 +1072,21 @@ class CustomerService:
         performed_by: Optional[int],
         counts: Dict[str, int],
         token_count: int,
+        write_gdpr_request: bool = True,
     ) -> None:
-        """Write CustomerAuditLog + GDPRRequest rows documenting the scrub.
+        """Write CustomerAuditLog + (optionally) GDPRRequest rows.
 
         Called from `scrub_customer_pii`. Separated so tests can assert on
         the audit side-effect without re-running the scrub logic.
 
         ``details.scope`` is derived from ``SCRUBBABLE_FIELDS`` so adding
         a new target automatically extends the audit payload.
+
+        When ``write_gdpr_request=False`` (H10 — invoked by the
+        ``/gdpr-erase`` router), the Art. 30 row is the caller's
+        responsibility and is NOT written here. The CustomerAuditLog
+        row is written unconditionally because it captures the scrub
+        event separately from the request lifecycle.
         """
         scope_keys = [target.counter_key for target in SCRUBBABLE_FIELDS]
         scrubbed_field_count = sum(
@@ -1089,16 +1109,17 @@ class CustomerService:
         )
         db.add(audit_log)
 
-        gdpr_request = GDPRRequest(
-            customer_id=customer_id,
-            request_type="erasure",
-            status="completed",
-            requested_by=performed_by,
-            completed_at=datetime.utcnow(),
-            notes=(
-                f"Art. 17 erasure — scrubbed {counts['total']} PII "
-                f"occurrence(s) across {token_count} token(s) in "
-                f"{scrubbed_field_count}/{len(scope_keys)} covered fields."
-            ),
-        )
-        db.add(gdpr_request)
+        if write_gdpr_request:
+            gdpr_request = GDPRRequest(
+                customer_id=customer_id,
+                request_type="erasure",
+                status="completed",
+                requested_by=performed_by,
+                completed_at=datetime.utcnow(),
+                notes=(
+                    f"Art. 17 erasure — scrubbed {counts['total']} PII "
+                    f"occurrence(s) across {token_count} token(s) in "
+                    f"{scrubbed_field_count}/{len(scope_keys)} covered fields."
+                ),
+            )
+            db.add(gdpr_request)
