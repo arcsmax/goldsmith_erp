@@ -117,11 +117,13 @@ class ScanContext(StrictRequestBase):
 # ResolveRequest / ResolveResponse
 # --------------------------------------------------------------------------- #
 
-# ASCII control characters except horizontal tab (\t) are stripped from
-# raw payloads. Null bytes (\x00) are rejected outright — they should
-# never appear in a scanned string and their presence typically
+# ASCII control characters except horizontal tab (\t, \x09) are stripped
+# from raw payloads. This **includes** LF (\x0a) and CR (\x0d) — scanner
+# hardware routinely emits CR/LF tails that are transport artefacts, not
+# part of the payload. Null bytes (\x00) are rejected outright — they
+# should never appear in a scanned string and their presence typically
 # indicates an injection attempt. See spec §M6 / Henrik R6.
-_CONTROL_CHAR_RE = re.compile(r"[\x00-\x08\x0b-\x1f\x7f]")
+_CONTROL_CHAR_RE = re.compile(r"[\x00-\x08\x0a-\x1f\x7f]")
 
 
 class ResolveRequest(StrictRequestBase):
