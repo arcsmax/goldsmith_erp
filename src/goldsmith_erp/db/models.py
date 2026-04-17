@@ -261,7 +261,9 @@ class Customer(Base):
     # Soft delete
     is_deleted = Column(Boolean, default=False, nullable=False, index=True)
     deleted_at = Column(DateTime, nullable=True)
-    deleted_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+    deleted_by = Column(
+        Integer, ForeignKey("users.id", ondelete="RESTRICT"), nullable=True
+    )
     deletion_reason = Column(String(500), nullable=True)
 
     # Beziehungen
@@ -540,7 +542,12 @@ class OrderComment(Base):
     order_id = Column(
         Integer, ForeignKey("orders.id", ondelete="CASCADE"), nullable=False, index=True
     )
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    user_id = Column(
+        Integer,
+        ForeignKey("users.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
     text = Column(Text, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, index=True)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -586,7 +593,9 @@ class Activity(Base):
     average_duration_minutes = Column(Float)
     last_used = Column(DateTime)
     is_custom = Column(Boolean, default=False)
-    created_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+    created_by = Column(
+        Integer, ForeignKey("users.id", ondelete="RESTRICT"), nullable=True
+    )
     created_at = Column(DateTime, default=datetime.utcnow)
 
     # Beziehungen
@@ -606,7 +615,12 @@ class TimeEntry(Base):
         nullable=False,
         index=True,
     )
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    user_id = Column(
+        Integer,
+        ForeignKey("users.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
     activity_id = Column(
         Integer, ForeignKey("activities.id"), nullable=False, index=True
     )
@@ -743,7 +757,9 @@ class LocationHistory(Base):
     order_id = Column(Integer, ForeignKey("orders.id"), nullable=False, index=True)
     location = Column(String(50), nullable=False)
     timestamp = Column(DateTime, default=datetime.utcnow, index=True)
-    changed_by = Column(Integer, ForeignKey("users.id"), nullable=False)
+    changed_by = Column(
+        Integer, ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
+    )
 
     # Beziehungen
     order = relationship("Order")
@@ -762,7 +778,9 @@ class OrderPhoto(Base):
     )
     file_path = Column(String(500), nullable=False)
     timestamp = Column(DateTime, default=datetime.utcnow, index=True)
-    taken_by = Column(Integer, ForeignKey("users.id"), nullable=False)
+    taken_by = Column(
+        Integer, ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
+    )
     notes = Column(Text)
 
     # Beziehungen
@@ -1003,7 +1021,9 @@ class InventoryAdjustment(Base):
 
     # Reason & Documentation
     reason = Column(Text, nullable=False)
-    adjusted_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    adjusted_by_user_id = Column(
+        Integer, ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
+    )
 
     # Timestamps
     adjusted_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
@@ -1033,7 +1053,9 @@ class ScrapGold(Base):
         nullable=True,
         index=True,
     )
-    created_by = Column(Integer, ForeignKey("users.id"), nullable=False)
+    created_by = Column(
+        Integer, ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
+    )
     status = Column(
         SAEnum(ScrapGoldStatus), default=ScrapGoldStatus.RECEIVED, nullable=False
     )
@@ -1226,7 +1248,9 @@ class Invoice(Base):
         nullable=False,
         index=True,
     )
-    created_by = Column(Integer, ForeignKey("users.id"), nullable=False)
+    created_by = Column(
+        Integer, ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
+    )
 
     # Status
     status = Column(
@@ -1356,7 +1380,9 @@ class Quote(Base):
         nullable=False,
         index=True,
     )
-    created_by = Column(Integer, ForeignKey("users.id"), nullable=False)
+    created_by = Column(
+        Integer, ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
+    )
 
     # Status
     status = Column(
@@ -2143,7 +2169,9 @@ class GDPRRequest(Base):
     status = Column(String(20), nullable=False, default="pending")
     requested_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     completed_at = Column(DateTime, nullable=True)
-    requested_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+    requested_by = Column(
+        Integer, ForeignKey("users.id", ondelete="RESTRICT"), nullable=True
+    )
     notes = Column(Text, nullable=True)
 
 
