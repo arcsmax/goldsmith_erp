@@ -2,6 +2,9 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef, ReactNode } from 'react';
 import { timeTrackingApi } from '../api/time-tracking';
 import { activitiesApi } from '../api/activities';
+import apiClient from '../api/client';
+import { useAuth } from './AuthContext';
+import { useWebSocket, type WebSocketMessage } from '../hooks/useWebSocket';
 import {
   TimeEntry,
   Activity,
@@ -20,6 +23,19 @@ interface TimeTrackingContextType {
   // Methods
   startTracking: (orderId: number, activityId: number, location?: string) => Promise<void>;
   stopTracking: (entryId: string, stopData: TimeEntryStopInput) => Promise<void>;
+  /**
+   * Slice 11 — atomic stop-old + start-new. In V1.1 there is no dedicated
+   * backend switch endpoint (TimeTrackingService.switch_timer is exposed
+   * via the scan-driven path only). Client emulates by stop-then-start;
+   * the server enforces per-user ownership on stop. A 409
+   * TIMER_POSSIBLY_STALE surfaces as a thrown error with `.code` so the
+   * caller can render the Mittagspause modal (A11.5).
+   */
+  switchTracking: (
+    orderId: number,
+    activityId: number,
+    options?: { location?: string; idempotencyKey?: string }
+  ) => Promise<TimeEntry>;
   refreshRunningEntry: () => Promise<void>;
   refreshActivities: () => Promise<void>;
   clearError: () => void;
@@ -138,6 +154,75 @@ export const TimeTrackingProvider: React.FC<TimeTrackingProviderProps> = ({ chil
   };
 
   /**
+   * Slice 11 — switchTracking.
+   *
+   * Atomic stop-old + start-new. Throws on 409 TIMER_POSSIBLY_STALE with
+   * a `.code` field the caller can sniff to render the Mittagspause modal.
+   */
+  const switchTracking = useCallback(
+    async (
+      orderId: number,
+      activityId: number,
+      options?: { location?: string; idempotencyKey?: string }
+    ): Promise<TimeEntry> => {
+      try {
+        setIsLoading(true);
+        setError(null);
+
+        if (runningEntry) {
+          try {
+            await apiClient.post(
+              `/time-tracking/${runningEntry.id}/stop`,
+              {},
+              options?.idempotencyKey
+                ? { headers: { 'Idempotency-Key': options.idempotencyKey } }
+                : undefined,
+            );
+          } catch (stopErr: any) {
+            // Surface stale-timer guard to caller (A5.2 / A11.5).
+            const detail = stopErr?.response?.data?.detail;
+            if (
+              stopErr?.response?.status === 409 &&
+              detail &&
+              typeof detail === 'object' &&
+              (detail as { code?: string }).code === 'TIMER_POSSIBLY_STALE'
+            ) {
+              const staleError = new Error(
+                'Timer laeuft auffaellig lange — Mittagspause abziehen?',
+              );
+              (staleError as any).code = 'TIMER_POSSIBLY_STALE';
+              throw staleError;
+            }
+            throw stopErr;
+          }
+        }
+
+        const response = await apiClient.post<TimeEntry>(
+          '/time-tracking/start',
+          {
+            order_id: orderId,
+            activity_id: activityId,
+            location: options?.location,
+          },
+          options?.idempotencyKey
+            ? { headers: { 'Idempotency-Key': options.idempotencyKey } }
+            : undefined,
+        );
+        const entry = response.data;
+        setRunningEntry(entry);
+        return entry;
+      } catch (err: any) {
+        console.error('Failed to switch tracking:', err);
+        setError(err.message || 'Timer konnte nicht gewechselt werden');
+        throw err;
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [runningEntry],
+  );
+
+  /**
    * Start polling for running entry
    */
   const startPolling = useCallback(() => {
@@ -209,6 +294,38 @@ export const TimeTrackingProvider: React.FC<TimeTrackingProviderProps> = ({ chil
     }
   }, [runningEntry]);
 
+  /**
+   * Slice 11 — Pub/sub refresh on time_tracking_updates.
+   *
+   * The backend publishes time_tracking_updates events with a `source`
+   * field (e.g. "scan") whenever a scan-triggered switch lands. We
+   * subscribe and re-fetch the running entry so TimerWidget reflects
+   * the new state within 1s even if the pubsub fires from another
+   * client session (Meister's laptop pushing a change the Werkbank
+   * iPad needs to pick up).
+   */
+  const { user } = useAuth();
+  const handleWsMessage = useCallback(
+    (message: WebSocketMessage): void => {
+      const type = typeof message.type === 'string' ? message.type : '';
+      const channel =
+        typeof (message as Record<string, unknown>).channel === 'string'
+          ? ((message as Record<string, unknown>).channel as string)
+          : '';
+      if (
+        type === 'time_tracking_updates' ||
+        channel === 'time_tracking_updates'
+      ) {
+        void refreshRunningEntry();
+      }
+    },
+    [refreshRunningEntry],
+  );
+  useWebSocket({
+    userId: user?.id ?? null,
+    onMessage: handleWsMessage,
+  });
+
   const value: TimeTrackingContextType = {
     runningEntry,
     activities,
@@ -216,6 +333,7 @@ export const TimeTrackingProvider: React.FC<TimeTrackingProviderProps> = ({ chil
     error,
     startTracking,
     stopTracking,
+    switchTracking,
     refreshRunningEntry,
     refreshActivities,
     clearError,
