@@ -24,6 +24,7 @@ from goldsmith_erp.api.routers import admin_email
 from goldsmith_erp.api.routers import customer_portal
 from goldsmith_erp.api.routers import theme as theme_router
 from goldsmith_erp.api.routers import imports as imports_router
+from goldsmith_erp.api.routers import scanner as scanner_router
 from goldsmith_erp.core.pubsub import subscribe_and_forward, publish_event
 from goldsmith_erp.services.system_monitor import system_monitor_loop
 
@@ -140,6 +141,7 @@ app.include_router(admin_email.router, prefix=f"{settings.API_V1_STR}", tags=["a
 app.include_router(customer_portal.router, prefix=f"{settings.API_V1_STR}/portal", tags=["customer-portal"])  # Public self-service portal
 app.include_router(theme_router.router, prefix=f"{settings.API_V1_STR}", tags=["theme"])  # Admin-configurable branding (GET public, PUT ADMIN-only)
 app.include_router(imports_router.router, prefix=f"{settings.API_V1_STR}", tags=["import"])  # Bulk CSV data import (ADMIN-only)
+app.include_router(scanner_router.router, prefix=f"{settings.API_V1_STR}/scan", tags=["scanner"])  # V1.1 QR/Barcode scanner workflow
 
 async def _authenticate_websocket(websocket: WebSocket) -> int | None:
     """Extract and validate JWT from WebSocket cookie or query param."""
