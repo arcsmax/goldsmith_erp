@@ -29,6 +29,7 @@ const CustomerDetailPage = lazy(() => import('./pages/CustomerDetailPage').then(
 const RepairsPage = lazy(() => import('./pages/RepairsPage').then(m => ({ default: m.RepairsPage })));
 const RepairDetailPage = lazy(() => import('./pages/RepairDetailPage').then(m => ({ default: m.RepairDetailPage })));
 const CustomerPortalPage = lazy(() => import('./pages/CustomerPortalPage').then(m => ({ default: m.CustomerPortalPage })));
+const UserSettingsPage = lazy(() => import('./pages/UserSettingsPage').then(m => ({ default: m.UserSettingsPage })));
 
 // Loading fallback component
 const PageLoader: React.FC = () => (
@@ -147,6 +148,7 @@ const App: React.FC = () => {
                     />
 
                     <Route path="scanner" element={<ScannerPage />} />
+                    <Route path="settings" element={<UserSettingsPage />} />
                     <Route path="calendar" element={<CalendarPage />} />
 
                     {/* Rechnungen — ADMIN und GOLDSMITH */}
