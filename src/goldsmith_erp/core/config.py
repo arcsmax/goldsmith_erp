@@ -182,6 +182,25 @@ class Settings(BaseSettings):
     PHOTO_STORAGE_PATH: str = "./uploads/photos"
     PHOTO_MAX_SIZE_MB: int = 8
 
+    # ── File Storage Root (GDPR Art. 17 file erasure) ────────────────────────────
+    # Root directory containing every filesystem artefact referenced by DB path
+    # columns — generated PDFs, uploaded photos, scrap-gold receipts. When a
+    # customer exercises Art. 17 erasure, the ``FileErasureService`` deletes
+    # every file referenced by a row linked to that customer.
+    #
+    # CRITICAL — path-traversal boundary.
+    # The service resolves each candidate path and refuses to delete any file
+    # that escapes this root (e.g. a malicious ``../../../etc/passwd`` value
+    # in a DB column). Every deployment MUST set this to a path that contains
+    # ONLY the uploaded / generated artefact tree; siblings to this directory
+    # MUST NOT contain data the service is not entitled to delete on Art. 17
+    # request.
+    #
+    # Default points to ``./uploads`` relative to CWD — suitable for local
+    # dev and the existing ``PHOTO_STORAGE_PATH`` layout, but production
+    # deployments should override with an absolute path.
+    FILE_STORAGE_ROOT: str = "./uploads"
+
     # ── Metal Price Service ──────────────────────────────────────────────────────
     # Optional external API for live spot prices.
     # When unset the service falls back to DB history then hardcoded defaults.

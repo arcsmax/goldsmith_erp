@@ -2,17 +2,19 @@
 
 import logging
 from datetime import datetime, timedelta
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from goldsmith_erp.api.deps import Permission, get_db, require_permission
+from goldsmith_erp.core.config import settings
 from goldsmith_erp.core.idempotency import IdempotencyContext, get_idempotency_context
 from goldsmith_erp.db.models import Customer as CustomerModel
-from goldsmith_erp.db.models import User
+from goldsmith_erp.db.models import GDPRRequest, User
 from goldsmith_erp.models.customer import (
     CustomerCreate,
     CustomerListItem,
@@ -21,6 +23,7 @@ from goldsmith_erp.models.customer import (
     CustomerWithOrders,
 )
 from goldsmith_erp.services.customer_service import CustomerService
+from goldsmith_erp.services.file_erasure_service import FileErasureService
 
 logger = logging.getLogger(__name__)
 
@@ -348,8 +351,9 @@ async def gdpr_export_customer(
     }
 
 
-@router.delete("/{customer_id}/gdpr-erase", status_code=status.HTTP_200_OK)
+@router.delete("/{customer_id}/gdpr-erase")
 async def gdpr_erase_customer(
+    response: Response,
     customer_id: int,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_permission(Permission.CUSTOMER_DELETE)),
@@ -362,18 +366,33 @@ async def gdpr_erase_customer(
     """
     GDPR Art. 17 — Request erasure of all personal data for a customer.
 
-    Three things happen atomically in a single DB transaction:
+    Four things happen atomically in a single DB transaction:
       1. Customer is deactivated (is_active=False) and scheduled for
          hard-delete after a 30-day grace period.
       2. Customer PII (names, phone, email) is scrubbed from related
          free-text fields — order descriptions, special instructions,
-         order comments, and time-entry notes. See
-         `CustomerService.scrub_customer_pii` for the full scope.
-      3. Audit rows are written to `customer_audit_logs` and a tracking
+         order comments, time-entry notes, and the customer's own
+         ``notes`` column (F1). See `CustomerService.scrub_customer_pii`
+         for the full scope.
+      3. Filesystem artefacts referenced by customer-linked rows
+         (generated PDFs, order/repair photos, scrap-gold receipts) are
+         deleted by `FileErasureService.erase_customer_files` (O1/O2).
+      4. Audit rows are written to `customer_audit_logs` and a tracking
          row to `gdpr_requests` (Art. 30 record of processing).
 
-    The gdpr-cleanup.sh cron job performs the actual hard-delete once the
-    30-day grace period has passed.
+    Response status codes:
+      - **200 OK** — every file erased cleanly.
+      - **207 Multi-Status** — DB scrub succeeded but at least one file
+        deletion failed (permission denied, path-traversal refusal,
+        IO error). The response body reports the failing paths; the
+        corresponding DB rows still reference the file so an admin
+        can re-run or manually handle. The ``gdpr_requests`` row is
+        updated to ``status='PARTIAL_FILE_ERASURE'`` for audit.
+      - **500** — unexpected error during scrub or file sweep; the
+        whole transaction is rolled back.
+
+    The gdpr-cleanup.sh cron job performs the actual customer-row
+    hard-delete once the 30-day grace period has passed.
 
     Permissions: Requires CUSTOMER_DELETE permission (Admin only).
     """
@@ -398,9 +417,11 @@ async def gdpr_erase_customer(
         )
 
     deletion_date = datetime.utcnow() + timedelta(days=30)
+    file_erasure = FileErasureService(Path(settings.FILE_STORAGE_ROOT))
 
-    # All mutations go through a single transaction — if PII scrub fails,
-    # the customer row is NOT left half-deactivated.
+    # All mutations go through a single transaction — if PII scrub or
+    # file-erasure DB side-effects fail, the customer row is NOT left
+    # half-deactivated.
     try:
         customer.is_active = False
         customer.deletion_scheduled_at = deletion_date
@@ -413,6 +434,42 @@ async def gdpr_erase_customer(
             customer_id=customer_id,
             performed_by=current_user.id,
         )
+
+        # File-level erasure — deletes actual files on disk referenced
+        # by customer-linked rows. Partial failures are captured in
+        # the result; they do NOT raise.
+        file_erasure_result = await file_erasure.erase_customer_files(
+            db,
+            customer_id=customer_id,
+            performed_by=current_user.id,
+        )
+
+        # If the file sweep had per-file failures, promote the
+        # pending GDPRRequest row (written by scrub_customer_pii with
+        # status='completed') to 'PARTIAL_FILE_ERASURE' so the DPO
+        # can see at a glance that manual follow-up is required.
+        if file_erasure_result.files_failed > 0:
+            gdpr_request_result = await db.execute(
+                select(GDPRRequest)
+                .filter(
+                    GDPRRequest.customer_id == customer_id,
+                    GDPRRequest.request_type == "erasure",
+                )
+                .order_by(GDPRRequest.id.desc())
+                .limit(1)
+            )
+            gdpr_request = gdpr_request_result.scalar_one_or_none()
+            if gdpr_request is not None:
+                gdpr_request.status = "PARTIAL_FILE_ERASURE"
+                existing_notes = gdpr_request.notes or ""
+                failure_summary = (
+                    f"\nFile-erasure partial failure: "
+                    f"{file_erasure_result.files_failed} file(s) could not "
+                    f"be deleted. Admin follow-up required. See "
+                    f"customer_audit_logs.action='gdpr_file_erasure' for "
+                    f"per-file errors."
+                )
+                gdpr_request.notes = existing_notes + failure_summary
 
         await db.commit()
     except Exception:
@@ -449,14 +506,29 @@ async def gdpr_erase_customer(
             "client_created_at": (
                 idem.client_created_at.isoformat() if idem.client_created_at else None
             ),
+            "files_deleted": file_erasure_result.files_deleted,
+            "files_missing": file_erasure_result.files_missing,
+            "files_failed": file_erasure_result.files_failed,
         },
     )
 
+    # 207 Multi-Status when partial failure; 200 otherwise.
+    is_partial = file_erasure_result.files_failed > 0
+    response.status_code = (
+        status.HTTP_207_MULTI_STATUS if is_partial else status.HTTP_200_OK
+    )
+
     return {
-        "message": "Löschung geplant",
+        "message": (
+            "Löschung geplant — Teilweise Dateifehler"
+            if is_partial
+            else "Löschung geplant"
+        ),
         "customer_id": customer_id,
         "deletion_date": deletion_date.date().isoformat(),
         "pii_redactions": scrub_counts,
+        "file_erasure": file_erasure_result.as_dict(),
+        "partial": is_partial,
     }
 
 
