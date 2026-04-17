@@ -59,7 +59,6 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, model_validator
 
-
 # Explicit list for readability; the trailing ``_by`` suffix check below
 # catches future additions without needing to update this tuple.
 _AUDIT_FIELD_NAMES: frozenset[str] = frozenset(
@@ -141,8 +140,7 @@ class StrictRequestBase(BaseModel):
                 "request bodies: "
                 + ", ".join(sorted(audit_offenders))
                 + "; server-controlled fields are not accepted in "
-                "request bodies: "
-                + ", ".join(sorted(server_offenders))
+                "request bodies: " + ", ".join(sorted(server_offenders))
             )
         if audit_offenders:
             # Pydantic converts the ValueError into a field-level 422.

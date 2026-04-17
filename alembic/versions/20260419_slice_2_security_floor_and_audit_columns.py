@@ -100,10 +100,11 @@ from __future__ import annotations
 from typing import Sequence, Union
 
 import sqlalchemy as sa
-from alembic import op
 
+from alembic import op
 from goldsmith_erp.db.migration_helpers import (
     add_column_if_not_exists,
+    column_exists,
     create_index_if_not_exists,
     drop_column_if_exists,
     drop_index_if_exists,
@@ -144,6 +145,52 @@ def _jsonb_empty_array_default() -> sa.sql.elements.TextClause:
     return sa.text("'[]'")
 
 
+def _add_fk_column(
+    table: str,
+    column_name: str,
+    column_type: sa.types.TypeEngine,
+    referent_table: str,
+    referent_column: str,
+    constraint_name: str,
+    ondelete: str,
+) -> None:
+    """Add a new FK column idempotently across SQLite + PostgreSQL.
+
+    SQLite does NOT support ``ALTER TABLE ADD COLUMN`` with an inline
+    FK constraint — that path raises ``NotImplementedError: No support
+    for ALTER of constraints in SQLite dialect``. Alembic's official
+    remedy is batch-mode (copy + move); we instead add the raw column
+    on SQLite and skip the constraint. PG gets both column and FK.
+
+    On a fresh DB built via ``Base.metadata.create_all()`` the ORM
+    class already carries the FK inline, so SQLite users of the test
+    suite see the constraint anyway. Only the migration path against a
+    legacy SQLite DB loses the constraint — a tradeoff the H6 helper
+    docstring already calls out and that production (PostgreSQL) never
+    hits.
+    """
+    if column_exists(table, column_name):
+        return
+    bind = op.get_bind()
+    if bind.dialect.name == "sqlite":
+        # Plain column — no FK on the ALTER path.
+        op.add_column(table, sa.Column(column_name, column_type, nullable=True))
+    else:
+        op.add_column(
+            table,
+            sa.Column(
+                column_name,
+                column_type,
+                sa.ForeignKey(
+                    f"{referent_table}.{referent_column}",
+                    name=constraint_name,
+                    ondelete=ondelete,
+                ),
+                nullable=True,
+            ),
+        )
+
+
 # ---------------------------------------------------------------------------
 # upgrade()
 # ---------------------------------------------------------------------------
@@ -164,18 +211,14 @@ def upgrade() -> None:
             nullable=True,
         ),
     )
-    add_column_if_not_exists(
-        "orders",
-        sa.Column(
-            "punzierung_verified_by",
-            sa.Integer(),
-            sa.ForeignKey(
-                "users.id",
-                name="fk_orders_punzierung_verified_by_users",
-                ondelete="RESTRICT",
-            ),
-            nullable=True,
-        ),
+    _add_fk_column(
+        table="orders",
+        column_name="punzierung_verified_by",
+        column_type=sa.Integer(),
+        referent_table="users",
+        referent_column="id",
+        constraint_name="fk_orders_punzierung_verified_by_users",
+        ondelete="RESTRICT",
     )
     add_column_if_not_exists(
         "orders",
@@ -236,18 +279,14 @@ def upgrade() -> None:
     # material_usage.user_id — NEW column (wasn't in the ORM per Henrik's
     # Slice 0 note). Anna B2 assumed it existed; we add it now so the
     # anonymisation contract covers MaterialUsage rows.
-    add_column_if_not_exists(
-        "material_usage",
-        sa.Column(
-            "user_id",
-            sa.Integer(),
-            sa.ForeignKey(
-                "users.id",
-                name="fk_material_usage_user_id_users",
-                ondelete="RESTRICT",
-            ),
-            nullable=True,
-        ),
+    _add_fk_column(
+        table="material_usage",
+        column_name="user_id",
+        column_type=sa.Integer(),
+        referent_table="users",
+        referent_column="id",
+        constraint_name="fk_material_usage_user_id_users",
+        ondelete="RESTRICT",
     )
 
     # -------------------------------------------------------------------
@@ -273,22 +312,16 @@ def upgrade() -> None:
     # a server_default writes the default to existing rows at column-
     # creation time on both dialects, but we UPDATE explicitly so the
     # migration is self-documenting and safe against future refactors.
-    op.execute(
-        "UPDATE time_entries SET origin = 'manual' WHERE origin IS NULL"
-    )
+    op.execute("UPDATE time_entries SET origin = 'manual' WHERE origin IS NULL")
 
-    add_column_if_not_exists(
-        "time_entries",
-        sa.Column(
-            "correction_of",
-            sa.String(length=36),  # time_entries.id is String(36) UUID
-            sa.ForeignKey(
-                "time_entries.id",
-                name="fk_time_entries_correction_of_self",
-                ondelete="SET NULL",
-            ),
-            nullable=True,
-        ),
+    _add_fk_column(
+        table="time_entries",
+        column_name="correction_of",
+        column_type=sa.String(length=36),  # time_entries.id is String(36)
+        referent_table="time_entries",
+        referent_column="id",
+        constraint_name="fk_time_entries_correction_of_self",
+        ondelete="SET NULL",
     )
     add_column_if_not_exists(
         "time_entries",
@@ -416,16 +449,10 @@ def downgrade() -> None:
         op.execute("DROP INDEX IF EXISTS idx_time_entries_correction_of")
     else:
         drop_index_if_exists("idx_users_is_test_user", "users")
-        drop_index_if_exists(
-            "idx_orders_punzierung_verified_at", "orders"
-        )
-        drop_index_if_exists(
-            "idx_time_entries_correction_of", "time_entries"
-        )
+        drop_index_if_exists("idx_orders_punzierung_verified_at", "orders")
+        drop_index_if_exists("idx_time_entries_correction_of", "time_entries")
 
-    drop_index_if_exists(
-        "idx_time_entries_origin_created_at", "time_entries"
-    )
+    drop_index_if_exists("idx_time_entries_origin_created_at", "time_entries")
 
     # users.is_test_user
     drop_column_if_exists("users", "is_test_user")
