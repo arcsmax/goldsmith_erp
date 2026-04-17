@@ -84,6 +84,11 @@ class ScrubTarget:
         How to find rows belonging to a customer. One of:
 
         - ``"customer_id"``: ``model.customer_id == customer_id``
+        - ``"direct"``: this table IS the customers table — the row
+          matches on ``model.id == customer_id``. Used for freetext
+          columns on the customers row itself (e.g. ``customers.notes``)
+          that need PII-scrubbing even before the anonymise/delete
+          path fires. See F1 in PII-SCRUB-AUDIT.md.
         - ``"order_id"``: ``model.order_id IN customer's order ids``
         - ``"repair_job_id"``: ``model.repair_job_id IN customer's repair_job ids``
         - ``"scrap_gold_id"``: ``model.scrap_gold_id IN customer's scrap_gold ids``
@@ -247,6 +252,13 @@ SCRUBBABLE_FIELDS: List[ScrubTarget] = [
         "notification_any",
         "notifications.message",
     ),
+    # ── F1 (2026-04-16) — customers.notes ──────────────────────────────
+    # Freetext goldsmith-entered text ABOUT the customer (allergies,
+    # preferences, relationship detail). Scrubbed at the SCRUB-pass
+    # layer so PII tokens are replaced before the anonymise/delete
+    # path fires — belt-and-braces with the customer-row anonymise
+    # step. See PII-SCRUB-AUDIT.md F1 resolution.
+    ScrubTarget(CustomerModel, "notes", "direct", "customers.notes"),
 ]
 
 # ── PII encryption helpers ────────────────────────────────────────────────────
@@ -775,6 +787,10 @@ class CustomerService:
 
         if link == "customer_id":
             stmt = select(model).filter(model.customer_id == customer_id)
+        elif link == "direct":
+            # The target table IS customers — match on the primary key.
+            # Used for customers' own freetext columns (F1: customers.notes).
+            stmt = select(model).filter(model.id == customer_id)
         elif link == "order_id":
             if not order_ids:
                 return []

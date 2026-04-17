@@ -43,13 +43,13 @@ After the final-sweep commit wave, the answer to *"which text columns in this da
 | Category | Count |
 |---|---:|
 | Total string/text columns audited | **97** |
-| **SCRUB** (covered by `scrub_customer_pii`) | **24** |
+| **SCRUB** (covered by `scrub_customer_pii`) | **25** |
 | **DO-NOT-SCRUB — system / enum / lookup** | 41 |
-| **DO-NOT-SCRUB — customers table itself (Art. 17 handles via anonymize/delete)** | 16 |
+| **DO-NOT-SCRUB — customers table itself (Art. 17 handles via anonymize/delete)** | 15 |
 | **DO-NOT-SCRUB — users table (Slice 0 anonymize_user handles)** | 4 |
 | **DO-NOT-SCRUB — audit/GDPR tables (Art. 17 preservation)** | 9 |
 | **DO-NOT-SCRUB — filesystem path / URL** | 7 |
-| **FLAG-FOR-CLARIFICATION** | 2 |
+| **FLAG-FOR-CLARIFICATION** | 1 |
 
 (Column totals sum to 99 because two columns are counted in both "DO-NOT-SCRUB — audit tables" and also referenced in the "Flagged" column; the union is 97 distinct columns.)
 
@@ -57,22 +57,22 @@ After the final-sweep commit wave, the answer to *"which text columns in this da
 
 | # | Column | Reason | Recommended action |
 |---|---|---|---|
-| F1 | `customers.notes` | Rules say "do not scrub the customers table itself", but this is freetext goldsmith-entered text ABOUT the customer. Since the Art. 17 flow already nulls / anonymises every row in the customers table, scrubbing this column in the PII-scrub pass would be redundant. BUT it is the only row-level redundancy — if the anonymization path ever bypasses this field (e.g. a future "soft anonymization" that keeps a customer row for revenue stats), the notes would leak. | Keep DO-NOT-SCRUB at scrub-pass layer. Max to confirm Art. 17 anonymize/delete path covers this. |
+| F1 | `customers.notes` | **RESOLVED 2026-04-16 — moved to SCRUB.** Freetext goldsmith-entered text ABOUT the customer (allergies, preferences, relationship detail). Max's direction: "no shortcuts, be secure." Added as SCRUB target with new link kind `"direct"` (matches on `customers.id = :customer_id`). Belt-and-braces with the Art. 17 anonymise/delete path — PII tokens are scrubbed even before the customer-row anonymise fires, so a future "soft anonymisation" that keeps the row for stats cannot leak this column. See table row below under SCRUB targets. | **Done — SCRUB target #32 added to `SCRUBBABLE_FIELDS`. File-level O1/O2 work landed in the same wave.** |
 | F2 | `order_status_history.notes` | Classification rule says "DO NOT SCRUB audit tables — `order_status_history` included." H5 already scrubs this field. Decision: H5 behaviour is retained. Rationale: `notes` is freetext "story" of a transition (e.g. "Frau Mueller holt Freitag ab"); the audit evidence is `from_status` + `to_status` + `changed_by` + `changed_at`, which this scrub never touches. The `notes` column here is workshop commentary, not regulatory evidence. | **KEEP AS SCRUB** (already covered — H5 behaviour retained). Reviewer confirmation requested for the record. |
 
 ### Out-of-scope (not columns)
 
-| # | Concern | Why |
-|---|---|---|
-| O1 | `valuation_certificates.pdf_path` — the PDF file on disk/S3 | The DB column itself is a path, not PII — but the PDF file it points to contains customer name, address, signature. **File-level deletion is handled by the GDPR cleanup cron (`scripts/gdpr-cleanup.sh`), not this scrub.** Flagging for completeness. |
-| O2 | `order_photos.file_path`, `repair_photos.file_path`, `scrap_gold_items.photo_path`, `scrap_gold.receipt_pdf_path`, `customers/orders` PDF archives | Same reason as O1 — file-system-resident artefacts need file-level deletion on the 30-day hard-delete cron. |
-| O3 | `extra_metadata` JSONB on `time_entries` | JSONB is key-structured — could contain customer PII in nested keys a future developer adds. Current use is bounded to timing telemetry. **Max-review**: if any future writer adds customer-linked keys, the scrub list must be extended to walk this JSONB. |
+| # | Concern | Why | Status |
+|---|---|---|---|
+| O1 | `valuation_certificates.pdf_path` — the PDF file on disk/S3 | The DB column itself is a path, not PII — but the PDF file it points to contains customer name, address, signature. Handled by `FileErasureService` (see `services/file_erasure_service.py`). | **RESOLVED 2026-04-16** — covered by `FileErasureService` target; invoked from `/customers/{id}/gdpr-erase`. |
+| O2 | `order_photos.file_path`, `repair_photos.file_path`, `scrap_gold_items.photo_path`, `scrap_gold.receipt_pdf_path` | Same concern as O1 — file-system-resident artefacts. | **RESOLVED 2026-04-16** — all four covered by `FileErasureService.FILE_ERASURE_TARGETS`. |
+| O3 | `extra_metadata` JSONB on `time_entries` | JSONB is key-structured — could contain customer PII in nested keys a future developer adds. Current use is bounded to timing telemetry. **Max-review**: if any future writer adds customer-linked keys, the scrub list must be extended to walk this JSONB. | Open (not addressed in this wave). |
 
 ---
 
 ## SCRUB targets — the `SCRUBBABLE_FIELDS` mirror
 
-These are the 24 fields the declarative scrubber covers. `link_path` shows how a row is associated with a customer.
+These are the 25 fields the declarative scrubber covers. `link_path` shows how a row is associated with a customer.
 
 | # | Table | Column | Type | Link to customer | Binary? | Covered since |
 |---:|---|---|---|---|---|---|
@@ -107,8 +107,9 @@ These are the 24 fields the declarative scrubber covers. `link_path` shows how a
 | 29 | `calendar_events` | `description` | Text | `order_id → orders.customer_id` (NULL-able link) | no | final-sweep |
 | 30 | `notifications` | `title` | String(200) | `related_customer_id` OR `related_order_id → orders.customer_id` | no | final-sweep |
 | 31 | `notifications` | `message` | Text | `related_customer_id` OR `related_order_id → orders.customer_id` | no | final-sweep |
+| 32 | `customers` | `notes` | Text | `id` (direct — this IS the customers table) | no | F1 (2026-04-16) |
 
-Note: the count in the summary table (24 **new** SCRUB rows this sweep) excludes the H2 / H5 rows that were already covered. Totals in this list: **31 SCRUB targets total across H2 + H5 + final-sweep**.
+Note: the count in the summary table (24 **new** SCRUB rows this sweep) excludes the H2 / H5 rows that were already covered. Totals in this list: **32 SCRUB targets total across H2 + H5 + final-sweep + F1**.
 
 ---
 
@@ -134,7 +135,8 @@ Note: the count in the summary table (24 **new** SCRUB rows this sweep) excludes
 | Column | Justification |
 |---|---|
 | `first_name`, `last_name`, `company_name`, `email`, `phone`, `mobile`, `street`, `city`, `postal_code`, `country`, `customer_type`, `source`, `allergies`, `deletion_reason` | Customer row — the Art. 17 endpoint already sets `is_active=False` + `deletion_scheduled_at`, and the 30-day cron hard-deletes the row. Scrubbing these columns is redundant with the hard-delete step. |
-| `notes` | See FLAG F1 above. |
+
+Note: `customers.notes` was reclassified to SCRUB on 2026-04-16 (F1 resolution) — see the SCRUB targets table above, row 32.
 
 ### System / enum / lookup columns (no customer coupling, no freetext)
 
@@ -198,7 +200,7 @@ One row per text/String column in the entire schema. 97 rows.
 | 14 | customers | country | String(100) | — | customers row path | DO-NOT-SCRUB (customers) |
 | 15 | customers | customer_type | String(50) | — | enum (private/business) | DO-NOT-SCRUB (system) |
 | 16 | customers | source | String(100) | — | enum (referral/website) | DO-NOT-SCRUB (system) |
-| 17 | customers | notes | Text | FLAG F1 | freetext on customer row | DO-NOT-SCRUB (customers row — see F1) |
+| 17 | customers | notes | Text | YES | freetext on customer row — "Allergie Nickel" etc. | **SCRUB** (F1, 2026-04-16 — link="direct") |
 | 18 | customers | allergies | String(500) | — | medical on customer row | DO-NOT-SCRUB (customers) |
 | 19 | customers | deletion_reason | String(500) | — | admin audit on customer row | DO-NOT-SCRUB (customers) |
 | 20 | customer_measurements | unit | String(20) | — | mm/cm/EU enum | DO-NOT-SCRUB (system) |
@@ -307,12 +309,13 @@ One row per text/String column in the entire schema. 97 rows.
 | 123 | order_status_history | to_status | String(50) | — | status code | DO-NOT-SCRUB (system) |
 | 124 | order_status_history | notes | String(500) | FLAG F2 | freetext on transition | **SCRUB** (H5 — see F2) |
 
-**Row count reconciliation:** The table above has 124 rows (some rows listing multiple related columns in DO-NOT-SCRUB sections are flattened). The summary count "97 distinct columns audited" counts one row per `(table, column)` tuple with a String/Text/ARRAY type; the additional rows above come from columns I grouped in the DO-NOT-SCRUB sections (e.g. `hashed_password` which is a String but listed once per table in the summary). **The SCRUB total is 31 and the coverage of leak-possible fields is complete.**
+**Row count reconciliation:** The table above has 124 rows (some rows listing multiple related columns in DO-NOT-SCRUB sections are flattened). The summary count "97 distinct columns audited" counts one row per `(table, column)` tuple with a String/Text/ARRAY type; the additional rows above come from columns I grouped in the DO-NOT-SCRUB sections (e.g. `hashed_password` which is a String but listed once per table in the summary). **The SCRUB total is 32 (31 final-sweep + F1 customers.notes) and the coverage of leak-possible fields is complete.**
 
 ---
 
 ## Changelog
 
+- **2026-04-16** — F1 resolution: `customers.notes` moved from FLAG to SCRUB via new `link="direct"` kind. O1 + O2 resolved by new `FileErasureService` invoked from `/customers/{id}/gdpr-erase` — filesystem artefacts referenced by customer-linked rows are now deleted with a path-traversal-guarded sweep. Branch `feature/file-erasure-service-and-f1`.
 - **2026-04-17** — Initial publication with final-sweep commits (`hotfix/pre-v1.1-gdpr-cleanup-final-sweep`). Pattern of "each round uncovers more leaks" formally stopped here.
 - Prior rounds: H2 (2026-04-17), H5 (2026-04-17) — see `V1.1-AMENDMENTS.md` H-log.
 
@@ -320,6 +323,7 @@ One row per text/String column in the entire schema. 97 rows.
 
 ## Next actions
 
-1. Max confirms F1 (`customers.notes` decision) and F2 (`order_status_history.notes` decision).
-2. Real DPO (Q2 checkpoint V1) signs off on the 31 SCRUB targets + the 2 FLAG decisions + the 3 out-of-scope items (O1, O2, O3).
-3. If a new text/String column is added to `db/models.py` in future PRs, the CI lint should verify this audit document is updated (tracking job suggested in a follow-up PR — out of scope for this sweep).
+1. ~~Max confirms F1 (`customers.notes` decision)~~ — **Resolved 2026-04-16.** SCRUB target added.
+2. Max confirms F2 (`order_status_history.notes` decision). Retained as SCRUB per H5 behaviour.
+3. Real DPO (Q2 checkpoint V1) signs off on the 32 SCRUB targets + F2 + O3 (the one remaining out-of-scope item).
+4. If a new text/String column is added to `db/models.py` in future PRs, the CI lint should verify this audit document is updated (tracking job suggested in a follow-up PR — out of scope for this sweep).
