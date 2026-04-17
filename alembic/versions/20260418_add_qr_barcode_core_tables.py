@@ -62,6 +62,11 @@ from typing import Sequence, Union
 import sqlalchemy as sa
 from alembic import op
 
+from goldsmith_erp.db.migration_helpers import (
+    create_index_if_not_exists,
+    create_table_if_not_exists,
+)
+
 # revision identifiers, used by Alembic.
 revision: str = "20260418_qr_core"
 down_revision: Union[str, None] = "20260417_anonymize_user"
@@ -229,7 +234,7 @@ def upgrade() -> None:
     # name upfront would still not create the constraint because the
     # referenced table is missing — the cheap forward-compat move is the
     # column alone.
-    op.create_table(
+    create_table_if_not_exists(
         "barcode_aliases",
         sa.Column("id", sa.Integer(), primary_key=True, autoincrement=True),
         sa.Column(
@@ -270,12 +275,12 @@ def upgrade() -> None:
             server_default=sa.text("0"),
         ),
     )
-    op.create_index(
+    create_index_if_not_exists(
         "idx_alias_external_code",
         "barcode_aliases",
         ["external_code"],
     )
-    op.create_index(
+    create_index_if_not_exists(
         "idx_alias_entity",
         "barcode_aliases",
         ["entity_type", "entity_id"],
@@ -344,15 +349,25 @@ def upgrade() -> None:
         op.execute(
             "CREATE INDEX idx_scan_entity ON scan_logs (resolved_type, resolved_id)"
         )
+        # Idempotency-key lookup index.
+        # Design note: PostgreSQL forbids a UNIQUE index on a partitioned
+        # table unless the partition key (scanned_at) is included — but
+        # including scanned_at defeats idempotency semantics (two scans
+        # with the same key at different times would both be allowed).
+        # Resolution: application-layer dedupe is the source of truth
+        # (scanner_service.log_scan does SELECT-by-key first, returns the
+        # existing row for replays). This partial index serves lookup
+        # performance only, NOT uniqueness — the service is responsible
+        # for the dedupe contract.
         op.execute(
             """
-            CREATE UNIQUE INDEX idx_scan_idem ON scan_logs (idempotency_key)
+            CREATE INDEX idx_scan_idem ON scan_logs (idempotency_key)
             WHERE idempotency_key IS NOT NULL
             """
         )
     else:
         # SQLite fallback — non-partitioned, same columns. UUIDs as TEXT.
-        op.create_table(
+        create_table_if_not_exists(
             "scan_logs",
             sa.Column(
                 "id",
@@ -397,14 +412,14 @@ def upgrade() -> None:
                 server_default=sa.text("'standard_24m'"),
             ),
         )
-        op.create_index(
+        create_index_if_not_exists(
             "idx_scan_user_date", "scan_logs", ["user_id", "scanned_at"]
         )
-        op.create_index(
+        create_index_if_not_exists(
             "idx_scan_entity", "scan_logs", ["resolved_type", "resolved_id"]
         )
         # Partial unique index — SQLite supports WHERE clauses on indexes.
-        op.create_index(
+        create_index_if_not_exists(
             "idx_scan_idem",
             "scan_logs",
             ["idempotency_key"],
@@ -415,7 +430,7 @@ def upgrade() -> None:
     # -------------------------------------------------------------------
     # 3. label_templates — same shape on every dialect.
     # -------------------------------------------------------------------
-    op.create_table(
+    create_table_if_not_exists(
         "label_templates",
         sa.Column("id", sa.Integer(), primary_key=True, autoincrement=True),
         sa.Column("entity_type", sa.String(length=50), nullable=False),
@@ -471,7 +486,7 @@ def upgrade() -> None:
             "entity_type", "name", name="uq_label_templates_entity_name"
         ),
     )
-    op.create_index(
+    create_index_if_not_exists(
         "idx_template_entity_type", "label_templates", ["entity_type"]
     )
 
