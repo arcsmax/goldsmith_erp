@@ -348,9 +348,18 @@ async def gdpr_erase_customer(
     """
     GDPR Art. 17 — Request erasure of all personal data for a customer.
 
-    Soft-deletes the customer immediately (is_active=False) and schedules
-    permanent hard-delete after a 30-day grace period.  The gdpr-cleanup.sh
-    cron job performs the hard-delete once the grace period has passed.
+    Three things happen atomically in a single DB transaction:
+      1. Customer is deactivated (is_active=False) and scheduled for
+         hard-delete after a 30-day grace period.
+      2. Customer PII (names, phone, email) is scrubbed from related
+         free-text fields — order descriptions, special instructions,
+         order comments, and time-entry notes. See
+         `CustomerService.scrub_customer_pii` for the full scope.
+      3. Audit rows are written to `customer_audit_logs` and a tracking
+         row to `gdpr_requests` (Art. 30 record of processing).
+
+    The gdpr-cleanup.sh cron job performs the actual hard-delete once the
+    30-day grace period has passed.
 
     Permissions: Requires CUSTOMER_DELETE permission (Admin only).
     """
@@ -376,11 +385,38 @@ async def gdpr_erase_customer(
 
     deletion_date = datetime.utcnow() + timedelta(days=30)
 
-    customer.is_active = False
-    customer.deletion_scheduled_at = deletion_date
-    customer.updated_at = datetime.utcnow()
+    # All mutations go through a single transaction — if PII scrub fails,
+    # the customer row is NOT left half-deactivated.
+    try:
+        customer.is_active = False
+        customer.deletion_scheduled_at = deletion_date
+        customer.updated_at = datetime.utcnow()
 
-    await db.commit()
+        # Scrub PII from related free-text records. This also writes
+        # CustomerAuditLog + GDPRRequest entries.
+        scrub_counts = await CustomerService.scrub_customer_pii(
+            db,
+            customer_id=customer_id,
+            performed_by=current_user.id,
+        )
+
+        await db.commit()
+    except Exception:
+        await db.rollback()
+        logger.error(
+            "GDPR erasure failed — transaction rolled back",
+            extra={
+                "audit": True,
+                "action": "gdpr_erase_request_failed",
+                "customer_id": customer_id,
+                "user_id": current_user.id,
+            },
+            exc_info=True,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="GDPR erasure failed — no changes persisted.",
+        )
 
     # Audit log — GDPR erasure requests are legally significant
     logger.info(
@@ -391,6 +427,7 @@ async def gdpr_erase_customer(
             "customer_id": customer_id,
             "user_id": current_user.id,
             "deletion_scheduled": deletion_date.isoformat(),
+            "pii_redaction_count": scrub_counts.get("total", 0),
         },
     )
 
@@ -398,6 +435,7 @@ async def gdpr_erase_customer(
         "message": "Löschung geplant",
         "customer_id": customer_id,
         "deletion_date": deletion_date.date().isoformat(),
+        "pii_redactions": scrub_counts,
     }
 
 
