@@ -3,6 +3,8 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from datetime import datetime
 from typing import Optional, Dict, Any, List
 
+from goldsmith_erp.models.time_entry_metadata import TimeEntryMetadata
+
 class TimeEntryBase(BaseModel):
     """Basis-Schema für TimeEntry mit Input Validation."""
     order_id: int = Field(..., gt=0, description="Order ID (must be positive)")
@@ -19,6 +21,22 @@ class TimeEntryBase(BaseModel):
         description="Notes (max 2000 characters)"
     )
 
+def _validate_metadata_whitelist(value: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """Validate `extra_metadata` against the O3 whitelist (PII guard).
+
+    Runs `TimeEntryMetadata` over any provided dict; returns the
+    dumped (exclude_none) dict so downstream service code sees a
+    normalised payload without ``None`` leaves. ``None`` input is
+    passed through — "no metadata" is always allowed.
+    """
+    if value is None:
+        return None
+    # Pydantic raises ValidationError on violation; let it propagate
+    # so FastAPI produces a 422 with the specific failure reason.
+    validated = TimeEntryMetadata.model_validate(value)
+    return validated.model_dump(exclude_none=True)
+
+
 class TimeEntryStart(BaseModel):
     """Schema zum Starten einer Time-Entry mit Input Validation."""
     order_id: int = Field(..., gt=0, description="Order ID (must be positive)")
@@ -31,6 +49,11 @@ class TimeEntryStart(BaseModel):
         description="Storage location"
     )
     extra_metadata: Optional[Dict[str, Any]] = None
+
+    @field_validator("extra_metadata", mode="before")
+    @classmethod
+    def _scrub_extra_metadata(cls, v):
+        return _validate_metadata_whitelist(v)
 
 class TimeEntryStop(BaseModel):
     """Schema zum Stoppen einer Time-Entry."""
@@ -64,6 +87,11 @@ class TimeEntryCreate(TimeEntryBase):
     )
     rework_required: bool = False
     extra_metadata: Optional[Dict[str, Any]] = None
+
+    @field_validator("extra_metadata", mode="before")
+    @classmethod
+    def _scrub_extra_metadata(cls, v):
+        return _validate_metadata_whitelist(v)
 
     @field_validator('end_time')
     @classmethod
@@ -113,6 +141,11 @@ class TimeEntryUpdate(BaseModel):
         description="Notes (max 2000 characters)"
     )
     extra_metadata: Optional[Dict[str, Any]] = None
+
+    @field_validator("extra_metadata", mode="before")
+    @classmethod
+    def _scrub_extra_metadata(cls, v):
+        return _validate_metadata_whitelist(v)
 
 class TimeEntryRead(TimeEntryBase):
     """Schema für TimeEntry-Anzeige."""
