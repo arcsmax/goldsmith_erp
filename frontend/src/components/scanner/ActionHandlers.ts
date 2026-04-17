@@ -226,12 +226,27 @@ async function handleSwitchTimer(ctx: ActionHandlerContext): Promise<void> {
     return;
   }
 
-  // Atomic switch. V1.1 lacks a dedicated POST /switch endpoint — the
-  // client emulates it via stop-then-start. The per-user guard lives
-  // server-side in TimeTrackingService.switch_timer when/if the endpoint
-  // lands; today the stop endpoint already validates ownership.
+  // H18 — atomic stop+start via dedicated /switch endpoint. Replaces the
+  // Slice 11 stop+start emulation; the server wraps both writes in one
+  // transaction + single pubsub event and enforces the A5.1 per-user
+  // scope guard before any DB mutation. On 409 TIMER_POSSIBLY_STALE
+  // (A5.2) we still just toast — V1.2 will swap the toast for the real
+  // Mittagspause modal (A11.5).
   try {
-    await apiClient.post(`/time-tracking/${entryId}/stop`, {});
+    await apiClient.post(
+      `/time-tracking/${entryId}/switch`,
+      {
+        new_order_id: newOrderId,
+        activity_id: activityId,
+        location: ctx.scanContext.current_location ?? undefined,
+      },
+      {
+        headers: {
+          'Idempotency-Key': crypto.randomUUID(),
+          'X-Client-Created-At': new Date().toISOString(),
+        },
+      },
+    );
   } catch (err) {
     const { status, code } = extractErrorInfo(err);
     if (status === 409 && code === 'TIMER_POSSIBLY_STALE') {
@@ -244,11 +259,6 @@ async function handleSwitchTimer(ctx: ActionHandlerContext): Promise<void> {
     throw err;
   }
 
-  await apiClient.post('/time-tracking/start', {
-    order_id: newOrderId,
-    activity_id: activityId,
-    location: ctx.scanContext.current_location ?? undefined,
-  });
   rememberActivityId(activityId);
   await ctx.hooks.refreshTimer();
   ctx.hooks.toast('Timer gewechselt.', 'success');
