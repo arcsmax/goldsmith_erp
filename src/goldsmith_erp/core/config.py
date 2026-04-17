@@ -26,7 +26,7 @@ class Settings(BaseSettings):
     API_V1_STR: str = "/api/v1"
     SECRET_KEY: str = Field(
         default_factory=lambda: secrets.token_urlsafe(32),
-        description="JWT secret key - MUST be set in production via SECRET_KEY env variable"
+        description="JWT secret key - MUST be set in production via SECRET_KEY env variable",
     )
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 8  # 8 days
 
@@ -56,9 +56,7 @@ class Settings(BaseSettings):
 
     @classmethod
     @field_validator("DATABASE_URL", mode="before")
-    def assemble_db_url(
-        cls, value: Optional[str], info: Any
-    ) -> str:
+    def assemble_db_url(cls, value: Optional[str], info: Any) -> str:
         """
         Build a Postgres DSN if DATABASE_URL was not provided.
         """
@@ -145,8 +143,8 @@ class Settings(BaseSettings):
             if not self.DEBUG:
                 raise ValueError(
                     "ENCRYPTION_KEY must be set in production (DEBUG=False). "
-                    "Generate with: python -c \"from cryptography.fernet import Fernet; "
-                    "print(Fernet.generate_key().decode())\""
+                    'Generate with: python -c "from cryptography.fernet import Fernet; '
+                    'print(Fernet.generate_key().decode())"'
                 )
             else:
                 logging.getLogger(__name__).warning(
@@ -168,8 +166,8 @@ class Settings(BaseSettings):
             if not self.DEBUG:
                 raise ValueError(
                     "ANONYMIZATION_SALT must be set in production (DEBUG=False). "
-                    "Generate with: python3 -c \"import secrets; "
-                    "print(secrets.token_urlsafe(64))\""
+                    'Generate with: python3 -c "import secrets; '
+                    'print(secrets.token_urlsafe(64))"'
                 )
             else:
                 logging.getLogger(__name__).warning(
@@ -194,9 +192,9 @@ class Settings(BaseSettings):
 
     # EUR per gram fallback prices used only when Redis AND the API AND the DB
     # all fail to provide a price.  Values reflect mid-2026 typical spot rates.
-    METAL_PRICE_FALLBACK_GOLD: float = 75.0       # 24K / fine gold
-    METAL_PRICE_FALLBACK_SILVER: float = 0.85     # 999 fine silver
-    METAL_PRICE_FALLBACK_PLATINUM: float = 30.0   # pure platinum
+    METAL_PRICE_FALLBACK_GOLD: float = 75.0  # 24K / fine gold
+    METAL_PRICE_FALLBACK_SILVER: float = 0.85  # 999 fine silver
+    METAL_PRICE_FALLBACK_PLATINUM: float = 30.0  # pure platinum
 
     @field_validator("SECRET_KEY")
     @classmethod
@@ -228,7 +226,7 @@ class Settings(BaseSettings):
             raise ValueError(
                 "SECRET_KEY is using an insecure default value! "
                 "Generate a secure key with:\n"
-                "  python3 -c \"import secrets; print(secrets.token_urlsafe(64))\"\n"
+                '  python3 -c "import secrets; print(secrets.token_urlsafe(64))"\n'
                 "Then set it in your .env file."
             )
 
@@ -238,20 +236,22 @@ class Settings(BaseSettings):
                 f"SECRET_KEY must be at least 32 characters for security. "
                 f"Current length: {len(v)}. "
                 f"Generate a secure key with:\n"
-                f"  python3 -c \"import secrets; print(secrets.token_urlsafe(64))\""
+                f'  python3 -c "import secrets; print(secrets.token_urlsafe(64))"'
             )
 
         # Warning for low entropy (optional, but helpful)
         # Check if key has good character diversity
         if len(set(v)) < 16:  # Less than 16 unique characters
             import warnings
+
             warnings.warn(
                 f"SECRET_KEY has low entropy ({len(set(v))} unique characters). "
                 f"Consider generating a more random key.",
-                UserWarning
+                UserWarning,
             )
 
         return v
+
 
 # Instantiate once per process
 settings = Settings()

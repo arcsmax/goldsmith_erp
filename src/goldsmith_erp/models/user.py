@@ -1,11 +1,11 @@
-from pydantic import BaseModel, EmailStr, ConfigDict, Field, field_validator
+import re
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Optional
-import re
+
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 from goldsmith_erp.db.models import UserRole
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 # GDPR Art. 17 — anonymize_user() result + error contract
@@ -60,21 +60,16 @@ class SentinelMissing(Exception):
 
 class UserBase(BaseModel):
     """Basis-Schema für User mit Input Validation."""
+
     email: EmailStr = Field(..., description="Valid email address")
     first_name: Optional[str] = Field(
-        None,
-        min_length=1,
-        max_length=100,
-        description="First name (1-100 characters)"
+        None, min_length=1, max_length=100, description="First name (1-100 characters)"
     )
     last_name: Optional[str] = Field(
-        None,
-        min_length=1,
-        max_length=100,
-        description="Last name (1-100 characters)"
+        None, min_length=1, max_length=100, description="Last name (1-100 characters)"
     )
 
-    @field_validator('first_name', 'last_name')
+    @field_validator("first_name", "last_name")
     @classmethod
     def validate_name(cls, v: Optional[str]) -> Optional[str]:
         """Sanitize names to prevent injection attacks."""
@@ -92,14 +87,12 @@ class UserBase(BaseModel):
 
 class UserCreate(UserBase):
     """Schema für User-Erstellung mit Passwort-Validierung."""
+
     password: str = Field(
-        ...,
-        min_length=8,
-        max_length=128,
-        description="Password (8-128 characters)"
+        ..., min_length=8, max_length=128, description="Password (8-128 characters)"
     )
 
-    @field_validator('password')
+    @field_validator("password")
     @classmethod
     def validate_password(cls, v: str) -> str:
         """Enforce password strength requirements."""
@@ -118,28 +111,20 @@ class UserCreate(UserBase):
 
 class UserUpdate(BaseModel):
     """Schema für User-Updates mit optionalen Feldern."""
+
     email: Optional[EmailStr] = Field(None, description="New email address")
     first_name: Optional[str] = Field(
-        None,
-        min_length=1,
-        max_length=100,
-        description="New first name"
+        None, min_length=1, max_length=100, description="New first name"
     )
     last_name: Optional[str] = Field(
-        None,
-        min_length=1,
-        max_length=100,
-        description="New last name"
+        None, min_length=1, max_length=100, description="New last name"
     )
     password: Optional[str] = Field(
-        None,
-        min_length=8,
-        max_length=128,
-        description="New password"
+        None, min_length=8, max_length=128, description="New password"
     )
     is_active: Optional[bool] = Field(None, description="Account active status")
 
-    @field_validator('first_name', 'last_name')
+    @field_validator("first_name", "last_name")
     @classmethod
     def validate_name(cls, v: Optional[str]) -> Optional[str]:
         """Sanitize names to prevent injection attacks."""
@@ -152,7 +137,7 @@ class UserUpdate(BaseModel):
             )
         return v
 
-    @field_validator('password')
+    @field_validator("password")
     @classmethod
     def validate_password(cls, v: Optional[str]) -> Optional[str]:
         """Enforce password strength requirements."""
@@ -171,8 +156,11 @@ class UserUpdate(BaseModel):
 
 class User(UserBase):
     """Schema für User-Anzeige mit RBAC role."""
+
     id: int
-    role: UserRole = Field(default=UserRole.GOLDSMITH, description="User role (admin/goldsmith/viewer)")
+    role: UserRole = Field(
+        default=UserRole.GOLDSMITH, description="User role (admin/goldsmith/viewer)"
+    )
     is_active: bool
     created_at: datetime
 
@@ -181,4 +169,5 @@ class User(UserBase):
 
 class UserInDB(User):
     """Internes Schema mit Hash-Passwort."""
+
     hashed_password: str

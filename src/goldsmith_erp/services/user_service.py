@@ -13,7 +13,9 @@ from sqlalchemy.future import select
 
 from goldsmith_erp.core.config import settings
 from goldsmith_erp.core.security import get_password_hash
-from goldsmith_erp.db.models import GDPRRequest, User as UserModel, UserRole
+from goldsmith_erp.db.models import GDPRRequest
+from goldsmith_erp.db.models import User as UserModel
+from goldsmith_erp.db.models import UserRole
 from goldsmith_erp.models.user import (
     AnonymizationResult,
     LastAdminError,
@@ -116,9 +118,7 @@ class UserService:
 
     @staticmethod
     async def get_users(
-        db: AsyncSession,
-        skip: int = 0,
-        limit: int = 100
+        db: AsyncSession, skip: int = 0, limit: int = 100
     ) -> List[UserModel]:
         """
         Holt alle Benutzer mit Pagination.
@@ -140,10 +140,7 @@ class UserService:
         return result.scalars().all()
 
     @staticmethod
-    async def get_user_by_id(
-        db: AsyncSession,
-        user_id: int
-    ) -> Optional[UserModel]:
+    async def get_user_by_id(db: AsyncSession, user_id: int) -> Optional[UserModel]:
         """
         Holt einen einzelnen Benutzer über seine ID.
 
@@ -154,16 +151,11 @@ class UserService:
         Returns:
             User-Objekt oder None
         """
-        result = await db.execute(
-            select(UserModel).filter(UserModel.id == user_id)
-        )
+        result = await db.execute(select(UserModel).filter(UserModel.id == user_id))
         return result.scalar_one_or_none()
 
     @staticmethod
-    async def get_user_by_email(
-        db: AsyncSession,
-        email: str
-    ) -> Optional[UserModel]:
+    async def get_user_by_email(db: AsyncSession, email: str) -> Optional[UserModel]:
         """
         Holt einen Benutzer über seine E-Mail-Adresse.
 
@@ -174,16 +166,11 @@ class UserService:
         Returns:
             User-Objekt oder None
         """
-        result = await db.execute(
-            select(UserModel).filter(UserModel.email == email)
-        )
+        result = await db.execute(select(UserModel).filter(UserModel.email == email))
         return result.scalar_one_or_none()
 
     @staticmethod
-    async def create_user(
-        db: AsyncSession,
-        user_in: UserCreate
-    ) -> UserModel:
+    async def create_user(db: AsyncSession, user_in: UserCreate) -> UserModel:
         """
         Erstellt einen neuen Benutzer.
 
@@ -203,7 +190,7 @@ class UserService:
             hashed_password=hashed_password,
             first_name=user_in.first_name,
             last_name=user_in.last_name,
-            is_active=True  # Neue Benutzer sind standardmäßig aktiv
+            is_active=True,  # Neue Benutzer sind standardmäßig aktiv
         )
 
         db.add(db_user)
@@ -214,9 +201,7 @@ class UserService:
 
     @staticmethod
     async def update_user(
-        db: AsyncSession,
-        user_id: int,
-        user_in: UserUpdate
+        db: AsyncSession, user_id: int, user_in: UserUpdate
     ) -> Optional[UserModel]:
         """
         Aktualisiert einen bestehenden Benutzer.
@@ -246,9 +231,7 @@ class UserService:
         # Update durchführen
         if update_data:
             await db.execute(
-                update(UserModel)
-                .where(UserModel.id == user_id)
-                .values(**update_data)
+                update(UserModel).where(UserModel.id == user_id).values(**update_data)
             )
             await db.commit()
 
@@ -257,10 +240,7 @@ class UserService:
         return updated_user
 
     @staticmethod
-    async def delete_user(
-        db: AsyncSession,
-        user_id: int
-    ) -> Dict[str, Any]:
+    async def delete_user(db: AsyncSession, user_id: int) -> Dict[str, Any]:
         """
         Löscht einen Benutzer (soft delete durch is_active=False).
 
@@ -278,22 +258,14 @@ class UserService:
 
         # Soft delete: setze is_active auf False
         await db.execute(
-            update(UserModel)
-            .where(UserModel.id == user_id)
-            .values(is_active=False)
+            update(UserModel).where(UserModel.id == user_id).values(is_active=False)
         )
         await db.commit()
 
-        return {
-            "success": True,
-            "message": f"User {user_id} deactivated successfully"
-        }
+        return {"success": True, "message": f"User {user_id} deactivated successfully"}
 
     @staticmethod
-    async def hard_delete_user(
-        db: AsyncSession,
-        user_id: int
-    ) -> Dict[str, Any]:
+    async def hard_delete_user(db: AsyncSession, user_id: int) -> Dict[str, Any]:
         """
         Löscht einen Benutzer permanent aus der Datenbank.
         ACHTUNG: Diese Operation kann nicht rückgängig gemacht werden!
@@ -311,15 +283,10 @@ class UserService:
             return {"success": False, "message": "User not found"}
 
         # Hard delete: Benutzer permanent löschen
-        await db.execute(
-            delete(UserModel).where(UserModel.id == user_id)
-        )
+        await db.execute(delete(UserModel).where(UserModel.id == user_id))
         await db.commit()
 
-        return {
-            "success": True,
-            "message": f"User {user_id} permanently deleted"
-        }
+        return {"success": True, "message": f"User {user_id} permanently deleted"}
 
     # ─────────────────────────────────────────────────────────────────
     # GDPR Art. 17 — user anonymisation (Slice 0)
@@ -422,9 +389,7 @@ class UserService:
             SentinelMissing: Sentinel row could not be resolved or created.
         """
         # ── 1. Load the target user. ────────────────────────────────
-        result = await db.execute(
-            select(UserModel).filter(UserModel.id == user_id)
-        )
+        result = await db.execute(select(UserModel).filter(UserModel.id == user_id))
         target = result.scalar_one_or_none()
         if target is None:
             raise UserNotFound(f"User {user_id} not found")
@@ -435,9 +400,7 @@ class UserService:
         sentinel = await UserService._get_or_create_sentinel(db)
 
         if target.id == sentinel.id:
-            raise LastAdminError(
-                "Refusing to anonymise the global sentinel user."
-            )
+            raise LastAdminError("Refusing to anonymise the global sentinel user.")
 
         # ── 3. Idempotency check. A previously anonymised row has
         #        `is_deleted=True` and a matching tracking hash. On a
@@ -579,10 +542,7 @@ class UserService:
         )
 
     @staticmethod
-    async def activate_user(
-        db: AsyncSession,
-        user_id: int
-    ) -> Optional[UserModel]:
+    async def activate_user(db: AsyncSession, user_id: int) -> Optional[UserModel]:
         """
         Aktiviert einen deaktivierten Benutzer.
 
@@ -598,9 +558,7 @@ class UserService:
             return None
 
         await db.execute(
-            update(UserModel)
-            .where(UserModel.id == user_id)
-            .values(is_active=True)
+            update(UserModel).where(UserModel.id == user_id).values(is_active=True)
         )
         await db.commit()
 

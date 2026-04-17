@@ -1,23 +1,39 @@
-from sqlalchemy import Column, Integer, String, Float, DateTime, ForeignKey, Table, Boolean, Enum as _SAEnum, Text, Index, UniqueConstraint
-from sqlalchemy.dialects.postgresql import JSON
-from sqlalchemy.orm import relationship
-from sqlalchemy.ext.declarative import declarative_base
 from datetime import datetime
+
+from sqlalchemy import Boolean, Column, DateTime
+from sqlalchemy import Enum as _SAEnum
+from sqlalchemy import (
+    Float,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Table,
+    Text,
+    UniqueConstraint,
+)
+from sqlalchemy.dialects.postgresql import JSON
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import relationship
 
 
 def SAEnum(enum_class, **kwargs):
     """Wrapper that ensures Python enum .value (lowercase) is stored in PostgreSQL."""
     return _SAEnum(enum_class, values_callable=lambda e: [x.value for x in e], **kwargs)
+
+
 import enum
 import uuid
 
 
 class CalendarEventType(str, enum.Enum):
     """Event types for the calendar/planning system."""
+
     ORDER_DEADLINE = "order_deadline"
     WORKSHOP_TASK = "workshop_task"
     APPOINTMENT = "appointment"
     REMINDER = "reminder"
+
 
 Base = declarative_base()
 
@@ -28,6 +44,7 @@ class OrderStatusEnum(str, enum.Enum):
     Follows the goldsmith production pipeline:
     Auftrag -> Entwurf -> Guss -> Montage -> Fassung -> Oberflaeche -> QK -> Auslieferung
     """
+
     DRAFT = "draft"
     CONFIRMED = "confirmed"
     IN_PROGRESS = "in_progress"
@@ -42,18 +59,20 @@ class OrderStatusEnum(str, enum.Enum):
 
 class UserRole(str, enum.Enum):
     """User roles for RBAC (Role-Based Access Control)."""
-    ADMIN = "admin"        # Full system access
+
+    ADMIN = "admin"  # Full system access
     GOLDSMITH = "goldsmith"  # Production workers (orders, time tracking, materials)
-    VIEWER = "viewer"      # View-only access    # Standard user access
+    VIEWER = "viewer"  # View-only access    # Standard user access
 
 
 class MetalType(str, enum.Enum):
     """Standard metal types used in goldsmith workshop"""
-    GOLD_24K = "gold_24k"      # 999.9 Feingold
-    GOLD_22K = "gold_22k"      # 916 Gold
-    GOLD_18K = "gold_18k"      # 750 Gold
-    GOLD_14K = "gold_14k"      # 585 Gold
-    GOLD_9K = "gold_9k"        # 375 Gold
+
+    GOLD_24K = "gold_24k"  # 999.9 Feingold
+    GOLD_22K = "gold_22k"  # 916 Gold
+    GOLD_18K = "gold_18k"  # 750 Gold
+    GOLD_14K = "gold_14k"  # 585 Gold
+    GOLD_9K = "gold_9k"  # 375 Gold
     SILVER_999 = "silver_999"  # Feinsilber
     SILVER_925 = "silver_925"  # Sterling Silber
     SILVER_800 = "silver_800"  # Altsilber
@@ -68,41 +87,46 @@ class MetalType(str, enum.Enum):
 
 class CostingMethod(str, enum.Enum):
     """Inventory costing method for material consumption"""
-    FIFO = "fifo"              # First In, First Out
-    LIFO = "lifo"              # Last In, First Out
-    AVERAGE = "average"        # Weighted Average Cost
-    SPECIFIC = "specific"      # Specific Identification (manual selection)
+
+    FIFO = "fifo"  # First In, First Out
+    LIFO = "lifo"  # Last In, First Out
+    AVERAGE = "average"  # Weighted Average Cost
+    SPECIFIC = "specific"  # Specific Identification (manual selection)
 
 
 class ScrapGoldStatus(str, enum.Enum):
     """Status of scrap gold processing."""
-    RECEIVED = "received"      # Items documented
+
+    RECEIVED = "received"  # Items documented
     CALCULATED = "calculated"  # Fine content calculated
-    SIGNED = "signed"          # Customer signed receipt
-    CREDITED = "credited"      # Applied to invoice
+    SIGNED = "signed"  # Customer signed receipt
+    CREDITED = "credited"  # Applied to invoice
 
 
 class InvoiceStatus(str, enum.Enum):
     """Invoice lifecycle status (Rechnungsstatus)."""
-    DRAFT = "draft"            # Entwurf - not yet sent
-    SENT = "sent"              # Versendet - sent to customer
-    PAID = "paid"              # Bezahlt - payment received
-    OVERDUE = "overdue"        # Ueberfaellig - past due date
-    CANCELLED = "cancelled"    # Storniert - voided
+
+    DRAFT = "draft"  # Entwurf - not yet sent
+    SENT = "sent"  # Versendet - sent to customer
+    PAID = "paid"  # Bezahlt - payment received
+    OVERDUE = "overdue"  # Ueberfaellig - past due date
+    CANCELLED = "cancelled"  # Storniert - voided
 
 
 class InvoiceLineType(str, enum.Enum):
     """Type of invoice line item (Rechnungspositionstyp)."""
-    MATERIAL = "material"      # Metal material (e.g. Gold 18K)
-    LABOR = "labor"            # Labor/Arbeitszeit
-    GEMSTONE = "gemstone"      # Edelstein
-    OTHER = "other"            # Sonstiges
+
+    MATERIAL = "material"  # Metal material (e.g. Gold 18K)
+    LABOR = "labor"  # Labor/Arbeitszeit
+    GEMSTONE = "gemstone"  # Edelstein
+    OTHER = "other"  # Sonstiges
 
 
 class MeasurementType(str, enum.Enum):
     """Types of body measurements stored in the customer Massbibliothek."""
-    RING_SIZE = "ring_size"                    # Ring inner circumference (EU mm or EU size)
-    CHAIN_LENGTH = "chain_length"              # Necklace/chain length in cm
+
+    RING_SIZE = "ring_size"  # Ring inner circumference (EU mm or EU size)
+    CHAIN_LENGTH = "chain_length"  # Necklace/chain length in cm
     WRIST_CIRCUMFERENCE = "wrist_circumference"  # Wrist for bracelets
     FINGER_CIRCUMFERENCE = "finger_circumference"  # Exact finger circumference in mm
     NECK_CIRCUMFERENCE = "neck_circumference"  # Neck circumference in cm
@@ -111,31 +135,34 @@ class MeasurementType(str, enum.Enum):
 
 class HandSide(str, enum.Enum):
     """Hand side for ring and bracelet measurements."""
+
     LEFT = "left"
     RIGHT = "right"
 
 
 class FingerPosition(str, enum.Enum):
     """Finger position for ring measurements (Fingerposition)."""
-    THUMB = "thumb"          # Daumen
-    INDEX = "index"          # Zeigefinger
-    MIDDLE = "middle"        # Mittelfinger
-    RING = "ring"            # Ringfinger
-    PINKY = "pinky"          # Kleiner Finger
+
+    THUMB = "thumb"  # Daumen
+    INDEX = "index"  # Zeigefinger
+    MIDDLE = "middle"  # Mittelfinger
+    RING = "ring"  # Ringfinger
+    PINKY = "pinky"  # Kleiner Finger
 
 
 class AlloyType(str, enum.Enum):
     """Standard gold/silver alloy types with fine content ratio."""
-    GOLD_999 = "999"    # 99.9% Feingold
-    GOLD_900 = "900"    # 90.0%
-    GOLD_750 = "750"    # 75.0% (18K)
-    GOLD_585 = "585"    # 58.5% (14K)
-    GOLD_375 = "375"    # 37.5% (9K)
-    GOLD_333 = "333"    # 33.3% (8K)
-    SILVER_999 = "ag999" # 99.9% Feinsilber
-    SILVER_925 = "ag925" # 92.5% Sterling
-    SILVER_800 = "ag800" # 80.0%
-    PLATINUM_950 = "pt950" # 95.0%
+
+    GOLD_999 = "999"  # 99.9% Feingold
+    GOLD_900 = "900"  # 90.0%
+    GOLD_750 = "750"  # 75.0% (18K)
+    GOLD_585 = "585"  # 58.5% (14K)
+    GOLD_375 = "375"  # 37.5% (9K)
+    GOLD_333 = "333"  # 33.3% (8K)
+    SILVER_999 = "ag999"  # 99.9% Feinsilber
+    SILVER_925 = "ag925"  # 92.5% Sterling
+    SILVER_800 = "ag800"  # 80.0%
+    PLATINUM_950 = "pt950"  # 95.0%
 
 
 # Many-to-Many zwischen Material und Order
@@ -145,6 +172,7 @@ order_materials = Table(
     Column("order_id", Integer, ForeignKey("orders.id"), primary_key=True),
     Column("material_id", Integer, ForeignKey("materials.id"), primary_key=True),
 )
+
 
 class User(Base):
     __tablename__ = "users"
@@ -174,6 +202,7 @@ class User(Base):
 
 class Customer(Base):
     """Customer/Client Model for CRM"""
+
     __tablename__ = "customers"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -204,7 +233,9 @@ class Customer(Base):
     chain_length_cm = Column(Float, nullable=True)  # Preferred chain length in cm
     bracelet_length_cm = Column(Float, nullable=True)  # Preferred bracelet length in cm
     allergies = Column(String(500), nullable=True)  # e.g., "Nickel", "Kupfer"
-    preferences = Column(JSON, default=dict)  # {"bevorzugt": "Platin", "style": "modern"}
+    preferences = Column(
+        JSON, default=dict
+    )  # {"bevorzugt": "Platin", "style": "modern"}
     birthday = Column(DateTime, nullable=True)  # For marketing/gift vouchers
 
     # Metadata
@@ -241,6 +272,7 @@ class CustomerMeasurement(Base):
     one measurement (e.g. ring size on the left ring finger) with full
     provenance: who measured, when, and any fitting notes.
     """
+
     __tablename__ = "customer_measurements"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -274,7 +306,7 @@ class CustomerMeasurement(Base):
     unit = Column(String(20), nullable=False)  # "mm", "cm", "EU", "US"
 
     # Ring-specific anatomy
-    hand = Column(SAEnum(HandSide), nullable=True)      # LEFT / RIGHT
+    hand = Column(SAEnum(HandSide), nullable=True)  # LEFT / RIGHT
     finger = Column(SAEnum(FingerPosition), nullable=True)  # RING, INDEX, …
 
     # Goldsmith notes — e.g. "Knöchel etwas breiter, Weitungsring empfohlen"
@@ -305,6 +337,7 @@ class CustomerMeasurement(Base):
 
 class OrderTypeEnum(str, enum.Enum):
     """Type of jewelry piece being made — primary ML feature for duration prediction."""
+
     RING = "ring"
     CHAIN = "chain"
     PENDANT = "pendant"
@@ -317,6 +350,7 @@ class OrderTypeEnum(str, enum.Enum):
 
 class FinishTypeEnum(str, enum.Enum):
     """Surface finish type — correlates with polishing time in ML models."""
+
     HIGH_POLISH = "high_polish"
     MATTE = "matte"
     BRUSHED = "brushed"
@@ -332,23 +366,40 @@ class Order(Base):
     title = Column(String)
     description = Column(String)
     price = Column(Float)  # Final customer price (can be manually set)
-    status = Column(SAEnum(OrderStatusEnum), default=OrderStatusEnum.NEW, nullable=False)
-    customer_id = Column(Integer, ForeignKey("customers.id", ondelete="SET NULL"), nullable=True, index=True)
+    status = Column(
+        SAEnum(OrderStatusEnum), default=OrderStatusEnum.NEW, nullable=False
+    )
+    customer_id = Column(
+        Integer,
+        ForeignKey("customers.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
     deadline = Column(DateTime, nullable=True, index=True)  # Deadline für Kalender
     current_location = Column(String(50), nullable=True)  # Aktueller Lagerort
 
     # Weight & Material Calculation
     estimated_weight_g = Column(Float, nullable=True)  # Estimated metal weight in grams
     actual_weight_g = Column(Float, nullable=True)  # Actual weight after completion
-    scrap_percentage = Column(Float, default=5.0)  # Material loss percentage (default 5%)
+    scrap_percentage = Column(
+        Float, default=5.0
+    )  # Material loss percentage (default 5%)
 
     # Metal Inventory Integration
-    metal_type = Column(SAEnum(MetalType), nullable=True, index=True)  # Which metal type to use
-    costing_method_used = Column(SAEnum(CostingMethod), default=CostingMethod.FIFO, nullable=True)  # Costing method
-    specific_metal_purchase_id = Column(Integer, ForeignKey("metal_purchases.id", ondelete="SET NULL"), nullable=True)  # For SPECIFIC method
+    metal_type = Column(
+        SAEnum(MetalType), nullable=True, index=True
+    )  # Which metal type to use
+    costing_method_used = Column(
+        SAEnum(CostingMethod), default=CostingMethod.FIFO, nullable=True
+    )  # Costing method
+    specific_metal_purchase_id = Column(
+        Integer, ForeignKey("metal_purchases.id", ondelete="SET NULL"), nullable=True
+    )  # For SPECIFIC method
 
     # Cost Calculation
-    material_cost_calculated = Column(Float, nullable=True)  # Auto-calculated material cost
+    material_cost_calculated = Column(
+        Float, nullable=True
+    )  # Auto-calculated material cost
     material_cost_override = Column(Float, nullable=True)  # Manual override if needed
     labor_hours = Column(Float, nullable=True)  # Estimated or actual work hours
     hourly_rate = Column(Float, default=75.00)  # Labor rate (EUR/hour)
@@ -360,15 +411,23 @@ class Order(Base):
     calculated_price = Column(Float, nullable=True)  # Auto-calculated final price
 
     # ML Feature Fields — required for training duration and complexity models
-    order_type = Column(String(50), nullable=True, index=True)  # ring, chain, pendant, etc.
+    order_type = Column(
+        String(50), nullable=True, index=True
+    )  # ring, chain, pendant, etc.
     finish_type = Column(String(50), nullable=True)  # high_polish, matte, brushed, etc.
     complexity_rating = Column(Integer, nullable=True)  # 1-5 stars (set at intake)
-    actual_hours = Column(Float, nullable=True)  # Auto-calculated from time entries on completion
-    completed_at = Column(DateTime, nullable=True)  # Timestamp when order reached COMPLETED/DELIVERED
+    actual_hours = Column(
+        Float, nullable=True
+    )  # Auto-calculated from time entries on completion
+    completed_at = Column(
+        DateTime, nullable=True
+    )  # Timestamp when order reached COMPLETED/DELIVERED
 
     # Goldsmith Intake Fields (Pflichtfelder for order confirmation)
     alloy = Column(String(20), nullable=True, index=True)  # '585', '750', '333', etc.
-    ring_size_mm = Column(Float, nullable=True)  # Per-order ring size (mm inner circumference)
+    ring_size_mm = Column(
+        Float, nullable=True
+    )  # Per-order ring size (mm inner circumference)
     surface_finish = Column(String(50), nullable=True)  # 'Hochglanz', 'Matt', etc.
     fitting_date = Column(DateTime, nullable=True)  # Anprobe-Datum
     has_scrap_gold = Column(Boolean, default=False)  # Altgold vorhanden?
@@ -384,25 +443,60 @@ class Order(Base):
 
     # Beziehungen
     customer = relationship("Customer", back_populates="orders")
-    materials = relationship("Material", secondary=order_materials, back_populates="orders")
-    gemstones = relationship("Gemstone", back_populates="order", cascade="all, delete-orphan")
-    material_usage_records = relationship("MaterialUsage", back_populates="order", cascade="all, delete-orphan")
-    specific_metal_purchase = relationship("MetalPurchase")  # For SPECIFIC costing method
-    comments = relationship("OrderComment", back_populates="order", cascade="all, delete-orphan", order_by="OrderComment.created_at.desc()")
+    materials = relationship(
+        "Material", secondary=order_materials, back_populates="orders"
+    )
+    gemstones = relationship(
+        "Gemstone", back_populates="order", cascade="all, delete-orphan"
+    )
+    material_usage_records = relationship(
+        "MaterialUsage", back_populates="order", cascade="all, delete-orphan"
+    )
+    specific_metal_purchase = relationship(
+        "MetalPurchase"
+    )  # For SPECIFIC costing method
+    comments = relationship(
+        "OrderComment",
+        back_populates="order",
+        cascade="all, delete-orphan",
+        order_by="OrderComment.created_at.desc()",
+    )
     time_entries = relationship("TimeEntry", back_populates="order")
-    handoffs = relationship("OrderHandoff", back_populates="order", cascade="all, delete-orphan", order_by="OrderHandoff.created_at.desc()")
-    hallmarks = relationship("OrderHallmark", back_populates="order", cascade="all, delete-orphan", order_by="OrderHallmark.created_at.desc()")
-    valuation_certificates = relationship("ValuationCertificate", back_populates="order", cascade="all, delete-orphan", order_by="ValuationCertificate.created_at.desc()")
-    order_items = relationship("OrderItem", back_populates="order", cascade="all, delete-orphan")
-    status_history = relationship("OrderStatusHistory", back_populates="order", cascade="all, delete-orphan")
+    handoffs = relationship(
+        "OrderHandoff",
+        back_populates="order",
+        cascade="all, delete-orphan",
+        order_by="OrderHandoff.created_at.desc()",
+    )
+    hallmarks = relationship(
+        "OrderHallmark",
+        back_populates="order",
+        cascade="all, delete-orphan",
+        order_by="OrderHallmark.created_at.desc()",
+    )
+    valuation_certificates = relationship(
+        "ValuationCertificate",
+        back_populates="order",
+        cascade="all, delete-orphan",
+        order_by="ValuationCertificate.created_at.desc()",
+    )
+    order_items = relationship(
+        "OrderItem", back_populates="order", cascade="all, delete-orphan"
+    )
+    status_history = relationship(
+        "OrderStatusHistory", back_populates="order", cascade="all, delete-orphan"
+    )
 
 
 class OrderComment(Base):
     """Order-scoped comments (Digitale Post-its) for inter-team communication."""
+
     __tablename__ = "order_comments"
 
     id = Column(Integer, primary_key=True, index=True)
-    order_id = Column(Integer, ForeignKey("orders.id", ondelete="CASCADE"), nullable=False, index=True)
+    order_id = Column(
+        Integer, ForeignKey("orders.id", ondelete="CASCADE"), nullable=False, index=True
+    )
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     text = Column(Text, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, index=True)
@@ -428,16 +522,21 @@ class Material(Base):
     min_stock = Column(Float, default=10.0, nullable=False)
 
     # Beziehungen
-    orders = relationship("Order", secondary=order_materials, back_populates="materials")
+    orders = relationship(
+        "Order", secondary=order_materials, back_populates="materials"
+    )
 
 
 class Activity(Base):
     """Aktivitäts-Presets für Time-Tracking"""
+
     __tablename__ = "activities"
 
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(100), nullable=False)
-    category = Column(String(50), nullable=False, index=True)  # fabrication, administration, waiting
+    category = Column(
+        String(50), nullable=False, index=True
+    )  # fabrication, administration, waiting
     icon = Column(String(10))  # Emoji
     color = Column(String(7))  # Hex color #FF6B6B
     usage_count = Column(Integer, default=0, index=True)
@@ -454,12 +553,20 @@ class Activity(Base):
 
 class TimeEntry(Base):
     """Haupt-Zeiterfassung"""
+
     __tablename__ = "time_entries"
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    order_id = Column(Integer, ForeignKey("orders.id", ondelete="RESTRICT"), nullable=False, index=True)
+    order_id = Column(
+        Integer,
+        ForeignKey("orders.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
-    activity_id = Column(Integer, ForeignKey("activities.id"), nullable=False, index=True)
+    activity_id = Column(
+        Integer, ForeignKey("activities.id"), nullable=False, index=True
+    )
     start_time = Column(DateTime, nullable=False, index=True)
     end_time = Column(DateTime, nullable=True)
     duration_minutes = Column(Integer, nullable=True)
@@ -475,16 +582,24 @@ class TimeEntry(Base):
     order = relationship("Order", back_populates="time_entries")
     user = relationship("User")
     activity = relationship("Activity", back_populates="time_entries")
-    interruptions = relationship("Interruption", back_populates="time_entry", cascade="all, delete-orphan")
+    interruptions = relationship(
+        "Interruption", back_populates="time_entry", cascade="all, delete-orphan"
+    )
     photos = relationship("OrderPhoto", back_populates="time_entry")
 
 
 class Interruption(Base):
     """Unterbrechungen während der Arbeit"""
+
     __tablename__ = "interruptions"
 
     id = Column(Integer, primary_key=True, index=True)
-    time_entry_id = Column(String(36), ForeignKey("time_entries.id", ondelete="CASCADE"), nullable=False, index=True)
+    time_entry_id = Column(
+        String(36),
+        ForeignKey("time_entries.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
     reason = Column(String(100), nullable=False)  # customer_call, material_fetch, etc.
     duration_minutes = Column(Integer, nullable=False)
     timestamp = Column(DateTime, default=datetime.utcnow)
@@ -495,6 +610,7 @@ class Interruption(Base):
 
 class LocationHistory(Base):
     """Lagerort-Verlauf für Aufträge"""
+
     __tablename__ = "location_history"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -510,11 +626,14 @@ class LocationHistory(Base):
 
 class OrderPhoto(Base):
     """Foto-Dokumentation für Aufträge"""
+
     __tablename__ = "order_photos"
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     order_id = Column(Integer, ForeignKey("orders.id"), nullable=False, index=True)
-    time_entry_id = Column(String(36), ForeignKey("time_entries.id", ondelete="SET NULL"), nullable=True)
+    time_entry_id = Column(
+        String(36), ForeignKey("time_entries.id", ondelete="SET NULL"), nullable=True
+    )
     file_path = Column(String(500), nullable=False)
     timestamp = Column(DateTime, default=datetime.utcnow, index=True)
     taken_by = Column(Integer, ForeignKey("users.id"), nullable=False)
@@ -528,13 +647,18 @@ class OrderPhoto(Base):
 
 class Gemstone(Base):
     """Edelsteine für Aufträge"""
+
     __tablename__ = "gemstones"
 
     id = Column(Integer, primary_key=True, index=True)
-    order_id = Column(Integer, ForeignKey("orders.id", ondelete="CASCADE"), nullable=False, index=True)
+    order_id = Column(
+        Integer, ForeignKey("orders.id", ondelete="CASCADE"), nullable=False, index=True
+    )
 
     # Gemstone Details
-    type = Column(String(50), nullable=False)  # 'diamond', 'ruby', 'sapphire', 'emerald'
+    type = Column(
+        String(50), nullable=False
+    )  # 'diamond', 'ruby', 'sapphire', 'emerald'
     carat = Column(Float, nullable=True)  # Weight in carats
     quality = Column(String(20), nullable=True)  # 'VS1', 'VVS2', etc. (clarity)
     color = Column(String(20), nullable=True)  # 'D', 'E', 'F' for diamonds
@@ -547,7 +671,9 @@ class Gemstone(Base):
     total_cost = Column(Float, nullable=True)  # cost × quantity
 
     # Setting
-    setting_type = Column(String(100), nullable=True)  # 'Prong', 'Bezel', 'Channel', etc.
+    setting_type = Column(
+        String(100), nullable=True
+    )  # 'Prong', 'Bezel', 'Channel', etc.
 
     # Optional certificate info
     certificate_number = Column(String(100), nullable=True)
@@ -571,12 +697,15 @@ class MetalPurchase(Base):
     Each purchase represents a batch of metal bought at a specific price.
     Remaining weight decreases as metal is used for orders.
     """
+
     __tablename__ = "metal_purchases"
 
     id = Column(Integer, primary_key=True, index=True)
 
     # Purchase Details
-    date_purchased = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
+    date_purchased = Column(
+        DateTime, nullable=False, default=datetime.utcnow, index=True
+    )
     metal_type = Column(SAEnum(MetalType), nullable=False, index=True)
 
     # Weight & Pricing
@@ -595,10 +724,14 @@ class MetalPurchase(Base):
 
     # Timestamps
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    updated_at = Column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+    )
 
     # Relationships
-    usage_records = relationship("MaterialUsage", back_populates="metal_purchase", cascade="all, delete-orphan")
+    usage_records = relationship(
+        "MaterialUsage", back_populates="metal_purchase", cascade="all, delete-orphan"
+    )
 
     @property
     def used_weight_g(self) -> float:
@@ -633,21 +766,35 @@ class MaterialUsage(Base):
     Links orders to specific metal purchases, recording exact weight consumed
     and cost at the time of use (for accurate accounting).
     """
+
     __tablename__ = "material_usage"
 
     id = Column(Integer, primary_key=True, index=True)
 
     # Links
-    order_id = Column(Integer, ForeignKey("orders.id", ondelete="CASCADE"), nullable=False, index=True)
-    metal_purchase_id = Column(Integer, ForeignKey("metal_purchases.id", ondelete="RESTRICT"), nullable=False, index=True)
+    order_id = Column(
+        Integer, ForeignKey("orders.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    metal_purchase_id = Column(
+        Integer,
+        ForeignKey("metal_purchases.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
 
     # Usage Details
     weight_used_g = Column(Float, nullable=False)  # How much was consumed
-    cost_at_time = Column(Float, nullable=False)   # Cost when used (weight * price_per_gram)
-    price_per_gram_at_time = Column(Float, nullable=False)  # Snapshot of price when used
+    cost_at_time = Column(
+        Float, nullable=False
+    )  # Cost when used (weight * price_per_gram)
+    price_per_gram_at_time = Column(
+        Float, nullable=False
+    )  # Snapshot of price when used
 
     # Costing Method Used
-    costing_method = Column(SAEnum(CostingMethod), nullable=False, default=CostingMethod.FIFO)
+    costing_method = Column(
+        SAEnum(CostingMethod), nullable=False, default=CostingMethod.FIFO
+    )
 
     # Timestamps
     used_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
@@ -671,16 +818,26 @@ class InventoryAdjustment(Base):
     Maintains audit trail for any changes to metal inventory that aren't
     from normal purchase or order consumption.
     """
+
     __tablename__ = "inventory_adjustments"
 
     id = Column(Integer, primary_key=True, index=True)
 
     # Link to metal purchase
-    metal_purchase_id = Column(Integer, ForeignKey("metal_purchases.id", ondelete="RESTRICT"), nullable=False, index=True)
+    metal_purchase_id = Column(
+        Integer,
+        ForeignKey("metal_purchases.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
 
     # Adjustment Details
-    adjustment_type = Column(String(50), nullable=False)  # 'loss', 'theft', 'reclamation', 'correction', 'return'
-    weight_change_g = Column(Float, nullable=False)  # Positive for additions, negative for reductions
+    adjustment_type = Column(
+        String(50), nullable=False
+    )  # 'loss', 'theft', 'reclamation', 'correction', 'return'
+    weight_change_g = Column(
+        Float, nullable=False
+    )  # Positive for additions, negative for reductions
 
     # Reason & Documentation
     reason = Column(Text, nullable=False)
@@ -694,18 +851,30 @@ class InventoryAdjustment(Base):
     adjusted_by = relationship("User")
 
     def __repr__(self):
-        return f"<InventoryAdjustment {self.adjustment_type} {self.weight_change_g:+.2f}g>"
+        return (
+            f"<InventoryAdjustment {self.adjustment_type} {self.weight_change_g:+.2f}g>"
+        )
 
 
 class ScrapGold(Base):
     """Scrap gold (Altgold) intake record linked to an order."""
+
     __tablename__ = "scrap_gold"
 
     id = Column(Integer, primary_key=True, index=True)
-    order_id = Column(Integer, ForeignKey("orders.id", ondelete="CASCADE"), nullable=False, index=True)
-    customer_id = Column(Integer, ForeignKey("customers.id", ondelete="SET NULL"), nullable=True, index=True)
+    order_id = Column(
+        Integer, ForeignKey("orders.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    customer_id = Column(
+        Integer,
+        ForeignKey("customers.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
     created_by = Column(Integer, ForeignKey("users.id"), nullable=False)
-    status = Column(SAEnum(ScrapGoldStatus), default=ScrapGoldStatus.RECEIVED, nullable=False)
+    status = Column(
+        SAEnum(ScrapGoldStatus), default=ScrapGoldStatus.RECEIVED, nullable=False
+    )
 
     # Calculated totals
     total_fine_gold_g = Column(Float, default=0.0)
@@ -726,15 +895,23 @@ class ScrapGold(Base):
     order = relationship("Order")
     customer = relationship("Customer")
     creator = relationship("User")
-    items = relationship("ScrapGoldItem", back_populates="scrap_gold", cascade="all, delete-orphan")
+    items = relationship(
+        "ScrapGoldItem", back_populates="scrap_gold", cascade="all, delete-orphan"
+    )
 
 
 class ScrapGoldItem(Base):
     """Individual scrap gold item within a scrap gold intake."""
+
     __tablename__ = "scrap_gold_items"
 
     id = Column(Integer, primary_key=True, index=True)
-    scrap_gold_id = Column(Integer, ForeignKey("scrap_gold.id", ondelete="CASCADE"), nullable=False, index=True)
+    scrap_gold_id = Column(
+        Integer,
+        ForeignKey("scrap_gold.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
     description = Column(String(200), nullable=False)  # "Alter Ehering", "Kette"
     alloy = Column(SAEnum(AlloyType), nullable=False)
     weight_g = Column(Float, nullable=False)  # Total weight in grams
@@ -753,8 +930,9 @@ class ScrapGoldItem(Base):
 
 class MetalPriceSource(str, enum.Enum):
     """Source of a recorded metal spot price."""
-    API = "api"          # Fetched from an external price API
-    MANUAL = "manual"    # Entered manually by an admin
+
+    API = "api"  # Fetched from an external price API
+    MANUAL = "manual"  # Entered manually by an admin
     FALLBACK = "fallback"  # Hardcoded fallback used when all other sources failed
 
 
@@ -771,12 +949,15 @@ class MetalPriceHistory(Base):
     Only base-metal prices are stored (GOLD_24K, SILVER_999, PLATINUM_950).
     Alloy prices (18K, 14K, ...) are derived from these on the fly.
     """
+
     __tablename__ = "metal_price_history"
 
     id = Column(Integer, primary_key=True, index=True)
     metal_type = Column(SAEnum(MetalType), nullable=False, index=True)
     price_per_gram_eur = Column(Float, nullable=False)
-    source = Column(SAEnum(MetalPriceSource), nullable=False, default=MetalPriceSource.API)
+    source = Column(
+        SAEnum(MetalPriceSource), nullable=False, default=MetalPriceSource.API
+    )
     fetched_at = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
 
     def __repr__(self) -> str:
@@ -795,6 +976,7 @@ class CalendarEvent(Base):
     Order.deadline and is NOT stored here — use CalendarService.get_order_deadlines
     for those).
     """
+
     __tablename__ = "calendar_events"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -861,6 +1043,7 @@ class Invoice(Base):
     Tax is 19% MwSt (Mehrwertsteuer) by default.
     All financial access is audit-logged via structured logging.
     """
+
     __tablename__ = "invoices"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -869,31 +1052,47 @@ class Invoice(Base):
     invoice_number = Column(String(20), unique=True, nullable=False, index=True)
 
     # Links
-    order_id = Column(Integer, ForeignKey("orders.id", ondelete="RESTRICT"), nullable=False, index=True)
-    customer_id = Column(Integer, ForeignKey("customers.id", ondelete="RESTRICT"), nullable=False, index=True)
+    order_id = Column(
+        Integer,
+        ForeignKey("orders.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
+    customer_id = Column(
+        Integer,
+        ForeignKey("customers.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
     created_by = Column(Integer, ForeignKey("users.id"), nullable=False)
 
     # Status
-    status = Column(SAEnum(InvoiceStatus), default=InvoiceStatus.DRAFT, nullable=False, index=True)
+    status = Column(
+        SAEnum(InvoiceStatus), default=InvoiceStatus.DRAFT, nullable=False, index=True
+    )
 
     # Dates
     issue_date = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
-    due_date = Column(DateTime, nullable=False, index=True)       # Faelligkeitsdatum
-    paid_date = Column(DateTime, nullable=True)                   # Zahlungsdatum
+    due_date = Column(DateTime, nullable=False, index=True)  # Faelligkeitsdatum
+    paid_date = Column(DateTime, nullable=True)  # Zahlungsdatum
 
     # Amounts (Betraege)
-    subtotal = Column(Float, nullable=False, default=0.0)         # Zwischensumme (netto)
-    tax_rate = Column(Float, nullable=False, default=19.0)        # MwSt-Satz in Prozent
-    tax_amount = Column(Float, nullable=False, default=0.0)       # MwSt-Betrag
-    total = Column(Float, nullable=False, default=0.0)            # Gesamtbetrag (brutto)
+    subtotal = Column(Float, nullable=False, default=0.0)  # Zwischensumme (netto)
+    tax_rate = Column(Float, nullable=False, default=19.0)  # MwSt-Satz in Prozent
+    tax_amount = Column(Float, nullable=False, default=0.0)  # MwSt-Betrag
+    total = Column(Float, nullable=False, default=0.0)  # Gesamtbetrag (brutto)
 
     # Optional fields
-    notes = Column(Text, nullable=True)                           # Anmerkungen
-    payment_method = Column(String(50), nullable=True)            # Zahlungsart (Ueberweisung, Bar, Karte)
+    notes = Column(Text, nullable=True)  # Anmerkungen
+    payment_method = Column(
+        String(50), nullable=True
+    )  # Zahlungsart (Ueberweisung, Bar, Karte)
 
     # Metadata
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    updated_at = Column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+    )
 
     # Relationships
     order = relationship("Order")
@@ -917,17 +1116,27 @@ class InvoiceLineItem(Base):
     - Gemstone (Edelstein, e.g. "Diamant 0.5ct VS1")
     - Other (Sonstiges)
     """
+
     __tablename__ = "invoice_line_items"
 
     id = Column(Integer, primary_key=True, index=True)
-    invoice_id = Column(Integer, ForeignKey("invoices.id", ondelete="CASCADE"), nullable=False, index=True)
+    invoice_id = Column(
+        Integer,
+        ForeignKey("invoices.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
 
     # Line item details
-    line_type = Column(SAEnum(InvoiceLineType), nullable=False, default=InvoiceLineType.OTHER)
-    description = Column(String(500), nullable=False)   # Beschreibung der Position
+    line_type = Column(
+        SAEnum(InvoiceLineType), nullable=False, default=InvoiceLineType.OTHER
+    )
+    description = Column(String(500), nullable=False)  # Beschreibung der Position
     quantity = Column(Float, nullable=False, default=1.0)
-    unit_price = Column(Float, nullable=False)           # Einzelpreis (netto)
-    total = Column(Float, nullable=False)                # Gesamtpreis dieser Position (quantity * unit_price)
+    unit_price = Column(Float, nullable=False)  # Einzelpreis (netto)
+    total = Column(
+        Float, nullable=False
+    )  # Gesamtpreis dieser Position (quantity * unit_price)
 
     # Relationships
     invoice = relationship("Invoice", back_populates="line_items")
@@ -940,16 +1149,18 @@ class InvoiceLineItem(Base):
 
 class QuoteStatus(str, enum.Enum):
     """Lifecycle status of a quote (Kostenvoranschlag-Status)."""
-    DRAFT = "draft"            # Entwurf
-    SENT = "sent"              # Gesendet
-    APPROVED = "approved"      # Genehmigt
-    REJECTED = "rejected"      # Abgelehnt
-    EXPIRED = "expired"        # Abgelaufen
-    CONVERTED = "converted"    # Umgewandelt in Auftrag
+
+    DRAFT = "draft"  # Entwurf
+    SENT = "sent"  # Gesendet
+    APPROVED = "approved"  # Genehmigt
+    REJECTED = "rejected"  # Abgelehnt
+    EXPIRED = "expired"  # Abgelaufen
+    CONVERTED = "converted"  # Umgewandelt in Auftrag
 
 
 class QuoteLineType(str, enum.Enum):
     """Type of quote line item (Angebotspositionstyp)."""
+
     MATERIAL = "material"
     LABOR = "labor"
     GEMSTONE = "gemstone"
@@ -965,6 +1176,7 @@ class Quote(Base):
     created standalone with only a customer reference.
     All financial access is audit-logged.
     """
+
     __tablename__ = "quotes"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -973,34 +1185,47 @@ class Quote(Base):
     quote_number = Column(String(20), unique=True, nullable=False, index=True)
 
     # Links -- order_id is optional (quote can precede an order)
-    order_id = Column(Integer, ForeignKey("orders.id", ondelete="SET NULL"), nullable=True, index=True)
-    customer_id = Column(Integer, ForeignKey("customers.id", ondelete="RESTRICT"), nullable=False, index=True)
+    order_id = Column(
+        Integer, ForeignKey("orders.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    customer_id = Column(
+        Integer,
+        ForeignKey("customers.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
     created_by = Column(Integer, ForeignKey("users.id"), nullable=False)
 
     # Status
-    status = Column(SAEnum(QuoteStatus), default=QuoteStatus.DRAFT, nullable=False, index=True)
+    status = Column(
+        SAEnum(QuoteStatus), default=QuoteStatus.DRAFT, nullable=False, index=True
+    )
 
     # Dates
-    valid_until = Column(DateTime, nullable=False, index=True)     # Gueltig bis (+14 Tage default)
-    approved_at = Column(DateTime, nullable=True)                  # Genehmigt am
-    rejected_at = Column(DateTime, nullable=True)                  # Abgelehnt am
-    converted_at = Column(DateTime, nullable=True)                 # Umgewandelt am
+    valid_until = Column(
+        DateTime, nullable=False, index=True
+    )  # Gueltig bis (+14 Tage default)
+    approved_at = Column(DateTime, nullable=True)  # Genehmigt am
+    rejected_at = Column(DateTime, nullable=True)  # Abgelehnt am
+    converted_at = Column(DateTime, nullable=True)  # Umgewandelt am
 
     # Amounts (Betraege)
-    subtotal = Column(Float, nullable=False, default=0.0)          # Zwischensumme (netto)
-    tax_rate = Column(Float, nullable=False, default=19.0)         # MwSt-Satz in Prozent
-    tax_amount = Column(Float, nullable=False, default=0.0)        # MwSt-Betrag
-    total = Column(Float, nullable=False, default=0.0)             # Gesamtbetrag (brutto)
+    subtotal = Column(Float, nullable=False, default=0.0)  # Zwischensumme (netto)
+    tax_rate = Column(Float, nullable=False, default=19.0)  # MwSt-Satz in Prozent
+    tax_amount = Column(Float, nullable=False, default=0.0)  # MwSt-Betrag
+    total = Column(Float, nullable=False, default=0.0)  # Gesamtbetrag (brutto)
 
     # Customer signature (base64 PNG -- stored for approved quotes)
     customer_signature_data = Column(Text, nullable=True)
 
     # Optional fields
-    notes = Column(Text, nullable=True)                            # Anmerkungen
+    notes = Column(Text, nullable=True)  # Anmerkungen
 
     # Metadata
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    updated_at = Column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+    )
 
     # Relationships
     order = relationship("Order")
@@ -1024,17 +1249,22 @@ class QuoteLineItem(Base):
     - Gemstone (Edelstein, e.g. "Diamant 0.5ct VS1")
     - Other (Sonstiges)
     """
+
     __tablename__ = "quote_line_items"
 
     id = Column(Integer, primary_key=True, index=True)
-    quote_id = Column(Integer, ForeignKey("quotes.id", ondelete="CASCADE"), nullable=False, index=True)
+    quote_id = Column(
+        Integer, ForeignKey("quotes.id", ondelete="CASCADE"), nullable=False, index=True
+    )
 
     # Line item details
-    line_type = Column(SAEnum(QuoteLineType), nullable=False, default=QuoteLineType.OTHER)
-    description = Column(String(500), nullable=False)    # Beschreibung der Position
+    line_type = Column(
+        SAEnum(QuoteLineType), nullable=False, default=QuoteLineType.OTHER
+    )
+    description = Column(String(500), nullable=False)  # Beschreibung der Position
     quantity = Column(Float, nullable=False, default=1.0)
-    unit_price = Column(Float, nullable=False)            # Einzelpreis (netto)
-    total = Column(Float, nullable=False)                 # Gesamtpreis (quantity * unit_price)
+    unit_price = Column(Float, nullable=False)  # Einzelpreis (netto)
+    total = Column(Float, nullable=False)  # Gesamtpreis (quantity * unit_price)
 
     # Relationships
     quote = relationship("Quote", back_populates="line_items")
@@ -1054,6 +1284,7 @@ class HandoffTypeEnum(str, enum.Enum):
     RETURN_FOR_REWORK— Stueck zurueckgeben mit Nacharbeitsauftrag
     MARK_COMPLETE    — Letzter Arbeitsschritt abgeschlossen (Endkontrolle)
     """
+
     PASS_TO_NEXT = "pass_to_next"
     REQUEST_REVIEW = "request_review"
     RETURN_FOR_REWORK = "return_for_rework"
@@ -1062,28 +1293,31 @@ class HandoffTypeEnum(str, enum.Enum):
 
 class HandoffStatusEnum(str, enum.Enum):
     """Lifecycle state of an order handoff record."""
-    PENDING = "pending"     # Warten auf Bestaetigung durch Empfaenger
-    ACCEPTED = "accepted"   # Empfaenger hat uebernommen
-    DECLINED = "declined"   # Empfaenger hat abgelehnt (mit Begruendung)
+
+    PENDING = "pending"  # Warten auf Bestaetigung durch Empfaenger
+    ACCEPTED = "accepted"  # Empfaenger hat uebernommen
+    DECLINED = "declined"  # Empfaenger hat abgelehnt (mit Begruendung)
 
 
 class NotificationTypeEnum(str, enum.Enum):
     """Type of notification — drives icon and routing on the frontend."""
-    DEADLINE_WARNING = "deadline_warning"   # Auftrag-Deadline naehert sich
-    PICKUP_READY = "pickup_ready"           # Auftrag abholbereit
-    LOW_STOCK = "low_stock"                 # Material unter Mindestbestand
-    FITTING_REMINDER = "fitting_reminder"   # Anprobe-Erinnerung
-    ORDER_STATUS = "order_status"           # Auftragsstatus geaendert
-    SYSTEM = "system"                       # Systemnachricht
-    HANDOFF = "handoff"                     # Uebergabe zwischen Goldschmiede
-    COMMENT = "comment"                     # Neuer Kommentar an einem Auftrag
-    REPAIR_RECEIVED = "repair_received"     # Reparaturauftrag eingegangen
-    REPAIR_READY = "repair_ready"           # Reparatur abholbereit
+
+    DEADLINE_WARNING = "deadline_warning"  # Auftrag-Deadline naehert sich
+    PICKUP_READY = "pickup_ready"  # Auftrag abholbereit
+    LOW_STOCK = "low_stock"  # Material unter Mindestbestand
+    FITTING_REMINDER = "fitting_reminder"  # Anprobe-Erinnerung
+    ORDER_STATUS = "order_status"  # Auftragsstatus geaendert
+    SYSTEM = "system"  # Systemnachricht
+    HANDOFF = "handoff"  # Uebergabe zwischen Goldschmiede
+    COMMENT = "comment"  # Neuer Kommentar an einem Auftrag
+    REPAIR_RECEIVED = "repair_received"  # Reparaturauftrag eingegangen
+    REPAIR_READY = "repair_ready"  # Reparatur abholbereit
     BIRTHDAY_REMINDER = "birthday_reminder"
 
 
 class NotificationSeverityEnum(str, enum.Enum):
     """Severity level — maps to visual styling (colour, urgency) on the frontend."""
+
     INFO = "info"
     WARNING = "warning"
     URGENT = "urgent"
@@ -1098,6 +1332,7 @@ class Notification(Base):
     ``notifications:{user_id}``.  Persistence here allows unread counts
     and notification history to survive browser refreshes.
     """
+
     __tablename__ = "notifications"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -1151,9 +1386,10 @@ class NotificationPreference(Base):
     Per-user preferences that control which notification types are delivered
     and how far in advance deadline warnings are triggered.
     """
+
     __tablename__ = "notification_preferences"
     __table_args__ = (
-        UniqueConstraint('user_id', 'notification_type', name='uq_notification_pref'),
+        UniqueConstraint("user_id", "notification_type", name="uq_notification_pref"),
     )
 
     id = Column(Integer, primary_key=True, index=True)
@@ -1195,6 +1431,7 @@ class OrderHandoff(Base):
       "Pavee-Fassung muss nachgearbeitet werden" (RETURN_FOR_REWORK)
       "Endkontrolle abgeschlossen" (MARK_COMPLETE)
     """
+
     __tablename__ = "order_handoffs"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -1211,7 +1448,7 @@ class OrderHandoff(Base):
     from_user_id = Column(
         Integer,
         ForeignKey("users.id", ondelete="SET NULL"),
-        nullable=True,   # SET NULL so handoff history survives user deletion
+        nullable=True,  # SET NULL so handoff history survives user deletion
         index=True,
     )
 
@@ -1275,33 +1512,36 @@ class RepairJobStatus(str, enum.Enum):
     Eingang -> Diagnose -> Angebot -> Genehmigt -> Reparatur ->
     Qualitaetskontrolle -> Abholbereit -> Abgeholt | Storniert
     """
-    RECEIVED = "received"           # Eingang — Stueck angenommen
-    DIAGNOSED = "diagnosed"         # Diagnose — Fehler festgestellt
-    QUOTED = "quoted"               # Angebot erstellt, wartet auf Kundenzusage
-    APPROVED = "approved"           # Kunde hat Angebot genehmigt
-    IN_REPAIR = "in_repair"         # Reparatur laeuft
-    QUALITY_CHECK = "quality_check" # Qualitaetskontrolle
-    READY = "ready"                 # Abholbereit
-    PICKED_UP = "picked_up"         # Abgeholt
-    CANCELLED = "cancelled"         # Storniert
+
+    RECEIVED = "received"  # Eingang — Stueck angenommen
+    DIAGNOSED = "diagnosed"  # Diagnose — Fehler festgestellt
+    QUOTED = "quoted"  # Angebot erstellt, wartet auf Kundenzusage
+    APPROVED = "approved"  # Kunde hat Angebot genehmigt
+    IN_REPAIR = "in_repair"  # Reparatur laeuft
+    QUALITY_CHECK = "quality_check"  # Qualitaetskontrolle
+    READY = "ready"  # Abholbereit
+    PICKED_UP = "picked_up"  # Abgeholt
+    CANCELLED = "cancelled"  # Storniert
 
 
 class RepairItemType(str, enum.Enum):
     """Type of jewelry item being repaired."""
-    RING = "ring"           # Ring
-    CHAIN = "chain"         # Kette
-    BRACELET = "bracelet"   # Armband
-    EARRING = "earring"     # Ohrringe
-    WATCH = "watch"         # Uhr
-    BROOCH = "brooch"       # Brosche
-    OTHER = "other"         # Sonstiges
+
+    RING = "ring"  # Ring
+    CHAIN = "chain"  # Kette
+    BRACELET = "bracelet"  # Armband
+    EARRING = "earring"  # Ohrringe
+    WATCH = "watch"  # Uhr
+    BROOCH = "brooch"  # Brosche
+    OTHER = "other"  # Sonstiges
 
 
 class RepairPhotoPhase(str, enum.Enum):
     """Phase during which a repair photo was taken."""
-    INTAKE = "intake"           # Eingang — Zustand bei Annahme
+
+    INTAKE = "intake"  # Eingang — Zustand bei Annahme
     DURING_REPAIR = "during_repair"  # Waehrend der Reparatur
-    COMPLETED = "completed"     # Fertig — Ergebnis
+    COMPLETED = "completed"  # Fertig — Ergebnis
 
 
 class RepairJob(Base):
@@ -1314,6 +1554,7 @@ class RepairJob(Base):
     - Customer notification events (REPAIR_RECEIVED, REPAIR_READY) are tracked
     - Estimated and actual costs are both recorded for Nachkalkulation
     """
+
     __tablename__ = "repair_jobs"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -1341,9 +1582,15 @@ class RepairJob(Base):
 
     # Item details
     item_description = Column(Text, nullable=False)
-    item_type = Column(SAEnum(RepairItemType), nullable=False, default=RepairItemType.OTHER)
-    metal_type = Column(String(50), nullable=True)  # Free text: "585 Gelbgold", "Silber 925"
-    estimated_value = Column(Float, nullable=True)  # Versicherungswert des Stuecks in EUR
+    item_type = Column(
+        SAEnum(RepairItemType), nullable=False, default=RepairItemType.OTHER
+    )
+    metal_type = Column(
+        String(50), nullable=True
+    )  # Free text: "585 Gelbgold", "Silber 925"
+    estimated_value = Column(
+        Float, nullable=True
+    )  # Versicherungswert des Stuecks in EUR
 
     # Status
     status = Column(
@@ -1355,13 +1602,15 @@ class RepairJob(Base):
 
     # Diagnosis & cost
     diagnosis_notes = Column(Text, nullable=True)
-    estimated_cost = Column(Float, nullable=True)   # Kostenvoranschlag in EUR
-    actual_cost = Column(Float, nullable=True)       # Tatsaechliche Kosten nach Reparatur
+    estimated_cost = Column(Float, nullable=True)  # Kostenvoranschlag in EUR
+    actual_cost = Column(Float, nullable=True)  # Tatsaechliche Kosten nach Reparatur
 
     # Dates
     estimated_completion_date = Column(DateTime, nullable=True, index=True)
     actual_completion_date = Column(DateTime, nullable=True)
-    customer_notified_at = Column(DateTime, nullable=True)  # When READY notification was sent
+    customer_notified_at = Column(
+        DateTime, nullable=True
+    )  # When READY notification was sent
     picked_up_at = Column(DateTime, nullable=True)
 
     # Soft delete (30-day grace period before hard delete per GDPR Art. 17)
@@ -1370,7 +1619,9 @@ class RepairJob(Base):
 
     # Audit timestamps
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    updated_at = Column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+    )
 
     # Relationships
     customer = relationship("Customer")
@@ -1398,6 +1649,7 @@ class RepairPhoto(Base):
     customer can see before/after documentation and the workshop has a visual
     audit trail for each step.
     """
+
     __tablename__ = "repair_photos"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -1407,7 +1659,9 @@ class RepairPhoto(Base):
         nullable=False,
         index=True,
     )
-    phase = Column(SAEnum(RepairPhotoPhase), nullable=False, default=RepairPhotoPhase.INTAKE)
+    phase = Column(
+        SAEnum(RepairPhotoPhase), nullable=False, default=RepairPhotoPhase.INTAKE
+    )
     file_path = Column(String(500), nullable=False)
     timestamp = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
     taken_by = Column(
@@ -1422,10 +1676,8 @@ class RepairPhoto(Base):
     taken_by_user = relationship("User", foreign_keys=[taken_by])
 
     def __repr__(self) -> str:
-        return (
-            f"<RepairPhoto repair={self.repair_job_id} "
-            f"phase={self.phase.value}>"
-        )
+        return f"<RepairPhoto repair={self.repair_job_id} " f"phase={self.phase.value}>"
+
 
 # ============================================================================
 # HALLMARKING / PUNZIERUNG
@@ -1439,11 +1691,12 @@ class HallmarkType(str, enum.Enum):
     German goldsmiths are required to hallmark pieces above threshold weights.
     Each type corresponds to a distinct punch (Punze) applied to the metal.
     """
-    FINENESS_MARK = "fineness_mark"         # Feingehaltsstempel (e.g. 585, 750)
-    MAKERS_MARK = "makers_mark"             # Herstellermarke / Meisterpunze
-    ASSAY_OFFICE = "assay_office"           # Beschauzeichen der Pruefstelle
-    COMMON_CONTROL = "common_control"       # Gemeinsames Kontrollzeichen (CCM)
-    DATE_LETTER = "date_letter"             # Datumsbuchstabe (used in UK/some EU)
+
+    FINENESS_MARK = "fineness_mark"  # Feingehaltsstempel (e.g. 585, 750)
+    MAKERS_MARK = "makers_mark"  # Herstellermarke / Meisterpunze
+    ASSAY_OFFICE = "assay_office"  # Beschauzeichen der Pruefstelle
+    COMMON_CONTROL = "common_control"  # Gemeinsames Kontrollzeichen (CCM)
+    DATE_LETTER = "date_letter"  # Datumsbuchstabe (used in UK/some EU)
 
 
 class HallmarkStatus(str, enum.Enum):
@@ -1453,11 +1706,12 @@ class HallmarkStatus(str, enum.Enum):
     A hallmark starts PENDING, is SUBMITTED to the Pruefstelle (assay office),
     and ends as APPROVED (Pruefzeugnis erteilt) then STAMPED (Punze aufgebracht).
     """
-    PENDING = "pending"         # Noch nicht eingereicht
-    SUBMITTED = "submitted"     # Eingereicht an Pruefstelle
-    APPROVED = "approved"       # Genehmigt — Pruefzeugnis erteilt
-    REJECTED = "rejected"       # Abgelehnt — Nacharbeit erforderlich
-    STAMPED = "stamped"         # Punze physisch aufgebracht
+
+    PENDING = "pending"  # Noch nicht eingereicht
+    SUBMITTED = "submitted"  # Eingereicht an Pruefstelle
+    APPROVED = "approved"  # Genehmigt — Pruefzeugnis erteilt
+    REJECTED = "rejected"  # Abgelehnt — Nacharbeit erforderlich
+    STAMPED = "stamped"  # Punze physisch aufgebracht
 
 
 class OrderHallmark(Base):
@@ -1472,6 +1726,7 @@ class OrderHallmark(Base):
     All hallmark records are financial/legal data — access is logged and
     restricted to GOLDSMITH and ADMIN roles.
     """
+
     __tablename__ = "order_hallmarks"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -1498,15 +1753,17 @@ class OrderHallmark(Base):
     )
 
     # Assay office details (Pruefstelle)
-    assay_office = Column(String(100), nullable=True)  # "Pforzheim", "Schwaebisch Gmuend"
+    assay_office = Column(
+        String(100), nullable=True
+    )  # "Pforzheim", "Schwaebisch Gmuend"
 
     # Certificate issued by assay office — unique per hallmark application
     certificate_number = Column(String(100), unique=True, nullable=True, index=True)
 
     # Timestamps for lifecycle steps
-    submitted_at = Column(DateTime, nullable=True)   # Eingereicht am
-    approved_at = Column(DateTime, nullable=True)    # Genehmigt am
-    stamped_at = Column(DateTime, nullable=True)     # Gestempelt am
+    submitted_at = Column(DateTime, nullable=True)  # Eingereicht am
+    approved_at = Column(DateTime, nullable=True)  # Genehmigt am
+    stamped_at = Column(DateTime, nullable=True)  # Gestempelt am
 
     # Free-text notes (e.g. rejection reason or goldsmith observations)
     notes = Column(Text, nullable=True)
@@ -1551,6 +1808,7 @@ class ValuationCertificate(Base):
     SECURITY: valuation data (appraised_value) is financial data.
     Access is restricted to GOLDSMITH and ADMIN roles and audit-logged.
     """
+
     __tablename__ = "valuation_certificates"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -1582,23 +1840,27 @@ class ValuationCertificate(Base):
     item_description = Column(Text, nullable=False)
 
     # Metal details
-    metal_type = Column(String(100), nullable=True)   # "Gelbgold 750 (18K)"
-    metal_weight_g = Column(Float, nullable=True)     # Metallgewicht in Gramm
+    metal_type = Column(String(100), nullable=True)  # "Gelbgold 750 (18K)"
+    metal_weight_g = Column(Float, nullable=True)  # Metallgewicht in Gramm
     metal_purity = Column(String(20), nullable=True)  # "750", "585", "950"
 
     # Gemstone summary (free-text list — mirrors what is in Gemstone rows)
     gemstones_description = Column(Text, nullable=True)
 
     # Appraised value (Schätzwert) — financial data, restricted access
-    appraised_value = Column(Float, nullable=False)   # Gutachtenwert in EUR
+    appraised_value = Column(Float, nullable=False)  # Gutachtenwert in EUR
 
     # Validity
-    valuation_date = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
+    valuation_date = Column(
+        DateTime, nullable=False, default=datetime.utcnow, index=True
+    )
     valid_until = Column(DateTime, nullable=False, index=True)  # +2 Jahre default
 
     # Goldsmith credentials shown on certificate
     goldsmith_name = Column(String(200), nullable=False)
-    goldsmith_qualification = Column(String(200), nullable=True)  # "Goldschmiedemeister"
+    goldsmith_qualification = Column(
+        String(200), nullable=True
+    )  # "Goldschmiedemeister"
 
     # Generated PDF path (stored on disk / S3 in production)
     pdf_path = Column(String(500), nullable=True)
@@ -1633,6 +1895,7 @@ class CustomMetalType(Base):
     standard 15-value MetalType enum.  The frontend shows built-in and custom
     types side-by-side in all metal-type dropdowns.
     """
+
     __tablename__ = "custom_metal_types"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -1648,7 +1911,9 @@ class CustomMetalType(Base):
     fine_content_ratio = Column(Float, nullable=False)
 
     # Base precious metal category for grouping in dropdowns
-    base_metal = Column(String(20), nullable=False)  # "gold", "silver", "platinum", "palladium"
+    base_metal = Column(
+        String(20), nullable=False
+    )  # "gold", "silver", "platinum", "palladium"
 
     # Optional hex colour for UI badge rendering (e.g. "#D4A843")
     color = Column(String(7), nullable=True)
@@ -1658,10 +1923,14 @@ class CustomMetalType(Base):
     is_active = Column(Boolean, default=True, nullable=False, index=True)
 
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    updated_at = Column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+    )
 
     def __repr__(self) -> str:
-        return f"<CustomMetalType code={self.code!r} display_name={self.display_name!r}>"
+        return (
+            f"<CustomMetalType code={self.code!r} display_name={self.display_name!r}>"
+        )
 
 
 # ============================================================================
@@ -1671,11 +1940,19 @@ class CustomMetalType(Base):
 
 class CustomerAuditLog(Base):
     """Audit trail for customer data access and changes."""
+
     __tablename__ = "customer_audit_logs"
 
     id = Column(Integer, primary_key=True, index=True)
-    customer_id = Column(Integer, ForeignKey("customers.id", ondelete="SET NULL"), nullable=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    customer_id = Column(
+        Integer,
+        ForeignKey("customers.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    user_id = Column(
+        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
     action = Column(String(50), nullable=False)
     entity = Column(String(50), nullable=True)
     entity_id = Column(Integer, nullable=True)
@@ -1693,10 +1970,13 @@ class CustomerAuditLog(Base):
 
 class GDPRRequest(Base):
     """Tracks GDPR data export and erasure requests."""
+
     __tablename__ = "gdpr_requests"
 
     id = Column(Integer, primary_key=True, index=True)
-    customer_id = Column(Integer, ForeignKey("customers.id", ondelete="SET NULL"), nullable=True)
+    customer_id = Column(
+        Integer, ForeignKey("customers.id", ondelete="SET NULL"), nullable=True
+    )
     request_type = Column(String(20), nullable=False)
     status = Column(String(20), nullable=False, default="pending")
     requested_at = Column(DateTime, default=datetime.utcnow, nullable=False)
@@ -1712,14 +1992,19 @@ class GDPRRequest(Base):
 
 class OrderItem(Base):
     """Individual line items within an order."""
+
     __tablename__ = "order_items"
 
     id = Column(Integer, primary_key=True, index=True)
-    order_id = Column(Integer, ForeignKey("orders.id", ondelete="CASCADE"), nullable=False, index=True)
+    order_id = Column(
+        Integer, ForeignKey("orders.id", ondelete="CASCADE"), nullable=False, index=True
+    )
     description = Column(String(500), nullable=False)
     quantity = Column(Integer, default=1, nullable=False)
     unit_price = Column(Float, nullable=True)
-    material_id = Column(Integer, ForeignKey("materials.id", ondelete="SET NULL"), nullable=True)
+    material_id = Column(
+        Integer, ForeignKey("materials.id", ondelete="SET NULL"), nullable=True
+    )
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
     order = relationship("Order", back_populates="order_items")
@@ -1727,13 +2012,18 @@ class OrderItem(Base):
 
 class OrderStatusHistory(Base):
     """Tracks order status transitions."""
+
     __tablename__ = "order_status_history"
 
     id = Column(Integer, primary_key=True, index=True)
-    order_id = Column(Integer, ForeignKey("orders.id", ondelete="CASCADE"), nullable=False, index=True)
+    order_id = Column(
+        Integer, ForeignKey("orders.id", ondelete="CASCADE"), nullable=False, index=True
+    )
     from_status = Column(String(50), nullable=True)
     to_status = Column(String(50), nullable=False)
-    changed_by = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    changed_by = Column(
+        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
     changed_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     notes = Column(String(500), nullable=True)
 
@@ -1842,9 +2132,7 @@ class ScanLog(Base):
     # A1.4 — camera-denied / manual-fallback tracking.
     fallback_reason = Column(String(40), nullable=True)
     # A1.6 — retention bucket for future retention-engine.
-    retention_class = Column(
-        String(32), nullable=False, default="standard_24m"
-    )
+    retention_class = Column(String(32), nullable=False, default="standard_24m")
 
     user = relationship("User", foreign_keys=[user_id])
 
@@ -1862,9 +2150,7 @@ class LabelTemplate(Base):
 
     __tablename__ = "label_templates"
     __table_args__ = (
-        UniqueConstraint(
-            "entity_type", "name", name="uq_label_templates_entity_name"
-        ),
+        UniqueConstraint("entity_type", "name", name="uq_label_templates_entity_name"),
     )
 
     id = Column(Integer, primary_key=True, autoincrement=True)
@@ -1900,9 +2186,9 @@ class LabelTemplate(Base):
 # ============================================================================
 
 # Performance indexes for frequent query patterns
-Index('ix_time_entries_end_time', TimeEntry.end_time)
-Index('ix_notifications_user_read', Notification.user_id, Notification.is_read)
-Index('ix_orders_customer_deleted', Order.customer_id, Order.is_deleted)
+Index("ix_time_entries_end_time", TimeEntry.end_time)
+Index("ix_notifications_user_read", Notification.user_id, Notification.is_read)
+Index("ix_orders_customer_deleted", Order.customer_id, Order.is_deleted)
 
 # Slice 1 — QR / barcode workflow indexes.
 # Named identically to the Alembic migration indexes so that CREATE INDEX
