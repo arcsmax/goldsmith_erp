@@ -106,7 +106,43 @@ async def update_order(
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
     try:
-        return await OrderService.update_order(db, order_id, order_in)
+        return await OrderService.update_order(
+            db,
+            order_id,
+            order_in,
+            verified_by_user_id=current_user.id,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+
+@router.patch("/{order_id}", response_model=OrderRead)
+@require_permission(Permission.ORDER_EDIT)
+async def patch_order(
+    order_id: int,
+    order_in: OrderUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Auftrag (teil-)aktualisieren.
+
+    Slice 5 addition — PunzierungsCheckModal hits this endpoint to write
+    ``punzierung_verified_at`` + ``punzierung_verified_marks`` without
+    the separate /punzierung-verify endpoint that Maria descoped from
+    V1.1. Functionally equivalent to PUT today; the PATCH verb matches
+    REST conventions for partial updates and keeps the door open for
+    future divergence.
+    """
+    order = await OrderService.get_order(db, order_id)
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    try:
+        return await OrderService.update_order(
+            db,
+            order_id,
+            order_in,
+            verified_by_user_id=current_user.id,
+        )
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
 

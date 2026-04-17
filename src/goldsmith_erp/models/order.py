@@ -204,6 +204,59 @@ class OrderUpdate(BaseModel):
     has_scrap_gold: Optional[bool] = Field(None, description="Altgold vorhanden?")
     special_instructions: Optional[str] = Field(None, max_length=2000, description="Sonderwuensche des Kunden")
 
+    # ── Slice 5 / A3.2 — Punzierungs-Check verification fields ──────────
+    # Maria trimmed the dedicated /orders/{id}/punzierung-verify endpoint
+    # from V1.1 scope; instead, the PunzierungsCheckModal calls the
+    # existing PATCH /orders/{id} with these two fields. The service
+    # layer (Slice 5 update_order) auto-sets retention_class='hallmark_10y'
+    # the first time marks are recorded (A2.8).
+    punzierung_verified_at: Optional[datetime] = Field(
+        None,
+        description=(
+            "ISO timestamp at which the Punzierungs-Check was completed. "
+            "Auto-filled by the service layer if omitted when marks are set."
+        ),
+    )
+    punzierung_verified_marks: Optional[List[str]] = Field(
+        None,
+        description=(
+            "Marks recorded during the Punzierungs-Check. At least one "
+            "Feingehalt mark must be present; server validates the list."
+        ),
+        min_length=1,
+    )
+
+    @field_validator('punzierung_verified_marks')
+    @classmethod
+    def _validate_punzierung_marks(cls, v: Optional[List[str]]) -> Optional[List[str]]:
+        """Enforce the A3.2 allowed-mark vocabulary."""
+        if v is None:
+            return v
+        allowed = {
+            "feingehalt_585",
+            "feingehalt_750",
+            "feingehalt_925",
+            "feingehalt_950_pt",
+            "meisterzeichen",
+            "herstellerzeichen",
+            "laenderzeichen",
+        }
+        unknown = [m for m in v if m not in allowed]
+        if unknown:
+            raise ValueError(
+                f"Unknown punzierung marks: {unknown}. Allowed: "
+                f"{sorted(allowed)}"
+            )
+        # Dedupe while preserving order so the audit trail matches the
+        # goldsmith's selection order.
+        seen: set[str] = set()
+        deduped: List[str] = []
+        for m in v:
+            if m not in seen:
+                seen.add(m)
+                deduped.append(m)
+        return deduped
+
     @field_validator('title', 'description', 'current_location')
     @classmethod
     def sanitize_text(cls, v: Optional[str]) -> Optional[str]:

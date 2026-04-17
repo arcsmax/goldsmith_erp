@@ -1,3 +1,4 @@
+from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy import update, delete
@@ -13,6 +14,75 @@ from goldsmith_erp.core.pubsub import publish_event  # Import the Redis publish 
 from goldsmith_erp.db.transaction import transactional
 
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Slice 5 — Punzierungs-Check guard constants (M4 / R8 / A5.3).
+#
+# The Feingehaltsgesetz / DIN 8238 require that any piece bearing a
+# Feingehalts-Punze be verified before final handover. The ERP enforces
+# this at the state-machine boundary: a transition to COMPLETED on an
+# order with a declared alloy and no verified marks is refused.
+#
+# Orders without an alloy (e.g. silver sample pieces, gemstone-only
+# repairs) are allowed through — the hallmark law doesn't apply.
+# ---------------------------------------------------------------------------
+_PUNZIERUNG_REQUIRED_TARGETS: frozenset[OrderStatusEnum] = frozenset(
+    {OrderStatusEnum.COMPLETED}
+)
+
+
+class PunzierungRequiredError(HTTPException):
+    """Raised when advancing to COMPLETED without a verified Punzierung (M4).
+
+    409 with structured detail so the frontend can open the
+    PunzierungsCheckModal directly from the error response instead of
+    requiring a separate endpoint probe.
+    """
+
+    def __init__(self, *, order_id: int, alloy: str) -> None:
+        super().__init__(
+            status_code=409,
+            detail={
+                "code": "PUNZIERUNG_REQUIRED",
+                "order_id": order_id,
+                "alloy": alloy,
+                "message": (
+                    "Feingehalts-Punze muss vor Status COMPLETED geprueft werden."
+                ),
+            },
+        )
+
+
+def _check_punzierung_requirement(
+    order: OrderModel,
+    new_status: Optional[OrderStatusEnum],
+    pending_marks: Optional[list],
+) -> None:
+    """Enforce the A5.3 guard at every status-write path.
+
+    ``pending_marks`` carries the punzierung_verified_marks value that
+    the same PATCH is about to apply, so a caller can complete-and-verify
+    in a single request (used by the scan flow: scan ORDER:42, complete
+    Punzierung + advance to COMPLETED in one round-trip).
+    """
+    if new_status not in _PUNZIERUNG_REQUIRED_TARGETS:
+        return
+    # Orders without an alloy are exempt — hallmark law only applies
+    # to pieces that carry a Feingehalts-Punze.
+    if not order.alloy:
+        return
+
+    # A piece counts as verified if EITHER the existing row has marks
+    # OR the same update supplies them.
+    existing_marks = order.punzierung_verified_marks or []
+    pending = pending_marks or []
+    if len(existing_marks) == 0 and len(pending) == 0:
+        raise PunzierungRequiredError(
+            order_id=order.id,
+            alloy=order.alloy,
+        )
+
 
 class OrderService:
 
@@ -163,8 +233,48 @@ class OrderService:
         return db_order
     
     @staticmethod
+    async def advance_status(
+        db: AsyncSession,
+        order_id: int,
+        target_status: OrderStatusEnum,
+        user_id: Optional[int] = None,
+        *,
+        punzierung_verified_marks: Optional[List[str]] = None,
+    ) -> Optional[OrderModel]:
+        """Status-transition entry point used by the scan flow (Slice 5).
+
+        This is a thin wrapper over :meth:`update_order` — the guard
+        logic (``_check_punzierung_requirement``) lives inside
+        ``update_order`` so every status-write path, scan or admin,
+        goes through the same check. ``advance_status`` exists as a
+        clear name for the scan router to call and to pass the
+        goldsmith's ``user_id`` as ``punzierung_verified_by`` when marks
+        are supplied.
+        """
+        payload: Dict[str, Any] = {"status": target_status}
+        if punzierung_verified_marks is not None:
+            payload["punzierung_verified_marks"] = list(punzierung_verified_marks)
+            payload["punzierung_verified_at"] = datetime.utcnow()
+
+        # Use OrderUpdate so the guard path is exercised. We bypass the
+        # Pydantic request schema at the Pydantic level by constructing
+        # OrderUpdate directly — validators still run.
+        order_in = OrderUpdate(**payload)
+        updated = await OrderService.update_order(
+            db,
+            order_id,
+            order_in,
+            verified_by_user_id=user_id,
+        )
+        return updated
+
+    @staticmethod
     async def update_order(
-        db: AsyncSession, order_id: int, order_in: OrderUpdate
+        db: AsyncSession,
+        order_id: int,
+        order_in: OrderUpdate,
+        *,
+        verified_by_user_id: Optional[int] = None,
     ) -> Optional[OrderModel]:
         """
         Aktualisiert einen bestehenden Auftrag mit transaktionaler Integrität.
@@ -187,8 +297,40 @@ class OrderService:
         if order_in.costing_method is not None:
             update_data["costing_method_used"] = order_in.costing_method
 
-        # Guard: status transition to CONFIRMED requires all Pflichtfelder
         new_status = update_data.get("status")
+
+        # ------------------------------------------------------------------
+        # Slice 5 / M4 / R8 / A5.3 — Punzierungs-Check guard.
+        #
+        # This guard fires for EVERY call into update_order, regardless of
+        # whether the caller is a scan flow, the admin PATCH endpoint, or
+        # an import/bulk tool that lands here. Status-write paths that
+        # bypass OrderService.update_order are enumerated in the Slice 5
+        # report; any new path MUST also call _check_punzierung_requirement.
+        # ------------------------------------------------------------------
+        pending_marks = update_data.get("punzierung_verified_marks")
+        _check_punzierung_requirement(order, new_status, pending_marks)
+
+        # A2.8 — when a Punzierungs-Check is recorded (first time marks
+        # are supplied), tag retention_class='hallmark_10y' for the
+        # Feingehaltsgesetz retention bucket. Only promote, never demote.
+        if (
+            pending_marks is not None
+            and len(pending_marks) > 0
+            and (order.punzierung_verified_marks is None
+                 or len(order.punzierung_verified_marks) == 0)
+        ):
+            update_data["retention_class"] = "hallmark_10y"
+            # Auto-populate verification timestamp if the caller left it
+            # unset. verified_by is sourced from the caller-supplied
+            # verified_by_user_id (which the router threads from
+            # current_user.id); never trust a client-supplied value.
+            if update_data.get("punzierung_verified_at") is None:
+                update_data["punzierung_verified_at"] = datetime.utcnow()
+            if verified_by_user_id is not None:
+                update_data["punzierung_verified_by"] = verified_by_user_id
+
+        # Guard: status transition to CONFIRMED requires all Pflichtfelder
         if new_status == OrderStatusEnum.CONFIRMED:
             # Merge pending update data with current order state for validation
             # (the update may itself supply the missing fields)
