@@ -81,8 +81,30 @@ export interface Transport {
  * Returned by `POST /scan/log/batch` — per-row idempotency accounting.
  */
 export interface BatchLogResponse {
-  accepted: number;
-  duplicates: number;
-  rejected: number;
+  accepted?: number;
+  duplicates?: number;
+  rejected?: number;
+  // Backend currently serialises as `ingested/deduplicated/rejected/reasons`;
+  // the V1.1 frontend accepts either shape for resilience to field renames.
+  ingested?: number;
+  deduplicated?: number;
+  reasons?: string[];
   errors?: Array<{ index: number; reason: string }>;
+}
+
+/**
+ * Shape of a ``scan_logs`` row returned by ``GET /api/v1/scan/log`` (Slice 12).
+ * Backs the "Letzte Scans" list on the ScannerPage.
+ */
+export interface ScanLogRead {
+  id: string;
+  scanned_at: string; // ISO 8601
+  user_id: number;
+  raw_payload: string;
+  resolved_type: string | null;
+  resolved_id: string | null;
+  resolution_path: string | null;
+  action_taken: string | null;
+  offline_queued: boolean;
+  synced_at: string | null;
 }
