@@ -5,6 +5,10 @@ from typing import List, Optional
 from datetime import datetime
 
 from goldsmith_erp.api.deps import get_current_user
+from goldsmith_erp.core.idempotency import (
+    IdempotencyContext,
+    get_idempotency_context,
+)
 from goldsmith_erp.db.session import get_db
 from goldsmith_erp.db.models import User
 from goldsmith_erp.models.time_entry import (
@@ -16,6 +20,10 @@ from goldsmith_erp.models.time_entry import (
     TimeEntryWithDetails,
 )
 from goldsmith_erp.models.interruption import InterruptionCreate, InterruptionRead
+from goldsmith_erp.models.scanner import (
+    LogInterruptionRequest,
+    PatchActivityRequest,
+)
 from goldsmith_erp.services.time_tracking_service import TimeTrackingService
 from goldsmith_erp.core.permissions import Permission, require_permission, check_ownership_or_permission
 
@@ -199,3 +207,65 @@ async def add_interruption(
         return await TimeTrackingService.add_interruption(db, interruption_in)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
+
+
+# ==================================================================
+# Slice 5 — scan-aware extensions
+# ==================================================================
+
+
+@router.patch("/{entry_id}/activity", response_model=TimeEntryRead)
+@require_permission(Permission.TIME_TRACK)
+async def patch_activity(
+    entry_id: str,
+    body: PatchActivityRequest,
+    idem: IdempotencyContext = Depends(get_idempotency_context),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Mid-session activity switch for a scan-driven ``ACTIVITY:<code>`` event.
+
+    Mutates the existing time entry in place — does NOT create a new row
+    (Lena §1 resolution). Per-user scope enforced at service layer:
+    a user can only patch their own entries. Slice 2 idempotency headers
+    are accepted for forward-compat but not yet used server-side.
+    """
+    del idem  # transport-level idempotency only; V1.1.5 will consume
+    return await TimeTrackingService.patch_activity(
+        db=db,
+        entry_id=entry_id,
+        activity_id=body.activity_id,
+        user=current_user,
+        origin="scan",
+    )
+
+
+@router.post(
+    "/{entry_id}/interruption",
+    response_model=InterruptionRead,
+    status_code=201,
+)
+@require_permission(Permission.TIME_TRACK)
+async def log_interruption_endpoint(
+    entry_id: str,
+    body: LogInterruptionRequest,
+    idem: IdempotencyContext = Depends(get_idempotency_context),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Log an interruption event WITHOUT stopping the timer (A5 / Slice 5).
+
+    Singular route name (``/interruption``) distinguishes the scan-path
+    from the legacy plural ``/interruptions`` endpoint which preserves
+    the historical ``InterruptionCreate`` contract.
+    """
+    del idem
+    return await TimeTrackingService.log_interruption(
+        db=db,
+        entry_id=entry_id,
+        interrupt_code=body.interrupt_code,
+        user=current_user,
+        notes=body.notes,
+        duration_minutes=body.duration_minutes,
+        origin="scan",
+    )

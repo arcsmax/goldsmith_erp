@@ -276,6 +276,32 @@ class ScanLogRead(BaseModel):
     synced_at: Optional[datetime] = None
 
 
+class PatchActivityRequest(StrictRequestBase):
+    """Body for ``PATCH /time-tracking/{entry_id}/activity`` (Slice 5).
+
+    ``activity_id`` is the target activity. Per Lena §1 / Slice 5 decision
+    the endpoint mutates the *current* TimeEntry row in place; it does
+    NOT fork a new row. See ``TimeTrackingService.patch_activity``.
+    """
+
+    activity_id: int = Field(..., gt=0)
+
+
+class LogInterruptionRequest(StrictRequestBase):
+    """Body for ``POST /time-tracking/{entry_id}/interruption`` (Slice 5).
+
+    ``interrupt_code`` is the short vocabulary code emitted by an
+    ``INTERRUPT:<code>`` scan (e.g. ``kundenanruf``). ``notes`` is an
+    optional freetext suffix. ``duration_minutes`` defaults to 0 for
+    event-marker scans where the timer keeps running and the duration
+    isn't known yet (admin corrections supply a non-zero value).
+    """
+
+    interrupt_code: str = Field(..., min_length=1, max_length=40)
+    notes: Optional[str] = Field(default=None, max_length=200)
+    duration_minutes: int = Field(default=0, ge=0, le=1440)
+
+
 class BatchLogResponse(BaseModel):
     """Summary returned by ``POST /scan/log/batch``.
 
