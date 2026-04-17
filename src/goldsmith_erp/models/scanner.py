@@ -287,6 +287,31 @@ class PatchActivityRequest(StrictRequestBase):
     activity_id: int = Field(..., gt=0)
 
 
+class SwitchTimerRequest(StrictRequestBase):
+    """Body for ``POST /time-tracking/{entry_id}/switch`` (H18 / Slice 5).
+
+    Dedicated HTTP surface for ``TimeTrackingService.switch_timer``. The
+    service atomically stops the outgoing timer identified by the path
+    ``entry_id`` and starts a new one on ``new_order_id`` / ``activity_id``.
+    The endpoint exists so the V1.1 frontend no longer emulates the
+    switch via stop+start — that emulation lost the atomicity guarantee
+    on network failure between the two calls (H18).
+
+      * ``new_order_id``  — target order (must exist; FK validated at
+        commit, surfaces as 422 on violation).
+      * ``activity_id``   — target activity (must exist; likewise).
+      * ``location``      — optional station label, propagated onto the
+        new entry (same semantics as ``/time-tracking/start``).
+
+    ``StrictRequestBase`` rejects any attempt to set ``user_id``,
+    ``origin``, or other server-controlled fields in the body.
+    """
+
+    new_order_id: int = Field(..., gt=0)
+    activity_id: int = Field(..., gt=0)
+    location: Optional[str] = Field(default=None, max_length=100)
+
+
 class LogInterruptionRequest(StrictRequestBase):
     """Body for ``POST /time-tracking/{entry_id}/interruption`` (Slice 5).
 

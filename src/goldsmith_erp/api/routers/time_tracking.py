@@ -23,6 +23,7 @@ from goldsmith_erp.models.interruption import InterruptionCreate, InterruptionRe
 from goldsmith_erp.models.scanner import (
     LogInterruptionRequest,
     PatchActivityRequest,
+    SwitchTimerRequest,
 )
 from goldsmith_erp.services.time_tracking_service import TimeTrackingService
 from goldsmith_erp.core.permissions import Permission, require_permission, check_ownership_or_permission
@@ -237,6 +238,62 @@ async def patch_activity(
         activity_id=body.activity_id,
         user=current_user,
         origin="scan",
+    )
+
+
+@router.post("/{entry_id}/switch", response_model=TimeEntryRead)
+@require_permission(Permission.TIME_TRACK)
+async def switch_timer_endpoint(
+    entry_id: str,
+    body: SwitchTimerRequest,
+    idem: IdempotencyContext = Depends(get_idempotency_context),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> TimeEntryRead:
+    """Atomically switch the active timer from ``entry_id`` to a new order.
+
+    Delegates to :func:`TimeTrackingService.switch_timer`, which enforces:
+
+      * Per-user scope (A5.1) — the old entry must belong to
+        ``current_user`` or the service raises ``CrossUserTimerError``
+        (403) before any DB write.
+      * Stale-timer guard (A5.2) — if the outgoing timer has been
+        running past the 20-minute threshold without an interruption,
+        the service raises ``TimerPossiblyStaleError`` (409) with
+        ``detail.code == "TIMER_POSSIBLY_STALE"`` so the frontend can
+        render the Mittagspause modal (A11.5).
+      * Atomicity — stop-old + start-new land in one transaction and
+        publish a single pubsub event on ``time_tracking_updates``.
+
+    H18 rationale: Slice 5 built the service method but never exposed
+    an HTTP endpoint, so the V1.1 frontend had to emulate a switch via
+    stop+start. On network failure between the two calls the user ended
+    up with no running timer (dangling state), and the 409 stale-timer
+    envelope never surfaced because the stop endpoint returns 400/404
+    for its own reasons. This endpoint closes the atomicity gap.
+
+    ``origin='scan'`` is hard-coded because V1.1's only consumer is the
+    scan-triggered flow in ``ActionHandlers.switch_timer``. When a
+    manual-UI switch becomes a feature (V1.2+), a distinct endpoint or
+    an ``origin`` field in the body will carry ``origin='manual'`` —
+    we do NOT want the client to self-declare the origin on the current
+    surface because that would undermine the §14.a adoption metric.
+
+    Transport-level idempotency headers (``Idempotency-Key``,
+    ``X-Client-Created-At``) are accepted and forwarded for V1.1.5's
+    server-side dedupe. In V1.1 they are validated but not consumed
+    server-side beyond the header-format check (see
+    ``core.idempotency``).
+    """
+    return await TimeTrackingService.switch_timer(
+        db=db,
+        user=current_user,
+        old_entry_id=entry_id,
+        new_order_id=body.new_order_id,
+        activity_id=body.activity_id,
+        origin="scan",
+        idempotency_key=idem.key,
+        location=body.location,
     )
 
 
