@@ -11,6 +11,7 @@ from sqlalchemy import (
     Table,
     Text,
     UniqueConstraint,
+    event,
 )
 from sqlalchemy.dialects.postgresql import JSON
 from sqlalchemy.ext.declarative import declarative_base
@@ -586,6 +587,59 @@ class TimeEntry(Base):
         "Interruption", back_populates="time_entry", cascade="all, delete-orphan"
     )
     photos = relationship("OrderPhoto", back_populates="time_entry")
+
+
+# --------------------------------------------------------------------------- #
+# Defence-in-depth guard for `time_entries.extra_metadata` (O3)
+# --------------------------------------------------------------------------- #
+#
+# Layer A (Pydantic `TimeEntryMetadata` on the API boundary) covers every
+# legitimate HTTP write. This listener covers the residual surface:
+# service-layer code that constructs a `TimeEntry` ORM instance without
+# routing through the Pydantic schema, tests, fixtures, seed data, and
+# any future code path that bypasses the router. Both insert and update
+# paths are hooked.
+#
+# Limitations (known and documented):
+#   * Only fires on ORM-mediated writes. Raw SQL issued via
+#     `AsyncSession.execute(insert(TimeEntryModel.__table__)...)` or
+#     directly through a DBAPI cursor will NOT trigger this listener —
+#     SQLAlchemy's mapper events are an ORM-level mechanism. Raw-SQL
+#     writes must be separately covered by the DB-level constraint or
+#     a CI lint; see the audit script at
+#     `scripts/audit_time_entry_metadata.py` for the compensating
+#     control during rollout.
+#   * `AsyncSession.execute(update(TimeEntryModel)...)` likewise
+#     bypasses the mapper hook. The existing service code uses that
+#     pattern (see `TimeTrackingService.update_time_entry`) — the
+#     Pydantic layer catches the payload before it reaches there, so
+#     the two layers together cover the update path.
+#
+# Not swallowed: a `ValidationError` here propagates out of the
+# flush/commit and aborts the transaction. That is the desired
+# behaviour — fail loudly on schema violation rather than silently
+# writing PII.
+
+from goldsmith_erp.models.time_entry_metadata import (  # noqa: E402
+    TimeEntryMetadata,
+)
+
+
+@event.listens_for(TimeEntry, "before_insert")
+@event.listens_for(TimeEntry, "before_update")
+def _validate_time_entry_metadata(mapper, connection, target) -> None:
+    """Validate ``target.extra_metadata`` against the whitelist schema.
+
+    Runs on every ORM insert / update of a ``TimeEntry`` row before
+    the statement is sent to the database. ``None`` and empty-dict
+    payloads are accepted (there is nothing to scrub).
+    """
+    metadata = target.extra_metadata
+    if metadata is None or metadata == {}:
+        return
+    # Raises ValidationError — do not swallow; we want the transaction
+    # to fail so the caller sees the schema violation.
+    TimeEntryMetadata.model_validate(metadata)
 
 
 class Interruption(Base):
