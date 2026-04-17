@@ -277,7 +277,20 @@ async def consume_material(
     4. Updates `Order.actual_weight_g`
     """
     try:
-        usage_record = await MetalInventoryService.consume_material(db, usage, metal_type)
+        usage_record = await MetalInventoryService.consume_material(
+            db,
+            usage,
+            metal_type,
+            alloy_override=usage.alloy_override,
+            override_reason=usage.override_reason,
+            override_reason_category=(
+                usage.override_reason_category.value
+                if usage.override_reason_category
+                else None
+            ),
+            user_id=current_user.id,
+            origin="manual",
+        )
 
         return MaterialUsageRead(
             id=usage_record.id,
@@ -292,6 +305,11 @@ async def consume_material(
             notes=usage_record.notes,
             metal_type=metal_type
         )
+    except HTTPException:
+        # AlloyMismatchError already carries the right status+detail;
+        # forwarding preserves the structured 409 envelope the frontend
+        # parses for the AlloyMismatchModal.
+        raise
     except ValueError as e:
         logger.warning(f"Failed to consume material: {e}")
         raise HTTPException(

@@ -5,10 +5,12 @@ Business logic for managing metal purchases, inventory tracking, and material us
 Supports multiple costing methods: FIFO, LIFO, Weighted Average, and Specific Identification.
 """
 
+import json
+from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, and_, desc, asc
 from sqlalchemy.orm import selectinload
-from typing import List, Optional, Tuple
+from typing import List, Literal, Optional, Tuple
 from datetime import datetime
 import logging
 
@@ -26,6 +28,83 @@ from ..models.metal_inventory import (
 from ..db.transaction import transactional
 
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Slice 5 — metal_type -> alloy mapping (R10 alloy-mismatch detection).
+#
+# The Order model stores alloy as a string ('585', '750', '925', ...) while
+# MetalPurchase stores a MetalType enum ('gold_18k', 'silver_925', ...).
+# For the scan-triggered consume_material flow we need a deterministic
+# mapping so "gold_18k bar consumed on a 585-alloy order" raises the
+# mismatch-override modal. Entries without an obvious equivalence
+# (palladium, rose_gold variants, etc.) map to None — the match is only
+# triggered when BOTH sides have a known equivalence. Unknown alloy on
+# the order side means the check is skipped (order spec was ambiguous
+# so we don't fail a consumption attempt).
+# ---------------------------------------------------------------------------
+_METAL_TYPE_TO_ALLOY: dict[MetalType, Optional[str]] = {
+    MetalType.GOLD_24K: "999",
+    MetalType.GOLD_22K: "916",
+    MetalType.GOLD_18K: "750",
+    MetalType.GOLD_14K: "585",
+    MetalType.GOLD_9K: "375",
+    MetalType.SILVER_999: "ag999",
+    MetalType.SILVER_925: "ag925",
+    MetalType.SILVER_800: "ag800",
+    MetalType.PLATINUM_950: "pt950",
+    MetalType.PLATINUM_900: "pt900",
+    # Rose/white gold variants share the fine content of their base karat;
+    # we map them the same as plain gold of the same karat.
+    MetalType.WHITE_GOLD_18K: "750",
+    MetalType.WHITE_GOLD_14K: "585",
+    MetalType.ROSE_GOLD_18K: "750",
+    MetalType.ROSE_GOLD_14K: "585",
+    # Palladium has no standard Feingehalts-Punze in the V1.1 vocabulary —
+    # leave unmapped so the alloy check is a no-op until V1.2 adds the
+    # palladium alloy enum (Maria Q4 scope).
+    MetalType.PALLADIUM: None,
+}
+
+
+OverrideReasonCategory = Literal[
+    "charge_abweichung", "kleinteil", "notfall", "sonstiges"
+]
+
+
+class AlloyMismatchError(HTTPException):
+    """Raised when metal_purchase alloy != order alloy and no override (R10).
+
+    409 with structured detail so the frontend can render the
+    AlloyMismatchModal with the radio categories.
+    """
+
+    def __init__(
+        self,
+        *,
+        order_alloy: str,
+        purchase_alloy: str,
+        metal_purchase_id: int,
+    ) -> None:
+        super().__init__(
+            status_code=409,
+            detail={
+                "code": "ALLOY_MISMATCH",
+                "order_alloy": order_alloy,
+                "purchase_alloy": purchase_alloy,
+                "metal_purchase_id": metal_purchase_id,
+                "message": (
+                    f"Legierungs-Abweichung: Auftrag erwartet {order_alloy}, "
+                    f"Barren ist {purchase_alloy}. Override mit Grund "
+                    "erforderlich."
+                ),
+            },
+        )
+
+
+def _expected_alloy(mt: MetalType) -> Optional[str]:
+    """Return the canonical alloy string for a MetalType, or None if unmapped."""
+    return _METAL_TYPE_TO_ALLOY.get(mt)
 
 
 class MetalInventoryService:
@@ -308,29 +387,68 @@ class MetalInventoryService:
     async def consume_material(
         db: AsyncSession,
         usage_data: MaterialUsageCreate,
-        metal_type: MetalType
+        metal_type: MetalType,
+        *,
+        alloy_override: bool = False,
+        override_reason: Optional[str] = None,
+        override_reason_category: Optional[OverrideReasonCategory] = None,
+        user_id: Optional[int] = None,
+        origin: str = "manual",
     ) -> MaterialUsage:
         """
         Consume metal from inventory and create usage record.
 
         This method:
         1. Allocates material using specified costing method
-        2. Creates MaterialUsage record
-        3. Reduces remaining_weight_g in MetalPurchase(s)
-        4. Updates Order.material_cost_calculated
+        2. Locks the target MetalPurchase row(s) with SELECT ... FOR UPDATE
+           (Lena §3 concurrency fix; A3.4) so two parallel consumes cannot
+           race the remaining_weight_g below zero.
+        3. Checks alloy match (order.alloy vs metal_purchase metal_type);
+           if mismatch AND alloy_override=False, raises 409 ALLOY_MISMATCH.
+        4. If alloy_override=True, requires override_reason AND
+           override_reason_category (A2.3 / A2.4 / A3.1). Persists all
+           three onto the MaterialUsage row for the 10-year financial
+           audit trail.
+        5. Creates MaterialUsage record
+        6. Reduces remaining_weight_g in MetalPurchase(s)
+        7. Updates Order.material_cost_calculated
+        8. Publishes a material_updates pubsub event with source=origin.
 
         Args:
             usage_data: Usage details (order_id, weight, costing method)
             metal_type: Type of metal to consume
+            alloy_override: Opt-in override of the alloy-mismatch check.
+                            When True, override_reason and
+                            override_reason_category are REQUIRED.
+            override_reason: 3-200 char freetext audit justification.
+            override_reason_category: One of the A2.4 enum values.
+            user_id: Caller identity for MaterialUsage.user_id (slice 2).
+            origin: 'scan' | 'manual' — tags the pubsub envelope per A5.4.
 
         Returns:
             MaterialUsage record
 
         Raises:
-            ValueError: If insufficient inventory or invalid data
+            AlloyMismatchError (HTTPException 409): mismatch and no override.
+            ValueError: invalid override payload or insufficient inventory.
         """
+        # ---- override-payload validation (A3.1 / Anna B3) ----
+        if alloy_override:
+            if not override_reason or not override_reason_category:
+                raise ValueError(
+                    "alloy_override=True requires both override_reason "
+                    "and override_reason_category"
+                )
+            # Length bound matches Pydantic layer expectations (3-200).
+            stripped = override_reason.strip()
+            if len(stripped) < 3:
+                raise ValueError("override_reason must be at least 3 characters")
+            if len(stripped) > 200:
+                raise ValueError("override_reason must be at most 200 characters")
+            override_reason = stripped
+
         async with transactional(db):
-            # 1. Allocate material
+            # 1. Allocate material — pure-read planner, no writes yet.
             allocation = await MetalInventoryService.allocate_material(
                 db,
                 metal_type=metal_type,
@@ -339,29 +457,71 @@ class MetalInventoryService:
                 specific_purchase_id=usage_data.metal_purchase_id
             )
 
-            # 2. Consume from inventory
+            # 2. Consume from inventory with ROW LOCKS (A3.4 / Lena §3).
+            #    Re-fetch each purchase WITH FOR UPDATE so concurrent
+            #    consumes on the same bar serialise and can never drive
+            #    remaining_weight_g below zero.
+            locked_purchases: dict[int, MetalPurchase] = {}
             for alloc in allocation.allocations:
-                purchase = await MetalInventoryService.get_purchase(db, alloc.metal_purchase_id)
+                locked = await db.execute(
+                    select(MetalPurchase)
+                    .where(MetalPurchase.id == alloc.metal_purchase_id)
+                    .with_for_update()
+                )
+                purchase = locked.scalar_one_or_none()
                 if not purchase:
-                    raise ValueError(f"Metal purchase {alloc.metal_purchase_id} not found")
-
-                # Reduce remaining weight
-                purchase.remaining_weight_g -= alloc.weight_allocated_g
-
-                if purchase.remaining_weight_g < -0.01:  # Allow small tolerance
                     raise ValueError(
-                        f"Cannot consume {alloc.weight_allocated_g}g from purchase {purchase.id}: "
-                        f"only {purchase.remaining_weight_g + alloc.weight_allocated_g}g remaining"
+                        f"Metal purchase {alloc.metal_purchase_id} not found"
+                    )
+                locked_purchases[alloc.metal_purchase_id] = purchase
+
+                # Re-check stock UNDER THE LOCK. The planner's view may
+                # be stale if a concurrent consume happened between
+                # allocate and the lock acquisition.
+                if purchase.remaining_weight_g + 0.01 < alloc.weight_allocated_g:
+                    raise ValueError(
+                        f"Cannot consume {alloc.weight_allocated_g}g from "
+                        f"purchase {purchase.id}: only "
+                        f"{purchase.remaining_weight_g:.3f}g remaining "
+                        "(concurrent consume)"
                     )
 
-                # Ensure non-negative (handle floating point errors)
+                # Apply the decrement.
+                purchase.remaining_weight_g -= alloc.weight_allocated_g
                 if purchase.remaining_weight_g < 0.01:
                     purchase.remaining_weight_g = 0.0
 
-            # 3. Create MaterialUsage record
-            # For simplicity, if multiple batches used, create one record for primary batch
+            # 3. Alloy-match check against the ORDER alloy. Uses the
+            #    metal_type of the PRIMARY batch — if a multi-batch
+            #    allocation ever spans alloys, we fail closed (any
+            #    mismatched batch triggers the check).
             primary_allocation = allocation.allocations[0]
+            primary_purchase = locked_purchases[primary_allocation.metal_purchase_id]
+            expected_alloy = _expected_alloy(primary_purchase.metal_type)
 
+            order_result = await db.execute(
+                select(Order).filter(Order.id == usage_data.order_id)
+            )
+            order = order_result.scalar_one_or_none()
+
+            if (
+                order is not None
+                and order.alloy is not None
+                and expected_alloy is not None
+                and order.alloy != expected_alloy
+                and not alloy_override
+            ):
+                # No writes — we're still inside the transaction and
+                # rollback is automatic on HTTPException escape from
+                # ``async with transactional``.
+                raise AlloyMismatchError(
+                    order_alloy=order.alloy,
+                    purchase_alloy=expected_alloy,
+                    metal_purchase_id=primary_purchase.id,
+                )
+
+            # 4. Create MaterialUsage record. R10 audit fields persisted
+            #    only when the override path was taken.
             usage = MaterialUsage(
                 order_id=usage_data.order_id,
                 metal_purchase_id=primary_allocation.metal_purchase_id,
@@ -369,29 +529,122 @@ class MetalInventoryService:
                 cost_at_time=allocation.total_cost,
                 price_per_gram_at_time=allocation.total_cost / usage_data.weight_used_g,
                 costing_method=usage_data.costing_method,
-                notes=usage_data.notes
+                notes=usage_data.notes,
+                alloy_override=bool(alloy_override),
+                override_reason=override_reason if alloy_override else None,
+                override_reason_category=(
+                    override_reason_category if alloy_override else None
+                ),
+                user_id=user_id,
             )
 
             db.add(usage)
             await db.flush()
             await db.refresh(usage)
 
-            # 4. Update Order.material_cost_calculated
-            order_result = await db.execute(
-                select(Order).filter(Order.id == usage_data.order_id)
-            )
-            order = order_result.scalar_one_or_none()
+            # 5. Update Order.material_cost_calculated
             if order:
                 order.material_cost_calculated = allocation.total_cost
                 order.actual_weight_g = usage_data.weight_used_g
 
-        logger.info(
-            f"Consumed {usage_data.weight_used_g}g of {metal_type.value} "
-            f"for order #{usage_data.order_id} using {usage_data.costing_method.value} "
-            f"(Cost: {allocation.total_cost:.2f} EUR)"
+        if alloy_override:
+            logger.info(
+                "Consumed material with ALLOY OVERRIDE "
+                "(%.3fg %s on order #%d; category=%s)",
+                usage_data.weight_used_g,
+                metal_type.value,
+                usage_data.order_id,
+                override_reason_category,
+            )
+        else:
+            logger.info(
+                f"Consumed {usage_data.weight_used_g}g of {metal_type.value} "
+                f"for order #{usage_data.order_id} using "
+                f"{usage_data.costing_method.value} "
+                f"(Cost: {allocation.total_cost:.2f} EUR)"
+            )
+
+        # ---- A5.4 + A5.5 pubsub envelope + failure notification ----
+        await MetalInventoryService._safe_publish_material_event(
+            db=db,
+            usage=usage,
+            order_id=usage_data.order_id,
+            origin=origin,
+            user_id=user_id,
+            alloy_override=bool(alloy_override),
         )
 
         return usage
+
+    @staticmethod
+    async def _safe_publish_material_event(
+        *,
+        db: AsyncSession,
+        usage: MaterialUsage,
+        order_id: int,
+        origin: str,
+        user_id: Optional[int],
+        alloy_override: bool,
+    ) -> None:
+        """Publish material_updates + write Notification on pubsub failure.
+
+        Mirrors the A5.5 pattern used in TimeTrackingService._safe_publish
+        so the two flows share envelope semantics. On failure the user
+        gets an in-app warning; the DB mutation is already committed.
+        """
+        from goldsmith_erp.core.pubsub import publish_event  # noqa: PLC0415
+
+        payload = {
+            "action": "material_consumed",
+            "source": origin,
+            "usage_id": usage.id,
+            "order_id": order_id,
+            "metal_purchase_id": usage.metal_purchase_id,
+            "weight_used_g": usage.weight_used_g,
+            "alloy_override": alloy_override,
+        }
+        publish_ok = False
+        try:
+            await publish_event("material_updates", json.dumps(payload))
+            publish_ok = True
+        except Exception as exc:
+            logger.warning(
+                "Material pubsub publish raised unexpectedly",
+                extra={"order_id": order_id, "error": str(exc)},
+                exc_info=True,
+            )
+
+        if publish_ok or user_id is None:
+            # No notification to write if we can't attribute the failure.
+            return
+
+        try:
+            from goldsmith_erp.services.notification_service import (  # noqa: PLC0415
+                NotificationService,
+            )
+            from goldsmith_erp.db.models import (  # noqa: PLC0415
+                NotificationSeverityEnum,
+                NotificationTypeEnum,
+            )
+
+            await NotificationService.create_notification(
+                db=db,
+                user_id=user_id,
+                title="Material-Live-Update fehlgeschlagen",
+                message=(
+                    "Ein Material-Verbrauch wurde erfolgreich gespeichert, "
+                    "aber die Live-Aktualisierung hat nicht funktioniert. "
+                    "Bitte Seite neu laden."
+                ),
+                notification_type=NotificationTypeEnum.SYSTEM,
+                severity=NotificationSeverityEnum.WARNING,
+            )
+        except Exception as notify_exc:
+            logger.error(
+                "Failed to write material pubsub-failure notification",
+                extra={"user_id": user_id, "error": str(notify_exc)},
+                exc_info=True,
+            )
 
     # ========================================================================
     # Inventory Queries & Statistics
