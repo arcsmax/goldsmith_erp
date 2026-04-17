@@ -118,6 +118,21 @@ class Settings(BaseSettings):
     # Optional: app starts without it but PII fields will not be encrypted.
     ENCRYPTION_KEY: Optional[str] = None
 
+    # ── Anonymization (GDPR Art. 17) ─────────────────────────────────────────────
+    # Salt used by `anonymize_user()` to derive the per-erasure HMAC tracking
+    # token written to `gdpr_requests.notes`. The token is an internal
+    # correlation aid only — it is not exposed to end users and is not stored
+    # in any FK column (the global sentinel user carries all anonymised FKs).
+    #
+    # Generate with: python3 -c "import secrets; print(secrets.token_urlsafe(64))"
+    #
+    # CRITICAL — DO NOT ROTATE POST-FIRST-ERASURE.
+    # Rotating the salt after anonymisation has occurred orphans previously
+    # emitted tracking HMACs (they can no longer be regenerated for audit
+    # lookup). Production rotation must be coordinated with DPO sign-off and
+    # a one-off archive of the old salt. See V1.1-ANONYMIZE-USER-CONTRACT §4.
+    ANONYMIZATION_SALT: Optional[str] = None
+
     # ── Cookie security ──────────────────────────────────────────────────────────
     # Set True in production when TLS is terminated at the load balancer or
     # reverse proxy (HTTPS). Keep False for local network / dev environments.
@@ -137,6 +152,29 @@ class Settings(BaseSettings):
                 logging.getLogger(__name__).warning(
                     "ENCRYPTION_KEY not set — PII fields will NOT be encrypted. "
                     "This is only acceptable in development."
+                )
+        return self
+
+    @model_validator(mode="after")
+    def _check_anonymization_salt(self) -> "Settings":
+        """Fail-fast in production if ANONYMIZATION_SALT is not set.
+
+        In dev (DEBUG=True) the service falls back to a deterministic but
+        obviously-insecure placeholder so tests and first-run setup work.
+        Any production deployment MUST provide its own salt; rotating it
+        post-first-erasure is forbidden (see field docstring).
+        """
+        if not self.ANONYMIZATION_SALT:
+            if not self.DEBUG:
+                raise ValueError(
+                    "ANONYMIZATION_SALT must be set in production (DEBUG=False). "
+                    "Generate with: python3 -c \"import secrets; "
+                    "print(secrets.token_urlsafe(64))\""
+                )
+            else:
+                logging.getLogger(__name__).warning(
+                    "ANONYMIZATION_SALT not set — anonymize_user() will use a "
+                    "dev-only fallback salt. Acceptable only in development."
                 )
         return self
 

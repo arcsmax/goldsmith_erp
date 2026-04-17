@@ -158,6 +158,19 @@ class User(Base):
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
+    # ── GDPR Art. 17 anonymisation infrastructure (Slice 0) ─────────────────
+    # Populated by services.user_service.anonymize_user(). See
+    # docs/superpowers/plans/qr-barcode-workflow/V1.1-ANONYMIZE-USER-CONTRACT.md.
+    is_deleted = Column(Boolean, default=False, nullable=False, index=True)
+    deleted_at = Column(DateTime, nullable=True)
+    # Short (16-char) HMAC tracking token. Internal correlation aid only —
+    # not user-facing, not a re-identification vector on its own.
+    anonymization_hash = Column(String(64), nullable=True)
+    # Forward-compat slot for V1.2 multi-tenancy (per DECISIONS-2026-04-16
+    # SQ1). Nullable in V1.1; V1.2 migration will make it NOT NULL after
+    # backfilling a tenant for every user + sentinel row.
+    tenant_id = Column(Integer, nullable=True, index=True)
+
 
 class Customer(Base):
     """Customer/Client Model for CRM"""
