@@ -1,14 +1,21 @@
 """Customer/CRM API Endpoints"""
+
 import logging
 from datetime import datetime, timedelta
+from pathlib import Path
 from typing import Any, Dict, List, Optional
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from goldsmith_erp.api.deps import get_db, require_permission, Permission
-from goldsmith_erp.db.models import Customer as CustomerModel, User
+from goldsmith_erp.core.config import settings
+from goldsmith_erp.db.models import (
+    Customer as CustomerModel,
+    GDPRRequest,
+    User,
+)
 from goldsmith_erp.models.customer import (
     CustomerCreate,
     CustomerRead,
@@ -17,6 +24,7 @@ from goldsmith_erp.models.customer import (
     CustomerWithOrders,
 )
 from goldsmith_erp.services.customer_service import CustomerService
+from goldsmith_erp.services.file_erasure_service import FileErasureService
 
 logger = logging.getLogger(__name__)
 
@@ -55,7 +63,7 @@ async def list_customers(
         logger.error("Error listing customers", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to retrieve customers"
+            detail="Failed to retrieve customers",
         )
 
 
@@ -80,8 +88,7 @@ async def search_customers(
     except Exception as e:
         logger.error("Error searching customers", exc_info=True)
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Search failed"
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Search failed"
         )
 
 
@@ -104,7 +111,7 @@ async def get_top_customers(
     if by not in ["revenue", "orders", "recent"]:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid 'by' parameter. Must be: revenue, orders, or recent"
+            detail="Invalid 'by' parameter. Must be: revenue, orders, or recent",
         )
 
     try:
@@ -115,7 +122,7 @@ async def get_top_customers(
         logger.error("Error getting top customers", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to get top customers"
+            detail="Failed to get top customers",
         )
 
 
@@ -134,7 +141,7 @@ async def get_customer(
     if not customer:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Customer {customer_id} not found"
+            detail=f"Customer {customer_id} not found",
         )
     return customer
 
@@ -155,7 +162,7 @@ async def get_customer_statistics(
     if not customer:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Customer {customer_id} not found"
+            detail=f"Customer {customer_id} not found",
         )
 
     try:
@@ -166,7 +173,7 @@ async def get_customer_statistics(
         logger.error(f"Error getting customer stats for {customer_id}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to get customer statistics"
+            detail="Failed to get customer statistics",
         )
 
 
@@ -188,15 +195,12 @@ async def create_customer(
     except ValueError as e:
         # Email already exists or validation error
         logger.warning(f"Customer creation validation error: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e)
-        )
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     except Exception as e:
         logger.error("Error creating customer", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to create customer"
+            detail="Failed to create customer",
         )
 
 
@@ -215,26 +219,25 @@ async def update_customer(
     Permissions: Requires CUSTOMER_EDIT permission.
     """
     try:
-        customer = await CustomerService.update_customer(db, customer_id, customer_update)
+        customer = await CustomerService.update_customer(
+            db, customer_id, customer_update
+        )
         if not customer:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Customer {customer_id} not found"
+                detail=f"Customer {customer_id} not found",
             )
         return customer
 
     except ValueError as e:
         # Email conflict or validation error
         logger.warning(f"Customer update validation error: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e)
-        )
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     except Exception as e:
         logger.error(f"Error updating customer {customer_id}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to update customer"
+            detail="Failed to update customer",
         )
 
 
@@ -285,27 +288,35 @@ async def gdpr_export_customer(
     # Serialize all data — omit relationship proxy objects and SQLAlchemy state
     orders_data = []
     for order in customer.orders:
-        orders_data.append({
-            "id": order.id,
-            "status": order.status,
-            "description": order.description,
-            "price": float(order.price) if order.price is not None else None,
-            "created_at": order.created_at.isoformat() if order.created_at else None,
-            "deadline": order.deadline.isoformat() if order.deadline else None,
-        })
+        orders_data.append(
+            {
+                "id": order.id,
+                "status": order.status,
+                "description": order.description,
+                "price": float(order.price) if order.price is not None else None,
+                "created_at": (
+                    order.created_at.isoformat() if order.created_at else None
+                ),
+                "deadline": order.deadline.isoformat() if order.deadline else None,
+            }
+        )
 
     measurements_data = []
     for m in customer.measurements:
-        measurements_data.append({
-            "id": m.id,
-            "measurement_type": m.measurement_type.value if m.measurement_type else None,
-            "value": m.value,
-            "unit": m.unit,
-            "hand": m.hand.value if m.hand else None,
-            "finger": m.finger.value if m.finger else None,
-            "notes": m.notes,
-            "measured_at": m.measured_at.isoformat() if m.measured_at else None,
-        })
+        measurements_data.append(
+            {
+                "id": m.id,
+                "measurement_type": (
+                    m.measurement_type.value if m.measurement_type else None
+                ),
+                "value": m.value,
+                "unit": m.unit,
+                "hand": m.hand.value if m.hand else None,
+                "finger": m.finger.value if m.finger else None,
+                "notes": m.notes,
+                "measured_at": m.measured_at.isoformat() if m.measured_at else None,
+            }
+        )
 
     return {
         "export_date": datetime.utcnow().isoformat(),
@@ -332,15 +343,18 @@ async def gdpr_export_customer(
             "preferences": customer.preferences,
             "birthday": customer.birthday.isoformat() if customer.birthday else None,
             "is_active": customer.is_active,
-            "created_at": customer.created_at.isoformat() if customer.created_at else None,
+            "created_at": (
+                customer.created_at.isoformat() if customer.created_at else None
+            ),
         },
         "orders": orders_data,
         "measurements": measurements_data,
     }
 
 
-@router.delete("/{customer_id}/gdpr-erase", status_code=status.HTTP_200_OK)
+@router.delete("/{customer_id}/gdpr-erase")
 async def gdpr_erase_customer(
+    response: Response,
     customer_id: int,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_permission(Permission.CUSTOMER_DELETE)),
@@ -348,18 +362,33 @@ async def gdpr_erase_customer(
     """
     GDPR Art. 17 — Request erasure of all personal data for a customer.
 
-    Three things happen atomically in a single DB transaction:
+    Four things happen atomically in a single DB transaction:
       1. Customer is deactivated (is_active=False) and scheduled for
          hard-delete after a 30-day grace period.
       2. Customer PII (names, phone, email) is scrubbed from related
          free-text fields — order descriptions, special instructions,
-         order comments, and time-entry notes. See
-         `CustomerService.scrub_customer_pii` for the full scope.
-      3. Audit rows are written to `customer_audit_logs` and a tracking
+         order comments, time-entry notes, and the customer's own
+         ``notes`` column (F1). See `CustomerService.scrub_customer_pii`
+         for the full scope.
+      3. Filesystem artefacts referenced by customer-linked rows
+         (generated PDFs, order/repair photos, scrap-gold receipts) are
+         deleted by `FileErasureService.erase_customer_files` (O1/O2).
+      4. Audit rows are written to `customer_audit_logs` and a tracking
          row to `gdpr_requests` (Art. 30 record of processing).
 
-    The gdpr-cleanup.sh cron job performs the actual hard-delete once the
-    30-day grace period has passed.
+    Response status codes:
+      - **200 OK** — every file erased cleanly.
+      - **207 Multi-Status** — DB scrub succeeded but at least one file
+        deletion failed (permission denied, path-traversal refusal,
+        IO error). The response body reports the failing paths; the
+        corresponding DB rows still reference the file so an admin
+        can re-run or manually handle. The ``gdpr_requests`` row is
+        updated to ``status='PARTIAL_FILE_ERASURE'`` for audit.
+      - **500** — unexpected error during scrub or file sweep; the
+        whole transaction is rolled back.
+
+    The gdpr-cleanup.sh cron job performs the actual customer-row
+    hard-delete once the 30-day grace period has passed.
 
     Permissions: Requires CUSTOMER_DELETE permission (Admin only).
     """
@@ -384,9 +413,11 @@ async def gdpr_erase_customer(
         )
 
     deletion_date = datetime.utcnow() + timedelta(days=30)
+    file_erasure = FileErasureService(Path(settings.FILE_STORAGE_ROOT))
 
-    # All mutations go through a single transaction — if PII scrub fails,
-    # the customer row is NOT left half-deactivated.
+    # All mutations go through a single transaction — if PII scrub or
+    # file-erasure DB side-effects fail, the customer row is NOT left
+    # half-deactivated.
     try:
         customer.is_active = False
         customer.deletion_scheduled_at = deletion_date
@@ -399,6 +430,42 @@ async def gdpr_erase_customer(
             customer_id=customer_id,
             performed_by=current_user.id,
         )
+
+        # File-level erasure — deletes actual files on disk referenced
+        # by customer-linked rows. Partial failures are captured in
+        # the result; they do NOT raise.
+        file_erasure_result = await file_erasure.erase_customer_files(
+            db,
+            customer_id=customer_id,
+            performed_by=current_user.id,
+        )
+
+        # If the file sweep had per-file failures, promote the
+        # pending GDPRRequest row (written by scrub_customer_pii with
+        # status='completed') to 'PARTIAL_FILE_ERASURE' so the DPO
+        # can see at a glance that manual follow-up is required.
+        if file_erasure_result.files_failed > 0:
+            gdpr_request_result = await db.execute(
+                select(GDPRRequest)
+                .filter(
+                    GDPRRequest.customer_id == customer_id,
+                    GDPRRequest.request_type == "erasure",
+                )
+                .order_by(GDPRRequest.id.desc())
+                .limit(1)
+            )
+            gdpr_request = gdpr_request_result.scalar_one_or_none()
+            if gdpr_request is not None:
+                gdpr_request.status = "PARTIAL_FILE_ERASURE"
+                existing_notes = gdpr_request.notes or ""
+                failure_summary = (
+                    f"\nFile-erasure partial failure: "
+                    f"{file_erasure_result.files_failed} file(s) could not "
+                    f"be deleted. Admin follow-up required. See "
+                    f"customer_audit_logs.action='gdpr_file_erasure' for "
+                    f"per-file errors."
+                )
+                gdpr_request.notes = existing_notes + failure_summary
 
         await db.commit()
     except Exception:
@@ -428,14 +495,29 @@ async def gdpr_erase_customer(
             "user_id": current_user.id,
             "deletion_scheduled": deletion_date.isoformat(),
             "pii_redaction_count": scrub_counts.get("total", 0),
+            "files_deleted": file_erasure_result.files_deleted,
+            "files_missing": file_erasure_result.files_missing,
+            "files_failed": file_erasure_result.files_failed,
         },
     )
 
+    # 207 Multi-Status when partial failure; 200 otherwise.
+    is_partial = file_erasure_result.files_failed > 0
+    response.status_code = (
+        status.HTTP_207_MULTI_STATUS if is_partial else status.HTTP_200_OK
+    )
+
     return {
-        "message": "Löschung geplant",
+        "message": (
+            "Löschung geplant — Teilweise Dateifehler"
+            if is_partial
+            else "Löschung geplant"
+        ),
         "customer_id": customer_id,
         "deletion_date": deletion_date.date().isoformat(),
         "pii_redactions": scrub_counts,
+        "file_erasure": file_erasure_result.as_dict(),
+        "partial": is_partial,
     }
 
 
@@ -457,19 +539,16 @@ async def delete_customer(
         if not success:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Customer {customer_id} not found"
+                detail=f"Customer {customer_id} not found",
             )
 
     except ValueError as e:
         # Customer has orders
         logger.warning(f"Cannot delete customer {customer_id}: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e)
-        )
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     except Exception as e:
         logger.error(f"Error deleting customer {customer_id}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to delete customer"
+            detail="Failed to delete customer",
         )
