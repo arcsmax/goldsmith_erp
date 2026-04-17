@@ -1,0 +1,11 @@
+scenario_id,order_png,order_payload,order_alloy,metal_png,metal_payload,metal_alloy,description_de,expected_behavior
+01-750gg-vs-585rg,01-750gg-vs-585rg.order.png,ORDER:701,750_GG,01-750gg-vs-585rg.metal.png,METAL:1,585_RG,Auftrag 18k Gelbgold vs. Material 14k Rotgold,AlloyMismatchModal erscheint nach METAL-Scan
+02-925-vs-750wg,02-925-vs-750wg.order.png,ORDER:702,925_AG,02-925-vs-750wg.metal.png,METAL:2,750_WG,Auftrag Sterlingsilber vs. Material 18k Weissgold,AlloyMismatchModal erscheint nach METAL-Scan
+03-585rg-vs-750gg,03-585rg-vs-750gg.order.png,ORDER:703,585_RG,03-585rg-vs-750gg.metal.png,METAL:3,750_GG,Auftrag 14k Rotgold vs. Material 18k Gelbgold,AlloyMismatchModal erscheint nach METAL-Scan
+04-pt950-vs-750gg,04-pt950-vs-750gg.order.png,ORDER:704,950_PT,04-pt950-vs-750gg.metal.png,METAL:4,750_GG,Auftrag Platin vs. Material 18k Gelbgold,AlloyMismatchModal erscheint nach METAL-Scan
+05-750wg-vs-585gg,05-750wg-vs-585gg.order.png,ORDER:705,750_WG,05-750wg-vs-585gg.metal.png,METAL:5,585_GG,Auftrag 18k Weissgold vs. Material 14k Gelbgold,AlloyMismatchModal erscheint nach METAL-Scan
+06-585gg-vs-585rg,06-585gg-vs-585rg.order.png,ORDER:706,585_GG,06-585gg-vs-585rg.metal.png,METAL:6,585_RG,Auftrag 14k Gelbgold vs. Material 14k Rotgold (Farbdifferenz),AlloyMismatchModal erscheint nach METAL-Scan
+07-925-vs-585rg,07-925-vs-585rg.order.png,ORDER:707,925_AG,07-925-vs-585rg.metal.png,METAL:7,585_RG,Auftrag Silber vs. Material Rotgold,AlloyMismatchModal erscheint nach METAL-Scan
+08-375-vs-585,08-375-vs-585.order.png,ORDER:708,375_GG,08-375-vs-585.metal.png,METAL:8,585_GG,Auftrag 9k Gelbgold vs. Material 14k Gelbgold (Feingehalt),AlloyMismatchModal erscheint nach METAL-Scan
+09-999-vs-925,09-999-vs-925.order.png,ORDER:709,999_AG,09-999-vs-925.metal.png,METAL:9,925_AG,Auftrag Feinsilber vs. Material Sterlingsilber,AlloyMismatchModal erscheint nach METAL-Scan
+10-pd-vs-pt,10-pd-vs-pt.order.png,ORDER:710,PD_950,10-pd-vs-pt.metal.png,METAL:10,950_PT,Auftrag Palladium vs. Material Platin,AlloyMismatchModal erscheint nach METAL-Scan
