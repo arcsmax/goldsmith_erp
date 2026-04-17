@@ -8,6 +8,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from goldsmith_erp.api.deps import get_db, require_permission, Permission
+from goldsmith_erp.core.idempotency import (
+    IdempotencyContext,
+    get_idempotency_context,
+)
 from goldsmith_erp.db.models import Customer as CustomerModel, User
 from goldsmith_erp.models.customer import (
     CustomerCreate,
@@ -344,6 +348,11 @@ async def gdpr_erase_customer(
     customer_id: int,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_permission(Permission.CUSTOMER_DELETE)),
+    # Slice 2 (M1) — accept the two idempotency headers. V1.1 does not yet
+    # dedupe server-side (check_and_store_idempotency is a stub); the
+    # context object is captured here so a retry in V1.1 still surfaces a
+    # valid-UUID / within-window check before the expensive scrub runs.
+    idem: IdempotencyContext = Depends(get_idempotency_context),
 ):
     """
     GDPR Art. 17 — Request erasure of all personal data for a customer.
@@ -418,7 +427,10 @@ async def gdpr_erase_customer(
             detail="GDPR erasure failed — no changes persisted.",
         )
 
-    # Audit log — GDPR erasure requests are legally significant
+    # Audit log — GDPR erasure requests are legally significant.
+    # Include the idempotency key (if any) so operator-side log analysis
+    # can correlate client retries. client_created_at captured for Lena
+    # §4 timing even though V1.1 does not yet act on it server-side.
     logger.info(
         "GDPR erasure requested",
         extra={
@@ -428,6 +440,12 @@ async def gdpr_erase_customer(
             "user_id": current_user.id,
             "deletion_scheduled": deletion_date.isoformat(),
             "pii_redaction_count": scrub_counts.get("total", 0),
+            "idempotency_key": str(idem.key) if idem.key else None,
+            "client_created_at": (
+                idem.client_created_at.isoformat()
+                if idem.client_created_at
+                else None
+            ),
         },
     )
 
