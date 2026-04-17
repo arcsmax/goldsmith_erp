@@ -25,6 +25,7 @@ const CalendarPage = lazy(() => import('./pages/CalendarPage').then(m => ({ defa
 const InvoicesPage = lazy(() => import('./pages/InvoicesPage').then(m => ({ default: m.InvoicesPage })));
 const QuotesPage = lazy(() => import('./pages/QuotesPage').then(m => ({ default: m.QuotesPage })));
 const AdminSystemPage = lazy(() => import('./pages/AdminSystemPage').then(m => ({ default: m.AdminSystemPage })));
+const ScanAdoptionDashboard = lazy(() => import('./pages/admin/ScanAdoptionDashboard').then(m => ({ default: m.ScanAdoptionDashboard })));
 const CustomerDetailPage = lazy(() => import('./pages/CustomerDetailPage').then(m => ({ default: m.CustomerDetailPage })));
 const RepairsPage = lazy(() => import('./pages/RepairsPage').then(m => ({ default: m.RepairsPage })));
 const RepairDetailPage = lazy(() => import('./pages/RepairDetailPage').then(m => ({ default: m.RepairDetailPage })));
@@ -175,6 +176,16 @@ const App: React.FC = () => {
                       element={
                         <ProtectedRoute requiredRoles={['ADMIN']}>
                           <AdminSystemPage />
+                        </ProtectedRoute>
+                      }
+                    />
+
+                    {/* V1.1 Scan-Adoption Dashboard — nur ADMIN (Slice 13) */}
+                    <Route
+                      path="admin/scan-gate"
+                      element={
+                        <ProtectedRoute requiredRoles={['ADMIN']}>
+                          <ScanAdoptionDashboard />
                         </ProtectedRoute>
                       }
                     />
