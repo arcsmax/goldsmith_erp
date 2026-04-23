@@ -5,12 +5,15 @@ services:
     image: postgres:15
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-user}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-pass}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set — copy .env.example to .env}
       POSTGRES_DB: ${POSTGRES_DB:-goldsmith}
     volumes:
       - db_data:/var/lib/postgresql/data
     ports:
-      - "5432:5432"
+      # Bind to loopback by default so a non-firewalled dev box does not
+      # publish Postgres to the LAN with user:pass. Override DB_HOST_IP
+      # if LAN access is actually needed (e.g., remote dev machine).
+      - "${DB_HOST_IP:-127.0.0.1}:${DB_PORT:-5432}:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U user -d goldsmith"]
       interval: 10s
@@ -38,14 +41,14 @@ services:
     ports:
       - "8000:8000"
     environment:
-      - MIGRATION_DATABASE_URL=postgresql://user:pass@db:5432/goldsmith
+      - MIGRATION_DATABASE_URL=postgresql://${POSTGRES_USER:-user}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}@db:5432/${POSTGRES_DB:-goldsmith}
       - SECRET_KEY=${SECRET_KEY:-change_this_to_a_secure_random_string}
       - POSTGRES_USER=${POSTGRES_USER:-user}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-pass}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set — copy .env.example to .env}
       - POSTGRES_DB=${POSTGRES_DB:-goldsmith}
       - POSTGRES_HOST=db
       - DEBUG=true
-      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-user}:${POSTGRES_PASSWORD:-pass}@${POSTGRES_HOST:-db}:5432/${POSTGRES_DB:-goldsmith}
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-user}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}@${POSTGRES_HOST:-db}:5432/${POSTGRES_DB:-goldsmith}
       - REDIS_URL=redis://redis:6379/0
     depends_on:
       db:

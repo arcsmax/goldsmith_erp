@@ -1,7 +1,7 @@
 # Makefile for Goldsmith ERP with Podman
 # Makes development easier with simple commands
 
-.PHONY: help install start stop restart logs clean build test lint format seed-demo
+.PHONY: help install start stop restart logs clean build test lint format seed-demo validate-compose
 
 # Default target
 .DEFAULT_GOAL := help
@@ -148,6 +148,10 @@ format: ## Format code with black and isort
 security: ## Run security scan with bandit
 	@echo "$(GREEN)Running security scan...$(NC)"
 	@$(COMPOSE) exec backend poetry run bandit -r src/
+
+validate-compose: ## A4 fix — verify compose files require POSTGRES_PASSWORD and bind DB to 127.0.0.1
+	@echo "$(GREEN)Validating compose files (A4)...$(NC)"
+	@bash scripts/test-compose-validation.sh
 
 check-bundle: ## V1.1 Slice 13 — scanner-route bundle-size gate (<=250 KB gzip)
 	@echo "$(GREEN)Building frontend and running scanner bundle gate...$(NC)"
