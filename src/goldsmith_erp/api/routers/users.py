@@ -14,21 +14,33 @@ from goldsmith_erp.core.permissions import Permission, require_permission
 router = APIRouter()
 
 
-# ==================== PUBLIC ENDPOINTS ====================
+# ==================== ADMIN-GATED REGISTRATION ====================
+# As of fix A3 (2026-04-23) /users/register is no longer a public
+# self-service endpoint. It is now ADMIN-invitation-only, matching
+# POST /users/. The legacy /register path is preserved for back-compat
+# with existing admin tooling; both routes are guarded by the same
+# permission and perform the same work.
 
 @router.post("/register", response_model=User, status_code=status.HTTP_201_CREATED)
+@require_permission(Permission.USER_CREATE)
 async def register_user(
     user_in: UserCreate,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user),
 ):
     """
-    **Self-Registration**: Benutzer registriert sich selbst.
+    **Admin-Registrierung**: Admin legt einen neuen Benutzer-Account an.
 
-    - **Öffentlicher Endpoint** (keine Authentifizierung erforderlich)
+    - **Admin-Berechtigung erforderlich** (`USER_CREATE`)
     - Erstellt einen neuen Benutzer-Account
     - E-Mail muss eindeutig sein
 
-    **Use Case**: Neuer Benutzer möchte sich selbst im System registrieren.
+    **Use Case**: Admin trägt einen neuen Mitarbeiter oder Kunden ein.
+
+    **Security note (A3):** Previously a public self-service endpoint,
+    this route leaked account existence via the 400 duplicate-email
+    branch. Unauthenticated callers now hit the auth middleware first
+    and receive 401 across all inputs — no oracle.
     """
     # Prüfen ob E-Mail bereits existiert
     existing_user = await UserService.get_user_by_email(db, user_in.email)

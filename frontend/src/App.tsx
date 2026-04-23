@@ -12,7 +12,10 @@ import { useTheme } from './hooks/useTheme';
 // Lazy load pages for code splitting and better performance
 // Note: Pages use named exports, so we need to destructure them
 const LoginPage = lazy(() => import('./pages/LoginPage').then(m => ({ default: m.LoginPage })));
-const RegisterPage = lazy(() => import('./pages/RegisterPage').then(m => ({ default: m.RegisterPage })));
+// Public self-registration route removed (fix A3, 2026-04-23).
+// /users/register is now ADMIN-invitation-only; new users are created
+// via the admin UsersPage. The dormant RegisterPage.tsx + authApi.register
+// remain on disk for possible reuse by a future admin-invitation UI.
 const DashboardPage = lazy(() => import('./pages/DashboardPage').then(m => ({ default: m.DashboardPage })));
 const CustomersPage = lazy(() => import('./pages/CustomersPage').then(m => ({ default: m.CustomersPage })));
 const MaterialsPage = lazy(() => import('./pages/MaterialsPage').then(m => ({ default: m.MaterialsPage })));
@@ -63,7 +66,11 @@ const App: React.FC = () => {
                 <Routes>
                   {/* Public Routes */}
                   <Route path="/login" element={<LoginPage />} />
-                  <Route path="/register" element={<RegisterPage />} />
+                  {/* /register route removed (fix A3, 2026-04-23).
+                      Public self-registration is no longer supported; admins
+                      create users via the authenticated /users page. Any
+                      hard-coded /register link now falls through to the
+                      catch-all → /dashboard → /login (unauthenticated). */}
                   {/* Customer self-service portal — no login required */}
                   <Route path="/portal" element={<CustomerPortalPage />} />
 

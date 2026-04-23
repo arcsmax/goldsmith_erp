@@ -330,4 +330,67 @@ planning pass, not a solo implementation run.
 **Decided by:** implementing agent (A7), under the explicit escalation
 clause in the A7 brief ("err toward … escalate if it looks L").
 
+---
+
+## 2026-04-23 — A3 — Frontend scope expansion + duplicate-email response for admins
+
+**Question:** (1) The A3 spec lists only backend files, but the frontend ships
+a full public `/register` route + `RegisterPage.tsx` + `authApi.register()`
+that directly calls the now-locked-down endpoint. How deep should the
+frontend clean-up go inside this commit? (2) Once the endpoint is
+admin-only, should a duplicate email still return 400 "Email already
+registered" to admins, or should the oracle be closed with a silent 201?
+
+**Options considered:**
+
+1. **Frontend scope — full delete.** Remove the `/register` route, delete
+   `RegisterPage.tsx`, remove it from `pages/index.ts`, remove
+   `authApi.register()` and `AuthContext.register()`. Cleanest, biggest
+   diff, highest chance of colliding with `frontend/src/test/ScanFab.test.tsx`.
+2. **Frontend scope — surgical.** Remove the `/register` route from
+   `App.tsx`, remove the "Noch kein Konto? Registrieren" link from
+   `LoginPage.tsx`, leave `RegisterPage.tsx`, its export, `authApi.register`,
+   and `AuthContext.register` on disk as dormant code with no UI entry point.
+3. **Escalate to Wave 3.** Mark A3 backend-only and file a separate frontend
+   item.
+
+*Duplicate-email response:*
+
+4. Silent 201 (no-op) — admins lose the collision signal.
+5. Keep 400 "Email already registered" for authenticated admin callers —
+   the oracle only matters for unauthenticated callers, which the middleware
+   now intercepts with 401 before the handler runs.
+
+**Decision:** Option 2 + Option 5.
+
+- **Frontend:** removed `/register` route + lazy `RegisterPage` import from
+  `App.tsx`, dropped the `<Link to="/register">` from `LoginPage.tsx`
+  (and its now-unused `Link` import). The catch-all route sends any
+  bookmark of `/register` through `*` → `/dashboard` →
+  (unauthenticated) → `/login`. `RegisterPage.tsx`, `pages/index.ts`
+  export, `authApi.register()`, and `AuthContext.register()` are left on
+  disk. A future "admin invitation" flow is the most natural consumer.
+- **ScanFab:** `HIDDEN_PATHS` kept `'/register'` as defence-in-depth
+  (harmless — the route is gone; the entry is a no-op guard). The
+  existing ScanFab test that renders at `/register` still passes (13/13).
+- **Duplicate email:** kept 400 for admins. With the middleware now
+  returning 401 to unauthenticated callers before the handler runs,
+  the oracle is closed at the transport layer. Admins legitimately
+  need the collision signal so they can look up the existing account
+  rather than silently creating a dead row. The new test
+  `test_unauthenticated_duplicate_email_returns_401_not_400` covers the
+  oracle-closure guarantee.
+
+**Rationale:** Option 1 would balloon the diff across 5 more files and
+complicate parallel-agent safety (other wave-2 agents don't touch these
+files, but a bigger diff increases merge risk) for no security gain — dead
+code with no entry point is already inert. Option 3 would leave a
+public-looking `/register` route in the UI while the backend returns 401,
+which is a worse UX than cleanly removing the route + link in the same
+commit. Option 5 is the simplest signal-preserving choice; the security
+guarantee lives at the middleware layer, not in the handler body.
+
+**Decided by:** implementing agent (A3), under the spec's "document in
+DECISIONS.md and fix in the same commit if the change is small" clause.
+
 <!-- Append new decisions below as they come up. -->

@@ -22,7 +22,12 @@ PUBLIC_PATHS = [
     f"{settings.API_V1_STR}/openapi.json",
     f"{settings.API_V1_STR}/login",
     f"{settings.API_V1_STR}/logout",
-    f"{settings.API_V1_STR}/users/register",
+    # /users/register is NOT public — locked to ADMIN-invitation-only
+    # (fix A3, 2026-04-23). Handler guarded by
+    # @require_permission(Permission.USER_CREATE); unauthenticated POSTs
+    # now hit this middleware first and return 401, closing the email-
+    # enumeration oracle that the 400 "Email already registered" branch
+    # previously exposed.
 ]
 
 # Prefixes that do NOT require authentication

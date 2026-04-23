@@ -1,6 +1,6 @@
 // Login Page Component
 import React, { useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts';
 import { LoginSchema } from '../lib/validation/schemas';
 import { useFormValidation } from '../lib/validation/useFormValidation';
@@ -86,9 +86,9 @@ export const LoginPage: React.FC = () => {
           </button>
         </form>
 
-        <p className="auth-link">
-          Noch kein Konto? <Link to="/register">Registrieren</Link>
-        </p>
+        {/* Public self-registration link removed (fix A3, 2026-04-23) —
+            new accounts are created by an admin in the Benutzerverwaltung
+            page. A dedicated "Request access" flow may replace this later. */}
       </div>
     </div>
   );
