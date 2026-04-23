@@ -17,6 +17,7 @@ from typing import List
 from goldsmith_erp.core.config import settings
 from goldsmith_erp.core.logging import setup_logging
 from goldsmith_erp.middleware import RequestLoggingMiddleware, RequestMetricsMiddleware
+from goldsmith_erp.middleware.audit_logging import AuditLoggingMiddleware
 from goldsmith_erp.middleware.auth_required import AuthRequiredMiddleware
 from goldsmith_erp.middleware.security_headers import SecurityHeadersMiddleware
 from goldsmith_erp.api.routers import auth, orders, users, materials, activities, time_tracking, health, customers, metal_inventory, comments, scrap_gold, calendar, invoices, metal_prices, ml, measurements, analytics, notifications, handoffs, photos, metal_types, quotes, repairs, hallmarks, valuations
@@ -94,8 +95,17 @@ _uploads_dir.mkdir(parents=True, exist_ok=True)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
-# Add security middleware (order matters - from outermost to innermost)
-app.add_middleware(AuthRequiredMiddleware)       # Deny-by-default auth check
+# Add security middleware (order matters — Starlette runs middleware in
+# REVERSE order of add(), so the LAST add() is the OUTERMOST / first to run
+# on an incoming request).  Target order (outer → inner):
+#   AuthRequiredMiddleware   — reject unauthenticated + populate user_id
+#   AuditLoggingMiddleware   — read user_id written by auth, write audit row
+#   RequestSizeLimitMiddleware
+#   RequestLoggingMiddleware
+#   RequestMetricsMiddleware
+# That means we add() them in the inverse order below.
+app.add_middleware(AuditLoggingMiddleware)       # GDPR Art. 30 audit (reads user_id from state)
+app.add_middleware(AuthRequiredMiddleware)       # Deny-by-default auth check + sets request.state.user_id
 app.add_middleware(RequestSizeLimitMiddleware)   # Check size first
 app.add_middleware(RequestLoggingMiddleware)     # Then log
 app.add_middleware(RequestMetricsMiddleware)     # Lightweight request metrics (innermost before CORS)

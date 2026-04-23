@@ -158,4 +158,53 @@ internally consistent.
 
 **Decided by:** implementing agent (A2).
 
+---
+
+## 2026-04-23 — A1 — request.state shape + audit DB session strategy
+
+**Question:** (1) Should `AuthRequiredMiddleware` populate `request.state.user`
+(full User object, requires a DB round-trip per request) or just
+`request.state.user_id` (int from the JWT claim, no DB hit)? (2) How should
+`AuditLoggingMiddleware.dispatch` obtain an `AsyncSession` given that
+`BaseHTTPMiddleware` cannot use FastAPI's `Depends(get_db)`?
+
+**Options considered:**
+
+1. Populate `request.state.user` — matches existing dead code in
+   `rate_limiting.py` and the old `audit_logging.py` but requires a DB
+   select on every authenticated request.
+2. Populate `request.state.user_id` only and rewrite `audit_logging.py` to
+   drop `user_email`/`user_role` columns (they contain PII and post-
+   `anonymize_user` are re-identifying — see F-25 in GDPR review).
+3. For DB sessions in audit middleware: (a) call the dependency generator
+   `get_db()` directly (bypasses `app.dependency_overrides` — tests can't
+   swap the session), (b) open `AsyncSessionLocal()` inline (easy to patch
+   in tests), (c) enqueue to Redis for a background writer (new
+   infrastructure, out of Week-1 scope).
+
+**Decision:**
+
+- **`request.state.user_id` only** (option 2). Matches the "minimum data
+  principle" in CLAUDE.md and avoids a mandatory per-request DB hit. The
+  audit row keeps `user_id` as the FK; `user_email`/`user_role` columns on
+  `CustomerAuditLog` are left as nullable and unused — a follow-up item
+  (F-25 in the GDPR review) will decide whether to drop them, since they
+  defeat the `anonymize_user` sentinel rewrite.
+- **Audit DB session: `AsyncSessionLocal()` inline** (option 3b). Tests
+  patch the factory reference on the middleware module (same pattern the
+  `system_monitor` background loop already uses). A Redis-backed async
+  writer is the right answer at scale and is tracked separately as
+  F-24 in the GDPR review ("middleware DB write is synchronous").
+- Also **trimmed the audit DB insert** to only the columns that actually
+  exist on `CustomerAuditLog` — the prior code tried to write `endpoint`,
+  `http_method`, `legal_basis`, `purpose`, `status_code`, `duration_ms`,
+  none of which are columns in `db/models.py:2129`. Those live in
+  `details` JSON instead.
+
+**Rationale:** Ships a correctly-audited GET path today without inventing
+new infrastructure. Both follow-ups are already tracked in the GDPR review
+as distinct P-items, so no coverage is lost.
+
+**Decided by:** implementing agent (A1).
+
 <!-- Append new decisions below as they come up. -->

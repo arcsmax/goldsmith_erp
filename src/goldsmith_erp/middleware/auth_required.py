@@ -76,7 +76,9 @@ class AuthRequiredMiddleware(BaseHTTPMiddleware):
 
         # Validate token
         try:
-            jwt.decode(token, settings.SECRET_KEY, algorithms=[ALGORITHM])
+            payload = jwt.decode(
+                token, settings.SECRET_KEY, algorithms=[ALGORITHM]
+            )
         except JWTError as e:
             logger.warning(
                 "Invalid JWT token",
@@ -86,6 +88,32 @@ class AuthRequiredMiddleware(BaseHTTPMiddleware):
                 status_code=401,
                 content={"detail": "Invalid or expired token"},
             )
+
+        # Populate request.state so downstream middleware (audit logging,
+        # rate limiting) can attribute the request to a user without
+        # re-parsing the token.  We store only the user_id — fetching the
+        # full User row would add a per-request DB hit and leak PII (email,
+        # role) into middleware state.
+        #
+        # Downstream consumers:
+        #   - middleware/audit_logging.py reads request.state.user_id
+        #     for the CustomerAuditLog.user_id FK.
+        #   - middleware/rate_limiting.py reads request.state.user as a
+        #     full user object — it already tolerates a missing value
+        #     (falls back to the IP-based key), so leaving .user unset
+        #     here is safe.
+        sub = payload.get("sub")
+        if sub is not None:
+            try:
+                request.state.user_id = int(sub)
+            except (TypeError, ValueError):
+                # Malformed `sub` — do not populate user_id.  The request
+                # proceeds (the token's signature was valid) but audit rows
+                # will be written with user_id=None, which is honest.
+                logger.warning(
+                    "JWT sub claim is not an integer",
+                    extra={"path": path},
+                )
 
         return await call_next(request)
 

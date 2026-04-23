@@ -27,9 +27,9 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.types import ASGIApp
 
 try:
-    from goldsmith_erp.db.session import get_db as get_session
+    from goldsmith_erp.db.session import AsyncSessionLocal
 except ImportError:
-    get_session = None  # type: ignore[assignment]
+    AsyncSessionLocal = None  # type: ignore[assignment]
 
 try:
     from goldsmith_erp.db.models import CustomerAuditLog
@@ -115,11 +115,12 @@ class AuditLoggingMiddleware(BaseHTTPMiddleware):
         user_agent = request.headers.get("user-agent", "")
         method = request.method
 
-        # Extract user info from request state (set by auth middleware)
-        current_user = getattr(request.state, "user", None)
-        user_id = current_user.id if current_user else None
-        user_email = current_user.email if current_user else None
-        user_role = current_user.role if current_user else None
+        # Extract authenticated user_id from request.state (set by
+        # AuthRequiredMiddleware).  We deliberately do NOT read a full
+        # user object here — keeping middleware off the DB hot-path is
+        # cheaper and avoids leaking PII (email, role) into middleware
+        # state.
+        user_id = getattr(request.state, "user_id", None)
 
         # Extract customer ID from URL if present
         customer_id = self._extract_customer_id(request.url.path)
@@ -127,32 +128,39 @@ class AuditLoggingMiddleware(BaseHTTPMiddleware):
         # Determine action type based on HTTP method
         action = self._method_to_action(method)
 
-        # Process the request
+        # Process the request first — the audit write must NEVER block or
+        # fail the user's response.  Even if the handler raises, we still
+        # want a row in the audit log (access attempts are auditable under
+        # GDPR Art. 30).
         response = await call_next(request)
 
         # Calculate request duration
         duration_ms = (time.time() - start_time) * 1000
 
-        # Log only successful requests (2xx, 3xx)
-        if 200 <= response.status_code < 400:
-            # Log to database asynchronously (don't block response)
-            try:
-                await self._log_to_database(
-                    customer_id=customer_id,
-                    action=action,
-                    method=method,
-                    endpoint=request.url.path,
-                    user_id=user_id,
-                    user_email=user_email,
-                    user_role=user_role,
-                    ip_address=client_ip,
-                    user_agent=user_agent,
-                    status_code=response.status_code,
-                    duration_ms=duration_ms,
-                )
-            except Exception as e:
-                # Don't fail the request if logging fails
-                logger.error(f"Failed to log audit entry: {e}")
+        # Write the audit row.  Wrap in a broad try/except: an audit-write
+        # failure must NOT propagate to the user.  The ERROR log line is
+        # tagged so Loki/ELK rules can alert on audit failures separately.
+        try:
+            await self._log_to_database(
+                customer_id=customer_id,
+                action=action,
+                method=method,
+                endpoint=request.url.path,
+                user_id=user_id,
+                user_email=None,  # PII — see F-25 follow-up
+                user_role=None,
+                ip_address=client_ip,
+                user_agent=user_agent,
+                status_code=response.status_code,
+                duration_ms=duration_ms,
+            )
+        except Exception as exc:  # pragma: no cover — defensive belt
+            logger.error(
+                "audit write failed: %s",
+                exc,
+                extra={"audit": True, "path": request.url.path},
+                exc_info=True,
+            )
 
         # Log to application log for monitoring — user_email omitted (PII).
         logger.info(
@@ -253,27 +261,46 @@ class AuditLoggingMiddleware(BaseHTTPMiddleware):
         duration_ms: float,
     ):
         """
-        Log audit entry to database.
+        Persist a CustomerAuditLog row for this request.
 
-        Args:
-            customer_id: Customer ID (if applicable)
-            action: Action performed (accessed, created, updated, deleted)
-            method: HTTP method
-            endpoint: API endpoint
-            user_id: ID of user who made the request
-            user_email: Email of user
-            user_role: Role of user
-            ip_address: Client IP address
-            user_agent: User agent string
-            status_code: HTTP response status code
-            duration_ms: Request duration in milliseconds
+        The write opens its own `AsyncSessionLocal()` because
+        ``BaseHTTPMiddleware`` cannot use FastAPI's ``Depends(get_db)``.
+        This matches the pattern already used by the system monitor
+        background loop (see ``services/system_monitor.py``).
+
+        Only the columns that actually exist on :class:`CustomerAuditLog`
+        are populated.  Extras (``endpoint``, ``http_method``, duration,
+        legal basis, purpose) are packed into the ``details`` JSON column.
+
+        This method is the unit tests patch; it must therefore be
+        side-effect-only (no return value the caller relies on).
         """
-        # Only log if we have a customer ID
+        # Only log if we have a customer ID in the path (e.g. a GET on
+        # /api/v1/customers/42).  List endpoints (/api/v1/customers) are
+        # handled by a separate list-access audit path — scoped out of A1.
         if not customer_id:
             return
 
-        async for session in get_session():
-            try:
+        if AsyncSessionLocal is None or CustomerAuditLog is None:
+            # Import-time failure — audit is not available in this env.
+            logger.error(
+                "audit write skipped: AsyncSessionLocal or "
+                "CustomerAuditLog not importable",
+                extra={"audit": True},
+            )
+            return
+
+        details = {
+            "endpoint": endpoint,
+            "http_method": method,
+            "status_code": status_code,
+            "duration_ms": round(duration_ms, 2),
+            "legal_basis": "GDPR Article 6(1)(b) - Contract",
+            "purpose": f"Customer data {action} via API",
+        }
+
+        try:
+            async with AsyncSessionLocal() as session:
                 audit_log = CustomerAuditLog(
                     customer_id=customer_id,
                     action=action,
@@ -285,20 +312,19 @@ class AuditLoggingMiddleware(BaseHTTPMiddleware):
                     timestamp=datetime.utcnow(),
                     ip_address=ip_address,
                     user_agent=user_agent,
-                    endpoint=endpoint,
-                    http_method=method,
-                    legal_basis="GDPR Article 6(1)(b) - Contract",
-                    purpose=f"Customer data {action} via API",
+                    details=details,
                 )
-
                 session.add(audit_log)
                 await session.commit()
-
-            except Exception as e:
-                logger.error(f"Failed to write audit log to database: {e}")
-                await session.rollback()
-            finally:
-                await session.close()
+        except Exception as exc:
+            # Fail loudly in the log but never propagate — a DB outage on
+            # the audit path must not deny legitimate customer access.
+            logger.error(
+                "audit DB write failed: %s",
+                exc,
+                extra={"audit": True, "customer_id": customer_id},
+                exc_info=True,
+            )
 
 
 class RequestLoggingMiddleware(BaseHTTPMiddleware):
