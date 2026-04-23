@@ -15,6 +15,7 @@ import { OfflineIndicator } from '../components/OfflineIndicator';
 import { NotificationBell } from '../components/NotificationBell';
 import { HealthDot } from '../components/HealthDot';
 import { GlobalSearch } from '../components/GlobalSearch';
+import { ErrorBoundary } from '../components/ErrorBoundary';
 import '../styles/layout.css';
 import '../styles/admin.css';
 import '../styles/components/GlobalSearch.css';
@@ -266,7 +267,11 @@ export const MainLayout: React.FC = () => {
 
         {/* Main Content */}
         <main className="main-content">
-          <Outlet />
+          {/* Page-level ErrorBoundary (A5): a single page crash is caught
+              here, leaving header, sidebar, timer, scan FAB and bell alive. */}
+          <ErrorBoundary variant="page">
+            <Outlet />
+          </ErrorBoundary>
         </main>
       </div>
 

@@ -6,6 +6,7 @@ import { ProtectedRoute } from './components/ProtectedRoute';
 import { MainLayout } from './layouts/MainLayout';
 import { ToastContainer } from './components/Toast';
 import { ConfirmDialog } from './components/ConfirmDialog';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import { useTheme } from './hooks/useTheme';
 
 // Lazy load pages for code splitting and better performance
@@ -57,6 +58,7 @@ const App: React.FC = () => {
           <ScannerProvider>
             <TimeTrackingProvider>
               <OrderProvider>
+                <ErrorBoundary variant="app">
                 <Suspense fallback={<PageLoader />}>
                 <Routes>
                   {/* Public Routes */}
@@ -197,6 +199,7 @@ const App: React.FC = () => {
                   <Route path="*" element={<Navigate to="/dashboard" replace />} />
                   </Routes>
                 </Suspense>
+                </ErrorBoundary>
               </OrderProvider>
             </TimeTrackingProvider>
           </ScannerProvider>

@@ -1,0 +1,88 @@
+/* ErrorBoundary fallback UI (A5).
+ * Two variants — "app" wraps the root Suspense/router; "page" wraps the
+ * MainLayout <Outlet/> so a single page crash doesn't kill the shell.
+ */
+
+.error-boundary {
+  max-width: 640px;
+  margin: 3rem auto;
+  padding: 2rem;
+  background: #fff;
+  border: 1px solid #f5c2c7;
+  border-left: 4px solid #dc3545;
+  border-radius: 6px;
+  color: #1f2937;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+}
+
+.error-boundary[data-variant="app"] {
+  /* App-level: center on the viewport, no chrome around it. */
+  margin-top: 10vh;
+}
+
+.error-boundary h1 {
+  margin: 0 0 0.75rem;
+  font-size: 1.5rem;
+  color: #b02a37;
+}
+
+.error-boundary p {
+  margin: 0 0 1rem;
+  line-height: 1.5;
+  color: #4b5563;
+}
+
+.error-boundary__details {
+  margin: 0 0 1rem;
+  padding: 0.75rem 1rem;
+  background: #f8f9fa;
+  border: 1px solid #e9ecef;
+  border-radius: 4px;
+  color: #495057;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.875rem;
+  line-height: 1.4;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-x: auto;
+}
+
+.error-boundary__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.error-boundary__actions button {
+  padding: 0.5rem 1.25rem;
+  font-size: 1rem;
+  font-weight: 500;
+  border-radius: 4px;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.error-boundary__actions button:first-child {
+  background: #dc3545;
+  color: #fff;
+}
+
+.error-boundary__actions button:first-child:hover {
+  background: #b02a37;
+}
+
+.error-boundary__actions button + button {
+  background: transparent;
+  color: #1f2937;
+  border-color: #d1d5db;
+}
+
+.error-boundary__actions button + button:hover {
+  background: #f3f4f6;
+}
+
+.error-boundary__actions button:focus-visible {
+  outline: 2px solid #0d6efd;
+  outline-offset: 2px;
+}
