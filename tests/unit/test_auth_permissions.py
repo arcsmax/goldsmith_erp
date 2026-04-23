@@ -16,9 +16,11 @@ from fastapi import HTTPException
 from goldsmith_erp.api.deps import (
     get_current_user,
     get_current_admin_user,
+)
+from goldsmith_erp.core.permissions import (
+    Permission,
     has_permission,
-    require_permission,
-    Permission
+    require_permission_dep as require_permission,
 )
 from goldsmith_erp.core.security import create_access_token, ALGORITHM
 from goldsmith_erp.core.config import settings

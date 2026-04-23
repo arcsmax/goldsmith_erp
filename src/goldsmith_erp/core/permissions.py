@@ -262,6 +262,51 @@ def require_permission(permission: Permission):
     return decorator
 
 
+def require_permission_dep(permission: Permission) -> Callable:
+    """
+    FastAPI ``Depends`` factory that enforces a permission at the DI layer.
+
+    Companion to :func:`require_permission` (the decorator style). Use this
+    form when you want the permission check expressed directly in the route
+    signature rather than as a decorator above the function:
+
+    Usage:
+        @router.get("/customers")
+        async def list_customers(
+            current_user: User = Depends(require_permission_dep(Permission.CUSTOMER_VIEW)),
+        ):
+            ...
+
+    Args:
+        permission: The permission required to access the endpoint
+
+    Returns:
+        Callable: Async dependency that returns the ``User`` on success or
+        raises ``HTTPException(403)`` on failure.
+
+    Notes:
+        Added as part of fix A2 (2026-04-23) so the four routers that were
+        using the now-removed ``api.deps.require_permission`` factory can
+        keep their existing signature style without a disruptive rewrite.
+        See docs/fix-plan/2026-04-23/A2-permission-merge.md.
+    """
+    # Imported here (not at module top) to avoid a circular import with
+    # api.deps, which imports from core.permissions via some call paths.
+    from goldsmith_erp.api.deps import get_current_user
+
+    async def permission_checker(
+        current_user: UserModel = Depends(get_current_user),
+    ) -> UserModel:
+        if not has_permission(current_user, permission):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Permission denied: {permission.value} required",
+            )
+        return current_user
+
+    return permission_checker
+
+
 def require_any_permission(*permissions: Permission):
     """
     Decorator to require ANY of the specified permissions (OR logic).

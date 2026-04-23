@@ -10,7 +10,9 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from goldsmith_erp.api.deps import Permission, get_db, require_permission
+from goldsmith_erp.api.deps import get_db
+from goldsmith_erp.core.permissions import Permission
+from goldsmith_erp.core.permissions import require_permission_dep as require_permission
 from goldsmith_erp.core.config import settings
 from goldsmith_erp.core.idempotency import IdempotencyContext, get_idempotency_context
 from goldsmith_erp.db.models import Customer as CustomerModel

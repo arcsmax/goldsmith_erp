@@ -79,4 +79,83 @@ compose file.
 
 ---
 
+## 2026-04-23 — A2 — DI factory vs decorator-style for merged `require_permission`
+
+**Question:** The routers using the old `api.deps.require_permission` all use
+`Depends(require_permission(X))` (FastAPI DI factory style). The authoritative
+`core.permissions.require_permission` is a function decorator that extracts
+`current_user` from `kwargs`. How do we converge?
+
+**Options considered:**
+1. Add a companion `require_permission_dep(perm)` factory to `core.permissions`
+   — preserves existing call-site style; minimal, additive.
+2. Convert all ~20 call sites across the affected routers to decorator style
+   (`@require_permission(X)` above the route, `current_user: User =
+   Depends(get_current_user)` in the signature) — matches the dominant pattern
+   in the rest of the codebase; bigger diff; higher collateral-test-breakage risk.
+
+**Decision:** Option 1 — add `require_permission_dep(permission)` to
+`core.permissions`, and have the affected routers do
+`from goldsmith_erp.core.permissions import require_permission_dep as require_permission`.
+
+**Rationale:** Spec prefers Option 2 long-term but explicitly permits Option 1
+("Option 2 is cleaner... unless a router has a reason the decorator can't
+carry"). The A2 fix exists to eliminate the duplicate-enum security foot-gun;
+Option 1 achieves that with the smallest behavioural delta and zero test
+rewrites. A decorator-style unification can be a later stylistic refactor
+without blocking the security fix now. All existing auth/permission tests
+still pass with zero behavioural change.
+
+**Decided by:** implementing agent (A2), within the Option-1/Option-2 latitude
+explicitly granted by the spec.
+
+---
+
+## 2026-04-23 — A2 — Spec file count: 5 routers, not 4
+
+**Question:** Spec says 4 routers imported `Permission` from `api.deps`, verified
+by grep. When TDD-running the migration, the backend failed to boot with
+`ImportError` from a 5th router.
+
+**Investigation:** The spec's verification grep used
+`from goldsmith_erp.api.deps import …` (absolute form).
+`src/goldsmith_erp/api/routers/metal_inventory.py:25` uses the relative form
+`from ...api.deps import get_current_user, require_permission, Permission`,
+which the absolute-only grep missed.
+
+**Decision:** Fix the 5th file as part of A2. Not a scope creep — the real goal
+is "backend boots and no router imports Permission from api.deps"; leaving
+`metal_inventory.py` behind would fail the existing acceptance criterion
+("Backend container boots without ImportError") and silently re-introduce the
+split the A2 fix exists to eliminate.
+
+**Rationale:** Spec's "Files" list was enumerative (based on a specific grep),
+not exhaustive (intent: every affected router). The broader acceptance criteria
+(grep counts, boot success) are the source of truth. Scope-change is minimal
+(same one-line import swap).
+
+**Decided by:** implementing agent (A2), after TDD-run revealed the `ImportError`.
+
+---
+
+## 2026-04-23 — A2 — Update `tests/unit/test_auth_permissions.py` imports
+
+**Question:** The existing `tests/unit/test_auth_permissions.py` imported
+`has_permission`, `require_permission`, `Permission` from `api.deps`. The spec's
+own TDD test asserts these are NO LONGER importable from `api.deps` (including
+re-exports). The test file is not in the spec's "Files" section.
+
+**Decision:** Update the test file's imports to pull from `core.permissions`
+(with `require_permission_dep as require_permission` aliasing). No behavioural
+change — all 22 pre-existing assertions still pass.
+
+**Rationale:** The alternative — keeping an `api.deps` re-export shim for
+backwards compatibility — is explicitly ruled out by the spec's TDD assertion
+`test_single_permission_enum_defined_in_repo` (any re-export makes the import
+succeed, which fails the test). A mechanical import-path update in one test
+file is the smallest possible fix that keeps the acceptance criteria
+internally consistent.
+
+**Decided by:** implementing agent (A2).
+
 <!-- Append new decisions below as they come up. -->

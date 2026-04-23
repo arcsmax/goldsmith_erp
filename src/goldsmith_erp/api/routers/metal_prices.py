@@ -24,7 +24,9 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import asc, desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from goldsmith_erp.api.deps import Permission, get_current_user, require_permission
+from goldsmith_erp.api.deps import get_current_user
+from goldsmith_erp.core.permissions import Permission
+from goldsmith_erp.core.permissions import require_permission_dep as require_permission
 from goldsmith_erp.db.models import MetalPriceHistory, MetalType, User
 from goldsmith_erp.db.session import get_db
 from goldsmith_erp.models.metal_price import (

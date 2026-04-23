@@ -22,7 +22,9 @@ from ...models.metal_inventory import (
 from ...models.inventory_forecast import InventoryForecastResponse, MetalForecastItem
 from ...services.metal_inventory_service import MetalInventoryService
 from ...ml.inventory_forecast import InventoryForecaster
-from ...api.deps import get_current_user, require_permission, Permission
+from ...api.deps import get_current_user
+from ...core.permissions import Permission
+from ...core.permissions import require_permission_dep as require_permission
 
 router = APIRouter(prefix="/metal-inventory", tags=["metal-inventory"])
 logger = logging.getLogger(__name__)

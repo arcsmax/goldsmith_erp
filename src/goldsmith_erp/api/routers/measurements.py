@@ -18,7 +18,9 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from goldsmith_erp.api.deps import Permission, get_db, require_permission
+from goldsmith_erp.api.deps import get_db
+from goldsmith_erp.core.permissions import Permission
+from goldsmith_erp.core.permissions import require_permission_dep as require_permission
 from goldsmith_erp.db.models import FingerPosition, HandSide, User
 from goldsmith_erp.models.measurement import (
     MeasurementCreate,
