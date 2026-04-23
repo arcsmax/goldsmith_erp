@@ -78,6 +78,7 @@ from __future__ import annotations
 
 from typing import Sequence, Union
 
+import sqlalchemy as sa
 from alembic import op
 from goldsmith_erp.db.migration_helpers import foreign_key_exists
 
@@ -168,16 +169,57 @@ def downgrade() -> None:
     default that we can't deterministically reconstruct without
     introspection of the source DB). The re-added FK uses a
     predictable compatibility name.
+
+    F2a fix (2026-04-23) — idempotent drop-before-create
+    ----------------------------------------------------
+    A previous issue bit the CI smoke-test: on fresh PG 15 the
+    ``customers.deleted_by`` column ended up carrying *two* FKs after
+    ``upgrade()`` —
+
+      * ``fk_customers_deleted_by_users`` (created by migration
+        ``20260406_review`` via ``create_fk_if_not_exists`` **after**
+        ``v1_initial``'s ``create_all()`` already added the ORM-level
+        ``customers_deleted_by_fkey`` — the helper checks by NAME, not
+        by column, so it happily added a duplicate) and
+      * ``fk_customers_deleted_by_users_restrict`` (this migration).
+
+    H9's ``upgrade()`` introspects by ``(referred_table, column)`` and
+    drops the *first* match, leaving the second untouched. On
+    ``downgrade()`` the attempt to ``op.create_foreign_key(
+    "fk_customers_deleted_by_users", ...)`` then collided with the
+    still-present sibling.
+
+    The fix is a defensive sweep: for every ``(table, column)`` in
+    ``_FK_TARGETS`` we enumerate *all* existing FKs on that column
+    that reference ``users`` and drop them before re-creating the
+    single deterministic compatibility constraint. This is idempotent
+    for the healthy case (at most one ``_restrict`` FK to drop) and
+    correctly heals the duplicate-FK case too.
     """
     bind = op.get_bind()
     if bind.dialect.name == "sqlite":
         return
 
+    inspector = sa.inspect(bind)
     for table, column in _FK_TARGETS:
         new_name = f"fk_{table}_{column}_users_restrict"
         if not foreign_key_exists(table, new_name):
             continue
-        op.drop_constraint(new_name, table, type_="foreignkey")
+
+        # Drop ALL FKs on (table, column) that reference users — covers
+        # both the `_restrict` FK we just created and any pre-existing
+        # sibling whose name collides with the compatibility name we
+        # are about to re-create (see docstring for the customers.deleted_by
+        # case). Guarded with a None-name check because some dialects
+        # report unnamed FKs.
+        for fk in inspector.get_foreign_keys(table):
+            if (
+                fk.get("referred_table") == "users"
+                and fk.get("constrained_columns") == [column]
+                and fk.get("name")
+            ):
+                op.drop_constraint(fk["name"], table, type_="foreignkey")
+
         op.create_foreign_key(
             f"fk_{table}_{column}_users",
             source_table=table,
