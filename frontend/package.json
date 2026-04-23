@@ -4,11 +4,11 @@
   "packageManager": "yarn@4.9.1",
   "dependencies": {
     "@yudiel/react-qr-scanner": "^2.5.1",
-    "axios": "^1.13.2",
+    "axios": "^1.13.5",
     "date-fns": "^4.1.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "react-router-dom": "^7.9.5",
+    "react-router-dom": "^7.12.0",
     "react-timer-hook": "^4.0.5",
     "recharts": "^3.4.1",
     "zod": "^4.3.6"
