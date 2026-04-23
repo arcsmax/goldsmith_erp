@@ -113,6 +113,7 @@ async def get_total_time_for_order(
 
 
 @router.get("/user/{user_id}", response_model=List[TimeEntryRead])
+@require_permission(Permission.TIME_VIEW_OWN)
 async def get_time_entries_for_user(
     user_id: int,
     start_date: Optional[datetime] = Query(None, description="Filter by start date"),
@@ -123,7 +124,8 @@ async def get_time_entries_for_user(
     current_user: User = Depends(get_current_user),
 ):
     """Holt alle Zeiterfassungen für einen User, optional gefiltert nach Datum."""
-    # Check if user owns resource or has permission to view all time entries
+    # Decorator gates access for users lacking TIME_VIEW_OWN.
+    # Below, preserve the ownership/TIME_VIEW_ALL ladder for cross-user lookups.
     if not check_ownership_or_permission(user_id, current_user, Permission.TIME_VIEW_ALL):
         raise HTTPException(
             status_code=403,
