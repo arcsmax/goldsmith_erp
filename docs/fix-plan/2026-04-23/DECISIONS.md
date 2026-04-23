@@ -393,4 +393,76 @@ guarantee lives at the middleware layer, not in the handler body.
 **Decided by:** implementing agent (A3), under the spec's "document in
 DECISIONS.md and fix in the same commit if the change is small" clause.
 
+## 2026-04-23 — F1 — NullPool on Postgres test engine + pre-existing Makefile bug noted
+
+**Question:** (1) When the integration conftest is flipped to Postgres via
+`TEST_DATABASE_URL`, the concurrent-metal-consumption tests still fail — but
+with a different, non-skip failure mode. Is that in scope to fix? (2) The
+Makefile already has a pre-existing syntax error at line 287 (GNU Make can't
+parse a bash heredoc inside a target body) which halts every `make` invocation.
+Should F1 fix that so `make test-integration-pg` is actually runnable?
+
+**Investigation:**
+
+1. First PG run: failed with asyncpg's "Future attached to a different loop" on
+   the default `QueuePool`. Root cause: asyncpg connections are pinned to the
+   event loop that opened them; the session-scoped `event_loop` fixture + a
+   connection pool that reuses connections across tests produces leaks between
+   loops. SQLite/aiosqlite doesn't have this constraint, which is why the
+   conftest shipped without `NullPool` for the whole ~4-year life of the file.
+2. Switched the async test engine to `poolclass=NullPool` when the URL is not
+   SQLite. Keeps SQLite on the default pool (it's fine there). One pool-line
+   change inside the conftest I was already editing.
+3. After that fix, the three concurrent tests advance further but still fail
+   with `sqlalchemy.exc.ArgumentError: AsyncEngine expected, got Engine(...)`
+   at `test_concurrent_metal_consumption.py:194` — the test calls
+   `db_session.get_bind()` which returns the sync proxy, then passes it to
+   `async_sessionmaker`. That's a genuine test-code bug that SQLite masked
+   (on SQLite `get_bind()` returned something `async_sessionmaker` happened to
+   accept). It is **pre-existing latent bug** in the test, outside the "Files"
+   section of the F1 spec.
+4. `make test-integration-pg --just-print` fails immediately on every system
+   because `Makefile:287` contains `[Unit]` as a bare line inside a target body
+   (an unclosed heredoc pattern). Pre-existing since commit `34ecffee`
+   (2026-04-01). Fixing it would touch an unrelated `install-service` target.
+
+**Decision:**
+
+- **(1) NullPool for non-SQLite** — applied inside `tests/integration/conftest.py`
+  (in scope, one-line `_engine_kwargs["poolclass"] = NullPool` branch). Tests
+  now EXECUTE instead of skipping — F1's actual success criterion.
+- **(1b) Leave the `get_bind()` latent bug in `test_concurrent_metal_consumption.py`**.
+  That test file is NOT in F1's "Files" section and fixing it is a genuine
+  scope creep (needs refactoring the factory to capture `test_engine` directly
+  from conftest). The PG job will fail with a real, visible error instead of
+  silently passing via skips — that's still a net win vs. the status quo
+  (silent skips on SQLite). Escalated as follow-up F1.1.
+- **(2) Leave `Makefile:287` bug alone**. Out of scope; the `test-integration-pg`
+  target I added is correct GNU-Make syntax and would run fine on its own; the
+  pre-existing `install-service` heredoc breaks the whole file for everyone
+  today regardless of F1. Fixing it would widen the diff into a target that has
+  nothing to do with integration-test infrastructure. Escalated as follow-up
+  F1.2 (trivial: convert the heredoc into a shell-only subshell or write the
+  systemd unit via `scripts/install-service.sh`).
+
+**Follow-ups filed:**
+
+- **F1.1** — Refactor `test_concurrent_metal_consumption.py` to use the
+  module-level `test_engine` AsyncEngine directly instead of
+  `db_session.get_bind()`. Size: S. Unblocks the new CI job turning green.
+- **F1.2** — Convert `install-service` Makefile target's heredoc to an
+  external script so `make` parses the Makefile at all. Size: XS. Blocks every
+  local `make <anything>` invocation today.
+
+**Rationale:** F1's locked scope (Option C, split conftests) was completed —
+integration conftest now honors `TEST_DATABASE_URL`, a new CI job runs the
+suite against real Postgres, and a local `make` target exists. The concurrent
+tests are revealing real test-code bugs that were hidden by the SQLite
+no-op behaviour — that's the intended outcome of the F1 fix, not a regression
+caused by it. Keeping F1 tight keeps the Wave-2 parallel-safety envelope clean
+(no cross-agent collision on test files or unrelated Makefile targets).
+
+**Decided by:** implementing agent (F1), under the spec's explicit "fix if
+small; escalate if large" clause for test-code dialect assumptions.
+
 <!-- Append new decisions below as they come up. -->

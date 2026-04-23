@@ -1,7 +1,7 @@
 # Makefile for Goldsmith ERP with Podman
 # Makes development easier with simple commands
 
-.PHONY: help install start stop restart logs clean build test lint format seed-demo validate-compose
+.PHONY: help install start stop restart logs clean build test test-integration-pg lint format seed-demo validate-compose
 
 # Default target
 .DEFAULT_GOAL := help
@@ -130,6 +130,20 @@ test: ## Run tests
 test-cov: ## Run tests with coverage
 	@echo "$(GREEN)Running tests with coverage...$(NC)"
 	@$(COMPOSE) exec backend poetry run pytest --cov=goldsmith_erp --cov-report=html
+
+test-integration-pg: ## F1 — run integration tests against real Postgres (not SQLite)
+	@echo "$(GREEN)Starting db + redis services...$(NC)"
+	@$(COMPOSE) up -d db redis
+	@echo "$(GREEN)Running integration tests against Postgres...$(NC)"
+	@cd src && \
+	  TEST_DATABASE_URL=postgresql+asyncpg://user:pass@localhost:5432/goldsmith_test \
+	  DATABASE_URL=postgresql+asyncpg://user:pass@localhost:5432/goldsmith_test \
+	  REDIS_URL=redis://localhost:6379/0 \
+	  SECRET_KEY=local-test-secret-key-minimum-32-characters-long-enough \
+	  ENCRYPTION_KEY=dGVzdGtleTEyMzQ1Njc4OTBhYmNkZWZnaGlqa2w= \
+	  ANONYMIZATION_SALT=testsalt1234567890abcdef \
+	  DEBUG=true \
+	  poetry run pytest ../tests/integration/ -v --tb=short
 
 # Linting and formatting
 lint: ## Run linters (pylint, mypy, black check)

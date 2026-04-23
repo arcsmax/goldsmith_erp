@@ -27,6 +27,7 @@ import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import NullPool
 
 from goldsmith_erp.core.security import create_access_token, get_password_hash
 from goldsmith_erp.db.models import Base, Customer, User, UserRole
@@ -34,18 +35,35 @@ from goldsmith_erp.db.session import get_db
 from goldsmith_erp.main import app
 
 # ---------------------------------------------------------------------------
-# Test database — file-backed SQLite so all connections in the session share
-# the same data.  A unique filename prevents collisions between parallel runs.
+# Test database — honors TEST_DATABASE_URL env var so CI can point integration
+# tests at real Postgres while local runs default to file-backed SQLite.
+#
+# Fallback: unique SQLite filename so parallel local runs don't collide.
+# CI sets TEST_DATABASE_URL=postgresql+asyncpg://... — see F1 fix spec
+# (docs/fix-plan/2026-04-23/F1-pg-test-target.md). SQLite fallback is OK for
+# the majority of integration tests; a handful (concurrent metal consumption)
+# are gated with explicit skipif-on-SQLite markers — they become executable
+# once TEST_DATABASE_URL points at Postgres.
 # ---------------------------------------------------------------------------
 
 _DB_FILENAME = f"integration_test_{uuid.uuid4().hex}.db"
-TEST_DATABASE_URL = f"sqlite+aiosqlite:///{_DB_FILENAME}"
+_SQLITE_FALLBACK_URL = f"sqlite+aiosqlite:///{_DB_FILENAME}"
+TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL", _SQLITE_FALLBACK_URL)
+_IS_SQLITE = TEST_DATABASE_URL.startswith("sqlite")
 
-test_engine = create_async_engine(
-    TEST_DATABASE_URL,
-    connect_args={"check_same_thread": False},
-    echo=False,
-)
+# ``check_same_thread`` is a SQLite-only kwarg; passing it to asyncpg raises.
+_engine_kwargs: dict = {"echo": False}
+if _IS_SQLITE:
+    _engine_kwargs["connect_args"] = {"check_same_thread": False}
+else:
+    # asyncpg connections are bound to the event loop they were created on.
+    # The session-scoped event_loop fixture used here means a pooled connection
+    # opened during one test can leak into the next test's loop context,
+    # tripping "Future attached to a different loop". NullPool disables
+    # connection reuse so each checkout creates a fresh connection.
+    _engine_kwargs["poolclass"] = NullPool
+
+test_engine = create_async_engine(TEST_DATABASE_URL, **_engine_kwargs)
 
 TestSessionLocal = sessionmaker(
     autocommit=False,
@@ -74,14 +92,19 @@ def event_loop():
 
 @pytest_asyncio.fixture(scope="session", autouse=True)
 async def create_tables():
-    """Create tables once per session; drop and delete the DB file afterwards."""
+    """Create tables once per session; drop tables at teardown.
+
+    For the SQLite fallback we also delete the on-disk file. On Postgres the
+    database is provisioned by the CI job (or by `make test-integration-pg`
+    locally); we only manage our own schema within it.
+    """
     async with test_engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     yield
     async with test_engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
     await test_engine.dispose()
-    if os.path.exists(_DB_FILENAME):
+    if _IS_SQLITE and os.path.exists(_DB_FILENAME):
         os.remove(_DB_FILENAME)
 
 

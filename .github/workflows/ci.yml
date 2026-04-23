@@ -106,6 +106,67 @@ jobs:
           name: backend-coverage
           path: src/coverage.xml
 
+  # F1 — integration tests against real Postgres (not SQLite).
+  # Mirrors `test-backend` but sets TEST_DATABASE_URL so the integration
+  # conftest binds to the PG service instead of its SQLite fallback.
+  # Only runs tests/integration/, not the SQLite unit suite.
+  # Ref: docs/fix-plan/2026-04-23/F1-pg-test-target.md
+  test-integration-pg:
+    needs: lint
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: user
+          POSTGRES_PASSWORD: pass
+          POSTGRES_DB: goldsmith_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      # Both TEST_DATABASE_URL (integration conftest) and DATABASE_URL
+      # (test skipif markers + app settings) must point at the PG service.
+      TEST_DATABASE_URL: postgresql+asyncpg://user:pass@localhost:5432/goldsmith_test
+      DATABASE_URL: postgresql+asyncpg://user:pass@localhost:5432/goldsmith_test
+      REDIS_URL: redis://localhost:6379/0
+      SECRET_KEY: ci-test-secret-key-minimum-32-characters-long-enough
+      # Non-secret test values — base64 of "testkey1234567890abcdefghijkl" and a
+      # dummy salt. Kept inline rather than as GitHub secrets: they carry no
+      # security meaning in CI (no real data is encrypted with them).
+      ENCRYPTION_KEY: dGVzdGtleTEyMzQ1Njc4OTBhYmNkZWZnaGlqa2w=
+      ANONYMIZATION_SALT: testsalt1234567890abcdef
+      DEBUG: "true"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install Poetry
+        run: pip install poetry
+      - name: Install dependencies
+        working-directory: ./src
+        run: poetry install --no-root
+      - name: Run migrations
+        working-directory: ./src
+        run: poetry run alembic upgrade head
+      - name: Run integration tests against Postgres
+        working-directory: ./src
+        run: poetry run pytest ../tests/integration/ -v --tb=short --maxfail=5
+
   test-frontend:
     needs: lint-frontend
     runs-on: ubuntu-latest
