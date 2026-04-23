@@ -1,7 +1,40 @@
 # A7 — CSRF token on cookie-auth state-changing requests
 
-**Item:** A7 · **Severity:** P0 · **Effort:** S (FE) + M (BE, if infra missing) · **Owner:** FE + BE + SEC · **Status:** 🛑 BLOCKED
-**Blocked-by:** Need to verify current backend CSRF state before scoping.
+**Item:** A7 · **Severity:** P0 · **Effort:** L (escalated) · **Owner:** FE + BE + SEC · **Status:** 🛑 BLOCKED — ESCALATED 2026-04-23
+**Blocked-by:** Product decision on token strategy + coordinated fixture refactor (see DECISIONS.md).
+
+## 2026-04-23 — Investigation outcome (Wave 2 agent)
+
+**Case B confirmed.** Backend uses `samesite="lax"` (auth.py:72, :175), no CSRF
+middleware exists in `src/goldsmith_erp/middleware/`, no `csrf_token` cookie is
+minted, and the FE interceptor at `frontend/src/api/client.ts:60-63` is a pure
+pass-through. Real CSRF exposure on all cookie-authed state-changing endpoints.
+
+Scope for a complete fix is **L**, not S+M as originally estimated, because:
+- Integration test fixture in `tests/conftest.py` needs to inject `X-CSRF-Token`
+  on every mutating request or the entire suite breaks — cross-cutting change
+  that conflicts with concurrent F1 conftest work.
+- Product decision needed on token strategy (random per-session vs stateless
+  HMAC vs signed double-submit).
+- Middleware ordering in `main.py` must integrate with A1's recent addition
+  (AuditLogging + AuthRequired) — three-way constraint.
+
+See `DECISIONS.md` → "2026-04-23 — A7 — Escalate" for the full analysis.
+
+## Proposed sub-items for future waves
+
+- **A7.1 (BE, M)** — `CSRFMiddleware` + `csrf_token` cookie emission in
+  auth router + `main.py` wiring. Blocked-by: product call on token
+  strategy.
+- **A7.2 (tests, M)** — update `tests/conftest.py` authed-client fixture
+  to inject `X-CSRF-Token` header on mutating requests. Must serialise
+  after F1 (concurrent conftest refactor).
+- **A7.3 (FE, S)** — interceptor reads `csrf_token` cookie, attaches
+  `X-CSRF-Token` header on non-GET/HEAD/OPTIONS. Deploys after A7.1+A7.2.
+- **A7.4 (P2)** — flip `samesite="lax"` → `"strict"` on the auth cookie
+  (defence-in-depth; standalone; quick win). UX check: no email-link-based
+  "land logged in" flows exist, so Strict is safe.
+
 
 ## Context
 
