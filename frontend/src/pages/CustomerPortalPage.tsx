@@ -190,6 +190,12 @@ export const CustomerPortalPage: React.FC = () => {
     try {
       const response = await fetch('/api/v1/portal/lookup', {
         method: 'POST',
+        // A6: never send auth cookies on this public endpoint. The browser
+        // default for same-origin fetch is 'same-origin' which WOULD attach
+        // any active session cookie — a cross-privilege leak if a logged-in
+        // employee views the public portal. See
+        // docs/fix-plan/2026-04-23/A6-portal-fetch.md.
+        credentials: 'omit',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           reference_number: referenceNumber.trim(),
