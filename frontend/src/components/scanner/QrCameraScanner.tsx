@@ -33,8 +33,6 @@
 //   docs/superpowers/plans/qr-barcode-workflow/V1.1-UI-DESIGN-SPEC.md
 
 import {
-  Suspense,
-  lazy,
   useCallback,
   useEffect,
   useRef,
@@ -42,6 +40,7 @@ import {
 } from 'react';
 import type {
   ChangeEvent,
+  ComponentType,
   FormEvent,
   KeyboardEvent as ReactKeyboardEvent,
 } from 'react';
@@ -69,13 +68,20 @@ export interface QrCameraScannerProps {
 }
 
 // -----------------------------------------------------------------------------
-// Lazy-load the heavy vendor module. Vite will code-split on dynamic import.
+// Lazy-load the heavy vendor module. Vite still code-splits on dynamic import;
+// we resolve the module via useState + useEffect rather than React.lazy so we
+// don't trip Suspense machinery — concurrent-mode unmounts of a pending
+// boundary (ScanOverlay flips `active=false` the moment a scan resolves) were
+// observed to wedge the subtree in tests and in some dev builds.
 // -----------------------------------------------------------------------------
 
-const LazyScanner = lazy(async () => {
-  const mod = await import('@yudiel/react-qr-scanner');
-  return { default: mod.Scanner as unknown as React.ComponentType<ScannerProps> };
-});
+type ScannerComponent = ComponentType<ScannerProps>;
+
+function loadScannerModule(): Promise<ScannerComponent> {
+  return import('@yudiel/react-qr-scanner').then(
+    (mod) => mod.Scanner as unknown as ScannerComponent,
+  );
+}
 
 // -----------------------------------------------------------------------------
 // Permission state
@@ -172,6 +178,7 @@ export function QrCameraScanner(props: QrCameraScannerProps): JSX.Element {
   const [paused, setPaused] = useState<boolean>(false);
   const [muted, setMuted] = useState<boolean>(() => readAudioMuted());
   const [manualValue, setManualValue] = useState<string>('');
+  const [ScannerComp, setScannerComp] = useState<ScannerComponent | null>(null);
 
   const streamRef = useRef<MediaStream | null>(null);
   const audioRef = useRef<AudioKit | null>(null);
@@ -201,58 +208,52 @@ export function QrCameraScanner(props: QrCameraScannerProps): JSX.Element {
       setPermission('unavailable');
       return;
     }
+
+    // V1.1: no getUserMedia probe here. An earlier attempt probed the camera
+    // to detect torch + enumerate devices, then stopped the probe stream
+    // before LazyScanner mounted. The "stop-then-re-open" pattern races with
+    // the browser's async camera-handle release on Chromium/macOS and iOS
+    // Safari — the Scanner's own getUserMedia then lands on a track that
+    // never produces frames (observable as a black viewport). We now do ONE
+    // getUserMedia call in total: @yudiel/react-qr-scanner's own, initiated
+    // when LazyScanner mounts below. Denial and missing-camera states are
+    // routed through handleScannerError (onError prop on <Scanner>).
+    setTorchSupported(false);
+
+    // enumerateDevices works without permission (labels are empty but
+    // kind === 'videoinput' and the count are populated on Chrome/Safari).
+    // We only use the count to decide whether to show the "flip camera"
+    // button. On engines that return 0 before permission (e.g. Firefox
+    // private mode), we fall back to 1 and skip the flip button.
     try {
-      // Probe stream — grab camera briefly to read torch + enumerate
-      // devices, then RELEASE immediately. @yudiel/react-qr-scanner
-      // (LazyScanner) opens its own stream when renderGranted() mounts;
-      // if we hold onto the probe stream the second getUserMedia can
-      // return a black/degraded track on some browsers (Chromium on
-      // macOS + iOS Safari observed). Releasing before setPermission
-      // ensures the Scanner component gets a clean track.
-      const probe = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: { ideal: facingMode } },
-        audio: false,
-      });
-
-      // V1.1 note: torch control is disabled because our probe releases the
-      // stream before LazyScanner mounts, and we don't have a handle on the
-      // Scanner's internal stream to toggle torch on. V1.2 will wire
-      // @yudiel/react-qr-scanner's built-in torch component
-      // (components.torch=true) to replace our native control.
-      setTorchSupported(false);
-
-      // Enumerate devices to decide if a flip button is worth showing.
-      try {
-        const devices = await navigator.mediaDevices.enumerateDevices();
-        const videoInputs = devices.filter((d) => d.kind === 'videoinput');
-        setCameraCount(videoInputs.length);
-      } catch {
-        // enumerateDevices can reject (e.g. Firefox private mode) — ignore.
-        setCameraCount(1);
-      }
-
-      // Release the probe stream BEFORE LazyScanner mounts — otherwise
-      // the Scanner's getUserMedia call can land on a degraded track.
-      for (const track of probe.getTracks()) {
-        track.stop();
-      }
-      streamRef.current = null;
-
-      setPermission('granted');
-    } catch (err) {
-      const error = err as DOMException;
-      if (error.name === 'NotAllowedError' || error.name === 'SecurityError') {
-        setPermission('denied');
-      } else if (error.name === 'NotFoundError' || error.name === 'OverconstrainedError') {
-        setPermission('unavailable');
-      } else {
-        setPermission('denied');
-      }
-      if (typeof onError === 'function' && err instanceof Error) {
-        onError(err);
-      }
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const videoInputs = devices.filter((d) => d.kind === 'videoinput');
+      setCameraCount(videoInputs.length > 0 ? videoInputs.length : 1);
+    } catch {
+      setCameraCount(1);
     }
-  }, [facingMode, onError]);
+
+    // Optimistic — LazyScanner drives the native permission prompt when it
+    // mounts. If the user denies, onError fires and we flip to 'denied'.
+    setPermission('granted');
+  }, []);
+
+  // Load the vendor module on first activation. The module is tiny (~30KB
+  // gzip) so it usually resolves before the user has dismissed the
+  // permission dialog. Unlike React.lazy, this avoids a Suspense boundary
+  // — the boundary would otherwise still be pending when handleScan flips
+  // `active` back to false after a successful scan, leaving the parent
+  // tree wedged in the fallback.
+  useEffect(() => {
+    if (!active || ScannerComp !== null) return;
+    let cancelled = false;
+    void loadScannerModule().then((component) => {
+      if (!cancelled) setScannerComp(() => component);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [active, ScannerComp]);
 
   // Drive the stream from `active`. We intentionally do NOT call getUserMedia
   // on mount — only when `active` flips to true. Parent gates activation on
@@ -372,6 +373,24 @@ export function QrCameraScanner(props: QrCameraScannerProps): JSX.Element {
 
   const handleScannerError = useCallback(
     (err: unknown): void => {
+      // LazyScanner is now the sole getUserMedia caller (see requestCamera),
+      // so permission / no-device errors surface here instead of our probe.
+      // Route them to the right permission state before playing error audio
+      // — a denied prompt should jump straight to the manual fallback card,
+      // not beep at the user.
+      if (err instanceof Error) {
+        const name = (err as DOMException).name;
+        if (name === 'NotAllowedError' || name === 'SecurityError') {
+          setPermission('denied');
+          if (typeof onError === 'function') onError(err);
+          return;
+        }
+        if (name === 'NotFoundError' || name === 'OverconstrainedError') {
+          setPermission('unavailable');
+          if (typeof onError === 'function') onError(err);
+          return;
+        }
+      }
       playAudio('error');
       haptic('error');
       if (typeof onError === 'function' && err instanceof Error) {
@@ -430,11 +449,12 @@ export function QrCameraScanner(props: QrCameraScannerProps): JSX.Element {
   }, [onError, torchOn]);
 
   const handleFlipCamera = useCallback((): void => {
+    // Flipping just toggles the facingMode state; the new value flows into
+    // LazyScanner's `constraints` prop, which the vendor module picks up
+    // via its internal updateConstraints path. No manual stop/re-request —
+    // that used to cause the black-screen race (see requestCamera).
     setFacingMode((prev) => (prev === 'environment' ? 'user' : 'environment'));
-    // Re-request the stream in the new orientation.
-    stopStream();
-    void requestCamera();
-  }, [requestCamera, stopStream]);
+  }, []);
 
   const handleMuteToggle = useCallback((): void => {
     setMuted((prev) => {
@@ -501,7 +521,6 @@ export function QrCameraScanner(props: QrCameraScannerProps): JSX.Element {
       >
         Manuell eingeben
       </button>
-      {renderManualFallback()}
       <p className="qrs-state-help">{helpCopyForPlatform(platform)}</p>
     </div>
   );
@@ -526,7 +545,6 @@ export function QrCameraScanner(props: QrCameraScannerProps): JSX.Element {
       >
         Manuell eingeben
       </button>
-      {renderManualFallback()}
       <p className="qrs-state-help">{helpCopyForPlatform(platform)}</p>
     </div>
   );
@@ -534,15 +552,14 @@ export function QrCameraScanner(props: QrCameraScannerProps): JSX.Element {
   const renderIdle = (): JSX.Element => (
     <div className="qrs-state qrs-state--idle">
       <p className="qrs-state-body">Scanner bereit. Tippe, um zu starten.</p>
-      {renderManualFallback()}
     </div>
   );
 
   const renderGranted = (): JSX.Element => (
     <div className="qrs-stage">
       <div className="qrs-viewport">
-        <Suspense fallback={<div className="qrs-loading">Scanner laedt&hellip;</div>}>
-          <LazyScanner
+        {ScannerComp !== null ? (
+          <ScannerComp
             onScan={handleScannerDetect}
             onError={handleScannerError}
             paused={paused}
@@ -569,7 +586,9 @@ export function QrCameraScanner(props: QrCameraScannerProps): JSX.Element {
             }}
             constraints={{ facingMode: { ideal: facingMode } }}
           />
-        </Suspense>
+        ) : (
+          <div className="qrs-loading">Scanner laedt&hellip;</div>
+        )}
         <div className="qrs-finder" aria-hidden="true" />
         <div className="qrs-controls">
           {torchSupported ? (
@@ -604,7 +623,6 @@ export function QrCameraScanner(props: QrCameraScannerProps): JSX.Element {
           </button>
         </div>
       </div>
-      {renderManualFallback()}
     </div>
   );
 
@@ -618,6 +636,12 @@ export function QrCameraScanner(props: QrCameraScannerProps): JSX.Element {
       {permission === 'granted' ? renderGranted() : null}
       {permission === 'denied' ? renderDenied() : null}
       {permission === 'unavailable' ? renderUnavailable() : null}
+      {/* The manual-entry form must keep DOM identity across permission
+          transitions (idle → granted in particular). Users and tests both
+          grab a reference to the input once and keep typing; nesting the
+          form inside each state's tree would re-mount it on every state
+          change and silently drop focus + in-flight input. */}
+      {renderManualFallback()}
     </div>
   );
 }
