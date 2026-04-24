@@ -20,7 +20,26 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy import select
 from goldsmith_erp.core.config import settings
-from goldsmith_erp.db.models import User, Customer, Material, Order
+from goldsmith_erp.db.models import (
+    User,
+    Customer,
+    Material,
+    Order,
+    # Extended seeder coverage (2026-04-24):
+    Activity,
+    TimeEntry,
+    MetalPurchase,
+    CustomMetalType,
+    Invoice,
+    InvoiceLineItem,
+    Quote,
+    QuoteLineItem,
+    RepairJob,
+    ScrapGold,
+    ScrapGoldItem,
+    ValuationCertificate,
+    Gemstone,
+)
 from goldsmith_erp.core.security import get_password_hash
 
 # Optional GDPR models — present only after GDPR schema migration
@@ -34,7 +53,13 @@ except ImportError:
 
 
 async def seed_users(session: AsyncSession):
-    """Create sample users (staff members)."""
+    """Create sample users (staff members).
+
+    Idempotent: skips users whose email already exists. Only the 3 canonical
+    roles are used (admin / goldsmith / viewer) — the UserRole enum after
+    the RBAC migration does not include the pre-V1 `receptionist` / `manager`
+    values.
+    """
     print("Creating users (staff)...")
 
     users_data = [
@@ -55,32 +80,42 @@ async def seed_users(session: AsyncSession):
             "is_active": True,
         },
         {
-            "email": "receptionist@goldsmith.local",
-            "hashed_password": get_password_hash("reception123"),
+            "email": "goldsmith2@goldsmith.local",
+            "hashed_password": get_password_hash("goldsmith123"),
             "first_name": "Maria",
             "last_name": "Klein",
-            "role": "receptionist",
+            "role": "goldsmith",
             "is_active": True,
         },
         {
-            "email": "manager@goldsmith.local",
-            "hashed_password": get_password_hash("manager123"),
+            "email": "viewer@goldsmith.local",
+            "hashed_password": get_password_hash("viewer123"),
             "first_name": "Thomas",
             "last_name": "Müller",
-            "role": "manager",
+            "role": "viewer",
             "is_active": True,
         },
     ]
 
+    created = 0
     for user_data in users_data:
-        user = User(**user_data)
-        session.add(user)
+        # Idempotency — skip if email already exists (seeder re-runs are normal)
+        existing = await session.execute(
+            select(User).where(User.email == user_data["email"])
+        )
+        if existing.scalar_one_or_none() is not None:
+            continue
+        session.add(User(**user_data))
+        created += 1
 
-    await session.commit()
-    print(f"✓ Created {len(users_data)} users (staff)")
+    if created > 0:
+        await session.commit()
+    print(f"✓ Users: {created} new / {len(users_data) - created} already existed")
 
     # Return admin user for relationships
-    result = await session.execute(select(User).where(User.role == "admin"))
+    result = await session.execute(
+        select(User).where(User.email == "admin@goldsmith.local")
+    )
     return result.scalar_one()
 
 
@@ -178,10 +213,21 @@ async def seed_data_retention_policies(session: AsyncSession, admin: User):
     print(f"✓ Created {len(policies_data)} data retention policies")
 
 
-def _filter_customer_fields(data: dict) -> dict:
-    """Return only fields that exist as columns on the Customer model."""
-    valid_columns = {col.key for col in Customer.__table__.columns}
+def _filter_model_fields(model_cls, data: dict) -> dict:
+    """Return only fields that exist as columns on the given ORM model.
+
+    Forward-compatible seeding pattern: the seed data dict may include
+    aspirational fields (GDPR consent columns, retention metadata, enum
+    values that moved) that the live schema hasn't caught up with. We
+    silently drop anything the model doesn't declare.
+    """
+    valid_columns = {col.key for col in model_cls.__table__.columns}
     return {k: v for k, v in data.items() if k in valid_columns}
+
+
+def _filter_customer_fields(data: dict) -> dict:
+    """Back-compat shim — use _filter_model_fields(Customer, data) for new code."""
+    return _filter_model_fields(Customer, data)
 
 
 async def seed_customers(session: AsyncSession, admin: User):
@@ -305,16 +351,38 @@ async def seed_customers(session: AsyncSession, admin: User):
         },
     ]
 
+    # Import the HMAC blind-index helper so we can check existing rows by the
+    # same hash the ORM event hooks will compute on insert. (C1 added this.)
+    from goldsmith_erp.core.encryption import hmac_blind_index
+
     created_customers = []
+    new_count = 0
+    skip_count = 0
     for customer_data in customers_data:
-        # Only pass fields that exist in the current Customer model
-        filtered = _filter_customer_fields(customer_data)
+        # Idempotency — lookup by email_hash (the only searchable PII column
+        # post-C1 encryption; plaintext ilike on `email` cannot work against
+        # Fernet ciphertext).
+        if customer_data.get("email"):
+            email_hash = hmac_blind_index(customer_data["email"])
+            existing = await session.execute(
+                select(Customer).where(Customer.email_hash == email_hash)
+            )
+            already = existing.scalar_one_or_none()
+            if already is not None:
+                created_customers.append(already)
+                skip_count += 1
+                continue
+
+        # Filter to fields actually on the current Customer model
+        filtered = _filter_model_fields(Customer, customer_data)
         customer = Customer(**filtered)
         session.add(customer)
         created_customers.append(customer)
+        new_count += 1
 
-    await session.commit()
-    print(f"✓ Created {len(customers_data)} customers")
+    if new_count > 0:
+        await session.commit()
+    print(f"✓ Customers: {new_count} new / {skip_count} already existed")
 
     return created_customers
 
@@ -461,13 +529,28 @@ async def seed_materials(session: AsyncSession):
     ]
 
     created_materials = []
+    skipped = 0
     for material_data in materials_data:
-        material = Material(**material_data)
+        # Idempotency — materials are keyed by name (no explicit uniqueness, but
+        # re-seeding with the same names is a mistake, not an upsert).
+        existing = await session.execute(
+            select(Material).where(Material.name == material_data["name"])
+        )
+        already = existing.scalar_one_or_none()
+        if already is not None:
+            created_materials.append(already)
+            skipped += 1
+            continue
+        filtered = _filter_model_fields(Material, material_data)
+        material = Material(**filtered)
         session.add(material)
         created_materials.append(material)
 
-    await session.commit()
-    print(f"✓ Created {len(materials_data)} materials")
+    if len(created_materials) - skipped > 0:
+        await session.commit()
+    print(
+        f"✓ Materials: {len(created_materials) - skipped} new / {skipped} already existed"
+    )
 
     return created_materials
 
@@ -478,10 +561,11 @@ async def seed_orders(session: AsyncSession, customers: list, materials: list, a
 
     current_date = datetime.utcnow()
 
-    # Get specific materials for orders
-    gold_585 = next((m for m in materials if "585" in m.name and m.material_type == "gold"), None)
+    # Get specific materials for orders.
+    # Material model no longer has `material_type` — filter by name substring.
+    gold_585 = next((m for m in materials if "585" in m.name and "Gold" in m.name), None)
     diamond_4mm = next((m for m in materials if "4.0mm" in m.name), None)
-    silver = next((m for m in materials if m.material_type == "silver"), None)
+    silver = next((m for m in materials if "Silber" in m.name or "silver" in m.name.lower()), None)
 
     # Get customers
     customer_max = customers[0]
@@ -559,10 +643,24 @@ async def seed_orders(session: AsyncSession, customers: list, materials: list, a
         },
     ]
 
-    for order_data in orders_data:
-        order = Order(**order_data)
+    # Idempotency: if any orders already exist for these customers, skip.
+    existing_q = await session.execute(
+        select(Order).where(Order.customer_id.in_([c.id for c in customers[:3]])).limit(1)
+    )
+    if existing_q.scalar_one_or_none() is not None:
+        print("✓ Orders: already seeded — skipping")
+        return
 
-        # Add materials to specific orders
+    new_count = 0
+    for order_data in orders_data:
+        # Filter to fields the current Order model actually has.
+        # Pre-V1 fields like `order_number`, `subtotal`, `tax_amount`,
+        # `workflow_state`, `priority`, `delivery_date`, `started_at`,
+        # `assigned_to`, `notes`, `total_amount` are silently dropped.
+        filtered = _filter_model_fields(Order, order_data)
+        order = Order(**filtered)
+
+        # Add materials to specific orders (uses the post-filter title)
         if order.title == "Goldring Reparatur" and gold_585 and diamond_4mm:
             order.materials.append(gold_585)
             order.materials.append(diamond_4mm)
@@ -573,9 +671,10 @@ async def seed_orders(session: AsyncSession, customers: list, materials: list, a
             order.materials.append(diamond_4mm)
 
         session.add(order)
+        new_count += 1
 
     await session.commit()
-    print(f"✓ Created {len(orders_data)} orders")
+    print(f"✓ Orders: {new_count} new")
 
 
 async def seed_audit_logs(session: AsyncSession, customers: list, admin: User):
@@ -637,6 +736,219 @@ async def seed_audit_logs(session: AsyncSession, customers: list, admin: User):
     print(f"✓ Created sample audit log entries")
 
 
+# ---------------------------------------------------------------------------
+# Extended seed coverage (added 2026-04-24)
+# Each function is idempotent (no-op if already seeded), uses
+# _filter_model_fields for forward/backward compatibility, and emits the
+# same "✓ <entity>: N new / M existed" status line.
+# ---------------------------------------------------------------------------
+
+async def seed_activities(session: AsyncSession, admin: User):
+    """Time-tracking activity presets used at the bench."""
+    print("Creating activities...")
+    presets = [
+        {"name": "Löten", "category": "fabrication", "icon": "🔥", "color": "#FF6B6B"},
+        {"name": "Polieren", "category": "fabrication", "icon": "✨", "color": "#FFD93D"},
+        {"name": "Fassen", "category": "fabrication", "icon": "💎", "color": "#4ECDC4"},
+        {"name": "Feilen", "category": "fabrication", "icon": "🛠", "color": "#95A5A6"},
+        {"name": "Gravieren", "category": "fabrication", "icon": "✒", "color": "#6C5CE7"},
+        {"name": "Kundengespräch", "category": "administration", "icon": "💬", "color": "#00B894"},
+        {"name": "Dokumentation", "category": "administration", "icon": "📝", "color": "#74B9FF"},
+        {"name": "Warten auf Material", "category": "waiting", "icon": "⏳", "color": "#A29BFE"},
+    ]
+    new_count = 0
+    skipped = 0
+    for data in presets:
+        existing = await session.execute(select(Activity).where(Activity.name == data["name"]))
+        if existing.scalar_one_or_none() is not None:
+            skipped += 1
+            continue
+        session.add(Activity(**_filter_model_fields(Activity, {**data, "created_by": admin.id})))
+        new_count += 1
+    if new_count:
+        await session.commit()
+    print(f"✓ Activities: {new_count} new / {skipped} already existed")
+
+
+async def seed_time_entries(session: AsyncSession, admin: User):
+    """A handful of time entries attached to existing orders + activities."""
+    print("Creating time entries...")
+    from datetime import datetime, timedelta
+    # Grab first 2 orders + first 3 activities
+    orders_q = await session.execute(select(Order).order_by(Order.id).limit(2))
+    orders = list(orders_q.scalars())
+    activities_q = await session.execute(select(Activity).order_by(Activity.id).limit(3))
+    activities = list(activities_q.scalars())
+    if not orders or not activities:
+        print("⚠ Skipping time entries (no orders/activities)")
+        return
+
+    # Idempotency — skip if any time_entry exists for the first order
+    existing = await session.execute(select(TimeEntry).where(TimeEntry.order_id == orders[0].id).limit(1))
+    if existing.scalar_one_or_none() is not None:
+        print("✓ Time entries: already seeded — skipping")
+        return
+
+    now = datetime.utcnow()
+    entries = [
+        {"order_id": orders[0].id, "user_id": admin.id, "activity_id": activities[0].id,
+         "start_time": now - timedelta(hours=3), "end_time": now - timedelta(hours=2, minutes=15),
+         "duration_minutes": 45, "notes": "Ringreparatur — Löten + Anprobe"},
+        {"order_id": orders[0].id, "user_id": admin.id, "activity_id": activities[1].id,
+         "start_time": now - timedelta(hours=2), "end_time": now - timedelta(hours=1, minutes=30),
+         "duration_minutes": 30, "notes": "Polieren Hochglanz"},
+        {"order_id": orders[1].id, "user_id": admin.id, "activity_id": activities[2].id,
+         "start_time": now - timedelta(days=1, hours=2),
+         "end_time": now - timedelta(days=1, hours=1), "duration_minutes": 60,
+         "notes": "Stein gefasst"},
+    ]
+    for data in entries:
+        session.add(TimeEntry(**_filter_model_fields(TimeEntry, data)))
+    await session.commit()
+    print(f"✓ Time entries: {len(entries)} new")
+
+
+async def seed_valuations(session: AsyncSession, admin: User):
+    """Insurance valuation certificates — tests C3 encryption."""
+    print("Creating valuations (tests C3 encryption)...")
+    orders_q = await session.execute(select(Order).order_by(Order.id).limit(2))
+    orders = list(orders_q.scalars())
+    if not orders:
+        print("⚠ Skipping valuations (no orders)")
+        return
+
+    from datetime import datetime, timedelta
+    now = datetime.utcnow()
+    certs = [
+        {"certificate_number": "WG-2026-0001", "order_id": orders[0].id,
+         "customer_id": orders[0].customer_id, "created_by": admin.id,
+         "item_description": "Damenring, Gelbgold 750, 1 Brillant 0.35ct VS1",
+         "metal_type": "Gelbgold 750", "metal_weight_g": 4.2, "metal_purity": "750",
+         "appraised_value": 1850.00, "valuation_date": now,
+         "valid_until": now + timedelta(days=730),
+         "goldsmith_name": "Johann Schmidt", "goldsmith_qualification": "Goldschmiedemeister"},
+        {"certificate_number": "WG-2026-0002", "order_id": orders[1].id,
+         "customer_id": orders[1].customer_id, "created_by": admin.id,
+         "item_description": "Silberkette 925, 60cm, Venezianermuster",
+         "metal_type": "Sterlingsilber 925", "metal_weight_g": 18.5, "metal_purity": "925",
+         "appraised_value": 420.00, "valuation_date": now,
+         "valid_until": now + timedelta(days=730),
+         "goldsmith_name": "Johann Schmidt", "goldsmith_qualification": "Goldschmiedemeister"},
+    ]
+    new_count = 0
+    skipped = 0
+    for data in certs:
+        existing = await session.execute(
+            select(ValuationCertificate).where(
+                ValuationCertificate.certificate_number == data["certificate_number"]
+            )
+        )
+        if existing.scalar_one_or_none() is not None:
+            skipped += 1
+            continue
+        # ValuationCertificate uses a property-setter to populate cipher + hmac.
+        # `appraised_value` is the @property alias — the column is bound as
+        # `_appraised_value_cipher`, so _filter_model_fields would drop it.
+        # Strip it from the dict and assign via the setter after construction.
+        appraised = data.pop("appraised_value")
+        filtered = _filter_model_fields(ValuationCertificate, data)
+        cert = ValuationCertificate(**filtered)
+        cert.appraised_value = appraised  # triggers EncryptedString + HMAC auto-populate
+        session.add(cert)
+        new_count += 1
+    if new_count:
+        await session.commit()
+    print(f"✓ Valuations: {new_count} new / {skipped} already existed")
+
+
+async def seed_invoices(session: AsyncSession, admin: User):
+    """Sample invoices — tests C6 financial audit logging when fetched."""
+    print("Creating invoices...")
+    orders_q = await session.execute(select(Order).order_by(Order.id).limit(2))
+    orders = list(orders_q.scalars())
+    if not orders:
+        print("⚠ Skipping invoices (no orders)")
+        return
+
+    from datetime import datetime, timedelta
+    now = datetime.utcnow()
+    invoices_data = [
+        {"invoice_number": "RE-2026-0001", "order_id": orders[0].id,
+         "customer_id": orders[0].customer_id, "created_by": admin.id,
+         "status": "paid", "issue_date": now - timedelta(days=14),
+         "due_date": now + timedelta(days=16), "paid_date": now - timedelta(days=2),
+         "subtotal": 150.00, "tax_rate": 19.0, "tax_amount": 28.50, "total": 178.50,
+         "payment_method": "Überweisung", "notes": "Dankeschön für den Auftrag."},
+        {"invoice_number": "RE-2026-0002", "order_id": orders[1].id,
+         "customer_id": orders[1].customer_id, "created_by": admin.id,
+         "status": "sent", "issue_date": now - timedelta(days=3),
+         "due_date": now + timedelta(days=27),
+         "subtotal": 280.00, "tax_rate": 19.0, "tax_amount": 53.20, "total": 333.20,
+         "payment_method": None},
+    ]
+    new_count = 0
+    skipped = 0
+    for data in invoices_data:
+        existing = await session.execute(
+            select(Invoice).where(Invoice.invoice_number == data["invoice_number"])
+        )
+        if existing.scalar_one_or_none() is not None:
+            skipped += 1
+            continue
+        inv = Invoice(**_filter_model_fields(Invoice, data))
+        session.add(inv)
+        new_count += 1
+    if new_count:
+        await session.commit()
+    print(f"✓ Invoices: {new_count} new / {skipped} already existed")
+
+
+async def seed_metal_purchases(session: AsyncSession, admin: User):
+    """Metal inventory purchases — stocks the workshop's precious-metal ledger."""
+    print("Creating metal purchases...")
+    from datetime import datetime, timedelta
+    now = datetime.utcnow()
+    # metaltype enum values per migration: gold_24k/22k/18k/14k/9k,
+    # silver_999/925/800, platinum_950/900, palladium, white_gold_18k/14k,
+    # rose_gold_18k/14k. Choose workshop-realistic purchases.
+    # remaining_weight_g starts = weight_g (nothing consumed yet at purchase time).
+    purchases = [
+        {"metal_type": "gold_18k", "weight_g": 250.0, "remaining_weight_g": 250.0,
+         "price_per_gram": 58.00, "price_total": 14500.00,
+         "date_purchased": now - timedelta(days=30),
+         "supplier": "Heimerle + Meule GmbH", "invoice_number": "HM-2026-1001"},
+        {"metal_type": "silver_925", "weight_g": 1000.0, "remaining_weight_g": 1000.0,
+         "price_per_gram": 0.85, "price_total": 850.00,
+         "date_purchased": now - timedelta(days=45),
+         "supplier": "Degussa Goldhandel AG", "invoice_number": "DG-2026-0412"},
+        {"metal_type": "gold_14k", "weight_g": 500.0, "remaining_weight_g": 500.0,
+         "price_per_gram": 45.80, "price_total": 22900.00,
+         "date_purchased": now - timedelta(days=10),
+         "supplier": "Heimerle + Meule GmbH", "invoice_number": "HM-2026-1052"},
+    ]
+    # Idempotency — skip if any purchase already exists for the first invoice number
+    existing = await session.execute(
+        select(MetalPurchase).where(MetalPurchase.invoice_number == purchases[0]["invoice_number"])
+    )
+    if existing.scalar_one_or_none() is not None:
+        print("✓ Metal purchases: already seeded — skipping")
+        return
+
+    for data in purchases:
+        session.add(MetalPurchase(**_filter_model_fields(MetalPurchase, data)))
+    await session.commit()
+    print(f"✓ Metal purchases: {len(purchases)} new")
+
+
+async def seed_extended(session: AsyncSession, admin: User):
+    """Run all extended seeders in dependency order (activities before time entries, etc.)."""
+    await seed_activities(session, admin)
+    await seed_metal_purchases(session, admin)
+    await seed_time_entries(session, admin)
+    await seed_valuations(session, admin)
+    await seed_invoices(session, admin)
+
+
 async def main():
     """Main seed function."""
     print("=" * 70)
@@ -664,6 +976,7 @@ async def main():
             customers = await seed_customers(session, admin)
             materials = await seed_materials(session)
             await seed_orders(session, customers, materials, admin)
+            await seed_extended(session, admin)
             await seed_audit_logs(session, customers, admin)
 
             print("=" * 70)
@@ -672,8 +985,8 @@ async def main():
             print("\n📋 Sample Credentials (Staff):")
             print("  Admin:        admin@goldsmith.local / admin123")
             print("  Goldsmith:    goldsmith@goldsmith.local / goldsmith123")
-            print("  Receptionist: receptionist@goldsmith.local / reception123")
-            print("  Manager:      manager@goldsmith.local / manager123")
+            print("  Goldsmith 2:  goldsmith2@goldsmith.local / goldsmith123")
+            print("  Viewer:       viewer@goldsmith.local / viewer123")
 
             print("\n👥 Sample Customers:")
             print("  Max Mustermann   (CUST-202511-0001) - VIP, active")

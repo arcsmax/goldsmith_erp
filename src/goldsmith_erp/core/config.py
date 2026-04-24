@@ -16,9 +16,10 @@ class Settings(BaseSettings):
 
     # ── Tell Pydantic to read `/app/.env` at runtime ───────────────────────────
     model_config = SettingsConfigDict(
-        env_file=Path(__file__).parents[4] / ".env",  # project root/.env
+        env_file=Path(__file__).parents[3] / ".env",  # project root/.env  (src/goldsmith_erp/core/config.py → parents[3])
         env_file_encoding="utf-8",
         case_sensitive=True,
+        extra="ignore",  # .env carries compose-only vars (DB_PORT, REDIS_EXT_PORT, BACKEND_PORT); ignore them at the Settings layer
     )
 
     # ── App basics ─────────────────────────────────────────────────────────────
