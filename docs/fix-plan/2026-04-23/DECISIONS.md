@@ -465,4 +465,26 @@ caused by it. Keeping F1 tight keeps the Wave-2 parallel-safety envelope clean
 **Decided by:** implementing agent (F1), under the spec's explicit "fix if
 small; escalate if large" clause for test-code dialect assumptions.
 
+## 2026-04-24 — Week-1 branch self-review outcomes
+
+**Who reviewed:** 3 parallel review agents (superpowers:code-reviewer, feature-dev:code-reviewer, TDD validator) audited the 15 Week-1 code commits.
+
+**Verdict:** "Ship as-is for Week 1" (integration reviewer) / "Six intended closures substantively achieved" (security reviewer) / "TDD bar was held" (TDD validator). No P0 regressions introduced. 4 adversarial regressions injected into tests all failed → tests are real, not theatre.
+
+**Findings actioned in this branch:**
+- **R1 (P1, committed `071d542`)**: bulk `GET /api/v1/customers` was silently unaudited because `_log_to_database` returned early on `customer_id is None`. The comment ("separate list-access audit path — scoped out of A1") was false — no such path existed. R1 fix: removed the guard, added `action="list_accessed"` branch in dispatch, added 2 tests (list-logs-row + single-record-still-works regression). GDPR Art. 30 gap on bulk access closed.
+- **R2 (P2, committed `60c4efd`)**: `/api/v1/users/register` was still advertised in the public OpenAPI/Swagger schema even after A3 locked it to ADMIN. Added `include_in_schema=False`. Now absent from `/openapi.json`. New test pins this.
+
+**Findings NOT actioned, deferred to Week 2+ as known tech debt:**
+
+- **P2 — Audit action string mismatch.** `audit_logging.py:241` uses `action="accessed"` but the A1 spec's acceptance criterion referenced `action="read"` (bracketed as "or the middleware's canonical read action"). Any future dashboard/report that filters `WHERE action = 'read'` will under-count. Mitigation: grep `rg "action.*=.*[\"']read[\"']"` across `src/` + `docs/` returned no matches at time of review (no consumer filters on the string today). Decision: stick with `"accessed"` + `"list_accessed"`; revisit if a consumer emerges.
+- **P2 — Audit write is synchronous on response path.** `middleware/audit_logging.py:135-156` awaits the DB insert before returning — adds a second DB roundtrip to every audited request. Fine under light load; Week-2 perf sweep can push to `BackgroundTasks` or a buffered queue.
+- **P2 — Audit pool contention.** `DB_POOL_SIZE=5 + overflow=10 = 15`. Audit path holds handler session + opens audit session sequentially. Raise pool size OR offload audit writes to a dedicated background writer with its own small pool. Worth sizing before first busy day.
+- **P2 — Audit test coverage gaps.** Missing edge-case tests: (a) 404 on nonexistent customer still audits, (b) malformed JWT `sub` → `user_id=None` audit row, (c) POST-create path where `entity_id` backfills from response body. R1 handled the bulk-list gap; these three remain.
+- **P2 — Swagger `/docs` is public.** `PUBLIC_PATHS` allows anonymous access to `/docs`/`/openapi.json` advertising the full API surface. R2 handles the specific `/users/register` case; the broader question (gate `/docs` behind ADMIN in production) is in the security review at `docs/review/2026-04-23/03-security-audit.md` P1.
+
+**Decided by:** orchestrator based on 3 parallel reviews. Reviewers cross-confirmed no P0, no P1 regression on the 15-commit delta (only R1 was P1 and it's now committed).
+
+---
+
 <!-- Append new decisions below as they come up. -->
