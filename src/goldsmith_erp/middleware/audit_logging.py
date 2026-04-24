@@ -125,8 +125,18 @@ class AuditLoggingMiddleware(BaseHTTPMiddleware):
         # Extract customer ID from URL if present
         customer_id = self._extract_customer_id(request.url.path)
 
-        # Determine action type based on HTTP method
-        action = self._method_to_action(method)
+        # Determine action type based on HTTP method.  Bulk list/search
+        # endpoints (no {id} in path) use a distinct "list_accessed" action
+        # so GDPR Art. 30 reviewers can distinguish per-record reads from
+        # bulk PII exposure, which carries a higher risk classification.
+        # POST /api/v1/customers (create) has no customer_id at middleware
+        # time (DB assigns it in the handler) — we still audit it as
+        # "created"; a later enhancement can inspect the response body to
+        # backfill entity_id.
+        if method == "GET" and customer_id is None:
+            action = "list_accessed"
+        else:
+            action = self._method_to_action(method)
 
         # Process the request first — the audit write must NEVER block or
         # fail the user's response.  Even if the handler raises, we still
@@ -274,13 +284,14 @@ class AuditLoggingMiddleware(BaseHTTPMiddleware):
 
         This method is the unit tests patch; it must therefore be
         side-effect-only (no return value the caller relies on).
-        """
-        # Only log if we have a customer ID in the path (e.g. a GET on
-        # /api/v1/customers/42).  List endpoints (/api/v1/customers) are
-        # handled by a separate list-access audit path — scoped out of A1.
-        if not customer_id:
-            return
 
+        R1: rows with ``customer_id`` / ``entity_id`` = None are valid and
+        expected for bulk list/search endpoints (``GET /api/v1/customers/``,
+        ``GET /api/v1/customers/search``) and for POST-create requests
+        (DB-assigned id is not known at middleware time).  Previously this
+        method returned early when ``customer_id`` was falsy, silently
+        dropping those rows — a P1 GDPR Art. 30 gap for bulk PII access.
+        """
         if AsyncSessionLocal is None or CustomerAuditLog is None:
             # Import-time failure — audit is not available in this env.
             logger.error(

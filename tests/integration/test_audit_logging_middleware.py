@@ -157,3 +157,103 @@ async def test_audit_write_failure_does_not_fail_user_request(
     assert any(
         "audit" in rec.message.lower() for rec in caplog.records
     ), "an ERROR log line mentioning 'audit' must be emitted on failure"
+
+
+# ---------------------------------------------------------------------------
+# Test 3 — R1: bulk list access must be audited (Art. 30 gap fix)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_list_customers_produces_audit_row(
+    authenticated_client: AsyncClient,
+    db_session,
+    test_customer,
+    admin_user,
+):
+    """
+    R1: bulk list access (`GET /api/v1/customers/`) must be audited.
+
+    Bulk list access exposes MORE PII than a single-record GET (every
+    customer in the result set). Prior to this fix, `_log_to_database`
+    returned early when `customer_id` was None, silently dropping every
+    list/search request. That is a P1 GDPR Art. 30 gap.
+
+    The audit row for a list request has:
+    - `entity_id` = None (no specific customer)
+    - `action` = "list_accessed" (distinct from single-record "accessed")
+    - `user_id` populated from the authenticated session
+    """
+    # test_customer ensures there is at least one row in the DB, so the
+    # list endpoint actually returns data.
+    _ = test_customer
+
+    resp = await authenticated_client.get("/api/v1/customers/")
+    assert resp.status_code == 200, (
+        f"expected 200 OK from list endpoint, got {resp.status_code}: {resp.text}"
+    )
+
+    result = await db_session.execute(
+        select(CustomerAuditLog)
+        .where(CustomerAuditLog.entity == "customer")
+        .where(CustomerAuditLog.action == "list_accessed")
+        .order_by(CustomerAuditLog.timestamp.desc())
+        .limit(1)
+    )
+    row = result.scalar_one_or_none()
+
+    assert row is not None, (
+        "bulk list access must write an audit row — GDPR Art. 30 requires "
+        "records of bulk PII processing activities"
+    )
+    assert row.user_id == admin_user.id, (
+        f"list-audit row must record the authenticated user "
+        f"(expected user_id={admin_user.id}, got {row.user_id})"
+    )
+    assert row.entity_id is None, (
+        "list endpoint targets no single customer; entity_id must be None"
+    )
+    assert row.action == "list_accessed", (
+        "list-endpoint audit rows must use 'list_accessed' to distinguish "
+        "them from single-record 'accessed' rows"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Test 4 — regression: single-record GET still uses "accessed" action
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_single_customer_get_uses_accessed_action(
+    authenticated_client: AsyncClient,
+    db_session,
+    test_customer,
+):
+    """
+    R1 regression: fixing the list-audit path must not break the single-
+    record audit path. `GET /api/v1/customers/{id}` must still write a row
+    with `action="accessed"` and `entity_id=<customer.id>` (NOT
+    "list_accessed").
+    """
+    resp = await authenticated_client.get(
+        f"/api/v1/customers/{test_customer.id}"
+    )
+    assert resp.status_code == 200
+
+    result = await db_session.execute(
+        select(CustomerAuditLog)
+        .where(CustomerAuditLog.entity_id == test_customer.id)
+        .order_by(CustomerAuditLog.timestamp.desc())
+        .limit(1)
+    )
+    row = result.scalar_one_or_none()
+
+    assert row is not None, (
+        "single-record GET must still produce an audit row"
+    )
+    assert row.action == "accessed", (
+        f"single-record GET must use 'accessed' action, got '{row.action}' "
+        "— did the R1 fix accidentally reroute single reads to list_accessed?"
+    )
+    assert row.entity_id == test_customer.id
