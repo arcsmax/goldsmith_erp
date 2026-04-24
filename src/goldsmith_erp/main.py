@@ -15,6 +15,7 @@ import uvicorn
 from typing import List
 
 from goldsmith_erp.core.config import settings
+from goldsmith_erp.core.encryption import EncryptionError, check_encryption_configured
 from goldsmith_erp.core.logging import setup_logging
 from goldsmith_erp.middleware import RequestLoggingMiddleware, RequestMetricsMiddleware
 from goldsmith_erp.middleware.audit_logging import AuditLoggingMiddleware
@@ -225,6 +226,36 @@ async def start_background_tasks() -> None:
     """Register long-running background tasks on application startup."""
     asyncio.create_task(system_monitor_loop())
     logger.info("System monitor background task registered")
+
+
+@app.on_event("startup")
+async def _verify_encryption_health() -> None:
+    """Fail-loud check on the encryption pipeline (C4 / GDPR Art. 32).
+
+    Called after config validation has already enforced that
+    ``ENCRYPTION_KEY`` is set in production. This check additionally
+    verifies the key is Fernet-shaped — catches typos / corrupted secrets
+    that config validation alone cannot spot.
+
+    In production (``DEBUG=False``) a bad key raises ``EncryptionError``
+    and aborts startup — we refuse to serve if PII cannot be protected.
+    In DEBUG mode we log CRITICAL and continue so local test runs without
+    encryption don't block developers.
+    """
+    try:
+        check_encryption_configured()
+        logger.info(
+            "encryption_health",
+            extra={"audit": True, "status": "ok"},
+        )
+    except EncryptionError as exc:
+        logger.critical(
+            "encryption_health_failed",
+            extra={"audit": True, "status": "critical", "error": str(exc)},
+        )
+        if not settings.DEBUG:
+            # Production: refuse to start with a broken encryption path.
+            raise
 
 if __name__ == "__main__":
     uvicorn.run(

@@ -36,6 +36,7 @@ from goldsmith_erp.db.models import (
     ValuationCertificate,
 )
 from goldsmith_erp.models.customer import CustomerCreate, CustomerUpdate
+from goldsmith_erp.core.encryption import EncryptionError
 from goldsmith_erp.db.transaction import transactional
 
 logger = logging.getLogger(__name__)
@@ -268,19 +269,29 @@ PII_FIELDS = ["phone", "mobile", "street", "city", "postal_code"]
 
 
 def _get_encryption():
-    """Return the singleton EncryptionService, or None if not configured."""
-    try:
-        from goldsmith_erp.core.encryption import get_encryption_service
-        return get_encryption_service()
-    except Exception:
+    """Return the singleton EncryptionService, or None if the key is unset.
+
+    Returns None only when ``settings.ENCRYPTION_KEY`` is not configured
+    (development / migration). If a key IS configured but its initialisation
+    fails, the underlying ``EncryptionError`` is re-raised — we MUST NOT
+    silently fall back to storing plaintext PII (CLAUDE.md: "Fail loudly —
+    never swallow exceptions silently").
+    """
+    from goldsmith_erp.core.config import settings as _settings
+    if not _settings.ENCRYPTION_KEY:
         return None
+    from goldsmith_erp.core.encryption import get_encryption_service
+    return get_encryption_service()
 
 
 def _encrypt_pii(data: dict) -> dict:
     """Encrypt PII fields before writing to DB.
 
-    No-op when ENCRYPTION_KEY is not configured so the app starts without
-    encryption in development / migration scenarios.
+    No-op when ENCRYPTION_KEY is not configured (development only — fail-loud
+    in production is enforced by ``core.config._check_encryption_key``).
+    If encryption IS configured and fails for any reason, the error
+    propagates as :class:`EncryptionError` so the caller aborts instead of
+    silently persisting plaintext PII.
     """
     enc = _get_encryption()
     if not enc:
@@ -290,29 +301,48 @@ def _encrypt_pii(data: dict) -> dict:
         if field in result and result[field]:
             try:
                 result[field] = enc.encrypt(result[field])
-            except Exception:
-                # Keep plaintext if encryption fails rather than losing data
-                pass
+            except EncryptionError:
+                raise
+            except Exception as exc:  # noqa: BLE001 — wrap, then re-raise
+                from goldsmith_erp.core.encryption import EncryptionError as _EE
+                logger.error(
+                    "PII encryption failed — refusing to persist plaintext",
+                    extra={"audit": True, "field": field, "error": str(exc)},
+                )
+                raise _EE(
+                    f"PII encryption failed for field {field!r}: {exc}"
+                ) from exc
     return result
 
 
 def _decrypt_pii(customer: CustomerModel) -> None:
     """Decrypt PII fields in place after reading from DB.
 
-    Silently skips fields that cannot be decrypted — this covers both
-    legacy plaintext rows and rows encrypted under a rotated key.
+    Tolerates legacy plaintext rows and rows encrypted under a rotated key:
+    a per-field ``InvalidToken`` leaves the original value untouched so
+    mixed-state tables (mid-migration) stay readable. Any OTHER failure
+    (malformed key, backend exception) propagates as ``EncryptionError`` —
+    we never hide a broken encryption pipeline behind a silent ``pass``.
     """
     enc = _get_encryption()
     if not enc:
         return
+    from cryptography.fernet import InvalidToken
     for field in PII_FIELDS:
         value = getattr(customer, field, None)
-        if value:
-            try:
-                setattr(customer, field, enc.decrypt(value))
-            except Exception:
-                # Already plaintext, wrong key, or NULL — leave as-is
-                pass
+        if not value:
+            continue
+        try:
+            setattr(customer, field, enc.decrypt(value))
+        except EncryptionError as exc:
+            # `EncryptionService.decrypt` wraps InvalidToken → EncryptionError.
+            # Unwrap via `__cause__` to distinguish "legacy plaintext / wrong
+            # key row" (tolerable) from "cipher backend is broken" (fatal).
+            if isinstance(exc.__cause__, InvalidToken) or "Invalid encryption token" in str(exc):
+                # Already plaintext or encrypted under a different key —
+                # leave the stored value as-is.
+                continue
+            raise
 
 
 class CustomerService:

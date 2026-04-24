@@ -30,6 +30,8 @@ Date: 2025-11-06
 """
 
 import base64
+import hashlib
+import hmac
 import logging
 from typing import Optional
 
@@ -40,8 +42,115 @@ logger = logging.getLogger(__name__)
 
 
 class EncryptionError(Exception):
-    """Raised when encryption or decryption fails."""
+    """Raised when encryption or decryption fails, or the key is misconfigured."""
     pass
+
+
+def check_encryption_configured() -> None:
+    """Validate that ``settings.ENCRYPTION_KEY`` is set and Fernet-shaped.
+
+    Called at application startup (and from unit tests) to guarantee the
+    encryption path is live before any request handler needs it. This
+    enforces CLAUDE.md's "Fail loudly — never swallow exceptions silently"
+    policy on the encryption layer.
+
+    Raises:
+        EncryptionError: If the key is missing, empty, or malformed.
+    """
+    key = settings.ENCRYPTION_KEY
+    if not key:
+        raise EncryptionError(
+            "ENCRYPTION_KEY is not set — PII encryption is disabled. "
+            "Generate one with: "
+            'python -c "from cryptography.fernet import Fernet; '
+            'print(Fernet.generate_key().decode())"'
+        )
+    try:
+        key_bytes = key.encode("utf-8") if isinstance(key, str) else key
+        Fernet(key_bytes)
+    except Exception as exc:  # noqa: BLE001 — we re-raise as EncryptionError
+        raise EncryptionError(
+            f"ENCRYPTION_KEY is malformed (must be a url-safe "
+            f"base64-encoded 32-byte Fernet key): {exc}"
+        ) from exc
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# HMAC blind-index — deterministic equality-search over encrypted columns
+# ═══════════════════════════════════════════════════════════════════════════
+#
+# Fernet encryption is non-deterministic: the same plaintext produces a
+# different ciphertext on every call. That breaks two things we rely on
+# today — DB-level uniqueness constraints and equality lookups (e.g.
+# "is there a customer with this email already?"). The fix is a *blind
+# index*: alongside the encrypted column we store a keyed hash (HMAC-
+# SHA-256) of the normalised plaintext. The hash is deterministic, so it
+# can be unique-indexed and compared; it is keyed, so an attacker with
+# only the DB dump cannot brute-force a plaintext → hash rainbow table
+# unless they also exfiltrate the blind-index key.
+#
+# Key derivation: we derive a separate 32-byte blind-index key from
+# ``settings.ENCRYPTION_KEY`` via SHA-256 with a domain-separation
+# suffix. This avoids adding a second env var (simpler key management)
+# while still giving the blind-index its own distinct key material — the
+# hash output can't be used to decrypt Fernet ciphertext and vice versa.
+# If a future compliance audit requires fully independent keys, swap
+# ``_derive_blind_index_key`` for a ``settings.BLIND_INDEX_KEY`` lookup;
+# the function signature doesn't change.
+
+
+def _derive_blind_index_key() -> bytes:
+    """Derive the blind-index HMAC key from ``ENCRYPTION_KEY``.
+
+    SHA-256 of (``ENCRYPTION_KEY`` bytes || domain-separation tag). The
+    tag ``b"goldsmith-blind-index-v1"`` is fixed — changing it rotates
+    every stored email_hash and requires a rebuild migration.
+
+    Returns a 32-byte key. If ``ENCRYPTION_KEY`` is unset (dev-only),
+    falls back to a deterministic placeholder so the module still
+    imports — the TypeDecorator + startup check will have already
+    logged / raised about the missing key; we don't need to re-raise
+    here.
+    """
+    key = settings.ENCRYPTION_KEY or "dev-no-encryption-key"
+    material = key.encode("utf-8") if isinstance(key, str) else key
+    return hashlib.sha256(material + b"goldsmith-blind-index-v1").digest()
+
+
+# Module-level cached key. Tests reset this via monkeypatch when they
+# rotate ``settings.ENCRYPTION_KEY``; see ``tests/unit/test_encrypted_string.py``.
+_BLIND_INDEX_KEY: bytes = _derive_blind_index_key()
+
+
+def hmac_blind_index(value: str) -> str:
+    """Deterministic keyed hash of ``value`` for blind-index lookup.
+
+    Used on encrypted columns that we still need to query by equality
+    (today: ``customers.email``). The returned 64-char hex string is a
+    SHA-256 HMAC over the **normalised** plaintext:
+
+      * ``.strip()`` — tolerate stray whitespace from copy/paste forms.
+      * ``.lower()`` — email addresses are case-insensitive per RFC 5321.
+
+    Normalisation MUST match on write (``create_customer`` / ``update``)
+    and on read (``get_customer_by_email`` / ``search_customers``). Any
+    divergence produces phantom uniqueness violations or missed lookups.
+
+    Args:
+        value: Plaintext string to tag. Must not be ``None`` — callers
+            handle the NULL case themselves.
+
+    Returns:
+        64-character lowercase hex digest (SHA-256 = 32 bytes = 64 hex).
+
+    Example:
+        >>> hmac_blind_index("Alice@Example.com ") == hmac_blind_index(
+        ...     "alice@example.com"
+        ... )
+        True
+    """
+    normalised = value.strip().lower().encode("utf-8")
+    return hmac.new(_BLIND_INDEX_KEY, normalised, hashlib.sha256).hexdigest()
 
 
 class EncryptionService:
