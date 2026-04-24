@@ -49,7 +49,6 @@ def test_encryption_service_import():
     assert EncryptionService is not None
 
 
-@pytest.mark.skip(reason="ENCRYPTION_KEY not yet in Settings — pending GDPR config migration")
 def test_encryption_key_configured():
     """Test that encryption key is configured."""
     from goldsmith_erp.core.config import settings
@@ -59,7 +58,6 @@ def test_encryption_key_configured():
     assert len(settings.ENCRYPTION_KEY) > 0
 
 
-@pytest.mark.skip(reason="ENCRYPTION_KEY not yet in Settings — pending GDPR config migration")
 def test_encryption_decrypt():
     """Test encryption and decryption."""
     from goldsmith_erp.core.encryption import get_encryption_service
@@ -92,7 +90,6 @@ def test_customer_model_import():
     assert Customer.__tablename__ == "customers"
 
 
-@pytest.mark.skip(reason="CustomerAuditLog not yet in db.models — pending GDPR schema migration")
 def test_customer_audit_log_model_import():
     """Test that CustomerAuditLog model can be imported."""
     from goldsmith_erp.db.models import CustomerAuditLog
@@ -106,7 +103,6 @@ def test_customer_audit_log_model_import():
 # Repository Tests
 # ═══════════════════════════════════════════════════════════════════════════
 
-@pytest.mark.skip(reason="CustomerRepository depends on CustomerAuditLog — pending GDPR schema migration")
 def test_customer_repository_import():
     """Test that CustomerRepository can be imported."""
     from goldsmith_erp.db.repositories.customer import CustomerRepository
@@ -128,18 +124,10 @@ def test_customer_service_import():
 # ═══════════════════════════════════════════════════════════════════════════
 # Schema Tests
 # ═══════════════════════════════════════════════════════════════════════════
-
-@pytest.mark.skip(reason="CustomerResponse and ConsentUpdate not yet in models.customer — pending GDPR schema migration")
-def test_customer_schemas_import():
-    """Test that customer Pydantic schemas can be imported."""
-    from goldsmith_erp.models.customer import (
-        CustomerCreate,
-        CustomerUpdate,
-        CustomerResponse,
-        ConsentUpdate,
-    )
-
-    assert CustomerCreate is not None
-    assert CustomerUpdate is not None
-    assert CustomerResponse is not None
-    assert ConsentUpdate is not None
+# test_customer_schemas_import was REMOVED in F4 (2026-04-23). It tried to
+# import `CustomerResponse` and `ConsentUpdate` — neither schema exists in
+# models/customer.py. The V1 Pydantic schemas (CustomerCreate, CustomerUpdate,
+# CustomerRead) are already exercised extensively in
+# tests/unit/test_customer_service.py (see TestCustomerCreate,
+# TestCustomerUpdate). Reinstating the test would require first shipping
+# CustomerResponse/ConsentUpdate schemas, which are out of V1 scope.
