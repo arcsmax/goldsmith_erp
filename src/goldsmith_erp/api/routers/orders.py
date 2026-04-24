@@ -1,13 +1,14 @@
 # src/goldsmith_erp/api/routers/orders.py
 from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import HTMLResponse
+from fastapi.encoders import jsonable_encoder
+from fastapi.responses import HTMLResponse, JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Any, Dict, List, Optional
 from datetime import datetime
 
 from goldsmith_erp.api.deps import get_current_user
 from goldsmith_erp.db.session import get_db
-from goldsmith_erp.db.models import User
+from goldsmith_erp.db.models import User, UserRole
 from goldsmith_erp.models.order import OrderCreate, OrderRead, OrderUpdate, LocationChangeRequest, LocationHistoryRead
 from goldsmith_erp.services.order_service import OrderService
 from goldsmith_erp.services.cost_calculation_service import CostCalculationService
@@ -17,7 +18,68 @@ from goldsmith_erp.core.permissions import Permission, require_permission
 
 router = APIRouter()
 
-@router.get("/", response_model=List[OrderRead])
+# ── C5: VIEWER-role financial-field projection ───────────────────────────────
+# CLAUDE.md "Data Privacy Rules → Financial Data":
+#   Pricing, payment info, material costs → visible only to ADMIN and GOLDSMITH
+#
+# Every GET handler that returns an OrderRead (single or list) routes through
+# ``_project_order_for_user`` / ``_project_orders_for_user`` so VIEWERs never
+# receive these seven fields. The scanner service already had the allow-list
+# pattern (scanner_service.ORDER_FIELDS_BY_ROLE); this brings the REST API in
+# line.
+#
+# Exhaustiveness: any future financial column added to OrderRead MUST also be
+# added to ``_FINANCIAL_FIELDS`` below. The companion test
+# ``tests/integration/test_order_viewer_projection.py`` pins the exact behavior.
+#
+# Ref: docs/fix-plan/2026-04-23/C5-viewer-financial-projection.md
+_FINANCIAL_FIELDS: frozenset[str] = frozenset({
+    "price",
+    "material_cost_calculated",
+    "material_cost_override",
+    "labor_cost",
+    "hourly_rate",
+    "profit_margin_percent",
+    "calculated_price",
+})
+
+
+def _financial_excludes_for_user(user: User) -> set[str]:
+    """Return the set of Order fields to strip for the caller's role.
+
+    ADMIN and GOLDSMITH see the unredacted response (empty exclude set).
+    Every other role — including VIEWER and any future read-only role — sees
+    the order WITHOUT the seven financial fields.
+    """
+    if user.role in (UserRole.ADMIN, UserRole.GOLDSMITH):
+        return set()
+    return set(_FINANCIAL_FIELDS)
+
+
+def _project_order_for_user(order, user: User) -> JSONResponse:
+    """Serialize a single ORM Order into a role-aware JSON response."""
+    data = OrderRead.model_validate(order).model_dump(
+        exclude=_financial_excludes_for_user(user),
+    )
+    return JSONResponse(content=jsonable_encoder(data))
+
+
+def _project_orders_for_user(orders, user: User) -> JSONResponse:
+    """Serialize a list of ORM Orders into a role-aware JSON response."""
+    excludes = _financial_excludes_for_user(user)
+    data = [
+        OrderRead.model_validate(o).model_dump(exclude=excludes) for o in orders
+    ]
+    return JSONResponse(content=jsonable_encoder(data))
+
+@router.get(
+    "/",
+    response_model=List[OrderRead],
+    # C5: VIEWER responses strip financial fields — the actual projection
+    # happens in _project_orders_for_user. ``response_model`` still documents
+    # the maximal shape for ADMIN/GOLDSMITH in the OpenAPI schema.
+    response_model_exclude_none=False,
+)
 @require_permission(Permission.ORDER_VIEW)
 async def list_orders(
     skip: int = 0,
@@ -26,8 +88,14 @@ async def list_orders(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Liste aller Aufträge."""
-    return await OrderService.get_orders(db, skip, limit, customer_id=customer_id)
+    """Liste aller Aufträge.
+
+    VIEWER-role callers receive the list WITHOUT the seven financial fields
+    (``price``, ``material_cost_*``, ``labor_cost``, ``hourly_rate``,
+    ``profit_margin_percent``, ``calculated_price``). See C5 fix-plan.
+    """
+    orders = await OrderService.get_orders(db, skip, limit, customer_id=customer_id)
+    return _project_orders_for_user(orders, current_user)
 
 
 @router.get("/calendar/deadlines")
@@ -87,11 +155,14 @@ async def get_order(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Einzelnen Auftrag abrufen."""
+    """Einzelnen Auftrag abrufen.
+
+    VIEWER-role callers receive the order WITHOUT financial fields. See C5.
+    """
     order = await OrderService.get_order(db, order_id)
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
-    return order
+    return _project_order_for_user(order, current_user)
 
 @router.put("/{order_id}", response_model=OrderRead)
 @require_permission(Permission.ORDER_EDIT)
