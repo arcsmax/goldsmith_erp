@@ -36,8 +36,8 @@
 | **C4** | **Fail loudly on encryption misconfig + startup health check** | **S** | **GDPR + BE** | **✅ `c347ac6`** | **3a** | **—** | [C4-fail-loudly.md](C4-fail-loudly.md) |
 | **C5** | **VIEWER role strips financial fields from Order responses** | **M** | **BE + GDPR** | **✅ `97f1b88`** | **3a** | **—** | [C5-viewer-financial-projection.md](C5-viewer-financial-projection.md) |
 | **C6** | **AuditLoggingMiddleware logs financial-data reads** | **M** | **BE + GDPR** | **✅ `ce0dd6b`** | **3a** | **—** | [C6-financial-audit.md](C6-financial-audit.md) |
-| C3 | Encrypt `ValuationCertificate.appraised_value` | M | DB + GDPR | ⏳ pending | 3b | — | (spec TBD) |
-| F4 | Un-skip or delete 7 stale-skipped encryption/GDPR tests | S | CI + GDPR | ⏳ unblocked | 3b | (C1 landed — now unblocked) | [F4-skipped-tests.md](F4-skipped-tests.md) |
+| C3 | Encrypt `ValuationCertificate.appraised_value` | M | DB + GDPR | ✅ `84ded6a` | 3b | — | [C3-valuation-encryption.md](C3-valuation-encryption.md) |
+| F4 | Un-skip or delete 7 stale-skipped encryption/GDPR tests | S | CI + GDPR | ✅ `1a42629` | 3b | — | [F4-skipped-tests.md](F4-skipped-tests.md) |
 
 D3 is from Group A-adjacent (time_tracking.py missing `@require_permission`, P0, S effort, from report 01) — tiny, included in Wave 1 because `core.permissions` was already canonical for that file.
 
@@ -150,6 +150,35 @@ ff3ed3a ci: add alembic upgrade→downgrade→re-upgrade smoke test             
 0c77b27 fix(makefile): move install-service unit body to external template         [F1.2]
 ```
 
+## Week 2 Group C outcome snapshot (2026-04-24) — COMPLETE
+
+**6/6 Group C items + F4 committed.** All foundational encryption + financial-data controls now in place:
+
+```
+84ded6a feat(valuation): encrypt ValuationCertificate.appraised_value           [C3]
+1a42629 test: un-skip/delete 7 stale-skipped encryption/GDPR tests              [F4]
+e515d73 feat(db): EncryptedString TypeDecorator + HMAC; encrypt Customer PII    [C1+C2]
+ce0dd6b feat(audit): log financial-data access on invoices/valuations/scrap_gold [C6]
+c347ac6 feat(encryption): fail loudly on encryption misconfiguration            [C4]
+97f1b88 feat(orders): strip financial fields from VIEWER-role responses         [C5]
+```
+
+**Group C sanity checks:**
+- **75 tests** (unit + integration) from the new/modified Week-1+2 work all PASS in a single sweep.
+- Backend boots clean: 210 routes, 7 middlewares.
+- `.ilike(...email)` grep → 0 matches (C1 invariant).
+- Raw-SQL `SELECT` on `customers.email` + `valuation_certificates.appraised_value` returns ciphertext (verified in integration tests).
+- `ROLE_PERMISSIONS` registry invariants hold (VIEWER has no financial-field access via orders).
+- Branch: **32 commits ahead of main** (22 code + 10 docs).
+
+**Week-2 follow-ups documented for Week 3+:**
+- C1.1 — `Customer.birthday` (Date) encryption (string-PII only in C1).
+- C3.1 — range queries on `appraised_value` (only equality via HMAC for now).
+- C5.1 — WebSocket `order_updated` payload projection for VIEWER.
+- C6.1 — `/api/v1/analytics/*` aggregate audit-logging.
+- C6.2 — rename `CustomerAuditLog` → `AccessAuditLog` (cosmetic).
+- C6.3 — `test_customer` fixture `email_hash` population in shared conftest (caught by C6 agent, resolved in C1 fixture adjustments).
+
 ## Week 2 Wave 3a outcome snapshot (2026-04-24)
 
 **4/4 dispatched items committed** — full Group C foundational layer landed in parallel:
@@ -172,8 +201,12 @@ e515d73 feat(db): EncryptedString + HMAC blind-index; encrypt Customer PII  [C1]
 
 ## Ready for next session
 
-- After Wave 3b: review Group C end-to-end; merge / PR
-- Week 3: Group D (GDPR lifecycle), Group E (Money→Numeric), A7.1–A7.3 (full CSRF)
+- **Group C is done.** Merge / PR the branch — 32 commits spanning Weeks 1+2.
+- **Week 3 next** (per `docs/review/2026-04-23/FIX-PLAN.md`):
+  - **Group D** (GDPR lifecycle): D1 consent columns, D2 `gdpr-cleanup.sh` rewrite to re-run file erasure + audit
+  - **Group E** (Money→Numeric): E1 — the single biggest change — 28 Float columns to `Numeric(12,2)`, Pydantic + frontend coordination
+  - **A7.1–A7.3** (full CSRF double-submit): middleware + conftest fixture + FE interceptor
+  - **P1.x** items per priority (notification N+1, WS scale-out, feature flags, etc.)
 
 ## Per-item commit convention
 
