@@ -13,24 +13,27 @@
 
 | ID | Title | Effort | Owner area | Status | Wave | Blocked-by | Spec |
 |----|-------|--------|------------|--------|------|------------|------|
-| A1 | Register `AuditLoggingMiddleware` + populate `request.state.user` | M | BE + GDPR | ✅ committed `38229c0` | 1 | — | [A1-audit-middleware.md](A1-audit-middleware.md) |
-| A2 | Merge duplicate `Permission` / `require_permission` systems | M | BE + SEC | ✅ committed `17d1056` | 1 | — | [A2-permission-merge.md](A2-permission-merge.md) |
-| A3 | Lock down `/users/register` | S | BE + SEC | 🛑 blocked | 2 | A2; **product decision needed** | [A3-register-endpoint.md](A3-register-endpoint.md) |
-| A4 | Compose password defaults + bind DB to 127.0.0.1 (dev) | S | OPS | ✅ committed `ccf0c73` | 1 | — | [A4-compose-defaults.md](A4-compose-defaults.md) |
-| A5 | Add top-level + MainLayout `ErrorBoundary` | S | FE | ✅ committed `38cd45b` | 1 | — | [A5-error-boundary.md](A5-error-boundary.md) |
-| A6 | `CustomerPortalPage` raw fetch leaks cookies | S | FE + SEC | ✅ committed `0603982` | 1 | — | [A6-portal-fetch.md](A6-portal-fetch.md) |
-| A7 | CSRF token on cookie-auth state-changing requests | S | FE + BE + SEC | 🛑 blocked | 2 | Backend CSRF state verification | [A7-csrf-header.md](A7-csrf-header.md) |
-| B1+B2 | Bump axios (CVE-2026-25639) + react-router-dom (CVE-2026-22029 + CVE-2026-21884) | S | DEP + FE | ✅ committed `ac0864b` | 1 | — | [B1-B2-cve-bumps.md](B1-B2-cve-bumps.md) |
-| F1 | Run integration tests against Postgres (not SQLite) in CI | M | CI | 🛑 blocked | 2 | Need to confirm conftest strategy | [F1-pg-test-target.md](F1-pg-test-target.md) |
-| **F2a** | **Fix broken `downgrade()` in migration `20260420_h9_explicit_ondelete_restrict.py`** | **S** | **DB** | **🛑 blocked on decision** | **1.5** | **NEW — escalation from F2** | **[F2a-h9-downgrade-fix.md](F2a-h9-downgrade-fix.md)** |
-| F2 | Alembic upgrade→downgrade→upgrade smoke test in CI | S | CI | 🛑 blocked | 1.5 | F2a must land first — downgrade-smoke would immediately fail CI on HEAD | [F2-downgrade-smoke.md](F2-downgrade-smoke.md) |
-| F3 | Run Playwright E2E specs in CI | M | CI + FE | 🛑 blocked | 2 | F1, F2 land first (shared `ci.yml`) | [F3-playwright-ci.md](F3-playwright-ci.md) |
-| F4 | Un-skip or delete 7 stale-skipped encryption/GDPR tests | S | CI + GDPR | 🛑 blocked | — | Needs C1–C4 (encryption infra) from Week 2+ | [F4-skipped-tests.md](F4-skipped-tests.md) |
-| D3 | Add `@require_permission(Permission.TIME_VIEW_OWN)` to `GET /time-tracking/user/{user_id}` | S | BE + SEC | ✅ committed `a1f72f1` | 1 | — | [D3-time-tracking-permission.md](D3-time-tracking-permission.md) |
+| A1 | Register `AuditLoggingMiddleware` + populate `request.state.user` | M | BE + GDPR | ✅ `38229c0` | 1 | — | [A1-audit-middleware.md](A1-audit-middleware.md) |
+| A2 | Merge duplicate `Permission` / `require_permission` systems | M | BE + SEC | ✅ `17d1056` | 1 | — | [A2-permission-merge.md](A2-permission-merge.md) |
+| A3 | Lock down `/users/register` to ADMIN-only | S | BE + SEC | ✅ `4d3e490` | 2 | — | [A3-register-endpoint.md](A3-register-endpoint.md) |
+| A4 | Compose password defaults + bind DB to 127.0.0.1 (dev) | S | OPS | ✅ `ccf0c73` | 1 | — | [A4-compose-defaults.md](A4-compose-defaults.md) |
+| A5 | Add top-level + MainLayout `ErrorBoundary` | S | FE | ✅ `38cd45b` | 1 | — | [A5-error-boundary.md](A5-error-boundary.md) |
+| A6 | `CustomerPortalPage` raw fetch leaks cookies | S | FE + SEC | ✅ `0603982` | 1 | — | [A6-portal-fetch.md](A6-portal-fetch.md) |
+| A7 | Full CSRF double-submit | L | FE + BE + SEC | 🛑 ESCALATED | 3+ | Split into A7.1/A7.2/A7.3 (Week 2+) | [A7-csrf-header.md](A7-csrf-header.md) |
+| **A7.4** | **Flip auth cookie to SameSite=Strict (quick win)** | **S** | **BE + SEC** | **✅ `16815e5`** | **2b** | **—** | **(inline in A7 spec)** |
+| B1+B2 | Bump axios + react-router-dom past CVEs | S | DEP + FE | ✅ `ac0864b` | 1 | — | [B1-B2-cve-bumps.md](B1-B2-cve-bumps.md) |
+| F1 | Integration tests against Postgres in CI | M | CI | ✅ `c63ae77` | 2 | — | [F1-pg-test-target.md](F1-pg-test-target.md) |
+| **F1.1** | **Fix AsyncEngine type error in `test_concurrent_metal_consumption.py`** | **S** | **CI** | **✅ `d9b10f6`** | **2b** | **NEW — surfaced by F1** | **(inline — F1 follow-up)** |
+| **F1.2** | **Move `install-service` systemd template out of Makefile heredoc (fixes `make -n` parse error)** | **S** | **OPS** | **✅ `0c77b27`** | **2b** | **NEW — surfaced by F1** | **(inline — F1 follow-up)** |
+| F2a | Fix broken `downgrade()` in H9 migration | S | DB | ✅ `166fcd1` | 1.5 | — | [F2a-h9-downgrade-fix.md](F2a-h9-downgrade-fix.md) |
+| F2 | Alembic upgrade→downgrade→upgrade smoke test in CI | S | CI | ✅ `ff3ed3a` | 2b | — | [F2-downgrade-smoke.md](F2-downgrade-smoke.md) |
+| F3 | Run Playwright E2E specs in CI | M | CI + FE | ✅ `7bc1d73` | 2b | — | [F3-playwright-ci.md](F3-playwright-ci.md) |
+| F4 | Un-skip or delete 7 stale-skipped encryption/GDPR tests | S | CI + GDPR | ⏸ DEFERRED | — | Needs C1–C4 (encryption infra) from Week 2+ | [F4-skipped-tests.md](F4-skipped-tests.md) |
+| D3 | Add `@require_permission(Permission.TIME_VIEW_OWN)` to `GET /time-tracking/user/{user_id}` | S | BE + SEC | ✅ `a1f72f1` | 1 | — | [D3-time-tracking-permission.md](D3-time-tracking-permission.md) |
 
 D3 is from Group A-adjacent (time_tracking.py missing `@require_permission`, P0, S effort, from report 01) — tiny, included in Wave 1 because `core.permissions` was already canonical for that file.
 
-**Count:** 14 items in scope (after F2a escalation). Wave 1 done = 7 (A1, A2, A4, A5, A6, B1+B2, D3). Wave 1 blocked = 1 (F2 → F2a needed first). Wave 2 = A3, A7, F1, F3. Wave 1.5 (new) = F2a → F2. Deferred = F4.
+**Final count (2026-04-24):** 17 items in scope (after F2a, F1.1, F1.2, A7.4 escalations). **15 committed** across Waves 1, 2, 2b. **1 escalated** (A7 → A7.1/A7.2/A7.3 for Week 2+). **1 deferred** (F4 → Week 2 with Group C encryption). Every originally-scoped Week-1 item that *could* land did land.
 
 ## Wave 1 outcome snapshot (2026-04-23)
 
@@ -117,13 +120,34 @@ Eight agents in one dispatch. File-ownership table below confirms no edit collis
 
 - **F4** — skipped encryption tests should be reconsidered AFTER Group C (PII encryption) lands. Un-skipping them with no encryption plumbing would just fail the suite.
 
-## Current status
+## Current status (2026-04-24)
 
-- **Baseline commit:** `a6a5d73 refactor(scanner): remove Suspense/lazy wrapper around vendor module` (main HEAD on branch-off)
-- **Branch:** `code-review-fixes-2026-04-23` — 9 commits ahead of main
-- **Wave 1**: 7/8 done, F2 blocked on F2a (new) — see snapshot above
-- **Next up**: decision needed from user on F2a approach (see DECISIONS.md), plus A3 product decision, plus A7 backend CSRF investigation
+- **Baseline commit:** `a6a5d73 refactor(scanner)...` (main HEAD on branch-off)
+- **Branch:** `code-review-fixes-2026-04-23` — **20 commits ahead of main**
+- **Wave 1**: 7/7 code commits landed (A1, A2, A4, A5, A6, B1+B2, D3)
+- **Wave 1.5**: F2a landed (H9 downgrade fix)
+- **Wave 2**: A3, F1 landed; A7 escalated (A7.4 quick win landed in Wave 2b)
+- **Wave 2b**: F2, F3, F1.1, F1.2, A7.4 all landed
+- **Blocked / deferred**: A7.1–A7.3 (full CSRF double-submit, Week 2+), F4 (Week 2 with Group C)
+- **Final smoke checks**: backend imports clean (210 routes, 7 middlewares) · `ci.yml` valid YAML · `make -n help` clean (F1.2 fix) · zero tracked-file leftovers
 - **Open decisions:** see `DECISIONS.md`
+
+## Wave 2b outcome snapshot
+
+```
+7bc1d73 ci: run Playwright smoke + auth E2E specs on PRs                           [F3]
+16815e5 fix(auth): tighten auth cookie SameSite from lax to strict                  [A7.4]
+d9b10f6 test(integration): fix AsyncEngine type error in concurrent metal tests    [F1.1]
+ff3ed3a ci: add alembic upgrade→downgrade→re-upgrade smoke test                    [F2]
+0c77b27 fix(makefile): move install-service unit body to external template         [F1.2]
+```
+
+## Ready for next session
+
+- Merge / review branch `code-review-fixes-2026-04-23`
+- Begin Week 2: Group C (PII encryption + financial role projection + audit-log dependency) — largest block
+- Unblock A7.1/A7.2/A7.3 (full CSRF middleware + conftest + FE interceptor) — Week 2 or 3 depending on Group C sequencing
+- Unblock F4 once Group C's `EncryptedString` infra lands
 
 ## Per-item commit convention
 
