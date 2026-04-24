@@ -21,7 +21,12 @@ router = APIRouter()
 # with existing admin tooling; both routes are guarded by the same
 # permission and perform the same work.
 
-@router.post("/register", response_model=User, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/register",
+    response_model=User,
+    status_code=status.HTTP_201_CREATED,
+    include_in_schema=False,  # R2: admin-only; not part of public API surface
+)
 @require_permission(Permission.USER_CREATE)
 async def register_user(
     user_in: UserCreate,

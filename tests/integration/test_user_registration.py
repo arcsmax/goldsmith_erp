@@ -123,3 +123,22 @@ class TestUserRegistrationLockdown:
             f"Expected 400/409 duplicate-email signal to admins, got "
             f"{resp.status_code}: {resp.text}"
         )
+
+    async def test_register_endpoint_not_in_openapi_schema(
+        self, client: AsyncClient
+    ):
+        """R2: the endpoint is ADMIN-only; it should not appear in the public
+        OpenAPI schema since Swagger UI is publicly accessible at /docs.
+
+        Even though unauthenticated POSTs now return 401 (see tests above),
+        advertising the path + request body schema in /openapi.json tells
+        anonymous visitors the endpoint exists and what shape to probe with.
+        ``include_in_schema=False`` on the route decorator removes it.
+        """
+        resp = await client.get("/api/v1/openapi.json")
+        assert resp.status_code == 200
+        schema = resp.json()
+        assert REGISTER_PATH not in schema.get("paths", {}), (
+            f"{REGISTER_PATH} must not appear in public OpenAPI schema "
+            f"(found in paths: {list(schema.get('paths', {}).keys())})"
+        )
