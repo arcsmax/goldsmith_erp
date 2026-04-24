@@ -488,3 +488,60 @@ small; escalate if large" clause for test-code dialect assumptions.
 ---
 
 <!-- Append new decisions below as they come up. -->
+
+## 2026-04-24 — C6 — Financial-data audit: extension shape & deferred work
+
+**Question:** How should the AuditLoggingMiddleware be extended to cover
+invoices / valuations / scrap-gold, and which edge cases are in scope?
+
+**Options considered:**
+
+1. Per-resource action names (`invoice_read`, `valuation_read`, `scrap_gold_read`).
+2. Generic `financial_read` action + per-resource `entity` discriminator.
+
+**Decision:** Option 2.  `action="financial_read"` (single) /
+`"list_accessed_financial"` (list) applies to all three financial
+resources; the `entity` column (`invoice|valuation|scrap_gold`) narrows
+when needed.  Matches the C6 spec.
+
+**Rationale:**
+- Dashboards answering "show me all financial-data reads by user X"
+  become a one-line `WHERE action = 'financial_read'` filter.
+- Per-resource drilldown is still trivially available via `entity`.
+- Customer audit path is left untouched (action still `accessed` /
+  `list_accessed`) — A1/R1 regression tests guarantee that.
+
+**Other design points settled during implementation (not separate
+decisions, but worth recording):**
+
+- **Non-GET verbs on financial paths are NOT audited by this
+  middleware.**  Only GETs, per spec.  Writes are audit-logged at the
+  service layer (F-05 follow-up).  Customers keep per-verb audit (A1
+  legacy).
+- **`customer_audit_logs.customer_id` is populated ONLY for
+  `entity="customer"` rows.**  That column FKs to `customers.id`; writing
+  an invoice id there would violate referential integrity.  Non-customer
+  rows use the generic `entity_id` column and leave `customer_id` NULL.
+- **Legal basis differs for financial vs customer.**  Financial rows
+  cite GDPR Art. 6(1)(c) (legal obligation; §147 AO).  Customer rows
+  keep Art. 6(1)(b) (contract).  Surfaced in `details.legal_basis`.
+- **Path parser is plain string split, not regex.**  Simpler to audit,
+  predictable cost on the hot path.
+
+**Deferred, logged here as follow-ups:**
+
+- **C6.1** — `/api/v1/analytics/*` aggregates financial data but has its
+  own path prefix.  Low risk (aggregates, not raw rows); not covered by
+  the current resource map.  Add to the map in a later pass.
+- **C6.2** — Rename table `customer_audit_logs` -> `access_audit_logs`.
+  Cosmetic; needs a migration.  Save for a batched schema sweep.
+- **C6.3** — `test_customer` conftest fixture currently fails in the
+  working tree because C1 (not yet committed) added a NOT NULL
+  `customers.email_hash` without updating the fixture.  Not a C6
+  regression — C6's suite passes cleanly against `main` HEAD at the
+  moment C6 was implemented.  When C1 lands, it must either set
+  `email_hash=hmac_blind_index(email)` in the fixture or provide a
+  server-side default, or the integration suite breaks for every agent
+  that touches customer data.
+
+**Decided by:** C6 implementing agent, constrained by spec + parallel-safety rules.

@@ -1,25 +1,40 @@
 """
 GDPR-compliant audit logging middleware.
 
-This middleware automatically logs all customer data access for compliance
-with GDPR Article 30 (Records of processing activities).
+This middleware automatically logs access to regulated resource families
+for compliance with GDPR Article 30 (Records of processing activities)
+and the CLAUDE.md "Data Privacy Rules" section, which requires:
 
-Logs include:
-- Who accessed the data (user ID, email, role)
-- When it was accessed (timestamp)
-- What was accessed (endpoint, customer ID)
-- How it was accessed (HTTP method, IP address, user agent)
-- Why it was accessed (purpose, legal basis)
+- Customer PII (personal data): every access audit-logged (A1, 2025-11).
+- Financial data (invoices, valuations, scrap-gold): every access
+  audit-logged (C6, 2026-04).
 
-Author: Claude AI
-Date: 2025-11-06
+The audited path prefixes and their action / entity mappings live in the
+``_RESOURCE_ROUTES`` table — one dict entry per resource family.  Paths
+outside that table short-circuit out of the middleware without any DB
+work, keeping the unaudited fast-path near-free.
+
+Each audit row records:
+- Who accessed the data (user ID; role/email intentionally omitted here,
+  see F-25 follow-up).
+- When it was accessed (UTC timestamp).
+- What was accessed (endpoint, entity type, entity id where available).
+- How it was accessed (HTTP method, IP address, user agent).
+- Why it was accessed (purpose, legal basis — customer rows cite Art.
+  6(1)(b) contract; financial rows cite Art. 6(1)(c) legal obligation /
+  §147 AO).
+
+History:
+- 2025-11-06 (A1): initial customer-data auditing.
+- 2026-04-23 (R1): closed Art. 30 gap by auditing bulk list reads.
+- 2026-04-23 (C6): extended to invoices / valuations / scrap-gold.
 """
 
 import ipaddress
 import logging
 import time
 import json
-from typing import Callable, Optional
+from typing import Callable, Optional, Tuple
 from datetime import datetime
 
 from fastapi import Request, Response
@@ -71,49 +86,103 @@ def get_real_ip(request: Request) -> str:
     return direct_ip or "unknown"
 
 
+# ---------------------------------------------------------------------------
+# Audited resource routing table
+# ---------------------------------------------------------------------------
+#
+# Each entry maps a URL resource segment (as it appears after ``/api/v1/``)
+# to a tuple of:
+#
+#   (entity_type, single_action, list_action, is_financial)
+#
+# * ``entity_type``   — value written to ``CustomerAuditLog.entity``.  Uses
+#                       snake_case (URL hyphens are converted) so SQL
+#                       filters like ``WHERE entity = 'scrap_gold'`` stay
+#                       Python-identifier friendly.
+# * ``single_action`` — action written when the URL's second segment is an
+#                       integer id (e.g. ``/api/v1/invoices/42`` or
+#                       ``/api/v1/scrap-gold/42/receipt.pdf``).
+# * ``list_action``   — action written when the URL has no numeric id
+#                       (list endpoints, search, aggregate helpers like
+#                       ``/scrap-gold/alloy-calculator``).  Distinguishing
+#                       the two is useful for GDPR Art. 30 dashboards:
+#                       bulk reads carry a higher risk class than
+#                       per-record reads.
+# * ``is_financial``  — flag that toggles the scope of non-GET auditing.
+#                       For customers we audit every verb (A1 legacy).
+#                       For financial resources the C6 spec limits audit
+#                       to GETs — write-side auditing is handled by the
+#                       service layer and is out of scope for this fix.
+#
+# Adding a new audited resource is a one-line change to this dict.
+_RESOURCE_ROUTES: dict[str, Tuple[str, str, str, bool]] = {
+    "customers": ("customer", "accessed", "list_accessed", False),
+    "invoices": ("invoice", "financial_read", "list_accessed_financial", True),
+    "valuations": ("valuation", "financial_read", "list_accessed_financial", True),
+    "scrap-gold": ("scrap_gold", "financial_read", "list_accessed_financial", True),
+}
+
+
 class AuditLoggingMiddleware(BaseHTTPMiddleware):
     """
     Middleware for automatic GDPR-compliant audit logging.
 
-    Intercepts all HTTP requests to customer endpoints and logs:
-    - Data access (GET requests)
-    - Data modifications (POST, PUT, PATCH, DELETE)
-    - Who, what, when, where, why
+    Intercepts all HTTP requests to audited endpoints and writes a
+    ``CustomerAuditLog`` row describing who accessed what and when.
+
+    Audited resource families (see ``_RESOURCE_ROUTES`` above):
+
+    * ``/api/v1/customers/*``   — PII, full-verb audit (A1 + R1 behaviour)
+    * ``/api/v1/invoices/*``    — financial data, GET-only audit (C6)
+    * ``/api/v1/valuations/*``  — financial data, GET-only audit (C6)
+    * ``/api/v1/scrap-gold/*``  — financial data, GET-only audit (C6)
+
+    CLAUDE.md:
+        "All financial data access MUST be audit-logged."
 
     Usage:
         app.add_middleware(AuditLoggingMiddleware)
     """
 
-    def __init__(self, app: ASGIApp):
-        super().__init__(app)
-        self.customer_endpoints = [
-            "/api/v1/customers",
-            "/api/v1/customer",
-        ]
-
     async def dispatch(
         self, request: Request, call_next: Callable
     ) -> Response:
         """
-        Process each request and log customer data access.
+        Process each request and, when it targets an audited resource,
+        write a ``CustomerAuditLog`` row.
 
-        Args:
-            request: Incoming HTTP request
-            call_next: Next middleware/route handler
-
-        Returns:
-            HTTP response
+        The audit write is fire-and-forget relative to the user response:
+        the handler runs first, the response is shaped, THEN we attempt
+        the audit write inside a broad try/except.  A DB outage on the
+        audit path must never deny legitimate data access (security >
+        correctness > convenience in CLAUDE.md working-style hierarchy,
+        with "correctness of the response" outranking "completeness of
+        the audit trail" — the failure is logged loudly for out-of-band
+        alerting).
         """
-        # Check if this is a customer-related endpoint
-        if not self._is_customer_endpoint(request.url.path):
-            # Not a customer endpoint, skip audit logging
+        audit_context = self._extract_audit_context(request.url.path)
+        if audit_context is None:
+            # Not an audited endpoint — short-circuit before any measurement
+            # work.  Middleware is on the hot path; every allocation here
+            # costs per-request.
+            return await call_next(request)
+
+        entity_type, single_action, list_action, is_financial = audit_context
+        method = request.method
+
+        # C6: for financial resources we only audit GETs.  POST / PATCH /
+        # DELETE on invoices/valuations/scrap-gold are mutating actions
+        # that are audit-logged at the service layer (F-05 in
+        # docs/review/2026-04-23/FIX-PLAN.md describes this split
+        # explicitly).  Auditing them here would double-count and blur
+        # dashboards that filter on ``action="financial_read"``.
+        if is_financial and method != "GET":
             return await call_next(request)
 
         # Extract request metadata
         start_time = time.time()
         client_ip = self._get_client_ip(request)
         user_agent = request.headers.get("user-agent", "")
-        method = request.method
 
         # Extract authenticated user_id from request.state (set by
         # AuthRequiredMiddleware).  We deliberately do NOT read a full
@@ -122,19 +191,21 @@ class AuditLoggingMiddleware(BaseHTTPMiddleware):
         # state.
         user_id = getattr(request.state, "user_id", None)
 
-        # Extract customer ID from URL if present
-        customer_id = self._extract_customer_id(request.url.path)
+        # Resolve the entity id from the URL (parts[3] if numeric).
+        entity_id = self._extract_entity_id(request.url.path)
 
-        # Determine action type based on HTTP method.  Bulk list/search
-        # endpoints (no {id} in path) use a distinct "list_accessed" action
-        # so GDPR Art. 30 reviewers can distinguish per-record reads from
-        # bulk PII exposure, which carries a higher risk classification.
-        # POST /api/v1/customers (create) has no customer_id at middleware
-        # time (DB assigns it in the handler) — we still audit it as
-        # "created"; a later enhancement can inspect the response body to
-        # backfill entity_id.
-        if method == "GET" and customer_id is None:
-            action = "list_accessed"
+        # Determine action:
+        #
+        # * GET with a numeric id   -> single_action  (accessed / financial_read)
+        # * GET without a numeric id -> list_action   (list_accessed / list_accessed_financial)
+        # * non-GET on /customers    -> verb-based (created / updated / deleted)
+        # * non-GET on financial     -> filtered out above
+        #
+        # R1 context: bulk list reads MUST be audited (they expose more
+        # records than single reads); the distinct list_action makes the
+        # row easy to pick out in Art. 30 reporting.
+        if method == "GET":
+            action = single_action if entity_id is not None else list_action
         else:
             action = self._method_to_action(method)
 
@@ -152,7 +223,9 @@ class AuditLoggingMiddleware(BaseHTTPMiddleware):
         # tagged so Loki/ELK rules can alert on audit failures separately.
         try:
             await self._log_to_database(
-                customer_id=customer_id,
+                customer_id=entity_id if entity_type == "customer" else None,
+                entity_type=entity_type,
+                entity_id=entity_id,
                 action=action,
                 method=method,
                 endpoint=request.url.path,
@@ -174,7 +247,7 @@ class AuditLoggingMiddleware(BaseHTTPMiddleware):
 
         # Log to application log for monitoring — user_email omitted (PII).
         logger.info(
-            f"Customer data access: {method} {request.url.path} | "
+            f"{entity_type} data access: {method} {request.url.path} | "
             f"User ID: {user_id or 'anonymous'} | "
             f"IP: {client_ip} | "
             f"Status: {response.status_code} | "
@@ -183,47 +256,73 @@ class AuditLoggingMiddleware(BaseHTTPMiddleware):
 
         return response
 
-    def _is_customer_endpoint(self, path: str) -> bool:
+    @staticmethod
+    def _extract_audit_context(
+        path: str,
+    ) -> Optional[Tuple[str, str, str, bool]]:
         """
-        Check if the path is a customer-related endpoint.
+        Determine whether *path* targets an audited resource and, if so,
+        return the resource's ``(entity_type, single_action, list_action,
+        is_financial)`` tuple.  Returns ``None`` for unaudited paths — the
+        dispatcher uses that as the fast-path short-circuit.
 
-        Args:
-            path: Request URL path
+        The parser splits the path on ``/`` and inspects the segment
+        immediately after ``api/v1``.  Trailing / leading slashes and
+        empty segments are tolerated.  This is deliberately a pure string
+        operation — no regex — so that path-parsing remains trivially
+        reviewable and has predictable cost.
 
-        Returns:
-            True if customer endpoint, False otherwise
+        Examples::
+
+            /api/v1/customers/123        -> ("customer",   "accessed", "list_accessed", False)
+            /api/v1/customers            -> ("customer",   "accessed", "list_accessed", False)
+            /api/v1/invoices/42/pdf      -> ("invoice",    "financial_read", "list_accessed_financial", True)
+            /api/v1/scrap-gold/7         -> ("scrap_gold", "financial_read", "list_accessed_financial", True)
+            /api/v1/scrap-gold/alloy-x   -> ("scrap_gold", "financial_read", "list_accessed_financial", True)
+            /api/v1/orders/1             -> None
+            /docs                        -> None
         """
-        return any(path.startswith(endpoint) for endpoint in self.customer_endpoints)
+        parts = [p for p in path.split("/") if p]
+        if len(parts) < 3 or parts[0] != "api" or parts[1] != "v1":
+            return None
+        return _RESOURCE_ROUTES.get(parts[2])
 
-    def _extract_customer_id(self, path: str) -> Optional[int]:
+    @staticmethod
+    def _extract_entity_id(path: str) -> Optional[int]:
         """
-        Extract customer ID from URL path.
+        Extract the numeric entity id from the path segment immediately
+        after the resource name (``/api/v1/<resource>/<id>[/...]``).
 
-        Args:
-            path: Request URL path
+        Returns ``None`` when:
 
-        Returns:
-            Customer ID if found, None otherwise
+        * the path has no fourth segment (``/api/v1/invoices``)
+        * the fourth segment is not all digits (``/api/v1/customers/search``,
+          ``/api/v1/scrap-gold/alloy-calculator``)
 
-        Examples:
-            /api/v1/customers/123 -> 123
-            /api/v1/customers/123/consent -> 123
-            /api/v1/customers -> None
+        This preserves the original A1 semantics for ``/customers/search``
+        — a non-numeric sub-resource is treated as a list-style access.
         """
-        parts = path.split("/")
-
-        # Find "customers" segment and get the next part
-        try:
-            customers_index = parts.index("customers")
-            if customers_index + 1 < len(parts):
-                customer_id_str = parts[customers_index + 1]
-                # Check if it's a number (not a sub-resource like "search", "statistics")
-                if customer_id_str.isdigit():
-                    return int(customer_id_str)
-        except (ValueError, IndexError):
-            pass
-
+        parts = [p for p in path.split("/") if p]
+        if len(parts) >= 4 and parts[3].isdigit():
+            return int(parts[3])
         return None
+
+    # ------------------------------------------------------------------
+    # Back-compat shim: external callers (tests, A1/R1 code paths) may
+    # still import _extract_customer_id.  Delegate to the generalized
+    # helper so behaviour for /customers/* is byte-for-byte identical.
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _extract_customer_id(path: str) -> Optional[int]:
+        """
+        Deprecated alias retained for backward compatibility.  New code
+        should use ``_extract_entity_id`` together with
+        ``_extract_audit_context`` — they carry the resource type too.
+        """
+        context = AuditLoggingMiddleware._extract_audit_context(path)
+        if context is None or context[0] != "customer":
+            return None
+        return AuditLoggingMiddleware._extract_entity_id(path)
 
     def _get_client_ip(self, request: Request) -> str:
         """
@@ -269,6 +368,8 @@ class AuditLoggingMiddleware(BaseHTTPMiddleware):
         user_agent: str,
         status_code: int,
         duration_ms: float,
+        entity_type: str = "customer",
+        entity_id: Optional[int] = None,
     ):
         """
         Persist a CustomerAuditLog row for this request.
@@ -291,6 +392,15 @@ class AuditLoggingMiddleware(BaseHTTPMiddleware):
         (DB-assigned id is not known at middleware time).  Previously this
         method returned early when ``customer_id`` was falsy, silently
         dropping those rows — a P1 GDPR Art. 30 gap for bulk PII access.
+
+        C6: the ``entity_type`` / ``entity_id`` kwargs generalize the
+        writer to cover invoices / valuations / scrap-gold in addition
+        to customers.  ``customer_id`` remains populated for the
+        ``entity_type == "customer"`` case only — the ``customer_audit_logs.
+        customer_id`` column has a foreign key to ``customers.id`` and
+        writing a non-customer integer there would violate referential
+        integrity.  The ``entity_id`` column is the generic pointer used
+        for non-customer entities.
         """
         if AsyncSessionLocal is None or CustomerAuditLog is None:
             # Import-time failure — audit is not available in this env.
@@ -301,13 +411,25 @@ class AuditLoggingMiddleware(BaseHTTPMiddleware):
             )
             return
 
+        # Financial reads cite a different legal basis than customer-PII
+        # reads: Art. 6(1)(c) "legal obligation" (German §147 AO requires
+        # retaining invoice records) rather than 6(1)(b) "contract".
+        # Dashboards filtering by legal_basis can slice financial traffic
+        # cleanly this way.
+        if entity_type == "customer":
+            legal_basis = "GDPR Article 6(1)(b) - Contract"
+            purpose = f"Customer data {action} via API"
+        else:
+            legal_basis = "GDPR Article 6(1)(c) - Legal obligation (§147 AO)"
+            purpose = f"{entity_type.replace('_', ' ').title()} {action} via API"
+
         details = {
             "endpoint": endpoint,
             "http_method": method,
             "status_code": status_code,
             "duration_ms": round(duration_ms, 2),
-            "legal_basis": "GDPR Article 6(1)(b) - Contract",
-            "purpose": f"Customer data {action} via API",
+            "legal_basis": legal_basis,
+            "purpose": purpose,
         }
 
         try:
@@ -315,8 +437,8 @@ class AuditLoggingMiddleware(BaseHTTPMiddleware):
                 audit_log = CustomerAuditLog(
                     customer_id=customer_id,
                     action=action,
-                    entity="customer",
-                    entity_id=customer_id,
+                    entity=entity_type,
+                    entity_id=entity_id,
                     user_id=user_id,
                     user_email=user_email,
                     user_role=user_role,
@@ -329,11 +451,15 @@ class AuditLoggingMiddleware(BaseHTTPMiddleware):
                 await session.commit()
         except Exception as exc:
             # Fail loudly in the log but never propagate — a DB outage on
-            # the audit path must not deny legitimate customer access.
+            # the audit path must not deny legitimate data access.
             logger.error(
                 "audit DB write failed: %s",
                 exc,
-                extra={"audit": True, "customer_id": customer_id},
+                extra={
+                    "audit": True,
+                    "entity": entity_type,
+                    "entity_id": entity_id,
+                },
                 exc_info=True,
             )
 
