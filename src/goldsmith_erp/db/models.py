@@ -18,6 +18,8 @@ from sqlalchemy.dialects.postgresql import JSON
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship
 
+from goldsmith_erp.db.types import EncryptedString
+
 
 def SAEnum(enum_class, **kwargs):
     """Wrapper that ensures Python enum .value (lowercase) is stored in PostgreSQL."""
@@ -212,25 +214,49 @@ class User(Base):
 
 
 class Customer(Base):
-    """Customer/Client Model for CRM"""
+    """Customer/Client Model for CRM.
+
+    PII fields (names, company, email, phone, address) are encrypted at
+    rest via ``EncryptedString`` — CLAUDE.md "Data Privacy Rules
+    (CRITICAL)". The raw DB columns hold Fernet ciphertext; the ORM
+    round-trips plaintext transparently. See ``db/types.py`` + fix item
+    **C1** for the design.
+
+    Because Fernet is non-deterministic, the ``email`` column cannot
+    carry a UNIQUE constraint or be searched by equality. The companion
+    ``email_hash`` column holds an HMAC-SHA-256 tag (see
+    ``core.encryption.hmac_blind_index``) — unique-indexed, searchable,
+    and the new ground truth for duplicate detection.
+
+    Previous plain ``String(...)`` columns had per-column length limits
+    (email ``String(255)``, street ``String(200)``, …). Those limits
+    enforced input hygiene. Because the ciphertext size now drives the
+    column type (TEXT), length validation moves up to the Pydantic
+    schemas in ``models/customer.py``.
+    """
 
     __tablename__ = "customers"
 
     id = Column(Integer, primary_key=True, index=True)
-    # Basic Info
-    first_name = Column(String(100), nullable=False, index=True)
-    last_name = Column(String(100), nullable=False, index=True)
-    company_name = Column(String(200), nullable=True, index=True)
+    # Basic Info — PII, encrypted at rest (C1).
+    first_name = Column(EncryptedString, nullable=False)
+    last_name = Column(EncryptedString, nullable=False)
+    company_name = Column(EncryptedString, nullable=True)
 
-    # Contact Info
-    email = Column(String(255), nullable=False, unique=True, index=True)
-    phone = Column(String(50), nullable=True)
-    mobile = Column(String(50), nullable=True)
+    # Contact Info — PII, encrypted at rest (C1).
+    # ``email`` is ciphertext (no unique / no index — Fernet is non-
+    # deterministic). ``email_hash`` is the HMAC-SHA-256 blind-index tag;
+    # it carries the uniqueness constraint and is the column we equality-
+    # search on. See ``core.encryption.hmac_blind_index``.
+    email = Column(EncryptedString, nullable=False)
+    email_hash = Column(String(64), nullable=False, unique=True, index=True)
+    phone = Column(EncryptedString, nullable=True)
+    mobile = Column(EncryptedString, nullable=True)
 
-    # Address
-    street = Column(String(200), nullable=True)
-    city = Column(String(100), nullable=True)
-    postal_code = Column(String(20), nullable=True)
+    # Address — PII, encrypted at rest (C1).
+    street = Column(EncryptedString, nullable=True)
+    city = Column(EncryptedString, nullable=True)
+    postal_code = Column(EncryptedString, nullable=True)
     country = Column(String(100), default="Deutschland")
 
     # CRM Fields
@@ -274,6 +300,46 @@ class Customer(Base):
         cascade="all, delete-orphan",
         order_by="CustomerMeasurement.measured_at.desc()",
     )
+
+
+# ── C1 — auto-populate email_hash on insert / update ──────────────────
+# The ``email_hash`` column carries the UNIQUE constraint for the customer
+# table (because the ``email`` column itself is non-deterministic
+# ciphertext — see ``db/types.py`` for the design). Application code in
+# ``services.customer_service`` already sets ``email_hash`` explicitly on
+# create / update, but tests (and any future direct-ORM-insert path)
+# frequently construct ``Customer(email=..., ...)`` without thinking
+# about the hash. The event hook below derives ``email_hash`` from the
+# current ``email`` whenever it's missing or stale, keeping the blind-
+# index in lock-step with the plaintext email without a second code
+# path for callers to remember.
+
+
+@event.listens_for(Customer, "before_insert")
+def _customer_before_insert(_mapper, _connection, target: "Customer") -> None:
+    """Ensure ``email_hash`` is populated on insert.
+
+    If the service layer already set ``email_hash``, we leave it alone.
+    If not (direct-ORM construction in tests / seed scripts), we derive
+    it from ``email`` so the INSERT doesn't fail the NOT NULL + UNIQUE
+    constraint.
+    """
+    if target.email and not target.email_hash:
+        # Import locally to avoid a cycle (encryption → config → logging → …).
+        from goldsmith_erp.core.encryption import hmac_blind_index  # noqa: PLC0415
+        target.email_hash = hmac_blind_index(target.email)
+
+
+@event.listens_for(Customer, "before_update")
+def _customer_before_update(_mapper, _connection, target: "Customer") -> None:
+    """Keep ``email_hash`` in lock-step with ``email`` on update.
+
+    If the email was changed but the hash wasn't recomputed, derive it
+    here. Cheap — one HMAC per update.
+    """
+    if target.email and not target.email_hash:
+        from goldsmith_erp.core.encryption import hmac_blind_index  # noqa: PLC0415
+        target.email_hash = hmac_blind_index(target.email)
 
 
 class CustomerMeasurement(Base):

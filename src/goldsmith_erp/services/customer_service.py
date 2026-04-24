@@ -36,7 +36,7 @@ from goldsmith_erp.db.models import (
     ValuationCertificate,
 )
 from goldsmith_erp.models.customer import CustomerCreate, CustomerUpdate
-from goldsmith_erp.core.encryption import EncryptionError
+from goldsmith_erp.core.encryption import EncryptionError, hmac_blind_index
 from goldsmith_erp.db.transaction import transactional
 
 logger = logging.getLogger(__name__)
@@ -265,7 +265,29 @@ SCRUBBABLE_FIELDS: List[ScrubTarget] = [
 # ── PII encryption helpers ────────────────────────────────────────────────────
 # These fields contain GDPR-sensitive personal data and must be encrypted at
 # rest when ENCRYPTION_KEY is configured in settings.
-PII_FIELDS = ["phone", "mobile", "street", "city", "postal_code"]
+#
+# As of fix item **C1** (2026-04-24), encryption is performed at the ORM
+# layer by the :class:`~goldsmith_erp.db.types.EncryptedString` TypeDecorator
+# — service-layer callers no longer need to invoke ``_encrypt_pii`` /
+# ``_decrypt_pii`` before writing / after reading. The helpers below remain
+# as library functions for programmatic PII collection (e.g. the GDPR
+# scrubber's ``_collect_pii_tokens``) and as a fail-loud contract probe
+# (see ``tests/unit/test_encryption_fail_loud.py`` from fix item C4). The
+# full field set — names, company, email, phone, and address parts — is now
+# expressed here even though the helpers are no longer on the hot path, so
+# any consumer that does reach for them gets a complete view of what PII
+# the Customer row carries.
+PII_FIELDS = [
+    "first_name",
+    "last_name",
+    "company_name",
+    "email",
+    "phone",
+    "mobile",
+    "street",
+    "city",
+    "postal_code",
+]
 
 
 def _get_encryption():
@@ -362,69 +384,115 @@ class CustomerService:
         Get customers with optional filtering and pagination.
 
         Uses eager loading to prevent N+1 queries.
+
+        Search behaviour (C1, 2026-04-24)
+        ---------------------------------
+        Customer name / company / email are encrypted at rest (Fernet via
+        ``EncryptedString``) so SQL ``ILIKE`` cannot substring-match the
+        ciphertext. When a ``search`` argument is provided we:
+
+          * If it looks like a full email, try the ``email_hash``
+            blind-index for an exact match (O(1), index-backed).
+          * Otherwise (name / company fragment, or a partial email),
+            load the filtered candidate set and apply the fuzzy match in
+            Python on the ORM-decrypted fields. This is O(N) over the
+            active customer set — acceptable for the MVP dataset size,
+            documented as a known performance ceiling for the first
+            workshop tenants (typically <10k customers per tenant).
+
+        If full-text search over encrypted names becomes a hot path,
+        add a secondary HMAC-indexed column per searchable prefix (e.g.
+        ``last_name_hash``) and switch the fast path to equality-lookup.
         """
-        query = select(CustomerModel).options(
-            selectinload(CustomerModel.orders)
-        )
-
-        # Apply filters
-        filters = []
-
-        if search:
-            # Search in name, company, email
-            search_term = f"%{search}%"
-            filters.append(
-                or_(
-                    CustomerModel.first_name.ilike(search_term),
-                    CustomerModel.last_name.ilike(search_term),
-                    CustomerModel.company_name.ilike(search_term),
-                    CustomerModel.email.ilike(search_term),
-                )
-            )
-
+        # Structural filters (type / active / tag) translate directly to SQL.
+        structural_filters = []
         if customer_type:
-            filters.append(CustomerModel.customer_type == customer_type)
-
+            structural_filters.append(CustomerModel.customer_type == customer_type)
         if is_active is not None:
-            filters.append(CustomerModel.is_active == is_active)
-
+            structural_filters.append(CustomerModel.is_active == is_active)
         if tag:
             # JSON array contains tag
-            filters.append(CustomerModel.tags.contains([tag]))
+            structural_filters.append(CustomerModel.tags.contains([tag]))
 
-        if filters:
-            query = query.filter(and_(*filters))
+        # Fast path: if ``search`` is a full email, equality-lookup via
+        # the blind-index. Avoids loading the whole candidate set.
+        if search and "@" in search and " " not in search.strip():
+            query = (
+                select(CustomerModel)
+                .options(selectinload(CustomerModel.orders))
+                .filter(
+                    and_(
+                        CustomerModel.email_hash == hmac_blind_index(search),
+                        *structural_filters,
+                    )
+                )
+                .order_by(desc(CustomerModel.created_at))
+                .offset(skip)
+                .limit(limit)
+            )
+            result = await db.execute(query)
+            return list(result.scalars().all())
 
-        # Order by created_at desc (newest first)
-        query = query.order_by(desc(CustomerModel.created_at))
+        # General path: load candidates matching the structural filters,
+        # then do Python-level substring filtering on decrypted fields.
+        query = (
+            select(CustomerModel)
+            .options(selectinload(CustomerModel.orders))
+            .order_by(desc(CustomerModel.created_at))
+        )
+        if structural_filters:
+            query = query.filter(and_(*structural_filters))
 
-        # Apply pagination
-        query = query.offset(skip).limit(limit)
+        if not search:
+            # No search term — standard pagination applies directly.
+            query = query.offset(skip).limit(limit)
+            result = await db.execute(query)
+            return list(result.scalars().all())
 
+        # Substring search on decrypted fields — pagination applied AFTER
+        # filtering so ``skip`` / ``limit`` stay semantically correct.
         result = await db.execute(query)
-        customers = list(result.scalars().all())
-        for customer in customers:
-            _decrypt_pii(customer)
-        return customers
+        all_candidates = list(result.scalars().all())
+        needle = search.lower()
+        matched = [
+            c
+            for c in all_candidates
+            if (
+                (c.first_name and needle in c.first_name.lower())
+                or (c.last_name and needle in c.last_name.lower())
+                or (c.company_name and needle in c.company_name.lower())
+                or (c.email and needle in c.email.lower())
+            )
+        ]
+        return matched[skip : skip + limit]
 
     @staticmethod
     async def get_customer(db: AsyncSession, customer_id: int) -> Optional[CustomerModel]:
-        """Get customer by ID with eager loading of relationships"""
+        """Get customer by ID with eager loading of relationships.
+
+        PII fields decrypt transparently on ORM read (``EncryptedString``);
+        no explicit decrypt step needed here.
+        """
         result = await db.execute(
             select(CustomerModel)
             .options(selectinload(CustomerModel.orders))
             .filter(CustomerModel.id == customer_id)
         )
-        customer = result.scalar_one_or_none()
-        if customer:
-            _decrypt_pii(customer)
-        return customer
+        return result.scalar_one_or_none()
 
     @staticmethod
     async def get_customer_by_email(db: AsyncSession, email: str) -> Optional[CustomerModel]:
-        """Get customer by email address"""
+        """Get customer by email address.
+
+        Uses the ``email_hash`` blind-index (HMAC-SHA-256 of the normalised
+        email) because the ``email`` column itself holds non-deterministic
+        Fernet ciphertext and cannot be equality-compared. Normalisation
+        (``.lower().strip()``) is handled by ``hmac_blind_index``.
+        """
         result = await db.execute(
-            select(CustomerModel).filter(CustomerModel.email == email)
+            select(CustomerModel).filter(
+                CustomerModel.email_hash == hmac_blind_index(email)
+            )
         )
         return result.scalar_one_or_none()
 
@@ -433,24 +501,27 @@ class CustomerService:
         """
         Create a new customer with transactional guarantees.
 
-        Validates that email is unique.
+        Validates that email is unique via the blind-index. PII encryption
+        happens transparently at the ORM layer (``EncryptedString`` on every
+        PII column); ``email_hash`` is populated here because it has no
+        separate encryption layer and must be derived from plaintext.
         """
         async with transactional(db):
-            # Check if email already exists
+            # Check if email already exists (via blind-index)
             existing = await CustomerService.get_customer_by_email(db, customer_in.email)
             if existing:
                 raise ValueError("Ein Kunde mit dieser E-Mail-Adresse existiert bereits")
 
-            # Encrypt PII before persisting to DB
-            customer_data = _encrypt_pii(customer_in.model_dump())
+            customer_data = customer_in.model_dump()
+            # Derive blind-index tag from the plaintext email so equality
+            # lookups keep working against the encrypted column.
+            customer_data["email_hash"] = hmac_blind_index(customer_in.email)
             db_customer = CustomerModel(**customer_data)
 
             db.add(db_customer)
             await db.flush()
             await db.refresh(db_customer)
 
-        # Decrypt for the response payload — never log PII in plaintext
-        _decrypt_pii(db_customer)
         logger.info(
             "Customer created",
             extra={
@@ -471,7 +542,10 @@ class CustomerService:
         """
         Update customer with transactional guarantees.
 
-        Only updates fields that are provided (not None).
+        Only updates fields that are provided (not None). When ``email``
+        is updated, the companion ``email_hash`` blind-index is
+        recomputed so the uniqueness constraint stays consistent with the
+        (ciphertext) ``email`` value.
         """
         async with transactional(db):
             # Get existing customer
@@ -487,11 +561,11 @@ class CustomerService:
                 existing = await CustomerService.get_customer_by_email(db, update_data['email'])
                 if existing:
                     raise ValueError("Ein Kunde mit dieser E-Mail-Adresse existiert bereits")
+                # Keep the blind-index in lock-step with the new email.
+                update_data['email_hash'] = hmac_blind_index(update_data['email'])
 
-            # Encrypt PII fields before writing to DB
-            update_data = _encrypt_pii(update_data)
-
-            # Apply updates
+            # Apply updates — ORM-level EncryptedString re-encrypts PII
+            # columns on flush, so no service-layer encrypt step needed.
             for field, value in update_data.items():
                 setattr(db_customer, field, value)
 
@@ -499,8 +573,6 @@ class CustomerService:
             await db.flush()
             await db.refresh(db_customer)
 
-        # Decrypt for the response payload
-        _decrypt_pii(db_customer)
         logger.info(
             "Customer updated",
             extra={
@@ -580,37 +652,55 @@ class CustomerService:
         """
         Fast customer search for autocomplete.
 
-        Searches by name, company, email.
+        Searches by name, company, and email over the encrypted Customer
+        columns. Strategy (C1, 2026-04-24):
 
-        NOTE — encrypted field limitation: phone, mobile, street, city and
-        postal_code are stored as Fernet ciphertext when ENCRYPTION_KEY is set.
-        ILIKE cannot match encrypted values, so those fields are intentionally
-        excluded from the WHERE clause here.  If full-address search becomes a
-        requirement, implement a separate deterministic-hash index column for
-        each encrypted field (HMAC-SHA256 of the normalised plaintext) and
-        filter on the hash instead.
+          * A full email ⇒ blind-index equality lookup on ``email_hash``
+            (O(1), index-backed). This is the common autocomplete path
+            when users paste an email into the search box.
+          * Otherwise ⇒ fetch the active customer set and filter in
+            Python after ORM decryption. O(N) over active customers;
+            acceptable at MVP scale (<10k customers per tenant). If /
+            when N grows, add per-field blind-indexes (last_name_hash,
+            etc.) and switch the fast path to equality-lookup on them.
+
+        Encrypted fields not searched here — phone, mobile, address parts —
+        remain unsearchable until someone explicitly requires it and adds
+        a blind-index column.
         """
-        search_term = f"%{query}%"
-        result = await db.execute(
-            select(CustomerModel)
-            .filter(
-                and_(
-                    CustomerModel.is_active == True,
-                    or_(
-                        CustomerModel.first_name.ilike(search_term),
-                        CustomerModel.last_name.ilike(search_term),
-                        CustomerModel.company_name.ilike(search_term),
-                        CustomerModel.email.ilike(search_term),
+        # Fast path: full email (contains '@' and no whitespace).
+        if "@" in query and " " not in query.strip():
+            result = await db.execute(
+                select(CustomerModel)
+                .filter(
+                    and_(
+                        CustomerModel.is_active == True,  # noqa: E712
+                        CustomerModel.email_hash == hmac_blind_index(query),
                     )
                 )
+                .limit(limit)
             )
+            return list(result.scalars().all())
+
+        # Slow path: load active candidates and filter on decrypted values.
+        result = await db.execute(
+            select(CustomerModel)
+            .filter(CustomerModel.is_active == True)  # noqa: E712
             .order_by(CustomerModel.last_name, CustomerModel.first_name)
-            .limit(limit)
         )
-        customers = list(result.scalars().all())
-        for customer in customers:
-            _decrypt_pii(customer)
-        return customers
+        candidates = list(result.scalars().all())
+        needle = query.lower()
+        matched = [
+            c
+            for c in candidates
+            if (
+                (c.first_name and needle in c.first_name.lower())
+                or (c.last_name and needle in c.last_name.lower())
+                or (c.company_name and needle in c.company_name.lower())
+                or (c.email and needle in c.email.lower())
+            )
+        ]
+        return matched[:limit]
 
     @staticmethod
     async def get_top_customers(

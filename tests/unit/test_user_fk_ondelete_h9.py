@@ -53,14 +53,20 @@ def _insert_user(conn, user_id: int, email: str) -> int:
 
 
 def _insert_customer(conn, cid: int, email: str) -> int:
+    # ``email_hash`` (NOT NULL + UNIQUE) was added by the C1 migration.
+    # Raw-SQL inserts bypass the ORM ``before_insert`` hook that
+    # usually auto-populates it — compute it explicitly here.
+    from goldsmith_erp.core.encryption import hmac_blind_index
+
     conn.execute(
         text(
             "INSERT INTO customers (id, first_name, last_name, email, "
-            "country, customer_type, tags, preferences, is_active, "
-            "is_deleted, created_at) VALUES (:id, 'F', 'L', :email, "
-            "'Deutschland', 'private', '[]', '{}', 1, 0, CURRENT_TIMESTAMP)"
+            "email_hash, country, customer_type, tags, preferences, "
+            "is_active, is_deleted, created_at) VALUES (:id, 'F', 'L', "
+            ":email, :email_hash, 'Deutschland', 'private', '[]', '{}', "
+            "1, 0, CURRENT_TIMESTAMP)"
         ),
-        {"id": cid, "email": email},
+        {"id": cid, "email": email, "email_hash": hmac_blind_index(email)},
     )
     return cid
 

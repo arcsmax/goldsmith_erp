@@ -545,3 +545,102 @@ decisions, but worth recording):**
   that touches customer data.
 
 **Decided by:** C6 implementing agent, constrained by spec + parallel-safety rules.
+
+---
+
+## 2026-04-24 — C1 — EncryptedString TypeDecorator + HMAC blind-index
+
+**Question 1:** Where should PII encryption physically happen — at the service layer (the existing `_encrypt_pii` / `_decrypt_pii` helpers in `customer_service.py`), at the ORM layer (a new `EncryptedString` TypeDecorator), or both?
+
+**Options considered:**
+1. Service-layer only (keep the status quo, just expand `PII_FIELDS`).
+2. ORM-layer only (new `EncryptedString`, delete the service helpers).
+3. Both layers (service as a "fail loud" probe, ORM as the actual encryptor).
+
+**Decision:** Option 3 — ORM-layer `EncryptedString` is the authoritative encryption path; the service-layer helpers remain as library functions (for `_collect_pii_tokens` in the GDPR scrubber + as the fail-loud contract locked in by C4's `test_encryption_fail_loud.py`) but are **no longer called from any CRUD path**. `create_customer` / `update_customer` / `search_customers` / `get_customer*` now rely on transparent ORM decrypt on read and transparent ORM encrypt on write. Service-layer `_encrypt_pii(data)` + `_decrypt_pii(customer)` become dead on the hot path.
+
+**Rationale:** Service-layer encryption is brittle — any new call site that forgets to call the helper writes plaintext into the DB and CLAUDE.md is silently violated. ORM-layer encryption is enforced every time the column is written, including from tests, seed scripts, the GDPR scrubber, and any future bulk-import code. Deleting the helpers entirely would break C4's fail-loud tests, so they stay put as library utilities; the CRUD paths just stop calling them.
+
+**Decided by:** C1 implementing agent, per spec's "Open questions" section.
+
+---
+
+## 2026-04-24 — C1 — birthday column NOT encrypted
+
+**Question:** The spec's `PII_FIELDS` list includes `birthday` (a `DateTime` column). Fernet takes bytes, not `datetime` — encrypting a date means a str-encode + encrypt + decode dance on every read/write. Do we include `birthday` in C1?
+
+**Options considered:**
+1. Encrypt `birthday` via ISO-format string round-trip in a second `EncryptedDate` TypeDecorator.
+2. Keep `birthday` plaintext for now, log as a follow-up.
+
+**Decision:** Option 2. `birthday` remains `Column(DateTime, nullable=True)`. Follow-up **C1.1** filed: add an `EncryptedDate` TypeDecorator (or a generic `EncryptedJSON` pattern) + encrypt birthday + any other non-string PII in a future pass.
+
+**Rationale:** The spec explicitly scopes C1 to "Strings only — do NOT encrypt birthday (Date column) — it needs different handling, log as follow-up C1.1". Matching the spec; avoids scope creep.
+
+**Decided by:** spec author; re-confirmed by C1 implementing agent.
+
+---
+
+## 2026-04-24 — C1 — Email-searchable via HMAC blind-index; other PII is not searchable
+
+**Question:** Fernet is non-deterministic, so `customers.email.ilike(...)` can't work. How do we preserve the two code paths that search on email (`get_customer_by_email`, `search_customers`) and how do we handle the existing ILIKE searches on `first_name` / `last_name` / `company_name`, which are now also encrypted?
+
+**Options considered:**
+1. Add a blind-index column per searchable field (email_hash, first_name_hash, last_name_hash, company_name_hash, …). Fast (index-backed) but four more columns.
+2. Add blind-index for email only; drop name/company search.
+3. Add blind-index for email only; keep name/company search as an in-Python filter over decrypted ORM values.
+
+**Decision:** Option 3. `customers.email_hash` (UNIQUE, indexed) is added. Name / company search becomes a post-decryption Python filter in `search_customers` and `get_customers`. Full-email queries go through the blind-index fast path; name / substring queries iterate the active customer set after ORM decrypt.
+
+**Rationale:** The spec explicitly says "HMAC-SHA256 blind-index column for the ONE searchable field (`email`)". Names aren't currently indexed on (they're Column(String, index=True) which is unused by the ILIKE search); a Python filter at MVP dataset scale (<10k customers / tenant) is negligibly slower than an index scan. Cheaper to escalate later (add `last_name_hash` in a C1.2 follow-up) than to over-engineer now.
+
+**Decided by:** C1 implementing agent, per spec.
+
+---
+
+## 2026-04-24 — C1 — Blind-index key derivation
+
+**Question:** Where does the HMAC key come from?
+
+**Options considered:**
+1. Dedicated `BLIND_INDEX_KEY` environment variable (separation of concerns — a leaked blind-index key doesn't reveal Fernet ciphertext or vice versa, but requires a second key to manage).
+2. Derive from `ENCRYPTION_KEY` via SHA-256 + domain-separation tag (one key to manage; HMAC output is still distinct from the Fernet output so neither reveals the other).
+
+**Decision:** Option 2. `_derive_blind_index_key()` in `core/encryption.py` computes `SHA256(ENCRYPTION_KEY + b"goldsmith-blind-index-v1")`. Documented in-code that the tag is fixed — changing it rebuilds every `email_hash` and requires a rebuild migration.
+
+**Rationale:** MVP operational simplicity. One key to store, one key to rotate. The domain-separation tag gives the HMAC output a distinct key even though it's derived from the encryption key. If a future compliance audit requires fully independent keys, the swap is one function body (no call-site changes).
+
+**Decided by:** C1 implementing agent, per spec's "Open questions" section.
+
+---
+
+## 2026-04-24 — C1 — Auto-populate email_hash via SQLAlchemy event
+
+**Question:** The spec says the service layer (`create_customer` / `update_customer`) sets `email_hash`. But many call sites — tests (`sample_customer` fixture), seed data, direct-ORM constructions in integration tests, and the GDPR erasure suite — build `Customer(...)` objects with just `email=` set. They'd all fail the NOT NULL constraint on `email_hash`.
+
+**Options considered:**
+1. Update every call site to also pass `email_hash=hmac_blind_index(email)`.
+2. Add `@event.listens_for(Customer, "before_insert")` in `db/models.py` that auto-derives `email_hash` when the caller didn't provide one.
+
+**Decision:** Option 2. Defensive + symmetric with the `EncryptedString` TypeDecorator's "ORM layer does the heavy lifting" posture. The event hook only runs when `email_hash` is missing, so it never overwrites an explicitly-provided value.
+
+**Rationale:** Option 1 requires touching ~20 test fixtures and seed files (outside this item's "Files" scope). The event hook is a single 15-line addition in `db/models.py` that makes the invariant "email_hash is always in lock-step with email" true by construction. CLAUDE.md's decision-making hierarchy of correctness > convenience is honoured — the hook keeps the DB in a correct state whether callers know about the hash or not.
+
+**Decided by:** C1 implementing agent; a second option (update every fixture) was rejected because it would have exceeded the item's file scope.
+
+---
+
+## 2026-04-24 — C1 — Python-level backfill inside the migration (dev-only safe)
+
+**Question:** The migration needs to re-encrypt every existing row's PII columns and compute `email_hash` for every existing row. Production practice would do this via a separate data-migration script with online table rewrites; dev practice is to just loop in Python inside the Alembic migration.
+
+**Options considered:**
+1. Online-safe: add columns, backfill via a background job, add constraints only after backfill completes.
+2. Offline: Python loop inside the Alembic migration that reads every row, transforms in Python, writes back.
+
+**Decision:** Option 2. The migration loops every row in `customers`, computes the new encrypted values + `email_hash` in Python, writes them back in an UPDATE. Also detects duplicate emails and fails loudly if any are found (since the new UNIQUE constraint on `email_hash` would reject them anyway).
+
+**Rationale:** Per the (2026-04-24) decision logged at the top of the C1 spec: "system is pre-production / dev-only — no live customer data". The simpler in-migration loop is adequate.
+
+**Decided by:** spec author; re-confirmed by C1 implementing agent.
+
