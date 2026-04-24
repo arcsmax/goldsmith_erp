@@ -1,0 +1,14 @@
+[Unit]
+Description=Goldsmith ERP (Podman Compose)
+After=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=@PWD@
+ExecStart=/usr/bin/podman-compose -f @PWD@/podman-compose.prod.yml up -d
+ExecStop=/usr/bin/podman-compose -f @PWD@/podman-compose.prod.yml down
+TimeoutStartSec=120
+
+[Install]
+WantedBy=default.target

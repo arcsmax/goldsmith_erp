@@ -280,26 +280,11 @@ restore: ## Restore database from backup (usage: make restore FILE=path/to/backu
 install-service: ## Install Goldsmith ERP as a systemd user service (auto-start on boot)
 	@echo "$(GREEN)Systemd-Dienst installieren…$(NC)"
 	@mkdir -p ~/.config/systemd/user
-	@podman generate systemd --name goldsmith-backend-prod --files --new \
-		2>/dev/null || \
-	(echo "Fallback: Einfache Unit-Datei wird erstellt…"; \
-	cat > ~/.config/systemd/user/goldsmith-erp.service <<'EOF'
-[Unit]
-Description=Goldsmith ERP (Podman Compose)
-After=network-online.target
-
-[Service]
-Type=oneshot
-RemainAfterExit=yes
-WorkingDirectory=$(PWD)
-ExecStart=/usr/bin/podman-compose -f $(PWD)/podman-compose.prod.yml up -d
-ExecStop=/usr/bin/podman-compose -f $(PWD)/podman-compose.prod.yml down
-TimeoutStartSec=120
-
-[Install]
-WantedBy=default.target
-EOF
-)
+	@if ! podman generate systemd --name goldsmith-backend-prod --files --new 2>/dev/null; then \
+		echo "Fallback: Einfache Unit-Datei wird aus Template erstellt…"; \
+		sed 's|@PWD@|$(PWD)|g' scripts/goldsmith-erp.service.template \
+			> ~/.config/systemd/user/goldsmith-erp.service; \
+	fi
 	@systemctl --user daemon-reload
 	@systemctl --user enable goldsmith-erp.service
 	@echo "$(GREEN)✓ Systemd-Dienst installiert und aktiviert$(NC)"
