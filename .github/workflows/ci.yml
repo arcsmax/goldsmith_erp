@@ -167,6 +167,66 @@ jobs:
         working-directory: ./src
         run: poetry run pytest ../tests/integration/ -v --tb=short --maxfail=5
 
+  # F2 — alembic round-trip smoke (upgrade → downgrade → upgrade).
+  # CI previously only verified forward migrations. Broken `downgrade()`
+  # or FK-drop-order bugs only surfaced post-merge (see commit 263fd45
+  # "3 real bugs caught by smoke-test against fresh PG" and F2a / H9).
+  # This job fails the PR if any migration is non-reversible on a fresh
+  # PG 15. alembic/env.py honors MIGRATION_DATABASE_URL (sync driver —
+  # alembic runs synchronously, so we use `postgresql://` here even
+  # though the app itself uses `postgresql+asyncpg://`).
+  # Ref: docs/fix-plan/2026-04-23/F2-downgrade-smoke.md
+  migration-smoke:
+    needs: lint
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: user
+          POSTGRES_PASSWORD: pass
+          POSTGRES_DB: goldsmith_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      # Sync driver URL for alembic (env.py uses engine_from_config).
+      MIGRATION_DATABASE_URL: postgresql://user:pass@localhost:5432/goldsmith_test
+      # Async driver URL for app settings imported during migration env load.
+      DATABASE_URL: postgresql+asyncpg://user:pass@localhost:5432/goldsmith_test
+      REDIS_URL: redis://localhost:6379/0
+      SECRET_KEY: ci-test-secret-key-minimum-32-characters-long-enough
+      ENCRYPTION_KEY: dGVzdGtleTEyMzQ1Njc4OTBhYmNkZWZnaGlqa2w=
+      ANONYMIZATION_SALT: testsalt1234567890abcdef
+      DEBUG: "true"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install Poetry
+        run: pip install poetry
+      - name: Install dependencies
+        run: poetry install --no-root
+      - name: Alembic upgrade → downgrade → upgrade round-trip
+        run: |
+          poetry run alembic upgrade head
+          poetry run alembic downgrade base
+          poetry run alembic upgrade head
+
   test-frontend:
     needs: lint-frontend
     runs-on: ubuntu-latest
