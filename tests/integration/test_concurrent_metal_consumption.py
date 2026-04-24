@@ -46,7 +46,7 @@ from typing import Optional
 import pytest
 import pytest_asyncio
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from goldsmith_erp.db.models import (
     Customer,
@@ -57,6 +57,7 @@ from goldsmith_erp.db.models import (
 )
 from goldsmith_erp.models.metal_inventory import CostingMethod, MaterialUsageCreate
 from goldsmith_erp.services.metal_inventory_service import MetalInventoryService
+from tests.integration.conftest import test_engine as _test_engine
 
 
 # --------------------------------------------------------------------------- #
@@ -178,7 +179,10 @@ class TestConcurrentConsumption:
         Both must NOT succeed (that would drive stock to -1g).
         """
         # Ensure the test engine is actually PostgreSQL.
-        if not _engine_is_postgres(db_session.get_bind()):
+        # Note: we use the module-level AsyncEngine from conftest directly
+        # because AsyncSession.get_bind() returns the sync Engine proxy,
+        # which cannot be passed to async_sessionmaker.
+        if not _engine_is_postgres(_test_engine):
             pytest.skip("PostgreSQL required for this test")
 
         customer = await _make_customer(db_session)
@@ -191,11 +195,8 @@ class TestConcurrentConsumption:
         # Use SEPARATE sessions for the two tasks so their transactions
         # are genuinely independent. Sharing one session would serialise
         # at the session level, not at the DB-lock level.
-        engine = db_session.get_bind()
-        from sqlalchemy.ext.asyncio import async_sessionmaker
-
         session_factory = async_sessionmaker(
-            engine, expire_on_commit=False, class_=AsyncSession
+            _test_engine, expire_on_commit=False, class_=AsyncSession
         )
 
         async def _run(weight: float):
@@ -239,7 +240,7 @@ class TestConcurrentConsumption:
         Expected: both succeed (remaining=4g). This confirms the lock
         serialises without being overly pessimistic.
         """
-        if not _engine_is_postgres(db_session.get_bind()):
+        if not _engine_is_postgres(_test_engine):
             pytest.skip("PostgreSQL required for this test")
 
         customer = await _make_customer(db_session)
@@ -248,11 +249,8 @@ class TestConcurrentConsumption:
         purchase_id = purchase.id
         order_id = order.id
 
-        from sqlalchemy.ext.asyncio import async_sessionmaker
-
-        engine = db_session.get_bind()
         session_factory = async_sessionmaker(
-            engine, expire_on_commit=False, class_=AsyncSession
+            _test_engine, expire_on_commit=False, class_=AsyncSession
         )
 
         async def _run(weight: float):
@@ -280,7 +278,7 @@ class TestConcurrentConsumptionAuditInvariant:
     we fire."""
 
     async def test_stock_never_negative_under_burst(self, db_session):
-        if not _engine_is_postgres(db_session.get_bind()):
+        if not _engine_is_postgres(_test_engine):
             pytest.skip("PostgreSQL required for this test")
 
         customer = await _make_customer(db_session)
@@ -289,11 +287,8 @@ class TestConcurrentConsumptionAuditInvariant:
         purchase_id = purchase.id
         order_id = order.id
 
-        from sqlalchemy.ext.asyncio import async_sessionmaker
-
-        engine = db_session.get_bind()
         session_factory = async_sessionmaker(
-            engine, expire_on_commit=False, class_=AsyncSession
+            _test_engine, expire_on_commit=False, class_=AsyncSession
         )
 
         async def _run():
