@@ -940,6 +940,117 @@ async def seed_metal_purchases(session: AsyncSession, admin: User):
     print(f"✓ Metal purchases: {len(purchases)} new")
 
 
+async def seed_quotes(session: AsyncSession, admin: User):
+    """Kostenvoranschläge (quotes/estimates) — tests the quote workflow + C6 audit."""
+    print("Creating quotes...")
+    orders_q = await session.execute(select(Order).order_by(Order.id).limit(2))
+    orders = list(orders_q.scalars())
+    if not orders:
+        print("⚠ Skipping quotes (no orders)")
+        return
+
+    from datetime import datetime, timedelta
+    now = datetime.utcnow()
+    quotes_data = [
+        {"quote_number": "KV-2026-0001", "order_id": orders[0].id,
+         "customer_id": orders[0].customer_id, "created_by": admin.id,
+         "status": "sent", "valid_until": now + timedelta(days=14),
+         "subtotal": 1800.00, "tax_rate": 19.0, "tax_amount": 342.00, "total": 2142.00,
+         "notes": "Anfertigung Verlobungsring"},
+        {"quote_number": "KV-2026-0002", "order_id": None,
+         "customer_id": orders[1].customer_id, "created_by": admin.id,
+         "status": "approved", "valid_until": now + timedelta(days=30),
+         "approved_at": now - timedelta(days=2),
+         "subtotal": 450.00, "tax_rate": 19.0, "tax_amount": 85.50, "total": 535.50},
+    ]
+    new_count = 0
+    skipped = 0
+    for data in quotes_data:
+        existing = await session.execute(
+            select(Quote).where(Quote.quote_number == data["quote_number"])
+        )
+        if existing.scalar_one_or_none() is not None:
+            skipped += 1
+            continue
+        session.add(Quote(**_filter_model_fields(Quote, data)))
+        new_count += 1
+    if new_count:
+        await session.commit()
+    print(f"✓ Quotes: {new_count} new / {skipped} already existed")
+
+
+async def seed_repair_jobs(session: AsyncSession, admin: User):
+    """Reparaturaufträge — repair tickets for existing pieces."""
+    print("Creating repair jobs...")
+    customers_q = await session.execute(select(Customer).order_by(Customer.id).limit(2))
+    customers = list(customers_q.scalars())
+    if not customers:
+        print("⚠ Skipping repair jobs (no customers)")
+        return
+
+    from datetime import datetime, timedelta
+    now = datetime.utcnow()
+    repairs = [
+        {"repair_number": "REP-2026-0001", "bag_number": "B-001",
+         "customer_id": customers[0].id, "received_by": admin.id,
+         "item_description": "Goldring 585, verbogen — Ringschiene muss gerichtet werden",
+         "item_type": "ring", "metal_type": "585 Gelbgold",
+         "estimated_value": 380.00},
+        {"repair_number": "REP-2026-0002", "bag_number": "B-002",
+         "customer_id": customers[1].id, "received_by": admin.id,
+         "item_description": "Halskette gebrochen — Verschluss ersetzen, Glied löten",
+         "item_type": "chain", "metal_type": "Silber 925",
+         "estimated_value": 120.00},
+    ]
+    new_count = 0
+    skipped = 0
+    for data in repairs:
+        existing = await session.execute(
+            select(RepairJob).where(RepairJob.repair_number == data["repair_number"])
+        )
+        if existing.scalar_one_or_none() is not None:
+            skipped += 1
+            continue
+        session.add(RepairJob(**_filter_model_fields(RepairJob, data)))
+        new_count += 1
+    if new_count:
+        await session.commit()
+    print(f"✓ Repair jobs: {new_count} new / {skipped} already existed")
+
+
+async def seed_scrap_gold(session: AsyncSession, admin: User):
+    """Altgold intake — tests the financial audit (scrap gold = financial data per CLAUDE.md)."""
+    print("Creating scrap gold intakes...")
+    orders_q = await session.execute(select(Order).order_by(Order.id).limit(2))
+    orders = list(orders_q.scalars())
+    if not orders:
+        print("⚠ Skipping scrap gold (no orders)")
+        return
+
+    # Idempotency — skip if any already exists
+    existing = await session.execute(select(ScrapGold).limit(1))
+    if existing.scalar_one_or_none() is not None:
+        print("✓ Scrap gold: already seeded — skipping")
+        return
+
+    intakes = [
+        {"order_id": orders[0].id, "customer_id": orders[0].customer_id,
+         "created_by": admin.id, "status": "received",
+         "total_fine_gold_g": 12.5, "total_value_eur": 725.00,
+         "gold_price_per_g": 58.00, "price_source": "fixed_rate",
+         "notes": "Alter Ehering und zwei Ohrstecker"},
+        {"order_id": orders[1].id, "customer_id": orders[1].customer_id,
+         "created_by": admin.id, "status": "calculated",
+         "total_fine_gold_g": 8.2, "total_value_eur": 475.60,
+         "gold_price_per_g": 58.00, "price_source": "fixed_rate",
+         "notes": "Kette mit beschädigtem Verschluss"},
+    ]
+    for data in intakes:
+        session.add(ScrapGold(**_filter_model_fields(ScrapGold, data)))
+    await session.commit()
+    print(f"✓ Scrap gold: {len(intakes)} new")
+
+
 async def seed_extended(session: AsyncSession, admin: User):
     """Run all extended seeders in dependency order (activities before time entries, etc.)."""
     await seed_activities(session, admin)
@@ -947,6 +1058,9 @@ async def seed_extended(session: AsyncSession, admin: User):
     await seed_time_entries(session, admin)
     await seed_valuations(session, admin)
     await seed_invoices(session, admin)
+    await seed_quotes(session, admin)
+    await seed_repair_jobs(session, admin)
+    await seed_scrap_gold(session, admin)
 
 
 async def main():
