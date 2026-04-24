@@ -274,7 +274,7 @@ class TestAuthenticationLogin:
         )
         assert access_token_cookie is not None, "access_token cookie not set"
         assert "httponly" in access_token_cookie.lower(), "Cookie missing HttpOnly flag"
-        assert "samesite=lax" in access_token_cookie.lower(), "Cookie missing SameSite=Lax"
+        assert "samesite=strict" in access_token_cookie.lower(), "Cookie missing SameSite=Strict"
 
     async def test_login_with_invalid_email(self, client):
         """Test login with non-existent email returns 401"""

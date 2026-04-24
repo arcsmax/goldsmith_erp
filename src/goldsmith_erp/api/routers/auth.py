@@ -69,7 +69,14 @@ async def login_access_token(
         value=token,
         httponly=True,              # Prevents JavaScript access (XSS protection)
         secure=settings.COOKIE_SECURE,  # Controlled via COOKIE_SECURE env var
-        samesite="lax",             # CSRF protection
+        samesite="strict",          # Strict same-site — browser will not send the
+                                    # cookie on cross-site requests at all. This
+                                    # is meaningful (though partial) CSRF
+                                    # mitigation; full double-submit CSRF is
+                                    # tracked as A7.1–A7.3. Safe because the app
+                                    # has no email-link "land logged in" flows
+                                    # that Strict would break (self-registration
+                                    # was removed in A3).
         max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,  # seconds
         path="/",        # Cookie valid for all paths
     )
@@ -172,7 +179,7 @@ async def refresh_access_token(
         value=new_token,
         httponly=True,
         secure=settings.COOKIE_SECURE,
-        samesite="lax",
+        samesite="strict",  # Matches login — see login handler for rationale.
         max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
         path="/",
     )
