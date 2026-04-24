@@ -247,6 +247,106 @@ jobs:
         working-directory: ./frontend
         run: yarn build
 
+  # F3 — Playwright E2E specs against real backend + frontend + PG + Redis.
+  # Runs smoke.spec.ts (structure, routing, ProtectedRoute redirect) and
+  # auth.spec.ts (login failure paths; happy-path skips without
+  # E2E_ADMIN_EMAIL/PASSWORD env).  The heavier domain specs
+  # goldsmith-workflow.spec.ts and goldsmith-full.spec.ts are deferred
+  # to a nightly workflow — keeps PR wall-time under the 8-min budget.
+  # playwright.config.ts auto-starts Vite (`yarn dev`) via webServer, so
+  # only the backend needs manual boot here.
+  # Ref: docs/fix-plan/2026-04-23/F3-playwright-ci.md
+  test-e2e:
+    needs: [lint, lint-frontend]
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: user
+          POSTGRES_PASSWORD: pass
+          POSTGRES_DB: goldsmith_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      MIGRATION_DATABASE_URL: postgresql://user:pass@localhost:5432/goldsmith_test
+      DATABASE_URL: postgresql+asyncpg://user:pass@localhost:5432/goldsmith_test
+      REDIS_URL: redis://localhost:6379/0
+      SECRET_KEY: ci-test-secret-key-minimum-32-characters-long-enough
+      ENCRYPTION_KEY: dGVzdGtleTEyMzQ1Njc4OTBhYmNkZWZnaGlqa2w=
+      ANONYMIZATION_SALT: testsalt1234567890abcdef
+      DEBUG: "true"
+      CI: "true"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "18"
+      - name: Install Poetry
+        run: pip install poetry
+      - name: Install backend dependencies
+        run: poetry install --no-root
+      - name: Run migrations
+        run: poetry run alembic upgrade head
+      - name: Start backend (uvicorn, background)
+        working-directory: ./src
+        run: |
+          poetry run uvicorn goldsmith_erp.main:app --host 0.0.0.0 --port 8000 &
+          echo "BACKEND_PID=$!" >> $GITHUB_ENV
+      - name: Wait for backend health
+        run: |
+          for i in {1..30}; do
+            if curl -sf http://localhost:8000/health >/dev/null; then
+              echo "Backend is up."
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "Backend did not start within 60s" >&2
+          exit 1
+      - name: Enable Corepack
+        run: corepack enable
+      - name: Install frontend dependencies
+        working-directory: ./frontend
+        run: yarn install --frozen-lockfile
+      - name: Install Playwright browsers
+        working-directory: ./frontend
+        run: npx playwright install --with-deps chromium
+      - name: Run Playwright E2E (smoke + auth only)
+        working-directory: ./frontend
+        run: npx playwright test e2e/smoke.spec.ts e2e/auth.spec.ts
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: frontend/playwright-report/
+          retention-days: 7
+      - name: Upload Playwright test-results (screenshots, traces)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-test-results
+          path: frontend/test-results/
+          retention-days: 7
+
   # Stage 3: Build Verification (PRs to main only)
   build-verify:
     if: github.event_name == 'pull_request'
