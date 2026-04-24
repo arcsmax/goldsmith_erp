@@ -30,6 +30,14 @@
 | F3 | Run Playwright E2E specs in CI | M | CI + FE | ✅ `7bc1d73` | 2b | — | [F3-playwright-ci.md](F3-playwright-ci.md) |
 | F4 | Un-skip or delete 7 stale-skipped encryption/GDPR tests | S | CI + GDPR | ⏸ DEFERRED | — | Needs C1–C4 (encryption infra) from Week 2+ | [F4-skipped-tests.md](F4-skipped-tests.md) |
 | D3 | Add `@require_permission(Permission.TIME_VIEW_OWN)` to `GET /time-tracking/user/{user_id}` | S | BE + SEC | ✅ `a1f72f1` | 1 | — | [D3-time-tracking-permission.md](D3-time-tracking-permission.md) |
+| **R1** | **Audit middleware logs bulk customer list access (review follow-up)** | **S** | **BE + GDPR** | **✅ `071d542`** | **2c** | **self-review** | (inline in review) |
+| **R2** | **Hide `/users/register` from OpenAPI schema (review follow-up)** | **S** | **SEC** | **✅ `60c4efd`** | **2c** | **self-review** | (inline in review) |
+| **C1** | **EncryptedString TypeDecorator + HMAC blind-index; Customer PII migration (includes C2)** | **L** | **DB + GDPR** | **✅ `e515d73`** | **3a** | **—** | [C1-pii-encryption.md](C1-pii-encryption.md) |
+| **C4** | **Fail loudly on encryption misconfig + startup health check** | **S** | **GDPR + BE** | **✅ `c347ac6`** | **3a** | **—** | [C4-fail-loudly.md](C4-fail-loudly.md) |
+| **C5** | **VIEWER role strips financial fields from Order responses** | **M** | **BE + GDPR** | **✅ `97f1b88`** | **3a** | **—** | [C5-viewer-financial-projection.md](C5-viewer-financial-projection.md) |
+| **C6** | **AuditLoggingMiddleware logs financial-data reads** | **M** | **BE + GDPR** | **✅ `ce0dd6b`** | **3a** | **—** | [C6-financial-audit.md](C6-financial-audit.md) |
+| C3 | Encrypt `ValuationCertificate.appraised_value` | M | DB + GDPR | ⏳ pending | 3b | — | (spec TBD) |
+| F4 | Un-skip or delete 7 stale-skipped encryption/GDPR tests | S | CI + GDPR | ⏳ unblocked | 3b | (C1 landed — now unblocked) | [F4-skipped-tests.md](F4-skipped-tests.md) |
 
 D3 is from Group A-adjacent (time_tracking.py missing `@require_permission`, P0, S effort, from report 01) — tiny, included in Wave 1 because `core.permissions` was already canonical for that file.
 
@@ -142,12 +150,30 @@ ff3ed3a ci: add alembic upgrade→downgrade→re-upgrade smoke test             
 0c77b27 fix(makefile): move install-service unit body to external template         [F1.2]
 ```
 
+## Week 2 Wave 3a outcome snapshot (2026-04-24)
+
+**4/4 dispatched items committed** — full Group C foundational layer landed in parallel:
+
+```
+97f1b88 feat(orders): strip financial fields from VIEWER-role responses   [C5]
+c347ac6 feat(encryption): fail loudly on encryption misconfiguration       [C4]
+ce0dd6b feat(audit): log financial-data access on invoices/valuations/scrap_gold   [C6]
+e515d73 feat(db): EncryptedString + HMAC blind-index; encrypt Customer PII  [C1]
+```
+
+**Wave 3a sanity checks:**
+- 25 unit tests + 26 integration tests from new/modified work — all PASS together
+- Backend boots: 210 routes, 7 middlewares
+- `.ilike(...email)` grep → 0 matches (C1 invariant)
+- Zero tracked leftovers
+- Branch: **29 commits ahead of main**
+
+**Wave 3b items (C3, F4) now unblocked** — both depend on C1's `EncryptedString` infra.
+
 ## Ready for next session
 
-- Merge / review branch `code-review-fixes-2026-04-23`
-- Begin Week 2: Group C (PII encryption + financial role projection + audit-log dependency) — largest block
-- Unblock A7.1/A7.2/A7.3 (full CSRF middleware + conftest + FE interceptor) — Week 2 or 3 depending on Group C sequencing
-- Unblock F4 once Group C's `EncryptedString` infra lands
+- After Wave 3b: review Group C end-to-end; merge / PR
+- Week 3: Group D (GDPR lifecycle), Group E (Money→Numeric), A7.1–A7.3 (full CSRF)
 
 ## Per-item commit convention
 
