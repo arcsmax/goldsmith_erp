@@ -2059,8 +2059,23 @@ class ValuationCertificate(Base):
     Certificate numbers follow the format WG-YYYY-NNNN (sequential per year).
     Certificates are valid for 2 years (typical insurance requirement).
 
-    SECURITY: valuation data (appraised_value) is financial data.
-    Access is restricted to GOLDSMITH and ADMIN roles and audit-logged.
+    SECURITY: valuation data (appraised_value) is financial data AND must be
+    encrypted at rest per CLAUDE.md "Data Privacy Rules (CRITICAL) — Insurance
+    Valuations." The ``appraised_value`` column uses :class:`EncryptedString`
+    and stores the amount as a fixed-2-decimal string (Fernet ciphertext on
+    disk). A companion ``appraised_value_hmac`` column carries the HMAC
+    blind-index so equality lookups ("find the certificate worth €12500") are
+    still answerable without decrypting every row — matches the C1 pattern
+    on ``Customer.email`` / ``Customer.email_hash``.
+
+    Python callers continue to use ``cert.appraised_value`` as a numeric:
+    the ``@property`` below returns a ``Decimal`` on read and accepts any
+    number-like (``Decimal`` / ``float`` / ``int`` / ``str``) on write,
+    round-tripping through the fixed-2-decimal normalised string. The
+    ``.appraised_value_hmac`` hash is auto-populated by the ``before_insert``
+    / ``before_update`` event hooks below so tests and seed scripts that
+    construct ``ValuationCertificate(appraised_value=X)`` directly don't
+    have to remember the hash column.
     """
 
     __tablename__ = "valuation_certificates"
@@ -2101,8 +2116,22 @@ class ValuationCertificate(Base):
     # Gemstone summary (free-text list — mirrors what is in Gemstone rows)
     gemstones_description = Column(Text, nullable=True)
 
-    # Appraised value (Schätzwert) — financial data, restricted access
-    appraised_value = Column(Float, nullable=False)  # Gutachtenwert in EUR
+    # Appraised value (Schätzwert / Gutachtenwert) — financial data, ENCRYPTED
+    # at rest (C3). The SQL column name stays ``appraised_value`` for
+    # schema/migration continuity; the Python ORM attribute is
+    # ``_appraised_value_cipher`` so we can expose the decrypted numeric via
+    # a proper ``@property`` below. ``nullable=False`` — every certificate
+    # has a value.
+    _appraised_value_cipher = Column(
+        "appraised_value",
+        EncryptedString,
+        nullable=False,
+        key="_appraised_value_cipher",
+    )
+    # HMAC blind-index over the 2-decimal-normalised string. Indexed so
+    # equality lookups don't scan every row. Not unique — two certificates
+    # can legitimately share the same appraised value.
+    appraised_value_hmac = Column(String(64), nullable=False, index=True)
 
     # Validity
     valuation_date = Column(
@@ -2133,12 +2162,96 @@ class ValuationCertificate(Base):
     customer = relationship("Customer")
     creator = relationship("User", foreign_keys=[created_by])
 
+    # ── Numeric interface over the encrypted string column ─────────────
+    # Callers historically use ``cert.appraised_value`` as a number; keep
+    # that contract. The getter returns a ``Decimal`` (financial data —
+    # avoids float drift on formatting). The setter accepts any
+    # ``Decimal``/``float``/``int``/``str`` and normalises to a fixed
+    # 2-decimal string before handing off to the ``EncryptedString``
+    # column. The setter ALSO updates ``appraised_value_hmac`` in lock-
+    # step so equality search stays consistent even when callers assign
+    # via ``cert.appraised_value = X`` on an already-persisted row.
+    @property
+    def appraised_value(self):
+        """Decrypted numeric appraised value (EUR) as ``Decimal``."""
+        from decimal import Decimal  # local import — avoid top-of-file churn
+        cipher = self._appraised_value_cipher
+        if cipher is None:
+            return None
+        return Decimal(cipher)
+
+    @appraised_value.setter
+    def appraised_value(self, value) -> None:
+        from decimal import Decimal  # local import
+        if value is None:
+            self._appraised_value_cipher = None
+            # Hash column is NOT NULL; we only null the cipher if the caller
+            # is explicitly clearing (e.g. in-test fixture reset). The
+            # before_insert / before_update guard below will raise on flush
+            # if someone tries to persist a NULL value without setting the
+            # hash — matching the NOT NULL constraint on both columns.
+            return
+        # 2-decimal normalisation — money-like. Use Decimal to avoid the
+        # float repr surprises (e.g. 0.1 + 0.2 → 0.30000000000000004).
+        normalised = f"{Decimal(str(value)):.2f}"
+        self._appraised_value_cipher = normalised
+        # Local import — matches the C1 pattern on Customer.email_hash and
+        # avoids a module-level cycle (encryption → config → logging → …).
+        from goldsmith_erp.core.encryption import hmac_blind_index  # noqa: PLC0415
+        self.appraised_value_hmac = hmac_blind_index(normalised)
+
     def __repr__(self) -> str:
         return (
             f"<ValuationCertificate {self.certificate_number} "
             f"order={self.order_id} "
             f"value={self.appraised_value:.2f} EUR>"
         )
+
+
+# ── C3 — auto-populate appraised_value_hmac on insert / update ────────
+# Parallel to the C1 event hooks on ``Customer.email_hash``. The property
+# setter above populates the hash on every ``cert.appraised_value = X``
+# assignment, but direct-ORM construction via SQLAlchemy internals (e.g.
+# ``session.merge`` paths, or tests using bulk_save_objects) might write
+# to ``_appraised_value_cipher`` without going through the setter. The
+# hooks below derive the hash from the current cipher as a safety net,
+# mirroring the consistency guarantee on Customer.
+#
+# Why ``_appraised_value_cipher`` and not ``appraised_value``: by the
+# time the before_insert hook fires, the cipher column holds the
+# normalised 2-decimal string (SQLAlchemy has not yet run the
+# ``EncryptedString.process_bind_param`` encrypt step — that happens at
+# the dialect-bind layer, below the ORM event bus). We hash against the
+# same normalised plaintext the setter uses, so a round-trip like
+# ``cert.appraised_value = 12500`` → DB → ``cert.appraised_value``
+# never breaks the hash invariant.
+
+
+@event.listens_for(ValuationCertificate, "before_insert")
+def _valuation_before_insert(
+    _mapper, _connection, target: "ValuationCertificate"
+) -> None:
+    """Ensure ``appraised_value_hmac`` is populated on insert."""
+    cipher = target._appraised_value_cipher
+    if cipher and not target.appraised_value_hmac:
+        from goldsmith_erp.core.encryption import hmac_blind_index  # noqa: PLC0415
+        target.appraised_value_hmac = hmac_blind_index(cipher)
+
+
+@event.listens_for(ValuationCertificate, "before_update")
+def _valuation_before_update(
+    _mapper, _connection, target: "ValuationCertificate"
+) -> None:
+    """Keep ``appraised_value_hmac`` in lock-step with the cipher column.
+
+    If the cipher changed but the hash wasn't recomputed (unusual — the
+    property setter handles that for every direct assignment — but
+    possible via low-level ORM paths), derive it here. Cheap: one HMAC.
+    """
+    cipher = target._appraised_value_cipher
+    if cipher and not target.appraised_value_hmac:
+        from goldsmith_erp.core.encryption import hmac_blind_index  # noqa: PLC0415
+        target.appraised_value_hmac = hmac_blind_index(cipher)
 
 
 class CustomMetalType(Base):
