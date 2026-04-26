@@ -19,30 +19,36 @@ from goldsmith_erp.db.models import FingerPosition, HandSide, MeasurementType
 # Validation helpers
 # ---------------------------------------------------------------------------
 
-# German EU ring size: inner circumference in mm, practical range 38-80.
-# 48-70 covers the vast majority of customers; we allow a wider 38-80 margin.
-_RING_SIZE_MIN = 38.0
-_RING_SIZE_MAX = 80.0
+# Anthropometric bounds — chosen to span child to bariatric extremes so the
+# goldsmith is never locked out of recording a legitimate measurement just
+# because it sits outside the population average. Numbers below are
+# deliberately wide; the on-screen warning ranges in the UI can be tighter.
 
-# Finger circumference (raw tape measurement) — same range as EU size value
-_FINGER_CIRC_MIN = 38.0
-_FINGER_CIRC_MAX = 80.0
+# German EU ring size: inner circumference in mm.
+# Smallest pinky in a small hand starts around 38 mm; the largest thumb on
+# a very large hand can reach the high 80s. Allow 30–90 mm.
+_RING_SIZE_MIN = 30.0
+_RING_SIZE_MAX = 90.0
 
-# Chain / necklace length in cm: 40 cm (Collier) to 90 cm (Rope/Opera)
-_CHAIN_LENGTH_MIN = 30.0
-_CHAIN_LENGTH_MAX = 120.0
+# Finger circumference (raw tape measurement) — same range as EU ring size.
+_FINGER_CIRC_MIN = 30.0
+_FINGER_CIRC_MAX = 90.0
 
-# Wrist circumference in cm
-_WRIST_MIN = 12.0
-_WRIST_MAX = 28.0
+# Chain / necklace length in cm. Collar 25 cm through Opera/Rope 150 cm.
+_CHAIN_LENGTH_MIN = 25.0
+_CHAIN_LENGTH_MAX = 150.0
 
-# Neck circumference in cm
-_NECK_MIN = 25.0
-_NECK_MAX = 60.0
+# Wrist circumference in cm. Small child wrist 8 cm, very large 35 cm.
+_WRIST_MIN = 8.0
+_WRIST_MAX = 35.0
 
-# Ankle circumference in cm
-_ANKLE_MIN = 18.0
-_ANKLE_MAX = 40.0
+# Neck circumference in cm. Small child 20 cm, very large 70 cm.
+_NECK_MIN = 20.0
+_NECK_MAX = 70.0
+
+# Ankle circumference in cm. Small child 14 cm, very large 50 cm.
+_ANKLE_MIN = 14.0
+_ANKLE_MAX = 50.0
 
 
 # ---------------------------------------------------------------------------

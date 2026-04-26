@@ -22,10 +22,13 @@ class CustomerBase(BaseModel):
     notes: Optional[str] = None
     tags: Optional[List[str]] = Field(default_factory=list)
 
-    # Measurement Library (Mass-Bibliothek)
-    ring_size: Optional[float] = Field(None, ge=30, le=80, description="EU ring size")
-    chain_length_cm: Optional[float] = Field(None, ge=10, le=120, description="Chain length in cm")
-    bracelet_length_cm: Optional[float] = Field(None, ge=10, le=50, description="Bracelet length in cm")
+    # Measurement Library (Mass-Bibliothek). Bounds match the wider
+    # anthropometric ranges enforced by `models/measurement.py` so that a
+    # value accepted by the per-measurement endpoint can also be stored on
+    # the legacy convenience fields here.
+    ring_size: Optional[float] = Field(None, ge=30, le=90, description="EU ring size (mm inner circumference)")
+    chain_length_cm: Optional[float] = Field(None, ge=25, le=150, description="Chain length in cm")
+    bracelet_length_cm: Optional[float] = Field(None, ge=8, le=35, description="Bracelet length in cm (= wrist circumference)")
     allergies: Optional[str] = Field(None, max_length=500, description="e.g. Nickel, Kupfer")
     preferences: Optional[dict] = Field(default_factory=dict, description="Key-value preferences")
     birthday: Optional[datetime] = None
@@ -128,9 +131,9 @@ class CustomerUpdate(BaseModel):
     is_active: Optional[bool] = None
 
     # Measurement Library
-    ring_size: Optional[float] = Field(None, ge=30, le=80)
-    chain_length_cm: Optional[float] = Field(None, ge=10, le=120)
-    bracelet_length_cm: Optional[float] = Field(None, ge=10, le=50)
+    ring_size: Optional[float] = Field(None, ge=30, le=90)
+    chain_length_cm: Optional[float] = Field(None, ge=25, le=150)
+    bracelet_length_cm: Optional[float] = Field(None, ge=8, le=35)
     allergies: Optional[str] = Field(None, max_length=500)
     preferences: Optional[dict] = None
     birthday: Optional[datetime] = None
