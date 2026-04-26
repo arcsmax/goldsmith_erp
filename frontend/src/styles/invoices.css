@@ -191,6 +191,25 @@
 
 /* ==================== CREATE INVOICE MODAL ==================== */
 
+/*
+ * Inline error banner — rendered when the backend rejects invoice
+ * creation (e.g. order not in completed/delivered status, duplicate
+ * active invoice). Replaces the previous toast-only feedback that
+ * tended to be missed by users with the modal still open.
+ */
+.invoice-create-error {
+  background: #fee2e2;
+  border: 2px solid #fca5a5;
+  border-left: 4px solid #dc2626;
+  border-radius: 8px;
+  color: #991b1b;
+  padding: 0.875rem 1rem;
+  margin-bottom: 1.25rem;
+  font-size: 0.95rem;
+  line-height: 1.4;
+  font-weight: 500;
+}
+
 .create-invoice-modal .form-group {
   display: flex;
   flex-direction: column;
@@ -486,14 +505,25 @@
 
 /* ==================== PRINT STYLESHEET ==================== */
 
+/*
+ * The invoice detail panel renders inline as a `<tr><td colspan=7>` row
+ * inside `.invoices-table` (see InvoicesPage.tsx — InvoiceDetailPanel).
+ * That means we MUST NOT hide `.invoices-table` itself when printing —
+ * doing so was the previous bug: the print page was blank because the
+ * panel's containing table was set to `display: none`.
+ *
+ * Instead, keep the table visible and hide every row inside the table
+ * EXCEPT the expanded detail row (which contains `.invoice-detail-panel`).
+ * Convert table semantics to block so the panel can render full-width on
+ * the printed page without table-cell layout constraints.
+ */
 @media print {
-  /* Hide navigation, chrome, and interactive controls */
+  /* Hide app chrome & non-invoice controls */
   .main-header,
   .main-sidebar,
   .sidebar-overlay,
   .page-header,
   .invoices-controls,
-  .invoices-table,
   .invoice-summary-bar,
   .toast-container,
   .timer-widget,
@@ -506,26 +536,52 @@
     display: none !important;
   }
 
-  /* Expand the detail panel to fill the printed page */
-  .invoice-detail-panel {
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
-    box-shadow: none;
-    border: none;
-    border-radius: 0;
-    padding: 0;
-    margin: 0;
-  }
-
-  /* Ensure the rest of the page layout does not interfere */
+  /* Reset the page layout so the panel can flow */
   .main-layout,
   .main-content-wrapper,
   .main-content,
   .page-container {
     display: block !important;
     overflow: visible !important;
+  }
+
+  /*
+   * Keep the table chain visible (so the detail panel inside it renders),
+   * but flatten it to block so the detail row can take the full page.
+   */
+  .invoices-table,
+  .invoices-table tbody,
+  .invoices-table tr,
+  .invoices-table td {
+    display: block !important;
+    width: 100% !important;
+    border: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    background: white !important;
+  }
+
+  /* Drop the table header — it's noise on a printed invoice */
+  .invoices-table thead {
+    display: none !important;
+  }
+
+  /*
+   * Hide every direct table row that does NOT contain an
+   * `.invoice-detail-panel`. The expanded row carries the full invoice;
+   * the summary rows are not useful in the print output.
+   */
+  .invoices-table tbody > tr:not(:has(.invoice-detail-panel)) {
+    display: none !important;
+  }
+
+  /* Expand the detail panel itself to fill the printed page */
+  .invoice-detail-panel {
+    box-shadow: none !important;
+    border: none !important;
+    border-radius: 0 !important;
+    padding: 0 !important;
+    margin: 0 !important;
   }
 
   /* Typography adjustments for print */

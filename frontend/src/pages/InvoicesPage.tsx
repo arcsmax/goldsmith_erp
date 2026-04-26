@@ -48,6 +48,36 @@ function formatAmount(amount: number): string {
   return amount.toLocaleString('de-DE', { style: 'currency', currency: 'EUR' });
 }
 
+/**
+ * Extracts a human-readable error message from an Axios error.
+ *
+ * FastAPI error shapes we have to handle:
+ *   - `{detail: "string"}` from explicit `HTTPException(status_code=4xx, detail="...")`
+ *   - `{detail: [{loc, msg, type}]}` from Pydantic validation (422)
+ *
+ * Without this normalization, rendering the array shape via JSX throws
+ * "Objects are not valid as a React child", which is exactly how previous
+ * invoice errors became invisible: the explicit-string case was masked by
+ * the `|| 'Fehler beim Erstellen ...'` fallback after a render crash.
+ */
+function extractBackendErrorMessage(
+  err: unknown,
+  fallback: string
+): string {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const detail = (err as any)?.response?.data?.detail;
+  if (typeof detail === 'string' && detail.trim()) return detail;
+  if (Array.isArray(detail) && detail.length > 0) {
+    // Pydantic validation: stitch together the human-readable msgs
+    return detail
+      .map((d: { msg?: string; loc?: unknown[] }) =>
+        d?.msg ? d.msg : JSON.stringify(d)
+      )
+      .join('; ');
+  }
+  return fallback;
+}
+
 function dueDateClass(dueIso: string, status: InvoiceStatus): string {
   if (status === 'PAID' || status === 'CANCELLED') return '';
   const daysLeft = Math.ceil(
@@ -66,14 +96,32 @@ interface CreateInvoiceModalProps {
   isOpen: boolean;
   orders: OrderType[];
   isLoading: boolean;
+  submitError: string | null;
   onClose: () => void;
   onSubmit: (data: InvoiceCreateInput) => Promise<void>;
 }
+
+/**
+ * Statuses for which the backend allows invoice creation.
+ *
+ * Mirrors the guard in `InvoiceService.create_invoice_from_order`:
+ *   if order.status not in (OrderStatusEnum.COMPLETED, OrderStatusEnum.DELIVERED): 422
+ *
+ * Filtering the dropdown client-side gives the user immediate feedback
+ * (no failing round-trip) and prevents the previous "generic error"
+ * dead-end where users picked a draft / in_progress order and got a
+ * surprise 422.
+ */
+const INVOICEABLE_ORDER_STATUSES: ReadonlyArray<OrderType['status']> = [
+  'completed',
+  'delivered',
+];
 
 const CreateInvoiceModal: React.FC<CreateInvoiceModalProps> = ({
   isOpen,
   orders,
   isLoading,
+  submitError,
   onClose,
   onSubmit,
 }) => {
@@ -97,6 +145,13 @@ const CreateInvoiceModal: React.FC<CreateInvoiceModalProps> = ({
   }, [isOpen]);
 
   if (!isOpen) return null;
+
+  // Only show orders the backend will actually accept. The full list is
+  // still fetched (for audit completeness in availableOrders), but we hide
+  // ineligible ones from the picker so the user can't fall into the trap.
+  const eligibleOrders = orders.filter((o) =>
+    INVOICEABLE_ORDER_STATUSES.includes(o.status)
+  );
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -132,6 +187,22 @@ const CreateInvoiceModal: React.FC<CreateInvoiceModalProps> = ({
 
         <form onSubmit={handleSubmit}>
           <div className="modal-body">
+            {/*
+              Inline error banner — shows the backend's `detail` string when
+              the API rejects creation (e.g. order status not eligible, or
+              an active invoice already exists). The modal stays open so the
+              user can fix the input rather than starting over.
+            */}
+            {submitError && (
+              <div
+                role="alert"
+                className="invoice-create-error"
+                data-testid="invoice-create-error"
+              >
+                {submitError}
+              </div>
+            )}
+
             <div className="form-group">
               <label htmlFor="invoice-order-select">
                 Auftrag <span style={{ color: '#ef4444' }}>*</span>
@@ -143,12 +214,18 @@ const CreateInvoiceModal: React.FC<CreateInvoiceModalProps> = ({
                 required
               >
                 <option value="">-- Auftrag wählen --</option>
-                {orders.map((o) => (
+                {eligibleOrders.map((o) => (
                   <option key={o.id} value={o.id}>
                     #{o.id} — {o.title}
                   </option>
                 ))}
               </select>
+              {eligibleOrders.length === 0 && (
+                <p className="form-helper-text" style={{ color: '#6b7280', fontSize: '0.85rem', marginTop: '0.25rem' }}>
+                  Keine abrechenbaren Aufträge vorhanden. Aufträge müssen den
+                  Status "Abgeschlossen" oder "Ausgeliefert" haben.
+                </p>
+              )}
             </div>
 
             <div className="form-group">
@@ -543,6 +620,7 @@ export const InvoicesPage: React.FC = () => {
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [availableOrders, setAvailableOrders] = useState<OrderType[]>([]);
   const [isCreateLoading, setIsCreateLoading] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
 
   // Mark as paid modal
   const [invoiceToMarkPaid, setInvoiceToMarkPaid] = useState<InvoiceListItem | null>(null);
@@ -589,6 +667,7 @@ export const InvoicesPage: React.FC = () => {
   }
 
   const openCreateModal = async () => {
+    setCreateError(null);
     try {
       const orders = await ordersApi.getAll({ limit: 500 });
       setAvailableOrders(orders);
@@ -598,15 +677,29 @@ export const InvoicesPage: React.FC = () => {
     setIsCreateModalOpen(true);
   };
 
+  const closeCreateModal = () => {
+    setIsCreateModalOpen(false);
+    setCreateError(null);
+  };
+
   const handleCreateInvoice = async (data: InvoiceCreateInput) => {
     try {
       setIsCreateLoading(true);
+      setCreateError(null);
       await invoicesApi.createFromOrder(data);
       setIsCreateModalOpen(false);
       await fetchInvoices();
       showToast('Rechnung erfolgreich erstellt!', 'success');
-    } catch (err: any) {
-      showToast(err.response?.data?.detail || 'Fehler beim Erstellen der Rechnung.', 'error');
+    } catch (err) {
+      const message = extractBackendErrorMessage(
+        err,
+        'Fehler beim Erstellen der Rechnung.'
+      );
+      // Surface inline in the modal so the user can fix the input. Also
+      // emit a toast so the error is announced to assistive tech and is
+      // visible if the modal is dismissed before the user reads it.
+      setCreateError(message);
+      showToast(message, 'error');
     } finally {
       setIsCreateLoading(false);
     }
@@ -620,8 +713,14 @@ export const InvoicesPage: React.FC = () => {
       setInvoiceToMarkPaid(null);
       await fetchInvoices();
       showToast('Rechnung als bezahlt markiert.', 'success');
-    } catch (err: any) {
-      showToast(err.response?.data?.detail || 'Fehler beim Aktualisieren des Zahlungsstatus.', 'error');
+    } catch (err) {
+      showToast(
+        extractBackendErrorMessage(
+          err,
+          'Fehler beim Aktualisieren des Zahlungsstatus.'
+        ),
+        'error'
+      );
     } finally {
       setIsMarkPaidLoading(false);
     }
@@ -639,8 +738,11 @@ export const InvoicesPage: React.FC = () => {
     try {
       await invoicesApi.updateInvoice(invoice.id, { status: 'CANCELLED' });
       await fetchInvoices();
-    } catch (err: any) {
-      showToast(err.response?.data?.detail || 'Fehler beim Stornieren der Rechnung.', 'error');
+    } catch (err) {
+      showToast(
+        extractBackendErrorMessage(err, 'Fehler beim Stornieren der Rechnung.'),
+        'error'
+      );
     }
   };
 
@@ -1023,7 +1125,8 @@ export const InvoicesPage: React.FC = () => {
         isOpen={isCreateModalOpen}
         orders={availableOrders}
         isLoading={isCreateLoading}
-        onClose={() => setIsCreateModalOpen(false)}
+        submitError={createError}
+        onClose={closeCreateModal}
         onSubmit={handleCreateInvoice}
       />
 
