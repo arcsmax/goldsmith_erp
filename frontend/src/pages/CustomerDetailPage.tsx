@@ -9,6 +9,10 @@ import AuthenticatedImage from '../components/AuthenticatedImage';
 import { CustomerFormModal } from '../components/CustomerFormModal';
 import { Customer, CustomerMeasurement, CustomerCreateInput, CustomerUpdateInput, OrderType } from '../types';
 import '../styles/customer-detail.css';
+// Pulls the `.invoice-status-badge.status-{draft|sent|paid|overdue|cancelled}`
+// rules used by the Rechnungen tab below. Without this the badges render
+// unstyled — the same case-mismatch failure mode as the main /invoices page.
+import '../styles/invoices.css';
 
 type CustomerDetailTab = 'stammdaten' | 'masse' | 'auftraege' | 'rechnungen';
 
@@ -31,6 +35,19 @@ const getStatusLabel = (status: string): string => {
   };
   return labels[status] || status;
 };
+
+/**
+ * German labels for invoice status — keyed by the lowercase backend enum
+ * value (see types.ts). The earlier UPPERCASE-leaning code rendered the
+ * raw enum value because the lookup never matched.
+ */
+const INVOICE_STATUS_LABELS = {
+  draft: 'Entwurf',
+  sent: 'Versendet',
+  paid: 'Bezahlt',
+  overdue: 'Überfällig',
+  cancelled: 'Storniert',
+} as const;
 
 const formatDate = (dateStr?: string | null): string => {
   if (!dateStr) return '—';
@@ -679,8 +696,8 @@ const RechnungenTab: React.FC<{ customerId: number }> = ({ customerId }) => {
                 <span>{formatDate(inv.issue_date || inv.created_at)}</span>
                 {inv.due_date && <span>Fällig: {formatDate(inv.due_date)}</span>}
               </div>
-              <span className={`invoice-status-badge status-${inv.status || 'DRAFT'}`}>
-                {inv.status || 'ENTWURF'}
+              <span className={`invoice-status-badge status-${inv.status || 'draft'}`}>
+                {INVOICE_STATUS_LABELS[inv.status as keyof typeof INVOICE_STATUS_LABELS] ?? 'Entwurf'}
               </span>
               {inv.total_amount != null && (
                 <span className="cdetail-invoice-amount">

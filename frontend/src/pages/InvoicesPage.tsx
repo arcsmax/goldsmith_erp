@@ -19,12 +19,13 @@ import '../styles/invoices.css';
 // Status helpers
 // ---------------------------------------------------------------------------
 
+// Status keys are the backend's lowercase enum values (see types.ts).
 const STATUS_LABELS: Record<InvoiceStatus, string> = {
-  DRAFT: 'Entwurf',
-  SENT: 'Versendet',
-  PAID: 'Bezahlt',
-  OVERDUE: 'Überfällig',
-  CANCELLED: 'Storniert',
+  draft: 'Entwurf',
+  sent: 'Versendet',
+  paid: 'Bezahlt',
+  overdue: 'Überfällig',
+  cancelled: 'Storniert',
 };
 
 // Colorblind-safe: label text carries the semantic meaning, color is secondary.
@@ -79,7 +80,7 @@ function extractBackendErrorMessage(
 }
 
 function dueDateClass(dueIso: string, status: InvoiceStatus): string {
-  if (status === 'PAID' || status === 'CANCELLED') return '';
+  if (status === 'paid' || status === 'cancelled') return '';
   const daysLeft = Math.ceil(
     (new Date(dueIso).getTime() - Date.now()) / (1000 * 60 * 60 * 24)
   );
@@ -436,6 +437,25 @@ interface InvoiceDetailPanelProps {
   onClose: () => void;
 }
 
+/**
+ * Inline detail panel for a single invoice.
+ *
+ * IMPORTANT — rendering outside the table:
+ *   The panel used to render as `<tr><td colspan=7>` inside the invoices
+ *   table, but that constrained its width to the natural width of the
+ *   wider 7-column table (~1018px on desktop) which overflowed the
+ *   `.table-container` (`overflow: hidden`, ~880px). The right-aligned
+ *   totals values were therefore clipped off-screen — exactly the symptom
+ *   reported. Rendering as a regular block sibling tracks the container
+ *   width and removes the print-CSS contortions that the previous fix
+ *   needed (no more `:not(:has(...))` selector required for the print
+ *   page either).
+ *
+ * The panel is rendered by the parent page below the table, keyed to
+ * `expandedInvoiceId`, so it still appears immediately under the row in
+ * the natural reading order even though it's no longer DOM-nested inside
+ * the row.
+ */
 const InvoiceDetailPanel: React.FC<InvoiceDetailPanelProps> = ({ invoiceId, onClose }) => {
   const [invoice, setInvoice] = useState<Invoice | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -459,137 +479,129 @@ const InvoiceDetailPanel: React.FC<InvoiceDetailPanelProps> = ({ invoiceId, onCl
 
   if (isLoading) {
     return (
-      <tr>
-        <td colSpan={7}>
-          <div style={{ padding: '1rem', textAlign: 'center', color: '#666' }}>
-            Lade Details...
-          </div>
-        </td>
-      </tr>
+      <div className="invoice-detail-panel" data-testid="invoice-detail-loading">
+        <div style={{ padding: '1rem', textAlign: 'center', color: '#666' }}>
+          Lade Details...
+        </div>
+      </div>
     );
   }
 
   if (error || !invoice) {
     return (
-      <tr>
-        <td colSpan={7}>
-          <div style={{ padding: '1rem', color: '#dc2626' }}>{error}</div>
-        </td>
-      </tr>
+      <div className="invoice-detail-panel" role="alert">
+        <div style={{ padding: '1rem', color: '#dc2626' }}>{error}</div>
+      </div>
     );
   }
 
   return (
-    <tr>
-      <td colSpan={7} style={{ padding: 0 }}>
-        <div className="invoice-detail-panel">
-          <div className="detail-header">
-            <div>
-              <span className="invoice-number" style={{ fontSize: '1.1rem' }}>
-                {invoice.invoice_number}
-              </span>
-              <StatusBadge status={invoice.status} />
-            </div>
-            <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
-              <button
-                className="btn-secondary btn-print"
-                onClick={() => window.print()}
-                style={{ minHeight: 44, padding: '0.5rem 1rem' }}
-                title="Rechnung drucken"
-              >
-                Drucken
-              </button>
-              <button
-                className="btn-secondary"
-                onClick={onClose}
-                style={{ minHeight: 44, padding: '0.5rem 1rem' }}
-              >
-                Schließen
-              </button>
-            </div>
-          </div>
-
-          <div className="detail-meta">
-            <div className="detail-meta-item">
-              <span className="meta-label">Ausstellungsdatum</span>
-              <span className="meta-value">{formatDate(invoice.issue_date)}</span>
-            </div>
-            <div className="detail-meta-item">
-              <span className="meta-label">Fälligkeitsdatum</span>
-              <span className={`meta-value ${dueDateClass(invoice.due_date, invoice.status)}`}>
-                {formatDate(invoice.due_date)}
-              </span>
-            </div>
-            {invoice.paid_date && (
-              <div className="detail-meta-item">
-                <span className="meta-label">Zahlungseingang</span>
-                <span className="meta-value">{formatDate(invoice.paid_date)}</span>
-              </div>
-            )}
-            {invoice.payment_method && (
-              <div className="detail-meta-item">
-                <span className="meta-label">Zahlungsart</span>
-                <span className="meta-value">{invoice.payment_method}</span>
-              </div>
-            )}
-            <div className="detail-meta-item">
-              <span className="meta-label">Auftrag</span>
-              <span className="meta-value">#{invoice.order_id}</span>
-            </div>
-          </div>
-
-          {invoice.notes && (
-            <div style={{ marginBottom: '1rem', color: '#374151', fontSize: '0.9rem' }}>
-              <strong>Anmerkungen:</strong> {invoice.notes}
-            </div>
-          )}
-
-          {/* Line items */}
-          {invoice.line_items.length > 0 && (
-            <div className="table-container" style={{ marginBottom: '1rem' }}>
-              <table className="line-items-table">
-                <thead>
-                  <tr>
-                    <th>Beschreibung</th>
-                    <th>Typ</th>
-                    <th style={{ textAlign: 'right' }}>Menge</th>
-                    <th style={{ textAlign: 'right' }}>Einzelpreis (netto)</th>
-                    <th style={{ textAlign: 'right' }}>Gesamt (netto)</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {invoice.line_items.map((item) => (
-                    <tr key={item.id}>
-                      <td>{item.description}</td>
-                      <td>{item.line_type}</td>
-                      <td style={{ textAlign: 'right' }}>{item.quantity}</td>
-                      <td style={{ textAlign: 'right' }}>{formatAmount(item.unit_price)}</td>
-                      <td style={{ textAlign: 'right' }}>{formatAmount(item.total)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-
-          {/* Totals */}
-          <div className="invoice-totals">
-            <div className="totals-row">
-              <span className="totals-label">Zwischensumme (netto)</span>
-              <span className="totals-value">{formatAmount(invoice.subtotal)}</span>
-            </div>
-            <div className="totals-row">
-              <span className="totals-label">MwSt ({invoice.tax_rate}%)</span>
-              <span className="totals-value">{formatAmount(invoice.tax_amount)}</span>
-            </div>
-            <div className="totals-row totals-grand">
-              <span className="totals-label">Gesamtbetrag (brutto)</span>
-              <span className="totals-value">{formatAmount(invoice.total)}</span>
-            </div>
-          </div>
+    <div className="invoice-detail-panel" data-testid="invoice-detail-panel">
+      <div className="detail-header">
+        <div>
+          <span className="invoice-number" style={{ fontSize: '1.1rem' }}>
+            {invoice.invoice_number}
+          </span>
+          <StatusBadge status={invoice.status} />
         </div>
-      </td>
-    </tr>
+        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
+          <button
+            className="btn-secondary btn-print"
+            onClick={() => window.print()}
+            style={{ minHeight: 44, padding: '0.5rem 1rem' }}
+            title="Rechnung drucken"
+          >
+            Drucken
+          </button>
+          <button
+            className="btn-secondary btn-close-detail"
+            onClick={onClose}
+            style={{ minHeight: 44, padding: '0.5rem 1rem' }}
+          >
+            Schließen
+          </button>
+        </div>
+      </div>
+
+      <div className="detail-meta">
+        <div className="detail-meta-item">
+          <span className="meta-label">Ausstellungsdatum</span>
+          <span className="meta-value">{formatDate(invoice.issue_date)}</span>
+        </div>
+        <div className="detail-meta-item">
+          <span className="meta-label">Fälligkeitsdatum</span>
+          <span className={`meta-value ${dueDateClass(invoice.due_date, invoice.status)}`}>
+            {formatDate(invoice.due_date)}
+          </span>
+        </div>
+        {invoice.paid_date && (
+          <div className="detail-meta-item">
+            <span className="meta-label">Zahlungseingang</span>
+            <span className="meta-value">{formatDate(invoice.paid_date)}</span>
+          </div>
+        )}
+        {invoice.payment_method && (
+          <div className="detail-meta-item">
+            <span className="meta-label">Zahlungsart</span>
+            <span className="meta-value">{invoice.payment_method}</span>
+          </div>
+        )}
+        <div className="detail-meta-item">
+          <span className="meta-label">Auftrag</span>
+          <span className="meta-value">#{invoice.order_id}</span>
+        </div>
+      </div>
+
+      {invoice.notes && (
+        <div style={{ marginBottom: '1rem', color: '#374151', fontSize: '0.9rem' }}>
+          <strong>Anmerkungen:</strong> {invoice.notes}
+        </div>
+      )}
+
+      {/* Line items */}
+      {invoice.line_items.length > 0 && (
+        <div className="table-container" style={{ marginBottom: '1rem' }}>
+          <table className="line-items-table">
+            <thead>
+              <tr>
+                <th>Beschreibung</th>
+                <th>Typ</th>
+                <th style={{ textAlign: 'right' }}>Menge</th>
+                <th style={{ textAlign: 'right' }}>Einzelpreis (netto)</th>
+                <th style={{ textAlign: 'right' }}>Gesamt (netto)</th>
+              </tr>
+            </thead>
+            <tbody>
+              {invoice.line_items.map((item) => (
+                <tr key={item.id}>
+                  <td>{item.description}</td>
+                  <td>{item.line_type}</td>
+                  <td style={{ textAlign: 'right' }}>{item.quantity}</td>
+                  <td style={{ textAlign: 'right' }}>{formatAmount(item.unit_price)}</td>
+                  <td style={{ textAlign: 'right' }}>{formatAmount(item.total)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* Totals */}
+      <div className="invoice-totals">
+        <div className="totals-row">
+          <span className="totals-label">Zwischensumme (netto)</span>
+          <span className="totals-value">{formatAmount(invoice.subtotal)}</span>
+        </div>
+        <div className="totals-row">
+          <span className="totals-label">MwSt ({invoice.tax_rate}%)</span>
+          <span className="totals-value">{formatAmount(invoice.tax_amount)}</span>
+        </div>
+        <div className="totals-row totals-grand">
+          <span className="totals-label">Gesamtbetrag (brutto)</span>
+          <span className="totals-value">{formatAmount(invoice.total)}</span>
+        </div>
+      </div>
+    </div>
   );
 };
 
@@ -736,7 +748,7 @@ export const InvoicesPage: React.FC = () => {
     });
     if (!confirmed) return;
     try {
-      await invoicesApi.updateInvoice(invoice.id, { status: 'CANCELLED' });
+      await invoicesApi.updateInvoice(invoice.id, { status: 'cancelled' });
       await fetchInvoices();
     } catch (err) {
       showToast(
@@ -799,8 +811,8 @@ export const InvoicesPage: React.FC = () => {
 
   // Summary stats from current page
   const totalAmount = invoices.reduce((sum, inv) => sum + inv.total, 0);
-  const overdueCount = invoices.filter((inv) => inv.status === 'OVERDUE').length;
-  const paidCount = invoices.filter((inv) => inv.status === 'PAID').length;
+  const overdueCount = invoices.filter((inv) => inv.status === 'overdue').length;
+  const paidCount = invoices.filter((inv) => inv.status === 'paid').length;
 
   const totalPages = Math.ceil(total / PAGE_SIZE);
 
@@ -936,11 +948,11 @@ export const InvoicesPage: React.FC = () => {
             }}
           >
             <option value="">Alle Status</option>
-            <option value="DRAFT">Entwurf</option>
-            <option value="SENT">Versendet</option>
-            <option value="PAID">Bezahlt</option>
-            <option value="OVERDUE">Überfällig</option>
-            <option value="CANCELLED">Storniert</option>
+            <option value="draft">Entwurf</option>
+            <option value="sent">Versendet</option>
+            <option value="paid">Bezahlt</option>
+            <option value="overdue">Überfällig</option>
+            <option value="cancelled">Storniert</option>
           </select>
         </div>
 
@@ -1012,82 +1024,86 @@ export const InvoicesPage: React.FC = () => {
               </thead>
               <tbody>
                 {invoices.map((invoice) => (
-                  <React.Fragment key={invoice.id}>
-                    <tr
-                      onClick={() => handleRowClick(invoice.id)}
-                      aria-expanded={expandedInvoiceId === invoice.id}
-                    >
-                      <td data-label="Rechnungsnummer">
-                        <span className="invoice-number">{invoice.invoice_number}</span>
-                      </td>
-                      <td data-label="Auftrag">#{invoice.order_id}</td>
-                      <td data-label="Ausstelldatum">
-                        {formatDate(invoice.issue_date)}
-                      </td>
-                      <td data-label="Fälligkeitsdatum">
-                        <span className={dueDateClass(invoice.due_date, invoice.status)}>
-                          {formatDate(invoice.due_date)}
-                        </span>
-                      </td>
-                      <td data-label="Gesamtbetrag">
-                        <span
-                          className={
-                            invoice.status === 'OVERDUE'
-                              ? 'amount-overdue'
-                              : 'amount-display'
-                          }
-                        >
-                          {formatAmount(invoice.total)}
-                        </span>
-                      </td>
-                      <td data-label="Status">
-                        <StatusBadge status={invoice.status} />
-                      </td>
-                      <td data-label="Aktionen">
-                        <div
-                          className="invoice-actions"
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          {/* "Als bezahlt markieren" — only for SENT/OVERDUE invoices */}
-                          {(invoice.status === 'SENT' || invoice.status === 'OVERDUE') && (
-                            <button
-                              className="btn-mark-paid"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setInvoiceToMarkPaid(invoice);
-                              }}
-                              title="Als bezahlt markieren"
-                            >
-                              Bezahlt
-                            </button>
-                          )}
+                  <tr
+                    key={invoice.id}
+                    onClick={() => handleRowClick(invoice.id)}
+                    aria-expanded={expandedInvoiceId === invoice.id}
+                  >
+                    <td data-label="Rechnungsnummer">
+                      <span className="invoice-number">{invoice.invoice_number}</span>
+                    </td>
+                    <td data-label="Auftrag">#{invoice.order_id}</td>
+                    <td data-label="Ausstelldatum">
+                      {formatDate(invoice.issue_date)}
+                    </td>
+                    <td data-label="Fälligkeitsdatum">
+                      <span className={dueDateClass(invoice.due_date, invoice.status)}>
+                        {formatDate(invoice.due_date)}
+                      </span>
+                    </td>
+                    <td data-label="Gesamtbetrag">
+                      <span
+                        className={
+                          invoice.status === 'overdue'
+                            ? 'amount-overdue'
+                            : 'amount-display'
+                        }
+                      >
+                        {formatAmount(invoice.total)}
+                      </span>
+                    </td>
+                    <td data-label="Status">
+                      <StatusBadge status={invoice.status} />
+                    </td>
+                    <td data-label="Aktionen">
+                      <div
+                        className="invoice-actions"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        {/* "Als bezahlt markieren" — only for SENT/OVERDUE invoices */}
+                        {(invoice.status === 'sent' || invoice.status === 'overdue') && (
+                          <button
+                            className="btn-mark-paid"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setInvoiceToMarkPaid(invoice);
+                            }}
+                            title="Als bezahlt markieren"
+                          >
+                            Bezahlt
+                          </button>
+                        )}
 
-                          {/* "Stornieren" — only for DRAFT invoices */}
-                          {invoice.status === 'DRAFT' && (
-                            <button
-                              className="btn-cancel-invoice"
-                              onClick={(e) => handleCancelInvoice(invoice, e)}
-                              title="Rechnung stornieren"
-                            >
-                              Stornieren
-                            </button>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-
-                    {/* Inline detail panel */}
-                    {expandedInvoiceId === invoice.id && (
-                      <InvoiceDetailPanel
-                        invoiceId={invoice.id}
-                        onClose={() => setExpandedInvoiceId(null)}
-                      />
-                    )}
-                  </React.Fragment>
+                        {/* "Stornieren" — only for DRAFT invoices */}
+                        {invoice.status === 'draft' && (
+                          <button
+                            className="btn-cancel-invoice"
+                            onClick={(e) => handleCancelInvoice(invoice, e)}
+                            title="Rechnung stornieren"
+                          >
+                            Stornieren
+                          </button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
                 ))}
               </tbody>
             </table>
           </div>
+
+          {/*
+            Detail panel is rendered OUTSIDE the table so its width tracks
+            the page container, not the natural width of the wider 7-column
+            invoices-table. See InvoiceDetailPanel JSDoc for context.
+          */}
+          {expandedInvoiceId !== null && (
+            <InvoiceDetailPanel
+              key={expandedInvoiceId}
+              invoiceId={expandedInvoiceId}
+              onClose={() => setExpandedInvoiceId(null)}
+            />
+          )}
 
           {/* Pagination */}
           {totalPages > 1 && (

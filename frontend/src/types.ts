@@ -680,7 +680,18 @@ export interface NotificationListResponse {
 
 // ==================== INVOICE TYPES ====================
 
-export type InvoiceStatus = 'DRAFT' | 'SENT' | 'PAID' | 'OVERDUE' | 'CANCELLED';
+/**
+ * Invoice lifecycle status — MUST match the backend `InvoiceStatus` enum
+ * VALUES (lowercase), not its enum NAMES. The backend serialises the enum
+ * value as the JSON string, so payloads carry `"draft"`, `"sent"`, etc.
+ *
+ * Earlier this was typed as the uppercase NAMES (`'DRAFT' | 'SENT' | ...`),
+ * which compiled fine but produced a silent runtime mismatch: the status
+ * badge label map missed every key, the CSS modifier class never matched
+ * (`.status-DRAFT` vs the actual `.status-draft`), and the row-level
+ * action buttons (`status === 'SENT'`) were never shown.
+ */
+export type InvoiceStatus = 'draft' | 'sent' | 'paid' | 'overdue' | 'cancelled';
 
 export type InvoiceLineType = 'material' | 'labor' | 'gemstone' | 'other';
 

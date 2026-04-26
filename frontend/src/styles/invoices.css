@@ -12,9 +12,29 @@
 
 /* ==================== INVOICE TABLE ==================== */
 
+/*
+ * Override the global `.table-container { overflow: hidden }` for the
+ * invoices view: with 7 columns + the chunky badge / amount cells the
+ * natural table width (~1080px) exceeds the container on narrower
+ * desktop layouts. With `overflow: hidden` the rightmost cells (Status
+ * badge tail, Aktionen buttons) silently disappear — exactly the
+ * "renders incorrectly" symptom the user reported. `overflow-x: auto`
+ * lets the user scroll the row horizontally on mid-size screens, while
+ * the existing `@media (max-width: 640px)` mobile rules below take over
+ * on small screens with their own card layout.
+ */
+.invoices-controls + .table-container,
+.page-container > .table-container {
+  overflow-x: auto;
+  overflow-y: visible;
+}
+
 .invoices-table {
   width: 100%;
   border-collapse: collapse;
+  /* Stop the 7-col header from squeezing under 800px before mobile
+     card layout kicks in at 640px. */
+  min-width: 720px;
 }
 
 .invoices-table th {
@@ -84,8 +104,15 @@
   white-space: nowrap;
 }
 
+/*
+ * Modifier classes use the LOWERCASE backend enum value (`draft`, `sent`,
+ * `paid`, `overdue`, `cancelled`) — see types.ts and InvoicesPage.tsx
+ * STATUS_LABELS. Earlier these were uppercase and silently never matched
+ * the runtime class, leaving badges unstyled.
+ */
+
 /* DRAFT — neutral gray, dashed border (not yet sent) */
-.invoice-status-badge.status-DRAFT {
+.invoice-status-badge.status-draft {
   background: #f3f4f6;
   color: #6b7280;
   border-color: #d1d5db;
@@ -93,28 +120,28 @@
 }
 
 /* SENT — informational blue */
-.invoice-status-badge.status-SENT {
+.invoice-status-badge.status-sent {
   background: #dbeafe;
   color: #1e40af;
   border-color: #93c5fd;
 }
 
 /* PAID — success green */
-.invoice-status-badge.status-PAID {
+.invoice-status-badge.status-paid {
   background: #d1fae5;
   color: #065f46;
   border-color: #6ee7b7;
 }
 
 /* OVERDUE — danger red */
-.invoice-status-badge.status-OVERDUE {
+.invoice-status-badge.status-overdue {
   background: #fee2e2;
   color: #991b1b;
   border-color: #fca5a5;
 }
 
 /* CANCELLED — strikethrough, neutral */
-.invoice-status-badge.status-CANCELLED {
+.invoice-status-badge.status-cancelled {
   background: #f9fafb;
   color: #9ca3af;
   border-color: #e5e7eb;
@@ -506,16 +533,17 @@
 /* ==================== PRINT STYLESHEET ==================== */
 
 /*
- * The invoice detail panel renders inline as a `<tr><td colspan=7>` row
- * inside `.invoices-table` (see InvoicesPage.tsx — InvoiceDetailPanel).
- * That means we MUST NOT hide `.invoices-table` itself when printing —
- * doing so was the previous bug: the print page was blank because the
- * panel's containing table was set to `display: none`.
+ * On `window.print()` we want ONLY the open detail panel to be visible —
+ * the list table, app chrome, controls, summary bar, and pagination are
+ * all noise. Since the detail panel is rendered as a regular block sibling
+ * outside the table (see InvoicesPage.tsx — InvoiceDetailPanel JSDoc),
+ * the print rules can simply hide everything else and let the panel flow
+ * naturally. No `:has()` or table-flattening hacks required.
  *
- * Instead, keep the table visible and hide every row inside the table
- * EXCEPT the expanded detail row (which contains `.invoice-detail-panel`).
- * Convert table semantics to block so the panel can render full-width on
- * the printed page without table-cell layout constraints.
+ * Browser-compat note: this avoids the `:has()` selector, which is not
+ * supported on Chromium ≤105 / Safari ≤15.4. The previous fix relied on
+ * `tr:not(:has(.invoice-detail-panel))`, which would silently no-op on
+ * older field-test devices and fall back to printing the entire page.
  */
 @media print {
   /* Hide app chrome & non-invoice controls */
@@ -531,51 +559,27 @@
   .main-footer,
   .btn-print,
   .btn-download-pdf,
-  .invoice-detail-panel .btn-secondary,
-  .invoice-detail-panel .detail-header button {
+  .btn-close-detail,
+  .scan-fab,
+  .invoices-table,
+  .invoices-table thead,
+  .invoices-table tbody,
+  .invoices-table tr {
     display: none !important;
   }
 
-  /* Reset the page layout so the panel can flow */
+  /* Reset the page layout so the panel can flow full-width */
   .main-layout,
   .main-content-wrapper,
   .main-content,
   .page-container {
     display: block !important;
     overflow: visible !important;
-  }
-
-  /*
-   * Keep the table chain visible (so the detail panel inside it renders),
-   * but flatten it to block so the detail row can take the full page.
-   */
-  .invoices-table,
-  .invoices-table tbody,
-  .invoices-table tr,
-  .invoices-table td {
-    display: block !important;
-    width: 100% !important;
-    border: none !important;
-    padding: 0 !important;
     margin: 0 !important;
-    background: white !important;
+    padding: 0 !important;
   }
 
-  /* Drop the table header — it's noise on a printed invoice */
-  .invoices-table thead {
-    display: none !important;
-  }
-
-  /*
-   * Hide every direct table row that does NOT contain an
-   * `.invoice-detail-panel`. The expanded row carries the full invoice;
-   * the summary rows are not useful in the print output.
-   */
-  .invoices-table tbody > tr:not(:has(.invoice-detail-panel)) {
-    display: none !important;
-  }
-
-  /* Expand the detail panel itself to fill the printed page */
+  /* Strip panel decoration for print */
   .invoice-detail-panel {
     box-shadow: none !important;
     border: none !important;

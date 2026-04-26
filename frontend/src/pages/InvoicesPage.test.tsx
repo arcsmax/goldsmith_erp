@@ -102,7 +102,7 @@ function makeInvoice(overrides: Partial<Invoice> = {}): Invoice {
     order_id: 1,
     customer_id: 1,
     created_by: 1,
-    status: 'DRAFT',
+    status: 'draft',
     issue_date: '2026-04-23T10:00:00Z',
     due_date: '2026-05-07T10:00:00Z',
     paid_date: null,
@@ -205,6 +205,182 @@ describe('InvoicesPage — Bug #3 (generic error & dropdown filter)', () => {
     expect(optionValues).toContain('4'); // delivered → eligible
     expect(optionValues).not.toContain('1'); // in_progress → hidden
     expect(optionValues).not.toContain('2'); // draft → hidden
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Bug #5 — case-mismatch between backend (lowercase enum values "draft",
+// "sent", "paid", ...) and frontend (was: uppercase "DRAFT", ...).
+//
+// Symptom seen in the live admin UI: the Status column rendered raw lowercase
+// tokens with NO color/border (CSS classes `.status-DRAFT` etc. did not match
+// the actual class `status-draft`), the German labels were missing, and the
+// row-level action buttons "Bezahlt" / "Stornieren" were never shown because
+// `invoice.status === 'SENT'` is permanently false against backend payloads.
+//
+// These tests pin the lowercase contract end-to-end: API payload → badge
+// label → CSS class → action visibility. Failing them means a future
+// refactor has re-introduced the case-mismatch.
+// ---------------------------------------------------------------------------
+
+describe('InvoicesPage — Bug #5 (status case-mismatch)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockHasRole.mockReturnValue(true);
+  });
+
+  function listItem(overrides: Partial<{ id: number; status: string }>) {
+    return {
+      id: 1,
+      invoice_number: 'RE-2026-0001',
+      order_id: 1,
+      customer_id: 1,
+      status: 'draft',
+      issue_date: '2026-04-10T10:00:00Z',
+      due_date: '2026-05-10T10:00:00Z',
+      paid_date: null,
+      total: 100,
+      created_at: '2026-04-10T10:00:00Z',
+      ...overrides,
+    };
+  }
+
+  it('renders German status labels (Entwurf/Versendet/Bezahlt) for lowercase backend values', async () => {
+    mockGetInvoices.mockResolvedValue({
+      items: [
+        listItem({ id: 1, status: 'draft', invoice_number: 'RE-2026-0001' }),
+        listItem({ id: 2, status: 'sent', invoice_number: 'RE-2026-0002' }),
+        listItem({ id: 3, status: 'paid', invoice_number: 'RE-2026-0003' }),
+      ],
+      total: 3,
+      skip: 0,
+      limit: 25,
+    });
+
+    render(<InvoicesPage />);
+
+    // Wait for table to populate
+    await screen.findByText('RE-2026-0001');
+
+    // Each German label appears in the badge cells. (We scope to the
+    // badge class because "Entwurf"/"Bezahlt" also appear in the status
+    // filter dropdown options and "Bezahlt" is also an action button label.)
+    const badges = document.querySelectorAll('.invoices-table .invoice-status-badge');
+    const badgeTexts = Array.from(badges).map((b) => b.textContent?.trim());
+    expect(badgeTexts).toEqual(['Entwurf', 'Versendet', 'Bezahlt']);
+
+    // Raw lowercase tokens must NOT leak into the rendered DOM as bare
+    // status text (the original symptom).
+    badges.forEach((b) => {
+      expect(b.textContent?.trim()).not.toMatch(/^(draft|sent|paid|overdue|cancelled)$/);
+    });
+  });
+
+  it('applies the lowercase CSS modifier class to status badges', async () => {
+    mockGetInvoices.mockResolvedValue({
+      items: [listItem({ id: 1, status: 'sent' })],
+      total: 1,
+      skip: 0,
+      limit: 25,
+    });
+
+    render(<InvoicesPage />);
+    await screen.findByText('Versendet');
+    // The CSS file ships the rule `.invoice-status-badge.status-sent { ... }`
+    // (lowercase). If this class is absent, the badge will render with NO
+    // color/border — the exact symptom the user reported.
+    const badge = document.querySelector('.invoices-table .invoice-status-badge');
+    expect(badge).toBeTruthy();
+    expect(badge?.className).toMatch(/\binvoice-status-badge\b/);
+    expect(badge?.className).toMatch(/\bstatus-sent\b/);
+    expect(badge?.textContent?.trim()).toBe('Versendet');
+  });
+
+  it('shows the "Bezahlt" action button on SENT invoices and "Stornieren" on DRAFT', async () => {
+    mockGetInvoices.mockResolvedValue({
+      items: [
+        listItem({ id: 1, status: 'sent', invoice_number: 'RE-2026-0001' }),
+        listItem({ id: 2, status: 'draft', invoice_number: 'RE-2026-0002' }),
+        listItem({ id: 3, status: 'paid', invoice_number: 'RE-2026-0003' }),
+      ],
+      total: 3,
+      skip: 0,
+      limit: 25,
+    });
+
+    render(<InvoicesPage />);
+    await screen.findByText('RE-2026-0001');
+
+    // Each action appears exactly once across the three rows.
+    expect(screen.getAllByRole('button', { name: /^Bezahlt$/ })).toHaveLength(1);
+    expect(screen.getAllByRole('button', { name: /^Stornieren$/ })).toHaveLength(1);
+  });
+
+  it('sends the lowercase status value when filtering (backend rejects uppercase)', async () => {
+    mockGetInvoices.mockResolvedValue({ items: [], total: 0, skip: 0, limit: 25 });
+
+    render(<InvoicesPage />);
+    await waitFor(() => expect(mockGetInvoices).toHaveBeenCalled());
+
+    // The status filter dropdown
+    const statusSelect = screen.getByRole('combobox', { name: '' }) ||
+      screen.getByDisplayValue('Alle Status');
+    // Pick the German "Entwurf" option — its underlying value MUST be the
+    // lowercase enum value the backend understands.
+    fireEvent.change(statusSelect, { target: { value: 'draft' } });
+
+    await waitFor(() => {
+      expect(mockGetInvoices).toHaveBeenLastCalledWith(
+        expect.objectContaining({ status: 'draft' })
+      );
+    });
+  });
+
+  it('expands the detail panel inline and renders the totals row inside the visible viewport', async () => {
+    mockGetInvoices.mockResolvedValue({
+      items: [listItem({ id: 7, status: 'sent', invoice_number: 'RE-2026-0007' })],
+      total: 1,
+      skip: 0,
+      limit: 25,
+    });
+    mockGetInvoice.mockResolvedValue({
+      id: 7,
+      invoice_number: 'RE-2026-0007',
+      order_id: 1,
+      customer_id: 1,
+      created_by: 1,
+      status: 'sent',
+      issue_date: '2026-04-10T10:00:00Z',
+      due_date: '2026-05-10T10:00:00Z',
+      paid_date: null,
+      subtotal: 280,
+      tax_rate: 19,
+      tax_amount: 53.2,
+      total: 333.2,
+      notes: null,
+      payment_method: null,
+      created_at: '2026-04-10T10:00:00Z',
+      updated_at: '2026-04-10T10:00:00Z',
+      line_items: [],
+    });
+
+    render(<InvoicesPage />);
+    fireEvent.click(await screen.findByText('RE-2026-0007'));
+
+    // The amounts MUST appear in the rendered DOM (regression test for the
+    // off-screen-overflow bug where `<td colspan=7>` made the table wider
+    // than its overflow:hidden container, clipping the right-aligned totals).
+    await screen.findByText(/Zwischensumme \(netto\)/);
+    expect(screen.getByText(/280,00/)).toBeInTheDocument();
+    expect(screen.getByText(/53,20/)).toBeInTheDocument();
+    expect(screen.getByText(/333,20/)).toBeInTheDocument();
+
+    // The detail panel must render outside the natural <td>/<tr> chain so
+    // its width is not constrained by the wider invoices-table (which would
+    // otherwise push the right edge into the clipped overflow region).
+    const panel = document.querySelector('.invoice-detail-panel');
+    expect(panel).toBeTruthy();
+    expect(panel?.closest('table')).toBeNull();
   });
 });
 
