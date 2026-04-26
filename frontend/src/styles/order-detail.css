@@ -102,7 +102,7 @@
 }
 
 .btn-create-quote::before {
-  content: "F4DD";        /* memo emoji */
+  content: "\01F4DD ";        /* memo emoji */
   font-style: normal;
 }
 

@@ -1,8 +1,24 @@
 // Orders Page Component
 import React, { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { ordersApi } from '../api';
 import { OrderType, OrderCreateInput, OrderUpdateInput, OrderStatus } from '../types';
+
+// Valid order statuses accepted via the ?status=... URL parameter.
+// Anything outside this set is ignored to avoid arbitrary user input
+// turning into stuck "no results" filter states.
+const VALID_ORDER_STATUS: ReadonlySet<OrderStatus> = new Set<OrderStatus>([
+  'new',
+  'draft',
+  'confirmed',
+  'in_progress',
+  'waiting_for_fitting',
+  'fitting_done',
+  'ready_for_setting',
+  'quality_check',
+  'completed',
+  'delivered',
+]);
 import { OrderFormModal } from '../components/orders/OrderFormModal';
 import { useToast, useConfirm } from '../contexts';
 import '../styles/pages.css';
@@ -10,6 +26,7 @@ import '../styles/orders.css';
 
 export const OrdersPage: React.FC = () => {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { showToast } = useToast();
   const { showConfirm } = useConfirm();
   const [orders, setOrders] = useState<OrderType[]>([]);
@@ -20,10 +37,29 @@ export const OrdersPage: React.FC = () => {
   const [isFormLoading, setIsFormLoading] = useState(false);
   const [selectedOrder, setSelectedOrder] = useState<OrderType | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
-  const [filterStatus, setFilterStatus] = useState<OrderStatus | ''>('');
+  // Initialize status filter from URL ?status=... query param so deep-links
+  // from the dashboard KPI cards land on the pre-filtered view.
+  const [filterStatus, setFilterStatus] = useState<OrderStatus | ''>(() => {
+    const fromUrl = searchParams.get('status');
+    if (fromUrl && VALID_ORDER_STATUS.has(fromUrl as OrderStatus)) {
+      return fromUrl as OrderStatus;
+    }
+    return '';
+  });
   const [sortBy, setSortBy] = useState<'created' | 'deadline' | 'price'>('created');
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState(25);
+
+  // Keep filter in sync when the URL changes while the page is mounted
+  // (e.g., user clicks a different KPI card without unmount).
+  useEffect(() => {
+    const fromUrl = searchParams.get('status');
+    if (fromUrl && VALID_ORDER_STATUS.has(fromUrl as OrderStatus)) {
+      setFilterStatus(fromUrl as OrderStatus);
+    } else if (!fromUrl) {
+      setFilterStatus('');
+    }
+  }, [searchParams]);
 
   useEffect(() => {
     fetchOrders();

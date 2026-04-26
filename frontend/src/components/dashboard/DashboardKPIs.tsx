@@ -78,6 +78,7 @@ export const DashboardKPIs: React.FC = () => {
   // Memoize navigation handlers to prevent unnecessary re-renders
   const navigateToOrders = useCallback(() => navigate('/orders'), [navigate]);
   const navigateToOrdersInProgress = useCallback(() => navigate('/orders?status=in_progress'), [navigate]);
+  const navigateToOrdersCompleted = useCallback(() => navigate('/orders?status=completed'), [navigate]);
   const navigateToMetalInventory = useCallback(() => navigate('/metal-inventory'), [navigate]);
   const navigateToTimeTracking = useCallback(() => navigate('/time-tracking'), [navigate]);
 
@@ -122,6 +123,7 @@ export const DashboardKPIs: React.FC = () => {
         value={formattedMonthlyRevenue}
         icon="💰"
         loading={isLoading}
+        onClick={navigateToOrdersCompleted}
         color="green"
       />
 

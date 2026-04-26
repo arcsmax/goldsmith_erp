@@ -52,10 +52,22 @@ export const KPICard: React.FC<KPICardProps> = ({
     );
   }
 
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>): void => {
+    if (!onClick) return;
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      onClick();
+    }
+  };
+
   return (
     <div
       className={`kpi-card ${onClick ? 'clickable' : ''} ${color ? `kpi-${color}` : ''}`}
       onClick={onClick}
+      role={onClick ? 'button' : undefined}
+      tabIndex={onClick ? 0 : undefined}
+      onKeyDown={onClick ? handleKeyDown : undefined}
+      aria-label={onClick ? `${title}: ${value}` : undefined}
     >
       <div className="kpi-header">
         <span className="kpi-icon">{icon}</span>
