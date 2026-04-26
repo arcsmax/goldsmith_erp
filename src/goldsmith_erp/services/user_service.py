@@ -129,16 +129,26 @@ class UserService:
         """
         Holt alle Benutzer mit Pagination.
 
+        The GDPR anonymisation sentinel (e-mail ``deleted@sentinel.invalid``,
+        first_name ``<deleted>``) is excluded — it is infrastructure data
+        seeded by migration ``20260417_anonymize_user`` so anonymised
+        records have a non-NULL FK target. Its synthetic values
+        deliberately violate the standard ``EmailStr``/Name validators (so
+        they cannot collide with real input), which means leaking the row
+        into the user-management list crashes response serialisation.
+        See `SENTINEL_EMAIL` / Bug #6.
+
         Args:
             db: Datenbank-Session
             skip: Anzahl zu überspringender Einträge
             limit: Maximum Anzahl zurückzugebender Einträge
 
         Returns:
-            Liste von User-Objekten
+            Liste von User-Objekten (ohne Sentinel-Eintrag)
         """
         result = await db.execute(
             select(UserModel)
+            .filter(UserModel.email != SENTINEL_EMAIL)
             .order_by(UserModel.created_at.desc())
             .offset(skip)
             .limit(limit)
@@ -150,14 +160,24 @@ class UserService:
         """
         Holt einen einzelnen Benutzer über seine ID.
 
+        The GDPR anonymisation sentinel is excluded — admin user-management
+        endpoints must never surface the sentinel row (see `get_users`).
+        Internal consumers that legitimately need the sentinel
+        (`anonymize_user`, `_get_or_create_sentinel`) look it up directly
+        by `SENTINEL_EMAIL`.
+
         Args:
             db: Datenbank-Session
             user_id: ID des Benutzers
 
         Returns:
-            User-Objekt oder None
+            User-Objekt oder None (None auch für die Sentinel-Zeile)
         """
-        result = await db.execute(select(UserModel).filter(UserModel.id == user_id))
+        result = await db.execute(
+            select(UserModel)
+            .filter(UserModel.id == user_id)
+            .filter(UserModel.email != SENTINEL_EMAIL)
+        )
         return result.scalar_one_or_none()
 
     @staticmethod

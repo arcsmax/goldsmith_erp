@@ -20,8 +20,12 @@ class MaterialBase(BaseModel):
     )
     unit_price: float = Field(
         ...,
-        gt=0,
-        description="Unit price (must be positive)"
+        ge=0,
+        description=(
+            "Unit price in EUR (must be non-negative). Zero is valid for "
+            "tools/equipment which have no per-use cost; negative values "
+            "are rejected."
+        ),
     )
     stock: float = Field(
         ...,
@@ -92,8 +96,12 @@ class MaterialUpdate(BaseModel):
     )
     unit_price: Optional[float] = Field(
         None,
-        gt=0,
-        description="Unit price (must be positive)"
+        ge=0,
+        description=(
+            "Unit price in EUR (must be non-negative). Zero is valid for "
+            "tools/equipment which have no per-use cost; negative values "
+            "are rejected."
+        ),
     )
     stock: Optional[float] = Field(
         None,

@@ -520,7 +520,7 @@ async def seed_materials(session: AsyncSession):
             "name": "Graviermaschine Spezial",
             "material_type": "tool",
             "description": "Spezial-Graviermaschine für Feinarbeit",
-            "unit_price": 0.0,  # Tools don't have per-use price
+            "unit_price": 0.0,  # Tools have no per-use cost — MaterialBase.unit_price uses ge=0 (Bug #7)
             "stock": 1.0,
             "unit": "pcs",
             "min_stock": 1.0,
