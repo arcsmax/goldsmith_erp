@@ -6,7 +6,7 @@ All financial fields (estimated_cost, actual_cost, estimated_value) are
 visible only to GOLDSMITH and ADMIN roles — enforced at the router level.
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -16,6 +16,24 @@ from goldsmith_erp.db.models import (
     RepairJobStatus,
     RepairPhotoPhase,
 )
+
+
+def _strip_tzinfo(value: Optional[datetime]) -> Optional[datetime]:
+    """
+    Convert any tz-aware datetime to naive UTC.
+
+    The browser submits ISO timestamps with a ``Z`` suffix (e.g.
+    ``2026-05-14T00:00:00.000Z``); Pydantic parses those as tz-aware.
+    The repair_jobs columns are ``TIMESTAMP WITHOUT TIME ZONE`` (asyncpg
+    refuses to bind a tz-aware datetime there). Normalise to naive UTC
+    so the DB write succeeds and stored times remain comparable to the
+    other naive timestamps in the same row (created_at / updated_at).
+    """
+    if value is None:
+        return None
+    if value.tzinfo is not None:
+        value = value.astimezone(timezone.utc).replace(tzinfo=None)
+    return value
 
 
 # ============================================================================
@@ -78,6 +96,10 @@ class RepairJobCreate(BaseModel):
         None, description="Voraussichtliches Fertigstellungsdatum"
     )
 
+    _strip_tz_completion = field_validator(
+        "estimated_completion_date", mode="after"
+    )(lambda cls, v: _strip_tzinfo(v))
+
     @field_validator("item_description")
     @classmethod
     def sanitize_description(cls, v: str) -> str:
@@ -105,6 +127,10 @@ class RepairDiagnoseInput(BaseModel):
     estimated_completion_date: Optional[datetime] = Field(
         None, description="Voraussichtliches Fertigstellungsdatum (aktualisiert)"
     )
+
+    _strip_tz_completion = field_validator(
+        "estimated_completion_date", mode="after"
+    )(lambda cls, v: _strip_tzinfo(v))
 
 
 class RepairStatusUpdate(BaseModel):

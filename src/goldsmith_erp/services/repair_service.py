@@ -274,41 +274,57 @@ class RepairService:
         user_id: int,
     ) -> RepairJob:
         """
-        Record diagnosis notes and cost estimate, advance to DIAGNOSED.
+        Record diagnosis notes and cost estimate, advance to DIAGNOSED → QUOTED.
 
-        Then automatically advance to QUOTED so the customer can be contacted.
-        The two-step (DIAGNOSED → QUOTED) models the real workshop flow where
-        the goldsmith writes up the findings and then prepares the written quote.
+        The status moves through two stages in one HTTP call: the goldsmith
+        writes up the findings (DIAGNOSED) and the system immediately produces
+        the written quote (QUOTED). The whole sequence is **atomic** — if the
+        second transition or any DB write fails, the first is rolled back so
+        the repair is not stranded in 'diagnosed' state with no quote behind it.
         """
-        # RECEIVED → DIAGNOSED
-        repair = await RepairService._transition(
-            db,
-            repair_id,
-            RepairJobStatus.DIAGNOSED,
-            extra_updates={
-                "diagnosis_notes": data.diagnosis_notes,
-                "estimated_cost": data.estimated_cost,
-                "estimated_completion_date": (
-                    data.estimated_completion_date
-                    or repair.estimated_completion_date
-                    if False  # evaluated below
-                    else None
-                ),
-            },
-        )
-        # Reload to apply updates
+        # Pre-flight checks (validation only — no writes yet) so that any
+        # failure here returns 422 BEFORE we touch the row.
         repair = await _load_repair(db, repair_id)
         if repair is None:
-            raise ValueError(f"Reparaturauftrag #{repair_id} nicht gefunden nach Diagnose")
+            raise ValueError(f"Reparaturauftrag #{repair_id} nicht gefunden")
 
+        for current, target in (
+            (repair.status, RepairJobStatus.DIAGNOSED),
+            (RepairJobStatus.DIAGNOSED, RepairJobStatus.QUOTED),
+        ):
+            if target not in _VALID_TRANSITIONS.get(current, []):
+                raise ValueError(
+                    f"Statuswechsel von '{current.value}' nach '{target.value}' "
+                    f"ist nicht erlaubt. "
+                    f"Erlaubt: {[s.value for s in _VALID_TRANSITIONS.get(current, [])]}"
+                )
+
+        # All-or-nothing: single transaction wrapping both transitions + the
+        # field updates so the row is never left half-written.
         async with transactional(db):
+            repair.status = RepairJobStatus.QUOTED
             repair.diagnosis_notes = data.diagnosis_notes
             repair.estimated_cost = data.estimated_cost
-            if data.estimated_completion_date:
-                repair.estimated_completion_date = data.estimated_completion_date
+            if data.estimated_completion_date is not None:
+                # Validator on RepairDiagnoseInput already strips tzinfo,
+                # but assert here for clarity in case a caller bypasses it.
+                ecd = data.estimated_completion_date
+                if ecd.tzinfo is not None:
+                    from datetime import timezone as _tz
+                    ecd = ecd.astimezone(_tz.utc).replace(tzinfo=None)
+                repair.estimated_completion_date = ecd
 
-        # DIAGNOSED → QUOTED
-        repair = await RepairService._transition(db, repair_id, RepairJobStatus.QUOTED)
+            await publish_event(
+                "repair_updates",
+                json.dumps(
+                    {
+                        "action": "status_changed",
+                        "repair_id": repair.id,
+                        "repair_number": repair.repair_number,
+                        "new_status": RepairJobStatus.QUOTED.value,
+                    }
+                ),
+            )
 
         logger.info(
             "Repair diagnosed and quoted",
