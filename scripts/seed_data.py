@@ -64,7 +64,7 @@ async def seed_users(session: AsyncSession):
 
     users_data = [
         {
-            "email": "admin@goldsmith.local",
+            "email": "admin@goldsmith-werkstatt.de",
             "hashed_password": get_password_hash("admin123"),
             "first_name": "Admin",
             "last_name": "User",
@@ -72,7 +72,7 @@ async def seed_users(session: AsyncSession):
             "is_active": True,
         },
         {
-            "email": "goldsmith@goldsmith.local",
+            "email": "goldsmith@goldsmith-werkstatt.de",
             "hashed_password": get_password_hash("goldsmith123"),
             "first_name": "Johann",
             "last_name": "Schmidt",
@@ -80,7 +80,7 @@ async def seed_users(session: AsyncSession):
             "is_active": True,
         },
         {
-            "email": "goldsmith2@goldsmith.local",
+            "email": "goldsmith2@goldsmith-werkstatt.de",
             "hashed_password": get_password_hash("goldsmith123"),
             "first_name": "Maria",
             "last_name": "Klein",
@@ -88,7 +88,7 @@ async def seed_users(session: AsyncSession):
             "is_active": True,
         },
         {
-            "email": "viewer@goldsmith.local",
+            "email": "viewer@goldsmith-werkstatt.de",
             "hashed_password": get_password_hash("viewer123"),
             "first_name": "Thomas",
             "last_name": "Müller",
@@ -114,7 +114,7 @@ async def seed_users(session: AsyncSession):
 
     # Return admin user for relationships
     result = await session.execute(
-        select(User).where(User.email == "admin@goldsmith.local")
+        select(User).where(User.email == "admin@goldsmith-werkstatt.de")
     )
     return result.scalar_one()
 
@@ -1097,10 +1097,10 @@ async def main():
             print("✓ Database seeding completed successfully!")
             print("=" * 70)
             print("\n📋 Sample Credentials (Staff):")
-            print("  Admin:        admin@goldsmith.local / admin123")
-            print("  Goldsmith:    goldsmith@goldsmith.local / goldsmith123")
-            print("  Goldsmith 2:  goldsmith2@goldsmith.local / goldsmith123")
-            print("  Viewer:       viewer@goldsmith.local / viewer123")
+            print("  Admin:        admin@goldsmith-werkstatt.de / admin123")
+            print("  Goldsmith:    goldsmith@goldsmith-werkstatt.de / goldsmith123")
+            print("  Goldsmith 2:  goldsmith2@goldsmith-werkstatt.de / goldsmith123")
+            print("  Viewer:       viewer@goldsmith-werkstatt.de / viewer123")
 
             print("\n👥 Sample Customers:")
             print("  Max Mustermann   (CUST-202511-0001) - VIP, active")
