@@ -205,6 +205,47 @@ poetry run mypy src/                     # Type checking
 poetry run bandit -r src/                # Security scan
 ```
 
+### Architecture & Code Analysis (TrueCourse)
+
+TrueCourse is an architecture/code-intelligence scanner (tree-sitter static rules + optional
+LLM rules) that covers **both** our stacks — Python backend and TS/React frontend. It checks 8
+categories: Security, Bugs, Architecture, Code Quality, Performance, Reliability, Database, Style.
+Claude Code skills are installed in `.claude/skills/truecourse-*` — invoke them, don't shell out
+manually: `/truecourse-analyze`, `/truecourse-list`, `/truecourse-fix`, `/truecourse-hooks`.
+
+**Always invoke the CLI via `npx -y truecourse …`** (without `-y` it hangs on npx's "Ok to proceed?"
+prompt). `analyze`/`list` require an explicit `--llm` or `--no-llm` flag. **Never pass `--llm`
+without first relaying the token estimate to the user and getting approval.**
+
+**Use `--diff`, not full scans, for day-to-day work.** A full scan of this established codebase
+returns thousands of violations (mostly `low`/`medium` Code Quality + Style noise) — not
+actionable. The diff workflow surfaces only what *your current changes* introduced:
+
+```bash
+npx -y truecourse analyze --no-llm          # full scan → refreshes .truecourse/LATEST.json baseline
+npx -y truecourse analyze --diff --no-llm   # compare working tree vs baseline (use this while iterating)
+npx -y truecourse list --diff               # show only newly-introduced violations
+npx -y truecourse list --severity critical,high   # triage the full set by severity
+```
+
+**Workflow guidance:**
+- **Triage by severity.** Only `critical`/`high` warrant immediate action. Map findings against our
+  `security > correctness > performance > convenience` hierarchy before fixing — TrueCourse Security
+  findings (SQL injection, hardcoded secrets, unsafe deserialization) take priority.
+- **Baseline lives in git.** `.truecourse/LATEST.json` (baseline), `config.json` (rule toggles),
+  and `hooks.yaml` (hook policy) are committable. After a full scan **on `main`**, commit
+  `LATEST.json` so fresh clones/worktrees and the pre-commit hook have a baseline. Don't commit it
+  from feature branches (the large generated JSON conflicts across PRs).
+- **Tame noise at the source.** Disable chronically noisy rules/categories rather than ignoring
+  output: `npx -y truecourse rules disable <ruleKey>` or `rules categories --disable <category>`
+  (persists to `.truecourse/config.json`). Style/Code-Quality are the usual culprits here.
+- **Pre-commit hook is optional and slows commits** (runs `analyze --diff` per commit). If enabled
+  via `/truecourse-hooks`, keep `block-on: [critical, high]` and `llm: false` so commits stay fast
+  and free. Bypass a blocked commit with `git commit --no-verify` only when justified.
+- **Don't treat TrueCourse as ground truth.** It complements, not replaces, our review standards
+  (selectinload, Pydantic validation, `@require_permission`, audit logging) and the existing
+  linters (black, mypy, bandit). Verify each finding against the actual code before acting.
+
 ### Build & Cleanup
 
 ```bash
