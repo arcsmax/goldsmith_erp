@@ -12,6 +12,8 @@ For templates: src/goldsmith_erp/templates/
 """
 
 import logging
+import os
+import tempfile
 from pathlib import Path
 from typing import Any, Optional
 
@@ -19,6 +21,28 @@ from fpdf import FPDF
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 logger = logging.getLogger(__name__)
+
+
+def _embed_png_signature(
+    pdf: FPDF, img_data: bytes, rect: tuple[float, float, float, float]
+) -> None:
+    """Embed a PNG signature into the PDF via a secure temp file.
+
+    fpdf2 needs a filesystem path, so the bytes are written to a
+    NamedTemporaryFile (secure mkstemp-based API). The temp file is always
+    removed afterwards, even if image embedding raises. ``rect`` is the
+    placement box as ``(x, y, width, height)``.
+    """
+    x, y, w, h = rect
+    tmp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
+            tmp.write(img_data)
+            tmp_path = tmp.name
+        pdf.image(tmp_path, x=x, y=y, w=w, h=h)
+    finally:
+        if tmp_path and os.path.exists(tmp_path):
+            os.unlink(tmp_path)
 
 # Path to Jinja2 templates directory
 _TEMPLATES_DIR = Path(__file__).parent.parent / "templates"
@@ -371,7 +395,6 @@ def _render_scrap_gold_fpdf(
     """Build a scrap gold Ankaufsbeleg PDF with fpdf2 and return raw bytes."""
     import base64
     import io
-    import tempfile
 
     receipt_nr = f"AG-{scrap_gold.id:05d}"
     footer_text = (
@@ -497,18 +520,8 @@ def _render_scrap_gold_fpdf(
     # Customer signature (left box)
     if signature_base64:
         try:
-            import os
             img_data = base64.b64decode(signature_base64)
-            tmp_path = None
-            try:
-                with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
-                    tmp.write(img_data)
-                    tmp_path = tmp.name
-                pdf.image(tmp_path, x=12, y=sig_y, w=col_w - 4, h=line_h - 2)
-            finally:
-                # Always remove the temp file, even if pdf.image() raised.
-                if tmp_path and os.path.exists(tmp_path):
-                    os.unlink(tmp_path)
+            _embed_png_signature(pdf, img_data, (12, sig_y, col_w - 4, line_h - 2))
         except Exception:
             logger.warning("Could not embed signature image into PDF", exc_info=True)
 
@@ -609,7 +622,6 @@ def _render_quote_fpdf(
 ) -> bytes:
     """Build a Kostenvoranschlag PDF with fpdf2 and return raw bytes."""
     import base64
-    import tempfile
 
     footer_text = (
         f"{workshop_name}  |  Kostenvoranschlag {quote.quote_number}"
@@ -775,18 +787,8 @@ def _render_quote_fpdf(
     sig_data = _safe_str(getattr(quote, "customer_signature_data", None))
     if sig_data:
         try:
-            import os
             img_data = base64.b64decode(sig_data)
-            tmp_path = None
-            try:
-                with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
-                    tmp.write(img_data)
-                    tmp_path = tmp.name
-                pdf.image(tmp_path, x=12, y=sig_y, w=col_w - 4, h=18)
-            finally:
-                # Always remove the temp file, even if pdf.image() raised.
-                if tmp_path and os.path.exists(tmp_path):
-                    os.unlink(tmp_path)
+            _embed_png_signature(pdf, img_data, (12, sig_y, col_w - 4, 18))
         except Exception:
             logger.warning("Could not embed quote signature into PDF", exc_info=True)
 

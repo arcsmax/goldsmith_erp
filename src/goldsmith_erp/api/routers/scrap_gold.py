@@ -35,7 +35,7 @@ router = APIRouter()
 _UPLOAD_ROOT = Path("./uploads/scrap-gold")
 
 # Max accepted photo size. Mirrors the material-image limit; guards against
-# memory-exhaustion (DoS) from an unbounded UploadFile.read().
+# memory exhaustion from an unbounded upload read.
 _SCRAP_PHOTO_MAX_BYTES: int = 10 * 1024 * 1024
 
 
@@ -154,8 +154,8 @@ async def upload_item_photo(
             detail="Nur JPEG, PNG und WEBP Bilder sind erlaubt.",
         )
 
-    # Bounded read: cap the payload to guard against memory-exhaustion (DoS).
-    # Read one byte past the limit so we can detect (not silently truncate) oversize files.
+    # Cap the payload to guard against memory exhaustion from an oversized upload.
+    # Reading one byte past the budget lets us detect (rather than truncate) too-large files.
     _body_budget = _SCRAP_PHOTO_MAX_BYTES - len(header)
     body = await file.read(_body_budget + 1)
     if len(body) > _body_budget:
