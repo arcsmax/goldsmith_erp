@@ -34,6 +34,10 @@ router = APIRouter()
 # Upload directory for scrap-gold item photos (relative to process cwd / project root)
 _UPLOAD_ROOT = Path("./uploads/scrap-gold")
 
+# Max accepted photo size. Mirrors the material-image limit; guards against
+# memory-exhaustion (DoS) from an unbounded UploadFile.read().
+_SCRAP_PHOTO_MAX_BYTES: int = 10 * 1024 * 1024
+
 
 def _detect_image_extension(header: bytes) -> Optional[str]:
     """
@@ -150,8 +154,15 @@ async def upload_item_photo(
             detail="Nur JPEG, PNG und WEBP Bilder sind erlaubt.",
         )
 
-    # Read remainder and reassemble full content
-    body = await file.read()
+    # Bounded read: cap the payload to guard against memory-exhaustion (DoS).
+    # Read one byte past the limit so we can detect (not silently truncate) oversize files.
+    _body_budget = _SCRAP_PHOTO_MAX_BYTES - len(header)
+    body = await file.read(_body_budget + 1)
+    if len(body) > _body_budget:
+        raise HTTPException(
+            status_code=413,
+            detail=f"Datei zu groß. Maximum: {_SCRAP_PHOTO_MAX_BYTES // (1024 * 1024)} MB.",
+        )
     full_content = header + body
 
     # Prepare destination directory and unique filename

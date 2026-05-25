@@ -497,13 +497,18 @@ def _render_scrap_gold_fpdf(
     # Customer signature (left box)
     if signature_base64:
         try:
-            img_data = base64.b64decode(signature_base64)
-            with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
-                tmp.write(img_data)
-                tmp_path = tmp.name
-            pdf.image(tmp_path, x=12, y=sig_y, w=col_w - 4, h=line_h - 2)
             import os
-            os.unlink(tmp_path)
+            img_data = base64.b64decode(signature_base64)
+            tmp_path = None
+            try:
+                with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
+                    tmp.write(img_data)
+                    tmp_path = tmp.name
+                pdf.image(tmp_path, x=12, y=sig_y, w=col_w - 4, h=line_h - 2)
+            finally:
+                # Always remove the temp file, even if pdf.image() raised.
+                if tmp_path and os.path.exists(tmp_path):
+                    os.unlink(tmp_path)
         except Exception:
             logger.warning("Could not embed signature image into PDF", exc_info=True)
 
@@ -770,13 +775,18 @@ def _render_quote_fpdf(
     sig_data = _safe_str(getattr(quote, "customer_signature_data", None))
     if sig_data:
         try:
-            img_data = base64.b64decode(sig_data)
-            with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
-                tmp.write(img_data)
-                tmp_path = tmp.name
-            pdf.image(tmp_path, x=12, y=sig_y, w=col_w - 4, h=18)
             import os
-            os.unlink(tmp_path)
+            img_data = base64.b64decode(sig_data)
+            tmp_path = None
+            try:
+                with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
+                    tmp.write(img_data)
+                    tmp_path = tmp.name
+                pdf.image(tmp_path, x=12, y=sig_y, w=col_w - 4, h=18)
+            finally:
+                # Always remove the temp file, even if pdf.image() raised.
+                if tmp_path and os.path.exists(tmp_path):
+                    os.unlink(tmp_path)
         except Exception:
             logger.warning("Could not embed quote signature into PDF", exc_info=True)
 

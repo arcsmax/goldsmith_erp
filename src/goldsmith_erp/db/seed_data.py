@@ -13,6 +13,7 @@ Creates realistic sample data for development and testing:
 DEVELOPMENT ONLY — do not run in production.
 """
 
+import os
 from datetime import datetime, timedelta
 from sqlalchemy.orm import Session
 from .models import (
@@ -52,24 +53,31 @@ STANDARD_ACTIVITIES = [
 # USERS (3 roles)
 # ============================================================================
 
+# Seed user credentials are NOT hardcoded. Each role's password is read from an
+# env var; the fallback is a deliberately weak, low-entropy placeholder that must
+# never be relied on outside local development (this script is DEVELOPMENT ONLY).
+# Override in any shared environment via SEED_ADMIN_PASSWORD / SEED_GOLDSMITH_PASSWORD
+# / SEED_VIEWER_PASSWORD, or set SEED_FALLBACK_PASSWORD to change the shared default.
+_SEED_PW_FALLBACK = os.getenv("SEED_FALLBACK_PASSWORD", "dev-only-change-me")
+
 STANDARD_USERS = [
     {
         "email": "admin@goldschmiede.de",
-        "password": "Admin123!",
+        "password": os.getenv("SEED_ADMIN_PASSWORD", _SEED_PW_FALLBACK),
         "first_name": "Thomas",
         "last_name": "Brenner",
         "role": UserRole.ADMIN,
     },
     {
         "email": "goldschmied@goldschmiede.de",
-        "password": "Gold123!",
+        "password": os.getenv("SEED_GOLDSMITH_PASSWORD", _SEED_PW_FALLBACK),
         "first_name": "Maria",
         "last_name": "Hofmann",
         "role": UserRole.GOLDSMITH,
     },
     {
         "email": "empfang@goldschmiede.de",
-        "password": "View123!",
+        "password": os.getenv("SEED_VIEWER_PASSWORD", _SEED_PW_FALLBACK),
         "first_name": "Lisa",
         "last_name": "Weber",
         "role": UserRole.VIEWER,

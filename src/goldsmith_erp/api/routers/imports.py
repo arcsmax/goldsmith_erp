@@ -118,7 +118,9 @@ async def import_customers(
             ),
         )
 
-    raw_bytes = await file.read()
+    # Bounded read (limit + 1 byte) so an oversize upload is rejected without
+    # buffering the entire file into memory first (memory-exhaustion / DoS guard).
+    raw_bytes = await file.read(_MAX_CSV_BYTES + 1)
     if len(raw_bytes) > _MAX_CSV_BYTES:
         raise HTTPException(
             status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
