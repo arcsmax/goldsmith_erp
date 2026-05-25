@@ -34,40 +34,33 @@ from goldsmith_erp.db.models import CustomerAuditLog
 
 
 @pytest.fixture(autouse=True)
-def _patch_middleware_session(monkeypatch):
+def _patch_middleware_session(monkeypatch, db_session):
     """
-    Redirect the audit middleware's ``AsyncSessionLocal`` to the integration
-    test's SQLite-backed ``TestSessionLocal``.  The middleware opens its own
+    Redirect the audit middleware's ``AsyncSessionLocal`` to a factory bound
+    to the SAME engine ``db_session`` uses.  The middleware opens its own
     session (BaseHTTPMiddleware can't take FastAPI dependencies); without
     this patch it would try to reach the production Postgres URL.
 
-    We grab ``TestSessionLocal`` from the ALREADY-LOADED conftest module
-    via ``sys.modules`` — a plain ``from tests.integration.conftest import
-    TestSessionLocal`` risks loading a *second* copy of the conftest (with
-    a fresh ``_DB_FILENAME`` / engine that has no tables) when pytest has
-    already registered it under a different module name (``integration.
-    conftest`` or simply ``conftest``).  Using the already-loaded instance
-    guarantees the middleware writes to the same SQLite file the session
-    fixture created tables in.
+    We bind to ``db_session.bind`` (the live engine the test reads from)
+    rather than resolving ``TestSessionLocal`` by conftest module name.
+    Under pytest's ``prepend`` import mode the conftest can be loaded a
+    second time under a different module name (``integration.conftest`` vs
+    ``conftest``) — each copy builds its own ``_DB_FILENAME`` engine, and the
+    duplicate's tables are never created.  Grabbing the wrong copy made the
+    middleware write to a table-less SQLite file (``no such table:
+    customer_audit_logs``, swallowed by the middleware's try/except) while
+    the test read the real one — passing in isolation, failing in the full
+    suite.  Binding to the engine in use removes that ambiguity entirely.
     """
-    import sys
+    from sqlalchemy.ext.asyncio import AsyncSession
+    from sqlalchemy.orm import sessionmaker
+
     from goldsmith_erp.middleware import audit_logging
 
-    conftest_module = (
-        sys.modules.get("tests.integration.conftest")
-        or sys.modules.get("integration.conftest")
-        or sys.modules.get("conftest")
+    factory = sessionmaker(
+        bind=db_session.bind, class_=AsyncSession, expire_on_commit=False
     )
-    assert conftest_module is not None, (
-        "integration conftest must already be loaded by pytest; "
-        "currently-loaded conftest-like modules: "
-        + repr(sorted(k for k in sys.modules if "conftest" in k))
-    )
-    TestSessionLocal = conftest_module.TestSessionLocal
-
-    monkeypatch.setattr(
-        audit_logging, "AsyncSessionLocal", TestSessionLocal
-    )
+    monkeypatch.setattr(audit_logging, "AsyncSessionLocal", factory)
 
 
 # ---------------------------------------------------------------------------
