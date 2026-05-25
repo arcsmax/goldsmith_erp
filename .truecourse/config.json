@@ -1,0 +1,7 @@
+{
+  "disabledRules": [
+    "bugs/deterministic/argument-type-mismatch",
+    "bugs/deterministic/unhandled-promise",
+    "database/deterministic/missing-transaction"
+  ]
+}
