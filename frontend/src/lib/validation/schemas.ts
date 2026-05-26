@@ -92,7 +92,7 @@ export const OrderCreateSchema = z
       .min(1, 'Pflichtfeld')
       .max(2000, 'Maximal 2000 Zeichen erlaubt'),
     customer_id: z
-      .number({ invalid_type_error: 'Pflichtfeld' })
+      .number({ message: 'Pflichtfeld' })
       .int('Muss eine ganze Zahl sein')
       .positive('Bitte einen Kunden auswählen'),
     deadline: futureDateString,
@@ -101,7 +101,7 @@ export const OrderCreateSchema = z
 
     // Metal fields
     metal_type: z.enum(MetalTypeValues).optional(),
-    estimated_weight_g: z.number({ invalid_type_error: 'Muss eine Zahl sein' }).positive('Gewicht muss größer als 0 sein').optional(),
+    estimated_weight_g: z.number({ message: 'Muss eine Zahl sein' }).positive('Gewicht muss größer als 0 sein').optional(),
     scrap_percentage: z.number().min(0, 'Darf nicht negativ sein').max(50, 'Maximal 50 % Verschnitt').optional(),
     costing_method: z.enum(CostingMethodValues).default('fifo'),
     specific_metal_purchase_id: z.number().int().positive('Muss eine positive Ganzzahl sein').optional(),
@@ -169,11 +169,11 @@ export const MaterialCreateSchema = z.object({
     .max(200, 'Maximal 200 Zeichen erlaubt'),
   description: z.string().max(1000, 'Maximal 1000 Zeichen erlaubt').optional(),
   unit_price: z
-    .number({ invalid_type_error: 'Muss eine Zahl sein' })
+    .number({ message: 'Muss eine Zahl sein' })
     .positive('Preis muss größer als 0 sein')
     .max(100_000, 'Preis überschreitet das Maximum (100.000)'),
   stock: z
-    .number({ invalid_type_error: 'Muss eine Zahl sein' })
+    .number({ message: 'Muss eine Zahl sein' })
     .min(0, 'Bestand darf nicht negativ sein')
     .max(1_000_000, 'Bestand überschreitet das Maximum (1.000.000)'),
   unit: z
@@ -183,7 +183,7 @@ export const MaterialCreateSchema = z.object({
   supplier: z.string().max(200, 'Maximal 200 Zeichen erlaubt').optional(),
   webshop_url: z.string().url('Ungültige URL').max(500, 'Maximal 500 Zeichen erlaubt').optional().or(z.literal('')),
   min_stock: z
-    .number({ invalid_type_error: 'Muss eine Zahl sein' })
+    .number({ message: 'Muss eine Zahl sein' })
     .min(0, 'Mindestbestand darf nicht negativ sein')
     .max(1_000_000, 'Mindestbestand überschreitet das Maximum')
     .default(10),
