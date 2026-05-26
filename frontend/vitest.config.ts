@@ -8,6 +8,10 @@ export default defineConfig({
     globals: true,
     environment: 'happy-dom',
     setupFiles: ['./src/test/setup.ts'],
+    // Only collect unit/component tests under src/. The e2e/ Playwright specs
+    // use Playwright's own runner; without this, vitest tries to load them and
+    // fails on Playwright's transform.
+    include: ['src/**/*.{test,spec}.{ts,tsx}'],
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json', 'html'],

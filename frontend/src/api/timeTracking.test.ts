@@ -1,6 +1,6 @@
 // Tests for Time Tracking API Client
 import { describe, it, expect, beforeEach } from 'vitest';
-import { timeTrackingApi } from './timeTracking';
+import { timeTrackingApi } from './time-tracking';
 import { TimeEntryStartInput, TimeEntryStopInput } from '../types';
 import {
   mockTimeEntries,
