@@ -228,7 +228,6 @@ jobs:
           poetry run alembic upgrade head
 
   test-frontend:
-    needs: lint-frontend
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
