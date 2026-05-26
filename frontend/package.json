@@ -2,6 +2,9 @@
   "name": "frontend",
   "version": "1.0.0",
   "packageManager": "yarn@4.9.1",
+  "engines": {
+    "node": ">=20.19.0"
+  },
   "dependencies": {
     "@yudiel/react-qr-scanner": "^2.5.1",
     "axios": "^1.16.1",
