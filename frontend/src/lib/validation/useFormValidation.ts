@@ -69,12 +69,19 @@ function toGermanMessage(zodMessage: string): string {
  * dot-joined path (e.g. "customer.email") and the value is the first message
  * for that path translated to German.
  */
+// Keys that would mutate the object prototype rather than set an own property.
+const UNSAFE_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
+
 function flattenZodErrors(error: ZodError): FieldErrors {
   const result: FieldErrors = {};
   for (const issue of error.issues) {
     const key = issue.path.join('.') || '_form';
-    // Only keep the first error per field — avoid overwhelming the user
-    if (!result[key]) {
+    // Prototype-pollution guard: never write through __proto__/constructor/etc.
+    // (paths come from the schema, but defence-in-depth is cheap here.)
+    if (UNSAFE_KEYS.has(key)) continue;
+    // Only keep the first error per field — avoid overwhelming the user.
+    // hasOwnProperty avoids inherited-property false hits from the prototype chain.
+    if (!Object.prototype.hasOwnProperty.call(result, key)) {
       result[key] = toGermanMessage(issue.message);
     }
   }
