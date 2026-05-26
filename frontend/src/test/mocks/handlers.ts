@@ -2,7 +2,11 @@
 import { http, HttpResponse } from 'msw';
 import { TimeEntry, Activity, TimeTrackingStats } from '../../types';
 
-const API_BASE = 'http://localhost:8000/api';
+// Must match the axios client's baseURL (`/api/v1`, see src/api/client.ts).
+// The leading `*` wildcard matches any origin so handlers work regardless of
+// the test environment's origin (the client uses a relative baseURL, which
+// resolves against happy-dom's origin — not localhost:8000).
+const API_BASE = '*/api/v1';
 
 // Mock data
 export const mockActivities: Activity[] = [
