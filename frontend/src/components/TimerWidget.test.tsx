@@ -47,6 +47,16 @@ describe('TimerWidget', () => {
       window.dispatchEvent(new Event('timer:expand'));
     });
 
+  // Resolve a stop-dialog field container by its label. instanceof narrows the
+  // Element|null from closest() to HTMLElement without an unsafe `as` cast.
+  const fieldByLabel = (label: string): HTMLElement => {
+    const field = screen.getByText(label).closest('.stop-dialog-field');
+    if (!(field instanceof HTMLElement)) {
+      throw new Error(`stop-dialog-field for "${label}" not found`);
+    }
+    return field;
+  };
+
   beforeEach(() => {
     mockOnStop.mockClear();
     mockOnRefresh.mockClear();
@@ -170,9 +180,7 @@ describe('TimerWidget', () => {
       const user = userEvent.setup();
       await openStopDialog(user);
 
-      const field = screen
-        .getByText('Komplexität (1-5)')
-        .closest('.stop-dialog-field') as HTMLElement;
+      const field = fieldByLabel('Komplexität (1-5)');
       const stars = within(field).getAllByText('★');
       expect(stars).toHaveLength(5);
 
@@ -190,9 +198,7 @@ describe('TimerWidget', () => {
       const user = userEvent.setup();
       await openStopDialog(user);
 
-      const field = screen
-        .getByText('Qualität (1-5)')
-        .closest('.stop-dialog-field') as HTMLElement;
+      const field = fieldByLabel('Qualität (1-5)');
       const stars = within(field).getAllByText('★');
       expect(stars).toHaveLength(5);
 

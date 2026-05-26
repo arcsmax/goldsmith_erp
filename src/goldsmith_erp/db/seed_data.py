@@ -495,10 +495,14 @@ def main():
     from sqlalchemy.orm import sessionmaker
     import os
 
-    database_url = os.getenv(
-        "DATABASE_URL",
-        "postgresql://user:pass@localhost:5432/goldsmith",
-    )
+    # No hardcoded fallback: the standalone seeder requires DATABASE_URL to be
+    # set explicitly, so credentials never live in source.
+    database_url = os.getenv("DATABASE_URL")
+    if not database_url:
+        raise SystemExit(
+            "DATABASE_URL must be set to run the standalone seeder, e.g. "
+            "export DATABASE_URL=postgresql://<user>:<password>@localhost:5432/goldsmith"
+        )
     # Convert async URL to sync if needed
     database_url = database_url.replace("+asyncpg", "")
 
