@@ -5,6 +5,12 @@ import userEvent from '@testing-library/user-event';
 import ActivityPicker from './ActivityPicker';
 import { mockActivities } from '../test/mocks/handlers';
 
+// Activities appear twice in the rendered tree — once in the "⭐ Häufig
+// verwendet" (most-used) section and once in their category group — so name/
+// icon/duration lookups use getAllByText and assert at least one match.
+const fabricationFilterButton = () =>
+  screen.getAllByText('🔨 Fertigung').find((el) => el.tagName === 'BUTTON')!;
+
 describe('ActivityPicker', () => {
   const mockOnSelectActivity = vi.fn();
   const mockOnCancel = vi.fn();
@@ -24,7 +30,7 @@ describe('ActivityPicker', () => {
       );
 
       await waitFor(() => {
-        expect(screen.getByText('Aktivität wählen')).toBeInTheDocument();
+        expect(screen.getByText('Aktivität auswählen')).toBeInTheDocument();
       });
     });
 
@@ -36,7 +42,7 @@ describe('ActivityPicker', () => {
         />
       );
 
-      expect(screen.getByText('Lade Aktivitäten...')).toBeInTheDocument();
+      expect(screen.getByText('Aktivitäten werden geladen...')).toBeInTheDocument();
     });
 
     it('should show activities after loading', async () => {
@@ -48,9 +54,9 @@ describe('ActivityPicker', () => {
       );
 
       await waitFor(() => {
-        expect(screen.getByText('Polieren')).toBeInTheDocument();
-        expect(screen.getByText('Stein Fassen')).toBeInTheDocument();
-        expect(screen.getByText('Löten')).toBeInTheDocument();
+        expect(screen.getAllByText('Polieren').length).toBeGreaterThan(0);
+        expect(screen.getAllByText('Stein Fassen').length).toBeGreaterThan(0);
+        expect(screen.getAllByText('Löten').length).toBeGreaterThan(0);
       });
     });
 
@@ -63,7 +69,7 @@ describe('ActivityPicker', () => {
       );
 
       await waitFor(() => {
-        expect(screen.getByText('Abbrechen')).toBeInTheDocument();
+        expect(screen.getByText('✕')).toBeInTheDocument();
       });
     });
   });
@@ -79,7 +85,7 @@ describe('ActivityPicker', () => {
       );
 
       await waitFor(() => {
-        expect(screen.getByText('⚡ Top 5 Aktivitäten')).toBeInTheDocument();
+        expect(screen.getByText('⭐ Häufig verwendet')).toBeInTheDocument();
       });
     });
 
@@ -93,7 +99,7 @@ describe('ActivityPicker', () => {
       );
 
       await waitFor(() => {
-        expect(screen.queryByText('⚡ Top 5 Aktivitäten')).not.toBeInTheDocument();
+        expect(screen.queryByText('⭐ Häufig verwendet')).not.toBeInTheDocument();
       });
     });
 
@@ -107,10 +113,10 @@ describe('ActivityPicker', () => {
       );
 
       await waitFor(() => {
-        const topSection = screen.getByText('⚡ Top 5 Aktivitäten').parentElement;
+        const topSection = screen.getByText('⭐ Häufig verwendet').parentElement;
         expect(topSection).toBeInTheDocument();
 
-        // Most used activities should appear
+        // Most used activities should appear inside the top section
         expect(within(topSection!).getByText('Polieren')).toBeInTheDocument();
       });
     });
@@ -141,15 +147,16 @@ describe('ActivityPicker', () => {
       );
 
       await waitFor(() => {
-        expect(screen.getByText('Polieren')).toBeInTheDocument();
+        expect(screen.getAllByText('Polieren').length).toBeGreaterThan(0);
       });
 
       const searchInput = screen.getByPlaceholderText('Aktivität suchen...');
       await user.type(searchInput, 'Polieren');
 
       await waitFor(() => {
+        // Typing hides the top section, so Polieren shows once (its category)
         expect(screen.getByText('Polieren')).toBeInTheDocument();
-        // Other activities should be filtered out (or not visible)
+        expect(screen.queryByText('Löten')).not.toBeInTheDocument();
       });
     });
 
@@ -164,14 +171,14 @@ describe('ActivityPicker', () => {
       );
 
       await waitFor(() => {
-        expect(screen.getByText('Polieren')).toBeInTheDocument();
+        expect(screen.getAllByText('Polieren').length).toBeGreaterThan(0);
       });
 
       const searchInput = screen.getByPlaceholderText('Aktivität suchen...');
       await user.type(searchInput, 'NonexistentActivity123');
 
       await waitFor(() => {
-        expect(screen.getByText('Keine Aktivitäten gefunden')).toBeInTheDocument();
+        expect(screen.getByText(/Keine Aktivitäten gefunden/)).toBeInTheDocument();
       });
     });
   });
@@ -186,9 +193,10 @@ describe('ActivityPicker', () => {
       );
 
       await waitFor(() => {
-        expect(screen.getByText('🔨 Herstellung')).toBeInTheDocument();
-        expect(screen.getByText('📋 Verwaltung')).toBeInTheDocument();
-        expect(screen.getByText('⏳ Wartezeiten')).toBeInTheDocument();
+        // Each label appears as a filter button and a category header
+        expect(screen.getAllByText('🔨 Fertigung').length).toBeGreaterThan(0);
+        expect(screen.getAllByText('📋 Verwaltung').length).toBeGreaterThan(0);
+        expect(screen.getAllByText('⏳ Warten').length).toBeGreaterThan(0);
       });
     });
 
@@ -206,8 +214,7 @@ describe('ActivityPicker', () => {
         expect(screen.getByText('Alle')).toBeInTheDocument();
       });
 
-      const fabricationButton = screen.getByText('🔨 Herstellung');
-      await user.click(fabricationButton);
+      await user.click(fabricationFilterButton());
 
       // Should show only fabrication activities
       await waitFor(() => {
@@ -232,7 +239,7 @@ describe('ActivityPicker', () => {
         expect(allButton.classList.contains('active')).toBe(true);
       });
 
-      const fabricationButton = screen.getByText('🔨 Herstellung');
+      const fabricationButton = fabricationFilterButton();
       await user.click(fabricationButton);
 
       await waitFor(() => {
@@ -253,10 +260,10 @@ describe('ActivityPicker', () => {
       );
 
       await waitFor(() => {
-        expect(screen.getByText('Polieren')).toBeInTheDocument();
+        expect(screen.getAllByText('Polieren').length).toBeGreaterThan(0);
       });
 
-      const polishingActivity = screen.getByText('Polieren').closest('button');
+      const polishingActivity = screen.getAllByText('Polieren')[0].closest('button');
       await user.click(polishingActivity!);
 
       expect(mockOnSelectActivity).toHaveBeenCalledTimes(1);
@@ -268,7 +275,7 @@ describe('ActivityPicker', () => {
       );
     });
 
-    it('should not call onSelectActivity when disabled', async () => {
+    it('should call onSelectActivity for an enabled activity card', async () => {
       const user = userEvent.setup();
 
       render(
@@ -279,15 +286,12 @@ describe('ActivityPicker', () => {
       );
 
       await waitFor(() => {
-        expect(screen.getByText('Polieren')).toBeInTheDocument();
+        expect(screen.getAllByText('Polieren').length).toBeGreaterThan(0);
       });
 
-      // Simulate loading state by clearing activities
-      // (In real scenario, you'd mock the loading state)
+      const polishingActivity = screen.getAllByText('Polieren')[0].closest('button');
 
-      const polishingActivity = screen.getByText('Polieren').closest('button');
-
-      // Should be enabled and clickable
+      // Activity cards are clickable
       expect(polishingActivity).not.toBeDisabled();
 
       await user.click(polishingActivity!);
@@ -307,18 +311,15 @@ describe('ActivityPicker', () => {
       );
 
       await waitFor(() => {
-        expect(screen.getByText('Abbrechen')).toBeInTheDocument();
+        expect(screen.getByText('✕')).toBeInTheDocument();
       });
 
-      const cancelButton = screen.getByText('Abbrechen');
-      await user.click(cancelButton);
+      await user.click(screen.getByText('✕'));
 
       expect(mockOnCancel).toHaveBeenCalledTimes(1);
     });
 
-    it('should not crash when onCancel is not provided', async () => {
-      const user = userEvent.setup();
-
+    it('should not render a cancel button when onCancel is not provided', async () => {
       render(
         <ActivityPicker
           onSelectActivity={mockOnSelectActivity}
@@ -326,14 +327,11 @@ describe('ActivityPicker', () => {
       );
 
       await waitFor(() => {
-        expect(screen.getByText('Abbrechen')).toBeInTheDocument();
+        expect(screen.getByText('Aktivität auswählen')).toBeInTheDocument();
       });
 
-      const cancelButton = screen.getByText('Abbrechen');
-      await user.click(cancelButton);
-
-      // Should not throw error
-      expect(true).toBe(true);
+      // The close (✕) button only renders when onCancel is passed
+      expect(screen.queryByText('✕')).not.toBeInTheDocument();
     });
   });
 
@@ -347,8 +345,8 @@ describe('ActivityPicker', () => {
       );
 
       await waitFor(() => {
-        expect(screen.getByText('✨')).toBeInTheDocument(); // Polieren icon
-        expect(screen.getByText('💎')).toBeInTheDocument(); // Stein Fassen icon
+        expect(screen.getAllByText('✨').length).toBeGreaterThan(0); // Polieren icon
+        expect(screen.getAllByText('💎').length).toBeGreaterThan(0); // Stein Fassen icon
       });
     });
 
@@ -374,7 +372,8 @@ describe('ActivityPicker', () => {
       );
 
       await waitFor(() => {
-        expect(screen.getByText(/⌀ 45 min/)).toBeInTheDocument();
+        // formatDuration(45) -> "45min"; shown in both top and category cards
+        expect(screen.getAllByText(/45min/).length).toBeGreaterThan(0);
       });
     });
   });
@@ -413,7 +412,7 @@ describe('ActivityPicker', () => {
       );
 
       await waitFor(() => {
-        expect(screen.getByText('Polieren')).toBeInTheDocument();
+        expect(screen.getAllByText('Polieren').length).toBeGreaterThan(0);
       });
 
       // Tab through elements
