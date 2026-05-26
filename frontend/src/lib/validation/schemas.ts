@@ -72,7 +72,7 @@ export const MetalTypeValues = [
   'rose_gold_14k',
 ] as const;
 
-export const CostingMethodValues = ['FIFO', 'LIFO', 'AVERAGE', 'SPECIFIC'] as const;
+export const CostingMethodValues = ['fifo', 'lifo', 'average', 'specific'] as const;
 
 /**
  * Schema for creating a new order.
@@ -103,7 +103,7 @@ export const OrderCreateSchema = z
     metal_type: z.enum(MetalTypeValues).optional(),
     estimated_weight_g: z.number({ invalid_type_error: 'Muss eine Zahl sein' }).positive('Gewicht muss größer als 0 sein').optional(),
     scrap_percentage: z.number().min(0, 'Darf nicht negativ sein').max(50, 'Maximal 50 % Verschnitt').optional(),
-    costing_method: z.enum(CostingMethodValues).default('FIFO'),
+    costing_method: z.enum(CostingMethodValues).default('fifo'),
     specific_metal_purchase_id: z.number().int().positive('Muss eine positive Ganzzahl sein').optional(),
 
     // Pricing fields (all optional — backend calculates from parts)

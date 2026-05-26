@@ -179,7 +179,8 @@ export type OrderStatus =
 
 // MetalType defined in Metal Inventory section below
 
-export type CostingMethod = 'FIFO' | 'LIFO' | 'AVERAGE' | 'SPECIFIC';
+// Values match the backend CostingMethod enum (lowercase wire values).
+export type CostingMethod = 'fifo' | 'lifo' | 'average' | 'specific';
 
 export interface OrderType {
   id: number;

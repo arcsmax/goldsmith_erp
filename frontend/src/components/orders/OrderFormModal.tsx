@@ -28,10 +28,10 @@ const METAL_TYPE_OPTIONS_FALLBACK: { value: MetalType; label: string }[] = [
 ];
 
 const COSTING_METHOD_OPTIONS: { value: CostingMethod; label: string }[] = [
-  { value: 'FIFO', label: 'FIFO (First In, First Out)' },
-  { value: 'LIFO', label: 'LIFO (Last In, First Out)' },
-  { value: 'AVERAGE', label: 'Durchschnittspreis' },
-  { value: 'SPECIFIC', label: 'Spezifische Charge' },
+  { value: 'fifo', label: 'FIFO (First In, First Out)' },
+  { value: 'lifo', label: 'LIFO (Last In, First Out)' },
+  { value: 'average', label: 'Durchschnittspreis' },
+  { value: 'specific', label: 'Spezifische Charge' },
 ];
 
 const ALLOY_OPTIONS = [
@@ -80,7 +80,7 @@ export const OrderFormModal: React.FC<OrderFormModalProps> = ({
     metal_type: '' as MetalType | '',
     estimated_weight_g: '',
     scrap_percentage: '5',
-    costing_method_used: 'FIFO' as CostingMethod,
+    costing_method_used: 'fifo' as CostingMethod,
     specific_metal_purchase_id: '',
 
     // Pricing fields
@@ -131,7 +131,7 @@ export const OrderFormModal: React.FC<OrderFormModalProps> = ({
         metal_type: order.metal_type || '',
         estimated_weight_g: order.estimated_weight_g?.toString() || '',
         scrap_percentage: order.scrap_percentage?.toString() || '5',
-        costing_method_used: order.costing_method_used || 'FIFO',
+        costing_method_used: order.costing_method_used || 'fifo',
         specific_metal_purchase_id: order.specific_metal_purchase_id?.toString() || '',
 
         price: order.price?.toString() || '',
@@ -158,7 +158,7 @@ export const OrderFormModal: React.FC<OrderFormModalProps> = ({
         metal_type: '',
         estimated_weight_g: '',
         scrap_percentage: '5',
-        costing_method_used: 'FIFO',
+        costing_method_used: 'fifo',
         specific_metal_purchase_id: '',
         price: '',
         labor_hours: '',
@@ -683,7 +683,7 @@ export const OrderFormModal: React.FC<OrderFormModalProps> = ({
                       </select>
                     </div>
 
-                    {formData.costing_method_used === 'SPECIFIC' && (
+                    {formData.costing_method_used === 'specific' && (
                       <div className="form-group">
                         <label htmlFor="specific_metal_purchase_id">
                           Charge-ID <span className="required">*</span>

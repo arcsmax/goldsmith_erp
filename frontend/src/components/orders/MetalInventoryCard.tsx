@@ -9,7 +9,7 @@ type MetalType =
   | 'silver_999'
   | 'platinum';
 
-type CostingMethod = 'FIFO' | 'LIFO' | 'AVERAGE' | 'SPECIFIC';
+type CostingMethod = 'fifo' | 'lifo' | 'average' | 'specific';
 
 interface OrderMetalData {
   // Metal Inventory
@@ -43,10 +43,10 @@ const METAL_TYPE_CONFIG: Record<
 
 // Costing method descriptions
 const COSTING_METHOD_DESC: Record<CostingMethod, string> = {
-  FIFO: 'First In, First Out - Älteste Charge zuerst',
-  LIFO: 'Last In, First Out - Neueste Charge zuerst',
-  AVERAGE: 'Durchschnittspreis aller Chargen',
-  SPECIFIC: 'Spezifische Charge ausgewählt',
+  fifo: 'First In, First Out - Älteste Charge zuerst',
+  lifo: 'Last In, First Out - Neueste Charge zuerst',
+  average: 'Durchschnittspreis aller Chargen',
+  specific: 'Spezifische Charge ausgewählt',
 };
 
 export const MetalInventoryCard: React.FC<MetalInventoryCardProps> = ({ order }) => {
@@ -61,7 +61,7 @@ export const MetalInventoryCard: React.FC<MetalInventoryCardProps> = ({ order })
   const scrapWeight = estimatedWeight * (scrapPercent / 100);
   const totalWeight = estimatedWeight + scrapWeight;
   const actualWeight = order.actual_weight_g;
-  const costingMethod = order.costing_method_used ?? 'FIFO';
+  const costingMethod = order.costing_method_used ?? 'fifo';
 
   // Check if order is completed (has actual weight)
   const isCompleted =
@@ -135,7 +135,7 @@ export const MetalInventoryCard: React.FC<MetalInventoryCardProps> = ({ order })
           </div>
           <div className="costing-description">{COSTING_METHOD_DESC[costingMethod]}</div>
 
-          {order.specific_metal_purchase_id && costingMethod === 'SPECIFIC' ? (
+          {order.specific_metal_purchase_id && costingMethod === 'specific' ? (
             <div className="metal-batch-info">
               <span className="metal-label">Verwendete Charge:</span>
               <a
