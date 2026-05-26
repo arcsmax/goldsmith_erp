@@ -222,11 +222,17 @@ returns thousands of violations (mostly `low`/`medium` Code Quality + Style nois
 actionable. The diff workflow surfaces only what *your current changes* introduced:
 
 ```bash
-npx -y truecourse analyze --no-llm          # full scan → refreshes .truecourse/LATEST.json baseline
-npx -y truecourse analyze --diff --no-llm   # compare working tree vs baseline (use this while iterating)
-npx -y truecourse list --diff               # show only newly-introduced violations
+npx -y truecourse analyze --no-stash --no-llm  # full scan of the working tree → refreshes LATEST.json
+npx -y truecourse analyze --diff --no-llm      # compare working tree vs baseline (use this while iterating)
+npx -y truecourse list --diff                  # show only newly-introduced violations
 npx -y truecourse list --severity critical,high   # triage the full set by severity
+npx -y truecourse rules list --disabled        # see which rules we've suppressed as verified FPs
 ```
+
+A **full** `analyze` also needs a stash decision in a non-interactive shell: pass `--no-stash`
+(analyze the working tree as-is — fine when it's clean/committed) or `--stash` (stash pending
+changes and analyze the committed state). Without one it exits asking for the flag. `--diff` does
+not need it.
 
 **Workflow guidance:**
 - **Triage by severity.** Only `critical`/`high` warrant immediate action. Map findings against our
@@ -237,14 +243,39 @@ npx -y truecourse list --severity critical,high   # triage the full set by sever
   `LATEST.json` so fresh clones/worktrees and the pre-commit hook have a baseline. Don't commit it
   from feature branches (the large generated JSON conflicts across PRs).
 - **Tame noise at the source.** Disable chronically noisy rules/categories rather than ignoring
-  output: `npx -y truecourse rules disable <ruleKey>` or `rules categories --disable <category>`
-  (persists to `.truecourse/config.json`). Style/Code-Quality are the usual culprits here.
+  output: `npx -y truecourse rules disable <ruleKey>` / `rules categories --disable <category>`
+  (persists to `.truecourse/config.json`, committed = team-shared). `rules list --disabled` shows
+  current suppressions; `rules reset [ruleKey]` clears them. For tracked-but-not-worth-analyzing
+  paths (generated code, vendored files, large fixtures) add a `.truecourseignore`
+  (`.gitignore` syntax) — `.gitignore` is already respected automatically.
+- **Verified false-positive rules are already disabled** (see `.truecourse/config.json`):
+  `bugs/argument-type-mismatch` (fires on `React.lazy` imports), `bugs/unhandled-promise` (loaders
+  that catch internally in `useEffect`), `database/missing-transaction` (Alembic migrations are
+  already transactional). Don't re-enable without re-reading the code. Other recurring FPs on this
+  codebase, verified but **not** globally disabled: `os-command-injection` in `.claude/hooks/*.js`
+  (static git, local tooling), hardcoded-secret on the Redis key prefix / bcrypt test hashes,
+  `unsafe-temp-file` on `NamedTemporaryFile` (the secure API), `mutable-class-default` on Pydantic
+  fields (Pydantic copies defaults per instance), `cyclomatic/cognitive-complexity` (refactor
+  taste, not bugs), and `unsafe-type-assertion` on idiomatic TS `as` casts.
+- **LLM rules are off by default and need the Claude Code CLI on PATH** (they degrade gracefully to
+  deterministic-only if absent). Toggle with `rules llm --enable|--disable`. They add semantic depth
+  (race conditions, subtle logic) the AST rules miss, but cost tokens per run — only enable for a
+  focused investigation, never in the pre-commit hook, and always relay the cost estimate first.
+- **Highest-value categories on this stack:** Security and Database (real, compliance-relevant),
+  then Bugs/Reliability. Architecture flags god-modules/coupling (informational). Code-Quality and
+  Style are almost entirely noise here — leave them to the baseline.
+- **A full `analyze` can silently under-scan.** A `--no-stash` full run has come back having
+  analyzed mostly the backend (frontend findings missing) — if the totals look implausibly low
+  vs. a previous run, re-run, or cross-check with `analyze --diff` (which re-analyzes the full
+  working tree). Treat a baseline that doesn't reflect a recent fix as stale.
 - **Pre-commit hook is optional and slows commits** (runs `analyze --diff` per commit). If enabled
   via `/truecourse-hooks`, keep `block-on: [critical, high]` and `llm: false` so commits stay fast
   and free. Bypass a blocked commit with `git commit --no-verify` only when justified.
-- **Don't treat TrueCourse as ground truth.** It complements, not replaces, our review standards
-  (selectinload, Pydantic validation, `@require_permission`, audit logging) and the existing
-  linters (black, mypy, bandit). Verify each finding against the actual code before acting.
+- **Don't treat TrueCourse as ground truth.** Across this whole codebase its critical/high tier is
+  FP-dominated; the genuinely actionable findings have been a small handful. It complements, not
+  replaces, our review standards (selectinload, Pydantic validation, `@require_permission`, audit
+  logging) and the existing linters (black, mypy, bandit). Verify every finding against the actual
+  code before acting.
 
 ### Build & Cleanup
 
