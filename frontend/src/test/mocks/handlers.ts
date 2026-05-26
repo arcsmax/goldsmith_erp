@@ -70,6 +70,18 @@ export const mockActivities: Activity[] = [
     is_custom: false,
     created_at: '2025-01-01T00:00:00Z',
   },
+  {
+    id: 10,
+    name: 'Eigene Tätigkeit',
+    category: 'fabrication',
+    icon: '🛠️',
+    color: '#10b981',
+    usage_count: 10,
+    average_duration_minutes: 25,
+    last_used: '2025-01-07T11:00:00Z',
+    is_custom: true,
+    created_at: '2025-01-05T00:00:00Z',
+  },
 ];
 
 export const mockTimeEntries: TimeEntry[] = [
@@ -138,8 +150,23 @@ export const mockTimeTrackingStats: TimeTrackingStats = {
 // Request handlers
 export const handlers = [
   // Activities endpoints
-  http.get(`${API_BASE}/activities/`, () => {
-    return HttpResponse.json(mockActivities);
+  http.get(`${API_BASE}/activities/`, ({ request }) => {
+    const url = new URL(request.url);
+    const category = url.searchParams.get('category');
+    const sortByUsage = url.searchParams.get('sort_by_usage') === 'true';
+    const skip = Number(url.searchParams.get('skip') ?? 0);
+    const limitParam = url.searchParams.get('limit');
+
+    let result = [...mockActivities];
+    if (category) {
+      result = result.filter((a) => a.category === category);
+    }
+    if (sortByUsage) {
+      result = result.sort((a, b) => b.usage_count - a.usage_count);
+    }
+    const end = limitParam !== null ? skip + Number(limitParam) : undefined;
+    result = result.slice(skip, end);
+    return HttpResponse.json(result);
   }),
 
   http.get(`${API_BASE}/activities/most-used`, () => {
@@ -258,7 +285,7 @@ export const handlers = [
     return new HttpResponse(null, { status: 404 });
   }),
 
-  http.post(`${API_BASE}/time-tracking/manual`, async ({ request }) => {
+  http.post(`${API_BASE}/time-tracking/`, async ({ request }) => {
     const body = await request.json();
     const newEntry: TimeEntry = {
       id: '123e4567-e89b-12d3-a456-' + Date.now(),
@@ -289,7 +316,7 @@ export const handlers = [
     return new HttpResponse(null, { status: 404 });
   }),
 
-  http.post(`${API_BASE}/time-tracking/:id/interruption`, async ({ params, request }) => {
+  http.post(`${API_BASE}/time-tracking/:id/interruptions`, async ({ params, request }) => {
     const { id } = params;
     const body = await request.json();
     // Return the entry with interruption added
