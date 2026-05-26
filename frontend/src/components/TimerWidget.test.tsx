@@ -1,6 +1,11 @@
 // Tests for TimerWidget Component
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+//
+// The widget renders a collapsed floating action button (FAB) by default and
+// only shows the expanded controls after it is opened. Tests expand it via the
+// 'timer:expand' window event the component listens for (see TimerWidget.tsx),
+// which avoids depending on FAB-click timing.
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { render, screen, waitFor, within, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import TimerWidget from './TimerWidget';
 import { TimeEntry } from '../types';
@@ -9,12 +14,12 @@ describe('TimerWidget', () => {
   const mockOnStop = vi.fn();
   const mockOnRefresh = vi.fn();
 
-  const mockRunningEntry: TimeEntry = {
+  const makeEntry = (overrides: Partial<TimeEntry> = {}): TimeEntry => ({
     id: 'test-entry-id',
     order_id: 123,
     user_id: 1,
     activity_id: 1,
-    start_time: new Date(Date.now() - 1800000).toISOString(), // 30 minutes ago
+    start_time: new Date(Date.now() - 1800000).toISOString(), // 30 min ago
     end_time: null,
     duration_minutes: null,
     location: 'workbench_1',
@@ -24,495 +29,219 @@ describe('TimerWidget', () => {
     notes: null,
     extra_metadata: null,
     created_at: new Date(Date.now() - 1800000).toISOString(),
-  };
+    ...overrides,
+  });
+
+  const renderWidget = (entry: TimeEntry | null) =>
+    render(
+      <TimerWidget
+        runningEntry={entry}
+        onStop={mockOnStop}
+        onRefresh={mockOnRefresh}
+      />
+    );
+
+  // Expand the collapsed FAB into the full widget.
+  const expand = () =>
+    act(() => {
+      window.dispatchEvent(new Event('timer:expand'));
+    });
 
   beforeEach(() => {
     mockOnStop.mockClear();
     mockOnRefresh.mockClear();
   });
 
-  describe('Visibility', () => {
-    it('should not render when no entry is running', () => {
-      const { container } = render(
-        <TimerWidget
-          runningEntry={null}
-          onStop={mockOnStop}
-          onRefresh={mockOnRefresh}
-        />
-      );
+  afterEach(() => {
+    vi.useRealTimers();
+  });
 
-      expect(container.firstChild).toBeNull();
+  describe('Collapsed FAB', () => {
+    it('renders a start FAB when no entry is running', () => {
+      renderWidget(null);
+
+      const fab = screen.getByRole('button');
+      expect(fab).toHaveClass('timer-fab');
+      expect(fab).toHaveAttribute('title', 'Zeiterfassung starten');
     });
 
-    it('should render when entry is running', () => {
-      render(
-        <TimerWidget
-          runningEntry={mockRunningEntry}
-          onStop={mockOnStop}
-          onRefresh={mockOnRefresh}
-        />
-      );
+    it('renders an active FAB with elapsed time when an entry is running', () => {
+      renderWidget(makeEntry());
 
-      expect(screen.getByText(/Auftrag #123/)).toBeInTheDocument();
+      const fab = screen.getByRole('button');
+      expect(fab).toHaveClass('timer-fab--active');
+      expect(fab.textContent).toMatch(/\d+:\d{2}/); // shows running time
     });
   });
 
-  describe('Timer Display', () => {
-    it('should show elapsed time', () => {
-      render(
-        <TimerWidget
-          runningEntry={mockRunningEntry}
-          onStop={mockOnStop}
-          onRefresh={mockOnRefresh}
-        />
-      );
+  describe('Expanded view', () => {
+    it('shows the running label, order number and elapsed time', () => {
+      renderWidget(makeEntry());
+      expand();
 
-      // Should show time in format "00:30:XX" (30 minutes)
-      expect(screen.getByText(/00:3/)).toBeInTheDocument();
+      expect(screen.getByText('⏱️ Läuft')).toBeInTheDocument();
+
+      const activity = screen.getByText(
+        (_, el) => el?.classList.contains('timer-activity') ?? false
+      );
+      expect(activity).toHaveTextContent('Auftrag #123');
+
+      expect(document.querySelector('.timer-time')?.textContent).toMatch(
+        /\d+:\d{2}/
+      );
     });
 
-    it('should update elapsed time every second', async () => {
-      vi.useFakeTimers();
+    it('collapses back to the FAB via the minimize button', async () => {
+      const user = userEvent.setup();
+      renderWidget(makeEntry());
+      expand();
 
-      render(
-        <TimerWidget
-          runningEntry={mockRunningEntry}
-          onStop={mockOnStop}
-          onRefresh={mockOnRefresh}
-        />
-      );
+      await user.click(screen.getByTitle('Minimieren'));
 
-      const initialTime = screen.getByText(/00:3/).textContent;
-
-      // Advance time by 2 seconds
-      vi.advanceTimersByTime(2000);
-
-      await waitFor(() => {
-        const newTime = screen.getByText(/00:3/).textContent;
-        expect(newTime).not.toBe(initialTime);
-      });
-
-      vi.useRealTimers();
-    });
-
-    it('should show order number', () => {
-      render(
-        <TimerWidget
-          runningEntry={mockRunningEntry}
-          onStop={mockOnStop}
-          onRefresh={mockOnRefresh}
-        />
-      );
-
-      expect(screen.getByText('Auftrag #123')).toBeInTheDocument();
-    });
-
-    it('should show location when available', () => {
-      render(
-        <TimerWidget
-          runningEntry={mockRunningEntry}
-          onStop={mockOnStop}
-          onRefresh={mockOnRefresh}
-        />
-      );
-
-      expect(screen.getByText('📍 workbench_1')).toBeInTheDocument();
-    });
-
-    it('should not show location when not available', () => {
-      const entryWithoutLocation = { ...mockRunningEntry, location: null };
-
-      render(
-        <TimerWidget
-          runningEntry={entryWithoutLocation}
-          onStop={mockOnStop}
-          onRefresh={mockOnRefresh}
-        />
-      );
-
-      expect(screen.queryByText(/📍/)).not.toBeInTheDocument();
+      expect(screen.getByRole('button')).toHaveClass('timer-fab');
     });
   });
 
-  describe('Pause/Resume Functionality', () => {
-    it('should show pause button when timer is running', () => {
-      render(
-        <TimerWidget
-          runningEntry={mockRunningEntry}
-          onStop={mockOnStop}
-          onRefresh={mockOnRefresh}
-        />
-      );
-
-      expect(screen.getByTitle('Pausieren')).toBeInTheDocument();
-    });
-
-    it('should pause timer when pause button is clicked', async () => {
+  describe('Pause / Resume', () => {
+    it('toggles between running and paused state', async () => {
       const user = userEvent.setup();
+      renderWidget(makeEntry());
+      expand();
 
-      render(
-        <TimerWidget
-          runningEntry={mockRunningEntry}
-          onStop={mockOnStop}
-          onRefresh={mockOnRefresh}
-        />
-      );
+      expect(screen.getByText('⏱️ Läuft')).toBeInTheDocument();
 
-      const pauseButton = screen.getByTitle('Pausieren');
-      await user.click(pauseButton);
+      await user.click(screen.getByText('⏸️ Pause'));
 
-      // Should show resume button after pause
-      expect(screen.getByTitle('Fortsetzen')).toBeInTheDocument();
-    });
+      expect(screen.getByText('⏸️ Pausiert')).toBeInTheDocument();
+      expect(screen.getByText('▶️ Fortsetzen')).toBeInTheDocument();
 
-    it('should show pause badge when paused', async () => {
-      const user = userEvent.setup();
+      await user.click(screen.getByText('▶️ Fortsetzen'));
 
-      render(
-        <TimerWidget
-          runningEntry={mockRunningEntry}
-          onStop={mockOnStop}
-          onRefresh={mockOnRefresh}
-        />
-      );
-
-      const pauseButton = screen.getByTitle('Pausieren');
-      await user.click(pauseButton);
-
-      expect(screen.getByText('Pausiert')).toBeInTheDocument();
-    });
-
-    it('should resume timer when resume button is clicked', async () => {
-      const user = userEvent.setup();
-
-      render(
-        <TimerWidget
-          runningEntry={mockRunningEntry}
-          onStop={mockOnStop}
-          onRefresh={mockOnRefresh}
-        />
-      );
-
-      // Pause first
-      const pauseButton = screen.getByTitle('Pausieren');
-      await user.click(pauseButton);
-
-      // Then resume
-      const resumeButton = screen.getByTitle('Fortsetzen');
-      await user.click(resumeButton);
-
-      // Should show pause button again
-      expect(screen.getByTitle('Pausieren')).toBeInTheDocument();
-      expect(screen.queryByText('Pausiert')).not.toBeInTheDocument();
+      expect(screen.getByText('⏱️ Läuft')).toBeInTheDocument();
     });
   });
 
-  describe('Stop Dialog', () => {
-    it('should open stop dialog when stop button is clicked', async () => {
+  describe('Stop dialog', () => {
+    const openStopDialog = async (user: ReturnType<typeof userEvent.setup>) => {
+      renderWidget(makeEntry());
+      expand();
+      await user.click(screen.getByText('⏹️ Stopp'));
+    };
+
+    it('opens with rating, rework and notes fields', async () => {
       const user = userEvent.setup();
-
-      render(
-        <TimerWidget
-          runningEntry={mockRunningEntry}
-          onStop={mockOnStop}
-          onRefresh={mockOnRefresh}
-        />
-      );
-
-      const stopButton = screen.getByText('Stoppen');
-      await user.click(stopButton);
+      await openStopDialog(user);
 
       expect(screen.getByText('Zeiterfassung beenden')).toBeInTheDocument();
-    });
-
-    it('should show complexity rating field in stop dialog', async () => {
-      const user = userEvent.setup();
-
-      render(
-        <TimerWidget
-          runningEntry={mockRunningEntry}
-          onStop={mockOnStop}
-          onRefresh={mockOnRefresh}
-        />
-      );
-
-      const stopButton = screen.getByText('Stoppen');
-      await user.click(stopButton);
-
-      expect(screen.getByText('Komplexität:')).toBeInTheDocument();
-    });
-
-    it('should show quality rating field in stop dialog', async () => {
-      const user = userEvent.setup();
-
-      render(
-        <TimerWidget
-          runningEntry={mockRunningEntry}
-          onStop={mockOnStop}
-          onRefresh={mockOnRefresh}
-        />
-      );
-
-      const stopButton = screen.getByText('Stoppen');
-      await user.click(stopButton);
-
-      expect(screen.getByText('Qualität:')).toBeInTheDocument();
-    });
-
-    it('should show rework required checkbox', async () => {
-      const user = userEvent.setup();
-
-      render(
-        <TimerWidget
-          runningEntry={mockRunningEntry}
-          onStop={mockOnStop}
-          onRefresh={mockOnRefresh}
-        />
-      );
-
-      const stopButton = screen.getByText('Stoppen');
-      await user.click(stopButton);
-
+      expect(screen.getByText('Komplexität (1-5)')).toBeInTheDocument();
+      expect(screen.getByText('Qualität (1-5)')).toBeInTheDocument();
       expect(screen.getByText('Nacharbeit erforderlich')).toBeInTheDocument();
+      expect(screen.getByText('Notizen (optional)')).toBeInTheDocument();
+      expect(
+        screen.getByPlaceholderText('Zusätzliche Notizen...')
+      ).toBeInTheDocument();
     });
 
-    it('should show notes textarea', async () => {
+    it('closes without stopping when cancel is clicked', async () => {
       const user = userEvent.setup();
+      await openStopDialog(user);
 
-      render(
-        <TimerWidget
-          runningEntry={mockRunningEntry}
-          onStop={mockOnStop}
-          onRefresh={mockOnRefresh}
-        />
-      );
+      await user.click(screen.getByText('Abbrechen'));
 
-      const stopButton = screen.getByText('Stoppen');
-      await user.click(stopButton);
-
-      expect(screen.getByPlaceholderText('Notizen (optional)...')).toBeInTheDocument();
-    });
-
-    it('should close stop dialog when cancel is clicked', async () => {
-      const user = userEvent.setup();
-
-      render(
-        <TimerWidget
-          runningEntry={mockRunningEntry}
-          onStop={mockOnStop}
-          onRefresh={mockOnRefresh}
-        />
-      );
-
-      const stopButton = screen.getByText('Stoppen');
-      await user.click(stopButton);
-
-      const cancelButton = screen.getByText('Abbrechen');
-      await user.click(cancelButton);
-
-      expect(screen.queryByText('Zeiterfassung beenden')).not.toBeInTheDocument();
-    });
-
-    it('should not call onStop when cancel is clicked', async () => {
-      const user = userEvent.setup();
-
-      render(
-        <TimerWidget
-          runningEntry={mockRunningEntry}
-          onStop={mockOnStop}
-          onRefresh={mockOnRefresh}
-        />
-      );
-
-      const stopButton = screen.getByText('Stoppen');
-      await user.click(stopButton);
-
-      const cancelButton = screen.getByText('Abbrechen');
-      await user.click(cancelButton);
-
+      expect(
+        screen.queryByText('Zeiterfassung beenden')
+      ).not.toBeInTheDocument();
       expect(mockOnStop).not.toHaveBeenCalled();
     });
-  });
 
-  describe('Star Rating', () => {
-    it('should allow selecting complexity rating', async () => {
+    it('stops the timer and notifies parent on confirm', async () => {
       const user = userEvent.setup();
+      await openStopDialog(user);
 
-      render(
-        <TimerWidget
-          runningEntry={mockRunningEntry}
-          onStop={mockOnStop}
-          onRefresh={mockOnRefresh}
-        />
-      );
+      await user.click(screen.getByText('Stoppen & Speichern'));
 
-      const stopButton = screen.getByText('Stoppen');
-      await user.click(stopButton);
+      await waitFor(() => {
+        expect(mockOnStop).toHaveBeenCalledTimes(1);
+      });
+      expect(mockOnRefresh).toHaveBeenCalled();
+    });
 
-      // Find complexity rating stars
-      const complexitySection = screen.getByText('Komplexität:').closest('.rating-field');
-      const stars = within(complexitySection!).getAllByText('★');
+    it('lets the user pick a complexity rating', async () => {
+      const user = userEvent.setup();
+      await openStopDialog(user);
 
-      // Click 5th star
+      const field = screen
+        .getByText('Komplexität (1-5)')
+        .closest('.stop-dialog-field') as HTMLElement;
+      const stars = within(field).getAllByText('★');
+      expect(stars).toHaveLength(5);
+
+      // Default complexity is 3 → 3 active stars; clicking the 5th selects 5.
       await user.click(stars[4]);
-
-      // All 5 stars should be active
-      expect(stars[0].classList.contains('active')).toBe(true);
-      expect(stars[4].classList.contains('active')).toBe(true);
+      await waitFor(() => {
+        const active = within(field)
+          .getAllByText('★')
+          .filter((s) => s.classList.contains('active'));
+        expect(active).toHaveLength(5);
+      });
     });
 
-    it('should allow selecting quality rating', async () => {
+    it('lets the user pick a quality rating', async () => {
       const user = userEvent.setup();
+      await openStopDialog(user);
 
-      render(
-        <TimerWidget
-          runningEntry={mockRunningEntry}
-          onStop={mockOnStop}
-          onRefresh={mockOnRefresh}
-        />
-      );
+      const field = screen
+        .getByText('Qualität (1-5)')
+        .closest('.stop-dialog-field') as HTMLElement;
+      const stars = within(field).getAllByText('★');
+      expect(stars).toHaveLength(5);
 
-      const stopButton = screen.getByText('Stoppen');
-      await user.click(stopButton);
+      // Default quality is 4 → clicking the 2nd selects 2.
+      await user.click(stars[1]);
+      await waitFor(() => {
+        const active = within(field)
+          .getAllByText('★')
+          .filter((s) => s.classList.contains('active'));
+        expect(active).toHaveLength(2);
+      });
+    });
 
-      // Find quality rating stars
-      const qualitySection = screen.getByText('Qualität:').closest('.rating-field');
-      const stars = within(qualitySection!).getAllByText('★');
+    it('toggles the rework-required checkbox', async () => {
+      const user = userEvent.setup();
+      await openStopDialog(user);
 
-      // Click 3rd star
-      await user.click(stars[2]);
+      const checkbox = screen.getByRole('checkbox');
+      expect(checkbox).not.toBeChecked();
+      await user.click(checkbox);
+      expect(checkbox).toBeChecked();
+    });
 
-      // First 3 stars should be active
-      expect(stars[0].classList.contains('active')).toBe(true);
-      expect(stars[2].classList.contains('active')).toBe(true);
-      expect(stars[3].classList.contains('active')).toBe(false);
+    it('accepts notes input', async () => {
+      const user = userEvent.setup();
+      await openStopDialog(user);
+
+      const notes = screen.getByPlaceholderText('Zusätzliche Notizen...');
+      await user.type(notes, 'Sauber poliert');
+      expect(notes).toHaveValue('Sauber poliert');
     });
   });
 
-  describe('Refresh Functionality', () => {
-    it('should show refresh button', () => {
-      render(
-        <TimerWidget
-          runningEntry={mockRunningEntry}
-          onStop={mockOnStop}
-          onRefresh={mockOnRefresh}
-        />
-      );
+  describe('Elapsed time', () => {
+    it('updates the displayed time every second', () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2025-01-01T12:00:00Z'));
 
-      expect(screen.getByTitle('Aktualisieren')).toBeInTheDocument();
-    });
+      // start 60 seconds before "now" → 1:00 elapsed
+      renderWidget(makeEntry({ start_time: '2025-01-01T11:59:00Z' }));
+      expand();
 
-    it('should call onRefresh when refresh button is clicked', async () => {
-      const user = userEvent.setup();
+      expect(document.querySelector('.timer-time')?.textContent).toBe('1:00');
 
-      render(
-        <TimerWidget
-          runningEntry={mockRunningEntry}
-          onStop={mockOnStop}
-          onRefresh={mockOnRefresh}
-        />
-      );
+      act(() => {
+        vi.advanceTimersByTime(1000);
+      });
 
-      const refreshButton = screen.getByTitle('Aktualisieren');
-      await user.click(refreshButton);
-
-      expect(mockOnRefresh).toHaveBeenCalledTimes(1);
-    });
-  });
-
-  describe('Expand/Collapse', () => {
-    it('should start in expanded state', () => {
-      render(
-        <TimerWidget
-          runningEntry={mockRunningEntry}
-          onStop={mockOnStop}
-          onRefresh={mockOnRefresh}
-        />
-      );
-
-      expect(screen.getByText('Stoppen')).toBeInTheDocument();
-    });
-
-    it('should show minimize button in expanded state', () => {
-      render(
-        <TimerWidget
-          runningEntry={mockRunningEntry}
-          onStop={mockOnStop}
-          onRefresh={mockOnRefresh}
-        />
-      );
-
-      expect(screen.getByTitle('Minimieren')).toBeInTheDocument();
-    });
-
-    it('should collapse when minimize button is clicked', async () => {
-      const user = userEvent.setup();
-
-      render(
-        <TimerWidget
-          runningEntry={mockRunningEntry}
-          onStop={mockOnStop}
-          onRefresh={mockOnRefresh}
-        />
-      );
-
-      const minimizeButton = screen.getByTitle('Minimieren');
-      await user.click(minimizeButton);
-
-      // Should hide action buttons in collapsed state
-      expect(screen.queryByText('Stoppen')).not.toBeInTheDocument();
-    });
-
-    it('should expand when expand button is clicked', async () => {
-      const user = userEvent.setup();
-
-      render(
-        <TimerWidget
-          runningEntry={mockRunningEntry}
-          onStop={mockOnStop}
-          onRefresh={mockOnRefresh}
-        />
-      );
-
-      // Collapse first
-      const minimizeButton = screen.getByTitle('Minimieren');
-      await user.click(minimizeButton);
-
-      // Then expand
-      const expandButton = screen.getByTitle('Erweitern');
-      await user.click(expandButton);
-
-      // Should show action buttons again
-      expect(screen.getByText('Stoppen')).toBeInTheDocument();
-    });
-  });
-
-  describe('Accessibility', () => {
-    it('should have accessible buttons', () => {
-      render(
-        <TimerWidget
-          runningEntry={mockRunningEntry}
-          onStop={mockOnStop}
-          onRefresh={mockOnRefresh}
-        />
-      );
-
-      const buttons = screen.getAllByRole('button');
-      expect(buttons.length).toBeGreaterThan(0);
-    });
-
-    it('should have title attributes for icon buttons', () => {
-      render(
-        <TimerWidget
-          runningEntry={mockRunningEntry}
-          onStop={mockOnStop}
-          onRefresh={mockOnRefresh}
-        />
-      );
-
-      expect(screen.getByTitle('Pausieren')).toBeInTheDocument();
-      expect(screen.getByTitle('Aktualisieren')).toBeInTheDocument();
-      expect(screen.getByTitle('Minimieren')).toBeInTheDocument();
+      expect(document.querySelector('.timer-time')?.textContent).toBe('1:01');
     });
   });
 });
