@@ -63,6 +63,15 @@ jobs:
     # silently skipping the entire backend test suite. Tests now run on their
     # own merit; lint remains an advisory signal until the debt is paid down.
     runs-on: ubuntu-latest
+    env:
+      # Encryption-dependent tests (PII/valuation) need a key; the anonymization
+      # suite needs the salt. Non-secret CI values (see test-integration-pg).
+      ENCRYPTION_KEY: dGVzdGtleTEyMzQ1Njc4OTBhYmNkZWZnaGlqa2w=
+      ANONYMIZATION_SALT: testsalt1234567890abcdef
+      # Sync URL for the alembic round-trip test (test_migration_h9_roundtrip
+      # prefers MIGRATION_TEST_DATABASE_URL; without it the test would feed the
+      # async DATABASE_URL to a sync create_engine → MissingGreenlet).
+      MIGRATION_TEST_DATABASE_URL: postgresql://user:pass@localhost:5432/goldsmith_test
     services:
       postgres:
         image: postgres:15
