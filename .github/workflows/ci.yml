@@ -101,7 +101,7 @@ jobs:
         # `tests` package are importable; testpaths/rootdir resolve via the
         # root pyproject.toml. Running from ./src left repo root off sys.path,
         # breaking `import tests.*` in a few integration modules.
-        run: poetry run pytest tests/ --maxfail=3 -q --tb=short --cov=goldsmith_erp --cov-report=xml --cov-report=term --cov-fail-under=50
+        run: poetry run python -m pytest tests/ --maxfail=3 -q --tb=short --cov=goldsmith_erp --cov-report=xml --cov-report=term --cov-fail-under=50
       - name: Upload coverage
         if: always()
         uses: actions/upload-artifact@v4
@@ -163,7 +163,7 @@ jobs:
         working-directory: ./src
         run: poetry install
       - name: Run integration tests against Postgres
-        run: poetry run pytest tests/integration/ -v --tb=short --maxfail=5
+        run: poetry run python -m pytest tests/integration/ -v --tb=short --maxfail=5
 
   # F2 — alembic round-trip smoke (upgrade → downgrade → upgrade).
   # CI previously only verified forward migrations. Broken `downgrade()`
