@@ -66,7 +66,7 @@ jobs:
     env:
       # Encryption-dependent tests (PII/valuation) need a key; the anonymization
       # suite needs the salt. Non-secret CI values (see test-integration-pg).
-      ENCRYPTION_KEY: dGVzdGtleTEyMzQ1Njc4OTBhYmNkZWZnaGlqa2w=
+      ENCRYPTION_KEY: V0Ae_U1MhSkUCNugAmmQV7Jl2GnxkizHeurQnglXVOc=
       ANONYMIZATION_SALT: testsalt1234567890abcdef
       # Sync URL for the alembic round-trip test (test_migration_h9_roundtrip
       # prefers MIGRATION_TEST_DATABASE_URL; without it the test would feed the
@@ -155,10 +155,11 @@ jobs:
       DATABASE_URL: postgresql+asyncpg://user:pass@localhost:5432/goldsmith_test
       REDIS_URL: redis://localhost:6379/0
       SECRET_KEY: ci-test-secret-key-minimum-32-characters-long-enough
-      # Non-secret test values — base64 of "testkey1234567890abcdefghijkl" and a
-      # dummy salt. Kept inline rather than as GitHub secrets: they carry no
-      # security meaning in CI (no real data is encrypted with them).
-      ENCRYPTION_KEY: dGVzdGtleTEyMzQ1Njc4OTBhYmNkZWZnaGlqa2w=
+      # Non-secret test values — a throwaway but *valid* 32-byte Fernet key
+      # (the old dummy decoded to 29 bytes and raised "Fernet key must be 32
+      # bytes") and a dummy salt. Kept inline rather than as GitHub secrets:
+      # they carry no security meaning in CI (no real data is encrypted).
+      ENCRYPTION_KEY: V0Ae_U1MhSkUCNugAmmQV7Jl2GnxkizHeurQnglXVOc=
       ANONYMIZATION_SALT: testsalt1234567890abcdef
       DEBUG: "true"
     steps:
@@ -215,7 +216,7 @@ jobs:
       DATABASE_URL: postgresql+asyncpg://user:pass@localhost:5432/goldsmith_test
       REDIS_URL: redis://localhost:6379/0
       SECRET_KEY: ci-test-secret-key-minimum-32-characters-long-enough
-      ENCRYPTION_KEY: dGVzdGtleTEyMzQ1Njc4OTBhYmNkZWZnaGlqa2w=
+      ENCRYPTION_KEY: V0Ae_U1MhSkUCNugAmmQV7Jl2GnxkizHeurQnglXVOc=
       ANONYMIZATION_SALT: testsalt1234567890abcdef
       DEBUG: "true"
     steps:
@@ -292,7 +293,7 @@ jobs:
       DATABASE_URL: postgresql+asyncpg://user:pass@localhost:5432/goldsmith_test
       REDIS_URL: redis://localhost:6379/0
       SECRET_KEY: ci-test-secret-key-minimum-32-characters-long-enough
-      ENCRYPTION_KEY: dGVzdGtleTEyMzQ1Njc4OTBhYmNkZWZnaGlqa2w=
+      ENCRYPTION_KEY: V0Ae_U1MhSkUCNugAmmQV7Jl2GnxkizHeurQnglXVOc=
       ANONYMIZATION_SALT: testsalt1234567890abcdef
       DEBUG: "true"
       CI: "true"
