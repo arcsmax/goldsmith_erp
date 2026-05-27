@@ -4,9 +4,11 @@
 
 FROM docker.io/library/node:18-alpine
 
-# Run as non-root user
-ARG USER_ID=1000
-ARG GROUP_ID=1000
+# Run as non-root user. Defaults avoid 1000, which node:alpine already
+# assigns to its built-in `node` user/group (addgroup/adduser -g/-u 1000
+# would collide). dev (podman-compose) overrides these with the host's IDs.
+ARG USER_ID=1001
+ARG GROUP_ID=1001
 
 WORKDIR /app
 

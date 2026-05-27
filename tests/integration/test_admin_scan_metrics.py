@@ -18,7 +18,7 @@ risk under BDSG §26 — A14.2).
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 
 import pytest
 from httpx import AsyncClient
@@ -98,7 +98,7 @@ async def _make_activity(db: AsyncSession, user: User) -> Activity:
 
 async def _make_metal_purchase(db: AsyncSession) -> MetalPurchase:
     mp = MetalPurchase(
-        date_purchased=datetime.now(timezone.utc),
+        date_purchased=datetime.utcnow(),
         metal_type=MetalType.GOLD_14K,
         weight_g=100.0,
         remaining_weight_g=100.0,
@@ -126,7 +126,7 @@ async def _make_time_entry(
         user_id=user.id,
         order_id=order.id,
         activity_id=activity.id,
-        start_time=datetime.now(timezone.utc),
+        start_time=datetime.utcnow(),
         origin=origin,
         correction_of=correction_of,
     )
@@ -395,7 +395,7 @@ class TestCounterTiles:
         db_session: AsyncSession,
     ):
         gm = await _make_user(db_session, role=UserRole.GOLDSMITH)
-        now = datetime.now(timezone.utc)
+        now = datetime.utcnow()
         db_session.add(
             ScanLog(
                 user_id=gm.id,
@@ -443,7 +443,7 @@ class TestFabTapLatency:
         db_session: AsyncSession,
     ):
         gm = await _make_user(db_session, role=UserRole.GOLDSMITH)
-        now = datetime.now(timezone.utc)
+        now = datetime.utcnow()
         # Deltas 1, 2, 3, 4, 5 seconds. p50 = 3000 ms, p95 -> nearest-rank = 5000 ms.
         for sec in (1, 2, 3, 4, 5):
             tap = now - timedelta(minutes=1)
