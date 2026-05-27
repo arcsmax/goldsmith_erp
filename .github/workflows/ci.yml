@@ -26,7 +26,7 @@ jobs:
         run: pip install poetry
       - name: Install dependencies
         working-directory: ./src
-        run: poetry install --no-root
+        run: poetry install
       - name: Check formatting (black)
         working-directory: ./src
         run: poetry run black --check goldsmith_erp/
@@ -95,7 +95,7 @@ jobs:
         run: pip install poetry
       - name: Install dependencies
         working-directory: ./src
-        run: poetry install --no-root
+        run: poetry install
       - name: Run tests with coverage
         working-directory: ./src
         run: poetry run pytest ../tests/ --maxfail=3 -q --tb=short --cov=goldsmith_erp --cov-report=xml --cov-report=term --cov-fail-under=50
@@ -158,7 +158,7 @@ jobs:
         run: pip install poetry
       - name: Install dependencies
         working-directory: ./src
-        run: poetry install --no-root
+        run: poetry install
       - name: Run integration tests against Postgres
         working-directory: ./src
         run: poetry run pytest ../tests/integration/ -v --tb=short --maxfail=5
@@ -215,7 +215,7 @@ jobs:
       - name: Install Poetry
         run: pip install poetry
       - name: Install dependencies
-        run: poetry install --no-root
+        run: poetry install
       - name: Alembic upgrade → downgrade → upgrade round-trip
         run: |
           poetry run alembic upgrade head
@@ -296,7 +296,7 @@ jobs:
       - name: Install Poetry
         run: pip install poetry
       - name: Install backend dependencies
-        run: poetry install --no-root
+        run: poetry install
       - name: Run migrations
         run: poetry run alembic upgrade head
       - name: Start backend (uvicorn, background)
