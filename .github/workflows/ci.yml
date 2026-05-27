@@ -96,9 +96,6 @@ jobs:
       - name: Install dependencies
         working-directory: ./src
         run: poetry install --no-root
-      - name: Run migrations
-        working-directory: ./src
-        run: poetry run alembic upgrade head
       - name: Run tests with coverage
         working-directory: ./src
         run: poetry run pytest ../tests/ --maxfail=3 -q --tb=short --cov=goldsmith_erp --cov-report=xml --cov-report=term --cov-fail-under=50
@@ -162,9 +159,6 @@ jobs:
       - name: Install dependencies
         working-directory: ./src
         run: poetry install --no-root
-      - name: Run migrations
-        working-directory: ./src
-        run: poetry run alembic upgrade head
       - name: Run integration tests against Postgres
         working-directory: ./src
         run: poetry run pytest ../tests/integration/ -v --tb=short --maxfail=5
