@@ -58,7 +58,10 @@ jobs:
 
   # Stage 2: Tests
   test-backend:
-    needs: lint
+    # Decoupled from `lint`: the backend lint gate (black/isort/mypy strict)
+    # carries large pre-existing debt and cannot currently pass, which was
+    # silently skipping the entire backend test suite. Tests now run on their
+    # own merit; lint remains an advisory signal until the debt is paid down.
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -112,7 +115,6 @@ jobs:
   # Only runs tests/integration/, not the SQLite unit suite.
   # Ref: docs/fix-plan/2026-04-23/F1-pg-test-target.md
   test-integration-pg:
-    needs: lint
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -177,7 +179,6 @@ jobs:
   # though the app itself uses `postgresql+asyncpg://`).
   # Ref: docs/fix-plan/2026-04-23/F2-downgrade-smoke.md
   migration-smoke:
-    needs: lint
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -256,7 +257,7 @@ jobs:
   # only the backend needs manual boot here.
   # Ref: docs/fix-plan/2026-04-23/F3-playwright-ci.md
   test-e2e:
-    needs: [lint, lint-frontend]
+    needs: [lint-frontend]
     runs-on: ubuntu-latest
     services:
       postgres:
