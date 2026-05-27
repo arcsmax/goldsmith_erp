@@ -378,6 +378,7 @@ def seed_activities(db: Session) -> None:
             color=data["color"],
             usage_count=0,
             is_custom=False,
+            is_billable=data["category"] == "fabrication",
             created_at=datetime.utcnow(),
         )
         db.add(activity)
