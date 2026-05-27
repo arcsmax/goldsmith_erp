@@ -132,6 +132,8 @@ async def list_metal_purchases(
                 price_per_gram=p.price_per_gram,
                 remaining_value=p.remaining_value,
                 supplier=p.supplier,
+                invoice_number=p.invoice_number,
+                lot_number=p.lot_number,
                 is_depleted=p.is_depleted
             )
             for p in purchases

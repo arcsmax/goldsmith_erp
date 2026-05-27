@@ -82,6 +82,22 @@ class TestMetalPurchaseEndpoints:
         assert data[0]["metal_type"] == "gold_18k"
 
     @pytest.mark.asyncio
+    async def test_list_purchases_includes_invoice_and_lot_number(
+        self, client: AsyncClient, admin_auth_headers, sample_metal_purchase
+    ):
+        """List items expose invoice_number/lot_number so the inventory UI
+        can search and display them (frontend MetalInventoryPage relies on this)."""
+        response = await client.get(
+            "/api/v1/metal-inventory/purchases",
+            headers=admin_auth_headers
+        )
+
+        assert response.status_code == 200
+        item = next(p for p in response.json() if p["id"] == sample_metal_purchase.id)
+        assert item["invoice_number"] == "TEST-001"
+        assert "lot_number" in item  # present (None when unset)
+
+    @pytest.mark.asyncio
     async def test_list_purchases_filter_by_metal_type(
         self, client: AsyncClient, admin_auth_headers, sample_metal_purchase, silver_purchase
     ):
