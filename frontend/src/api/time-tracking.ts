@@ -5,10 +5,12 @@ import {
   TimeEntryWithDetails,
   TimeEntryStartInput,
   TimeEntryStopInput,
+  TimeEntryCreateInput,
   TimeEntryUpdateInput,
   Interruption,
   InterruptionCreateInput,
   TimeTrackingStats,
+  TimeSummaryStats,
 } from '../types';
 
 export const timeTrackingApi = {
@@ -101,20 +103,28 @@ export const timeTrackingApi = {
   /**
    * Create a manual time entry (with start and end time)
    */
-  createManual: async (data: {
-    order_id: number;
-    activity_id: number;
-    start_time: string;
-    end_time?: string;
-    duration_minutes?: number;
-    location?: string;
-    complexity_rating?: number;
-    quality_rating?: number;
-    rework_required?: boolean;
-    notes?: string;
-    extra_metadata?: Record<string, any>;
-  }): Promise<TimeEntry> => {
+  createManual: async (data: TimeEntryCreateInput): Promise<TimeEntry> => {
     const response = await apiClient.post<TimeEntry>('/time-tracking/', data);
+    return response.data;
+  },
+
+  /**
+   * Get aggregated time-tracking statistics for a date range.
+   * GET /time-tracking/summary?start_date=&end_date=
+   *
+   * NOTE: the backend endpoint is not yet implemented; callers
+   * (DashboardKPIs, TimeSummaryCards) guard against failure and degrade
+   * gracefully. This method makes the intended contract explicit so it
+   * works automatically once the endpoint lands.
+   */
+  getSummary: async (params: {
+    start_date: string;
+    end_date: string;
+  }): Promise<TimeSummaryStats> => {
+    const response = await apiClient.get<TimeSummaryStats>(
+      '/time-tracking/summary',
+      { params }
+    );
     return response.data;
   },
 

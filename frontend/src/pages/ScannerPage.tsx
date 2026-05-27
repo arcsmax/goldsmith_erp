@@ -59,11 +59,11 @@ interface LegacyScanEntry {
 function makeScanContext(
   source: ScanSource,
   currentLocation: string | null,
-  runningEntryId: number | null,
+  runningEntryId: string | null,
   runningEntryOrderId: number | null,
 ): ScanContext {
   return {
-    running_timer_id: runningEntryId !== null ? String(runningEntryId) : null,
+    running_timer_id: runningEntryId,
     current_order_id: runningEntryOrderId,
     current_location: currentLocation,
     device_type: detectDeviceType(),

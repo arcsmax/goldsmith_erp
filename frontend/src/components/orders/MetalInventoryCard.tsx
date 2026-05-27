@@ -1,15 +1,6 @@
 // MetalInventoryCard - Display metal inventory information for orders
 import React from 'react';
-
-type MetalType =
-  | 'gold_24k'
-  | 'gold_18k'
-  | 'gold_14k'
-  | 'silver_925'
-  | 'silver_999'
-  | 'platinum';
-
-type CostingMethod = 'fifo' | 'lifo' | 'average' | 'specific';
+import { MetalType, CostingMethod } from '../../types';
 
 interface OrderMetalData {
   // Metal Inventory
@@ -29,16 +20,16 @@ interface MetalInventoryCardProps {
 }
 
 // Metal type display configuration
-const METAL_TYPE_CONFIG: Record<
-  MetalType,
-  { label: string; icon: string; className: string }
+const METAL_TYPE_CONFIG: Partial<
+  Record<MetalType, { label: string; icon: string; className: string }>
 > = {
   gold_24k: { label: 'Gold 24K (999)', icon: '🥇', className: 'metal-gold-24k' },
   gold_18k: { label: 'Gold 18K (750)', icon: '🥇', className: 'metal-gold-18k' },
   gold_14k: { label: 'Gold 14K (585)', icon: '🥇', className: 'metal-gold-14k' },
   silver_925: { label: 'Silber 925', icon: '⚪', className: 'metal-silver-925' },
   silver_999: { label: 'Silber 999', icon: '⚪', className: 'metal-silver-999' },
-  platinum: { label: 'Platin', icon: '◻️', className: 'metal-platinum' },
+  platinum_950: { label: 'Platin 950', icon: '◻️', className: 'metal-platinum' },
+  platinum_900: { label: 'Platin 900', icon: '◻️', className: 'metal-platinum' },
 };
 
 // Costing method descriptions
@@ -55,7 +46,11 @@ export const MetalInventoryCard: React.FC<MetalInventoryCardProps> = ({ order })
     return null;
   }
 
-  const metalConfig = METAL_TYPE_CONFIG[order.metal_type];
+  const metalConfig = METAL_TYPE_CONFIG[order.metal_type] ?? {
+    label: order.metal_type,
+    icon: '🔩',
+    className: 'metal-default',
+  };
   const estimatedWeight = order.estimated_weight_g ?? 0;
   const scrapPercent = order.scrap_percentage ?? 5;
   const scrapWeight = estimatedWeight * (scrapPercent / 100);

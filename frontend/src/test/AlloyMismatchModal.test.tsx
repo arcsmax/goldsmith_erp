@@ -38,11 +38,11 @@ afterEach(() => {
 });
 
 function renderModal(overrides?: Partial<AlloyMismatchModalProps>): {
-  resolve: ReturnType<typeof vi.fn<[AlloyOverridePayload], void>>;
-  reject: ReturnType<typeof vi.fn<[unknown?], void>>;
+  resolve: ReturnType<typeof vi.fn<(value: AlloyOverridePayload) => void>>;
+  reject: ReturnType<typeof vi.fn<(reason?: unknown) => void>>;
 } {
-  const resolve = vi.fn<[AlloyOverridePayload], void>();
-  const reject = vi.fn<[unknown?], void>();
+  const resolve = vi.fn<(value: AlloyOverridePayload) => void>();
+  const reject = vi.fn<(reason?: unknown) => void>();
   render(
     <AlloyMismatchModal
       orderAlloy="750"

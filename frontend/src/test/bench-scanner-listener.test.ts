@@ -677,7 +677,7 @@ describe('createBenchScannerListener — cleanup', () => {
 
   it('consumer exception does not take down the listener', () => {
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-    const onScan = vi.fn(() => {
+    const onScan = vi.fn<() => void>(() => {
       throw new Error('boom');
     });
     const dispose = createBenchScannerListener({ onScan });

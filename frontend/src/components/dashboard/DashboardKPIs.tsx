@@ -36,7 +36,7 @@ export const DashboardKPIs: React.FC = () => {
         }).catch(() => ({ total_hours: 0 })) ?? Promise.resolve({ total_hours: 0 }),
       ]);
 
-      const orders = Array.isArray(ordersData) ? ordersData : ordersData.items || [];
+      const orders = ordersData;
 
       // Calculate KPIs
       const activeOrders = orders.filter(

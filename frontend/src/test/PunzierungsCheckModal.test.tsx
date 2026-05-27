@@ -31,11 +31,11 @@ afterEach(() => {
 });
 
 function renderModal(overrides?: Partial<PunzierungsCheckModalProps>): {
-  resolve: ReturnType<typeof vi.fn<[PunzierungsCheckPayload], void>>;
-  reject: ReturnType<typeof vi.fn<[unknown?], void>>;
+  resolve: ReturnType<typeof vi.fn<(value: PunzierungsCheckPayload) => void>>;
+  reject: ReturnType<typeof vi.fn<(reason?: unknown) => void>>;
 } {
-  const resolve = vi.fn<[PunzierungsCheckPayload], void>();
-  const reject = vi.fn<[unknown?], void>();
+  const resolve = vi.fn<(value: PunzierungsCheckPayload) => void>();
+  const reject = vi.fn<(reason?: unknown) => void>();
   render(
     <PunzierungsCheckModal
       orderId={42}

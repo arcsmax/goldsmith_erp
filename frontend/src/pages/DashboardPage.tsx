@@ -121,7 +121,7 @@ function buildTodoList(orders: OrderType[], handoffs: any[]): TodoItem[] {
           priority: 'urgent',
           title: order.title,
           subtitle,
-          deadline: order.deadline,
+          deadline: order.deadline ?? undefined,
           orderId: order.id,
           action: 'Bearbeiten',
         });
@@ -136,7 +136,7 @@ function buildTodoList(orders: OrderType[], handoffs: any[]): TodoItem[] {
           priority: 'high',
           title: order.title,
           subtitle,
-          deadline: order.deadline,
+          deadline: order.deadline ?? undefined,
           orderId: order.id,
           action: 'Bearbeiten',
         });
@@ -152,7 +152,7 @@ function buildTodoList(orders: OrderType[], handoffs: any[]): TodoItem[] {
         priority: 'medium',
         title: order.title,
         subtitle,
-        deadline: order.deadline,
+        deadline: order.deadline ?? undefined,
         orderId: order.id,
         action: 'Anprobe planen',
       });
@@ -167,7 +167,7 @@ function buildTodoList(orders: OrderType[], handoffs: any[]): TodoItem[] {
         priority: 'low',
         title: order.title,
         subtitle,
-        deadline: order.deadline,
+        deadline: order.deadline ?? undefined,
         orderId: order.id,
         action: 'Bearbeiten',
       });
@@ -204,7 +204,7 @@ const GoldsmithDashboard: React.FC = () => {
         ordersApi.getAll({ limit: 100 }), // reasonable page size for workshop scale
         handoffsApi.getPending().catch(() => ({ data: [] })),
       ]);
-      const ordersList = Array.isArray(ordersData) ? ordersData : ordersData.items || [];
+      const ordersList = ordersData;
       setOrders(ordersList);
       setPendingHandoffs(Array.isArray(handoffResp.data) ? handoffResp.data : []);
     } catch (err) {
@@ -446,7 +446,7 @@ const AdminDashboard: React.FC = () => {
     try {
       setIsLoading(true);
       const ordersData = await ordersApi.getAll({ limit: 100 }); // reasonable page size for workshop scale
-      const ordersList = Array.isArray(ordersData) ? ordersData : ordersData.items || [];
+      const ordersList = ordersData;
       const filtered = ordersList.filter((o) => o.status === 'new');
       setNewOrders(filtered);
     } catch (err) {
@@ -564,7 +564,7 @@ const ViewerDashboard: React.FC = () => {
     try {
       setIsLoading(true);
       const ordersData = await ordersApi.getAll({ limit: 100 }); // reasonable page size for workshop scale
-      const ordersList = Array.isArray(ordersData) ? ordersData : ordersData.items || [];
+      const ordersList = ordersData;
 
       setOrderStats({
         total: ordersList.length,

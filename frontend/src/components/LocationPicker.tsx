@@ -120,7 +120,7 @@ const LocationPicker: React.FC<LocationPickerProps> = ({
             return (
               <div key={category} className="location-category-section">
                 <h3 className="location-category-header">
-                  {CATEGORY_LABELS[category]}
+                  {CATEGORY_LABELS[category as keyof typeof CATEGORY_LABELS]}
                 </h3>
                 <div className="location-grid">
                   {categoryLocations.map((location) => {

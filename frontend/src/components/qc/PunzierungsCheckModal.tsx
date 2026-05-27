@@ -44,7 +44,7 @@ export interface PunzierungsCheckPayload {
   marks: PunzierungMark[];
 }
 
-export interface PunzierungsCheckModalProps {
+export type PunzierungsCheckModalProps = {
   orderId: number;
   /** Order alloy, e.g. "750" — informational subline. */
   orderAlloy?: string;

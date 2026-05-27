@@ -60,16 +60,13 @@ export const HidBurstNudge: React.FC = () => {
     // Auto-navigate after a short delay so the user has time to read the
     // toast but doesn't have to hunt for the CTA. A goldsmith with dirty
     // hands will thank us.
-    const navTimer = setTimeout(() => {
+    setTimeout(() => {
       navigate('/settings');
     }, 2500);
     // Count this firing as a dismissal so repeated false-positives don't
     // become a nuisance. A real bench scanner user will accept the nudge
     // on one of the first three firings.
     incrementDismissedCount();
-    // Defensive: if the component unmounts before the timer fires
-    // (user navigates manually), clear the timer.
-    return () => clearTimeout(navTimer);
   }, [showToast, navigate]);
 
   useHidBurstDetection({

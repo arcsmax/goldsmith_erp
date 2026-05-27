@@ -35,7 +35,7 @@ vi.mock('@yudiel/react-qr-scanner', () => {
 const mocks = vi.hoisted(() => ({
   refreshTimer: vi.fn(async () => {}),
   navigate: vi.fn(),
-  apiPost: vi.fn(async () => ({ data: {} })),
+  apiPost: vi.fn(async (_url: string, _body?: unknown) => ({ data: {} })),
   apiPatch: vi.fn(async () => ({ data: {} })),
   apiGet: vi.fn(async () => ({ data: {} })),
 }));
@@ -80,9 +80,7 @@ vi.mock('../api/client', () => ({
 }));
 
 // --- HTMLMediaElement shims for jsdom/happy-dom audio kit. --------------
-// @ts-expect-error happy-dom stub
 HTMLMediaElement.prototype.play = vi.fn(() => Promise.resolve());
-// @ts-expect-error happy-dom stub
 HTMLMediaElement.prototype.pause = vi.fn();
 Object.defineProperty(navigator, 'vibrate', {
   value: vi.fn(() => true),

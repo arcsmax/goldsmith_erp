@@ -237,7 +237,7 @@ describe('activitiesApi', () => {
     it('should track last used timestamp', async () => {
       const activity = await activitiesApi.getById(1);
 
-      if (activity.last_used !== null) {
+      if (activity.last_used != null) {
         expect(new Date(activity.last_used)).toBeInstanceOf(Date);
       }
     });

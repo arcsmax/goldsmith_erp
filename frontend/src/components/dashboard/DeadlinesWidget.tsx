@@ -21,8 +21,7 @@ export const DeadlinesWidget: React.FC = () => {
     try {
       setIsLoading(true);
       setError(null);
-      const orders = await ordersApi.getAll({ limit: 100 }); // reasonable page size for workshop scale
-      const ordersList = Array.isArray(orders) ? orders : orders.items || [];
+      const ordersList = await ordersApi.getAll({ limit: 100 }); // reasonable page size for workshop scale
 
       const now = new Date();
       const twoWeeksLater = new Date();

@@ -435,6 +435,8 @@ export interface MetalPurchaseListItem {
   price_per_gram: number;
   remaining_value: number;
   supplier?: string | null;
+  invoice_number?: string | null;
+  lot_number?: string | null;
   is_depleted: boolean;
 }
 
@@ -582,6 +584,21 @@ export interface TimeEntryStartInput {
   extra_metadata?: Record<string, any>;
 }
 
+/** Payload for creating a manual time entry (POST /time-tracking/). */
+export interface TimeEntryCreateInput {
+  order_id: number;
+  activity_id: number;
+  start_time: string; // ISO datetime
+  end_time?: string; // ISO datetime
+  duration_minutes?: number;
+  location?: string;
+  complexity_rating?: number; // 1-5
+  quality_rating?: number; // 1-5
+  rework_required?: boolean;
+  notes?: string;
+  extra_metadata?: Record<string, any>;
+}
+
 export interface TimeEntryStopInput {
   complexity_rating?: number; // 1-5
   quality_rating?: number; // 1-5
@@ -649,12 +666,12 @@ export interface WeeklyTimeData {
   }[];
 }
 
-export interface ActivityBreakdownData {
+export type ActivityBreakdownData = {
   activity_name: string;
   hours: number;
   percentage: number;
   color: string;
-}
+};
 
 // ==================== NOTIFICATION TYPES ====================
 
