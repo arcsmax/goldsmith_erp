@@ -36,10 +36,12 @@ interface TimeSummaryStats {
      never requests it; trivial to add later as `?scope=all` gated on `TIME_VIEW_ALL`).
 
 2. **`billable_hours` — per-activity flag.** Add `Activity.is_billable: bool`
-   (default `true`). `billable_hours` sums `duration_minutes` only for completed entries
-   whose activity has `is_billable = true`. Existing activities migrate to `true` via a
-   server default. The flag is set through the **existing** Activity create/update API +
-   edit form (one checkbox) — no dedicated management screen (Approach A).
+   (column `server_default = true`). `billable_hours` sums `duration_minutes` only for
+   completed entries whose activity has `is_billable = true`. **Sensible category
+   defaults** apply out of the box: `fabrication` → billable, `administration` and
+   `waiting` → non-billable (so billable hours ≈ productive bench work). The flag is set
+   per-activity through the **existing** Activity create/update API + edit form (one
+   checkbox) — no dedicated management screen (Approach A).
 
 3. **`most_used_activity` — by total time.** The activity name with the greatest
    `SUM(duration_minutes)` in the window (not by frequency). `null`/omitted if no
@@ -65,7 +67,7 @@ day per existing `/user/{id}` filter semantics (uses `datetime` query params).
 
 **Backend**
 - `db/models.py` — add `Activity.is_billable = Column(Boolean, nullable=False, server_default=expression.true(), default=True)`.
-- Alembic migration — add column with server default `true` so existing rows backfill; non-destructive, reversible (`op.drop_column` on downgrade).
+- Alembic migration — add column with `server_default = true`, then a data step that sets `is_billable = false WHERE category IN ('administration', 'waiting')` so **existing** installs also get the sensible default (not just fresh seeds). Non-destructive, reversible (`op.drop_column` on downgrade).
 - `models/activity.py` — add `is_billable: bool = True` to `ActivityBase`/read/create/update schemas.
 - `models/time_entry.py` — add `TimeSummaryStats` Pydantic schema matching the contract.
 - `services/time_tracking_service.py` — `async def get_summary(db, *, user_id, start, end) -> TimeSummaryStats`. Two grouped aggregate queries (current window + prior window) joined to `activities` for the billable filter and the most-used name. Uses `selectinload`/explicit joins; no N+1.
@@ -76,11 +78,10 @@ day per existing `/user/{id}` filter semantics (uses `datetime` query params).
 - Activity edit form — one "Abrechenbar" checkbox bound to `is_billable`.
 - `getSummary` client method already exists (added in the tsc-burndown PR) and already targets `/time-tracking/summary`.
 
-**Seed data** — built-in activities default to `is_billable = true` (same as the column
-default). We deliberately do **not** hardcode a billing policy (e.g. "waiting is
-non-billable") — billability is a per-workshop decision the goldsmith sets via the
-checkbox. This keeps behaviour unsurprising (everything billable until explicitly
-changed) and avoids baking one shop's policy into seed data.
+**Seed data** — built-in activities seed with category-based defaults: `fabrication`
+billable, `administration` + `waiting` non-billable. New custom activities default to
+billable (`true`) via the column default; the goldsmith can flip any activity via the
+checkbox.
 
 ## Edge cases
 
