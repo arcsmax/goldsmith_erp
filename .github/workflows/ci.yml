@@ -97,14 +97,17 @@ jobs:
         working-directory: ./src
         run: poetry install
       - name: Run tests with coverage
-        working-directory: ./src
-        run: poetry run pytest ../tests/ --maxfail=3 -q --tb=short --cov=goldsmith_erp --cov-report=xml --cov-report=term --cov-fail-under=50
+        # Run from repo root so both `goldsmith_erp` (installed pkg) and the
+        # `tests` package are importable; testpaths/rootdir resolve via the
+        # root pyproject.toml. Running from ./src left repo root off sys.path,
+        # breaking `import tests.*` in a few integration modules.
+        run: poetry run pytest tests/ --maxfail=3 -q --tb=short --cov=goldsmith_erp --cov-report=xml --cov-report=term --cov-fail-under=50
       - name: Upload coverage
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: backend-coverage
-          path: src/coverage.xml
+          path: coverage.xml
 
   # F1 — integration tests against real Postgres (not SQLite).
   # Mirrors `test-backend` but sets TEST_DATABASE_URL so the integration
@@ -160,8 +163,7 @@ jobs:
         working-directory: ./src
         run: poetry install
       - name: Run integration tests against Postgres
-        working-directory: ./src
-        run: poetry run pytest ../tests/integration/ -v --tb=short --maxfail=5
+        run: poetry run pytest tests/integration/ -v --tb=short --maxfail=5
 
   # F2 — alembic round-trip smoke (upgrade → downgrade → upgrade).
   # CI previously only verified forward migrations. Broken `downgrade()`
