@@ -1009,12 +1009,17 @@ class TimeTrackingService:
         totals = (
             await db.execute(
                 select(
-                    func.coalesce(func.sum(TimeEntryModel.duration_minutes), 0).label("total"),
+                    func.coalesce(func.sum(TimeEntryModel.duration_minutes), 0).label(
+                        "total"
+                    ),
                     func.count(TimeEntryModel.id).label("count"),
                     func.coalesce(
                         func.sum(
                             case(
-                                (ActivityModel.is_billable.is_(True), TimeEntryModel.duration_minutes),
+                                (
+                                    ActivityModel.is_billable.is_(True),
+                                    TimeEntryModel.duration_minutes,
+                                ),
                                 else_=0,
                             )
                         ),
@@ -1044,7 +1049,9 @@ class TimeTrackingService:
 
         prev_minutes = (
             await db.execute(
-                select(func.coalesce(func.sum(TimeEntryModel.duration_minutes), 0)).filter(
+                select(
+                    func.coalesce(func.sum(TimeEntryModel.duration_minutes), 0)
+                ).filter(
                     and_(
                         TimeEntryModel.user_id == user_id,
                         TimeEntryModel.end_time.isnot(None),

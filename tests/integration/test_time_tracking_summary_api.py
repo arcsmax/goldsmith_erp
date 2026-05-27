@@ -1,4 +1,5 @@
 """Integration tests for GET /api/v1/time-tracking/summary."""
+
 from __future__ import annotations
 
 import pytest
@@ -23,8 +24,11 @@ class TestTimeTrackingSummaryEndpoint:
         assert resp.status_code == 200
         body = resp.json()
         assert set(body) == {
-            "total_hours", "billable_hours", "entries_count",
-            "average_session_minutes", "most_used_activity",
+            "total_hours",
+            "billable_hours",
+            "entries_count",
+            "average_session_minutes",
+            "most_used_activity",
             "comparison_previous_period",
         }
         assert body["entries_count"] == 0  # viewer has no entries

@@ -177,6 +177,7 @@ class TimeSummaryStats(BaseModel):
 
     Matches the frontend `TimeSummaryStats` contract (frontend/src/types.ts).
     """
+
     total_hours: float
     billable_hours: float
     entries_count: int
