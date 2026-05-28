@@ -183,7 +183,7 @@ export const handlers = [
   }),
 
   http.post(`${API_BASE}/activities/`, async ({ request }) => {
-    const body = await request.json();
+    const body = (await request.json()) as Record<string, unknown>;
     const newActivity: Activity = {
       id: mockActivities.length + 1,
       ...(body as Omit<Activity, 'id'>),
@@ -196,7 +196,7 @@ export const handlers = [
 
   http.put(`${API_BASE}/activities/:id`, async ({ params, request }) => {
     const { id } = params;
-    const body = await request.json();
+    const body = (await request.json()) as Record<string, unknown>;
     const activity = mockActivities.find((a) => a.id === Number(id));
     if (activity) {
       const updated = { ...activity, ...body };
@@ -216,7 +216,7 @@ export const handlers = [
 
   // Time tracking endpoints
   http.post(`${API_BASE}/time-tracking/start`, async ({ request }) => {
-    const body = await request.json();
+    const body = (await request.json()) as Record<string, unknown>;
     const newEntry: TimeEntry = {
       id: '123e4567-e89b-12d3-a456-' + Date.now(),
       order_id: (body as any).order_id,
@@ -238,7 +238,7 @@ export const handlers = [
 
   http.post(`${API_BASE}/time-tracking/:id/stop`, async ({ params, request }) => {
     const { id } = params;
-    const body = await request.json();
+    const body = (await request.json()) as Record<string, unknown>;
     const stoppedEntry: TimeEntry = {
       ...mockRunningEntry,
       id: id as string,
@@ -286,7 +286,7 @@ export const handlers = [
   }),
 
   http.post(`${API_BASE}/time-tracking/`, async ({ request }) => {
-    const body = await request.json();
+    const body = (await request.json()) as Record<string, unknown>;
     const newEntry: TimeEntry = {
       id: '123e4567-e89b-12d3-a456-' + Date.now(),
       ...(body as Omit<TimeEntry, 'id' | 'created_at'>),
@@ -298,7 +298,7 @@ export const handlers = [
 
   http.put(`${API_BASE}/time-tracking/:id`, async ({ params, request }) => {
     const { id } = params;
-    const body = await request.json();
+    const body = (await request.json()) as Record<string, unknown>;
     const entry = mockTimeEntries.find((e) => e.id === id);
     if (entry) {
       const updated = { ...entry, ...body };
@@ -318,7 +318,7 @@ export const handlers = [
 
   http.post(`${API_BASE}/time-tracking/:id/interruptions`, async ({ params, request }) => {
     const { id } = params;
-    const body = await request.json();
+    const body = (await request.json()) as Record<string, unknown>;
     // Return the entry with interruption added
     return HttpResponse.json(mockRunningEntry);
   }),

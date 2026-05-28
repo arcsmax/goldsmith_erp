@@ -229,7 +229,7 @@ describe('InvoicesPage — Bug #5 (status case-mismatch)', () => {
     mockHasRole.mockReturnValue(true);
   });
 
-  function listItem(overrides: Partial<{ id: number; status: string }>) {
+  function listItem(overrides: Partial<{ id: number; status: string; invoice_number: string }>) {
     return {
       id: 1,
       invoice_number: 'RE-2026-0001',

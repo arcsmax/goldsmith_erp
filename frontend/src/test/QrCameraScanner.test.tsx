@@ -73,14 +73,12 @@ vi.mock('@yudiel/react-qr-scanner', () => {
 
 // Mock HTMLMediaElement.play in the jsdom/happy-dom environment — no real
 // audio backend exists. We capture every play() call for assertions.
-const playSpy = vi.fn<[], Promise<void>>(() => Promise.resolve());
-// @ts-expect-error override happy-dom stub
+const playSpy = vi.fn<() => Promise<void>>(() => Promise.resolve());
 HTMLMediaElement.prototype.play = playSpy;
-// @ts-expect-error happy-dom may not implement pause
 HTMLMediaElement.prototype.pause = vi.fn();
 
 // navigator.vibrate is undefined in happy-dom — inject a spy we can assert on.
-const vibrateSpy = vi.fn<[number | number[]], boolean>(() => true);
+const vibrateSpy = vi.fn<(pattern: number | number[]) => boolean>(() => true);
 Object.defineProperty(navigator, 'vibrate', {
   value: vibrateSpy,
   writable: true,

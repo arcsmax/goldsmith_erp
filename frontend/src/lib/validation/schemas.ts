@@ -135,7 +135,7 @@ export const OrderCreateSchema = z
   .refine(
     (data) => {
       // SPECIFIC costing method requires a purchase ID
-      if (data.costing_method === 'SPECIFIC' && !data.specific_metal_purchase_id) return false;
+      if (data.costing_method === 'specific' && !data.specific_metal_purchase_id) return false;
       return true;
     },
     {

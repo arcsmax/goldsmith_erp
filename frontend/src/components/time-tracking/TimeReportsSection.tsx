@@ -2,7 +2,7 @@
 import React, { useEffect, useState } from 'react';
 import { timeTrackingApi, activitiesApi } from '../../api';
 import apiClient from '../../api/client';
-import { TimeEntry, Activity } from '../../types';
+import { TimeEntry, Activity, ActivityBreakdownData } from '../../types';
 import { parseUTC } from '../../utils/formatters';
 import { format, subDays, startOfWeek, getDay } from 'date-fns';
 import { de } from 'date-fns/locale';
@@ -105,7 +105,7 @@ export const TimeReportsSection: React.FC = () => {
           activity_name: act ? `${act.icon || ''} ${act.name}`.trim() : `Aktivität #${actId}`,
           hours: parseFloat((mins / 60).toFixed(1)),
           percentage: totalMinutes > 0 ? (mins / totalMinutes) * 100 : 0,
-          color: act?.color || undefined,
+          color: act?.color || '#8884d8',
         };
       }).sort((a, b) => b.hours - a.hours);
       setActivityData(actBreakdown);
@@ -176,7 +176,10 @@ export const TimeReportsSection: React.FC = () => {
           cx="50%"
           cy="50%"
           labelLine={false}
-          label={(entry) => `${entry.activity_name}: ${entry.percentage.toFixed(1)}%`}
+          label={(entry) => {
+            const d = entry as unknown as ActivityBreakdownData;
+            return `${d.activity_name}: ${d.percentage.toFixed(1)}%`;
+          }}
           outerRadius={120}
           fill="#8884d8"
           dataKey="hours"

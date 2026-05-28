@@ -198,7 +198,6 @@ export const downloadCustomerCsvTemplate = (): void => {
       const baseUrl = (apiClient.defaults.baseURL ?? '').replace(/\/$/, '');
       window.open(`${baseUrl}/import/customers/template`, '_blank');
     });
-  void token;
 };
 
 // ---------------------------------------------------------------------------

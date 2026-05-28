@@ -77,7 +77,7 @@ export const ScrapGoldTab: React.FC<ScrapGoldTabProps> = ({ orderId, customerId 
     if (!scrapGold) return;
 
     try {
-      await scrapGoldApi.addItem(scrapGold.id, { description, alloy, weight_g: weightG });
+      await scrapGoldApi.addItem(scrapGold.id, { description, alloy: Number(alloy), weight_g: weightG });
       await loadScrapGold();
     } catch (err) {
       console.error('Failed to add item:', err);

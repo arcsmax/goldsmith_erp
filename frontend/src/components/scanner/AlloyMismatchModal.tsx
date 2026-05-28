@@ -43,7 +43,7 @@ export interface AlloyOverridePayload {
   override_reason: string;
 }
 
-export interface AlloyMismatchModalProps {
+export type AlloyMismatchModalProps = {
   /** Order-declared alloy, e.g. "750" or "750 GG". */
   orderAlloy: string;
   /** Metal-inventory alloy actually scanned, e.g. "585". */

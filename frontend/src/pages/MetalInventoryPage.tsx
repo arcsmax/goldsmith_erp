@@ -176,7 +176,7 @@ export const MetalInventoryPage: React.FC = () => {
     setIsModalOpen(true);
   };
 
-  const openEditModal = (purchase: MetalPurchaseType, e: React.MouseEvent) => {
+  const openEditModal = (purchase: MetalPurchaseListItem, e: React.MouseEvent) => {
     e.stopPropagation();
     setSelectedPurchase(purchase);
     setIsModalOpen(true);

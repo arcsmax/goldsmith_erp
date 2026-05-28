@@ -129,6 +129,8 @@ class MetalPurchaseListItem(BaseModel):
     price_per_gram: float
     remaining_value: float
     supplier: Optional[str]
+    invoice_number: Optional[str] = None
+    lot_number: Optional[str] = None
     is_depleted: bool
 
     model_config = {"from_attributes": True}

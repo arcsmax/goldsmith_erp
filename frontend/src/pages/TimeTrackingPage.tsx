@@ -2,7 +2,7 @@
 import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import { timeTrackingApi, activitiesApi } from '../api';
 import apiClient from '../api/client';
-import { TimeEntry, TimeEntryStartInput, TimeEntryUpdateInput, Activity } from '../types';
+import { TimeEntry, TimeEntryCreateInput, TimeEntryUpdateInput, Activity } from '../types';
 // Timer handled by global FAB widget in MainLayout
 import { TimeSummaryCards } from '../components/time-tracking/TimeSummaryCards';
 import { TimeReportsSection } from '../components/time-tracking/TimeReportsSection';
@@ -85,8 +85,7 @@ export const TimeTrackingPage: React.FC = () => {
       filtered = filtered.filter(
         (e) =>
           e.id.toLowerCase().includes(query) ||
-          (e.notes && e.notes.toLowerCase().includes(query)) ||
-          (e.order && e.order.title.toLowerCase().includes(query))
+          (e.notes && e.notes.toLowerCase().includes(query))
       );
     }
 
@@ -119,7 +118,7 @@ export const TimeTrackingPage: React.FC = () => {
   const handleCreateEntry = useCallback(async (data: TimeEntryCreateInput) => {
     try {
       setIsFormLoading(true);
-      await timeTrackingApi.create(data);
+      await timeTrackingApi.createManual(data);
       await fetchEntries();
       setIsModalOpen(false);
       showToast('Zeiterfassung erfolgreich erstellt!', 'success');
@@ -311,18 +310,10 @@ export const TimeTrackingPage: React.FC = () => {
                       <td>{entry.end_time ? formatDateTime(entry.end_time) : 'Läuft...'}</td>
                       <td>
                         <span className={`duration-badge ${isRunning ? 'running' : ''}`}>
-                          {formatDuration(entry.duration_minutes)}
+                          {formatDuration(entry.duration_minutes ?? null)}
                         </span>
                       </td>
-                      <td>
-                        {entry.order ? (
-                          <span>
-                            #{entry.order.id} - {entry.order.title}
-                          </span>
-                        ) : (
-                          `#${entry.order_id}`
-                        )}
-                      </td>
+                      <td>{`#${entry.order_id}`}</td>
                       <td>
                         {activity && (
                           <span className="activity-badge">

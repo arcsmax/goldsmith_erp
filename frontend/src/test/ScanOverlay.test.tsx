@@ -61,9 +61,7 @@ vi.mock('react-router-dom', async (orig) => {
 });
 
 // --- HTMLMediaElement shims for jsdom/happy-dom audio kit. --------------
-// @ts-expect-error happy-dom stub
 HTMLMediaElement.prototype.play = vi.fn(() => Promise.resolve());
-// @ts-expect-error happy-dom stub
 HTMLMediaElement.prototype.pause = vi.fn();
 
 // navigator.vibrate polyfill for the scanner haptic call.

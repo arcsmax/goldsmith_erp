@@ -1,6 +1,6 @@
 // Order Form Modal Component with Tabs
 import React, { useState, useEffect, useRef } from 'react';
-import { OrderType, OrderCreateInput, OrderUpdateInput, Customer, MetalType, CostingMethod } from '../../types';
+import { OrderType, OrderStatus, OrderCreateInput, OrderUpdateInput, CustomerListItem, MetalType, CostingMethod } from '../../types';
 import { customersApi } from '../../api';
 import { useMetalTypes } from '../../hooks/useMetalTypes';
 import { OrderCreateSchema } from '../../lib/validation/schemas';
@@ -63,7 +63,7 @@ export const OrderFormModal: React.FC<OrderFormModalProps> = ({
   isLoading = false,
 }) => {
   const [activeTab, setActiveTab] = useState<TabType>('basic');
-  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [customers, setCustomers] = useState<CustomerListItem[]>([]);
   const [isLoadingCustomers, setIsLoadingCustomers] = useState(false);
   const { metalTypes: allMetalTypes, isLoading: isLoadingMetalTypes } = useMetalTypes();
   const firstInputRef = useRef<HTMLInputElement>(null);
@@ -73,7 +73,7 @@ export const OrderFormModal: React.FC<OrderFormModalProps> = ({
     description: '',
     customer_id: '',
     deadline: '',
-    status: 'new' as const,
+    status: 'new' as OrderStatus,
     current_location: '',
 
     // Metal fields
@@ -183,7 +183,7 @@ export const OrderFormModal: React.FC<OrderFormModalProps> = ({
     try {
       setIsLoadingCustomers(true);
       const data = await customersApi.getAll({ limit: 100 }); // dropdown — 100 is ample for picker UI
-      setCustomers(Array.isArray(data) ? data : data.items || []);
+      setCustomers(data);
     } catch (err) {
       console.error('Failed to fetch customers', err);
     } finally {

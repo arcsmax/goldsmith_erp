@@ -45,7 +45,7 @@ export const AlertsWidget: React.FC = () => {
 
       // Fetch low metal inventory
       try {
-        const metalInventory = await metalInventoryApi.getAll();
+        const metalInventory = await metalInventoryApi.listPurchases();
         const lowMetal = metalInventory.filter((m) => m.remaining_weight_g < 50);
         if (lowMetal.length > 0) {
           alertsList.push({
@@ -64,8 +64,7 @@ export const AlertsWidget: React.FC = () => {
 
       // Fetch overdue orders
       try {
-        const orders = await ordersApi.getAll({ limit: 100 }); // reasonable page size for workshop scale
-        const ordersList = Array.isArray(orders) ? orders : orders.items || [];
+        const ordersList = await ordersApi.getAll({ limit: 100 }); // reasonable page size for workshop scale
         const now = new Date();
         const overdueOrders = ordersList.filter((o) => {
           if (o.status === 'completed' || o.status === 'delivered') return false;

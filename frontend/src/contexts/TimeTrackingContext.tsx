@@ -38,7 +38,7 @@ interface TimeTrackingContextType {
     activityId: number,
     options?: { location?: string; idempotencyKey?: string }
   ) => Promise<TimeEntry>;
-  refreshRunningEntry: () => Promise<void>;
+  refreshRunningEntry: () => Promise<TimeEntry | null>;
   refreshActivities: () => Promise<void>;
   clearError: () => void;
 }

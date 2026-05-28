@@ -1,20 +1,20 @@
 // Time Entry Form Modal Component
 import React, { useState, useEffect } from 'react';
 import {
-  TimeEntryType,
+  TimeEntry,
   TimeEntryCreateInput,
   TimeEntryUpdateInput,
   OrderType,
-  ActivityType,
+  Activity,
 } from '../../types';
-import { ordersApi, timeTrackingApi } from '../../api';
+import { ordersApi, activitiesApi } from '../../api';
 import '../../styles/time-tracking.css';
 
 interface TimeEntryFormModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSubmit: (data: TimeEntryCreateInput | TimeEntryUpdateInput) => Promise<void>;
-  entry?: TimeEntryType | null;
+  entry?: TimeEntry | null;
   isLoading?: boolean;
 }
 
@@ -49,7 +49,7 @@ export const TimeEntryFormModal: React.FC<TimeEntryFormModalProps> = ({
   const isEditMode = Boolean(entry);
 
   const [orders, setOrders] = useState<OrderType[]>([]);
-  const [activities, setActivities] = useState<ActivityType[]>([]);
+  const [activities, setActivities] = useState<Activity[]>([]);
   const [formData, setFormData] = useState<FormData>({
     order_id: '',
     activity_id: '',
@@ -98,8 +98,7 @@ export const TimeEntryFormModal: React.FC<TimeEntryFormModalProps> = ({
 
   const fetchOrders = async () => {
     try {
-      const data = await ordersApi.getAll({ limit: 100 }); // dropdown — 100 is ample for picker UI
-      const ordersList = Array.isArray(data) ? data : data.items || [];
+      const ordersList = await ordersApi.getAll({ limit: 100 }); // dropdown — 100 is ample for picker UI
       setOrders(ordersList);
     } catch (err: any) {
       console.error('Failed to fetch orders:', err);
@@ -108,7 +107,7 @@ export const TimeEntryFormModal: React.FC<TimeEntryFormModalProps> = ({
 
   const fetchActivities = async () => {
     try {
-      const data = await timeTrackingApi.getAllActivities();
+      const data = await activitiesApi.getAll();
       setActivities(data);
     } catch (err: any) {
       console.error('Failed to fetch activities:', err);
