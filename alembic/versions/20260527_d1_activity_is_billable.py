@@ -19,15 +19,24 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    op.add_column(
-        "activities",
-        sa.Column(
-            "is_billable",
-            sa.Boolean(),
-            nullable=False,
-            server_default=sa.true(),
-        ),
-    )
+    # On fresh DBs the v1_initial migration creates `activities` via
+    # `Base.metadata.create_all` over the live ORM, which already includes
+    # `is_billable` once this column exists in db/models.Activity. Guard the
+    # add against that "leak" so the upgrade is idempotent (matches the
+    # `column_exists` pattern used by 20260424_c1_pii_enc for email_hash).
+    # Legacy DBs lacking the column still get it added here.
+    from goldsmith_erp.db.migration_helpers import column_exists  # noqa: PLC0415
+
+    if not column_exists("activities", "is_billable"):
+        op.add_column(
+            "activities",
+            sa.Column(
+                "is_billable",
+                sa.Boolean(),
+                nullable=False,
+                server_default=sa.true(),
+            ),
+        )
     # Sensible defaults: overhead categories are non-billable.
     op.execute(
         "UPDATE activities SET is_billable = false "
