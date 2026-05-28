@@ -1,0 +1,5 @@
+node_modules/
+dist/
+exports/
+.likec4/
+*.log
