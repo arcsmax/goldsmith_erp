@@ -1,0 +1,16 @@
+{
+  "name": "@goldsmith-erp/architecture",
+  "version": "0.1.0",
+  "private": true,
+  "description": "LikeC4 architecture model for the goldsmith ERP — context, container, and component views",
+  "scripts": {
+    "dev": "likec4 serve src",
+    "build": "likec4 build src -o dist",
+    "export:png": "likec4 export png src -o exports",
+    "export:mermaid": "likec4 codegen mermaid src -o exports/mermaid",
+    "validate": "likec4 validate src"
+  },
+  "devDependencies": {
+    "likec4": "^1.38.1"
+  }
+}

@@ -1,0 +1,165 @@
+// goldsmith_erp — architecture model (LikeC4)
+//
+// This is the canonical, version-controlled architecture description for the
+// goldsmith ERP system. It is the source of truth for the context, container,
+// and component diagrams shipped to docs/technical/architecture/.
+//
+// Edit this file → run `npm run dev` → diagrams hot-reload in the browser.
+// CI publishes `npm run build` output as the architecture site.
+
+specification {
+  // ── Element kinds ─────────────────────────────────────────────────────
+  element actor    { style { shape person } }
+  element system   { style { shape rectangle } }
+  element webapp   { style { shape browser } }
+  element service  { style { shape component } }
+  element db       { style { shape storage } }
+  element cache    { style { shape storage; color amber } }
+  element external { style { shape rectangle; color secondary } }
+
+  // ── Tags ─────────────────────────────────────────────────────────────
+  tag gdpr-sensitive
+  tag financial
+  tag realtime
+  tag pwa
+
+  // ── Relationship kinds ────────────────────────────────────────────────
+  relationship sync  { color slate;  line solid  }
+  relationship async { color indigo; line dotted }   // pub/sub, ws
+}
+
+model {
+
+  // ── External actors ───────────────────────────────────────────────────
+  goldsmith = actor 'Goldsmith' {
+    description '''
+      Primary craftsman user. Bench work, time tracking, order
+      execution. Permissions: TIME_TRACK, TIME_VIEW_OWN, MATERIAL_VIEW.
+    '''
+  }
+
+  admin = actor 'Workshop Admin' {
+    description '''
+      Owner / lead goldsmith (Meister). Full role permissions incl.
+      financial, GDPR ops, user management.
+    '''
+  }
+
+  viewer = actor 'Reception / Viewer' {
+    description '''
+      Read-only role for front-of-shop staff — sees order status,
+      customer info, no edit rights on financial / GDPR data.
+    '''
+  }
+
+  customer = actor 'Customer' {
+    description '''
+      Indirect actor — does not log in. PII flows in via admin/viewer
+      data entry; notifications flow out (planned).
+    '''
+  }
+
+  insurer = external 'Insurance Provider' {
+    description 'Receives valuation-certificate PDFs (ADMIN-only export).'
+  }
+
+  // ── The system + its containers ──────────────────────────────────────
+  erp = system 'Goldsmith ERP' {
+
+    // NOTE: descriptions on containers are intentionally single-line. LikeC4
+    // 1.38 has a parser quirk where a multi-line `'''…'''` description on a
+    // child element inside `system { … }` silently aborts the parse of the
+    // following sibling. Top-level actors above are unaffected. Re-test on
+    // LikeC4 ≥ 1.57 (needs Node ≥ 22.22.3) before going back to multi-line.
+
+    frontend = webapp 'Web Frontend' {
+      technology 'React 18, TypeScript, Vite 5'
+      icon tech:react
+    }
+
+    backend = service 'API Backend' {
+      technology 'FastAPI, Python 3.11, SQLAlchemy async'
+      icon tech:python
+    }
+
+    postgres = db 'PostgreSQL 15' {
+      technology 'PostgreSQL 15 (Podman)'
+      icon tech:postgresql
+    }
+
+    redisCache = cache 'Redis 7' {
+      technology 'Redis 7 (Podman)'
+      icon tech:redis
+    }
+
+    // Inter-container relationships. NOTE: v1.38 wants edge tags *inside*
+    // the `{ … }` properties block, not after it; we omit them here (the
+    // #realtime tag still rides on the source/target containers themselves).
+    frontend    -> backend    'REST + WebSocket'        { technology 'HTTPS / WSS' }
+    backend     -> postgres   'SQL'                     { technology 'asyncpg' }
+    backend     -> redisCache 'publish events / cache'  { technology 'redis-py' }
+    redisCache  -> backend    'subscribed events'       { technology 'redis pub/sub' }
+    backend     -> frontend   'WebSocket push'          { technology 'WSS' }
+  }
+
+  // ── Cross-boundary edges ──────────────────────────────────────────────
+  goldsmith -> erp.frontend 'logs orders, tracks time' {
+    navigateTo time-tracking-flow
+  }
+  admin     -> erp.frontend 'full workshop + admin ops'
+  viewer    -> erp.frontend 'read-only views'
+  customer  -> erp 'data subject (no login)'
+  erp.backend -> insurer 'valuation PDF (out-of-band)'
+}
+
+// Deployment view (Podman pod) is a planned enhancement once the v1.38
+// deployment-block FqnRef parser quirks are pinned down — covered by Podman
+// reality already in podman-compose.yml and docs/technical/infrastructure/.
+
+// ── Views ────────────────────────────────────────────────────────────────
+views {
+
+  view index {
+    title 'Goldsmith ERP — System Context'
+    description 'Who uses the ERP, and what external systems it talks to.'
+    include *
+
+    style customer  { color green }
+    style goldsmith { color green }
+    style admin     { color green }
+    style viewer    { color muted }
+    style insurer   { color muted }
+    style erp       { color primary }
+  }
+
+  view containers of erp {
+    title 'Goldsmith ERP — Containers'
+    description 'The frontend / backend / Postgres / Redis layout, with the realtime pub/sub loop.'
+    include *
+    autoLayout LeftRight
+  }
+
+  view backend of erp.backend {
+    title 'API Backend — Neighbours'
+    description 'The backend and what it talks to directly. Component-level breakdown (api / services / models / core / middleware) is a planned next step on LikeC4 >= 1.57.'
+    include
+      erp.frontend,
+      erp.backend,
+      erp.postgres,
+      erp.redisCache
+    autoLayout TopBottom
+  }
+
+  dynamic view time-tracking-flow {
+    title 'Time-Tracking Live Update Flow'
+    description 'How a goldsmith starting a timer at the bench propagates to every open dashboard in real-time via Redis pub/sub + WebSocket.'
+
+    goldsmith        -> erp.frontend    'taps Start on time-tracking page'
+    erp.frontend     -> erp.backend     'POST /time-tracking/start'
+    erp.backend      -> erp.postgres    'INSERT time_entries row'
+    erp.backend      -> erp.redisCache  'PUBLISH time_tracking_updates'
+    erp.redisCache   -> erp.backend     'broadcast to subscribers'
+    erp.backend      -> erp.frontend    'WebSocket push: timer_started'
+  }
+
+}
