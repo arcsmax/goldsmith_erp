@@ -170,3 +170,17 @@ class TimeEntryWithDetails(TimeEntryRead):
     activity: Optional[ActivityRead] = None
     order_title: Optional[str] = None
     user_name: Optional[str] = None
+
+
+class TimeSummaryStats(BaseModel):
+    """Aggregated time-tracking summary for a date window.
+
+    Matches the frontend `TimeSummaryStats` contract (frontend/src/types.ts).
+    """
+
+    total_hours: float
+    billable_hours: float
+    entries_count: int
+    average_session_minutes: float
+    most_used_activity: Optional[str] = None
+    comparison_previous_period: Optional[float] = None  # % change vs prior window

@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import Boolean, Column, DateTime
+from sqlalchemy import Boolean, Column, DateTime, text
 from sqlalchemy import Enum as _SAEnum
 from sqlalchemy import (
     Float,
@@ -659,6 +659,9 @@ class Activity(Base):
     average_duration_minutes = Column(Float)
     last_used = Column(DateTime)
     is_custom = Column(Boolean, default=False)
+    is_billable = Column(
+        Boolean, nullable=False, server_default=text("true"), default=True
+    )  # fabrication billable; administration/waiting non-billable by default
     created_by = Column(
         Integer, ForeignKey("users.id", ondelete="RESTRICT"), nullable=True
     )

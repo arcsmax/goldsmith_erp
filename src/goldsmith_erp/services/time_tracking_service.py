@@ -3,7 +3,7 @@ import logging
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from sqlalchemy import update, delete, and_, func
+from sqlalchemy import update, delete, and_, func, case
 from sqlalchemy.orm import selectinload
 from typing import List, Optional, Dict, Any
 from datetime import datetime, timedelta
@@ -23,6 +23,7 @@ from goldsmith_erp.models.time_entry import (
     TimeEntryUpdate,
     TimeEntryStart,
     TimeEntryStop,
+    TimeSummaryStats,
 )
 from goldsmith_erp.models.interruption import InterruptionCreate
 from goldsmith_erp.services.activity_service import ActivityService
@@ -979,3 +980,102 @@ class TimeTrackingService:
             "total_hours": round(total_minutes / 60, 2),
             "entry_count": entry_count,
         }
+
+    @staticmethod
+    async def get_summary(
+        db: AsyncSession,
+        *,
+        user_id: int,
+        start: datetime,
+        end: datetime,
+    ) -> TimeSummaryStats:
+        """Aggregate a user's completed time entries within [start, end).
+
+        Billable hours count only entries whose activity.is_billable is True.
+        comparison_previous_period is the % change in total hours vs the
+        immediately preceding window of equal length; None when that prior
+        window has zero hours.
+        """
+        window = end - start
+        prev_start = start - window
+
+        current_filter = and_(
+            TimeEntryModel.user_id == user_id,
+            TimeEntryModel.end_time.isnot(None),
+            TimeEntryModel.start_time >= start,
+            TimeEntryModel.start_time < end,
+        )
+
+        totals = (
+            await db.execute(
+                select(
+                    func.coalesce(func.sum(TimeEntryModel.duration_minutes), 0).label(
+                        "total"
+                    ),
+                    func.count(TimeEntryModel.id).label("count"),
+                    func.coalesce(
+                        func.sum(
+                            case(
+                                (
+                                    ActivityModel.is_billable.is_(True),
+                                    TimeEntryModel.duration_minutes,
+                                ),
+                                else_=0,
+                            )
+                        ),
+                        0,
+                    ).label("billable"),
+                )
+                .join(ActivityModel, TimeEntryModel.activity_id == ActivityModel.id)
+                .filter(current_filter)
+            )
+        ).one()
+
+        total_minutes = totals.total or 0
+        entries_count = totals.count or 0
+        billable_minutes = totals.billable or 0
+
+        most_used_row = (
+            await db.execute(
+                select(ActivityModel.name)
+                .join(TimeEntryModel, TimeEntryModel.activity_id == ActivityModel.id)
+                .filter(current_filter)
+                .group_by(ActivityModel.id, ActivityModel.name)
+                .order_by(func.sum(TimeEntryModel.duration_minutes).desc())
+                .limit(1)
+            )
+        ).first()
+        most_used_activity = most_used_row[0] if most_used_row else None
+
+        prev_minutes = (
+            await db.execute(
+                select(
+                    func.coalesce(func.sum(TimeEntryModel.duration_minutes), 0)
+                ).filter(
+                    and_(
+                        TimeEntryModel.user_id == user_id,
+                        TimeEntryModel.end_time.isnot(None),
+                        TimeEntryModel.start_time >= prev_start,
+                        TimeEntryModel.start_time < start,
+                    )
+                )
+            )
+        ).scalar() or 0
+
+        average_session_minutes = (
+            round(total_minutes / entries_count, 1) if entries_count else 0
+        )
+        comparison = (
+            round(((total_minutes - prev_minutes) / prev_minutes) * 100, 1)
+            if prev_minutes > 0
+            else None
+        )
+
+        return TimeSummaryStats(
+            total_hours=round(total_minutes / 60, 2),
+            billable_hours=round(billable_minutes / 60, 2),
+            entries_count=entries_count,
+            average_session_minutes=average_session_minutes,
+            most_used_activity=most_used_activity,
+            comparison_previous_period=comparison,
+        )

@@ -18,6 +18,7 @@ from goldsmith_erp.models.time_entry import (
     TimeEntryStart,
     TimeEntryStop,
     TimeEntryWithDetails,
+    TimeSummaryStats,
 )
 from goldsmith_erp.models.interruption import InterruptionCreate, InterruptionRead
 from goldsmith_erp.models.scanner import (
@@ -149,6 +150,41 @@ async def create_time_entry(
     entry_in.user_id = current_user.id
 
     return await TimeTrackingService.create_time_entry(db, entry_in)
+
+
+@router.get("/summary", response_model=TimeSummaryStats)
+@require_permission(Permission.TIME_VIEW_OWN)
+async def get_time_tracking_summary(
+    start_date: datetime = Query(..., description="Window start (inclusive)"),
+    end_date: datetime = Query(..., description="Window end (exclusive)"),
+    user_id: Optional[int] = Query(
+        None, description="Target user; defaults to the current user"
+    ),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Aggregierte Zeiterfassungs-Übersicht für ein Datumsfenster.
+
+    Defaults to the current user's own data. Querying another user's summary
+    requires TIME_VIEW_ALL (same ownership ladder as GET /user/{user_id}).
+    """
+    if start_date > end_date:
+        raise HTTPException(
+            status_code=422, detail="start_date must be on or before end_date"
+        )
+
+    target_user_id = user_id if user_id is not None else current_user.id
+    if not check_ownership_or_permission(
+        target_user_id, current_user, Permission.TIME_VIEW_ALL
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail="Permission denied: you can only view your own summary or need TIME_VIEW_ALL",
+        )
+
+    return await TimeTrackingService.get_summary(
+        db, user_id=target_user_id, start=start_date, end=end_date
+    )
 
 
 @router.get("/{entry_id}", response_model=TimeEntryRead)

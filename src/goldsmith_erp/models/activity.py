@@ -27,6 +27,10 @@ class ActivityBase(BaseModel):
         pattern=r"^#[0-9A-Fa-f]{6}$",
         description="Hex color code (e.g., #FF6B6B)"
     )
+    is_billable: bool = Field(
+        default=True,
+        description="Whether time on this activity counts toward billable hours"
+    )
 
     @field_validator('category')
     @classmethod
@@ -71,6 +75,10 @@ class ActivityUpdate(BaseModel):
         None,
         pattern=r"^#[0-9A-Fa-f]{6}$",
         description="Hex color code"
+    )
+    is_billable: Optional[bool] = Field(
+        None,
+        description="Whether time on this activity counts toward billable hours"
     )
 
     @field_validator('category')
