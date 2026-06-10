@@ -430,11 +430,56 @@ class TestCounterTiles:
 
 
 # ---------------------------------------------------------------------------
-# Latency histogram (SQLite percentile-fallback path)
+# Latency histogram
+#
+# The production code (`admin_scan_metrics._fab_tap_to_timer_pct_30d`) has two
+# code paths: PostgreSQL uses `percentile_cont` (linear interpolation), SQLite
+# falls back to fetching deltas and computing nearest-rank percentiles in
+# Python. The two paths produce different p95 values on the same input — for
+# deltas [1,2,3,4,5]s, nearest-rank p95 picks index 4 → 5000 ms; PG's linear
+# interpolation at rank 3.8 → 4000 + 0.8·(5000−4000) = 4800 ms. We exercise
+# both paths with the same fixture data and assert each backend's expected
+# value, so neither code path can regress unnoticed.
 # ---------------------------------------------------------------------------
 
 
+# `_IS_SQLITE` is driven by TEST_DATABASE_URL in tests/integration/conftest.py
+# (see `_SQLITE_FALLBACK_URL`). When set to a Postgres URL the integration
+# engine binds to PG; otherwise it falls back to the SQLite file. Mirroring
+# that single source of truth keeps these skip markers honest in any env.
+from tests.integration.conftest import _IS_SQLITE  # noqa: E402
+
+
+def _seed_latency_fixture_5s_deltas(db_session, user):
+    """Helper: insert 5 ScanLog rows with 1, 2, 3, 4, 5 second deltas.
+
+    Same fixture as in the two backend-specific tests below so the only
+    variable is the percentile algorithm.
+    """
+    now = datetime.utcnow()
+    for sec in (1, 2, 3, 4, 5):
+        tap = now - timedelta(minutes=1)
+        resolved = tap + timedelta(seconds=sec)
+        db_session.add(
+            ScanLog(
+                user_id=user.id,
+                scanned_at=now,
+                raw_payload=f"ORDER:{sec}",
+                client_tap_at=tap,
+                server_resolved_at=resolved,
+            )
+        )
+
+
 class TestFabTapLatency:
+    @pytest.mark.skipif(
+        not _IS_SQLITE,
+        reason=(
+            "Exercises the SQLite Python-side nearest-rank fallback. "
+            "On Postgres the production code takes the percentile_cont path; "
+            "covered by test_p50_p95_computed_via_percentile_cont below."
+        ),
+    )
     @pytest.mark.asyncio
     async def test_p50_p95_computed_on_sqlite_fallback(
         self,
@@ -443,20 +488,7 @@ class TestFabTapLatency:
         db_session: AsyncSession,
     ):
         gm = await _make_user(db_session, role=UserRole.GOLDSMITH)
-        now = datetime.utcnow()
-        # Deltas 1, 2, 3, 4, 5 seconds. p50 = 3000 ms, p95 -> nearest-rank = 5000 ms.
-        for sec in (1, 2, 3, 4, 5):
-            tap = now - timedelta(minutes=1)
-            resolved = tap + timedelta(seconds=sec)
-            db_session.add(
-                ScanLog(
-                    user_id=gm.id,
-                    scanned_at=now,
-                    raw_payload=f"ORDER:{sec}",
-                    client_tap_at=tap,
-                    server_resolved_at=resolved,
-                )
-            )
+        _seed_latency_fixture_5s_deltas(db_session, gm)
         await db_session.commit()
 
         response = await client.get(METRICS_URL, headers=admin_auth_headers)
@@ -465,3 +497,29 @@ class TestFabTapLatency:
         assert body["fab_tap_to_timer_ms_p50"] == pytest.approx(3000.0)
         # Nearest-rank p95 on 5 points rounds up -> index 4 -> 5000 ms.
         assert body["fab_tap_to_timer_ms_p95"] == pytest.approx(5000.0)
+
+    @pytest.mark.skipif(
+        _IS_SQLITE,
+        reason=(
+            "Exercises the PostgreSQL percentile_cont path. Requires "
+            "TEST_DATABASE_URL pointing at Postgres."
+        ),
+    )
+    @pytest.mark.asyncio
+    async def test_p50_p95_computed_via_percentile_cont(
+        self,
+        client: AsyncClient,
+        admin_auth_headers: dict,
+        db_session: AsyncSession,
+    ):
+        gm = await _make_user(db_session, role=UserRole.GOLDSMITH)
+        _seed_latency_fixture_5s_deltas(db_session, gm)
+        await db_session.commit()
+
+        response = await client.get(METRICS_URL, headers=admin_auth_headers)
+        body = response.json()
+        # percentile_cont(0.5) on [1,2,3,4,5]s -> exact middle: 3000 ms.
+        assert body["fab_tap_to_timer_ms_p50"] == pytest.approx(3000.0)
+        # percentile_cont(0.95) linearly interpolates at rank 0.95·(5−1) = 3.8:
+        # 4000 + 0.8·(5000 − 4000) = 4800 ms.
+        assert body["fab_tap_to_timer_ms_p95"] == pytest.approx(4800.0)

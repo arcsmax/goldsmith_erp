@@ -2344,9 +2344,13 @@ class GDPRRequest(Base):
     __tablename__ = "gdpr_requests"
 
     id = Column(Integer, primary_key=True, index=True)
-    customer_id = Column(
-        Integer, ForeignKey("customers.id", ondelete="SET NULL"), nullable=True
-    )
+    # No ForeignKey: an audit log of GDPR erasure requests must outlive its
+    # subject (CLAUDE.md "Anonymize audit logs when user requests erasure")
+    # and must accept requests for customer IDs that never existed (the
+    # Art. 30 404 path: see `_write_pending_gdpr_request` in customers.py).
+    # FK enforcement contradicts both. See migration
+    # `20260610_e1_gdpr_audit_nofk` and issue #7.
+    customer_id = Column(Integer, nullable=True)
     request_type = Column(String(20), nullable=False)
     status = Column(String(20), nullable=False, default="pending")
     requested_at = Column(DateTime, default=datetime.utcnow, nullable=False)
