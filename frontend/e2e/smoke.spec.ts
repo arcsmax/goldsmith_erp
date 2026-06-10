@@ -44,51 +44,17 @@ test.describe('Login page structure', () => {
     await expect(page.locator('button[type="submit"]')).toBeVisible();
     await expect(page.locator('button[type="submit"]')).toHaveText('Anmelden');
   });
-
-  test('link to register page is present', async ({ page }) => {
-    const registerLink = page.getByRole('link', { name: 'Registrieren' });
-    await expect(registerLink).toBeVisible();
-  });
 });
 
-test.describe('Register page structure', () => {
-  test.beforeEach(async ({ page }) => {
-    await page.goto('/register');
-  });
+// Public /register route + page link were removed in fix A3 (2026-04-23) when
+// self-registration became ADMIN-invitation-only via the authenticated /users
+// page. The smoke specs for that flow (link presence, /register page
+// structure, login↔register navigation) were not removed at the time and
+// surfaced as 6 e2e failures the first time the e2e job actually ran (after
+// PR #6's lint-decouple). Dropped here. RegisterPage.tsx + authApi.register
+// stay on disk for the future admin-invitation UI, per App.tsx's note.
 
-  test('shows Registrieren sub-heading', async ({ page }) => {
-    await expect(page.locator('h2')).toHaveText('Registrieren');
-  });
-
-  test('has all required form fields', async ({ page }) => {
-    await expect(page.locator('#email')).toBeVisible();
-    await expect(page.locator('#firstName')).toBeVisible();
-    await expect(page.locator('#lastName')).toBeVisible();
-    await expect(page.locator('#password')).toBeVisible();
-    await expect(page.locator('#confirmPassword')).toBeVisible();
-  });
-
-  test('link back to login is present', async ({ page }) => {
-    const loginLink = page.getByRole('link', { name: 'Anmelden' });
-    await expect(loginLink).toBeVisible();
-  });
-});
-
-test.describe('Navigation from login page', () => {
-  test('clicking Registrieren link goes to /register', async ({ page }) => {
-    await page.goto('/login');
-    await page.getByRole('link', { name: 'Registrieren' }).click();
-    await expect(page).toHaveURL(/\/register/);
-    await expect(page.locator('h2')).toHaveText('Registrieren');
-  });
-
-  test('clicking Anmelden link on register page goes to /login', async ({ page }) => {
-    await page.goto('/register');
-    await page.getByRole('link', { name: 'Anmelden' }).click();
-    await expect(page).toHaveURL(/\/login/);
-    await expect(page.locator('h2')).toHaveText('Anmelden');
-  });
-
+test.describe('Protected routes', () => {
   test('unauthenticated visit to / redirects to /login', async ({ page }) => {
     // Clear any lingering auth state
     await page.goto('/login');
