@@ -1096,3 +1096,108 @@ export interface RepairCompleteInput {
 export interface RepairStatusUpdateInput {
   notes?: string | null;
 }
+
+// ==================== V1.1 CONSULTATION (BERATUNG) ====================
+
+export type ConsultationStatus = 'draft' | 'completed' | 'converted' | 'archived';
+
+export type ConsultationOccasion =
+  | 'engagement' | 'wedding' | 'anniversary' | 'birthday'
+  | 'self' | 'redesign' | 'repair_consult' | 'other';
+
+export type ConsultationPhotoKind = 'sketch' | 'reference' | 'inspiration' | 'existing_piece';
+
+export type NoGoCategory = 'metal' | 'stone' | 'finish' | 'design_element' | 'allergy' | 'other';
+
+export type ConsultationPieceType =
+  | 'ring' | 'chain' | 'pendant' | 'earrings' | 'bracelet' | 'brooch' | 'repair' | 'custom';
+
+export interface ConsultationPhoto {
+  id: string;
+  consultation_id: number;
+  order_id?: number | null;
+  kind: ConsultationPhotoKind;
+  notes?: string | null;
+  timestamp: string;
+}
+
+export interface Consultation {
+  id: number;
+  customer_id: number;
+  conducted_by: number;
+  status: ConsultationStatus;
+  occasion: ConsultationOccasion;
+  occasion_date?: string | null;
+  budget_min?: number | null;
+  budget_max?: number | null;
+  piece_type?: ConsultationPieceType | null;
+  wishes?: string | null;
+  materials_discussed?: Array<Record<string, string>> | null;
+  source_material?: string | null;
+  notes?: string | null;
+  follow_up_at?: string | null;
+  converted_quote_id?: number | null;
+  converted_order_id?: number | null;
+  photos: ConsultationPhoto[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ConsultationListItem {
+  id: number;
+  customer_id: number;
+  occasion: ConsultationOccasion;
+  piece_type?: ConsultationPieceType | null;
+  status: ConsultationStatus;
+  follow_up_at?: string | null;
+  created_at: string;
+}
+
+export interface ConsultationCreateInput {
+  customer_id: number;
+  occasion?: ConsultationOccasion;
+}
+
+export interface ConsultationUpdateInput {
+  occasion?: ConsultationOccasion;
+  occasion_date?: string | null;
+  budget_min?: number | null;
+  budget_max?: number | null;
+  piece_type?: ConsultationPieceType | null;
+  wishes?: string | null;
+  materials_discussed?: Array<Record<string, string>> | null;
+  source_material?: string | null;
+  notes?: string | null;
+  follow_up_at?: string | null;
+  status?: ConsultationStatus;
+}
+
+export interface NoGo {
+  id: number;
+  customer_id: number;
+  category: NoGoCategory;
+  value: string;
+  note?: string | null;
+  source_consultation_id?: number | null;
+  created_at: string;
+}
+
+export interface NoGoCreateInput {
+  category: NoGoCategory;
+  value: string;
+  note?: string;
+}
+
+export interface NoGoConflict {
+  no_go_id: number;
+  category: NoGoCategory;
+  value: string;
+  matched_against: string;
+}
+
+export interface StyleProfile {
+  metal_tones: string[];
+  finishes: string[];
+  stone_preferences: string[];
+  style_words: string[];
+}
