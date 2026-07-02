@@ -8,9 +8,10 @@ are individually guarded: their failure is logged, never propagated.
 
 import json
 import logging
+from datetime import datetime
 from typing import List, Optional
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -56,9 +57,20 @@ class ConsultationService:
             await db.flush()
             await db.refresh(consultation)
 
-        if consultation.follow_up_at is not None:
+        # Capture scalars NOW: a failed side-effect below rolls back the session,
+        # which expires every ORM object — reading consultation.<attr> afterwards
+        # would raise MissingGreenlet on an AsyncSession. Locals stay valid.
+        consultation_id: int = consultation.id
+        customer_id: int = consultation.customer_id
+        follow_up_at: Optional[datetime] = consultation.follow_up_at
+
+        if follow_up_at is not None:
             await ConsultationService._ensure_follow_up_reminder(
-                db, consultation, conducted_by_user_id
+                db,
+                consultation_id=consultation_id,
+                customer_id=customer_id,
+                follow_up_at=follow_up_at,
+                user_id=conducted_by_user_id,
             )
 
         # Publish AFTER the consultation write succeeds. A Redis failure must
@@ -69,26 +81,26 @@ class ConsultationService:
                 json.dumps(
                     {
                         "action": "create",
-                        "consultation_id": consultation.id,
-                        "customer_id": consultation.customer_id,
+                        "consultation_id": consultation_id,
+                        "customer_id": customer_id,
                     }
                 ),
             )
         except Exception as exc:
             logger.error(
                 "Failed to publish consultation create event",
-                extra={"consultation_id": consultation.id, "error": str(exc)},
+                extra={"consultation_id": consultation_id, "error": str(exc)},
                 exc_info=True,
             )
 
         logger.info(
             "Consultation created",
             extra={
-                "consultation_id": consultation.id,
-                "customer_id": consultation.customer_id,
+                "consultation_id": consultation_id,
+                "customer_id": customer_id,
             },
         )
-        return await ConsultationService._reload(db, consultation.id)
+        return await ConsultationService._reload(db, consultation_id)
 
     @staticmethod
     async def get_consultation(
@@ -146,9 +158,19 @@ class ConsultationService:
             await db.flush()
             await db.refresh(consultation)
 
-        if "follow_up_at" in changed and consultation.follow_up_at is not None:
+        # Capture scalars before any side effect: a rollback inside
+        # _ensure_follow_up_reminder expires all ORM objects (see create).
+        customer_id: int = consultation.customer_id
+        follow_up_at: Optional[datetime] = consultation.follow_up_at
+        conducted_by: int = consultation.conducted_by
+
+        if "follow_up_at" in changed and follow_up_at is not None:
             await ConsultationService._ensure_follow_up_reminder(
-                db, consultation, consultation.conducted_by
+                db,
+                consultation_id=consultation_id,
+                customer_id=customer_id,
+                follow_up_at=follow_up_at,
+                user_id=conducted_by,
             )
 
         logger.info(
@@ -159,36 +181,63 @@ class ConsultationService:
 
     @staticmethod
     async def _reload(db: AsyncSession, consultation_id: int) -> Consultation:
-        consultation = await ConsultationService.get_consultation(db, consultation_id)
+        """Fresh, authoritative read after side effects.
+
+        populate_existing forces the row's current DB state onto the identity-map
+        instance — the side effects update calendar_event_id via a bulk UPDATE,
+        which a plain SELECT would not push onto an already-loaded object.
+        """
+        result = await db.execute(
+            select(Consultation)
+            .options(selectinload(Consultation.photos))
+            .execution_options(populate_existing=True)
+            .filter(Consultation.id == consultation_id)
+        )
+        consultation = result.scalar_one_or_none()
         assert consultation is not None
         return consultation
 
     @staticmethod
     async def _ensure_follow_up_reminder(
-        db: AsyncSession, consultation: Consultation, user_id: int
+        db: AsyncSession,
+        consultation_id: int,
+        customer_id: int,
+        follow_up_at: datetime,
+        user_id: int,
     ) -> None:
-        """Create/refresh the REMINDER calendar event + notification.
+        """Create the REMINDER calendar event + notification.
+
+        Takes plain scalars (not the ORM object): if the inner transaction
+        fails, its rollback expires every object in the session's identity
+        map, and reading ORM attributes afterwards raises MissingGreenlet
+        on an AsyncSession. Scalars keep the guard actually side-effect-safe.
 
         Failures here must never break the consultation write — log and continue.
         """
         try:
             async with transactional(db):
                 event = CalendarEvent(
-                    title=f"Wiedervorlage Beratung #{consultation.id}",
+                    title=f"Wiedervorlage Beratung #{consultation_id}",
                     description="Kunde wollte über den Schmuckwunsch nachdenken.",
                     event_type=CalendarEventType.REMINDER,
-                    start_datetime=consultation.follow_up_at,
+                    start_datetime=follow_up_at,
                     end_datetime=None,
                     all_day=True,
                     user_id=user_id,
                 )
                 db.add(event)
                 await db.flush()
-                consultation.calendar_event_id = event.id
+                # UPDATE by id instead of mutating a possibly-detached ORM
+                # object — no attribute access on expired instances.
+                await db.execute(
+                    update(Consultation)
+                    .where(Consultation.id == consultation_id)
+                    .values(calendar_event_id=event.id)
+                )
         except Exception:
             logger.error(
                 "Failed to create follow-up calendar event",
-                extra={"consultation_id": consultation.id},
+                extra={"consultation_id": consultation_id},
                 exc_info=True,
             )
             return
@@ -204,16 +253,16 @@ class ConsultationService:
                 user_id=user_id,
                 title="Wiedervorlage geplant",
                 message=(
-                    f"Beratung #{consultation.id} ist zur Wiedervorlage am "
-                    f"{consultation.follow_up_at:%d.%m.%Y} vorgemerkt."
+                    f"Beratung #{consultation_id} ist zur Wiedervorlage am "
+                    f"{follow_up_at:%d.%m.%Y} vorgemerkt."
                 ),
                 notification_type=NotificationTypeEnum.CONSULTATION_FOLLOWUP,
                 severity=NotificationSeverityEnum.INFO,
-                related_customer_id=consultation.customer_id,
+                related_customer_id=customer_id,
             )
         except Exception:
             logger.error(
                 "Failed to create follow-up notification",
-                extra={"consultation_id": consultation.id},
+                extra={"consultation_id": consultation_id},
                 exc_info=True,
             )

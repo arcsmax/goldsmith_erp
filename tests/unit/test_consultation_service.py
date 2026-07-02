@@ -92,3 +92,77 @@ async def test_follow_up_creates_calendar_event(
     )
     assert any(f"Beratung #{created.id}" in e.title for e in events)
     assert created.calendar_event_id is not None
+
+
+@pytest.mark.asyncio
+async def test_converted_consultation_can_still_update_status_and_notes(
+    db_session, sample_customer, sample_user
+):
+    """Post-conversion bookkeeping: status/notes stay mutable on CONVERTED rows."""
+    created = await ConsultationService.create_consultation(
+        db_session,
+        ConsultationCreate(customer_id=sample_customer.id, notes="alt"),
+        conducted_by_user_id=sample_user.id,
+    )
+    created.status = ConsultationStatus.CONVERTED
+    await db_session.flush()
+
+    updated = await ConsultationService.update_consultation(
+        db_session,
+        created.id,
+        ConsultationUpdate(status=ConsultationStatus.ARCHIVED, notes="neu"),
+    )
+    assert updated.status is ConsultationStatus.ARCHIVED
+    assert updated.notes == "neu"
+
+
+@pytest.mark.asyncio
+async def test_follow_up_side_effect_failure_never_propagates(
+    db_session, sample_customer, sample_user, monkeypatch
+):
+    """Regression: a failing calendar-event write rolls back its own transaction,
+    which expires all ORM objects — create_consultation must still return the
+    committed consultation without raising (e.g. MissingGreenlet on expired
+    attribute access).
+
+    The failure is injected at flush time (not in the CalendarEvent constructor):
+    a constructor error fires before any DB work, so no transaction has begun and
+    the rollback is a no-op that expires nothing — it would not reproduce the bug.
+    Failing the flush guarantees an active transaction whose rollback expires the
+    identity map, which is the scenario the service must survive."""
+    from goldsmith_erp.db.models import CalendarEvent
+
+    real_flush = db_session.flush
+
+    async def failing_flush(*args, **kwargs):
+        if any(isinstance(obj, CalendarEvent) for obj in db_session.new):
+            raise RuntimeError("calendar insert failed (simulated)")
+        return await real_flush(*args, **kwargs)
+
+    monkeypatch.setattr(db_session, "flush", failing_flush)
+
+    # Capture before the call: the side-effect rollback expires ALL identity-map
+    # objects (sample_customer included) — a lazy .id read afterwards would
+    # itself raise MissingGreenlet in the test.
+    expected_customer_id = sample_customer.id
+
+    when = datetime.utcnow() + timedelta(days=3)
+    created = await ConsultationService.create_consultation(
+        db_session,
+        ConsultationCreate(
+            customer_id=sample_customer.id,
+            wishes="Anhänger",
+            follow_up_at=when,
+        ),
+        conducted_by_user_id=sample_user.id,
+    )
+
+    # (a) no exception propagated; (b) consultation persisted with correct fields
+    assert created.id is not None
+    assert created.wishes == "Anhänger"
+    assert created.customer_id == expected_customer_id
+    fetched = await ConsultationService.get_consultation(db_session, created.id)
+    assert fetched is not None
+    assert fetched.wishes == "Anhänger"
+    # (c) no calendar event was linked
+    assert created.calendar_event_id is None
