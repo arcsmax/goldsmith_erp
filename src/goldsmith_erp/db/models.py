@@ -12,6 +12,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     event,
+    func,
     text,
 )
 from sqlalchemy.dialects.postgresql import JSON
@@ -2110,6 +2111,25 @@ class CustomerNoGo(Base):
         Integer, ForeignKey("consultations.id", ondelete="SET NULL"), nullable=True
     )
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    # DB-level backstop for the app-side duplicate check in
+    # NoGoService.add_no_go (issue #12 — closes the duplicate TOCTOU: that
+    # check is casefolded and runs BEFORE the transaction, so two
+    # concurrent requests can both pass it). Functional/expression index,
+    # named identically to the raw ``CREATE UNIQUE INDEX`` emitted by
+    # alembic/versions/20260703_i12_no_go_unique_index.py so that
+    # ``Base.metadata.create_all()`` (unit-test DBs) and
+    # ``alembic upgrade head`` (real deployments) produce the same
+    # constraint shape.
+    __table_args__ = (
+        Index(
+            "uq_customer_no_gos_customer_category_value_ci",
+            customer_id,
+            category,
+            func.lower(value),
+            unique=True,
+        ),
+    )
 
     customer = relationship("Customer")
 

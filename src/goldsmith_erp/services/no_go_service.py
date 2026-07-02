@@ -10,6 +10,7 @@ import logging
 from typing import List, Optional
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from goldsmith_erp.db.models import Customer, CustomerNoGo, NoGoCategory
@@ -114,7 +115,23 @@ class NoGoService:
                 source_consultation_id=source_consultation_id,
             )
             db.add(no_go)
-            await db.flush()
+            try:
+                # Explicit flush (rather than letting transactional's
+                # commit surface it) so the DB-level unique index's
+                # IntegrityError — the TOCTOU backstop for the app-side
+                # check above, see CustomerNoGo.__table_args__ / issue
+                # #12 — is caught HERE, inside this block. SQLAlchemy's
+                # IntegrityError.__str__ includes the failed INSERT's
+                # bound PARAMETERS, i.e. the raw (health-adjacent) no-go
+                # value. transactional()'s except-clause logs str(exc) at
+                # ERROR for ANY exception that escapes this block — so
+                # letting the raw IntegrityError propagate would write
+                # that value to the logs on every raced duplicate. Catch
+                # and swap it for the generic DuplicateNoGoError before it
+                # ever reaches that handler.
+                await db.flush()
+            except IntegrityError:
+                raise DuplicateNoGoError() from None
             await db.refresh(no_go)
 
             if no_go_in.category == NoGoCategory.ALLERGY:

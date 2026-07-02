@@ -8,11 +8,15 @@ column limit).
 """
 
 import logging
+import sys
+import traceback
 from unittest import mock
 
 import pytest
 
+import goldsmith_erp.db.transaction as transaction_module
 import goldsmith_erp.services.no_go_service as no_go_service_module
+from goldsmith_erp.db.models import CustomerNoGo, NoGoCategory
 from goldsmith_erp.models.consultation import NoGoCreate
 from goldsmith_erp.services.no_go_service import DuplicateNoGoError, NoGoService
 
@@ -178,3 +182,125 @@ async def test_add_non_allergy_no_go_does_not_touch_legacy_field(
         db_session, sample_customer.id, NoGoCreate(category="metal", value="Nickel")
     )
     assert sample_customer.allergies is None
+
+
+# ── DB-level unique index (issue #12 — TOCTOU backstop) ────────────────────
+#
+# The app-side pre-check in add_no_go (test_duplicate_no_go_rejected, above)
+# already rejects same-request duplicates. These tests target the DB-level
+# functional unique index on (customer_id, category, lower(value)) that now
+# backstops a genuinely raced request — one where the pre-check's read ran
+# BEFORE a concurrent request's conflicting row committed, so the read
+# itself never saw it. A real race is hard to reproduce deterministically
+# in a unit test, so `NoGoService.list_no_gos` is monkeypatched to return an
+# empty list for the call inside `add_no_go`, reproducing exactly what a
+# genuinely concurrent caller would observe: a pre-check that finds nothing,
+# followed by an insert that collides anyway.
+
+
+async def _add_no_go_bypassing_app_check(
+    db_session, monkeypatch, customer_id, no_go_in
+):
+    """Call add_no_go with its app-side pre-check forced to see no rows.
+
+    Used to reach the DB-level unique-index path directly, without a real
+    concurrent second request.
+    """
+
+    async def _empty_list_no_gos(db, cid):
+        return []
+
+    monkeypatch.setattr(NoGoService, "list_no_gos", staticmethod(_empty_list_no_gos))
+    return await NoGoService.add_no_go(db_session, customer_id, no_go_in)
+
+
+@pytest.mark.asyncio
+async def test_db_unique_index_catches_raced_duplicate_app_check_missed(
+    db_session, sample_customer, monkeypatch
+):
+    """A conflicting row already committed in the DB, invisible to the
+    (monkeypatched-empty) app-side pre-check, must still be rejected — via
+    the new DB-level unique index — as the typed DuplicateNoGoError, never
+    a raw IntegrityError leaking out of the service."""
+    existing = CustomerNoGo(
+        customer_id=sample_customer.id, category=NoGoCategory.ALLERGY, value="Nickel"
+    )
+    db_session.add(existing)
+    await db_session.commit()
+
+    with pytest.raises(DuplicateNoGoError, match="existiert bereits"):
+        await _add_no_go_bypassing_app_check(
+            db_session,
+            monkeypatch,
+            sample_customer.id,
+            NoGoCreate(category="allergy", value="nickel"),  # case variant
+        )
+
+
+@pytest.mark.asyncio
+async def test_db_conflict_duplicate_never_logs_raw_value(
+    db_session, sample_customer, monkeypatch
+):
+    """SECURITY: on the DB-level (raced) duplicate path, the submitted
+    no-go value must never reach ANY log — including db/transaction.py's
+    generic error logger, which logs str(exc) at ERROR for every exception
+    that escapes a `transactional()` block. SQLAlchemy's IntegrityError
+    embeds the failed INSERT's bound parameters (i.e. the raw value) in
+    its str() — verified empirically for this exact index/table shape —
+    so add_no_go must catch it and swap it for the generic
+    DuplicateNoGoError INSIDE the transactional block, before that logger
+    ever sees it. Uses logger spies rather than caplog: root-handler
+    capture proved environment-dependent in CI (see the 500-char legacy
+    sync test above)."""
+    secret_value = "Nickelsulfat-Allergie-XYZ"
+    existing = CustomerNoGo(
+        customer_id=sample_customer.id,
+        category=NoGoCategory.ALLERGY,
+        value=secret_value,
+    )
+    db_session.add(existing)
+    await db_session.commit()
+
+    # transactional() calls logger.error(..., exc_info=True) — capturing
+    # only the mock's call_args would miss anything a real log handler
+    # renders FROM exc_info (the active exception + its __cause__/
+    # __context__ chain). Render that chain the same way a formatter
+    # would, via a side_effect, so the test also proves `raise ... from
+    # None` in add_no_go actually suppresses the original IntegrityError
+    # (and its bound-parameter-laden str()) from that chain.
+    rendered_tracebacks: list[str] = []
+
+    def _record_rendered_traceback(*args, **kwargs):
+        rendered_tracebacks.append("".join(traceback.format_exception(*sys.exc_info())))
+
+    with (
+        mock.patch.object(
+            transaction_module.logger, "error", side_effect=_record_rendered_traceback
+        ) as tx_error_spy,
+        mock.patch.object(no_go_service_module.logger, "info") as service_info_spy,
+    ):
+        with pytest.raises(DuplicateNoGoError):
+            await _add_no_go_bypassing_app_check(
+                db_session,
+                monkeypatch,
+                sample_customer.id,
+                NoGoCreate(category="allergy", value=secret_value.lower()),
+            )
+
+    # The rejection still passes through transactional()'s except-clause
+    # (DuplicateNoGoError is raised INSIDE the block), so it does still log
+    # an error — the point is that neither the log call's args/kwargs nor
+    # the rendered exc_info traceback (chained exceptions included) carries
+    # the secret value.
+    assert tx_error_spy.called
+    for call in tx_error_spy.call_args_list:
+        assert secret_value not in str(call)
+        assert secret_value.lower() not in str(call).lower()
+    assert rendered_tracebacks
+    for rendered in rendered_tracebacks:
+        assert secret_value not in rendered
+        assert secret_value.lower() not in rendered.lower()
+
+    # The success-path "Customer no-go added" info log must never fire for
+    # a rejected duplicate.
+    assert not service_info_spy.called
