@@ -159,8 +159,10 @@
   background: rgb(0 0 0 / 0.65); color: #fff;
 }
 .consultation-photo-delete {
-  position: absolute; top: 6px; right: 6px;
-  width: 32px; height: 32px; border-radius: 50%;
+  position: absolute; top: 4px; right: 4px;
+  width: 44px; height: 44px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 1.1rem; line-height: 1;
   border: none; background: rgb(0 0 0 / 0.6); color: #fff; cursor: pointer;
 }
 .photo-upload-tile {
