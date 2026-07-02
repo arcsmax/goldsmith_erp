@@ -35,6 +35,9 @@ const RepairsPage = lazy(() => import('./pages/RepairsPage').then(m => ({ defaul
 const RepairDetailPage = lazy(() => import('./pages/RepairDetailPage').then(m => ({ default: m.RepairDetailPage })));
 const CustomerPortalPage = lazy(() => import('./pages/CustomerPortalPage').then(m => ({ default: m.CustomerPortalPage })));
 const UserSettingsPage = lazy(() => import('./pages/UserSettingsPage').then(m => ({ default: m.UserSettingsPage })));
+const ConsultationWizardPage = lazy(() =>
+  import('./pages/ConsultationWizardPage').then((m) => ({ default: m.ConsultationWizardPage }))
+);
 
 // Loading fallback component
 const PageLoader: React.FC = () => (
@@ -100,6 +103,24 @@ const App: React.FC = () => {
                       element={
                         <ProtectedRoute requiredRoles={['ADMIN', 'GOLDSMITH']}>
                           <CustomerDetailPage />
+                        </ProtectedRoute>
+                      }
+                    />
+
+                    {/* Beratung — ADMIN und GOLDSMITH */}
+                    <Route
+                      path="consultations/new"
+                      element={
+                        <ProtectedRoute requiredRoles={['ADMIN', 'GOLDSMITH']}>
+                          <ConsultationWizardPage />
+                        </ProtectedRoute>
+                      }
+                    />
+                    <Route
+                      path="consultations/:id"
+                      element={
+                        <ProtectedRoute requiredRoles={['ADMIN', 'GOLDSMITH']}>
+                          <ConsultationWizardPage />
                         </ProtectedRoute>
                       }
                     />
