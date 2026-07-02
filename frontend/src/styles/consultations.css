@@ -106,6 +106,21 @@
 }
 .chip-removable::after { content: ' ×'; opacity: 0.7; }
 
+/* Step field layout (Anlass & Budget, Der Wunsch) — lightweight stacked
+   fields matching the wizard's own spacing rhythm. Other pages' .form-group/
+   .form-row live in stylesheets not imported here, so the wizard keeps its
+   own minimal variant instead of reaching across page boundaries. */
+.wizard-field { margin-bottom: 1.5rem; }
+.wizard-field:last-child { margin-bottom: 0; }
+.wizard-field > label { display: block; font-weight: 600; margin-bottom: 0.5rem; }
+.wizard-field-row { display: flex; gap: 1rem; }
+.wizard-field-row .wizard-field { flex: 1; }
+.field-hint {
+  font-size: 0.85rem;
+  color: color-mix(in srgb, var(--text-color-primary) 55%, transparent);
+  margin: 0.4rem 0 0;
+}
+
 /* No-Go entries — deliberately alarm-toned */
 .no-go-item {
   display: flex;

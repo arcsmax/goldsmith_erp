@@ -82,8 +82,32 @@ describe('ConsultationWizardPage', () => {
     expect(await screen.findByRole('heading', { name: 'Anlass & Budget' })).toBeInTheDocument();
   });
 
-  // NOTE: the autosave-failure path (Weiter blocked + error toast) cannot be
-  // exercised until a real step reports fields — Task 4 adds
-  // `blocks Weiter and toasts when the PATCH fails` to
-  // OccasionBudgetStep.test.tsx-level wizard integration. Do NOT test it here.
+  it('blocks Weiter and shows an error toast when the autosave PATCH fails', async () => {
+    mockUpdate.mockRejectedValueOnce(new Error('network down'));
+    renderAt('/consultations/9?step=2');
+    await screen.findByRole('heading', { name: 'Anlass & Budget' });
+
+    // The real OccasionBudgetStep now reports fields via onFieldsChange —
+    // pick a chip distinct from the seeded 'other' occasion so pendingPatch
+    // is non-empty and Weiter actually calls the PATCH.
+    await userEvent.click(screen.getByRole('button', { name: 'Hochzeit' }));
+    await userEvent.click(screen.getByRole('button', { name: /Weiter/ }));
+
+    // OccasionBudgetStep reports the full field-set of its step (not just the
+    // changed field) — occasion_date/budget are unset on the seeded draft.
+    await waitFor(() =>
+      expect(mockUpdate).toHaveBeenCalledWith(9, {
+        occasion: 'wedding',
+        occasion_date: null,
+        budget_min: null,
+        budget_max: null,
+      })
+    );
+    expect(mockShowToast).toHaveBeenCalledWith(
+      'Speichern fehlgeschlagen — bitte erneut versuchen',
+      'error'
+    );
+    // Still on step 2 — the failed PATCH must not advance the wizard.
+    expect(screen.getByRole('heading', { name: 'Anlass & Budget' })).toBeInTheDocument();
+  });
 });

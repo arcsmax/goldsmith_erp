@@ -5,6 +5,8 @@ import { consultationsApi } from '../api/consultations';
 import { Consultation, ConsultationUpdateInput } from '../types';
 import { WizardProgress } from '../components/consultation/WizardProgress';
 import { CustomerStep } from '../components/consultation/CustomerStep';
+import { OccasionBudgetStep } from '../components/consultation/OccasionBudgetStep';
+import { WishStep } from '../components/consultation/WishStep';
 import '../styles/consultations.css';
 
 export interface WizardStepProps {
@@ -100,7 +102,14 @@ export const ConsultationWizardPage: React.FC = () => {
     goToStep(step + 1);
   }, [onPatch, pendingPatch, goToStep, step]);
 
-  const handleBack = useCallback(() => goToStep(Math.max(step - 1, 1)), [goToStep, step]);
+  const handleBack = useCallback(() => {
+    // Discard unsaved edits from the step being left. Weiter is the only path
+    // that persists pendingPatch; without this, navigating back and then
+    // forward again through a different step would silently carry a stale
+    // patch into the next Weiter save.
+    setPendingPatch({});
+    goToStep(Math.max(step - 1, 1));
+  }, [goToStep, step]);
 
   // Called by the customer step (Task 3) once a customer is chosen on /new.
   const handleDraftCreated = useCallback(
@@ -134,8 +143,10 @@ export const ConsultationWizardPage: React.FC = () => {
         {step === 1 && (
           <CustomerStep onDraftCreated={handleDraftCreated} existingCustomerId={consultation?.customer_id} />
         )}
-        {step === 2 && stepProps && <p>Folgt in Task 4</p>}
-        {step === 3 && stepProps && <p>Folgt in Task 4</p>}
+        {step === 2 && stepProps && (
+          <OccasionBudgetStep {...stepProps} onFieldsChange={setPendingPatch} />
+        )}
+        {step === 3 && stepProps && <WishStep {...stepProps} onFieldsChange={setPendingPatch} />}
         {step === 4 && stepProps && <p>Folgt in Task 5</p>}
         {step === 5 && stepProps && <p>Folgt in Task 6</p>}
         {step === 6 && stepProps && <p>Folgt in Task 7</p>}

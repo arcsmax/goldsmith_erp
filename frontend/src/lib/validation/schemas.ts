@@ -252,6 +252,50 @@ export type CustomerCreateFormData = z.input<typeof CustomerCreateSchema>;
 export type CustomerCreateValidated = z.output<typeof CustomerCreateSchema>;
 
 // ---------------------------------------------------------------------------
+// Consultation (Beratungs-Wizard)
+// ---------------------------------------------------------------------------
+
+/** Mirrors ConsultationOccasion in frontend/src/types.ts. */
+export const ConsultationOccasionValues = [
+  'engagement',
+  'wedding',
+  'anniversary',
+  'birthday',
+  'self',
+  'redesign',
+  'repair_consult',
+  'other',
+] as const;
+
+/**
+ * Schema for the OccasionBudgetStep (Beratungs-Wizard step 2).
+ * Validates the occasion/budget slice of ConsultationUpdateInput
+ * (frontend/src/types.ts). budget_min/budget_max are omitted (not just
+ * null) when the corresponding number input is empty — see
+ * OccasionBudgetStep's `emit()`.
+ */
+export const ConsultationOccasionSchema = z
+  .object({
+    occasion: z.enum(ConsultationOccasionValues),
+    occasion_date: z.string().optional(),
+    budget_min: z.number().min(0, 'Darf nicht negativ sein').optional(),
+    budget_max: z.number().min(0, 'Darf nicht negativ sein').optional(),
+  })
+  .refine(
+    (data) => {
+      if (data.budget_min == null || data.budget_max == null) return true;
+      return data.budget_min <= data.budget_max;
+    },
+    {
+      message: 'Von-Budget darf nicht über dem Bis-Budget liegen',
+      path: ['budget_max'],
+    }
+  );
+
+export type ConsultationOccasionFormData = z.input<typeof ConsultationOccasionSchema>;
+export type ConsultationOccasionValidated = z.output<typeof ConsultationOccasionSchema>;
+
+// ---------------------------------------------------------------------------
 // User
 // ---------------------------------------------------------------------------
 
