@@ -92,6 +92,36 @@ class TestNoGos:
         assert secret_value not in dup.text
 
     @pytest.mark.asyncio
+    async def test_duplicate_with_not_found_substring_still_409_no_leak(
+        self,
+        client: AsyncClient,
+        goldsmith_auth_headers: dict,
+        test_customer: Customer,
+    ):
+        """SECURITY (fix round 1): error routing must be typed, not
+        string-matched. A duplicate whose VALUE contains the literal
+        substring "not found" must still be a 409 (not misrouted to a
+        404 branch that forwards the raw message) and must not leak the
+        value in the response body."""
+        base = _no_gos_url(test_customer.id)
+        tricky_value = "Rosegold — not found in stock"
+        first = await client.post(
+            base,
+            json={"category": "metal", "value": tricky_value},
+            headers=goldsmith_auth_headers,
+        )
+        assert first.status_code == 201, first.text
+
+        dup = await client.post(
+            base,
+            json={"category": "metal", "value": tricky_value},
+            headers=goldsmith_auth_headers,
+        )
+        assert dup.status_code == 409
+        assert tricky_value not in dup.text
+        assert "Rosegold" not in dup.text
+
+    @pytest.mark.asyncio
     async def test_create_no_go_unknown_customer_returns_404(
         self, client: AsyncClient, goldsmith_auth_headers: dict
     ):
@@ -101,6 +131,7 @@ class TestNoGos:
             headers=goldsmith_auth_headers,
         )
         assert response.status_code == 404
+        assert response.json()["detail"] == "Kunde nicht gefunden"
 
     @pytest.mark.asyncio
     async def test_check_endpoint_flags_conflict(

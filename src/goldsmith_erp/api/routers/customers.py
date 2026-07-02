@@ -34,7 +34,7 @@ from goldsmith_erp.models.customer import (
 )
 from goldsmith_erp.services.customer_service import CustomerService
 from goldsmith_erp.services.file_erasure_service import FileErasureService
-from goldsmith_erp.services.no_go_service import NoGoService
+from goldsmith_erp.services.no_go_service import DuplicateNoGoError, NoGoService
 
 logger = logging.getLogger(__name__)
 
@@ -756,31 +756,6 @@ async def delete_customer(
 # ---------------------------------------------------------------------------
 
 
-def _raise_no_go_error(exc: ValueError, customer_id: int) -> None:
-    """Map a ``NoGoService`` ``ValueError`` to 404 (unknown customer) or
-    409 (duplicate no-go).
-
-    SECURITY (binding review note): ``NoGoService.add_no_go``'s duplicate
-    guard raises with the raw no-go value embedded in the message (it can be
-    health-adjacent data, e.g. an allergy). ``str(exc)`` MUST NOT be
-    forwarded to the response body or the log for that branch — only the
-    generic detail below. The unknown-customer branch's message only
-    contains the customer_id, which is safe to return and log as-is.
-    """
-    message = str(exc)
-    if "not found" in message:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=message)
-
-    logger.warning(
-        "Duplicate no-go rejected",
-        extra={"customer_id": customer_id},
-    )
-    raise HTTPException(
-        status_code=status.HTTP_409_CONFLICT,
-        detail="Dieses No-Go existiert bereits",
-    )
-
-
 @router.get("/{customer_id}/no-gos", response_model=List[NoGoRead])
 async def list_customer_no_gos(
     customer_id: int,
@@ -817,8 +792,25 @@ async def create_customer_no_go(
     """
     try:
         return await NoGoService.add_no_go(db, customer_id, no_go_in)
-    except ValueError as exc:
-        _raise_no_go_error(exc, customer_id)
+    except DuplicateNoGoError:
+        # SECURITY (binding review note): no-go values are health-adjacent
+        # data (e.g. allergies). The 409 detail is a hardcoded generic
+        # string, and the exception message is never forwarded or logged —
+        # typed handling, no string-matching on user-influenced text.
+        logger.warning(
+            "Duplicate no-go rejected",
+            extra={"customer_id": customer_id},
+        )
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Dieses No-Go existiert bereits",
+        )
+    except ValueError:
+        # Unknown customer. Generic detail — never forward the message.
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Kunde nicht gefunden",
+        )
 
 
 @router.delete(

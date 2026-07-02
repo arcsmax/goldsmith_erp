@@ -12,7 +12,7 @@ import logging
 import pytest
 
 from goldsmith_erp.models.consultation import NoGoCreate
-from goldsmith_erp.services.no_go_service import NoGoService
+from goldsmith_erp.services.no_go_service import DuplicateNoGoError, NoGoService
 
 
 @pytest.mark.asyncio
@@ -32,12 +32,45 @@ async def test_duplicate_no_go_rejected(db_session, sample_customer):
     await NoGoService.add_no_go(
         db_session, sample_customer.id, NoGoCreate(category="allergy", value="Nickel")
     )
-    with pytest.raises(ValueError, match="existiert bereits"):
+    # Typed exception (subclasses ValueError for backwards compatibility);
+    # message is generic and must never embed the submitted value.
+    with pytest.raises(DuplicateNoGoError, match="existiert bereits") as exc_info:
         await NoGoService.add_no_go(
             db_session,
             sample_customer.id,
             NoGoCreate(category="allergy", value="nickel"),
         )
+    assert "nickel" not in str(exc_info.value).casefold()
+
+
+@pytest.mark.asyncio
+async def test_duplicate_rejection_never_logs_raw_value(
+    db_session, sample_customer, caplog
+):
+    """SECURITY: no-go values are health-adjacent data (e.g. allergies).
+
+    A duplicate submission must not write the raw value to ANY log record —
+    neither via the exception message (DuplicateNoGoError is generic) nor via
+    db/transaction.py's error logger (the duplicate check raises BEFORE the
+    transactional block, so that logger never sees business rejections).
+    """
+    secret_value = "Nickelsulfat-Allergie-XYZ"
+    await NoGoService.add_no_go(
+        db_session,
+        sample_customer.id,
+        NoGoCreate(category="allergy", value=secret_value),
+    )
+
+    caplog.clear()
+    with caplog.at_level(logging.DEBUG):
+        with pytest.raises(DuplicateNoGoError):
+            await NoGoService.add_no_go(
+                db_session,
+                sample_customer.id,
+                NoGoCreate(category="allergy", value=secret_value),
+            )
+
+    assert secret_value not in caplog.text
 
 
 @pytest.mark.asyncio

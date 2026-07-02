@@ -22,6 +22,21 @@ logger = logging.getLogger(__name__)
 _ALLERGIES_MAX_LENGTH = 500
 
 
+class DuplicateNoGoError(ValueError):
+    """An equivalent no-go (same category, case-insensitively equal value)
+    already exists for this customer.
+
+    SECURITY: the message is intentionally GENERIC and must stay that way —
+    no-go values are health-adjacent data (e.g. allergies), and exception
+    messages end up in response bodies and log records. Never embed the
+    submitted value here. Subclasses ``ValueError`` so pre-existing callers
+    that catch ``ValueError`` keep working.
+    """
+
+    def __init__(self) -> None:
+        super().__init__("No-Go existiert bereits für diesen Kunden")
+
+
 def _norm(value: str) -> str:
     return value.strip().casefold()
 
@@ -61,24 +76,30 @@ class NoGoService:
         no_go_in: NoGoCreate,
         source_consultation_id: Optional[int] = None,
     ) -> CustomerNoGo:
+        # Business-rule pre-checks run BEFORE entering transactional(db):
+        # they are read-only, and transactional's generic error handler logs
+        # str(exc) at ERROR — a duplicate rejection raised inside the block
+        # would write the raw no-go value (health-adjacent data, e.g. an
+        # allergy) to the logs on every duplicate submission. Raising out
+        # here keeps business rejections out of the transaction logger
+        # entirely. Note: the duplicate check was never concurrency-safe
+        # (no DB unique constraint) — moving it out of the transaction does
+        # not change that pre-existing TOCTOU window.
+        result = await db.execute(select(Customer).filter(Customer.id == customer_id))
+        customer = result.scalar_one_or_none()
+        if customer is None:
+            # Safe to embed: message contains only the numeric ID.
+            raise ValueError(f"Customer {customer_id} not found")
+
+        existing = await NoGoService.list_no_gos(db, customer_id)
+        if any(
+            n.category == no_go_in.category and _norm(n.value) == _norm(no_go_in.value)
+            for n in existing
+        ):
+            # Generic message — never embeds the submitted value.
+            raise DuplicateNoGoError()
+
         async with transactional(db):
-            result = await db.execute(
-                select(Customer).filter(Customer.id == customer_id)
-            )
-            customer = result.scalar_one_or_none()
-            if customer is None:
-                raise ValueError(f"Customer {customer_id} not found")
-
-            existing = await NoGoService.list_no_gos(db, customer_id)
-            if any(
-                n.category == no_go_in.category
-                and _norm(n.value) == _norm(no_go_in.value)
-                for n in existing
-            ):
-                raise ValueError(
-                    f"No-Go '{no_go_in.value}' existiert bereits für diesen Kunden"
-                )
-
             no_go = CustomerNoGo(
                 customer_id=customer_id,
                 category=no_go_in.category,
