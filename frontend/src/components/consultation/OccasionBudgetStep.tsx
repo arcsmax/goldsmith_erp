@@ -3,9 +3,11 @@
 //
 // Every local edit is reported up via onFieldsChange with the full field set
 // of this step so the shared Weiter button can PATCH it. When the budget
-// range is invalid (von > bis) the whole patch is withheld
-// (onFieldsChange({})) and a German error is shown inline — Weiter then has
-// nothing to save until the range is fixed.
+// range is invalid (von > bis, or a negative value) the step reports itself
+// INVALID via onFieldsChange(null) and a German error is shown inline — the
+// wizard engine (ConsultationWizardPage.navigateToStep) blocks forward
+// navigation entirely until the range is fixed (null is a distinct signal
+// from {}, which means "valid, nothing to save").
 import React, { useState } from 'react';
 import type { WizardStepProps } from '../../pages/ConsultationWizardPage';
 import { ConsultationOccasion, ConsultationUpdateInput } from '../../types';
@@ -27,7 +29,7 @@ export const OCCASION_LABELS: Record<ConsultationOccasion, string> = {
 const OCCASION_KEYS = Object.keys(OCCASION_LABELS) as ConsultationOccasion[];
 
 interface OccasionBudgetStepProps extends WizardStepProps {
-  onFieldsChange: (fields: ConsultationUpdateInput) => void;
+  onFieldsChange: (fields: ConsultationUpdateInput | null) => void;
 }
 
 /** Local snapshot of this step's editable fields, used to build a patch. */
@@ -52,8 +54,8 @@ export const OccasionBudgetStep: React.FC<OccasionBudgetStepProps> = ({
   );
   const { validate, errors } = useFormValidation(ConsultationOccasionSchema);
 
-  // Re-validates the full field set and reports it up. On failure the whole
-  // patch is withheld (empty object) — see file header.
+  // Re-validates the full field set and reports it up. On failure the step
+  // reports itself INVALID (null) — see file header.
   const emit = (next: OccasionFields) => {
     const result = validate({
       occasion: next.occasion,
@@ -62,7 +64,7 @@ export const OccasionBudgetStep: React.FC<OccasionBudgetStepProps> = ({
       budget_max: next.budgetMax !== '' ? Number(next.budgetMax) : undefined,
     });
     if (!result.success) {
-      onFieldsChange({});
+      onFieldsChange(null);
       return;
     }
     onFieldsChange({

@@ -13,9 +13,9 @@
 // src/test/ScannerPageV2.test.tsx) — no MemoryRouter needed since the whole
 // module is replaced and SummaryStep only calls useNavigate().
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import type { Consultation } from '../../types';
+import type { Consultation, ConsultationUpdateInput } from '../../types';
 
 const mocks = vi.hoisted(() => ({ navigate: vi.fn() }));
 
@@ -149,6 +149,29 @@ describe('SummaryStep', () => {
       expect(mockShowToast).toHaveBeenCalledWith('Bereits konvertiert', 'error')
     );
     expect(mocks.navigate).toHaveBeenCalledWith('/orders/55');
+  });
+
+  it('saves follow_up_at as local noon so the calendar date survives a negative-UTC-offset read (e.g. -05:00)', async () => {
+    const patchSpy = vi.fn(async (_fields: ConsultationUpdateInput) => true);
+    render(<SummaryStep consultation={makeConsultation()} onPatch={patchSpy} refresh={noopRefresh} />);
+    await waitFor(() => expect(mockGetById).toHaveBeenCalled());
+
+    fireEvent.change(screen.getByLabelText('Neue Wiedervorlage'), {
+      target: { value: '2026-07-10' },
+    });
+    await userEvent.click(screen.getByRole('button', { name: 'Speichern & abschließen' }));
+
+    await waitFor(() => expect(patchSpy).toHaveBeenCalled());
+    const [sentFields] = patchSpy.mock.calls[0];
+    const sentIso = sentFields.follow_up_at as string;
+
+    // A date-only string parses as UTC midnight (the pre-fix bug) — reading
+    // that back in any negative-UTC-offset zone rolls to the previous day.
+    // Assert the goldsmith's chosen date (10.07.2026) survives regardless.
+    const formatted = new Intl.DateTimeFormat('de-DE', { timeZone: 'America/Bogota' }).format(
+      new Date(sentIso)
+    );
+    expect(formatted).toBe('10.7.2026');
   });
 
   it('status "converted" renders the read-only banner and no action buttons', async () => {

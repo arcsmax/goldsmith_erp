@@ -1,13 +1,14 @@
 // CustomerTypeahead — debounced customer search with keyboard navigation.
 // Used by CustomerStep (Beratungs-Wizard, step 1) to find an existing
 // customer before starting a consultation draft.
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { customersApi } from '../../api/customers';
 import { CustomerListItem } from '../../types';
 
 const SEARCH_DEBOUNCE_MS = 300;
 const MIN_QUERY_LENGTH = 2;
 const SEARCH_RESULT_LIMIT = 8;
+const LISTBOX_ID = 'typeahead-listbox';
 
 interface CustomerTypeaheadProps {
   onSelect: (customer: CustomerListItem) => void;
@@ -20,7 +21,6 @@ export const CustomerTypeahead: React.FC<CustomerTypeaheadProps> = ({ onSelect, 
   const [isOpen, setIsOpen] = useState(false);
   const [highlighted, setHighlighted] = useState(0);
   const [isSearching, setIsSearching] = useState(false);
-  const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (query.trim().length < MIN_QUERY_LENGTH) {
@@ -28,20 +28,30 @@ export const CustomerTypeahead: React.FC<CustomerTypeaheadProps> = ({ onSelect, 
       setIsOpen(false);
       return;
     }
+    // Stale-response guard (mirrors NoGoWarning.tsx): if the query changes
+    // again before this request resolves, `cancelled` flips true in the
+    // cleanup below. Without it an out-of-order response could overwrite
+    // newer results with stale ones, or re-open a list the user already
+    // closed (Escape / selection) while this request was still in flight.
+    let cancelled = false;
     const timer = setTimeout(async () => {
       try {
         setIsSearching(true);
         const data = await customersApi.search(query.trim(), SEARCH_RESULT_LIMIT);
+        if (cancelled) return;
         setResults(data);
         setHighlighted(0);
         setIsOpen(true);
       } catch {
-        setResults([]);
+        if (!cancelled) setResults([]);
       } finally {
-        setIsSearching(false);
+        if (!cancelled) setIsSearching(false);
       }
     }, SEARCH_DEBOUNCE_MS);
-    return () => clearTimeout(timer);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
   }, [query]);
 
   const select = (customer: CustomerListItem) => {
@@ -66,14 +76,21 @@ export const CustomerTypeahead: React.FC<CustomerTypeaheadProps> = ({ onSelect, 
     }
   };
 
+  // Only a real, visible option can be "active" — undefined (no
+  // aria-activedescendant attribute) once the list is closed or empty.
+  const activeOptionId =
+    isOpen && results.length > 0 ? `typeahead-option-${results[highlighted].id}` : undefined;
+
   return (
     <div className="typeahead">
       <input
-        ref={inputRef}
         type="search"
         role="combobox"
         aria-expanded={isOpen}
         aria-label="Kundin suchen"
+        aria-controls={LISTBOX_ID}
+        aria-autocomplete="list"
+        aria-activedescendant={activeOptionId}
         placeholder="Name oder E-Mail suchen..."
         value={query}
         autoFocus={autoFocus}
@@ -82,7 +99,7 @@ export const CustomerTypeahead: React.FC<CustomerTypeaheadProps> = ({ onSelect, 
       />
       {isSearching && <span className="typeahead-hint">Suche...</span>}
       {isOpen && (
-        <ul className="typeahead-results" role="listbox">
+        <ul className="typeahead-results" role="listbox" id={LISTBOX_ID}>
           {results.length === 0 && (
             <li>
               <span className="typeahead-empty">Keine Treffer</span>
@@ -91,6 +108,7 @@ export const CustomerTypeahead: React.FC<CustomerTypeaheadProps> = ({ onSelect, 
           {results.map((c, i) => (
             <li
               key={c.id}
+              id={`typeahead-option-${c.id}`}
               className={i === highlighted ? 'highlighted' : ''}
               role="option"
               aria-selected={i === highlighted}

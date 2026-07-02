@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useToast } from '../contexts';
 import { consultationsApi } from '../api/consultations';
@@ -46,8 +46,11 @@ export const ConsultationWizardPage: React.FC = () => {
   const [consultation, setConsultation] = useState<Consultation | null>(null);
   const [isLoading, setIsLoading] = useState(Boolean(consultationId));
   const [isSaving, setIsSaving] = useState(false);
-  // Steps stash their pending fields here so the shared Weiter button saves them.
-  const [pendingPatch, setPendingPatch] = useState<ConsultationUpdateInput>({});
+  // Steps stash their pending fields here so the shared Weiter button saves
+  // them. `null` is a distinct state from `{}`: it means the current step's
+  // local form state is INVALID (see OccasionBudgetStep's onFieldsChange
+  // contract) — {} means "valid, nothing changed, advance freely".
+  const [pendingPatch, setPendingPatch] = useState<ConsultationUpdateInput | null>({});
 
   const refresh = useCallback(async () => {
     if (!consultationId) return;
@@ -100,21 +103,47 @@ export const ConsultationWizardPage: React.FC = () => {
     [setSearchParams]
   );
 
-  const handleNext = useCallback(async () => {
-    const ok = await onPatch(pendingPatch);
-    if (!ok) return;
-    setPendingPatch({});
-    goToStep(step + 1);
-  }, [onPatch, pendingPatch, goToStep, step]);
+  // Unified navigation used by Weiter, Zurück, AND the progress-dot jump.
+  //   - pendingPatch === null (current step is INVALID): forward navigation
+  //     is blocked with an error toast; backward navigation is still
+  //     allowed and discards the invalid draft (leaving a broken step
+  //     backward is an intentional abandonment, not a save).
+  //   - pendingPatch is a (possibly empty) valid object: saved via onPatch
+  //     first regardless of direction — onPatch itself is a no-op for {} —
+  //     so a progress-dot jump backward never silently drops a valid,
+  //     unsaved edit the way the old always-discard handleBack did.
+  const navigateToStep = useCallback(
+    async (target: number) => {
+      if (pendingPatch === null) {
+        if (target > step) {
+          showToast('Bitte korrigiere die markierten Felder', 'error');
+          return;
+        }
+        setPendingPatch({});
+        goToStep(target);
+        return;
+      }
+      const ok = await onPatch(pendingPatch);
+      if (!ok) return;
+      setPendingPatch({});
+      goToStep(target);
+    },
+    [pendingPatch, onPatch, goToStep, step, showToast]
+  );
 
-  const handleBack = useCallback(() => {
-    // Discard unsaved edits from the step being left. Weiter is the only path
-    // that persists pendingPatch; without this, navigating back and then
-    // forward again through a different step would silently carry a stale
-    // patch into the next Weiter save.
+  const handleNext = useCallback(() => navigateToStep(step + 1), [navigateToStep, step]);
+  const handleBack = useCallback(
+    () => navigateToStep(Math.max(step - 1, 1)),
+    [navigateToStep, step]
+  );
+
+  // Defensive clear: browser back/forward (popstate) changes `step` without
+  // ever running navigateToStep — so a pendingPatch built while editing the
+  // step being left behind must never survive into the next step's Weiter
+  // save.
+  useEffect(() => {
     setPendingPatch({});
-    goToStep(Math.max(step - 1, 1));
-  }, [goToStep, step]);
+  }, [step]);
 
   // Called by the customer step (Task 3) once a customer is chosen on /new.
   const handleDraftCreated = useCallback(
@@ -127,6 +156,20 @@ export const ConsultationWizardPage: React.FC = () => {
     [consultation, onPatch, refresh]
   );
 
+  // Move focus to the new step heading whenever the step changes (Weiter,
+  // Zurück, progress-dot jump) so screen-reader/keyboard users land on the
+  // new content instead of a now-stale focus target — but not on first
+  // mount, where the natural document focus is fine.
+  const stepHeadingRef = useRef<HTMLHeadingElement>(null);
+  const isFirstStepRenderRef = useRef(true);
+  useEffect(() => {
+    if (isFirstStepRenderRef.current) {
+      isFirstStepRenderRef.current = false;
+      return;
+    }
+    stepHeadingRef.current?.focus();
+  }, [step]);
+
   if (isLoading) return <div className="page-loading">Lade Beratung...</div>;
   if (consultationId && !consultation)
     return <div className="page-error">Beratung nicht gefunden</div>;
@@ -138,11 +181,17 @@ export const ConsultationWizardPage: React.FC = () => {
     <div className="wizard-container">
       <header className="wizard-header">
         <h1>Beratung</h1>
-        <WizardProgress steps={WIZARD_STEPS} current={step} onJump={consultation ? goToStep : undefined} />
+        <WizardProgress
+          steps={WIZARD_STEPS}
+          current={step}
+          onJump={consultation ? navigateToStep : undefined}
+        />
       </header>
 
       <section className="wizard-step" aria-labelledby="wizard-step-title">
-        <h2 id="wizard-step-title">{current.title}</h2>
+        <h2 id="wizard-step-title" tabIndex={-1} ref={stepHeadingRef}>
+          {current.title}
+        </h2>
         {/* Step bodies — replaced task by task. setPendingPatch is handed to
             form steps so their local edits ride the shared Weiter autosave. */}
         {step === 1 && (
@@ -164,7 +213,7 @@ export const ConsultationWizardPage: React.FC = () => {
             Zurück
           </button>
         )}
-        {!isSummary && step > 1 && consultation && (
+        {!isSummary && consultation && (
           <button className="btn-primary wizard-nav-btn" onClick={handleNext} disabled={isSaving}>
             {isSaving ? 'Speichern...' : 'Weiter'}
           </button>

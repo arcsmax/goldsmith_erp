@@ -1,7 +1,13 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, act, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import {
+  MemoryRouter,
+  Route,
+  Routes,
+  RouterProvider,
+  createMemoryRouter,
+} from 'react-router-dom';
 
 const mockShowToast = vi.fn();
 vi.mock('../contexts', () => ({
@@ -109,5 +115,93 @@ describe('ConsultationWizardPage', () => {
     );
     // Still on step 2 — the failed PATCH must not advance the wizard.
     expect(screen.getByRole('heading', { name: 'Anlass & Budget' })).toBeInTheDocument();
+  });
+
+  it('blocks Weiter with a toast and fires no PATCH when the step is invalid (budget 500 > 100)', async () => {
+    renderAt('/consultations/9?step=2');
+    await screen.findByRole('heading', { name: 'Anlass & Budget' });
+
+    fireEvent.change(screen.getByLabelText('Budget von €'), { target: { value: '500' } });
+    fireEvent.change(screen.getByLabelText('Budget bis €'), { target: { value: '100' } });
+
+    await userEvent.click(screen.getByRole('button', { name: /Weiter/ }));
+
+    expect(mockShowToast).toHaveBeenCalledWith(
+      'Bitte korrigiere die markierten Felder',
+      'error'
+    );
+    expect(mockUpdate).not.toHaveBeenCalled();
+    // Still on step 2 — an invalid (null) pendingPatch must never advance.
+    expect(screen.getByRole('heading', { name: 'Anlass & Budget' })).toBeInTheDocument();
+  });
+
+  it('saves a valid, non-empty pendingPatch before a backward progress-dot jump (not discarded)', async () => {
+    renderAt('/consultations/9?step=2');
+    await screen.findByRole('heading', { name: 'Anlass & Budget' });
+
+    // Select an occasion — a valid, non-empty pendingPatch — but do NOT
+    // click Weiter. Instead jump backward via the step-1 progress dot.
+    await userEvent.click(screen.getByRole('button', { name: 'Hochzeit' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Schritt 1: Kundin' }));
+
+    // The backward jump must still PATCH the valid edit — the old
+    // always-discard handleBack would have silently dropped it.
+    await waitFor(() =>
+      expect(mockUpdate).toHaveBeenCalledWith(9, {
+        occasion: 'wedding',
+        occasion_date: null,
+        budget_min: null,
+        budget_max: null,
+      })
+    );
+    expect(await screen.findByRole('heading', { name: 'Kundin' })).toBeInTheDocument();
+  });
+
+  it('clears a stale pendingPatch when the step changes without going through Weiter/Zurück (browser back)', async () => {
+    const router = createMemoryRouter(
+      [{ path: '/consultations/:id', element: <ConsultationWizardPage /> }],
+      { initialEntries: ['/consultations/9?step=2'] }
+    );
+    render(<RouterProvider router={router} />);
+    await screen.findByRole('heading', { name: 'Anlass & Budget' });
+
+    // Build a non-empty pendingPatch on step 2 — but never click Weiter.
+    await userEvent.click(screen.getByRole('button', { name: 'Hochzeit' }));
+
+    // Simulate a browser-back/forward navigation: the router changes the
+    // `step` param directly, bypassing handleBack/handleNext/navigateToStep
+    // entirely — exactly what a real popstate event does.
+    await act(async () => {
+      await router.navigate('/consultations/9?step=3');
+    });
+    expect(await screen.findByRole('heading', { name: 'Der Wunsch' })).toBeInTheDocument();
+
+    // If the step-2 occasion patch had leaked into step 3, Weiter here would
+    // fire an update carrying the stale `occasion` field.
+    await userEvent.click(screen.getByRole('button', { name: /Weiter/ }));
+    await screen.findByRole('heading', { name: 'Stil & No-Gos' });
+    expect(mockUpdate).not.toHaveBeenCalled();
+  });
+
+  it('shows Weiter for a resumed draft viewed at step 1 and advances to step 2', async () => {
+    renderAt('/consultations/9?step=1');
+    await screen.findByRole('heading', { name: 'Kundin' });
+
+    const weiterButton = await screen.findByRole('button', { name: /Weiter/ });
+    expect(weiterButton).toBeInTheDocument();
+
+    await userEvent.click(weiterButton);
+    expect(await screen.findByRole('heading', { name: 'Anlass & Budget' })).toBeInTheDocument();
+  });
+
+  it('focuses the new step heading after Weiter advances, but not on initial mount', async () => {
+    renderAt('/consultations/9?step=2');
+    const initialHeading = await screen.findByRole('heading', { name: 'Anlass & Budget' });
+    expect(document.activeElement).not.toBe(initialHeading);
+
+    await userEvent.click(screen.getByRole('button', { name: /Weiter/ }));
+
+    const nextHeading = await screen.findByRole('heading', { name: 'Der Wunsch' });
+    expect(document.activeElement).toBe(nextHeading);
   });
 });

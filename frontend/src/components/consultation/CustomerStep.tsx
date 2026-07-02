@@ -8,6 +8,7 @@
 //     quick-create, then "Beratung starten" creates the draft and hands it
 //     to the wizard shell via onDraftCreated.
 import React, { useEffect, useState } from 'react';
+import axios from 'axios';
 import { customersApi } from '../../api/customers';
 import { consultationsApi } from '../../api/consultations';
 import {
@@ -103,8 +104,14 @@ export const CustomerStep: React.FC<CustomerStepProps> = ({
       const created = await customersApi.create(data as CustomerCreateInput);
       setSelectedCustomer(created);
       setIsModalOpen(false);
-    } catch (err: any) {
-      throw new Error(err.response?.data?.detail || 'Fehler beim Erstellen der Kundin');
+    } catch (err: unknown) {
+      const fallback = 'Fehler beim Erstellen der Kundin';
+      // FastAPI 422 `detail` is an ARRAY of field errors, not a string — only
+      // surface it verbatim when it actually is one (e.g. a 409 duplicate
+      // message), otherwise fall back to the generic German message instead
+      // of rendering "[object Object]".
+      const detail = axios.isAxiosError(err) ? err.response?.data?.detail : undefined;
+      throw new Error(typeof detail === 'string' ? detail : fallback);
     } finally {
       setIsCreatingCustomer(false);
     }

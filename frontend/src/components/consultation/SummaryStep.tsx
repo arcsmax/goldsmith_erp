@@ -158,8 +158,18 @@ export const SummaryStep: React.FC<WizardStepProps> = ({ consultation, onPatch }
     setIsSavingFollowUp(true);
     // onPatch (ConsultationWizardPage) already logs + toasts on failure —
     // this step only needs to react to the success/failure boolean.
+    //
+    // followUpDate is a date-ONLY string ('YYYY-MM-DD'); `new Date(dateOnly)`
+    // parses that per the ISO-8601 spec as UTC MIDNIGHT, not local midnight.
+    // In any negative-UTC-offset timezone that instant, read back locally,
+    // falls on the PREVIOUS calendar day — the goldsmith picks "10.07." and
+    // the stored follow-up silently becomes "09.07.". Appending a local
+    // noon time-of-day instead makes the string parse as LOCAL time (a
+    // date-TIME string with no offset is local per spec); noon is far
+    // enough from both UTC day boundaries that the intended calendar date
+    // survives the round trip for any real-world timezone.
     const ok = await onPatch({
-      follow_up_at: new Date(followUpDate).toISOString(),
+      follow_up_at: new Date(`${followUpDate}T12:00:00`).toISOString(),
       status: 'completed',
     });
     setIsSavingFollowUp(false);

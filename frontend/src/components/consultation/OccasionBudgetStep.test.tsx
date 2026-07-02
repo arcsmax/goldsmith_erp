@@ -4,8 +4,8 @@
 //   (a) all 8 occasion chips render with their German label; clicking one
 //       marks it selected and reports {occasion: '<key>'} via onFieldsChange.
 //   (b) an invalid budget range (von > bis) shows the German error message
-//       inline and withholds the whole patch (onFieldsChange({})) — Weiter
-//       then has nothing to save until the range is fixed.
+//       inline and reports the step as INVALID (onFieldsChange(null)) — the
+//       wizard engine blocks Weiter entirely until the range is fixed.
 import { describe, expect, it, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -71,7 +71,7 @@ describe('OccasionBudgetStep', () => {
     expect(
       screen.getByText('Von-Budget darf nicht über dem Bis-Budget liegen')
     ).toBeInTheDocument();
-    expect(onFieldsChange).toHaveBeenLastCalledWith({});
+    expect(onFieldsChange).toHaveBeenLastCalledWith(null);
   });
 
   it('shows the German negative-value error and withholds the patch when budget_min is negative', () => {
@@ -91,6 +91,6 @@ describe('OccasionBudgetStep', () => {
     fireEvent.change(screen.getByLabelText('Budget von €'), { target: { value: '-50' } });
 
     expect(screen.getByText('Darf nicht negativ sein')).toBeInTheDocument();
-    expect(onFieldsChange).toHaveBeenLastCalledWith({});
+    expect(onFieldsChange).toHaveBeenLastCalledWith(null);
   });
 });
