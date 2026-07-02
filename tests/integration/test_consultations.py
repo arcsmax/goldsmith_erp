@@ -256,6 +256,92 @@ class TestConsultationCrud:
 
 
 # ===========================================================================
+# Convert
+# ===========================================================================
+
+
+class TestConsultationConvert:
+    @pytest.mark.asyncio
+    async def test_convert_to_order_then_second_call_returns_409(
+        self,
+        client: AsyncClient,
+        goldsmith_auth_headers: dict,
+        test_customer: Customer,
+    ):
+        cid = await _create_consultation(
+            client, goldsmith_auth_headers, test_customer.id
+        )
+
+        resp = await client.post(
+            f"{CONSULTATIONS_URL}{cid}/convert",
+            json={"target": "order"},
+            headers=goldsmith_auth_headers,
+        )
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["status"] == "converted"
+        assert body["converted_order_id"] is not None
+        order_id = body["converted_order_id"]
+
+        again = await client.post(
+            f"{CONSULTATIONS_URL}{cid}/convert",
+            json={"target": "order"},
+            headers=goldsmith_auth_headers,
+        )
+        assert again.status_code == 409
+        assert again.json()["detail"]["order_id"] == order_id
+
+    @pytest.mark.asyncio
+    async def test_convert_to_quote(
+        self,
+        client: AsyncClient,
+        goldsmith_auth_headers: dict,
+        test_customer: Customer,
+    ):
+        cid = await _create_consultation(
+            client, goldsmith_auth_headers, test_customer.id
+        )
+        resp = await client.post(
+            f"{CONSULTATIONS_URL}{cid}/convert",
+            json={"target": "quote"},
+            headers=goldsmith_auth_headers,
+        )
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["converted_quote_id"] is not None
+        assert body["converted_order_id"] is None
+
+    @pytest.mark.asyncio
+    async def test_convert_unknown_consultation_returns_404(
+        self, client: AsyncClient, goldsmith_auth_headers: dict
+    ):
+        resp = await client.post(
+            f"{CONSULTATIONS_URL}999999/convert",
+            json={"target": "order"},
+            headers=goldsmith_auth_headers,
+        )
+        assert resp.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_viewer_cannot_convert_consultation(
+        self,
+        client: AsyncClient,
+        goldsmith_auth_headers: dict,
+        viewer_auth_headers: dict,
+        test_customer: Customer,
+    ):
+        cid = await _create_consultation(
+            client, goldsmith_auth_headers, test_customer.id
+        )
+        resp = await client.post(
+            f"{CONSULTATIONS_URL}{cid}/convert",
+            json={"target": "order"},
+            headers=viewer_auth_headers,
+        )
+        assert resp.status_code == 403
+
+
+# ===========================================================================
 # Photos
 # ===========================================================================
 

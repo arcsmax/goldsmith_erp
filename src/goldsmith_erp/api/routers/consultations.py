@@ -6,6 +6,7 @@ Endpoints:
   GET    /api/v1/consultations/                           - list consultations
   GET    /api/v1/consultations/{id}                       - get single consultation
   PATCH  /api/v1/consultations/{id}                        - autosave update
+  POST   /api/v1/consultations/{id}/convert                - convert to quote/order
   POST   /api/v1/consultations/{id}/photos                 - upload photo (multipart)
   GET    /api/v1/consultations/{id}/photos                 - list photos
   GET    /api/v1/consultations/photos/{photo_id}            - serve original
@@ -38,6 +39,7 @@ from goldsmith_erp.core.permissions import Permission, require_permission
 from goldsmith_erp.db.models import ConsultationPhotoKind, ConsultationStatus, User
 from goldsmith_erp.db.session import get_db
 from goldsmith_erp.models.consultation import (
+    ConsultationConvertRequest,
     ConsultationCreate,
     ConsultationListItem,
     ConsultationPhotoRead,
@@ -45,7 +47,10 @@ from goldsmith_erp.models.consultation import (
     ConsultationUpdate,
 )
 from goldsmith_erp.services.consultation_photo_service import ConsultationPhotoService
-from goldsmith_erp.services.consultation_service import ConsultationService
+from goldsmith_erp.services.consultation_service import (
+    AlreadyConvertedError,
+    ConsultationService,
+)
 from goldsmith_erp.services.photo_service import PhotoValidationError
 
 logger = logging.getLogger(__name__)
@@ -174,6 +179,42 @@ async def update_consultation(
         )
     except ValueError as exc:
         _raise_not_found_or_conflict(exc)
+
+
+# ─── Convert ────────────────────────────────────────────────────────────────
+
+
+@router.post("/{consultation_id}/convert", response_model=ConsultationRead)
+@require_permission(Permission.CONSULTATION_EDIT)
+async def convert_consultation(
+    consultation_id: int,
+    convert_in: ConsultationConvertRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Beratung in Auftrag oder Kostenvoranschlag überführen.
+
+    Idempotent: eine bereits konvertierte Beratung liefert 409 mit den
+    vorhandenen Ziel-IDs im detail-Body (order_id/quote_id).
+
+    Requires CONSULTATION_EDIT permission.
+    """
+    try:
+        return await ConsultationService.convert_consultation(
+            db, consultation_id, convert_in.target, current_user
+        )
+    except AlreadyConvertedError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "message": "Beratung wurde bereits konvertiert",
+                "order_id": exc.order_id,
+                "quote_id": exc.quote_id,
+            },
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
 
 
 # ─── Photos: upload ─────────────────────────────────────────────────────────

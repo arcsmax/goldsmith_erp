@@ -36,6 +36,18 @@ logger = logging.getLogger(__name__)
 _MUTABLE_AFTER_CONVERSION = {"status", "notes"}
 
 
+class AlreadyConvertedError(ValueError):
+    """Consultation was already converted — carries the existing target ids."""
+
+    def __init__(self, order_id: Optional[int], quote_id: Optional[int]):
+        self.order_id = order_id
+        self.quote_id = quote_id
+        super().__init__(
+            "Beratung wurde bereits konvertiert "
+            f"(order_id={order_id}, quote_id={quote_id})"
+        )
+
+
 class ConsultationService:
     @staticmethod
     async def create_consultation(
@@ -176,6 +188,127 @@ class ConsultationService:
         logger.info(
             "Consultation updated",
             extra={"consultation_id": consultation_id, "fields": sorted(changed)},
+        )
+        return await ConsultationService._reload(db, consultation_id)
+
+    @staticmethod
+    async def convert_consultation(
+        db: AsyncSession,
+        consultation_id: int,
+        target: str,  # "quote" | "order" — validated by the router schema
+        current_user,  # User — typed loosely to avoid circular import
+    ) -> Consultation:
+        """Convert a consultation into a Quote or an Order.
+
+        Two sequential transactions (transactional() commits and is not
+        nestable): (1) create the target entity via its own service — this
+        commits on its own; (2) a second transactional block links the
+        consultation back to the new target and, for order conversions,
+        stamps order_id on every attached photo. The idempotency check runs
+        before (1) so a repeat call never creates a duplicate target.
+
+        If (2) fails after (1) succeeded, the target entity exists but the
+        consultation was never linked to it (orphaned conversion) — this is
+        logged at ERROR with both ids and re-raised. Fail loudly; no silent
+        inconsistency.
+        """
+        from goldsmith_erp.models.order import OrderCreate  # noqa: PLC0415
+        from goldsmith_erp.models.quote import QuoteCreate  # noqa: PLC0415
+        from goldsmith_erp.services.order_service import OrderService  # noqa: PLC0415
+        from goldsmith_erp.services.quote_service import QuoteService  # noqa: PLC0415
+
+        consultation = await ConsultationService.get_consultation(db, consultation_id)
+        if consultation is None:
+            raise ValueError(f"Consultation {consultation_id} not found")
+        if consultation.status is ConsultationStatus.CONVERTED:
+            raise AlreadyConvertedError(
+                consultation.converted_order_id, consultation.converted_quote_id
+            )
+
+        piece_label = (
+            consultation.piece_type.value if consultation.piece_type else "Schmuckstück"
+        )
+        description = (
+            consultation.wishes
+            or consultation.notes
+            or (f"Aus Beratung #{consultation.id} übernommen")
+        )
+
+        new_order_id: Optional[int] = None
+        new_quote_id: Optional[int] = None
+        if target == "order":
+            order = await OrderService.create_order(
+                db,
+                OrderCreate(
+                    customer_id=consultation.customer_id,
+                    title=f"Beratung #{consultation.id}: {piece_label}"[:200],
+                    description=description[:2000],
+                ),
+            )
+            new_order_id = order.id
+        else:
+            quote = await QuoteService.create_quote(
+                db,
+                QuoteCreate(
+                    customer_id=consultation.customer_id,
+                    notes=description[:2000],
+                ),
+                current_user,
+            )
+            new_quote_id = quote.id
+
+        try:
+            async with transactional(db):
+                consultation = await ConsultationService._reload(db, consultation_id)
+                consultation.status = ConsultationStatus.CONVERTED
+                consultation.converted_order_id = new_order_id
+                consultation.converted_quote_id = new_quote_id
+                if new_order_id is not None:
+                    for photo in consultation.photos:
+                        photo.order_id = new_order_id
+        except Exception:
+            logger.error(
+                "Orphaned conversion — created target but failed to link back; "
+                "link manually",
+                extra={
+                    "consultation_id": consultation_id,
+                    "order_id": new_order_id,
+                    "quote_id": new_quote_id,
+                },
+                exc_info=True,
+            )
+            raise
+
+        # Publish AFTER the linking transaction succeeds. A Redis failure must
+        # never fail the conversion — log and continue (same guarded pattern
+        # as create_consultation).
+        try:
+            await pubsub.publish_event(
+                "consultation_updates",
+                json.dumps(
+                    {
+                        "action": "convert",
+                        "consultation_id": consultation_id,
+                        "order_id": new_order_id,
+                        "quote_id": new_quote_id,
+                    }
+                ),
+            )
+        except Exception as exc:
+            logger.error(
+                "Failed to publish consultation convert event",
+                extra={"consultation_id": consultation_id, "error": str(exc)},
+                exc_info=True,
+            )
+
+        logger.info(
+            "Consultation converted",
+            extra={
+                "consultation_id": consultation_id,
+                "target": target,
+                "order_id": new_order_id,
+                "quote_id": new_quote_id,
+            },
         )
         return await ConsultationService._reload(db, consultation_id)
 
