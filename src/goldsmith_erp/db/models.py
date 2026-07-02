@@ -1890,6 +1890,14 @@ class RepairJob(Base):
         DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
     )
 
+    # V1.1 — Eingangs-Checkliste (repair photo-intake checklist). Seeded from
+    # settings.REPAIR_INTAKE_CHECKLIST at creation; item shape documented in
+    # models.repair.IntakeChecklistItem (not enforced by the DB), e.g.
+    # {"key": str, "label": str, "status": "open"|"photo"|"na",
+    #  "photo_id": int|None, "na_reason": str|None}. Mirrors
+    # Customer.style_profile's JSON-column pattern.
+    intake_checklist = Column(JSON, nullable=True)
+
     # Relationships
     customer = relationship("Customer")
     received_by_user = relationship("User", foreign_keys=[received_by])

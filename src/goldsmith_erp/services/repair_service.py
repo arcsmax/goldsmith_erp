@@ -11,14 +11,17 @@ cancellation is always allowed from any active state).
 
 import json
 import logging
+import re
+import unicodedata
 from datetime import datetime
-from typing import List, Optional
+from typing import Any, List, Optional, cast
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from goldsmith_erp.core import pubsub
+from goldsmith_erp.core.config import settings
 from goldsmith_erp.db.models import (
     Customer,
     Notification,
@@ -26,10 +29,13 @@ from goldsmith_erp.db.models import (
     NotificationTypeEnum,
     RepairJob,
     RepairJobStatus,
+    RepairPhoto,
+    RepairPhotoPhase,
     User,
 )
 from goldsmith_erp.db.transaction import transactional
 from goldsmith_erp.models.repair import (
+    IntakeChecklistItem,
     RepairCompleteInput,
     RepairDiagnoseInput,
     RepairJobCreate,
@@ -37,6 +43,57 @@ from goldsmith_erp.models.repair import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+class InvalidChecklistPhotoError(ValueError):
+    """
+    One or more intake-checklist items reference a ``photo_id`` that is not
+    an INTAKE-phase ``RepairPhoto`` belonging to THIS repair.
+
+    SECURITY / PRIVACY: the message is intentionally ID-ONLY. Checklist item
+    labels and ``na_reason`` values are user free-text and must never be
+    embedded here — mirrors ``DuplicateNoGoError``'s rationale in
+    no_go_service.py: exception text can reach ``transactional()``'s
+    ERROR-level exception logger (``str(exc)``), and this error is in fact
+    raised BEFORE entering that block for the same reason (see
+    ``RepairService.update_intake_checklist``).
+    """
+
+    def __init__(self, repair_id: int, invalid_photo_ids: List[int]) -> None:
+        self.repair_id = repair_id
+        self.invalid_photo_ids = invalid_photo_ids
+        super().__init__(
+            f"Ungueltige photo_id(s) fuer Reparaturauftrag #{repair_id}: "
+            f"{invalid_photo_ids} — muss ein INTAKE-Phase-Foto dieses "
+            f"Auftrags sein"
+        )
+
+
+# German umlaut/ß transliteration applied before generic diacritic
+# stripping, so e.g. "Schäden" -> "Schaeden" (not "Schden").
+_UMLAUT_TRANSLATION = str.maketrans(
+    {"ä": "ae", "ö": "oe", "ü": "ue", "ß": "ss", "Ä": "Ae", "Ö": "Oe", "Ü": "Ue"}
+)
+
+
+def _slugify_label(label: str) -> str:
+    """
+    Deterministic, stable slug for a checklist label — used as its dict
+    ``key``.
+
+    Steps: transliterate German umlauts/ß, strip remaining diacritics
+    (NFKD + drop combining marks, e.g. "Pavé" -> "Pave"), lowercase, then
+    collapse every run of non-alphanumeric characters to a single '-'.
+    Re-seeding with the same ``REPAIR_INTAKE_CHECKLIST`` setting always
+    produces the same keys (stability requirement for the seeded
+    checklist).
+    """
+    text = label.translate(_UMLAUT_TRANSLATION)
+    text = unicodedata.normalize("NFKD", text)
+    text = "".join(ch for ch in text if not unicodedata.combining(ch))
+    text = text.lower()
+    return re.sub(r"[^a-z0-9]+", "-", text).strip("-")
+
 
 # Valid forward transitions per status — cancellation is handled separately.
 _VALID_TRANSITIONS: dict[RepairJobStatus, list[RepairJobStatus]] = {
@@ -172,6 +229,22 @@ class RepairService:
         """
         repair_number, bag_number = await _generate_repair_number(db)
 
+        # Seed the intake checklist from settings — one open item per
+        # configured label, keyed by a stable slug (see _slugify_label).
+        # Written as part of the RepairJob constructor call, so it lands
+        # inside the SAME transaction as the row's initial insert below
+        # (no separate follow-up write).
+        seeded_checklist = [
+            {
+                "key": _slugify_label(label),
+                "label": label,
+                "status": "open",
+                "photo_id": None,
+                "na_reason": None,
+            }
+            for label in settings.REPAIR_INTAKE_CHECKLIST
+        ]
+
         repair = RepairJob(
             repair_number=repair_number,
             bag_number=bag_number,
@@ -183,6 +256,7 @@ class RepairService:
             estimated_value=data.estimated_value,
             estimated_completion_date=data.estimated_completion_date,
             status=RepairJobStatus.RECEIVED,
+            intake_checklist=seeded_checklist,
         )
 
         async with transactional(db):
@@ -210,6 +284,73 @@ class RepairService:
                 "repair_number": repair_number,
                 "received_by": user_id,
             },
+        )
+        return repair
+
+    # -------------------------------------------------------------------------
+    # INTAKE CHECKLIST
+    # -------------------------------------------------------------------------
+
+    @staticmethod
+    async def update_intake_checklist(
+        db: AsyncSession,
+        repair_id: int,
+        items: List[IntakeChecklistItem],
+    ) -> RepairJob:
+        """
+        Replace the repair's intake checklist with the given items.
+
+        Every item with status="photo" must reference a photo_id that is an
+        INTAKE-phase RepairPhoto belonging to THIS repair — cross-repair
+        references and wrong-phase photos are rejected wholesale (via
+        InvalidChecklistPhotoError) before any write happens.
+
+        Raises:
+            ValueError: If the repair does not exist.
+            InvalidChecklistPhotoError: If any item's photo_id does not
+                resolve to an INTAKE-phase photo of this repair.
+        """
+        # Pre-flight checks (read-only) run BEFORE entering transactional(db)
+        # — see InvalidChecklistPhotoError's docstring: transactional()'s
+        # generic error handler logs str(exc) at ERROR for any exception
+        # escaping the block, and while this particular error message is
+        # ID-only (safe either way), raising here follows this branch's
+        # established pattern (no_go_service.add_no_go) of keeping
+        # business-rule rejections out of the transaction logger entirely.
+        repair = await _load_repair(db, repair_id)
+        if repair is None:
+            raise ValueError(f"Reparaturauftrag #{repair_id} nicht gefunden")
+
+        photo_ids = {item.photo_id for item in items if item.photo_id is not None}
+        if photo_ids:
+            result = await db.execute(
+                select(RepairPhoto.id).where(
+                    RepairPhoto.id.in_(photo_ids),
+                    RepairPhoto.repair_job_id == repair_id,
+                    RepairPhoto.phase == RepairPhotoPhase.INTAKE,
+                )
+            )
+            valid_ids = set(result.scalars().all())
+            invalid_ids = sorted(photo_ids - valid_ids)
+            if invalid_ids:
+                raise InvalidChecklistPhotoError(repair_id, invalid_ids)
+
+        async with transactional(db):
+            # Replace the WHOLE list value — never mutate the existing list
+            # in place. SQLAlchemy's JSON column change-tracking compares by
+            # reference; an in-place `.append()`/`.remove()` on the current
+            # list would not be detected as a change and silently fail to
+            # persist.
+            # cast(): mypy sees RepairJob.intake_checklist as Column[Any] at
+            # the class level (declarative JSON column), but on a mapped
+            # *instance* it holds the runtime Python value — a Column[T]
+            # false positive on assignment, same class of nit flagged in
+            # Task 1's review.
+            repair.intake_checklist = cast(Any, [item.model_dump() for item in items])
+
+        logger.info(
+            "Repair intake checklist updated",
+            extra={"repair_id": repair_id, "item_count": len(items)},
         )
         return repair
 

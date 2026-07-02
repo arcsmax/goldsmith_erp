@@ -683,3 +683,169 @@ class TestRepairPhotos:
         )
         assert listed.status_code == 200
         assert [p["id"] for p in listed.json()] == [photo.id]
+
+
+# ===========================================================================
+# PUT /api/v1/repairs/{id}/intake-checklist
+# ===========================================================================
+
+
+class TestIntakeChecklist:
+
+    @pytest.mark.asyncio
+    async def test_create_repair_response_includes_seeded_checklist(
+        self, client: AsyncClient, admin_auth_headers: dict
+    ):
+        """RepairJobRead includes the settings-seeded checklist right after
+        creation — every item open, no photo_id/na_reason yet."""
+        response = await client.post(
+            REPAIRS_URL, json=_create_payload(), headers=admin_auth_headers
+        )
+        assert response.status_code == 201
+        data = response.json()
+        assert data["intake_checklist"]
+        for item in data["intake_checklist"]:
+            assert item["status"] == "open"
+            assert item["photo_id"] is None
+            assert item["na_reason"] is None
+
+    @pytest.mark.asyncio
+    async def test_put_checklist_roundtrip_links_photo_and_na(
+        self,
+        client: AsyncClient,
+        admin_auth_headers: dict,
+        tmp_path,
+        monkeypatch,
+    ):
+        monkeypatch.setattr(
+            "goldsmith_erp.core.config.settings.PHOTO_STORAGE_PATH", str(tmp_path)
+        )
+        repair_id = await _create_repair(client, admin_auth_headers)
+
+        files = {"file": ("intake.jpg", _jpeg_bytes(), "image/jpeg")}
+        upload = await client.post(
+            f"{REPAIRS_URL}{repair_id}/photos",
+            files=files,
+            data={"phase": "intake"},
+            headers=admin_auth_headers,
+        )
+        assert upload.status_code == 201, upload.text
+        photo_id = upload.json()["id"]
+
+        seeded = (
+            await client.get(_repair_url(repair_id), headers=admin_auth_headers)
+        ).json()["intake_checklist"]
+        assert len(seeded) >= 2
+
+        payload = {
+            "items": [
+                {
+                    **seeded[0],
+                    "status": "photo",
+                    "photo_id": photo_id,
+                    "na_reason": None,
+                },
+                {
+                    **seeded[1],
+                    "status": "na",
+                    "na_reason": "Kein Punzen vorhanden",
+                    "photo_id": None,
+                },
+            ]
+        }
+        put_resp = await client.put(
+            f"{REPAIRS_URL}{repair_id}/intake-checklist",
+            json=payload,
+            headers=admin_auth_headers,
+        )
+        assert put_resp.status_code == 200, put_resp.text
+        checklist = put_resp.json()["intake_checklist"]
+        assert checklist[0]["status"] == "photo"
+        assert checklist[0]["photo_id"] == photo_id
+        assert checklist[1]["status"] == "na"
+        assert checklist[1]["na_reason"] == "Kein Punzen vorhanden"
+
+    @pytest.mark.asyncio
+    async def test_put_checklist_rejects_photo_from_other_repair(
+        self,
+        client: AsyncClient,
+        admin_auth_headers: dict,
+        tmp_path,
+        monkeypatch,
+    ):
+        monkeypatch.setattr(
+            "goldsmith_erp.core.config.settings.PHOTO_STORAGE_PATH", str(tmp_path)
+        )
+        repair_a = await _create_repair(client, admin_auth_headers)
+        repair_b = await _create_repair(client, admin_auth_headers)
+
+        files = {"file": ("intake.jpg", _jpeg_bytes(), "image/jpeg")}
+        upload = await client.post(
+            f"{REPAIRS_URL}{repair_a}/photos",
+            files=files,
+            data={"phase": "intake"},
+            headers=admin_auth_headers,
+        )
+        assert upload.status_code == 201, upload.text
+        photo_id = upload.json()["id"]
+
+        seeded = (
+            await client.get(_repair_url(repair_b), headers=admin_auth_headers)
+        ).json()["intake_checklist"]
+
+        payload = {
+            "items": [
+                {
+                    **seeded[0],
+                    "status": "photo",
+                    "photo_id": photo_id,
+                    "na_reason": None,
+                },
+            ]
+        }
+        put_resp = await client.put(
+            f"{REPAIRS_URL}{repair_b}/intake-checklist",
+            json=payload,
+            headers=admin_auth_headers,
+        )
+        assert put_resp.status_code == 422
+
+    @pytest.mark.asyncio
+    async def test_put_checklist_unknown_repair_returns_404(
+        self, client: AsyncClient, admin_auth_headers: dict
+    ):
+        payload = {"items": [{"key": "k", "label": "L", "status": "open"}]}
+        resp = await client.put(
+            f"{REPAIRS_URL}999999/intake-checklist",
+            json=payload,
+            headers=admin_auth_headers,
+        )
+        assert resp.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_put_checklist_viewer_returns_403(
+        self,
+        client: AsyncClient,
+        admin_auth_headers: dict,
+        viewer_auth_headers: dict,
+    ):
+        """VIEWER lacks REPAIR_EDIT; PUT must return 403."""
+        repair_id = await _create_repair(client, admin_auth_headers)
+        payload = {"items": [{"key": "k", "label": "L", "status": "open"}]}
+        resp = await client.put(
+            f"{REPAIRS_URL}{repair_id}/intake-checklist",
+            json=payload,
+            headers=viewer_auth_headers,
+        )
+        assert resp.status_code == 403
+
+    @pytest.mark.asyncio
+    async def test_put_checklist_unauthenticated_returns_401(
+        self, client: AsyncClient, admin_auth_headers: dict
+    ):
+        repair_id = await _create_repair(client, admin_auth_headers)
+        resp = await client.put(
+            f"{REPAIRS_URL}{repair_id}/intake-checklist",
+            json={"items": []},
+        )
+        assert resp.status_code == 401

@@ -22,6 +22,7 @@ from goldsmith_erp.core.permissions import Permission, require_permission
 from goldsmith_erp.db.models import RepairJobStatus, RepairPhotoPhase, User
 from goldsmith_erp.db.session import get_db
 from goldsmith_erp.models.repair import (
+    IntakeChecklistUpdate,
     RepairCompleteInput,
     RepairDiagnoseInput,
     RepairJobCreate,
@@ -33,7 +34,10 @@ from goldsmith_erp.models.repair import (
 from goldsmith_erp.services.label_service import LabelService
 from goldsmith_erp.services.photo_service import PhotoValidationError
 from goldsmith_erp.services.repair_photo_service import RepairPhotoService
-from goldsmith_erp.services.repair_service import RepairService
+from goldsmith_erp.services.repair_service import (
+    InvalidChecklistPhotoError,
+    RepairService,
+)
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -154,6 +158,38 @@ async def create_repair(
     """
     repair = await RepairService.create_repair(db, data, current_user.id)
     # Reload with relationships for full response
+    repair = await RepairService.get_repair(db, repair.id)
+    return repair
+
+
+# ============================================================================
+# INTAKE CHECKLIST
+# ============================================================================
+
+
+@router.put("/{repair_id}/intake-checklist", response_model=RepairJobRead)
+@require_permission(Permission.REPAIR_EDIT)
+async def update_intake_checklist(
+    repair_id: int,
+    data: IntakeChecklistUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Eingangs-Checkliste aktualisieren (Foto-Verknuepfung oder
+    "nicht zutreffend"-Begruendung je Punkt).
+
+    Jeder Punkt mit Status "photo" muss auf ein INTAKE-Phase-Foto DIESES
+    Auftrags verweisen — sonst 422. Unbekannter Auftrag -> 404.
+    """
+    try:
+        repair = await RepairService.update_intake_checklist(db, repair_id, data.items)
+    except InvalidChecklistPhotoError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
     repair = await RepairService.get_repair(db, repair.id)
     return repair
 

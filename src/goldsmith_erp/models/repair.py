@@ -7,9 +7,9 @@ visible only to GOLDSMITH and ADMIN roles — enforced at the router level.
 """
 
 from datetime import datetime, timezone
-from typing import List, Optional
+from typing import List, Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from goldsmith_erp.db.models import RepairItemType, RepairJobStatus, RepairPhotoPhase
 
@@ -49,6 +49,72 @@ class RepairPhotoRead(BaseModel):
     notes: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
+
+
+# ============================================================================
+# INTAKE CHECKLIST SCHEMAS
+# ============================================================================
+
+
+class IntakeChecklistItem(BaseModel):
+    """
+    One item of the repair intake checklist (Eingangs-Checkliste).
+
+    Dispute protection mirroring insurance-industry intake practice: every
+    item is satisfied EITHER by an INTAKE-phase photo (status="photo",
+    photo_id set) OR by an explicit "nicht zutreffend" declaration with a
+    reason (status="na", na_reason set, >=3 non-whitespace characters).
+    "open" items have neither set yet — the initial seeded state.
+
+    The two satisfaction paths are mutually exclusive by construction: a
+    "photo" item may not also carry an na_reason, and an "na" item may not
+    also carry a photo_id. This keeps the stored shape unambiguous for
+    downstream consumers (UI status chips, audit review).
+    """
+
+    key: str = Field(
+        ..., min_length=1, max_length=100, description="Stabiler Schluessel (Slug)"
+    )
+    label: str = Field(..., min_length=1, max_length=200, description="Anzeigetext")
+    status: Literal["open", "photo", "na"] = "open"
+    photo_id: Optional[int] = Field(
+        None, gt=0, description="Verknuepftes INTAKE-Phase-Foto"
+    )
+    na_reason: Optional[str] = Field(
+        None, max_length=500, description="Begruendung fuer 'nicht zutreffend'"
+    )
+
+    model_config = ConfigDict(from_attributes=True)
+
+    @model_validator(mode="after")
+    def _validate_status_consistency(self) -> "IntakeChecklistItem":
+        if self.status == "na":
+            if not self.na_reason or len(self.na_reason.strip()) < 3:
+                raise ValueError(
+                    "Status 'nicht zutreffend' erfordert eine Begruendung "
+                    "mit mindestens 3 Zeichen"
+                )
+            if self.photo_id is not None:
+                raise ValueError(
+                    "Status 'nicht zutreffend' darf kein verknuepftes Foto haben"
+                )
+        elif self.status == "photo":
+            if self.photo_id is None:
+                raise ValueError("Status 'photo' erfordert eine verknuepfte photo_id")
+            if self.na_reason is not None:
+                raise ValueError("Status 'photo' darf keine na_reason haben")
+        else:  # "open"
+            if self.photo_id is not None or self.na_reason is not None:
+                raise ValueError(
+                    "Status 'open' darf weder photo_id noch na_reason haben"
+                )
+        return self
+
+
+class IntakeChecklistUpdate(BaseModel):
+    """Request body for PUT /repairs/{id}/intake-checklist."""
+
+    items: List[IntakeChecklistItem] = Field(..., max_length=20)
 
 
 # ============================================================================
@@ -185,6 +251,7 @@ class RepairJobRead(BaseModel):
     created_at: datetime
     updated_at: datetime
     photos: List[RepairPhotoRead] = []
+    intake_checklist: Optional[List[IntakeChecklistItem]] = None
 
     model_config = ConfigDict(from_attributes=True)
 
