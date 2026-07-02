@@ -2182,7 +2182,16 @@ def _customer_no_go_before_insert(_mapper, _connection, target: "CustomerNoGo") 
 
 @event.listens_for(CustomerNoGo, "before_update")
 def _customer_no_go_before_update(_mapper, _connection, target: "CustomerNoGo") -> None:
-    """Keep ``value_hash`` in lock-step with (category, value) on update."""
+    """Keep ``value_hash`` in lock-step with (category, value) on update.
+
+    CAUTION (security review, 2026-07): the ``not target.value_hash`` guard
+    means a future write path that mutates ``value``/``category`` WITHOUT
+    clearing ``value_hash`` would leave a stale hash, silently breaking the
+    duplicate-detection unique index for that row. No such path exists today
+    (no-gos are immutable: created via NoGoService.add_no_go, only ever
+    deleted) — if you add an update endpoint, set ``value_hash = None``
+    before changing ``value`` or ``category``.
+    """
     if target.value and target.category is not None and not target.value_hash:
         from goldsmith_erp.core.encryption import (  # noqa: PLC0415
             no_go_value_blind_index,
