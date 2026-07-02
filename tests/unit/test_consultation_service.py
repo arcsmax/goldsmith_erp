@@ -166,3 +166,83 @@ async def test_follow_up_side_effect_failure_never_propagates(
     assert fetched.wishes == "Anhänger"
     # (c) no calendar event was linked
     assert created.calendar_event_id is None
+
+
+def _sabotage_notification_commit(db_session, monkeypatch):
+    """Make the notification's self-commit genuinely fail at the DB level.
+
+    NotificationService.create_notification calls ``await db.commit()`` directly
+    (no explicit flush), so wrapping flush would not intercept. Instead the
+    wrapper nulls the pending Notification's NOT NULL ``title`` right before the
+    real commit: the autoflush inside commit then raises a genuine
+    IntegrityError, leaving the session in pending-rollback state — the exact
+    scenario the guard must recover from. (A wrapper that merely raises before
+    touching the DB would not poison the transaction and would not reproduce
+    the PendingRollbackError.)
+    """
+    from goldsmith_erp.db.models import Notification
+
+    real_commit = db_session.commit
+
+    async def sabotaging_commit(*args, **kwargs):
+        for obj in db_session.new:
+            if isinstance(obj, Notification):
+                obj.title = None  # NOT NULL violation -> commit genuinely fails
+        return await real_commit(*args, **kwargs)
+
+    monkeypatch.setattr(db_session, "commit", sabotaging_commit)
+
+
+@pytest.mark.asyncio
+async def test_notification_failure_never_propagates_on_create(
+    db_session, sample_customer, sample_user, monkeypatch
+):
+    """Regression: a failed notification commit leaves the session in
+    pending-rollback state; without a rollback in the guard, the subsequent
+    _reload raises PendingRollbackError even though consultation + calendar
+    event committed durably."""
+    _sabotage_notification_commit(db_session, monkeypatch)
+
+    when = datetime.utcnow() + timedelta(days=5)
+    created = await ConsultationService.create_consultation(
+        db_session,
+        ConsultationCreate(
+            customer_id=sample_customer.id,
+            wishes="Kette",
+            follow_up_at=when,
+        ),
+        conducted_by_user_id=sample_user.id,
+    )
+
+    # (a) no exception propagated; (b) consultation persisted
+    assert created.id is not None
+    assert created.wishes == "Kette"
+    # (c) calendar branch succeeded before the notification failure
+    assert created.calendar_event_id is not None
+    # (d) subsequent reads on the recovered session work
+    fetched = await ConsultationService.get_consultation(db_session, created.id)
+    assert fetched is not None
+    assert fetched.calendar_event_id == created.calendar_event_id
+
+
+@pytest.mark.asyncio
+async def test_notification_failure_never_propagates_on_update(
+    db_session, sample_customer, sample_user, monkeypatch
+):
+    """Same guarantee on the update path (follow_up_at set via PATCH)."""
+    created = await ConsultationService.create_consultation(
+        db_session,
+        ConsultationCreate(customer_id=sample_customer.id),
+        conducted_by_user_id=sample_user.id,
+    )
+    _sabotage_notification_commit(db_session, monkeypatch)
+
+    when = datetime.utcnow() + timedelta(days=5)
+    updated = await ConsultationService.update_consultation(
+        db_session, created.id, ConsultationUpdate(follow_up_at=when)
+    )
+
+    assert updated.calendar_event_id is not None
+    fetched = await ConsultationService.get_consultation(db_session, updated.id)
+    assert fetched is not None
+    assert fetched.calendar_event_id == updated.calendar_event_id

@@ -261,6 +261,11 @@ class ConsultationService:
                 related_customer_id=customer_id,
             )
         except Exception:
+            # create_notification self-commits; if that commit fails the session
+            # is left in pending-rollback state and every later statement (e.g.
+            # _reload) would raise PendingRollbackError. Roll back first to
+            # recover — harmless no-op when the session is clean.
+            await db.rollback()
             logger.error(
                 "Failed to create follow-up notification",
                 extra={"consultation_id": consultation_id},
