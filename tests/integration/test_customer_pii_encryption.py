@@ -27,7 +27,6 @@ import os
 import pytest
 from cryptography.fernet import Fernet
 
-
 # ---------------------------------------------------------------------------
 # Env priming — must happen before the goldsmith_erp imports pick up
 # settings.ENCRYPTION_KEY via `from core.config import settings`.
@@ -122,6 +121,34 @@ async def test_customer_names_stored_as_ciphertext(db_session):
     assert row[0].startswith("gAAAAA")
     assert row[1].startswith("gAAAAA")
     assert row[2].startswith("gAAAAA")
+
+
+@pytest.mark.asyncio
+async def test_customer_allergies_stored_as_ciphertext(db_session):
+    """I15 — ``allergies`` (health-adjacent PII) is ciphertext at rest,
+    plaintext via the ORM. Same contract as the C1 columns, mirrored here
+    for the standalone I15 fix."""
+    customer = Customer(
+        first_name="Hannah",
+        last_name="Allergy",
+        email="hannah.allergy@example.com",
+        email_hash=hmac_blind_index("hannah.allergy@example.com"),
+        allergies="Nickel, Kupfer",
+    )
+    db_session.add(customer)
+    await db_session.commit()
+
+    raw = await db_session.execute(
+        text("SELECT allergies FROM customers WHERE id = :id"),
+        {"id": customer.id},
+    )
+    raw_value = raw.scalar()
+    assert raw_value != "Nickel, Kupfer"
+    assert raw_value is not None and len(raw_value) > 30  # Fernet token
+    assert raw_value.startswith("gAAAAA")  # Fernet version marker
+
+    orm_customer = await db_session.get(Customer, customer.id)
+    assert orm_customer.allergies == "Nickel, Kupfer"
 
 
 @pytest.mark.asyncio

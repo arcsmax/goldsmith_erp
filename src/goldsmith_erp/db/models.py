@@ -216,11 +216,12 @@ class User(Base):
 class Customer(Base):
     """Customer/Client Model for CRM.
 
-    PII fields (names, company, email, phone, address) are encrypted at
-    rest via ``EncryptedString`` — CLAUDE.md "Data Privacy Rules
-    (CRITICAL)". The raw DB columns hold Fernet ciphertext; the ORM
-    round-trips plaintext transparently. See ``db/types.py`` + fix item
-    **C1** for the design.
+    PII fields (names, company, email, phone, address) and the
+    health-adjacent ``allergies`` field are encrypted at rest via
+    ``EncryptedString`` — CLAUDE.md "Data Privacy Rules (CRITICAL)". The
+    raw DB columns hold Fernet ciphertext; the ORM round-trips plaintext
+    transparently. See ``db/types.py`` + fix items **C1** (names/contact/
+    address) and **I15** (allergies) for the design.
 
     Because Fernet is non-deterministic, the ``email`` column cannot
     carry a UNIQUE constraint or be searched by equality. The companion
@@ -269,7 +270,12 @@ class Customer(Base):
     ring_size = Column(Float, nullable=True)  # EU ring size (e.g., 52, 54.5)
     chain_length_cm = Column(Float, nullable=True)  # Preferred chain length in cm
     bracelet_length_cm = Column(Float, nullable=True)  # Preferred bracelet length in cm
-    allergies = Column(String(500), nullable=True)  # e.g., "Nickel", "Kupfer"
+    # Health-adjacent PII, encrypted at rest (I15 — see fix item C1 for the
+    # pattern this follows). Plaintext length stays governed by the 500-char
+    # Pydantic schema / _ALLERGIES_MAX_LENGTH guard in no_go_service.py; the
+    # storage column itself is TEXT (see EncryptedString) so ciphertext never
+    # truncates. e.g. "Nickel", "Kupfer"
+    allergies = Column(EncryptedString, nullable=True)
     preferences = Column(
         JSON, default=dict
     )  # {"bevorzugt": "Platin", "style": "modern"}

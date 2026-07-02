@@ -18,7 +18,13 @@ from goldsmith_erp.models.consultation import NoGoConflict, NoGoCreate
 
 logger = logging.getLogger(__name__)
 
-# Customer.allergies is Column(String(500)) — plain, unencrypted text (db/models.py).
+# Customer.allergies is Column(EncryptedString) (db/models.py) — encrypted at
+# rest since issue #15, following the C1 pattern used for the other Customer
+# PII columns (see db/types.py). This constant is a PLAINTEXT-length product
+# decision (max allergy freetext a user may enter), not a storage constraint:
+# EncryptedString maps to TEXT, so Fernet ciphertext (always longer than the
+# plaintext it wraps) is never truncated regardless of this limit. Keep this
+# at 500 for UX/product reasons only.
 _ALLERGIES_MAX_LENGTH = 500
 
 
