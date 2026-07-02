@@ -38,6 +38,7 @@ from goldsmith_erp.db.models import (
     Activity,
     CalendarEvent,
     CalendarEventType,
+    Consultation,
     Customer,
     CustomerAuditLog,
     CustomerMeasurement,
@@ -1640,6 +1641,42 @@ async def _f_customers_notes(db, customer, admin, pii_value):
     return customer
 
 
+async def _f_consultations_wishes(db, customer, admin, pii_value):
+    consultation = Consultation(
+        customer_id=customer.id,
+        conducted_by=admin.id,
+        wishes=pii_value,
+    )
+    db.add(consultation)
+    await db.commit()
+    await db.refresh(consultation)
+    return consultation
+
+
+async def _f_consultations_notes(db, customer, admin, pii_value):
+    consultation = Consultation(
+        customer_id=customer.id,
+        conducted_by=admin.id,
+        notes=pii_value,
+    )
+    db.add(consultation)
+    await db.commit()
+    await db.refresh(consultation)
+    return consultation
+
+
+async def _f_consultations_source_material(db, customer, admin, pii_value):
+    consultation = Consultation(
+        customer_id=customer.id,
+        conducted_by=admin.id,
+        source_material=pii_value,
+    )
+    db.add(consultation)
+    await db.commit()
+    await db.refresh(consultation)
+    return consultation
+
+
 # Per-target factory map. Keyed by counter_key for traceability against
 # SCRUBBABLE_FIELDS. The parametrised test asserts this map covers every
 # SCRUBBABLE_FIELDS entry — so adding a new target without adding a factory
@@ -1678,6 +1715,10 @@ _FACTORY_MAP = {
     "notifications.message": _f_notifications_message,
     # F1 (2026-04-16) — customers.notes — link="direct"
     "customers.notes": _f_customers_notes,
+    # Consultation module (V1.1 / Task 10)
+    "consultations.wishes": _f_consultations_wishes,
+    "consultations.notes": _f_consultations_notes,
+    "consultations.source_material": _f_consultations_source_material,
 }
 
 

@@ -4,15 +4,17 @@ import re
 from dataclasses import dataclass
 from typing import List, Optional, Dict, Any, Tuple
 from datetime import datetime
-from sqlalchemy import select, func, and_, or_, desc
+from sqlalchemy import select, func, and_, or_, desc, update, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from goldsmith_erp.db.models import (
     CalendarEvent,
+    Consultation,
     Customer as CustomerModel,
     CustomerAuditLog,
     CustomerMeasurement,
+    CustomerNoGo,
     Gemstone,
     GDPRRequest,
     Invoice,
@@ -260,6 +262,15 @@ SCRUBBABLE_FIELDS: List[ScrubTarget] = [
     # path fires — belt-and-braces with the customer-row anonymise
     # step. See PII-SCRUB-AUDIT.md F1 resolution.
     ScrubTarget(CustomerModel, "notes", "direct", "customers.notes"),
+    # ── Consultation module (V1.1 / Task 10) ───────────────────────────
+    # Consultation rows themselves are retained (anonymised) for Art. 30
+    # records — mirroring the RepairJob precedent — so their free-text
+    # design-IP fields are scrubbed in place rather than the row deleted.
+    ScrubTarget(Consultation, "wishes", "customer_id", "consultations.wishes"),
+    ScrubTarget(Consultation, "notes", "customer_id", "consultations.notes"),
+    ScrubTarget(
+        Consultation, "source_material", "customer_id", "consultations.source_material"
+    ),
 ]
 
 # ── PII encryption helpers ────────────────────────────────────────────────────
@@ -1146,6 +1157,22 @@ class CustomerService:
                     if n > 0:
                         setattr(row, target.column, new_value)
                         counts[target.counter_key] += n
+
+        # Consultations: financial + preference data of the erased person.
+        # These don't fit the string-scrub ScrubTarget shape (budget is a
+        # NULL-out, no-gos are a hard delete — not a text redaction), so
+        # they run as an explicit post-loop block rather than a declarative
+        # target. Consultation rows themselves stay (scrubbed above); the
+        # no-go rows are pure preference data with no Art. 30 retention
+        # duty, so they are deleted outright rather than anonymised.
+        await db.execute(
+            update(Consultation)
+            .where(Consultation.customer_id == customer_id)
+            .values(budget_min=None, budget_max=None)
+        )
+        await db.execute(
+            delete(CustomerNoGo).where(CustomerNoGo.customer_id == customer_id)
+        )
 
         counts["total"] = sum(
             v for k, v in counts.items() if k != "total"
