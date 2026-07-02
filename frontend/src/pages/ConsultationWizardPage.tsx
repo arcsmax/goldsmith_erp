@@ -8,6 +8,7 @@ import { CustomerStep } from '../components/consultation/CustomerStep';
 import { OccasionBudgetStep } from '../components/consultation/OccasionBudgetStep';
 import { WishStep } from '../components/consultation/WishStep';
 import { StyleNoGoStep } from '../components/consultation/StyleNoGoStep';
+import { logError } from '../lib/logError';
 import '../styles/consultations.css';
 
 export interface WizardStepProps {
@@ -60,7 +61,7 @@ export const ConsultationWizardPage: React.FC = () => {
         const data = await consultationsApi.getById(consultationId);
         if (!cancelled) setConsultation(data);
       } catch (err) {
-        console.error('Beratung laden fehlgeschlagen', err);
+        logError('Beratung laden fehlgeschlagen', err);
         if (!cancelled) showToast('Beratung konnte nicht geladen werden', 'error');
       } finally {
         if (!cancelled) setIsLoading(false);
@@ -81,7 +82,7 @@ export const ConsultationWizardPage: React.FC = () => {
         setConsultation(updated);
         return true;
       } catch (err) {
-        console.error('Beratung speichern fehlgeschlagen', err);
+        logError('Beratung speichern fehlgeschlagen', err);
         showToast('Speichern fehlgeschlagen — bitte erneut versuchen', 'error');
         return false;
       } finally {

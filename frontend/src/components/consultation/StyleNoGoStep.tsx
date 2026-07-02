@@ -12,6 +12,7 @@ import type { WizardStepProps } from '../../pages/ConsultationWizardPage';
 import { customersApi } from '../../api/customers';
 import { NoGo, NoGoCategory, NoGoCreateInput, StyleProfile } from '../../types';
 import { useConfirm, useToast } from '../../contexts';
+import { logError } from '../../lib/logError';
 
 /** Exported for reuse by the summary step (Task 8). */
 export const NO_GO_CATEGORY_LABELS: Record<NoGoCategory, string> = {
@@ -83,7 +84,7 @@ export const StyleNoGoStep: React.FC<WizardStepProps> = ({ consultation }) => {
         setNoGos(loadedNoGos);
         setStyleProfile(loadedProfile);
       } catch (err) {
-        console.error('No-Gos/Stilprofil laden fehlgeschlagen', err);
+        logError('No-Gos/Stilprofil laden fehlgeschlagen', err);
         if (!cancelled) showToast('Stilprofil konnte nicht geladen werden', 'error');
       } finally {
         if (!cancelled) setIsLoading(false);
@@ -105,7 +106,9 @@ export const StyleNoGoStep: React.FC<WizardStepProps> = ({ consultation }) => {
         showToast('Dieses No-Go existiert bereits', 'error');
         return false;
       }
-      console.error('No-Go anlegen fehlgeschlagen', err);
+      // NEVER log the raw error: err.config.data carries the request body
+      // (allergy no-go values) and FastAPI 422s echo the input in the response.
+      logError('No-Go anlegen fehlgeschlagen', err);
       showToast('No-Go konnte nicht angelegt werden', 'error');
       return false;
     }
@@ -147,7 +150,7 @@ export const StyleNoGoStep: React.FC<WizardStepProps> = ({ consultation }) => {
       await customersApi.deleteNoGo(customerId, noGo.id);
       setNoGos((prev) => prev.filter((n) => n.id !== noGo.id));
     } catch (err) {
-      console.error('No-Go löschen fehlgeschlagen', err);
+      logError('No-Go löschen fehlgeschlagen', err);
       showToast('No-Go konnte nicht gelöscht werden', 'error');
     } finally {
       setDeletingNoGoId(null);
@@ -161,7 +164,7 @@ export const StyleNoGoStep: React.FC<WizardStepProps> = ({ consultation }) => {
       const updated = await customersApi.updateStyleProfile(customerId, { [field]: nextList });
       setStyleProfile(updated);
     } catch (err) {
-      console.error('Stilprofil speichern fehlgeschlagen', err);
+      logError('Stilprofil speichern fehlgeschlagen', err);
       showToast('Stilprofil konnte nicht gespeichert werden', 'error');
     } finally {
       setSavingStyleField(null);
@@ -242,6 +245,7 @@ export const StyleNoGoStep: React.FC<WizardStepProps> = ({ consultation }) => {
               id="no_go_category"
               value={category}
               onChange={(e) => setCategory(e.target.value as NoGoCategory)}
+              disabled={isAddingNoGo}
             >
               {NO_GO_CATEGORY_KEYS.map((key) => (
                 <option key={key} value={key}>
@@ -258,6 +262,7 @@ export const StyleNoGoStep: React.FC<WizardStepProps> = ({ consultation }) => {
               value={value}
               onChange={(e) => setValue(e.target.value)}
               placeholder="z. B. Nickel"
+              disabled={isAddingNoGo}
             />
           </div>
           <div className="wizard-field">
@@ -267,6 +272,7 @@ export const StyleNoGoStep: React.FC<WizardStepProps> = ({ consultation }) => {
               type="text"
               value={note}
               onChange={(e) => setNote(e.target.value)}
+              disabled={isAddingNoGo}
             />
           </div>
           <button type="submit" className="btn-primary" disabled={isAddingNoGo || !value.trim()}>

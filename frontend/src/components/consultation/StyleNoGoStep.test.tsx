@@ -136,6 +136,42 @@ describe('StyleNoGoStep', () => {
     expect(screen.queryByLabelText('Nickel löschen')).not.toBeInTheDocument();
   });
 
+  it('never logs request/response bodies on a failed addNoGo (PII: allergy values)', async () => {
+    // Axios attaches the outgoing request body at err.config.data and FastAPI
+    // 422s echo the input in err.response.data — neither may reach the console
+    // (health-adjacent allergy data; binding "never log no-go values" rule).
+    const SENTINEL = 'GEHEIME-ALLERGIE-SENTINEL';
+    mockAddNoGo.mockRejectedValue({
+      isAxiosError: true,
+      message: 'Request failed with status code 422',
+      code: 'ERR_BAD_REQUEST',
+      config: {
+        url: '/customers/5/no-gos',
+        data: JSON.stringify({ category: 'allergy', value: SENTINEL }),
+      },
+      response: {
+        status: 422,
+        data: { detail: [{ input: { category: 'allergy', value: SENTINEL } }] },
+      },
+    });
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      renderStep();
+      await waitFor(() => expect(mockGetNoGos).toHaveBeenCalled());
+
+      await userEvent.click(screen.getByRole('button', { name: 'Nickel' }));
+      await waitFor(() => expect(consoleErrorSpy).toHaveBeenCalled());
+
+      const loggedText = consoleErrorSpy.mock.calls
+        .map((args) => args.map((arg) => JSON.stringify(arg) ?? String(arg)).join(' '))
+        .join('\n');
+      expect(loggedText).toContain('No-Go anlegen fehlgeschlagen');
+      expect(loggedText).not.toContain(SENTINEL);
+    } finally {
+      consoleErrorSpy.mockRestore();
+    }
+  });
+
   it('adding style word "schlicht" PATCHes {style_words: [schlicht]} (existing + new)', async () => {
     mockUpdateStyleProfile.mockResolvedValue({ ...EMPTY_PROFILE, style_words: ['schlicht'] });
     renderStep();

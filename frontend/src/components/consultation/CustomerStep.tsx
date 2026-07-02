@@ -18,6 +18,7 @@ import {
   CustomerUpdateInput,
 } from '../../types';
 import { useToast } from '../../contexts';
+import { logError } from '../../lib/logError';
 import { CustomerTypeahead } from './CustomerTypeahead';
 import { CustomerFormModal } from '../CustomerFormModal';
 
@@ -69,7 +70,7 @@ export const CustomerStep: React.FC<CustomerStepProps> = ({
         const customer = await customersApi.getById(existingCustomerId);
         if (!cancelled) setSelectedCustomer(customer);
       } catch (err) {
-        console.error('Kundendaten laden fehlgeschlagen', err);
+        logError('Kundendaten laden fehlgeschlagen', err);
         if (!cancelled) showToast('Kundendaten konnten nicht geladen werden', 'error');
       } finally {
         if (!cancelled) setIsLoadingExisting(false);
@@ -89,7 +90,7 @@ export const CustomerStep: React.FC<CustomerStepProps> = ({
       const created = await consultationsApi.create({ customer_id: selectedCustomer.id });
       onDraftCreated(created);
     } catch (err) {
-      console.error('Beratung anlegen fehlgeschlagen', err);
+      logError('Beratung anlegen fehlgeschlagen', err);
       showToast('Beratung konnte nicht gestartet werden — bitte erneut versuchen', 'error');
     } finally {
       setIsCreatingDraft(false);
