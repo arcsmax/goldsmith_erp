@@ -96,12 +96,21 @@ def mock_publish_event(monkeypatch):
 
     Unit tests must never connect to Redis. Any service that calls
     publish_event after a DB operation will silently succeed.
+
+    Every service now imports the ``pubsub`` module (not the function) and
+    calls ``pubsub.publish_event(...)`` — see services/consultation_service.py
+    for the original pattern and the V1.1 hardening sweep (issue #13, item 6)
+    that brought notification_service/handoff_service/order_service in line.
+    Patching the module attribute here therefore covers every caller; the
+    old second monkeypatch on ``goldsmith_erp.services.order_service.
+    publish_event`` was needed only because order_service used to import the
+    function directly (binding it into its own module namespace before this
+    fixture could patch it) and no longer applies.
     """
     async def _noop(*args, **kwargs):
         pass
 
     monkeypatch.setattr("goldsmith_erp.core.pubsub.publish_event", _noop)
-    monkeypatch.setattr("goldsmith_erp.services.order_service.publish_event", _noop)
 
 
 @pytest.fixture(autouse=True)

@@ -246,3 +246,48 @@ async def test_notification_failure_never_propagates_on_update(
     fetched = await ConsultationService.get_consultation(db_session, updated.id)
     assert fetched is not None
     assert fetched.calendar_event_id == updated.calendar_event_id
+
+
+@pytest.mark.asyncio
+async def test_repeated_follow_up_update_reuses_calendar_event(
+    db_session, sample_customer, sample_user
+):
+    """Regression (issue #13, item 7): two autosave PATCHes that each change
+    follow_up_at must UPDATE the same REMINDER CalendarEvent in place rather
+    than creating a second one — the previous behaviour orphaned a
+    CalendarEvent row on every follow_up_at edit."""
+    from sqlalchemy import select
+
+    from goldsmith_erp.db.models import CalendarEvent, CalendarEventType
+
+    first_when = datetime.utcnow() + timedelta(days=7)
+    created = await ConsultationService.create_consultation(
+        db_session,
+        ConsultationCreate(customer_id=sample_customer.id, follow_up_at=first_when),
+        conducted_by_user_id=sample_user.id,
+    )
+    first_event_id = created.calendar_event_id
+    assert first_event_id is not None
+
+    second_when = first_when + timedelta(days=10)
+    updated = await ConsultationService.update_consultation(
+        db_session, created.id, ConsultationUpdate(follow_up_at=second_when)
+    )
+
+    # Same event reused — no new CalendarEvent row was created.
+    assert updated.calendar_event_id == first_event_id
+
+    events = (
+        (
+            await db_session.execute(
+                select(CalendarEvent).filter(
+                    CalendarEvent.event_type == CalendarEventType.REMINDER
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert len(events) == 1
+    assert events[0].id == first_event_id
+    assert events[0].start_datetime == second_when

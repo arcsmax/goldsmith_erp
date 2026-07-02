@@ -1,9 +1,16 @@
 """Pydantic schemas for the V1.1 consultation module (Beratung & Annahme)."""
 
 from datetime import date, datetime
-from typing import Any, Dict, List, Literal, Optional
+from typing import Annotated, Any, Dict, List, Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StringConstraints,
+    field_validator,
+    model_validator,
+)
 
 from goldsmith_erp.db.models import (
     ConsultationOccasion,
@@ -122,11 +129,17 @@ class NoGoConflict(BaseModel):
     matched_against: str
 
 
+# Each style-profile word/tag: bounded length so a client can't smuggle a
+# multi-KB payload into a single list item (list length is separately
+# capped via Field(max_length=...) below).
+_StyleProfileItem = Annotated[str, StringConstraints(max_length=100)]
+
+
 class StyleProfileUpdate(BaseModel):
-    metal_tones: Optional[List[str]] = None
-    finishes: Optional[List[str]] = None
-    stone_preferences: Optional[List[str]] = None
-    style_words: Optional[List[str]] = None
+    metal_tones: Optional[List[_StyleProfileItem]] = Field(None, max_length=50)
+    finishes: Optional[List[_StyleProfileItem]] = Field(None, max_length=50)
+    stone_preferences: Optional[List[_StyleProfileItem]] = Field(None, max_length=50)
+    style_words: Optional[List[_StyleProfileItem]] = Field(None, max_length=50)
 
 
 class StyleProfileRead(BaseModel):

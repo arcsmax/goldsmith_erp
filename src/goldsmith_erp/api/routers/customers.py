@@ -831,6 +831,33 @@ async def delete_customer(
 # access keeps read access to no-go warnings.
 # ---------------------------------------------------------------------------
 
+_CUSTOMER_NOT_FOUND_DETAIL = "Kunde nicht gefunden"
+
+
+async def _get_active_customer_or_404(
+    db: AsyncSession, customer_id: int
+) -> CustomerModel:
+    """404 unless the customer exists, is not soft-deleted, and is active.
+
+    ``CustomerService.delete_customer`` soft-deletes via ``is_active =
+    False`` (not ``is_deleted`` — that flag belongs to a separate, GDPR
+    hard-delete-adjacent path). The V1.1 no-go / style-profile endpoints
+    below previously guarded ``is_deleted`` only (or nothing at all), so a
+    customer removed through the normal DELETE /customers/{id} endpoint
+    stayed visible through these routes. Scoped fix (issue #13, item 5):
+    used ONLY by the V1.1 endpoints in this section — the rest of this
+    router's pre-existing endpoints are intentionally left untouched here;
+    unifying every customer endpoint's soft-delete guard is tracked
+    separately.
+    """
+    customer = await db.get(CustomerModel, customer_id)
+    if customer is None or customer.is_deleted or not customer.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=_CUSTOMER_NOT_FOUND_DETAIL,
+        )
+    return customer
+
 
 def _normalize_style_profile(raw: Dict[str, Any]) -> Dict[str, Any]:
     """Coerce ``None`` values in a style-profile dict to ``[]``.
@@ -866,8 +893,12 @@ async def list_customer_no_gos(
     """
     List all no-gos (persistent exclusions, e.g. allergies) for a customer.
 
+    404 if the customer does not exist (or is soft-deleted/deactivated) —
+    previously returned an empty list for any unknown customer_id.
+
     Permissions: Requires CUSTOMER_VIEW permission.
     """
+    await _get_active_customer_or_404(db, customer_id)
     return await NoGoService.list_no_gos(db, customer_id)
 
 
@@ -885,12 +916,13 @@ async def create_customer_no_go(
     """
     Add a no-go (persistent exclusion, e.g. an allergy) for a customer.
 
-    404 if the customer does not exist. 409 if an equivalent no-go (same
-    category, case-insensitively equal value) already exists for this
-    customer.
+    404 if the customer does not exist (or is soft-deleted/deactivated).
+    409 if an equivalent no-go (same category, case-insensitively equal
+    value) already exists for this customer.
 
     Permissions: Requires CUSTOMER_EDIT permission.
     """
+    await _get_active_customer_or_404(db, customer_id)
     try:
         return await NoGoService.add_no_go(db, customer_id, no_go_in)
     except DuplicateNoGoError:
@@ -907,10 +939,13 @@ async def create_customer_no_go(
             detail="Dieses No-Go existiert bereits",
         )
     except ValueError:
-        # Unknown customer. Generic detail — never forward the message.
+        # Defensive fallback: NoGoService.add_no_go re-checks customer
+        # existence itself (a TOCTOU backstop, see no_go_service.py); the
+        # guard above makes this unreachable in practice. Generic detail —
+        # never forward the message.
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Kunde nicht gefunden",
+            detail=_CUSTOMER_NOT_FOUND_DETAIL,
         )
 
 
@@ -927,8 +962,12 @@ async def delete_customer_no_go(
     """
     Remove a no-go from a customer.
 
+    404 if the customer does not exist (or is soft-deleted/deactivated), or
+    if no matching no-go is found for that customer.
+
     Permissions: Requires CUSTOMER_EDIT permission.
     """
+    await _get_active_customer_or_404(db, customer_id)
     try:
         await NoGoService.delete_no_go(db, customer_id, no_go_id)
     except ValueError as exc:
@@ -940,8 +979,9 @@ async def check_customer_no_go_conflicts(
     customer_id: int,
     candidate: List[str] = Query(
         ...,
+        max_length=50,
         description="Candidate material/stone/etc. values to check against "
-        "the customer's recorded no-gos",
+        "the customer's recorded no-gos (max 50)",
     ),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_permission(Permission.CUSTOMER_VIEW)),
@@ -951,8 +991,11 @@ async def check_customer_no_go_conflicts(
     against a customer's recorded no-gos. Bidirectional, case-insensitive
     substring match — see ``NoGoService.check_conflicts``.
 
+    404 if the customer does not exist (or is soft-deleted/deactivated).
+
     Permissions: Requires CUSTOMER_VIEW permission.
     """
+    await _get_active_customer_or_404(db, customer_id)
     return await NoGoService.check_conflicts(db, customer_id, candidate)
 
 
@@ -968,12 +1011,7 @@ async def get_style_profile(
 
     Permissions: Requires CUSTOMER_VIEW permission.
     """
-    customer = await db.get(CustomerModel, customer_id)
-    if customer is None or customer.is_deleted:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Customer {customer_id} not found",
-        )
+    customer = await _get_active_customer_or_404(db, customer_id)
     return StyleProfileRead(**_normalize_style_profile(customer.style_profile or {}))
 
 
@@ -992,12 +1030,7 @@ async def update_style_profile(
     Permissions: Requires CUSTOMER_EDIT permission.
     """
     async with transactional(db):
-        customer = await db.get(CustomerModel, customer_id)
-        if customer is None or customer.is_deleted:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Customer {customer_id} not found",
-            )
+        customer = await _get_active_customer_or_404(db, customer_id)
         profile = dict(customer.style_profile or {})
         profile.update(update_in.model_dump(exclude_unset=True))
         # See _normalize_style_profile: an explicit null in the PATCH body
