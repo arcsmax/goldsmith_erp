@@ -93,6 +93,11 @@ class Permission(str, Enum):
     REPAIR_CREATE = "repair:create"     # Create new repair intake
     REPAIR_EDIT = "repair:edit"         # Update repair status and notes
 
+    # Consultation permissions (Beratung — Design-IP: GOLDSMITH/ADMIN only)
+    CONSULTATION_VIEW = "consultation:view"
+    CONSULTATION_CREATE = "consultation:create"
+    CONSULTATION_EDIT = "consultation:edit"
+
     # Hallmark permissions (Punzierung)
     HALLMARK_VIEW = "hallmark:view"     # View hallmark records
     HALLMARK_CREATE = "hallmark:create" # Create hallmark record
@@ -162,6 +167,10 @@ ROLE_PERMISSIONS: dict[UserRole, List[Permission]] = {
         Permission.REPAIR_VIEW,
         Permission.REPAIR_CREATE,
         Permission.REPAIR_EDIT,
+        # Consultations — goldsmiths run the intake conversation
+        Permission.CONSULTATION_VIEW,
+        Permission.CONSULTATION_CREATE,
+        Permission.CONSULTATION_EDIT,
         # Hallmarks — goldsmiths submit and track Punzierung
         Permission.HALLMARK_VIEW,
         Permission.HALLMARK_CREATE,
