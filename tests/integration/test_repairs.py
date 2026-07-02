@@ -628,3 +628,58 @@ class TestRepairPhotos:
             f"{REPAIRS_URL}photos/{photo_id}", headers=viewer_auth_headers
         )
         assert delete_as_viewer.status_code == 403
+
+    @pytest.mark.asyncio
+    async def test_unanchored_legacy_path_returns_404_without_leaking_path(
+        self,
+        client: AsyncClient,
+        admin_auth_headers: dict,
+        db_session: AsyncSession,
+        tmp_path,
+        monkeypatch,
+    ):
+        """A legacy row with a client-supplied file_path outside the storage
+        root (the old JSON API imposed no validation) must be refused: GET
+        serves 404 — with the hostile path absent from the response body —
+        and DELETE 404s without unlinking anything or removing the row.
+        """
+        from goldsmith_erp.db.models import RepairPhoto, RepairPhotoPhase
+
+        monkeypatch.setattr(
+            "goldsmith_erp.core.config.settings.PHOTO_STORAGE_PATH", str(tmp_path)
+        )
+        repair_id = await _create_repair(client, admin_auth_headers)
+
+        hostile = "/etc/passwd"
+        photo = RepairPhoto(
+            repair_job_id=repair_id,
+            phase=RepairPhotoPhase.INTAKE,
+            file_path=hostile,
+        )
+        db_session.add(photo)
+        await db_session.commit()
+        await db_session.refresh(photo)
+
+        serve = await client.get(
+            f"{REPAIRS_URL}photos/{photo.id}", headers=admin_auth_headers
+        )
+        assert serve.status_code == 404
+        assert hostile not in serve.text
+
+        thumb = await client.get(
+            f"{REPAIRS_URL}photos/{photo.id}/thumbnail", headers=admin_auth_headers
+        )
+        assert thumb.status_code == 404
+        assert hostile not in thumb.text
+
+        delete = await client.delete(
+            f"{REPAIRS_URL}photos/{photo.id}", headers=admin_auth_headers
+        )
+        assert delete.status_code == 404
+
+        # Row untouched — kept for the migration quarantine to handle.
+        listed = await client.get(
+            f"{REPAIRS_URL}{repair_id}/photos", headers=admin_auth_headers
+        )
+        assert listed.status_code == 200
+        assert [p["id"] for p in listed.json()] == [photo.id]

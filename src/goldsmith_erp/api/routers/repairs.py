@@ -356,13 +356,14 @@ async def delete_repair(
 # ============================================================================
 # PHOTOS
 #
-# The two-segment photo routes ("/photos/{photo_id}", "/photos/{photo_id}/thumbnail")
-# cannot be shadowed by the single-segment "/{repair_id}" route or the
-# "/{repair_id}/photos" route — Starlette matches by segment count and
-# literal-segment position, not just declaration order (same precedent as
-# api/routers/consultations.py) — but they are declared after the repair
-# CRUD routes to keep the file's reading order aligned with the resource
-# hierarchy.
+# For these specific route patterns, the two-segment photo routes
+# ("/photos/{photo_id}", "/photos/{photo_id}/thumbnail") cannot collide with
+# the single-segment "/{repair_id}" route or the "/{repair_id}/photos" route:
+# the literal "photos" first segment and differing segment counts keep them
+# distinct regardless of declaration order (same shape as
+# api/routers/consultations.py; covered by the roundtrip integration test).
+# They are declared after the repair CRUD routes to keep the file's reading
+# order aligned with the resource hierarchy.
 # ============================================================================
 
 

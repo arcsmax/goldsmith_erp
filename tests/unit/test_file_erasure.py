@@ -738,7 +738,9 @@ class TestErasureRepairPhotoThumbnails:
 
         assert not original_path.exists()
         assert not thumb_path.exists()
-        assert result.per_target_counts["repair_photos.file_path"]["deleted"] == 1
+        # Original + thumbnail both count as deleted files (report accuracy —
+        # the counters reflect every file actually removed from disk).
+        assert result.per_target_counts["repair_photos.file_path"]["deleted"] == 2
         assert result.files_failed == 0
         # Row is KEPT (Art. 30 retention precedent) and path is redacted.
         assert photo.file_path == REDACTED_PATH_SENTINEL

@@ -561,6 +561,17 @@ class FileErasureService:
                     else:
                         per_target_missing += 1
                         result.files_missing += 1
+                    # Thumbnail accounting (report-accuracy): the preview
+                    # must reflect every file the real run would remove,
+                    # so an existing thumb counts as a would-delete too —
+                    # mirroring the live branch's counting below.
+                    if target.has_thumbnail:
+                        thumb_resolved = (
+                            resolved.parent / "thumbs" / f"{resolved.stem}.jpg"
+                        )
+                        if thumb_resolved.exists():
+                            per_target_deleted += 1
+                            result.files_deleted += 1
                     row_ids_to_update.append(row)
                     continue
 
@@ -620,6 +631,14 @@ class FileErasureService:
                         try:
                             if thumb_resolved.exists():
                                 os.unlink(thumb_resolved)
+                                # Counted as a deleted file so the result
+                                # (and the dry-run preview above) reflects
+                                # the true number of files removed. A
+                                # missing thumb is NOT counted anywhere —
+                                # generation is non-fatal at upload, so
+                                # absence is normal, not "missing".
+                                per_target_deleted += 1
+                                result.files_deleted += 1
                         except (OSError, PermissionError) as thumb_exc:
                             thumb_failed = True
                             message = f"{type(thumb_exc).__name__}: {thumb_exc}"

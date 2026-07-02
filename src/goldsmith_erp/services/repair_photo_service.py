@@ -41,6 +41,7 @@ from goldsmith_erp.db.models import RepairJob, RepairPhoto, RepairPhotoPhase
 from goldsmith_erp.services.image_validation import (
     create_thumbnail,
     read_validated_image,
+    resolve_within_root,
 )
 
 logger = logging.getLogger(__name__)
@@ -203,11 +204,16 @@ class RepairPhotoService:
             Path to the original file, or its thumbnail if `thumbnail=True`.
 
         Raises:
-            ValueError: If no photo with `photo_id` exists.
+            ValueError: If no photo with `photo_id` exists, or if the stored
+                ``file_path`` does not resolve inside the photo storage root
+                (legacy client-supplied strings / tampered rows). The error
+                message is ID-only — the raw path is never echoed.
         """
         photo = await RepairPhotoService._get_or_raise(db, photo_id)
-        original = Path(photo.file_path)
+        original = RepairPhotoService._anchored_path_or_raise(photo)
         if thumbnail:
+            # Derived from the already-anchored original, so the thumb
+            # path is guaranteed to stay inside the storage root too.
             return original.parent / "thumbs" / f"{original.stem}.jpg"
         return original
 
@@ -224,11 +230,14 @@ class RepairPhotoService:
             photo_id: Integer ID of the photo.
 
         Raises:
-            ValueError: If no photo with `photo_id` exists.
+            ValueError: If no photo with `photo_id` exists, or if the stored
+                ``file_path`` does not resolve inside the photo storage root
+                (the row is left untouched — nothing outside the root is
+                ever unlinked).
         """
         photo = await RepairPhotoService._get_or_raise(db, photo_id)
+        original = RepairPhotoService._anchored_path_or_raise(photo)
 
-        original = Path(photo.file_path)
         if original.exists():
             original.unlink()
             logger.info(
@@ -247,6 +256,31 @@ class RepairPhotoService:
 
         await db.delete(photo)
         await db.flush()
+
+    @staticmethod
+    def _anchored_path_or_raise(photo: RepairPhoto) -> Path:
+        """Resolve ``photo.file_path`` anchored to the storage root.
+
+        The legacy repair-photo API accepted arbitrary client strings into
+        ``repair_photos.file_path`` — a stored value is NOT trustworthy.
+        Any value that does not resolve inside ``PHOTO_STORAGE_PATH`` is
+        refused with an ID-only ValueError (→ 404 at the router; the raw
+        path is logged server-side but never echoed to the client).
+        """
+        resolved = resolve_within_root(photo.file_path, _storage_root())
+        if resolved is None:
+            logger.error(
+                "Repair photo path escapes storage root — refused",
+                extra={
+                    "photo_id": photo.id,
+                    "raw_path": photo.file_path,
+                    "storage_root": str(_storage_root()),
+                },
+            )
+            raise ValueError(
+                f"Reparatur-Foto #{photo.id} hat einen ungueltigen Speicherpfad"
+            )
+        return resolved
 
     @staticmethod
     async def _get_or_raise(db: AsyncSession, photo_id: int) -> RepairPhoto:

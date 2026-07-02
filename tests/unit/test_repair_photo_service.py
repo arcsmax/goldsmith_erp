@@ -183,3 +183,77 @@ async def test_delete_photo_removes_file_thumb_and_row(
 async def test_delete_photo_missing_raises(db_session):
     with pytest.raises(ValueError):
         await RepairPhotoService.delete_photo(db_session, 999999)
+
+
+# ---------------------------------------------------------------------------
+# Path anchoring — legacy client-supplied file_path values must never reach
+# filesystem I/O (arbitrary file read/delete otherwise). The legacy JSON API
+# accepted arbitrary strings into repair_photos.file_path; rows are crafted
+# here via direct session insert to simulate surviving tainted data.
+# ---------------------------------------------------------------------------
+
+
+async def _insert_tainted_photo(db_session, repair, sample_user, file_path: str):
+    """Insert a RepairPhoto row bypassing the service (legacy API simulation)."""
+    from goldsmith_erp.db.models import RepairPhoto
+
+    photo = RepairPhoto(
+        repair_job_id=repair.id,
+        phase=RepairPhotoPhase.INTAKE,
+        file_path=file_path,
+        taken_by=sample_user.id,
+    )
+    db_session.add(photo)
+    await db_session.commit()
+    await db_session.refresh(photo)
+    return photo
+
+
+@pytest.mark.parametrize(
+    "hostile_path",
+    ["/etc/passwd", "../../outside.txt"],
+    ids=["absolute-escape", "relative-traversal"],
+)
+@pytest.mark.asyncio
+async def test_get_photo_path_rejects_unanchored_path(
+    db_session, tmp_path, monkeypatch, repair, sample_user, hostile_path
+):
+    monkeypatch.setattr(
+        "goldsmith_erp.core.config.settings.PHOTO_STORAGE_PATH", str(tmp_path)
+    )
+    photo = await _insert_tainted_photo(db_session, repair, sample_user, hostile_path)
+
+    with pytest.raises(ValueError) as excinfo:
+        await RepairPhotoService.get_photo_path(db_session, photo.id)
+
+    # ID-only message — the hostile path must never be echoed.
+    assert str(photo.id) in str(excinfo.value)
+    assert hostile_path not in str(excinfo.value)
+
+    # Thumbnail resolution goes through the same guard.
+    with pytest.raises(ValueError):
+        await RepairPhotoService.get_photo_path(db_session, photo.id, thumbnail=True)
+
+
+@pytest.mark.parametrize(
+    "hostile_path",
+    ["/etc/passwd", "../../outside.txt"],
+    ids=["absolute-escape", "relative-traversal"],
+)
+@pytest.mark.asyncio
+async def test_delete_photo_rejects_unanchored_path_and_keeps_row(
+    db_session, tmp_path, monkeypatch, repair, sample_user, hostile_path
+):
+    monkeypatch.setattr(
+        "goldsmith_erp.core.config.settings.PHOTO_STORAGE_PATH", str(tmp_path)
+    )
+    photo = await _insert_tainted_photo(db_session, repair, sample_user, hostile_path)
+
+    with pytest.raises(ValueError) as excinfo:
+        await RepairPhotoService.delete_photo(db_session, photo.id)
+    assert hostile_path not in str(excinfo.value)
+
+    # Row untouched — nothing outside the root was unlinked, nothing deleted.
+    photos = await RepairPhotoService.list_photos(db_session, repair.id)
+    assert [p.id for p in photos] == [photo.id]
+    assert photos[0].file_path == hostile_path

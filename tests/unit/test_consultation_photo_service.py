@@ -171,3 +171,36 @@ async def test_delete_photo_removes_file_thumb_and_row(
 async def test_delete_photo_missing_raises(db_session):
     with pytest.raises(ValueError):
         await ConsultationPhotoService.delete_photo(db_session, "does-not-exist")
+
+
+@pytest.mark.asyncio
+async def test_get_photo_path_rejects_unanchored_path(
+    db_session, tmp_path, monkeypatch, consultation, sample_user
+):
+    """Defense-in-depth: consultation file_path values were never
+    client-writable, but the shared anchoring guard must still refuse a
+    tampered row without echoing the hostile path."""
+    from goldsmith_erp.db.models import ConsultationPhoto
+
+    monkeypatch.setattr(
+        "goldsmith_erp.core.config.settings.PHOTO_STORAGE_PATH", str(tmp_path)
+    )
+    photo = ConsultationPhoto(
+        consultation_id=consultation.id,
+        kind=ConsultationPhotoKind.SKETCH,
+        file_path="/etc/passwd",
+        taken_by=sample_user.id,
+    )
+    db_session.add(photo)
+    await db_session.commit()
+    await db_session.refresh(photo)
+
+    with pytest.raises(ValueError) as excinfo:
+        await ConsultationPhotoService.get_photo_path(db_session, photo.id)
+    assert "/etc/passwd" not in str(excinfo.value)
+
+    with pytest.raises(ValueError):
+        await ConsultationPhotoService.delete_photo(db_session, photo.id)
+    # Row untouched.
+    photos = await ConsultationPhotoService.list_photos(db_session, consultation.id)
+    assert [p.id for p in photos] == [photo.id]
