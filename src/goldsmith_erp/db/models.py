@@ -1,9 +1,8 @@
 from datetime import datetime
 
-from sqlalchemy import Boolean, Column, DateTime, text
+from sqlalchemy import Boolean, Column, Date, DateTime
 from sqlalchemy import Enum as _SAEnum
 from sqlalchemy import (
-    Date,
     Float,
     ForeignKey,
     Index,
@@ -331,6 +330,7 @@ def _customer_before_insert(_mapper, _connection, target: "Customer") -> None:
     if target.email and not target.email_hash:
         # Import locally to avoid a cycle (encryption → config → logging → …).
         from goldsmith_erp.core.encryption import hmac_blind_index  # noqa: PLC0415
+
         target.email_hash = hmac_blind_index(target.email)
 
 
@@ -343,6 +343,7 @@ def _customer_before_update(_mapper, _connection, target: "Customer") -> None:
     """
     if target.email and not target.email_hash:
         from goldsmith_erp.core.encryption import hmac_blind_index  # noqa: PLC0415
+
         target.email_hash = hmac_blind_index(target.email)
 
 
@@ -779,9 +780,7 @@ class TimeEntry(Base):
 # behaviour — fail loudly on schema violation rather than silently
 # writing PII.
 
-from goldsmith_erp.models.time_entry_metadata import (  # noqa: E402
-    TimeEntryMetadata,
-)
+from goldsmith_erp.models.time_entry_metadata import TimeEntryMetadata  # noqa: E402
 
 
 @event.listens_for(TimeEntry, "before_insert")
@@ -2351,6 +2350,7 @@ class ValuationCertificate(Base):
     def appraised_value(self):
         """Decrypted numeric appraised value (EUR) as ``Decimal``."""
         from decimal import Decimal  # local import — avoid top-of-file churn
+
         cipher = self._appraised_value_cipher
         if cipher is None:
             return None
@@ -2359,6 +2359,7 @@ class ValuationCertificate(Base):
     @appraised_value.setter
     def appraised_value(self, value) -> None:
         from decimal import Decimal  # local import
+
         if value is None:
             self._appraised_value_cipher = None
             # Hash column is NOT NULL; we only null the cipher if the caller
@@ -2374,6 +2375,7 @@ class ValuationCertificate(Base):
         # Local import — matches the C1 pattern on Customer.email_hash and
         # avoids a module-level cycle (encryption → config → logging → …).
         from goldsmith_erp.core.encryption import hmac_blind_index  # noqa: PLC0415
+
         self.appraised_value_hmac = hmac_blind_index(normalised)
 
     def __repr__(self) -> str:
@@ -2411,6 +2413,7 @@ def _valuation_before_insert(
     cipher = target._appraised_value_cipher
     if cipher and not target.appraised_value_hmac:
         from goldsmith_erp.core.encryption import hmac_blind_index  # noqa: PLC0415
+
         target.appraised_value_hmac = hmac_blind_index(cipher)
 
 
@@ -2427,6 +2430,7 @@ def _valuation_before_update(
     cipher = target._appraised_value_cipher
     if cipher and not target.appraised_value_hmac:
         from goldsmith_erp.core.encryption import hmac_blind_index  # noqa: PLC0415
+
         target.appraised_value_hmac = hmac_blind_index(cipher)
 
 

@@ -2,8 +2,8 @@ import pytest
 from pydantic import ValidationError
 
 from goldsmith_erp.models.consultation import (
-    ConsultationCreate,
     ConsultationConvertRequest,
+    ConsultationCreate,
     NoGoCreate,
 )
 

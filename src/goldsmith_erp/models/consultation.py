@@ -1,4 +1,5 @@
 """Pydantic schemas for the V1.1 consultation module (Beratung & Annahme)."""
+
 from datetime import date, datetime
 from typing import Any, Dict, List, Literal, Optional
 

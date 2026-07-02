@@ -54,11 +54,9 @@ from typing import Any, List, Optional, Tuple
 from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from goldsmith_erp.db.models import Consultation, ConsultationPhoto, CustomerAuditLog
+from goldsmith_erp.db.models import Order as OrderModel
 from goldsmith_erp.db.models import (
-    Consultation,
-    ConsultationPhoto,
-    CustomerAuditLog,
-    Order as OrderModel,
     OrderPhoto,
     RepairJob,
     RepairPhoto,

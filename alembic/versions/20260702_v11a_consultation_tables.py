@@ -4,6 +4,7 @@ customer_no_gos), Customer.style_profile, notification enum value."""
 from typing import Sequence, Union
 
 import sqlalchemy as sa
+
 from alembic import op
 
 revision: str = "20260702_v11a_consultation"

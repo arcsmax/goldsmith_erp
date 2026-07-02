@@ -16,6 +16,7 @@ Permission matrix (design IP — Beratung is business-confidential):
   - VIEWER             — no access at all (403 everywhere)
   - No auth            — 401
 """
+
 import io
 
 import pytest

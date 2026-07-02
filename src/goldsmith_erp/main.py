@@ -2,33 +2,61 @@ import asyncio
 import logging
 import os
 from pathlib import Path
+from typing import List
+
+import uvicorn
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from jose import jwt, JWTError
-from goldsmith_erp.core.security import ALGORITHM
+from jose import JWTError, jwt
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 from starlette.middleware.base import BaseHTTPMiddleware
-import uvicorn
-from typing import List
 
+from goldsmith_erp.api.routers import (
+    activities,
+    admin_email,
+    admin_scan_metrics,
+    analytics,
+    auth,
+    calendar,
+    comments,
+    consultations,
+    customer_portal,
+    customers,
+    hallmarks,
+    handoffs,
+    health,
+)
+from goldsmith_erp.api.routers import imports as imports_router
+from goldsmith_erp.api.routers import (
+    invoices,
+    materials,
+    measurements,
+    metal_inventory,
+    metal_prices,
+    metal_types,
+    ml,
+    notifications,
+    orders,
+    photos,
+    quotes,
+    repairs,
+)
+from goldsmith_erp.api.routers import scanner as scanner_router
+from goldsmith_erp.api.routers import scrap_gold
+from goldsmith_erp.api.routers import theme as theme_router
+from goldsmith_erp.api.routers import time_tracking, users, valuations
 from goldsmith_erp.core.config import settings
 from goldsmith_erp.core.encryption import EncryptionError, check_encryption_configured
 from goldsmith_erp.core.logging import setup_logging
+from goldsmith_erp.core.pubsub import publish_event, subscribe_and_forward
+from goldsmith_erp.core.security import ALGORITHM
 from goldsmith_erp.middleware import RequestLoggingMiddleware, RequestMetricsMiddleware
 from goldsmith_erp.middleware.audit_logging import AuditLoggingMiddleware
 from goldsmith_erp.middleware.auth_required import AuthRequiredMiddleware
 from goldsmith_erp.middleware.security_headers import SecurityHeadersMiddleware
-from goldsmith_erp.api.routers import auth, orders, users, materials, activities, time_tracking, health, customers, metal_inventory, comments, scrap_gold, calendar, invoices, metal_prices, ml, measurements, analytics, notifications, handoffs, photos, metal_types, quotes, repairs, hallmarks, valuations, consultations
-from goldsmith_erp.api.routers import admin_email
-from goldsmith_erp.api.routers import admin_scan_metrics
-from goldsmith_erp.api.routers import customer_portal
-from goldsmith_erp.api.routers import theme as theme_router
-from goldsmith_erp.api.routers import imports as imports_router
-from goldsmith_erp.api.routers import scanner as scanner_router
-from goldsmith_erp.core.pubsub import subscribe_and_forward, publish_event
 from goldsmith_erp.services.system_monitor import system_monitor_loop
 
 # Setup structured logging
@@ -65,27 +93,25 @@ class RequestSizeLimitMiddleware(BaseHTTPMiddleware):
                                 "max_allowed": self.MAX_REQUEST_SIZE,
                                 "path": request.url.path,
                                 "method": request.method,
-                            }
+                            },
                         )
                         return JSONResponse(
                             status_code=413,
-                            content={
-                                "detail": "Anfrage zu groß. Maximum: 10 MB."
-                            }
+                            content={"detail": "Anfrage zu groß. Maximum: 10 MB."},
                         )
                 except ValueError:
                     # Invalid Content-Length header
                     logger.warning(
                         "Invalid Content-Length header",
-                        extra={"content_length": content_length}
+                        extra={"content_length": content_length},
                     )
 
         return await call_next(request)
 
+
 # App-Instanz erstellen
 app = FastAPI(
-    title=settings.APP_NAME,
-    openapi_url=f"{settings.API_V1_STR}/openapi.json"
+    title=settings.APP_NAME, openapi_url=f"{settings.API_V1_STR}/openapi.json"
 )
 
 # Ensure uploads directory exists (photos served via authenticated router endpoints)
@@ -105,11 +131,17 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 #   RequestLoggingMiddleware
 #   RequestMetricsMiddleware
 # That means we add() them in the inverse order below.
-app.add_middleware(AuditLoggingMiddleware)       # GDPR Art. 30 audit (reads user_id from state)
-app.add_middleware(AuthRequiredMiddleware)       # Deny-by-default auth check + sets request.state.user_id
-app.add_middleware(RequestSizeLimitMiddleware)   # Check size first
-app.add_middleware(RequestLoggingMiddleware)     # Then log
-app.add_middleware(RequestMetricsMiddleware)     # Lightweight request metrics (innermost before CORS)
+app.add_middleware(
+    AuditLoggingMiddleware
+)  # GDPR Art. 30 audit (reads user_id from state)
+app.add_middleware(
+    AuthRequiredMiddleware
+)  # Deny-by-default auth check + sets request.state.user_id
+app.add_middleware(RequestSizeLimitMiddleware)  # Check size first
+app.add_middleware(RequestLoggingMiddleware)  # Then log
+app.add_middleware(
+    RequestMetricsMiddleware
+)  # Lightweight request metrics (innermost before CORS)
 
 # CORS-Middleware einrichten
 app.add_middleware(
@@ -127,39 +159,104 @@ app.add_middleware(SecurityHeadersMiddleware)
 app.include_router(health.router, tags=["health"])  # Health checks at root level
 app.include_router(auth.router, prefix=f"{settings.API_V1_STR}", tags=["auth"])
 app.include_router(users.router, prefix=f"{settings.API_V1_STR}/users", tags=["users"])
-app.include_router(customers.router, prefix=f"{settings.API_V1_STR}", tags=["customers"])  # CRM
-app.include_router(orders.router, prefix=f"{settings.API_V1_STR}/orders", tags=["orders"])
-app.include_router(materials.router, prefix=f"{settings.API_V1_STR}/materials", tags=["materials"])
-app.include_router(metal_inventory.router, prefix=f"{settings.API_V1_STR}", tags=["metal-inventory"])  # Metal Inventory Management
-app.include_router(activities.router, prefix=f"{settings.API_V1_STR}/activities", tags=["activities"])
-app.include_router(time_tracking.router, prefix=f"{settings.API_V1_STR}/time-tracking", tags=["time-tracking"])
-app.include_router(comments.router, prefix=f"{settings.API_V1_STR}", tags=["comments"])  # Order Comments
-app.include_router(scrap_gold.router, prefix=f"{settings.API_V1_STR}", tags=["scrap-gold"])  # Altgold
-app.include_router(calendar.router, prefix=f"{settings.API_V1_STR}/calendar", tags=["calendar"])  # Calendar/Planning
-app.include_router(invoices.router, prefix=f"{settings.API_V1_STR}/invoices", tags=["invoices"])  # Rechnungswesen
-app.include_router(metal_prices.router, prefix=f"{settings.API_V1_STR}", tags=["metal-prices"])  # Live metal spot prices
-app.include_router(ml.router, prefix=f"{settings.API_V1_STR}/ml", tags=["ml"])  # ML predictions and monitoring
-app.include_router(measurements.router, prefix=f"{settings.API_V1_STR}", tags=["measurements"])  # Massbibliothek
-app.include_router(notifications.router, prefix=f"{settings.API_V1_STR}/notifications", tags=["notifications"])  # In-app notifications
-app.include_router(analytics.router, prefix=f"{settings.API_V1_STR}", tags=["analytics"])  # Soll/Ist-Vergleich
-app.include_router(handoffs.router, prefix=f"{settings.API_V1_STR}", tags=["handoffs"])  # Stabuebergabe
-app.include_router(photos.router, prefix=f"{settings.API_V1_STR}", tags=["photos"])  # Order photo documentation
-app.include_router(metal_types.router, prefix=f"{settings.API_V1_STR}", tags=["metal-types"])  # Custom metal type management
-app.include_router(quotes.router, prefix=f"{settings.API_V1_STR}/quotes", tags=["quotes"])  # Kostenvoranschlag
-app.include_router(repairs.router, prefix=f"{settings.API_V1_STR}/repairs", tags=["repairs"])  # Repair tracking (Reparaturverwaltung)
-app.include_router(hallmarks.router, prefix=f"{settings.API_V1_STR}", tags=["hallmarks"])  # Hallmarking / Punzierung
-app.include_router(valuations.router, prefix=f"{settings.API_V1_STR}", tags=["valuations"])  # Insurance valuation certificates / Wertgutachten
+app.include_router(
+    customers.router, prefix=f"{settings.API_V1_STR}", tags=["customers"]
+)  # CRM
+app.include_router(
+    orders.router, prefix=f"{settings.API_V1_STR}/orders", tags=["orders"]
+)
+app.include_router(
+    materials.router, prefix=f"{settings.API_V1_STR}/materials", tags=["materials"]
+)
+app.include_router(
+    metal_inventory.router, prefix=f"{settings.API_V1_STR}", tags=["metal-inventory"]
+)  # Metal Inventory Management
+app.include_router(
+    activities.router, prefix=f"{settings.API_V1_STR}/activities", tags=["activities"]
+)
+app.include_router(
+    time_tracking.router,
+    prefix=f"{settings.API_V1_STR}/time-tracking",
+    tags=["time-tracking"],
+)
+app.include_router(
+    comments.router, prefix=f"{settings.API_V1_STR}", tags=["comments"]
+)  # Order Comments
+app.include_router(
+    scrap_gold.router, prefix=f"{settings.API_V1_STR}", tags=["scrap-gold"]
+)  # Altgold
+app.include_router(
+    calendar.router, prefix=f"{settings.API_V1_STR}/calendar", tags=["calendar"]
+)  # Calendar/Planning
+app.include_router(
+    invoices.router, prefix=f"{settings.API_V1_STR}/invoices", tags=["invoices"]
+)  # Rechnungswesen
+app.include_router(
+    metal_prices.router, prefix=f"{settings.API_V1_STR}", tags=["metal-prices"]
+)  # Live metal spot prices
+app.include_router(
+    ml.router, prefix=f"{settings.API_V1_STR}/ml", tags=["ml"]
+)  # ML predictions and monitoring
+app.include_router(
+    measurements.router, prefix=f"{settings.API_V1_STR}", tags=["measurements"]
+)  # Massbibliothek
+app.include_router(
+    notifications.router,
+    prefix=f"{settings.API_V1_STR}/notifications",
+    tags=["notifications"],
+)  # In-app notifications
+app.include_router(
+    analytics.router, prefix=f"{settings.API_V1_STR}", tags=["analytics"]
+)  # Soll/Ist-Vergleich
+app.include_router(
+    handoffs.router, prefix=f"{settings.API_V1_STR}", tags=["handoffs"]
+)  # Stabuebergabe
+app.include_router(
+    photos.router, prefix=f"{settings.API_V1_STR}", tags=["photos"]
+)  # Order photo documentation
+app.include_router(
+    metal_types.router, prefix=f"{settings.API_V1_STR}", tags=["metal-types"]
+)  # Custom metal type management
+app.include_router(
+    quotes.router, prefix=f"{settings.API_V1_STR}/quotes", tags=["quotes"]
+)  # Kostenvoranschlag
+app.include_router(
+    repairs.router, prefix=f"{settings.API_V1_STR}/repairs", tags=["repairs"]
+)  # Repair tracking (Reparaturverwaltung)
+app.include_router(
+    hallmarks.router, prefix=f"{settings.API_V1_STR}", tags=["hallmarks"]
+)  # Hallmarking / Punzierung
+app.include_router(
+    valuations.router, prefix=f"{settings.API_V1_STR}", tags=["valuations"]
+)  # Insurance valuation certificates / Wertgutachten
 app.include_router(
     consultations.router,
     prefix=f"{settings.API_V1_STR}/consultations",
     tags=["consultations"],
 )  # Beratung & Annahme (V1.1)
-app.include_router(admin_email.router, prefix=f"{settings.API_V1_STR}", tags=["admin-email"])  # Email/SMTP admin configuration
-app.include_router(admin_scan_metrics.router, prefix=f"{settings.API_V1_STR}", tags=["admin-scan-metrics"])  # V1.1 Slice 13 — scan-adoption dashboard data
-app.include_router(customer_portal.router, prefix=f"{settings.API_V1_STR}/portal", tags=["customer-portal"])  # Public self-service portal
-app.include_router(theme_router.router, prefix=f"{settings.API_V1_STR}", tags=["theme"])  # Admin-configurable branding (GET public, PUT ADMIN-only)
-app.include_router(imports_router.router, prefix=f"{settings.API_V1_STR}", tags=["import"])  # Bulk CSV data import (ADMIN-only)
-app.include_router(scanner_router.router, prefix=f"{settings.API_V1_STR}/scan", tags=["scanner"])  # V1.1 QR/Barcode scanner workflow
+app.include_router(
+    admin_email.router, prefix=f"{settings.API_V1_STR}", tags=["admin-email"]
+)  # Email/SMTP admin configuration
+app.include_router(
+    admin_scan_metrics.router,
+    prefix=f"{settings.API_V1_STR}",
+    tags=["admin-scan-metrics"],
+)  # V1.1 Slice 13 — scan-adoption dashboard data
+app.include_router(
+    customer_portal.router,
+    prefix=f"{settings.API_V1_STR}/portal",
+    tags=["customer-portal"],
+)  # Public self-service portal
+app.include_router(
+    theme_router.router, prefix=f"{settings.API_V1_STR}", tags=["theme"]
+)  # Admin-configurable branding (GET public, PUT ADMIN-only)
+app.include_router(
+    imports_router.router, prefix=f"{settings.API_V1_STR}", tags=["import"]
+)  # Bulk CSV data import (ADMIN-only)
+app.include_router(
+    scanner_router.router, prefix=f"{settings.API_V1_STR}/scan", tags=["scanner"]
+)  # V1.1 QR/Barcode scanner workflow
+
 
 async def _authenticate_websocket(websocket: WebSocket) -> int | None:
     """Extract and validate JWT from WebSocket cookie or query param."""
@@ -189,7 +286,9 @@ async def websocket_endpoint(websocket: WebSocket):
     try:
         while True:
             data = await websocket.receive_text()
-            logger.debug("WS client message", extra={"channel": channel, "user_id": user_id})
+            logger.debug(
+                "WS client message", extra={"channel": channel, "user_id": user_id}
+            )
     except WebSocketDisconnect:
         logger.info("WebSocket disconnected", extra={"channel": channel})
     finally:
@@ -217,7 +316,10 @@ async def notification_websocket_endpoint(websocket: WebSocket, user_id: int):
         while True:
             await websocket.receive_text()
     except WebSocketDisconnect:
-        logger.info("Notification WebSocket disconnected", extra={"channel": channel, "user_id": user_id})
+        logger.info(
+            "Notification WebSocket disconnected",
+            extra={"channel": channel, "user_id": user_id},
+        )
     finally:
         subscribe_task.cancel()
         try:
@@ -262,10 +364,11 @@ async def _verify_encryption_health() -> None:
             # Production: refuse to start with a broken encryption path.
             raise
 
+
 if __name__ == "__main__":
     uvicorn.run(
         "goldsmith_erp.main:app",
         host=settings.HOST,
         port=settings.PORT,
-        reload=settings.DEBUG
+        reload=settings.DEBUG,
     )

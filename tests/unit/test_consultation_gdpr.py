@@ -38,10 +38,9 @@ from goldsmith_erp.db.models import (
 from goldsmith_erp.models.consultation import ConsultationCreate, NoGoCreate
 from goldsmith_erp.services.consultation_photo_service import ConsultationPhotoService
 from goldsmith_erp.services.consultation_service import ConsultationService
-from goldsmith_erp.services.customer_service import CustomerService, REDACTION_TOKEN
+from goldsmith_erp.services.customer_service import REDACTION_TOKEN, CustomerService
 from goldsmith_erp.services.file_erasure_service import FileErasureService
 from goldsmith_erp.services.no_go_service import NoGoService
-
 
 # ---------------------------------------------------------------------------
 # Fixtures — mirrors tests/unit/test_gdpr_customer_erasure.py's mueller_maria

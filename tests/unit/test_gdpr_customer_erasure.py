@@ -24,6 +24,7 @@ Additional scope per H5 (extension):
   - quotes.notes
   - quotes.customer_signature_data (blob → [REDACTED_SIGNATURE])
 """
+
 from __future__ import annotations
 
 import uuid
@@ -36,15 +37,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from goldsmith_erp.db.models import (
     Activity,
+    AlloyType,
     CalendarEvent,
     CalendarEventType,
     Consultation,
+    CostingMethod,
     Customer,
     CustomerAuditLog,
     CustomerMeasurement,
-    CostingMethod,
     GDPRRequest,
     Gemstone,
+    HallmarkStatus,
+    HallmarkType,
     HandoffStatusEnum,
     HandoffTypeEnum,
     Invoice,
@@ -66,8 +70,6 @@ from goldsmith_erp.db.models import (
     OrderPhoto,
     OrderStatusEnum,
     OrderStatusHistory,
-    HallmarkStatus,
-    HallmarkType,
     Quote,
     QuoteLineItem,
     QuoteLineType,
@@ -80,24 +82,23 @@ from goldsmith_erp.db.models import (
     ScrapGold,
     ScrapGoldItem,
     ScrapGoldStatus,
-    AlloyType,
     TimeEntry,
     User,
     UserRole,
     ValuationCertificate,
 )
 from goldsmith_erp.services.customer_service import (
-    CustomerService,
     REDACTION_TOKEN,
     SCRUBBABLE_FIELDS,
     SIGNATURE_REDACTION_TOKEN,
+    CustomerService,
     ScrubTarget,
 )
-
 
 # ---------------------------------------------------------------------------
 # Fixtures — minimal data needed to exercise the scrubber
 # ---------------------------------------------------------------------------
+
 
 @pytest_asyncio.fixture
 async def mueller_maria(db_session: AsyncSession) -> Customer:
@@ -159,12 +160,14 @@ async def _make_order(
 # Helper-level tests — _redact_text + _collect_pii_tokens
 # ---------------------------------------------------------------------------
 
+
 class TestRedactText:
 
     def test_name_tokens_are_redacted(self):
         tokens = ["Mueller", "Maria"]
         result, count = CustomerService._redact_text(
-            "Trauring fuer Maria Mueller", tokens,
+            "Trauring fuer Maria Mueller",
+            tokens,
         )
         assert result == f"Trauring fuer {REDACTION_TOKEN} {REDACTION_TOKEN}"
         assert count == 2
@@ -172,7 +175,8 @@ class TestRedactText:
     def test_case_insensitive_matching(self):
         tokens = ["Mueller"]
         result, count = CustomerService._redact_text(
-            "kunde MUELLER war hier — mueller bestellt", tokens,
+            "kunde MUELLER war hier — mueller bestellt",
+            tokens,
         )
         # two matches: MUELLER and mueller
         assert count == 2
@@ -184,7 +188,8 @@ class TestRedactText:
         """The name 'Max' should not match inside 'Maximilian'."""
         tokens = ["Max"]
         result, count = CustomerService._redact_text(
-            "Maximilian ist ein Tag, Max war heute da.", tokens,
+            "Maximilian ist ein Tag, Max war heute da.",
+            tokens,
         )
         assert count == 1
         # Maximilian untouched
@@ -194,7 +199,8 @@ class TestRedactText:
     def test_phone_number_exact_match(self):
         tokens = ["+49 89 1234567"]
         result, count = CustomerService._redact_text(
-            "Anruf +49 89 1234567 um 14 Uhr", tokens,
+            "Anruf +49 89 1234567 um 14 Uhr",
+            tokens,
         )
         assert count == 1
         assert "+49 89 1234567" not in result
@@ -204,14 +210,16 @@ class TestRedactText:
         """Digits-only variant matches even when original contained spaces/+."""
         tokens = ["49891234567"]
         result, count = CustomerService._redact_text(
-            "Mobil 49891234567 nach 18 Uhr", tokens,
+            "Mobil 49891234567 nach 18 Uhr",
+            tokens,
         )
         assert count == 1
 
     def test_email_address_match(self):
         tokens = ["maria.mueller@example.de"]
         result, count = CustomerService._redact_text(
-            "Kontakt: maria.mueller@example.de bitte bestaetigen.", tokens,
+            "Kontakt: maria.mueller@example.de bitte bestaetigen.",
+            tokens,
         )
         assert count == 1
         assert "maria.mueller@example.de" not in result
@@ -238,7 +246,8 @@ class TestRedactText:
         """Running the scrub twice produces the same output as once."""
         tokens = ["Mueller", "Maria"]
         once, count1 = CustomerService._redact_text(
-            "Trauring fuer Maria Mueller", tokens,
+            "Trauring fuer Maria Mueller",
+            tokens,
         )
         twice, count2 = CustomerService._redact_text(once, tokens)
         assert once == twice
@@ -294,6 +303,7 @@ class TestCollectPiiTokens:
 # Service-level tests — scrub_customer_pii end-to-end against the DB
 # ---------------------------------------------------------------------------
 
+
 class TestScrubCustomerPii:
 
     @pytest.mark.asyncio
@@ -311,7 +321,9 @@ class TestScrubCustomerPii:
         )
 
         counts = await CustomerService.scrub_customer_pii(
-            db_session, customer_id=mueller_maria.id, performed_by=admin.id,
+            db_session,
+            customer_id=mueller_maria.id,
+            performed_by=admin.id,
         )
         await db_session.commit()
         await db_session.refresh(order)
@@ -334,7 +346,9 @@ class TestScrubCustomerPii:
         )
 
         await CustomerService.scrub_customer_pii(
-            db_session, customer_id=mueller_maria.id, performed_by=admin.id,
+            db_session,
+            customer_id=mueller_maria.id,
+            performed_by=admin.id,
         )
         await db_session.commit()
         await db_session.refresh(order)
@@ -356,7 +370,9 @@ class TestScrubCustomerPii:
         )
 
         await CustomerService.scrub_customer_pii(
-            db_session, customer_id=mueller_maria.id, performed_by=admin.id,
+            db_session,
+            customer_id=mueller_maria.id,
+            performed_by=admin.id,
         )
         await db_session.commit()
         await db_session.refresh(order)
@@ -378,7 +394,9 @@ class TestScrubCustomerPii:
         )
 
         await CustomerService.scrub_customer_pii(
-            db_session, customer_id=mueller_maria.id, performed_by=admin.id,
+            db_session,
+            customer_id=mueller_maria.id,
+            performed_by=admin.id,
         )
         await db_session.commit()
         await db_session.refresh(order)
@@ -401,7 +419,9 @@ class TestScrubCustomerPii:
         )
 
         counts = await CustomerService.scrub_customer_pii(
-            db_session, customer_id=mueller_maria.id, performed_by=admin.id,
+            db_session,
+            customer_id=mueller_maria.id,
+            performed_by=admin.id,
         )
         await db_session.commit()
         await db_session.refresh(order)
@@ -424,14 +444,18 @@ class TestScrubCustomerPii:
         )
 
         first = await CustomerService.scrub_customer_pii(
-            db_session, customer_id=mueller_maria.id, performed_by=admin.id,
+            db_session,
+            customer_id=mueller_maria.id,
+            performed_by=admin.id,
         )
         await db_session.commit()
         await db_session.refresh(order)
         description_after_first = order.description
 
         second = await CustomerService.scrub_customer_pii(
-            db_session, customer_id=mueller_maria.id, performed_by=admin.id,
+            db_session,
+            customer_id=mueller_maria.id,
+            performed_by=admin.id,
         )
         await db_session.commit()
         await db_session.refresh(order)
@@ -461,7 +485,9 @@ class TestScrubCustomerPii:
         await db_session.commit()
 
         counts = await CustomerService.scrub_customer_pii(
-            db_session, customer_id=mueller_maria.id, performed_by=admin.id,
+            db_session,
+            customer_id=mueller_maria.id,
+            performed_by=admin.id,
         )
         await db_session.commit()
         await db_session.refresh(comment)
@@ -505,7 +531,9 @@ class TestScrubCustomerPii:
         await db_session.commit()
 
         counts = await CustomerService.scrub_customer_pii(
-            db_session, customer_id=mueller_maria.id, performed_by=admin.id,
+            db_session,
+            customer_id=mueller_maria.id,
+            performed_by=admin.id,
         )
         await db_session.commit()
         await db_session.refresh(entry)
@@ -528,7 +556,9 @@ class TestScrubCustomerPii:
         )
 
         await CustomerService.scrub_customer_pii(
-            db_session, customer_id=mueller_maria.id, performed_by=admin.id,
+            db_session,
+            customer_id=mueller_maria.id,
+            performed_by=admin.id,
         )
         await db_session.commit()
 
@@ -557,7 +587,9 @@ class TestScrubCustomerPii:
         )
 
         await CustomerService.scrub_customer_pii(
-            db_session, customer_id=mueller_maria.id, performed_by=admin.id,
+            db_session,
+            customer_id=mueller_maria.id,
+            performed_by=admin.id,
         )
         await db_session.commit()
 
@@ -577,7 +609,9 @@ class TestScrubCustomerPii:
         admin: User,
     ):
         counts = await CustomerService.scrub_customer_pii(
-            db_session, customer_id=999_999, performed_by=admin.id,
+            db_session,
+            customer_id=999_999,
+            performed_by=admin.id,
         )
         assert counts["total"] == 0
         # Must not write audit rows for a customer that never existed.
@@ -617,7 +651,9 @@ class TestScrubH5OrderScopedFields:
         await db_session.refresh(history)
 
         counts = await CustomerService.scrub_customer_pii(
-            db_session, customer_id=mueller_maria.id, performed_by=admin.id,
+            db_session,
+            customer_id=mueller_maria.id,
+            performed_by=admin.id,
         )
         await db_session.commit()
         await db_session.refresh(history)
@@ -649,7 +685,9 @@ class TestScrubH5OrderScopedFields:
         await db_session.refresh(handoff)
 
         counts = await CustomerService.scrub_customer_pii(
-            db_session, customer_id=mueller_maria.id, performed_by=admin.id,
+            db_session,
+            customer_id=mueller_maria.id,
+            performed_by=admin.id,
         )
         await db_session.commit()
         await db_session.refresh(handoff)
@@ -682,7 +720,9 @@ class TestScrubH5OrderScopedFields:
         await db_session.refresh(gem)
 
         counts = await CustomerService.scrub_customer_pii(
-            db_session, customer_id=mueller_maria.id, performed_by=admin.id,
+            db_session,
+            customer_id=mueller_maria.id,
+            performed_by=admin.id,
         )
         await db_session.commit()
         await db_session.refresh(gem)
@@ -720,7 +760,9 @@ class TestScrubH5CustomerScopedFields:
         await db_session.refresh(repair)
 
         counts = await CustomerService.scrub_customer_pii(
-            db_session, customer_id=mueller_maria.id, performed_by=admin.id,
+            db_session,
+            customer_id=mueller_maria.id,
+            performed_by=admin.id,
         )
         await db_session.commit()
         await db_session.refresh(repair)
@@ -753,9 +795,7 @@ class TestScrubH5CustomerScopedFields:
             item_description=(
                 "Trauring Wertgutachten fuer Maria Mueller, 750 Gelbgold"
             ),
-            gemstones_description=(
-                "Ein Brillant, vom Kunden Mueller mitgebracht"
-            ),
+            gemstones_description=("Ein Brillant, vom Kunden Mueller mitgebracht"),
             appraised_value=2500.0,
             valuation_date=datetime.utcnow(),
             valid_until=datetime.utcnow() + timedelta(days=730),
@@ -766,7 +806,9 @@ class TestScrubH5CustomerScopedFields:
         await db_session.refresh(valuation)
 
         counts = await CustomerService.scrub_customer_pii(
-            db_session, customer_id=mueller_maria.id, performed_by=admin.id,
+            db_session,
+            customer_id=mueller_maria.id,
+            performed_by=admin.id,
         )
         await db_session.commit()
         await db_session.refresh(valuation)
@@ -797,7 +839,9 @@ class TestScrubH5CustomerScopedFields:
         await db_session.refresh(quote)
 
         counts = await CustomerService.scrub_customer_pii(
-            db_session, customer_id=mueller_maria.id, performed_by=admin.id,
+            db_session,
+            customer_id=mueller_maria.id,
+            performed_by=admin.id,
         )
         await db_session.commit()
         await db_session.refresh(quote)
@@ -833,7 +877,9 @@ class TestScrubH5CustomerScopedFields:
         await db_session.refresh(quote)
 
         counts = await CustomerService.scrub_customer_pii(
-            db_session, customer_id=mueller_maria.id, performed_by=admin.id,
+            db_session,
+            customer_id=mueller_maria.id,
+            performed_by=admin.id,
         )
         await db_session.commit()
         await db_session.refresh(quote)
@@ -862,7 +908,9 @@ class TestScrubH5CustomerScopedFields:
         await db_session.refresh(quote)
 
         counts = await CustomerService.scrub_customer_pii(
-            db_session, customer_id=mueller_maria.id, performed_by=admin.id,
+            db_session,
+            customer_id=mueller_maria.id,
+            performed_by=admin.id,
         )
         await db_session.commit()
         await db_session.refresh(quote)
@@ -890,62 +938,66 @@ class TestScrubH5CrossField:
         )
 
         # Populate every H5 field with "Maria Mueller" PII.
-        db_session.add_all([
-            OrderStatusHistory(
-                order_id=order.id,
-                to_status="completed",
-                notes="Maria Mueller abgeholt",
-            ),
-            OrderHandoff(
-                order_id=order.id,
-                from_user_id=admin.id,
-                to_user_id=admin.id,
-                handoff_type=HandoffTypeEnum.MARK_COMPLETE,
-                status=HandoffStatusEnum.ACCEPTED,
-                notes="Maria Mueller bereit zur Abholung",
-                response_notes="Mueller informiert",
-            ),
-            Gemstone(
-                order_id=order.id,
-                type="diamond",
-                cost=100.0,
-                quantity=1,
-                notes="Stein von Maria Mueller",
-            ),
-            RepairJob(
-                repair_number=f"REP-2026-{uuid.uuid4().hex[:6]}",
-                bag_number="A1",
-                customer_id=mueller_maria.id,
-                item_description="Ring Maria Mueller",
-                item_type=RepairItemType.RING,
-                status=RepairJobStatus.RECEIVED,
-                diagnosis_notes="Mueller wuenscht Polieren",
-            ),
-            ValuationCertificate(
-                certificate_number=f"WG-2026-{uuid.uuid4().hex[:6]}",
-                order_id=order.id,
-                customer_id=mueller_maria.id,
-                item_description="Wertgutachten Maria Mueller",
-                gemstones_description="Brillant, Mueller-Sammlung",
-                appraised_value=500.0,
-                valuation_date=datetime.utcnow(),
-                valid_until=datetime.utcnow() + timedelta(days=730),
-                goldsmith_name="Test",
-            ),
-            Quote(
-                quote_number=f"KV-2026-{uuid.uuid4().hex[:6]}",
-                customer_id=mueller_maria.id,
-                created_by=admin.id,
-                status=QuoteStatus.APPROVED,
-                valid_until=datetime.utcnow() + timedelta(days=14),
-                notes="Quote fuer Maria Mueller",
-                customer_signature_data="SGVsbG8gTXVlbGxlcg==",  # "Hello Mueller" b64
-            ),
-        ])
+        db_session.add_all(
+            [
+                OrderStatusHistory(
+                    order_id=order.id,
+                    to_status="completed",
+                    notes="Maria Mueller abgeholt",
+                ),
+                OrderHandoff(
+                    order_id=order.id,
+                    from_user_id=admin.id,
+                    to_user_id=admin.id,
+                    handoff_type=HandoffTypeEnum.MARK_COMPLETE,
+                    status=HandoffStatusEnum.ACCEPTED,
+                    notes="Maria Mueller bereit zur Abholung",
+                    response_notes="Mueller informiert",
+                ),
+                Gemstone(
+                    order_id=order.id,
+                    type="diamond",
+                    cost=100.0,
+                    quantity=1,
+                    notes="Stein von Maria Mueller",
+                ),
+                RepairJob(
+                    repair_number=f"REP-2026-{uuid.uuid4().hex[:6]}",
+                    bag_number="A1",
+                    customer_id=mueller_maria.id,
+                    item_description="Ring Maria Mueller",
+                    item_type=RepairItemType.RING,
+                    status=RepairJobStatus.RECEIVED,
+                    diagnosis_notes="Mueller wuenscht Polieren",
+                ),
+                ValuationCertificate(
+                    certificate_number=f"WG-2026-{uuid.uuid4().hex[:6]}",
+                    order_id=order.id,
+                    customer_id=mueller_maria.id,
+                    item_description="Wertgutachten Maria Mueller",
+                    gemstones_description="Brillant, Mueller-Sammlung",
+                    appraised_value=500.0,
+                    valuation_date=datetime.utcnow(),
+                    valid_until=datetime.utcnow() + timedelta(days=730),
+                    goldsmith_name="Test",
+                ),
+                Quote(
+                    quote_number=f"KV-2026-{uuid.uuid4().hex[:6]}",
+                    customer_id=mueller_maria.id,
+                    created_by=admin.id,
+                    status=QuoteStatus.APPROVED,
+                    valid_until=datetime.utcnow() + timedelta(days=14),
+                    notes="Quote fuer Maria Mueller",
+                    customer_signature_data="SGVsbG8gTXVlbGxlcg==",  # "Hello Mueller" b64
+                ),
+            ]
+        )
         await db_session.commit()
 
         counts = await CustomerService.scrub_customer_pii(
-            db_session, customer_id=mueller_maria.id, performed_by=admin.id,
+            db_session,
+            customer_id=mueller_maria.id,
+            performed_by=admin.id,
         )
         await db_session.commit()
 
@@ -970,41 +1022,49 @@ class TestScrubH5CrossField:
     ):
         """Second scrub on the same records → zero redactions, no errors."""
         order = await _make_order(
-            db_session, mueller_maria, description="Ring Mueller",
+            db_session,
+            mueller_maria,
+            description="Ring Mueller",
         )
-        db_session.add_all([
-            OrderStatusHistory(
-                order_id=order.id,
-                to_status="completed",
-                notes="Maria Mueller abgeholt",
-            ),
-            RepairJob(
-                repair_number=f"REP-2026-{uuid.uuid4().hex[:6]}",
-                bag_number="A1",
-                customer_id=mueller_maria.id,
-                item_description="Ring Mueller",
-                item_type=RepairItemType.RING,
-                status=RepairJobStatus.RECEIVED,
-            ),
-            Quote(
-                quote_number=f"KV-2026-{uuid.uuid4().hex[:6]}",
-                customer_id=mueller_maria.id,
-                created_by=admin.id,
-                status=QuoteStatus.APPROVED,
-                valid_until=datetime.utcnow() + timedelta(days=14),
-                notes="Notes Mueller",
-                customer_signature_data="c2lnbmF0dXJl",  # "signature"
-            ),
-        ])
+        db_session.add_all(
+            [
+                OrderStatusHistory(
+                    order_id=order.id,
+                    to_status="completed",
+                    notes="Maria Mueller abgeholt",
+                ),
+                RepairJob(
+                    repair_number=f"REP-2026-{uuid.uuid4().hex[:6]}",
+                    bag_number="A1",
+                    customer_id=mueller_maria.id,
+                    item_description="Ring Mueller",
+                    item_type=RepairItemType.RING,
+                    status=RepairJobStatus.RECEIVED,
+                ),
+                Quote(
+                    quote_number=f"KV-2026-{uuid.uuid4().hex[:6]}",
+                    customer_id=mueller_maria.id,
+                    created_by=admin.id,
+                    status=QuoteStatus.APPROVED,
+                    valid_until=datetime.utcnow() + timedelta(days=14),
+                    notes="Notes Mueller",
+                    customer_signature_data="c2lnbmF0dXJl",  # "signature"
+                ),
+            ]
+        )
         await db_session.commit()
 
         first = await CustomerService.scrub_customer_pii(
-            db_session, customer_id=mueller_maria.id, performed_by=admin.id,
+            db_session,
+            customer_id=mueller_maria.id,
+            performed_by=admin.id,
         )
         await db_session.commit()
 
         second = await CustomerService.scrub_customer_pii(
-            db_session, customer_id=mueller_maria.id, performed_by=admin.id,
+            db_session,
+            customer_id=mueller_maria.id,
+            performed_by=admin.id,
         )
         await db_session.commit()
 
@@ -1054,7 +1114,9 @@ class TestScrubH5CrossField:
         await db_session.refresh(repair)
 
         counts = await CustomerService.scrub_customer_pii(
-            db_session, customer_id=mueller_maria.id, performed_by=admin.id,
+            db_session,
+            customer_id=mueller_maria.id,
+            performed_by=admin.id,
         )
         await db_session.commit()
         await db_session.refresh(history)
@@ -1080,18 +1142,22 @@ class TestScrubH5CrossField:
         from goldsmith_erp.services.customer_service import SCRUBBABLE_FIELDS
 
         await _make_order(db_session, mueller_maria, description="Ring")
-        db_session.add(RepairJob(
-            repair_number=f"REP-2026-{uuid.uuid4().hex[:6]}",
-            bag_number="A1",
-            customer_id=mueller_maria.id,
-            item_description="Ring Maria Mueller",
-            item_type=RepairItemType.RING,
-            status=RepairJobStatus.RECEIVED,
-        ))
+        db_session.add(
+            RepairJob(
+                repair_number=f"REP-2026-{uuid.uuid4().hex[:6]}",
+                bag_number="A1",
+                customer_id=mueller_maria.id,
+                item_description="Ring Maria Mueller",
+                item_type=RepairItemType.RING,
+                status=RepairJobStatus.RECEIVED,
+            )
+        )
         await db_session.commit()
 
         await CustomerService.scrub_customer_pii(
-            db_session, customer_id=mueller_maria.id, performed_by=admin.id,
+            db_session,
+            customer_id=mueller_maria.id,
+            performed_by=admin.id,
         )
         await db_session.commit()
 
@@ -1133,8 +1199,13 @@ PII_STRING = "Ring fuer Maria Mueller"
 
 
 async def _mk_order(
-    db: AsyncSession, customer: Customer, admin: User, *, title=None,
-    description=None, special_instructions=None,
+    db: AsyncSession,
+    customer: Customer,
+    admin: User,
+    *,
+    title=None,
+    description=None,
+    special_instructions=None,
 ) -> Order:
     order = Order(
         title=title or "Order",
@@ -1163,7 +1234,10 @@ async def _mk_activity(db: AsyncSession) -> Activity:
 
 
 async def _mk_repair(
-    db: AsyncSession, customer: Customer, admin: User, **overrides,
+    db: AsyncSession,
+    customer: Customer,
+    admin: User,
+    **overrides,
 ) -> RepairJob:
     defaults = dict(
         repair_number=f"REP-2026-{uuid.uuid4().hex[:6]}",
@@ -1183,7 +1257,10 @@ async def _mk_repair(
 
 
 async def _mk_quote(
-    db: AsyncSession, customer: Customer, admin: User, **overrides,
+    db: AsyncSession,
+    customer: Customer,
+    admin: User,
+    **overrides,
 ) -> Quote:
     defaults = dict(
         quote_number=f"KV-2026-{uuid.uuid4().hex[:6]}",
@@ -1201,7 +1278,10 @@ async def _mk_quote(
 
 
 async def _mk_invoice(
-    db: AsyncSession, customer: Customer, admin: User, **overrides,
+    db: AsyncSession,
+    customer: Customer,
+    admin: User,
+    **overrides,
 ) -> Invoice:
     order = await _mk_order(db, customer, admin)
     defaults = dict(
@@ -1221,7 +1301,10 @@ async def _mk_invoice(
 
 
 async def _mk_scrap_gold(
-    db: AsyncSession, customer: Customer, admin: User, **overrides,
+    db: AsyncSession,
+    customer: Customer,
+    admin: User,
+    **overrides,
 ) -> ScrapGold:
     order = await _mk_order(db, customer, admin)
     defaults = dict(
@@ -1258,6 +1341,7 @@ async def _mk_metal_purchase(db: AsyncSession) -> MetalPurchase:
 # test can re-fetch and assert the field is scrubbed.
 #
 # Signature: async def factory(db, customer, admin, pii_value) -> row
+
 
 async def _f_orders_title(db, customer, admin, pii_value):
     return await _mk_order(db, customer, admin, title=pii_value)
@@ -1386,7 +1470,9 @@ async def _f_valuation_certificates_item_description(db, customer, admin, pii_va
     return cert
 
 
-async def _f_valuation_certificates_gemstones_description(db, customer, admin, pii_value):
+async def _f_valuation_certificates_gemstones_description(
+    db, customer, admin, pii_value
+):
     order = await _mk_order(db, customer, admin)
     cert = ValuationCertificate(
         certificate_number=f"WG-2026-{uuid.uuid4().hex[:6]}",
@@ -1415,7 +1501,9 @@ async def _f_quotes_signature(db, customer, admin, pii_value):
     # blob with SIGNATURE_REDACTION_TOKEN. We re-use the same pii_value for
     # interface symmetry; the assertion checks against the sentinel.
     return await _mk_quote(
-        db, customer, admin,
+        db,
+        customer,
+        admin,
         status=QuoteStatus.APPROVED,
         customer_signature_data=pii_value,
     )
@@ -1777,21 +1865,21 @@ class TestScrubCoverageMatrix:
         scrubbed = getattr(row, target.column)
 
         if target.binary:
-            assert scrubbed == SIGNATURE_REDACTION_TOKEN, (
-                f"Binary target {target.counter_key} not replaced with sentinel"
-            )
+            assert (
+                scrubbed == SIGNATURE_REDACTION_TOKEN
+            ), f"Binary target {target.counter_key} not replaced with sentinel"
             assert counts[target.counter_key] == 1
         else:
             # PII tokens must be gone; REDACTION_TOKEN must be present.
-            assert "Maria" not in scrubbed, (
-                f"{target.counter_key} still contains 'Maria' after scrub: {scrubbed!r}"
-            )
-            assert "Mueller" not in scrubbed, (
-                f"{target.counter_key} still contains 'Mueller' after scrub: {scrubbed!r}"
-            )
-            assert REDACTION_TOKEN in scrubbed, (
-                f"{target.counter_key} has no REDACTION_TOKEN after scrub: {scrubbed!r}"
-            )
+            assert (
+                "Maria" not in scrubbed
+            ), f"{target.counter_key} still contains 'Maria' after scrub: {scrubbed!r}"
+            assert (
+                "Mueller" not in scrubbed
+            ), f"{target.counter_key} still contains 'Mueller' after scrub: {scrubbed!r}"
+            assert (
+                REDACTION_TOKEN in scrubbed
+            ), f"{target.counter_key} has no REDACTION_TOKEN after scrub: {scrubbed!r}"
             # PII_STRING "Ring fuer Maria Mueller" → 2 redactions.
             assert counts[target.counter_key] >= 2, (
                 f"{target.counter_key} counter={counts[target.counter_key]} "
@@ -1856,11 +1944,17 @@ class TestNoBleedAcrossCustomers:
         factory = _FACTORY_MAP[target.counter_key]
         # Customer A row — contains Maria Mueller PII
         row_a = await factory(
-            db_session, mueller_maria, admin, "Ring fuer Maria Mueller",
+            db_session,
+            mueller_maria,
+            admin,
+            "Ring fuer Maria Mueller",
         )
         # Customer B row — contains Bernd Schmidt PII
         row_b = await factory(
-            db_session, schmidt_bernd, admin, "Ring fuer Bernd Schmidt",
+            db_session,
+            schmidt_bernd,
+            admin,
+            "Ring fuer Bernd Schmidt",
         )
 
         # Scrub ONLY customer A.
@@ -1884,12 +1978,12 @@ class TestNoBleedAcrossCustomers:
             # A scrubbed, B untouched.
             assert "Maria" not in a_val
             assert "Mueller" not in a_val
-            assert "Bernd" in b_val, (
-                f"Customer B's {target.counter_key} was incorrectly scrubbed: {b_val!r}"
-            )
-            assert "Schmidt" in b_val, (
-                f"Customer B's {target.counter_key} was incorrectly scrubbed: {b_val!r}"
-            )
+            assert (
+                "Bernd" in b_val
+            ), f"Customer B's {target.counter_key} was incorrectly scrubbed: {b_val!r}"
+            assert (
+                "Schmidt" in b_val
+            ), f"Customer B's {target.counter_key} was incorrectly scrubbed: {b_val!r}"
 
 
 # ---------------------------------------------------------------------------
@@ -1931,14 +2025,16 @@ class TestSystemFieldProtection:
 
         original = activity.name
         await CustomerService.scrub_customer_pii(
-            db_session, customer_id=mueller_maria.id, performed_by=admin.id,
+            db_session,
+            customer_id=mueller_maria.id,
+            performed_by=admin.id,
         )
         await db_session.commit()
         await db_session.refresh(activity)
 
-        assert activity.name == original, (
-            "Scrubber wrongly touched activities.name (system vocabulary)"
-        )
+        assert (
+            activity.name == original
+        ), "Scrubber wrongly touched activities.name (system vocabulary)"
 
     @pytest.mark.asyncio
     async def test_user_email_untouched(
@@ -1955,7 +2051,9 @@ class TestSystemFieldProtection:
         original_hash = admin.hashed_password
 
         await CustomerService.scrub_customer_pii(
-            db_session, customer_id=mueller_maria.id, performed_by=admin.id,
+            db_session,
+            customer_id=mueller_maria.id,
+            performed_by=admin.id,
         )
         await db_session.commit()
         await db_session.refresh(admin)
@@ -1990,7 +2088,9 @@ class TestSystemFieldProtection:
         await db_session.refresh(pre_existing)
 
         await CustomerService.scrub_customer_pii(
-            db_session, customer_id=mueller_maria.id, performed_by=admin.id,
+            db_session,
+            customer_id=mueller_maria.id,
+            performed_by=admin.id,
         )
         await db_session.commit()
         await db_session.refresh(pre_existing)
@@ -2038,7 +2138,9 @@ class TestSystemFieldProtection:
         await db_session.refresh(interruption)
 
         await CustomerService.scrub_customer_pii(
-            db_session, customer_id=mueller_maria.id, performed_by=admin.id,
+            db_session,
+            customer_id=mueller_maria.id,
+            performed_by=admin.id,
         )
         await db_session.commit()
         await db_session.refresh(interruption)
@@ -2069,7 +2171,10 @@ class TestFullSweepIntegration:
         for target in SCRUBBABLE_FIELDS:
             factory = _FACTORY_MAP[target.counter_key]
             rows[target.counter_key] = await factory(
-                db_session, mueller_maria, admin, PII_STRING,
+                db_session,
+                mueller_maria,
+                admin,
+                PII_STRING,
             )
 
         # Single scrub call.
@@ -2093,16 +2198,14 @@ class TestFullSweepIntegration:
             await db_session.refresh(row)
             value = getattr(row, target.column)
             if target.binary:
-                assert value == SIGNATURE_REDACTION_TOKEN, (
-                    f"{target.counter_key} binary not replaced"
-                )
+                assert (
+                    value == SIGNATURE_REDACTION_TOKEN
+                ), f"{target.counter_key} binary not replaced"
             else:
-                assert "Maria" not in value, (
-                    f"{target.counter_key} still has 'Maria'"
-                )
-                assert "Mueller" not in value, (
-                    f"{target.counter_key} still has 'Mueller'"
-                )
+                assert "Maria" not in value, f"{target.counter_key} still has 'Maria'"
+                assert (
+                    "Mueller" not in value
+                ), f"{target.counter_key} still has 'Mueller'"
 
         # Sanity: audit + GDPRRequest rows written.
         audit_row = (
@@ -2113,15 +2216,11 @@ class TestFullSweepIntegration:
                 )
             )
         ).scalar_one()
-        assert audit_row.details["scrubbed_field_count"] == len(
-            SCRUBBABLE_FIELDS
-        )
+        assert audit_row.details["scrubbed_field_count"] == len(SCRUBBABLE_FIELDS)
 
         gdpr_row = (
             await db_session.execute(
-                select(GDPRRequest).filter(
-                    GDPRRequest.customer_id == mueller_maria.id
-                )
+                select(GDPRRequest).filter(GDPRRequest.customer_id == mueller_maria.id)
             )
         ).scalar_one()
         assert gdpr_row.request_type == "erasure"

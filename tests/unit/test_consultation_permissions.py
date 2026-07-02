@@ -1,4 +1,5 @@
 """VIEWER must have zero consultation permissions (design IP)."""
+
 from goldsmith_erp.core.permissions import ROLE_PERMISSIONS, Permission
 from goldsmith_erp.db.models import UserRole
 
