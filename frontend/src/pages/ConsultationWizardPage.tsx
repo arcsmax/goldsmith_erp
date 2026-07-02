@@ -7,6 +7,7 @@ import { WizardProgress } from '../components/consultation/WizardProgress';
 import { CustomerStep } from '../components/consultation/CustomerStep';
 import { OccasionBudgetStep } from '../components/consultation/OccasionBudgetStep';
 import { WishStep } from '../components/consultation/WishStep';
+import { StyleNoGoStep } from '../components/consultation/StyleNoGoStep';
 import '../styles/consultations.css';
 
 export interface WizardStepProps {
@@ -147,7 +148,7 @@ export const ConsultationWizardPage: React.FC = () => {
           <OccasionBudgetStep {...stepProps} onFieldsChange={setPendingPatch} />
         )}
         {step === 3 && stepProps && <WishStep {...stepProps} onFieldsChange={setPendingPatch} />}
-        {step === 4 && stepProps && <p>Folgt in Task 5</p>}
+        {step === 4 && stepProps && <StyleNoGoStep {...stepProps} />}
         {step === 5 && stepProps && <p>Folgt in Task 6</p>}
         {step === 6 && stepProps && <p>Folgt in Task 7</p>}
         {step === 7 && stepProps && <p>Folgt in Task 8</p>}
