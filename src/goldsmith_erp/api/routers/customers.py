@@ -15,8 +15,9 @@ from goldsmith_erp.core.config import settings
 from goldsmith_erp.core.idempotency import IdempotencyContext, get_idempotency_context
 from goldsmith_erp.core.permissions import Permission
 from goldsmith_erp.core.permissions import require_permission_dep as require_permission
+from goldsmith_erp.db.models import Consultation
 from goldsmith_erp.db.models import Customer as CustomerModel
-from goldsmith_erp.db.models import GDPRRequest, User
+from goldsmith_erp.db.models import CustomerNoGo, GDPRRequest, User
 from goldsmith_erp.db.transaction import transactional
 from goldsmith_erp.models.consultation import (
     NoGoConflict,
@@ -261,8 +262,18 @@ async def gdpr_export_customer(
     GDPR Art. 15 — Export all personal data held for a customer.
 
     Returns the customer record along with all related data (orders,
-    measurements) as a JSON object.  Access is restricted to ADMIN role
-    (CUSTOMER_DELETE permission) because the export contains raw PII.
+    measurements, no-gos, style profile, consultation metadata) as a JSON
+    object.  Access is restricted to ADMIN role (CUSTOMER_DELETE
+    permission) because the export contains raw PII.
+
+    Design-IP exclusion (V1.1, issue #14): consultation ``wishes``,
+    ``notes``, ``source_material``, ``materials_discussed``, and
+    consultation photos (sketches/reference images) are the GOLDSMITH's
+    design work product, not the data subject's personal data — CLAUDE.md
+    "Design IP" rule restricts them to GOLDSMITH/ADMIN access and excludes
+    them from data exports without explicit consent. They are deliberately
+    left out of the ``consultations`` list below; the ``design_data_excluded``
+    flag documents that omission for anyone auditing a DPO response.
 
     Permissions: Requires CUSTOMER_DELETE permission (Admin only).
     """
@@ -282,6 +293,27 @@ async def gdpr_export_customer(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Customer {customer_id} not found",
         )
+
+    # No-gos and consultations have no back-populated collection on Customer
+    # (see db/models.py — only the forward `customer = relationship(...)`
+    # exists), so they can't ride along on the selectinload above. Query
+    # them directly. Consultations are loaded without a limit/offset — the
+    # shared ConsultationService.list_consultations() paginates (default
+    # limit=100), which would silently truncate a legal Art. 15 export for
+    # a customer with more than 100 consultations.
+    no_gos_result = await db.execute(
+        select(CustomerNoGo)
+        .filter(CustomerNoGo.customer_id == customer_id)
+        .order_by(CustomerNoGo.created_at.asc())
+    )
+    no_gos = list(no_gos_result.scalars().all())
+
+    consultations_result = await db.execute(
+        select(Consultation)
+        .filter(Consultation.customer_id == customer_id)
+        .order_by(Consultation.created_at.asc())
+    )
+    consultations = list(consultations_result.scalars().all())
 
     # Audit log — financial/PII data export must be traceable
     logger.info(
@@ -328,6 +360,43 @@ async def gdpr_export_customer(
             }
         )
 
+    no_gos_data = []
+    for ng in no_gos:
+        no_gos_data.append(
+            {
+                "category": ng.category.value if ng.category else None,
+                "value": ng.value,
+                "note": ng.note,
+                "created_at": ng.created_at.isoformat() if ng.created_at else None,
+            }
+        )
+
+    # Consultations: financial (budget) + life-event (occasion) data of the
+    # data subject. EXPLICITLY EXCLUDED — design-IP rule (CLAUDE.md,
+    # binding): wishes, notes, source_material, materials_discussed, and
+    # consultation photos/sketches. Those fields are the GOLDSMITH's design
+    # work product, not the customer's personal data, and are business-
+    # confidential — see the docstring above and the "design_data_excluded"
+    # flag on the returned payload. Do NOT add those fields here without
+    # updating both.
+    consultations_data = []
+    for c in consultations:
+        consultations_data.append(
+            {
+                "id": c.id,
+                "occasion": c.occasion.value if c.occasion else None,
+                "occasion_date": (
+                    c.occasion_date.isoformat() if c.occasion_date else None
+                ),
+                "budget_min": c.budget_min,
+                "budget_max": c.budget_max,
+                "status": c.status.value if c.status else None,
+                "created_at": c.created_at.isoformat() if c.created_at else None,
+                "converted_order_id": c.converted_order_id,
+                "converted_quote_id": c.converted_quote_id,
+            }
+        )
+
     return {
         "export_date": datetime.utcnow().isoformat(),
         "customer": {
@@ -359,6 +428,13 @@ async def gdpr_export_customer(
         },
         "orders": orders_data,
         "measurements": measurements_data,
+        "no_gos": no_gos_data,
+        "style_profile": customer.style_profile or {},
+        "consultations": consultations_data,
+        # Machine-readable companion to the docstring's design-IP note —
+        # keep true whenever consultations are exported without wishes/
+        # notes/source_material/materials_discussed/photos.
+        "design_data_excluded": True,
     }
 
 
