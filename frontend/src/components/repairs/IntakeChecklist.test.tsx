@@ -147,6 +147,61 @@ describe('IntakeChecklist', () => {
     expect(screen.getByText(/Keine Eingangs-Checkliste hinterlegt/i)).toBeInTheDocument();
   });
 
+  it('locks all item controls while a mutation is pending — second rapid mutation is a no-op', async () => {
+    const repair = makeRepair({
+      intake_checklist: [
+        { key: 'krappen', label: 'Krappen/Fassungen', status: 'open' },
+        { key: 'gravuren', label: 'Gravuren', status: 'open' },
+      ],
+    });
+    // First item's upload stays pending so the list-wide lock is active.
+    let resolveUpload!: (value: { id: number }) => void;
+    mockUploadPhoto.mockReturnValue(
+      new Promise<{ id: number }>((resolve) => {
+        resolveUpload = resolve;
+      })
+    );
+    const updatedRepair = makeRepair({
+      intake_checklist: [
+        { key: 'krappen', label: 'Krappen/Fassungen', status: 'photo', photo_id: 55 },
+        { key: 'gravuren', label: 'Gravuren', status: 'open' },
+      ],
+    });
+    mockUpdateIntakeChecklist.mockResolvedValue(updatedRepair);
+    const onUpdated = vi.fn();
+
+    render(<IntakeChecklist repair={repair} onUpdated={onUpdated} />);
+
+    const file = new File(['x'], 'krappen.jpg', { type: 'image/jpeg' });
+    const inputs = screen.getAllByLabelText(/Foto aufnehmen|Wird hochgeladen/i, {
+      selector: 'input',
+    });
+    await userEvent.upload(inputs[0], file);
+    await waitFor(() => expect(mockUploadPhoto).toHaveBeenCalledTimes(1));
+
+    // While the first mutation is pending, the SECOND item's controls must
+    // be locked too (stale-snapshot protection): its file input and its
+    // "Nicht zutreffend" button are disabled — a rapid second mutation is
+    // a no-op.
+    expect(inputs[1]).toBeDisabled();
+    screen
+      .getAllByRole('button', { name: 'Nicht zutreffend' })
+      .forEach((btn) => expect(btn).toBeDisabled());
+
+    const secondFile = new File(['y'], 'gravuren.jpg', { type: 'image/jpeg' });
+    await userEvent.upload(inputs[1], secondFile);
+    expect(mockUploadPhoto).toHaveBeenCalledTimes(1);
+    expect(mockUpdateIntakeChecklist).not.toHaveBeenCalled();
+
+    resolveUpload({ id: 55 });
+    await waitFor(() => expect(mockUpdateIntakeChecklist).toHaveBeenCalledTimes(1));
+    expect(mockUpdateIntakeChecklist).toHaveBeenCalledWith(7, [
+      { key: 'krappen', label: 'Krappen/Fassungen', status: 'photo', photo_id: 55 },
+      { key: 'gravuren', label: 'Gravuren', status: 'open' },
+    ]);
+    await waitFor(() => expect(onUpdated).toHaveBeenCalledWith(updatedRepair));
+  });
+
   it('shows a completed summary once all items are resolved, and can be collapsed', async () => {
     const repair = makeRepair({
       intake_checklist: [

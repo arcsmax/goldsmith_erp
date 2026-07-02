@@ -38,7 +38,16 @@ interface IntakeChecklistProps {
 
 interface IntakeChecklistRowProps {
   item: IntakeChecklistItem;
+  /** True while THIS row's mutation is in flight — drives the spinner label. */
   busy: boolean;
+  /**
+   * True while ANY row's mutation is in flight — disables every control.
+   * Each PUT is built from a closure-captured snapshot of the full items
+   * array (full-list replace contract), so a second item's mutation firing
+   * before the first's PUT resolves would be built from the stale list and
+   * silently revert the first item back to "open".
+   */
+  locked: boolean;
   reasonOpen: boolean;
   reasonDraft: string;
   onReasonDraftChange: (value: string) => void;
@@ -51,6 +60,7 @@ interface IntakeChecklistRowProps {
 function IntakeChecklistRow({
   item,
   busy,
+  locked,
   reasonOpen,
   reasonDraft,
   onReasonDraftChange,
@@ -85,7 +95,7 @@ function IntakeChecklistRow({
               capture="environment"
               style={{ display: 'none' }}
               onChange={handleFileChange}
-              disabled={busy}
+              disabled={locked}
             />
             {busy ? 'Wird hochgeladen…' : 'Foto aufnehmen'}
           </label>
@@ -93,7 +103,7 @@ function IntakeChecklistRow({
             type="button"
             className="intake-checklist-na-btn"
             onClick={onOpenReason}
-            disabled={busy}
+            disabled={locked}
           >
             Nicht zutreffend
           </button>
@@ -108,7 +118,7 @@ function IntakeChecklistRow({
             placeholder="Begründung (mind. 3 Zeichen)"
             value={reasonDraft}
             onChange={(e) => onReasonDraftChange(e.target.value)}
-            disabled={busy}
+            disabled={locked}
             autoFocus
           />
           <div className="intake-checklist-reason-actions">
@@ -116,7 +126,7 @@ function IntakeChecklistRow({
               type="button"
               className="btn btn-secondary"
               onClick={onCancelReason}
-              disabled={busy}
+              disabled={locked}
             >
               Abbrechen
             </button>
@@ -124,7 +134,7 @@ function IntakeChecklistRow({
               type="button"
               className="btn btn-primary"
               onClick={onSubmitReason}
-              disabled={busy || reasonDraft.trim().length < MIN_REASON_LENGTH}
+              disabled={locked || reasonDraft.trim().length < MIN_REASON_LENGTH}
             >
               {busy ? 'Wird gespeichert…' : 'Speichern'}
             </button>
@@ -170,6 +180,10 @@ export function IntakeChecklist({ repair, onUpdated }: IntakeChecklistProps) {
   const allDone = doneCount === items.length;
 
   const handlePhotoCapture = async (item: IntakeChecklistItem, file: File) => {
+    // List-wide lock: each PUT is built from a snapshot of `items`, so a
+    // concurrent second mutation would submit a stale list and silently
+    // revert the first item. Guard here in addition to the disabled controls.
+    if (busyKey !== null) return;
     if (file.size > MAX_PHOTO_BYTES) {
       showToast('Datei zu groß — maximal 8 MB erlaubt', 'error');
       return;
@@ -193,6 +207,8 @@ export function IntakeChecklist({ repair, onUpdated }: IntakeChecklistProps) {
   };
 
   const handleNotApplicable = async (item: IntakeChecklistItem, reason: string) => {
+    // Same list-wide lock as handlePhotoCapture — stale-snapshot protection.
+    if (busyKey !== null) return;
     const trimmed = reason.trim();
     if (trimmed.length < MIN_REASON_LENGTH) {
       showToast('Begründung muss mindestens 3 Zeichen haben', 'error');
@@ -260,6 +276,7 @@ export function IntakeChecklist({ repair, onUpdated }: IntakeChecklistProps) {
             key={item.key}
             item={item}
             busy={busyKey === item.key}
+            locked={busyKey !== null}
             reasonOpen={openReasonKey === item.key}
             reasonDraft={reasonDraft[item.key] ?? ''}
             onReasonDraftChange={(value) =>

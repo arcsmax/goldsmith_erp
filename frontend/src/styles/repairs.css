@@ -968,6 +968,12 @@
   gap: 0.5rem;
 }
 
+/* 44px+ touch targets for the reason form's Speichern/Abbrechen — scoped
+   here so the shared .btn stays untouched site-wide. */
+.intake-checklist-reason-actions .btn {
+  min-height: 44px;
+}
+
 .intake-checklist-row-photo {
   margin-top: 0.6rem;
 }
