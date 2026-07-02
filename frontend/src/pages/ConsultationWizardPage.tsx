@@ -8,6 +8,7 @@ import { CustomerStep } from '../components/consultation/CustomerStep';
 import { OccasionBudgetStep } from '../components/consultation/OccasionBudgetStep';
 import { WishStep } from '../components/consultation/WishStep';
 import { StyleNoGoStep } from '../components/consultation/StyleNoGoStep';
+import { MeasurementStep } from '../components/consultation/MeasurementStep';
 import { logError } from '../lib/logError';
 import '../styles/consultations.css';
 
@@ -150,7 +151,7 @@ export const ConsultationWizardPage: React.FC = () => {
         )}
         {step === 3 && stepProps && <WishStep {...stepProps} onFieldsChange={setPendingPatch} />}
         {step === 4 && stepProps && <StyleNoGoStep {...stepProps} />}
-        {step === 5 && stepProps && <p>Folgt in Task 6</p>}
+        {step === 5 && stepProps && <MeasurementStep customerId={stepProps.consultation.customer_id} />}
         {step === 6 && stepProps && <p>Folgt in Task 7</p>}
         {step === 7 && stepProps && <p>Folgt in Task 8</p>}
       </section>
