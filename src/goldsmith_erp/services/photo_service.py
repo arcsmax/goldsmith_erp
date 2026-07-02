@@ -24,47 +24,43 @@ from pathlib import Path
 from typing import Optional
 
 from fastapi import UploadFile
-from PIL import Image
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from goldsmith_erp.core.config import settings
 from goldsmith_erp.db.models import OrderPhoto
+from goldsmith_erp.services.image_validation import (
+    _MAX_MAGIC_BYTES,
+    THUMBNAIL_WIDTH,
+    PhotoValidationError,
+)
+from goldsmith_erp.services.image_validation import (
+    create_thumbnail as _create_thumbnail,
+)
+from goldsmith_erp.services.image_validation import (
+    detect_image_type as _detect_image_type,
+)
+from goldsmith_erp.services.image_validation import read_validated_image
 
 logger = logging.getLogger(__name__)
 
 # ─── Constants ────────────────────────────────────────────────────────────────
 
-THUMBNAIL_WIDTH: int = 200
+# Kept for backward compatibility — not referenced internally (type detection
+# is delegated to image_validation.detect_image_type), but part of this
+# module's public surface.
 ALLOWED_MIME_TYPES: dict[bytes, str] = {
-    b"\xff\xd8\xff": "jpg",        # JPEG
+    b"\xff\xd8\xff": "jpg",  # JPEG
     b"\x89PNG\r\n\x1a\n": "png",  # PNG
-    b"RIFF": "webp",               # WEBP (checked separately — needs offset 8)
+    b"RIFF": "webp",  # WEBP (checked separately — needs offset 8)
 }
-_MAX_MAGIC_BYTES: int = 12  # Enough to cover all signatures above
-
-
-class PhotoValidationError(ValueError):
-    """Raised when an uploaded photo fails validation (type or size)."""
 
 
 # ─── Internal helpers ─────────────────────────────────────────────────────────
-
-def _detect_image_type(header: bytes) -> Optional[str]:
-    """
-    Detect image type from the first bytes of the file.
-
-    Returns file extension ("jpg", "png", "webp") or None if unsupported.
-    The caller must pass at least _MAX_MAGIC_BYTES bytes.
-    """
-    if header[:3] == b"\xff\xd8\xff":
-        return "jpg"
-    if header[:8] == b"\x89PNG\r\n\x1a\n":
-        return "png"
-    # WEBP: 'RIFF' at offset 0 and 'WEBP' at offset 8
-    if header[:4] == b"RIFF" and header[8:12] == b"WEBP":
-        return "webp"
-    return None
+#
+# _detect_image_type, _create_thumbnail, _MAX_MAGIC_BYTES, and PhotoValidationError
+# now live in services/image_validation.py (shared with consultation_photo_service)
+# and are re-exported above so existing imports of this module keep working.
 
 
 def _storage_root() -> Path:
@@ -80,27 +76,6 @@ def _order_dir(order_id: int) -> Path:
 def _thumb_dir(order_id: int) -> Path:
     """Return the thumbnail subdirectory for a specific order."""
     return _order_dir(order_id) / "thumbs"
-
-
-def _create_thumbnail(source_path: Path, thumb_path: Path) -> None:
-    """
-    Create a thumbnail of `source_path` at `thumb_path`.
-
-    The thumbnail is THUMBNAIL_WIDTH pixels wide; height is auto-scaled.
-    Output is always saved as JPEG for consistency and small file size.
-    """
-    with Image.open(source_path) as img:
-        # Convert RGBA/P images to RGB so they can be saved as JPEG.
-        if img.mode in ("RGBA", "P", "LA"):
-            img = img.convert("RGB")
-        w_orig, h_orig = img.size
-        if w_orig == 0:
-            raise PhotoValidationError("Image has zero width — corrupt file.")
-        scale = THUMBNAIL_WIDTH / w_orig
-        new_h = max(1, int(h_orig * scale))
-        img_resized = img.resize((THUMBNAIL_WIDTH, new_h), Image.LANCZOS)
-        thumb_path.parent.mkdir(parents=True, exist_ok=True)
-        img_resized.save(thumb_path, format="JPEG", quality=85, optimize=True)
 
 
 # ─── Public service ──────────────────────────────────────────────────────────
@@ -147,22 +122,7 @@ class PhotoService:
         Raises:
             PhotoValidationError: If file type is unsupported or size exceeds limit.
         """
-        max_bytes = settings.PHOTO_MAX_SIZE_MB * 1024 * 1024
-
-        # Read the whole file (bounded by max_bytes + 1 to detect overflow).
-        raw = await file.read(max_bytes + 1)
-        if len(raw) > max_bytes:
-            raise PhotoValidationError(
-                f"Datei zu groß. Maximum: {settings.PHOTO_MAX_SIZE_MB} MB."
-            )
-
-        # Magic-byte detection
-        header = raw[:_MAX_MAGIC_BYTES]
-        ext = _detect_image_type(header)
-        if ext is None:
-            raise PhotoValidationError(
-                "Ungültiges Dateiformat. Erlaubt: JPEG, PNG, WEBP."
-            )
+        raw, ext = await read_validated_image(file, settings.PHOTO_MAX_SIZE_MB)
 
         # Build storage paths
         file_uuid = str(uuid.uuid4())
@@ -243,9 +203,7 @@ class PhotoService:
         Returns:
             OrderPhoto instance or None if not found.
         """
-        result = await db.execute(
-            select(OrderPhoto).where(OrderPhoto.id == photo_id)
-        )
+        result = await db.execute(select(OrderPhoto).where(OrderPhoto.id == photo_id))
         return result.scalar_one_or_none()
 
     @staticmethod
@@ -268,9 +226,7 @@ class PhotoService:
         Returns:
             True if the record was found and deleted, False if not found.
         """
-        result = await db.execute(
-            select(OrderPhoto).where(OrderPhoto.id == photo_id)
-        )
+        result = await db.execute(select(OrderPhoto).where(OrderPhoto.id == photo_id))
         photo = result.scalar_one_or_none()
         if not photo:
             return False

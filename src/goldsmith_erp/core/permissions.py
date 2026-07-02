@@ -8,9 +8,11 @@ Defines user roles, permissions, and decorators for protecting endpoints.
 from enum import Enum
 from functools import wraps
 from typing import Callable, List
-from fastapi import HTTPException, Depends, status
 
-from goldsmith_erp.db.models import User as UserModel, UserRole
+from fastapi import Depends, HTTPException, status
+
+from goldsmith_erp.db.models import User as UserModel
+from goldsmith_erp.db.models import UserRole
 
 
 class Permission(str, Enum):
@@ -75,33 +77,44 @@ class Permission(str, Enum):
     SYSTEM_CONFIG = "system:config"
 
     # ML permissions
-    ML_PREDICT = "ml:predict"        # Predict duration for orders (all authenticated users)
-    ML_TRAIN = "ml:train"            # Trigger model training (ADMIN only)
-    ML_VIEW_STATS = "ml:view_stats"  # View model status, anomalies, activity stats (all)
+    ML_PREDICT = "ml:predict"  # Predict duration for orders (all authenticated users)
+    ML_TRAIN = "ml:train"  # Trigger model training (ADMIN only)
+    ML_VIEW_STATS = (
+        "ml:view_stats"  # View model status, anomalies, activity stats (all)
+    )
 
     # Notification permissions
-    NOTIFICATION_VIEW = "notification:view"          # Read own notifications
-    NOTIFICATION_CHECK_DEADLINES = "notification:check_deadlines"  # Trigger deadline scan (ADMIN)
+    NOTIFICATION_VIEW = "notification:view"  # Read own notifications
+    NOTIFICATION_CHECK_DEADLINES = (
+        "notification:check_deadlines"  # Trigger deadline scan (ADMIN)
+    )
 
     # Handoff permissions (Stabuebergabe)
-    HANDOFF_CREATE = "handoff:create"   # Create a handoff (GOLDSMITH + ADMIN)
-    HANDOFF_RESPOND = "handoff:respond" # Accept/decline incoming handoffs (GOLDSMITH + ADMIN)
-    HANDOFF_VIEW = "handoff:view"       # View handoffs on an order (all authenticated)
+    HANDOFF_CREATE = "handoff:create"  # Create a handoff (GOLDSMITH + ADMIN)
+    HANDOFF_RESPOND = (
+        "handoff:respond"  # Accept/decline incoming handoffs (GOLDSMITH + ADMIN)
+    )
+    HANDOFF_VIEW = "handoff:view"  # View handoffs on an order (all authenticated)
 
     # Repair permissions (Reparaturverwaltung)
-    REPAIR_VIEW = "repair:view"         # View repair jobs
-    REPAIR_CREATE = "repair:create"     # Create new repair intake
-    REPAIR_EDIT = "repair:edit"         # Update repair status and notes
+    REPAIR_VIEW = "repair:view"  # View repair jobs
+    REPAIR_CREATE = "repair:create"  # Create new repair intake
+    REPAIR_EDIT = "repair:edit"  # Update repair status and notes
+
+    # Consultation permissions (Beratung — Design-IP: GOLDSMITH/ADMIN only)
+    CONSULTATION_VIEW = "consultation:view"
+    CONSULTATION_CREATE = "consultation:create"
+    CONSULTATION_EDIT = "consultation:edit"
 
     # Hallmark permissions (Punzierung)
-    HALLMARK_VIEW = "hallmark:view"     # View hallmark records
-    HALLMARK_CREATE = "hallmark:create" # Create hallmark record
-    HALLMARK_EDIT = "hallmark:edit"     # Update hallmark status
+    HALLMARK_VIEW = "hallmark:view"  # View hallmark records
+    HALLMARK_CREATE = "hallmark:create"  # Create hallmark record
+    HALLMARK_EDIT = "hallmark:edit"  # Update hallmark status
 
     # Valuation certificate permissions (Wertgutachten — financial data)
-    VALUATION_VIEW = "valuation:view"       # View valuation certificates
-    VALUATION_CREATE = "valuation:create"   # Create certificate (ADMIN + GOLDSMITH)
-    VALUATION_EXPORT = "valuation:export"   # Download PDF (ADMIN only)
+    VALUATION_VIEW = "valuation:view"  # View valuation certificates
+    VALUATION_CREATE = "valuation:create"  # Create certificate (ADMIN + GOLDSMITH)
+    VALUATION_EXPORT = "valuation:export"  # Download PDF (ADMIN only)
 
     # Scanner permissions (V1.1 QR/Barcode workflow)
     # Granted to all three roles — the service layer performs role-based
@@ -118,7 +131,8 @@ class Permission(str, Enum):
 ROLE_PERMISSIONS: dict[UserRole, List[Permission]] = {
     UserRole.ADMIN: [
         # Admins have all permissions
-        p for p in Permission
+        p
+        for p in Permission
     ],
     UserRole.GOLDSMITH: [
         # Orders
@@ -162,6 +176,10 @@ ROLE_PERMISSIONS: dict[UserRole, List[Permission]] = {
         Permission.REPAIR_VIEW,
         Permission.REPAIR_CREATE,
         Permission.REPAIR_EDIT,
+        # Consultations — goldsmiths run the intake conversation
+        Permission.CONSULTATION_VIEW,
+        Permission.CONSULTATION_CREATE,
+        Permission.CONSULTATION_EDIT,
         # Hallmarks — goldsmiths submit and track Punzierung
         Permission.HALLMARK_VIEW,
         Permission.HALLMARK_CREATE,
@@ -210,7 +228,7 @@ def has_permission(user: UserModel, permission: Permission) -> bool:
     Returns:
         True if user has the permission, False otherwise
     """
-    if not user or not hasattr(user, 'role'):
+    if not user or not hasattr(user, "role"):
         return False
 
     user_permissions = ROLE_PERMISSIONS.get(user.role, [])
@@ -236,29 +254,31 @@ def require_permission(permission: Permission):
     Raises:
         HTTPException: 403 Forbidden if user doesn't have permission
     """
+
     def decorator(func: Callable) -> Callable:
         @wraps(func)
         async def wrapper(*args, **kwargs):
             # Extract current_user from kwargs
-            current_user = kwargs.get('current_user')
+            current_user = kwargs.get("current_user")
 
             if not current_user:
                 raise HTTPException(
                     status_code=status.HTTP_401_UNAUTHORIZED,
-                    detail="Authentication required"
+                    detail="Authentication required",
                 )
 
             # Check permission
             if not has_permission(current_user, permission):
                 raise HTTPException(
                     status_code=status.HTTP_403_FORBIDDEN,
-                    detail=f"Permission denied: {permission.value}. Required role: {', '.join([role.value for role, perms in ROLE_PERMISSIONS.items() if permission in perms])}"
+                    detail=f"Permission denied: {permission.value}. Required role: {', '.join([role.value for role, perms in ROLE_PERMISSIONS.items() if permission in perms])}",
                 )
 
             # Call the original function
             return await func(*args, **kwargs)
 
         return wrapper
+
     return decorator
 
 
@@ -326,15 +346,16 @@ def require_any_permission(*permissions: Permission):
     Raises:
         HTTPException: 403 Forbidden if user doesn't have any of the permissions
     """
+
     def decorator(func: Callable) -> Callable:
         @wraps(func)
         async def wrapper(*args, **kwargs):
-            current_user = kwargs.get('current_user')
+            current_user = kwargs.get("current_user")
 
             if not current_user:
                 raise HTTPException(
                     status_code=status.HTTP_401_UNAUTHORIZED,
-                    detail="Authentication required"
+                    detail="Authentication required",
                 )
 
             # Check if user has ANY of the permissions
@@ -343,12 +364,13 @@ def require_any_permission(*permissions: Permission):
             if not has_any:
                 raise HTTPException(
                     status_code=status.HTTP_403_FORBIDDEN,
-                    detail=f"Permission denied. Required one of: {', '.join([p.value for p in permissions])}"
+                    detail=f"Permission denied. Required one of: {', '.join([p.value for p in permissions])}",
                 )
 
             return await func(*args, **kwargs)
 
         return wrapper
+
     return decorator
 
 
@@ -371,32 +393,33 @@ def require_all_permissions(*permissions: Permission):
     Raises:
         HTTPException: 403 Forbidden if user doesn't have all permissions
     """
+
     def decorator(func: Callable) -> Callable:
         @wraps(func)
         async def wrapper(*args, **kwargs):
-            current_user = kwargs.get('current_user')
+            current_user = kwargs.get("current_user")
 
             if not current_user:
                 raise HTTPException(
                     status_code=status.HTTP_401_UNAUTHORIZED,
-                    detail="Authentication required"
+                    detail="Authentication required",
                 )
 
             # Check if user has ALL permissions
             missing_permissions = [
-                perm for perm in permissions
-                if not has_permission(current_user, perm)
+                perm for perm in permissions if not has_permission(current_user, perm)
             ]
 
             if missing_permissions:
                 raise HTTPException(
                     status_code=status.HTTP_403_FORBIDDEN,
-                    detail=f"Permission denied. Missing permissions: {', '.join([p.value for p in missing_permissions])}"
+                    detail=f"Permission denied. Missing permissions: {', '.join([p.value for p in missing_permissions])}",
                 )
 
             return await func(*args, **kwargs)
 
         return wrapper
+
     return decorator
 
 
@@ -419,33 +442,33 @@ def require_role(role: UserRole):
     Raises:
         HTTPException: 403 Forbidden if user doesn't have the role
     """
+
     def decorator(func: Callable) -> Callable:
         @wraps(func)
         async def wrapper(*args, **kwargs):
-            current_user = kwargs.get('current_user')
+            current_user = kwargs.get("current_user")
 
             if not current_user:
                 raise HTTPException(
                     status_code=status.HTTP_401_UNAUTHORIZED,
-                    detail="Authentication required"
+                    detail="Authentication required",
                 )
 
-            if not hasattr(current_user, 'role') or current_user.role != role:
+            if not hasattr(current_user, "role") or current_user.role != role:
                 raise HTTPException(
                     status_code=status.HTTP_403_FORBIDDEN,
-                    detail=f"Access denied. Required role: {role.value}"
+                    detail=f"Access denied. Required role: {role.value}",
                 )
 
             return await func(*args, **kwargs)
 
         return wrapper
+
     return decorator
 
 
 def check_ownership_or_permission(
-    resource_user_id: int,
-    current_user: UserModel,
-    fallback_permission: Permission
+    resource_user_id: int, current_user: UserModel, fallback_permission: Permission
 ) -> bool:
     """
     Helper to check if user owns a resource OR has a fallback permission.

@@ -28,6 +28,8 @@ History:
 - 2025-11-06 (A1): initial customer-data auditing.
 - 2026-04-23 (R1): closed Art. 30 gap by auditing bulk list reads.
 - 2026-04-23 (C6): extended to invoices / valuations / scrap-gold.
+- 2026-07 (final-review): extended to consultations (budget_min/budget_max
+  financial data).
 """
 
 import ipaddress
@@ -120,6 +122,16 @@ _RESOURCE_ROUTES: dict[str, Tuple[str, str, str, bool]] = {
     "invoices": ("invoice", "financial_read", "list_accessed_financial", True),
     "valuations": ("valuation", "financial_read", "list_accessed_financial", True),
     "scrap-gold": ("scrap_gold", "financial_read", "list_accessed_financial", True),
+    # Final-review fix: consultations return budget_min/budget_max on every
+    # read (financial data of the erased person, CLAUDE.md: "All financial
+    # data access MUST be audit-logged") but were missing from this table
+    # entirely, so neither single-record nor bulk-list reads were audited.
+    "consultations": (
+        "consultation",
+        "financial_read",
+        "list_accessed_financial",
+        True,
+    ),
 }
 
 
@@ -132,10 +144,12 @@ class AuditLoggingMiddleware(BaseHTTPMiddleware):
 
     Audited resource families (see ``_RESOURCE_ROUTES`` above):
 
-    * ``/api/v1/customers/*``   — PII, full-verb audit (A1 + R1 behaviour)
-    * ``/api/v1/invoices/*``    — financial data, GET-only audit (C6)
-    * ``/api/v1/valuations/*``  — financial data, GET-only audit (C6)
-    * ``/api/v1/scrap-gold/*``  — financial data, GET-only audit (C6)
+    * ``/api/v1/customers/*``      — PII, full-verb audit (A1 + R1 behaviour)
+    * ``/api/v1/invoices/*``       — financial data, GET-only audit (C6)
+    * ``/api/v1/valuations/*``     — financial data, GET-only audit (C6)
+    * ``/api/v1/scrap-gold/*``     — financial data, GET-only audit (C6)
+    * ``/api/v1/consultations/*``  — financial data (budget_min/budget_max),
+      GET-only audit (final-review fix)
 
     CLAUDE.md:
         "All financial data access MUST be audit-logged."

@@ -1,25 +1,31 @@
 """Customer Service - Business logic for customer/CRM operations"""
+
 import logging
 import re
 from dataclasses import dataclass
-from typing import List, Optional, Dict, Any, Tuple
 from datetime import datetime
-from sqlalchemy import select, func, and_, or_, desc
+from typing import Any, Dict, List, Optional, Tuple
+
+from sqlalchemy import and_, delete, desc, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from goldsmith_erp.core.encryption import EncryptionError, hmac_blind_index
+from goldsmith_erp.db.models import CalendarEvent, Consultation
+from goldsmith_erp.db.models import Customer as CustomerModel
 from goldsmith_erp.db.models import (
-    CalendarEvent,
-    Customer as CustomerModel,
     CustomerAuditLog,
     CustomerMeasurement,
-    Gemstone,
+    CustomerNoGo,
     GDPRRequest,
+    Gemstone,
     Invoice,
     InvoiceLineItem,
     MaterialUsage,
     Notification,
-    Order as OrderModel,
+)
+from goldsmith_erp.db.models import Order as OrderModel
+from goldsmith_erp.db.models import (
     OrderComment,
     OrderHallmark,
     OrderHandoff,
@@ -35,9 +41,8 @@ from goldsmith_erp.db.models import (
     TimeEntry,
     ValuationCertificate,
 )
-from goldsmith_erp.models.customer import CustomerCreate, CustomerUpdate
-from goldsmith_erp.core.encryption import EncryptionError, hmac_blind_index
 from goldsmith_erp.db.transaction import transactional
+from goldsmith_erp.models.customer import CustomerCreate, CustomerUpdate
 
 logger = logging.getLogger(__name__)
 
@@ -260,6 +265,15 @@ SCRUBBABLE_FIELDS: List[ScrubTarget] = [
     # path fires — belt-and-braces with the customer-row anonymise
     # step. See PII-SCRUB-AUDIT.md F1 resolution.
     ScrubTarget(CustomerModel, "notes", "direct", "customers.notes"),
+    # ── Consultation module (V1.1 / Task 10) ───────────────────────────
+    # Consultation rows themselves are retained (anonymised) for Art. 30
+    # records — mirroring the RepairJob precedent — so their free-text
+    # design-IP fields are scrubbed in place rather than the row deleted.
+    ScrubTarget(Consultation, "wishes", "customer_id", "consultations.wishes"),
+    ScrubTarget(Consultation, "notes", "customer_id", "consultations.notes"),
+    ScrubTarget(
+        Consultation, "source_material", "customer_id", "consultations.source_material"
+    ),
 ]
 
 # ── PII encryption helpers ────────────────────────────────────────────────────
@@ -300,9 +314,11 @@ def _get_encryption():
     never swallow exceptions silently").
     """
     from goldsmith_erp.core.config import settings as _settings
+
     if not _settings.ENCRYPTION_KEY:
         return None
     from goldsmith_erp.core.encryption import get_encryption_service
+
     return get_encryption_service()
 
 
@@ -327,13 +343,12 @@ def _encrypt_pii(data: dict) -> dict:
                 raise
             except Exception as exc:  # noqa: BLE001 — wrap, then re-raise
                 from goldsmith_erp.core.encryption import EncryptionError as _EE
+
                 logger.error(
                     "PII encryption failed — refusing to persist plaintext",
                     extra={"audit": True, "field": field, "error": str(exc)},
                 )
-                raise _EE(
-                    f"PII encryption failed for field {field!r}: {exc}"
-                ) from exc
+                raise _EE(f"PII encryption failed for field {field!r}: {exc}") from exc
     return result
 
 
@@ -350,6 +365,7 @@ def _decrypt_pii(customer: CustomerModel) -> None:
     if not enc:
         return
     from cryptography.fernet import InvalidToken
+
     for field in PII_FIELDS:
         value = getattr(customer, field, None)
         if not value:
@@ -360,7 +376,9 @@ def _decrypt_pii(customer: CustomerModel) -> None:
             # `EncryptionService.decrypt` wraps InvalidToken → EncryptionError.
             # Unwrap via `__cause__` to distinguish "legacy plaintext / wrong
             # key row" (tolerable) from "cipher backend is broken" (fatal).
-            if isinstance(exc.__cause__, InvalidToken) or "Invalid encryption token" in str(exc):
+            if isinstance(
+                exc.__cause__, InvalidToken
+            ) or "Invalid encryption token" in str(exc):
                 # Already plaintext or encrypted under a different key —
                 # leave the stored value as-is.
                 continue
@@ -467,7 +485,9 @@ class CustomerService:
         return matched[skip : skip + limit]
 
     @staticmethod
-    async def get_customer(db: AsyncSession, customer_id: int) -> Optional[CustomerModel]:
+    async def get_customer(
+        db: AsyncSession, customer_id: int
+    ) -> Optional[CustomerModel]:
         """Get customer by ID with eager loading of relationships.
 
         PII fields decrypt transparently on ORM read (``EncryptedString``);
@@ -481,7 +501,9 @@ class CustomerService:
         return result.scalar_one_or_none()
 
     @staticmethod
-    async def get_customer_by_email(db: AsyncSession, email: str) -> Optional[CustomerModel]:
+    async def get_customer_by_email(
+        db: AsyncSession, email: str
+    ) -> Optional[CustomerModel]:
         """Get customer by email address.
 
         Uses the ``email_hash`` blind-index (HMAC-SHA-256 of the normalised
@@ -497,7 +519,9 @@ class CustomerService:
         return result.scalar_one_or_none()
 
     @staticmethod
-    async def create_customer(db: AsyncSession, customer_in: CustomerCreate) -> CustomerModel:
+    async def create_customer(
+        db: AsyncSession, customer_in: CustomerCreate
+    ) -> CustomerModel:
         """
         Create a new customer with transactional guarantees.
 
@@ -508,9 +532,13 @@ class CustomerService:
         """
         async with transactional(db):
             # Check if email already exists (via blind-index)
-            existing = await CustomerService.get_customer_by_email(db, customer_in.email)
+            existing = await CustomerService.get_customer_by_email(
+                db, customer_in.email
+            )
             if existing:
-                raise ValueError("Ein Kunde mit dieser E-Mail-Adresse existiert bereits")
+                raise ValueError(
+                    "Ein Kunde mit dieser E-Mail-Adresse existiert bereits"
+                )
 
             customer_data = customer_in.model_dump()
             # Derive blind-index tag from the plaintext email so equality
@@ -528,16 +556,14 @@ class CustomerService:
                 "customer_id": db_customer.id,
                 # email intentionally omitted — PII must not appear in logs
                 "customer_type": db_customer.customer_type,
-            }
+            },
         )
 
         return db_customer
 
     @staticmethod
     async def update_customer(
-        db: AsyncSession,
-        customer_id: int,
-        customer_update: CustomerUpdate
+        db: AsyncSession, customer_id: int, customer_update: CustomerUpdate
     ) -> Optional[CustomerModel]:
         """
         Update customer with transactional guarantees.
@@ -557,12 +583,16 @@ class CustomerService:
             update_data = customer_update.model_dump(exclude_unset=True)
 
             # Check email uniqueness if email is being updated
-            if 'email' in update_data and update_data['email'] != db_customer.email:
-                existing = await CustomerService.get_customer_by_email(db, update_data['email'])
+            if "email" in update_data and update_data["email"] != db_customer.email:
+                existing = await CustomerService.get_customer_by_email(
+                    db, update_data["email"]
+                )
                 if existing:
-                    raise ValueError("Ein Kunde mit dieser E-Mail-Adresse existiert bereits")
+                    raise ValueError(
+                        "Ein Kunde mit dieser E-Mail-Adresse existiert bereits"
+                    )
                 # Keep the blind-index in lock-step with the new email.
-                update_data['email_hash'] = hmac_blind_index(update_data['email'])
+                update_data["email_hash"] = hmac_blind_index(update_data["email"])
 
             # Apply updates — ORM-level EncryptedString re-encrypts PII
             # columns on flush, so no service-layer encrypt step needed.
@@ -578,7 +608,7 @@ class CustomerService:
             extra={
                 "customer_id": customer_id,
                 "updated_fields": list(update_data.keys()),
-            }
+            },
         )
 
         return db_customer
@@ -596,7 +626,9 @@ class CustomerService:
                 return False
 
             # Check if customer has orders
-            order_count = await CustomerService.get_customer_order_count(db, customer_id)
+            order_count = await CustomerService.get_customer_order_count(
+                db, customer_id
+            )
             if order_count > 0:
                 raise ValueError(
                     f"Cannot delete customer with {order_count} orders. "
@@ -615,8 +647,9 @@ class CustomerService:
     async def get_customer_order_count(db: AsyncSession, customer_id: int) -> int:
         """Get total number of orders for a customer"""
         result = await db.execute(
-            select(func.count(OrderModel.id))
-            .filter(OrderModel.customer_id == customer_id)
+            select(func.count(OrderModel.id)).filter(
+                OrderModel.customer_id == customer_id
+            )
         )
         return result.scalar() or 0
 
@@ -628,11 +661,10 @@ class CustomerService:
         # Get order statistics
         result = await db.execute(
             select(
-                func.count(OrderModel.id).label('order_count'),
-                func.sum(OrderModel.price).label('total_spent'),
-                func.max(OrderModel.created_at).label('last_order_date'),
-            )
-            .filter(OrderModel.customer_id == customer_id)
+                func.count(OrderModel.id).label("order_count"),
+                func.sum(OrderModel.price).label("total_spent"),
+                func.max(OrderModel.created_at).label("last_order_date"),
+            ).filter(OrderModel.customer_id == customer_id)
         )
         stats = result.one()
 
@@ -645,9 +677,7 @@ class CustomerService:
 
     @staticmethod
     async def search_customers(
-        db: AsyncSession,
-        query: str,
-        limit: int = 10
+        db: AsyncSession, query: str, limit: int = 10
     ) -> List[CustomerModel]:
         """
         Fast customer search for autocomplete.
@@ -706,7 +736,7 @@ class CustomerService:
     async def get_top_customers(
         db: AsyncSession,
         limit: int = 10,
-        by: str = "revenue"  # revenue, orders, recent
+        by: str = "revenue",  # revenue, orders, recent
     ) -> List[Dict[str, Any]]:
         """
         Get top customers by different criteria.
@@ -717,40 +747,33 @@ class CustomerService:
         if by == "revenue":
             # Top customers by total revenue
             result = await db.execute(
-                select(
-                    CustomerModel,
-                    func.sum(OrderModel.price).label('total_spent')
-                )
+                select(CustomerModel, func.sum(OrderModel.price).label("total_spent"))
                 .join(OrderModel, CustomerModel.id == OrderModel.customer_id)
                 .filter(CustomerModel.is_active == True)
                 .group_by(CustomerModel.id)
-                .order_by(desc('total_spent'))
+                .order_by(desc("total_spent"))
                 .limit(limit)
             )
         elif by == "orders":
             # Top customers by order count
             result = await db.execute(
-                select(
-                    CustomerModel,
-                    func.count(OrderModel.id).label('order_count')
-                )
+                select(CustomerModel, func.count(OrderModel.id).label("order_count"))
                 .join(OrderModel, CustomerModel.id == OrderModel.customer_id)
                 .filter(CustomerModel.is_active == True)
                 .group_by(CustomerModel.id)
-                .order_by(desc('order_count'))
+                .order_by(desc("order_count"))
                 .limit(limit)
             )
         else:  # recent
             # Customers with most recent orders
             result = await db.execute(
                 select(
-                    CustomerModel,
-                    func.max(OrderModel.created_at).label('last_order')
+                    CustomerModel, func.max(OrderModel.created_at).label("last_order")
                 )
                 .join(OrderModel, CustomerModel.id == OrderModel.customer_id)
                 .filter(CustomerModel.is_active == True)
                 .group_by(CustomerModel.id)
-                .order_by(desc('last_order'))
+                .order_by(desc("last_order"))
                 .limit(limit)
             )
 
@@ -759,11 +782,9 @@ class CustomerService:
         for row in rows:
             customer = row[0]
             stat_value = row[1]
-            customers.append({
-                "customer": customer,
-                "stat_value": stat_value,
-                "stat_type": by
-            })
+            customers.append(
+                {"customer": customer, "stat_value": stat_value, "stat_type": by}
+            )
 
         return customers
 
@@ -832,7 +853,9 @@ class CustomerService:
         return tokens
 
     @staticmethod
-    def _redact_text(text: Optional[str], tokens: List[str]) -> Tuple[Optional[str], int]:
+    def _redact_text(
+        text: Optional[str], tokens: List[str]
+    ) -> Tuple[Optional[str], int]:
         """Replace every case-insensitive occurrence of every token with `[REDACTED]`.
 
         Returns a tuple (redacted_text, redaction_count). `text=None` returns
@@ -918,15 +941,11 @@ class CustomerService:
         elif link == "repair_job_id":
             if not repair_job_ids:
                 return []
-            stmt = select(model).filter(
-                model.repair_job_id.in_(repair_job_ids)
-            )
+            stmt = select(model).filter(model.repair_job_id.in_(repair_job_ids))
         elif link == "scrap_gold_id":
             if not scrap_gold_ids:
                 return []
-            stmt = select(model).filter(
-                model.scrap_gold_id.in_(scrap_gold_ids)
-            )
+            stmt = select(model).filter(model.scrap_gold_id.in_(scrap_gold_ids))
         elif link == "quote_id":
             if not quote_ids:
                 return []
@@ -1013,9 +1032,17 @@ class CustomerService:
             Dict counting redactions per field. Keys enumerate every field
             in the scrub scope (from ``SCRUBBABLE_FIELDS``) — a value of 0
             means the field was examined but contained no PII tokens.
-            ``total`` is the sum across all fields. Returns all-zero
-            counts if the customer does not exist (caller should 404
-            before calling this).
+            Two extra keys cover the consultation special cases:
+            ``consultations.budget`` (rows whose budget_min/budget_max
+            were NULLed), ``consultations.materials_discussed`` /
+            ``consultations.occasion_date`` (rows whose corresponding
+            field was NULLed — final-review Fix 3), ``customers.
+            style_profile`` (the customer's own style-preference JSON,
+            NULLed — final-review Fix 3), and ``customer_no_gos.deleted``
+            (preference rows hard-deleted). ``total`` is the sum across
+            all fields.
+            Returns all-zero counts if the customer does not exist
+            (caller should 404 before calling this).
         """
         # Step 1: fetch customer and decrypt PII (needed for matching tokens).
         customer_result = await db.execute(
@@ -1023,14 +1050,101 @@ class CustomerService:
         )
         customer = customer_result.scalar_one_or_none()
 
-        # Counter dict: one entry per ScrubTarget + a "total".
-        counts: Dict[str, int] = {
-            target.counter_key: 0 for target in SCRUBBABLE_FIELDS
-        }
+        # Counter dict: one entry per ScrubTarget + the consultation
+        # special-case counters + a "total".
+        counts: Dict[str, int] = {target.counter_key: 0 for target in SCRUBBABLE_FIELDS}
+        counts["consultations.budget"] = 0
+        counts["consultations.materials_discussed"] = 0
+        counts["consultations.occasion_date"] = 0
+        counts["customers.style_profile"] = 0
+        counts["customer_no_gos.deleted"] = 0
         counts["total"] = 0
 
         if customer is None:
             return counts
+
+        # Consultations: financial + preference data of the erased person.
+        # These don't fit the string-scrub ScrubTarget shape (budget is a
+        # NULL-out, no-gos are a hard delete — not a text redaction) and
+        # they do NOT depend on PII tokens, so they run unconditionally
+        # BEFORE the zero-token early return below. Consultation rows
+        # themselves stay (their free-text fields are ScrubTargets); the
+        # no-go rows are pure preference data with no Art. 30 retention
+        # duty, so they are deleted outright rather than anonymised.
+        # Rowcounts are folded into ``counts`` so the audit trail
+        # reflects them. The budget UPDATE filters on non-NULL budgets
+        # so the counter reflects rows actually changed and stays 0 on
+        # a repeat scrub (idempotency).
+        budget_result = await db.execute(
+            update(Consultation)
+            .where(
+                Consultation.customer_id == customer_id,
+                or_(
+                    Consultation.budget_min.isnot(None),
+                    Consultation.budget_max.isnot(None),
+                ),
+            )
+            .values(budget_min=None, budget_max=None)
+        )
+        counts["consultations.budget"] = max(budget_result.rowcount or 0, 0)
+
+        # Final-review Fix 3: materials_discussed (which metals/stones were
+        # discussed — preference data) and occasion_date (e.g. an
+        # anniversary/birthday date — personal data) are consultation
+        # surfaces that were left out of the original erasure cascade.
+        # NULLed the same way budget is: an UPDATE filtered on "currently
+        # set" so the counter reflects rows actually changed and stays 0
+        # on a repeat scrub (idempotency). Two separate counters (rather
+        # than folding into "consultations.budget") because they are a
+        # different data category and this keeps Art. 30 per-field
+        # reporting granular.
+        materials_result = await db.execute(
+            update(Consultation)
+            .where(
+                Consultation.customer_id == customer_id,
+                Consultation.materials_discussed.isnot(None),
+            )
+            .values(materials_discussed=None)
+        )
+        counts["consultations.materials_discussed"] = max(
+            materials_result.rowcount or 0, 0
+        )
+        occasion_date_result = await db.execute(
+            update(Consultation)
+            .where(
+                Consultation.customer_id == customer_id,
+                Consultation.occasion_date.isnot(None),
+            )
+            .values(occasion_date=None)
+        )
+        counts["consultations.occasion_date"] = max(
+            occasion_date_result.rowcount or 0, 0
+        )
+
+        # Final-review Fix 3: style_profile lives on the customer row
+        # itself (metal tones / finishes / stone preferences / style
+        # words) — preference data, same rationale as the no-go
+        # hard-delete below. NULLed via a bulk UPDATE rather than through
+        # the ORM object fetched below, matching the Consultation pattern
+        # above; nothing later in this function reads customer.style_
+        # profile so there is no staleness risk from bypassing the
+        # identity map.
+        style_profile_result = await db.execute(
+            update(CustomerModel)
+            .where(
+                CustomerModel.id == customer_id,
+                CustomerModel.style_profile.isnot(None),
+            )
+            .values(style_profile=None)
+        )
+        counts["customers.style_profile"] = max(
+            style_profile_result.rowcount or 0, 0
+        )
+
+        no_go_result = await db.execute(
+            delete(CustomerNoGo).where(CustomerNoGo.customer_id == customer_id)
+        )
+        counts["customer_no_gos.deleted"] = max(no_go_result.rowcount or 0, 0)
 
         # Decrypt phone / mobile / address fields in-place so the matcher
         # sees plaintext values. _decrypt_pii is a no-op when encryption
@@ -1040,6 +1154,9 @@ class CustomerService:
         tokens = CustomerService._collect_pii_tokens(customer)
         if not tokens:
             # Nothing to match — write an audit log and exit cleanly.
+            # The consultation budget/no-go erasure above already ran;
+            # include it in the total so the audit row reflects it.
+            counts["total"] = sum(v for k, v in counts.items() if k != "total")
             await CustomerService._write_scrub_audit_logs(
                 db,
                 customer_id=customer_id,
@@ -1057,9 +1174,7 @@ class CustomerService:
             o.id
             for o in (
                 await db.execute(
-                    select(OrderModel).filter(
-                        OrderModel.customer_id == customer_id
-                    )
+                    select(OrderModel).filter(OrderModel.customer_id == customer_id)
                 )
             )
             .scalars()
@@ -1069,9 +1184,7 @@ class CustomerService:
             r.id
             for r in (
                 await db.execute(
-                    select(RepairJob).filter(
-                        RepairJob.customer_id == customer_id
-                    )
+                    select(RepairJob).filter(RepairJob.customer_id == customer_id)
                 )
             )
             .scalars()
@@ -1081,9 +1194,7 @@ class CustomerService:
             s.id
             for s in (
                 await db.execute(
-                    select(ScrapGold).filter(
-                        ScrapGold.customer_id == customer_id
-                    )
+                    select(ScrapGold).filter(ScrapGold.customer_id == customer_id)
                 )
             )
             .scalars()
@@ -1092,9 +1203,7 @@ class CustomerService:
         quote_ids = [
             q.id
             for q in (
-                await db.execute(
-                    select(Quote).filter(Quote.customer_id == customer_id)
-                )
+                await db.execute(select(Quote).filter(Quote.customer_id == customer_id))
             )
             .scalars()
             .all()
@@ -1103,9 +1212,7 @@ class CustomerService:
             i.id
             for i in (
                 await db.execute(
-                    select(Invoice).filter(
-                        Invoice.customer_id == customer_id
-                    )
+                    select(Invoice).filter(Invoice.customer_id == customer_id)
                 )
             )
             .scalars()
@@ -1129,10 +1236,7 @@ class CustomerService:
                 if target.binary:
                     # Binary (signature blob) — all-or-nothing replacement.
                     value = getattr(row, target.column)
-                    if (
-                        value
-                        and value != SIGNATURE_REDACTION_TOKEN
-                    ):
+                    if value and value != SIGNATURE_REDACTION_TOKEN:
                         setattr(
                             row,
                             target.column,
@@ -1147,9 +1251,7 @@ class CustomerService:
                         setattr(row, target.column, new_value)
                         counts[target.counter_key] += n
 
-        counts["total"] = sum(
-            v for k, v in counts.items() if k != "total"
-        )
+        counts["total"] = sum(v for k, v in counts.items() if k != "total")
 
         # Step 4: write audit records (CustomerAuditLog always, plus
         # optionally GDPRRequest). The ``/gdpr-erase`` router sets
@@ -1209,9 +1311,7 @@ class CustomerService:
         event separately from the request lifecycle.
         """
         scope_keys = [target.counter_key for target in SCRUBBABLE_FIELDS]
-        scrubbed_field_count = sum(
-            1 for key in scope_keys if counts.get(key, 0) > 0
-        )
+        scrubbed_field_count = sum(1 for key in scope_keys if counts.get(key, 0) > 0)
 
         audit_log = CustomerAuditLog(
             customer_id=customer_id,

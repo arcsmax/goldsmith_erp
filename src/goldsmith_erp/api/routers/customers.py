@@ -11,12 +11,20 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from goldsmith_erp.api.deps import get_db
-from goldsmith_erp.core.permissions import Permission
-from goldsmith_erp.core.permissions import require_permission_dep as require_permission
 from goldsmith_erp.core.config import settings
 from goldsmith_erp.core.idempotency import IdempotencyContext, get_idempotency_context
+from goldsmith_erp.core.permissions import Permission
+from goldsmith_erp.core.permissions import require_permission_dep as require_permission
 from goldsmith_erp.db.models import Customer as CustomerModel
 from goldsmith_erp.db.models import GDPRRequest, User
+from goldsmith_erp.db.transaction import transactional
+from goldsmith_erp.models.consultation import (
+    NoGoConflict,
+    NoGoCreate,
+    NoGoRead,
+    StyleProfileRead,
+    StyleProfileUpdate,
+)
 from goldsmith_erp.models.customer import (
     CustomerCreate,
     CustomerListItem,
@@ -26,6 +34,7 @@ from goldsmith_erp.models.customer import (
 )
 from goldsmith_erp.services.customer_service import CustomerService
 from goldsmith_erp.services.file_erasure_service import FileErasureService
+from goldsmith_erp.services.no_go_service import DuplicateNoGoError, NoGoService
 
 logger = logging.getLogger(__name__)
 
@@ -385,11 +394,7 @@ async def _write_pending_gdpr_request(
             notes=(
                 "Art. 17 erasure request received — awaiting "
                 "scrub + file sweep."
-                + (
-                    f" idempotency_key={idem.key}"
-                    if idem.key is not None
-                    else ""
-                )
+                + (f" idempotency_key={idem.key}" if idem.key is not None else "")
             ),
         )
         db.add(pending)
@@ -453,9 +458,7 @@ async def _finalize_pending_gdpr_request(
         row.completed_at = datetime.utcnow()
     if notes_suffix:
         existing = row.notes or ""
-        row.notes = (
-            f"{existing}\n{notes_suffix}" if existing else notes_suffix
-        )
+        row.notes = f"{existing}\n{notes_suffix}" if existing else notes_suffix
     await db.commit()
 
 
@@ -740,3 +743,192 @@ async def delete_customer(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to delete customer",
         )
+
+
+# ---------------------------------------------------------------------------
+# V1.1 consultation module — customer no-gos + style profile (Task 8).
+#
+# No-gos and the style profile are preference data, not design IP (design
+# intent/wishes live on Consultation, which is CONSULTATION_*-gated,
+# GOLDSMITH/ADMIN only). These endpoints reuse the existing customer
+# CUSTOMER_VIEW/CUSTOMER_EDIT permissions, so a VIEWER with customer-view
+# access keeps read access to no-go warnings.
+# ---------------------------------------------------------------------------
+
+
+def _normalize_style_profile(raw: Dict[str, Any]) -> Dict[str, Any]:
+    """Coerce ``None`` values in a style-profile dict to ``[]``.
+
+    Final-review fix: ``StyleProfileRead`` declares every field as
+    ``List[str] = []``, so a stored/incoming ``None`` fails Pydantic
+    validation. ``None`` can reach this dict two ways:
+
+    1. An explicit ``PATCH {"metal_tones": null}`` — the key IS present
+       under ``exclude_unset=True`` (the client explicitly set it), just
+       to ``None``. We treat that as "reset this field to []" — the
+       RESTful, most useful interpretation of a client clearing a
+       list-shaped preference field. (The alternative — dropping
+       ``None``-valued keys instead of merging them — would silently
+       keep the stale value rather than honoring the client's intent to
+       clear it.)
+    2. A row poisoned by the pre-fix version of this endpoint, where a
+       raw ``None`` was already persisted into the JSON column.
+
+    Normalizing here (rather than only in the PATCH merge) means a
+    pre-poisoned row self-heals the next time it is read OR patched,
+    instead of continuing to 500 on every subsequent GET.
+    """
+    return {key: ([] if value is None else value) for key, value in raw.items()}
+
+
+@router.get("/{customer_id}/no-gos", response_model=List[NoGoRead])
+async def list_customer_no_gos(
+    customer_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_permission(Permission.CUSTOMER_VIEW)),
+):
+    """
+    List all no-gos (persistent exclusions, e.g. allergies) for a customer.
+
+    Permissions: Requires CUSTOMER_VIEW permission.
+    """
+    return await NoGoService.list_no_gos(db, customer_id)
+
+
+@router.post(
+    "/{customer_id}/no-gos",
+    response_model=NoGoRead,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_customer_no_go(
+    customer_id: int,
+    no_go_in: NoGoCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_permission(Permission.CUSTOMER_EDIT)),
+):
+    """
+    Add a no-go (persistent exclusion, e.g. an allergy) for a customer.
+
+    404 if the customer does not exist. 409 if an equivalent no-go (same
+    category, case-insensitively equal value) already exists for this
+    customer.
+
+    Permissions: Requires CUSTOMER_EDIT permission.
+    """
+    try:
+        return await NoGoService.add_no_go(db, customer_id, no_go_in)
+    except DuplicateNoGoError:
+        # SECURITY (binding review note): no-go values are health-adjacent
+        # data (e.g. allergies). The 409 detail is a hardcoded generic
+        # string, and the exception message is never forwarded or logged —
+        # typed handling, no string-matching on user-influenced text.
+        logger.warning(
+            "Duplicate no-go rejected",
+            extra={"customer_id": customer_id},
+        )
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Dieses No-Go existiert bereits",
+        )
+    except ValueError:
+        # Unknown customer. Generic detail — never forward the message.
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Kunde nicht gefunden",
+        )
+
+
+@router.delete(
+    "/{customer_id}/no-gos/{no_go_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def delete_customer_no_go(
+    customer_id: int,
+    no_go_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_permission(Permission.CUSTOMER_EDIT)),
+):
+    """
+    Remove a no-go from a customer.
+
+    Permissions: Requires CUSTOMER_EDIT permission.
+    """
+    try:
+        await NoGoService.delete_no_go(db, customer_id, no_go_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+
+
+@router.get("/{customer_id}/no-gos/check", response_model=List[NoGoConflict])
+async def check_customer_no_go_conflicts(
+    customer_id: int,
+    candidate: List[str] = Query(
+        ...,
+        description="Candidate material/stone/etc. values to check against "
+        "the customer's recorded no-gos",
+    ),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_permission(Permission.CUSTOMER_VIEW)),
+):
+    """
+    Check candidate values (e.g. materials being discussed in a consultation)
+    against a customer's recorded no-gos. Bidirectional, case-insensitive
+    substring match — see ``NoGoService.check_conflicts``.
+
+    Permissions: Requires CUSTOMER_VIEW permission.
+    """
+    return await NoGoService.check_conflicts(db, customer_id, candidate)
+
+
+@router.get("/{customer_id}/style-profile", response_model=StyleProfileRead)
+async def get_style_profile(
+    customer_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_permission(Permission.CUSTOMER_VIEW)),
+):
+    """
+    Get a customer's style profile (metal tones, finishes, stone
+    preferences, style words). Returns empty lists when the column is NULL.
+
+    Permissions: Requires CUSTOMER_VIEW permission.
+    """
+    customer = await db.get(CustomerModel, customer_id)
+    if customer is None or customer.is_deleted:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Customer {customer_id} not found",
+        )
+    return StyleProfileRead(**_normalize_style_profile(customer.style_profile or {}))
+
+
+@router.patch("/{customer_id}/style-profile", response_model=StyleProfileRead)
+async def update_style_profile(
+    customer_id: int,
+    update_in: StyleProfileUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_permission(Permission.CUSTOMER_EDIT)),
+):
+    """
+    Update a customer's style profile with merge semantics — only the keys
+    provided in the request body are replaced; omitted keys keep their
+    previously stored value.
+
+    Permissions: Requires CUSTOMER_EDIT permission.
+    """
+    async with transactional(db):
+        customer = await db.get(CustomerModel, customer_id)
+        if customer is None or customer.is_deleted:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Customer {customer_id} not found",
+            )
+        profile = dict(customer.style_profile or {})
+        profile.update(update_in.model_dump(exclude_unset=True))
+        # See _normalize_style_profile: an explicit null in the PATCH body
+        # resets that field to [] rather than poisoning the JSON column
+        # with None (which would 500 every subsequent read via
+        # StyleProfileRead). Also self-heals any pre-existing poisoned
+        # value in a field this request didn't touch.
+        profile = _normalize_style_profile(profile)
+        customer.style_profile = profile
+    return StyleProfileRead(**profile)

@@ -4,9 +4,9 @@ File-level GDPR Art. 17 erasure service.
 Complements ``CustomerService.scrub_customer_pii`` (which scrubs DB-resident
 freetext PII) by removing the filesystem artefacts referenced by DB path
 columns — generated valuation PDFs, order / repair photos, scrap-gold
-receipts. These files contain customer PII (names, addresses, signatures,
-item photos) that survives the DB scrub because the DB stores only the
-path, not the content.
+receipts, consultation sketches/references (+ thumbnails). These files
+contain customer PII (names, addresses, signatures, item photos) that
+survives the DB scrub because the DB stores only the path, not the content.
 
 Design highlights
 -----------------
@@ -51,12 +51,12 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, List, Optional, Tuple
 
-from sqlalchemy import select, update
+from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from goldsmith_erp.db.models import Consultation, ConsultationPhoto, CustomerAuditLog
+from goldsmith_erp.db.models import Order as OrderModel
 from goldsmith_erp.db.models import (
-    CustomerAuditLog,
-    Order as OrderModel,
     OrderPhoto,
     RepairJob,
     RepairPhoto,
@@ -322,8 +322,9 @@ class FileErasureService:
 
     async def _collect_parent_ids(
         self, db: AsyncSession, customer_id: int
-    ) -> Tuple[List[int], List[int], List[int]]:
-        """Fetch the order / repair-job / scrap-gold IDs owned by a customer.
+    ) -> Tuple[List[int], List[int], List[int], List[int]]:
+        """Fetch the order / repair-job / scrap-gold / consultation IDs
+        owned by a customer.
 
         These ID lists drive the transitive-link queries on each
         target. Computed up-front and passed through so the service
@@ -360,7 +361,18 @@ class FileErasureService:
             .scalars()
             .all()
         ]
-        return order_ids, repair_job_ids, scrap_gold_ids
+        consultation_ids = list(
+            (
+                await db.execute(
+                    select(Consultation.id).filter(
+                        Consultation.customer_id == customer_id
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        return order_ids, repair_job_ids, scrap_gold_ids, consultation_ids
 
     async def _rows_for_target(
         self,
@@ -459,6 +471,7 @@ class FileErasureService:
             order_ids,
             repair_job_ids,
             scrap_gold_ids,
+            consultation_ids,
         ) = await self._collect_parent_ids(db, customer_id)
 
         for target in FILE_ERASURE_TARGETS:
@@ -622,6 +635,17 @@ class FileErasureService:
                 "failed": per_target_failed,
             }
 
+        # Consultation photos don't fit the declarative FILE_ERASURE_TARGETS
+        # shape above — see _erase_consultation_photos docstring for why.
+        await self._erase_consultation_photos(
+            db,
+            customer_id=customer_id,
+            consultation_ids=consultation_ids,
+            performed_by=performed_by,
+            dry_run=dry_run,
+            result=result,
+        )
+
         # Audit row — written regardless of dry_run so that even
         # preview calls are traceable. Field ``dry_run`` in the
         # details JSON distinguishes them.
@@ -650,6 +674,234 @@ class FileErasureService:
         )
 
         return result
+
+    # ── consultation photos ──────────────────────────────────────────────
+
+    async def _erase_consultation_photos(
+        self,
+        db: AsyncSession,
+        *,
+        customer_id: int,
+        consultation_ids: List[int],
+        performed_by: Optional[int],
+        dry_run: bool,
+        result: FileErasureResult,
+    ) -> None:
+        """Delete ``ConsultationPhoto`` files, thumbnails, and rows.
+
+        Unlike the declarative ``FILE_ERASURE_TARGETS`` above (which null a
+        single path column and KEEP the parent row — the RepairJob /
+        RepairPhoto Art. 30 retention precedent), a consultation photo row
+        has no standalone retention value once its file is gone: the row
+        IS the photo. So on erasure this deletes the ORIGINAL file, its
+        THUMBNAIL (``consultations/{consultation_id}/thumbs/{uuid}.jpg`` —
+        Task 6's layout), and the ``consultation_photos`` row itself. The
+        parent ``consultations`` row is untouched here — its own PII
+        (wishes / notes / source_material / budget) is scrubbed separately
+        by ``CustomerService.scrub_customer_pii`` and the row survives for
+        Art. 30 record-keeping, matching RepairJob.
+
+        A MISSING thumbnail is tolerated silently — thumbnail generation
+        is already non-fatal on upload
+        (``ConsultationPhotoService.upload_photo``), so a thumb can be
+        legitimately absent. A failed unlink of an EXISTING thumbnail,
+        however, is a hard erasure failure (counted under
+        ``files_failed`` + ``errors``, row kept) — otherwise the sweep
+        would report "all files erased cleanly" while design-IP remains
+        on disk with no DB reference left for retry.
+
+        A row whose ORIGINAL file fails to delete (path-traversal escape,
+        IO error) is likewise left in place — same as the declarative
+        targets — so the admin can inspect / retry. Idempotent: a second
+        sweep finds no rows left under ``consultation_ids`` (they were
+        deleted in the first sweep) and is a no-op; rows retained due to
+        a failure are retried and converge (a deleted original counts as
+        ``files_missing`` on retry, then the thumb is attempted again).
+        """
+        table = "consultation_photos"
+        column = "file_path"
+
+        per_target_checked = 0
+        per_target_deleted = 0
+        per_target_missing = 0
+        per_target_failed = 0
+
+        if consultation_ids:
+            rows = (
+                (
+                    await db.execute(
+                        select(ConsultationPhoto).filter(
+                            ConsultationPhoto.consultation_id.in_(consultation_ids)
+                        )
+                    )
+                )
+                .scalars()
+                .all()
+            )
+        else:
+            rows = []
+
+        row_ids_to_delete: List[str] = []
+
+        for row in rows:
+            raw_path = row.file_path
+            if not raw_path:
+                # NOT NULL column in the schema, but guard defensively —
+                # nothing to delete, nothing to count.
+                continue
+
+            per_target_checked += 1
+            result.files_checked += 1
+
+            resolved = self._safe_resolve(raw_path)
+
+            if resolved is None:
+                message = (
+                    "path escapes FILE_STORAGE_ROOT "
+                    f"({self._storage_root}) — refused"
+                )
+                result.files_failed += 1
+                per_target_failed += 1
+                result.errors.append((raw_path, message))
+                logger.error(
+                    "file erasure refused — path-traversal guard",
+                    extra={
+                        "audit": True,
+                        "action": "file_erasure_refused",
+                        "customer_id": customer_id,
+                        "user_id": performed_by,
+                        "table": table,
+                        "column": column,
+                        "raw_path": raw_path,
+                        "storage_root": str(self._storage_root),
+                    },
+                )
+                continue
+
+            # Derived from the already-validated `resolved` path, so it is
+            # guaranteed to stay inside storage_root — same construction
+            # ConsultationPhotoService.get_photo_path uses.
+            thumb_resolved = resolved.parent / "thumbs" / f"{resolved.stem}.jpg"
+
+            if dry_run:
+                if resolved.exists():
+                    per_target_deleted += 1
+                    result.files_deleted += 1
+                else:
+                    per_target_missing += 1
+                    result.files_missing += 1
+                row_ids_to_delete.append(row.id)
+                continue
+
+            try:
+                if resolved.exists():
+                    os.unlink(resolved)
+                    per_target_deleted += 1
+                    result.files_deleted += 1
+                    logger.info(
+                        "file erased for Art. 17 request",
+                        extra={
+                            "audit": True,
+                            "action": "file_erased",
+                            "customer_id": customer_id,
+                            "user_id": performed_by,
+                            "table": table,
+                            "column": column,
+                            "resolved_path": str(resolved),
+                        },
+                    )
+                else:
+                    per_target_missing += 1
+                    result.files_missing += 1
+                    logger.warning(
+                        "file erasure found missing file — "
+                        "DB path present, disk absent",
+                        extra={
+                            "audit": True,
+                            "action": "file_erasure_missing",
+                            "customer_id": customer_id,
+                            "user_id": performed_by,
+                            "table": table,
+                            "column": column,
+                            "resolved_path": str(resolved),
+                            "raw_path": raw_path,
+                        },
+                    )
+            except (OSError, PermissionError) as exc:
+                message = f"{type(exc).__name__}: {exc}"
+                result.files_failed += 1
+                per_target_failed += 1
+                result.errors.append((str(resolved), message))
+                logger.error(
+                    "file erasure failed — IO error",
+                    extra={
+                        "audit": True,
+                        "action": "file_erasure_failed",
+                        "customer_id": customer_id,
+                        "user_id": performed_by,
+                        "table": table,
+                        "column": column,
+                        "resolved_path": str(resolved),
+                        "error_type": type(exc).__name__,
+                        "error_message": str(exc),
+                    },
+                )
+                # Row NOT queued for deletion — kept so the admin can
+                # inspect / re-run manually, mirroring the declarative
+                # targets' files_failed handling.
+                continue
+
+            # Thumbnail. A MISSING thumb is fine — thumbnail generation
+            # is non-fatal at upload, so a thumb can legitimately be
+            # absent. A failed unlink of an EXISTING thumb is a hard
+            # erasure failure: the customer's design-IP thumbnail is
+            # still on disk, so it must count under ``files_failed`` /
+            # ``errors`` (→ 207 / PARTIAL_FILE_ERASURE at the endpoint)
+            # and the row must be KEPT so the admin can inspect and a
+            # re-run can retry. On that retry the (already-deleted)
+            # original counts as ``files_missing`` and the thumb is
+            # attempted again — the sweep converges.
+            try:
+                if thumb_resolved.exists():
+                    os.unlink(thumb_resolved)
+            except (OSError, PermissionError) as exc:
+                message = f"{type(exc).__name__}: {exc}"
+                result.files_failed += 1
+                per_target_failed += 1
+                result.errors.append((str(thumb_resolved), message))
+                logger.error(
+                    "file erasure failed — thumbnail IO error",
+                    extra={
+                        "audit": True,
+                        "action": "file_erasure_failed",
+                        "customer_id": customer_id,
+                        "user_id": performed_by,
+                        "table": table,
+                        "column": column,
+                        "resolved_path": str(thumb_resolved),
+                        "error_type": type(exc).__name__,
+                        "error_message": str(exc),
+                    },
+                )
+                # Row NOT queued for deletion — kept for admin retry.
+                continue
+
+            row_ids_to_delete.append(row.id)
+
+        if row_ids_to_delete and not dry_run:
+            await db.execute(
+                delete(ConsultationPhoto).where(
+                    ConsultationPhoto.id.in_(row_ids_to_delete)
+                )
+            )
+            await db.flush()
+
+        result.per_target_counts[f"{table}.{column}"] = {
+            "checked": per_target_checked,
+            "deleted": per_target_deleted,
+            "missing": per_target_missing,
+            "failed": per_target_failed,
+        }
 
     # ── audit ──────────────────────────────────────────────────────────
 

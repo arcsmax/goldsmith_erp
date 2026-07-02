@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import Boolean, Column, DateTime, text
+from sqlalchemy import Boolean, Column, Date, DateTime
 from sqlalchemy import Enum as _SAEnum
 from sqlalchemy import (
     Float,
@@ -273,6 +273,9 @@ class Customer(Base):
     preferences = Column(
         JSON, default=dict
     )  # {"bevorzugt": "Platin", "style": "modern"}
+    style_profile = Column(
+        JSON, nullable=True
+    )  # V1.1: {metal_tones, finishes, stone_preferences, style_words}
     birthday = Column(DateTime, nullable=True)  # For marketing/gift vouchers
 
     # Metadata
@@ -327,6 +330,7 @@ def _customer_before_insert(_mapper, _connection, target: "Customer") -> None:
     if target.email and not target.email_hash:
         # Import locally to avoid a cycle (encryption → config → logging → …).
         from goldsmith_erp.core.encryption import hmac_blind_index  # noqa: PLC0415
+
         target.email_hash = hmac_blind_index(target.email)
 
 
@@ -339,6 +343,7 @@ def _customer_before_update(_mapper, _connection, target: "Customer") -> None:
     """
     if target.email and not target.email_hash:
         from goldsmith_erp.core.encryption import hmac_blind_index  # noqa: PLC0415
+
         target.email_hash = hmac_blind_index(target.email)
 
 
@@ -775,9 +780,7 @@ class TimeEntry(Base):
 # behaviour — fail loudly on schema violation rather than silently
 # writing PII.
 
-from goldsmith_erp.models.time_entry_metadata import (  # noqa: E402
-    TimeEntryMetadata,
-)
+from goldsmith_erp.models.time_entry_metadata import TimeEntryMetadata  # noqa: E402
 
 
 @event.listens_for(TimeEntry, "before_insert")
@@ -1570,6 +1573,7 @@ class NotificationTypeEnum(str, enum.Enum):
     REPAIR_RECEIVED = "repair_received"  # Reparaturauftrag eingegangen
     REPAIR_READY = "repair_ready"  # Reparatur abholbereit
     BIRTHDAY_REMINDER = "birthday_reminder"
+    CONSULTATION_FOLLOWUP = "consultation_followup"  # Beratung: Wiedervorlage fällig
 
 
 class NotificationSeverityEnum(str, enum.Enum):
@@ -1936,6 +1940,174 @@ class RepairPhoto(Base):
         return f"<RepairPhoto repair={self.repair_job_id} " f"phase={self.phase.value}>"
 
 
+# ---------------------------------------------------------------------------
+# V1.1 Consultation & Intake (Beratung & Annahme)
+# ---------------------------------------------------------------------------
+
+
+class ConsultationStatus(str, enum.Enum):
+    """Lifecycle of a consultation (Beratungsgespräch)."""
+
+    DRAFT = "draft"  # Laufende/unterbrochene Beratung — auto-save target
+    COMPLETED = "completed"  # Beratung abgeschlossen, noch nicht konvertiert
+    CONVERTED = "converted"  # In Auftrag oder Kostenvoranschlag überführt
+    ARCHIVED = "archived"  # Nicht weiterverfolgt
+
+
+class ConsultationOccasion(str, enum.Enum):
+    """Anlass des Schmuckwunsches."""
+
+    ENGAGEMENT = "engagement"
+    WEDDING = "wedding"
+    ANNIVERSARY = "anniversary"
+    BIRTHDAY = "birthday"
+    SELF = "self"  # Selbstkauf
+    REDESIGN = "redesign"  # Umarbeitung
+    REPAIR_CONSULT = "repair_consult"
+    OTHER = "other"
+
+
+class ConsultationPhotoKind(str, enum.Enum):
+    """Art eines Beratungsfotos."""
+
+    SKETCH = "sketch"  # Foto der Papierskizze
+    REFERENCE = "reference"  # Referenz-/Inspirationsbild des Kunden
+    INSPIRATION = "inspiration"
+    EXISTING_PIECE = "existing_piece"  # Mitgebrachtes Stück (z. B. Erbstück)
+
+
+class NoGoCategory(str, enum.Enum):
+    """Kategorie eines Kunden-No-Gos."""
+
+    METAL = "metal"
+    STONE = "stone"
+    FINISH = "finish"
+    DESIGN_ELEMENT = "design_element"
+    ALLERGY = "allergy"
+    OTHER = "other"
+
+
+class Consultation(Base):
+    """Beratungsgespräch — strukturierte Aufnahme eines Schmuckwunsches.
+
+    Wishes/notes/photos are design IP: GOLDSMITH/ADMIN access only.
+    budget_min/budget_max are financial data (ADMIN/GOLDSMITH, audit-logged).
+    """
+
+    __tablename__ = "consultations"
+
+    id = Column(Integer, primary_key=True, index=True)
+    customer_id = Column(
+        Integer,
+        ForeignKey("customers.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    conducted_by = Column(
+        Integer, ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
+    )
+    calendar_event_id = Column(
+        Integer, ForeignKey("calendar_events.id", ondelete="SET NULL"), nullable=True
+    )
+    occasion = Column(
+        SAEnum(ConsultationOccasion),
+        nullable=False,
+        default=ConsultationOccasion.OTHER,
+    )
+    occasion_date = Column(Date, nullable=True)
+    budget_min = Column(Float, nullable=True)  # Finanzdaten — Sichtbarkeitsregeln!
+    budget_max = Column(Float, nullable=True)
+    piece_type = Column(SAEnum(OrderTypeEnum), nullable=True)
+    wishes = Column(Text, nullable=True)  # Design-IP
+    materials_discussed = Column(JSON, nullable=True)  # [{"metal": "gold_585", ...}]
+    source_material = Column(Text, nullable=True)  # Altgold/Erbstück des Kunden
+    status = Column(
+        SAEnum(ConsultationStatus),
+        nullable=False,
+        default=ConsultationStatus.DRAFT,
+        index=True,
+    )
+    converted_quote_id = Column(
+        Integer, ForeignKey("quotes.id", ondelete="SET NULL"), nullable=True
+    )
+    converted_order_id = Column(
+        Integer, ForeignKey("orders.id", ondelete="SET NULL"), nullable=True
+    )
+    follow_up_at = Column(DateTime, nullable=True)
+    notes = Column(Text, nullable=True)  # Design-IP
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    updated_at = Column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+    )
+
+    customer = relationship("Customer")
+    goldsmith = relationship("User", foreign_keys=[conducted_by])
+    photos = relationship(
+        "ConsultationPhoto",
+        back_populates="consultation",
+        cascade="all, delete-orphan",
+        order_by="ConsultationPhoto.timestamp.asc()",
+    )
+
+    def __repr__(self) -> str:
+        return f"<Consultation {self.id} customer={self.customer_id} status={self.status.value}>"
+
+
+class ConsultationPhoto(Base):
+    """Skizzen-/Referenzfoto einer Beratung. Cloned from OrderPhoto conventions."""
+
+    __tablename__ = "consultation_photos"
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    consultation_id = Column(
+        Integer,
+        ForeignKey("consultations.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    # Set on conversion so the bench sees the sketch on the order (spec: link, not copy).
+    order_id = Column(
+        Integer, ForeignKey("orders.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    kind = Column(
+        SAEnum(ConsultationPhotoKind),
+        nullable=False,
+        default=ConsultationPhotoKind.SKETCH,
+    )
+    file_path = Column(String(500), nullable=False)
+    timestamp = Column(DateTime, default=datetime.utcnow, index=True)
+    taken_by = Column(
+        Integer, ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
+    )
+    notes = Column(Text)
+
+    consultation = relationship("Consultation", back_populates="photos")
+    user = relationship("User")
+
+
+class CustomerNoGo(Base):
+    """Persistentes Kunden-No-Go (z. B. 'kein Nickel'). Warn-Quelle für Aufträge."""
+
+    __tablename__ = "customer_no_gos"
+
+    id = Column(Integer, primary_key=True, index=True)
+    customer_id = Column(
+        Integer,
+        ForeignKey("customers.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    category = Column(SAEnum(NoGoCategory), nullable=False)
+    value = Column(String(200), nullable=False)
+    note = Column(Text, nullable=True)
+    source_consultation_id = Column(
+        Integer, ForeignKey("consultations.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    customer = relationship("Customer")
+
+
 # ============================================================================
 # HALLMARKING / PUNZIERUNG
 # ============================================================================
@@ -2178,6 +2350,7 @@ class ValuationCertificate(Base):
     def appraised_value(self):
         """Decrypted numeric appraised value (EUR) as ``Decimal``."""
         from decimal import Decimal  # local import — avoid top-of-file churn
+
         cipher = self._appraised_value_cipher
         if cipher is None:
             return None
@@ -2186,6 +2359,7 @@ class ValuationCertificate(Base):
     @appraised_value.setter
     def appraised_value(self, value) -> None:
         from decimal import Decimal  # local import
+
         if value is None:
             self._appraised_value_cipher = None
             # Hash column is NOT NULL; we only null the cipher if the caller
@@ -2201,6 +2375,7 @@ class ValuationCertificate(Base):
         # Local import — matches the C1 pattern on Customer.email_hash and
         # avoids a module-level cycle (encryption → config → logging → …).
         from goldsmith_erp.core.encryption import hmac_blind_index  # noqa: PLC0415
+
         self.appraised_value_hmac = hmac_blind_index(normalised)
 
     def __repr__(self) -> str:
@@ -2238,6 +2413,7 @@ def _valuation_before_insert(
     cipher = target._appraised_value_cipher
     if cipher and not target.appraised_value_hmac:
         from goldsmith_erp.core.encryption import hmac_blind_index  # noqa: PLC0415
+
         target.appraised_value_hmac = hmac_blind_index(cipher)
 
 
@@ -2254,6 +2430,7 @@ def _valuation_before_update(
     cipher = target._appraised_value_cipher
     if cipher and not target.appraised_value_hmac:
         from goldsmith_erp.core.encryption import hmac_blind_index  # noqa: PLC0415
+
         target.appraised_value_hmac = hmac_blind_index(cipher)
 
 
