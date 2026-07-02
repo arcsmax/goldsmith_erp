@@ -96,7 +96,7 @@ describe('ConsultationWizardPage', () => {
     // The real OccasionBudgetStep now reports fields via onFieldsChange —
     // pick a chip distinct from the seeded 'other' occasion so pendingPatch
     // is non-empty and Weiter actually calls the PATCH.
-    await userEvent.click(screen.getByRole('button', { name: 'Hochzeit' }));
+    await userEvent.click(screen.getByRole('radio', { name: 'Hochzeit' }));
     await userEvent.click(screen.getByRole('button', { name: /Weiter/ }));
 
     // OccasionBudgetStep reports the full field-set of its step (not just the
@@ -141,7 +141,7 @@ describe('ConsultationWizardPage', () => {
 
     // Select an occasion — a valid, non-empty pendingPatch — but do NOT
     // click Weiter. Instead jump backward via the step-1 progress dot.
-    await userEvent.click(screen.getByRole('button', { name: 'Hochzeit' }));
+    await userEvent.click(screen.getByRole('radio', { name: 'Hochzeit' }));
     await userEvent.click(screen.getByRole('button', { name: 'Schritt 1: Kundin' }));
 
     // The backward jump must still PATCH the valid edit — the old
@@ -166,7 +166,7 @@ describe('ConsultationWizardPage', () => {
     await screen.findByRole('heading', { name: 'Anlass & Budget' });
 
     // Build a non-empty pendingPatch on step 2 — but never click Weiter.
-    await userEvent.click(screen.getByRole('button', { name: 'Hochzeit' }));
+    await userEvent.click(screen.getByRole('radio', { name: 'Hochzeit' }));
 
     // Simulate a browser-back/forward navigation: the router changes the
     // `step` param directly, bypassing handleBack/handleNext/navigateToStep

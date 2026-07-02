@@ -72,7 +72,13 @@ export const NoGoWarning: React.FC<NoGoWarningProps> = ({ customerId, candidates
   return (
     <div className="no-go-warnings">
       {conflicts.map((conflict) => (
-        <div className="no-go-warning-banner" key={conflict.no_go_id}>
+        // Composite key: the same no_go_id can conceivably match against
+        // more than one candidate string in a single check, which would
+        // collide on no_go_id alone and drop a banner.
+        <div
+          className="no-go-warning-banner"
+          key={conflict.no_go_id + '-' + conflict.matched_against}
+        >
           ⚠️ No-Go der Kundin: {conflict.value} ({conflict.matched_against})
         </div>
       ))}

@@ -19,10 +19,7 @@ import { Customer, NoGo } from '../../types';
 import { useConfirm, useToast } from '../../contexts';
 import { logError } from '../../lib/logError';
 import AuthenticatedImage from '../AuthenticatedImage';
-import { OCCASION_LABELS } from './OccasionBudgetStep';
-import { PIECE_TYPE_LABELS } from './WishStep';
-import { PHOTO_KIND_LABELS } from './PhotoStep';
-import { NO_GO_CATEGORY_LABELS } from './StyleNoGoStep';
+import { OCCASION_LABELS, PIECE_TYPE_LABELS, PHOTO_KIND_LABELS, NO_GO_CATEGORY_LABELS } from './labels';
 
 const budgetFormatter = new Intl.NumberFormat('de-DE', {
   style: 'currency',
@@ -76,8 +73,8 @@ export const SummaryStep: React.FC<WizardStepProps> = ({ consultation, onPatch }
         const data = await customersApi.getById(consultation.customer_id);
         if (!cancelled) setCustomer(data);
       } catch (err) {
-        logError('Kunde laden fehlgeschlagen', err);
-        if (!cancelled) showToast('Kunde konnte nicht geladen werden', 'error');
+        logError('Kundin laden fehlgeschlagen', err);
+        if (!cancelled) showToast('Kundin konnte nicht geladen werden', 'error');
       } finally {
         if (!cancelled) setIsLoadingCustomer(false);
       }
@@ -137,7 +134,16 @@ export const SummaryStep: React.FC<WizardStepProps> = ({ consultation, onPatch }
         target === 'quote' ? 'Kostenvoranschlag erstellt' : 'Auftrag angelegt',
         'success'
       );
-      navigate(target === 'quote' ? '/quotes' : `/orders/${updated.converted_order_id}`);
+      // Null-guard both ids before building a route — there is no
+      // `/quotes/:id` detail route (the quote branch always lands on the
+      // generic list), but the order branch interpolates an id and must
+      // never navigate to `/orders/undefined` if the backend response is
+      // ever missing it.
+      if (target === 'quote') {
+        navigate('/quotes');
+      } else {
+        navigate(updated.converted_order_id ? `/orders/${updated.converted_order_id}` : '/orders');
+      }
     } catch (err) {
       if (axios.isAxiosError(err) && err.response?.status === 409) {
         showToast('Bereits konvertiert', 'error');

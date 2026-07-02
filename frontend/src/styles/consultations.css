@@ -322,8 +322,8 @@
   color: var(--color-text-body);
 }
 .consultation-status-badge.status-completed {
-  background: color-mix(in srgb, #16a34a 15%, transparent);
-  color: #15803d;
+  background: color-mix(in srgb, var(--color-success-500) 15%, transparent);
+  color: var(--color-success-600);
 }
 .consultation-status-badge.status-converted {
   background: color-mix(in srgb, var(--color-interactive-primary) 18%, transparent);

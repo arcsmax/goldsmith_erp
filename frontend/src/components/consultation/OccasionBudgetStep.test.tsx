@@ -41,16 +41,20 @@ describe('OccasionBudgetStep', () => {
       />
     );
 
+    // Single-select chip group: each chip is role="radio" inside a
+    // role="radiogroup" container (final-review polish, replaces aria-pressed).
+    expect(screen.getByRole('radiogroup', { name: 'Anlass' })).toBeInTheDocument();
     const labels = Object.values(OCCASION_LABELS);
     expect(labels).toHaveLength(8);
     labels.forEach((label) => {
-      expect(screen.getByRole('button', { name: label })).toBeInTheDocument();
+      expect(screen.getByRole('radio', { name: label })).toBeInTheDocument();
     });
 
-    const weddingChip = screen.getByRole('button', { name: OCCASION_LABELS.wedding });
+    const weddingChip = screen.getByRole('radio', { name: OCCASION_LABELS.wedding });
     await userEvent.click(weddingChip);
 
     expect(weddingChip).toHaveClass('selected');
+    expect(weddingChip).toHaveAttribute('aria-checked', 'true');
     expect(onFieldsChange).toHaveBeenCalledWith(expect.objectContaining({ occasion: 'wedding' }));
   });
 

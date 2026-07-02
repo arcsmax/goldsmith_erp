@@ -105,7 +105,9 @@ describe('PhotoStep', () => {
     });
     renderStep(makeConsultation());
 
-    await userEvent.click(screen.getByRole('button', { name: PHOTO_KIND_LABELS.reference }));
+    // Single-select chip group: role="radio" inside role="radiogroup"
+    // (final-review polish, replaces aria-pressed).
+    await userEvent.click(screen.getByRole('radio', { name: PHOTO_KIND_LABELS.reference }));
 
     const file = new File(['x'], 'idea.jpg', { type: 'image/jpeg' });
     const input = screen.getByLabelText(/Foto hinzufügen/i, { selector: 'input' });

@@ -132,21 +132,33 @@ export const MeasurementPanel: React.FC<{
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
-  const loadMeasurements = useCallback(async () => {
-    try {
-      setIsLoading(true);
-      const resp = await measurementsApi.getForCustomer(customer.id);
-      setMeasurements(resp.data || []);
-    } catch {
-      // Backend may not have this endpoint yet — fall back to legacy fields
-      setMeasurements([]);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [customer.id]);
+  // Optional cancelledRef: passed by the mount/customer-change effect below
+  // to guard against a stale response landing after the customer changed
+  // again; omitted (never cancelled) when called from the add/delete
+  // handlers, which are one-shot user-triggered refetches.
+  const loadMeasurements = useCallback(
+    async (cancelledRef?: { current: boolean }) => {
+      try {
+        setIsLoading(true);
+        const resp = await measurementsApi.getForCustomer(customer.id);
+        if (cancelledRef?.current) return;
+        setMeasurements(resp.data || []);
+      } catch {
+        // Backend may not have this endpoint yet — fall back to legacy fields
+        if (!cancelledRef?.current) setMeasurements([]);
+      } finally {
+        if (!cancelledRef?.current) setIsLoading(false);
+      }
+    },
+    [customer.id]
+  );
 
   useEffect(() => {
-    loadMeasurements();
+    const cancelledRef = { current: false };
+    loadMeasurements(cancelledRef);
+    return () => {
+      cancelledRef.current = true;
+    };
   }, [loadMeasurements]);
 
   const handleAdd = async (e: React.FormEvent) => {

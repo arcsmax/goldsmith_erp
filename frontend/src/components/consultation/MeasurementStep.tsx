@@ -25,7 +25,7 @@ export const MeasurementStep: React.FC<{ customerId: number }> = ({ customerId }
         const data = await customersApi.getById(customerId);
         if (!cancelled) setCustomer(data);
       } catch (err) {
-        logError('Kunde für Maßbibliothek laden fehlgeschlagen', err);
+        logError('Kundin für Maßbibliothek laden fehlgeschlagen', err);
       } finally {
         if (!cancelled) setIsLoading(false);
       }
@@ -35,8 +35,8 @@ export const MeasurementStep: React.FC<{ customerId: number }> = ({ customerId }
     };
   }, [customerId]);
 
-  if (isLoading) return <p>Lade Kundendaten...</p>;
-  if (!customer) return <p>Kunde konnte nicht geladen werden.</p>;
+  if (isLoading) return <p>Lade Kundinnendaten...</p>;
+  if (!customer) return <p>Kundin konnte nicht geladen werden.</p>;
 
   return <MeasurementPanel customer={customer} />;
 };

@@ -14,14 +14,10 @@ import { ConsultationPhoto, ConsultationPhotoKind } from '../../types';
 import { useConfirm, useToast } from '../../contexts';
 import { logError } from '../../lib/logError';
 import AuthenticatedImage from '../AuthenticatedImage';
-
-/** Exported for reuse by the summary step (Task 8). */
-export const PHOTO_KIND_LABELS: Record<ConsultationPhotoKind, string> = {
-  sketch: 'Skizze',
-  reference: 'Referenz',
-  inspiration: 'Inspiration',
-  existing_piece: 'Mitgebrachtes Stück',
-};
+// Moved to labels.ts (kills the bundle coupling — see that file's header);
+// re-exported here for backwards compatibility.
+export { PHOTO_KIND_LABELS } from './labels';
+import { PHOTO_KIND_LABELS } from './labels';
 
 const PHOTO_KIND_KEYS = Object.keys(PHOTO_KIND_LABELS) as ConsultationPhotoKind[];
 
@@ -83,13 +79,14 @@ export const PhotoStep: React.FC<WizardStepProps> = ({ consultation, refresh }) 
     <div className="photo-step">
       <div className="wizard-field">
         <label id="photo-kind-label">Art</label>
-        <div className="chip-group" role="group" aria-labelledby="photo-kind-label">
+        <div className="chip-group" role="radiogroup" aria-labelledby="photo-kind-label">
           {PHOTO_KIND_KEYS.map((key) => (
             <button
               key={key}
               type="button"
               className={`chip${selectedKind === key ? ' selected' : ''}`}
-              aria-pressed={selectedKind === key}
+              role="radio"
+              aria-checked={selectedKind === key}
               onClick={() => setSelectedKind(key)}
             >
               {PHOTO_KIND_LABELS[key]}

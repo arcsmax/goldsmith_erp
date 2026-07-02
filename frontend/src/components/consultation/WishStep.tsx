@@ -5,18 +5,10 @@
 import React, { useState } from 'react';
 import type { WizardStepProps } from '../../pages/ConsultationWizardPage';
 import { ConsultationPieceType, ConsultationUpdateInput } from '../../types';
-
-/** Exported for reuse by the summary step (Task 8) and the list page (Task 9). */
-export const PIECE_TYPE_LABELS: Record<ConsultationPieceType, string> = {
-  ring: 'Ring',
-  chain: 'Kette',
-  pendant: 'Anhänger',
-  earrings: 'Ohrringe',
-  bracelet: 'Armband',
-  brooch: 'Brosche',
-  repair: 'Reparatur',
-  custom: 'Sonderanfertigung',
-};
+// Moved to labels.ts (kills the bundle coupling — see that file's header);
+// re-exported here for backwards compatibility.
+export { PIECE_TYPE_LABELS } from './labels';
+import { PIECE_TYPE_LABELS } from './labels';
 
 const PIECE_TYPE_KEYS = Object.keys(PIECE_TYPE_LABELS) as ConsultationPieceType[];
 
@@ -95,13 +87,14 @@ export const WishStep: React.FC<WishStepProps> = ({ consultation, onFieldsChange
     <div className="wish-step">
       <div className="wizard-field">
         <label>Art des Schmuckstücks</label>
-        <div className="chip-group" role="group" aria-label="Art des Schmuckstücks">
+        <div className="chip-group" role="radiogroup" aria-label="Art des Schmuckstücks">
           {PIECE_TYPE_KEYS.map((key) => (
             <button
               key={key}
               type="button"
               className={`chip${pieceType === key ? ' selected' : ''}`}
-              aria-pressed={pieceType === key}
+              role="radio"
+              aria-checked={pieceType === key}
               onClick={() => handlePieceTypeSelect(key)}
             >
               {PIECE_TYPE_LABELS[key]}
@@ -118,6 +111,7 @@ export const WishStep: React.FC<WishStepProps> = ({ consultation, onFieldsChange
           onChange={handleWishesChange}
           placeholder="Erzählen Sie, was der Kundin vorschwebt — Anlass, Stil, besondere Wünsche..."
           rows={5}
+          maxLength={5000}
         />
       </div>
 
@@ -156,6 +150,7 @@ export const WishStep: React.FC<WishStepProps> = ({ consultation, onFieldsChange
           onChange={handleSourceMaterialChange}
           placeholder="z. B. Ehering der Großmutter, 3 Golddukaten..."
           rows={3}
+          maxLength={2000}
         />
       </div>
     </div>

@@ -13,18 +13,11 @@ import type { WizardStepProps } from '../../pages/ConsultationWizardPage';
 import { ConsultationOccasion, ConsultationUpdateInput } from '../../types';
 import { ConsultationOccasionSchema } from '../../lib/validation/schemas';
 import { useFormValidation } from '../../lib/validation/useFormValidation';
-
-/** Exported for reuse by the summary step (Task 8) and the list page (Task 9). */
-export const OCCASION_LABELS: Record<ConsultationOccasion, string> = {
-  engagement: 'Verlobung',
-  wedding: 'Hochzeit',
-  anniversary: 'Jahrestag',
-  birthday: 'Geburtstag',
-  self: 'Für mich selbst',
-  redesign: 'Umarbeitung',
-  repair_consult: 'Reparatur-Beratung',
-  other: 'Anderer Anlass',
-};
+// Moved to labels.ts (final-review polish: kills the bundle coupling where
+// list/summary pages had to import this whole step component just for the
+// label map) — re-exported here for backwards compatibility.
+export { OCCASION_LABELS } from './labels';
+import { OCCASION_LABELS } from './labels';
 
 const OCCASION_KEYS = Object.keys(OCCASION_LABELS) as ConsultationOccasion[];
 
@@ -102,13 +95,14 @@ export const OccasionBudgetStep: React.FC<OccasionBudgetStepProps> = ({
     <div className="occasion-budget-step">
       <div className="wizard-field">
         <label>Anlass</label>
-        <div className="chip-group" role="group" aria-label="Anlass">
+        <div className="chip-group" role="radiogroup" aria-label="Anlass">
           {OCCASION_KEYS.map((key) => (
             <button
               key={key}
               type="button"
               className={`chip${occasion === key ? ' selected' : ''}`}
-              aria-pressed={occasion === key}
+              role="radio"
+              aria-checked={occasion === key}
               onClick={() => handleOccasionSelect(key)}
             >
               {OCCASION_LABELS[key]}

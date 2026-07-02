@@ -40,10 +40,13 @@ describe('WishStep', () => {
       />
     );
 
-    const ringChip = screen.getByRole('button', { name: PIECE_TYPE_LABELS.ring });
+    // Single-select chip group: role="radio" inside role="radiogroup"
+    // (final-review polish, replaces aria-pressed).
+    const ringChip = screen.getByRole('radio', { name: PIECE_TYPE_LABELS.ring });
     await userEvent.click(ringChip);
 
     expect(ringChip).toHaveClass('selected');
+    expect(ringChip).toHaveAttribute('aria-checked', 'true');
     expect(onFieldsChange).toHaveBeenCalledWith(expect.objectContaining({ piece_type: 'ring' }));
   });
 

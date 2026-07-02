@@ -98,6 +98,16 @@
   --color-warning-600: #b8651a;
   --color-warning-bg: #fff4e6;
 
+  /* Success green — "completed"/"paid"/"ready"-style status surfaces.
+   * Added during the V1.1 consultation-UI review fix: no success/green
+   * semantic token existed yet even though several stylesheets (invoices,
+   * repairs, toast) already hardcode this exact hue ad hoc. Mirrors the
+   * --color-warning-500/600/bg triplet above rather than color-mixing an
+   * unrelated (non-green) token, which would misrepresent the status. */
+  --color-success-500: #16a34a;
+  --color-success-600: #15803d;
+  --color-success-bg: #dcfce7;
+
   /* Touch sizing (WCAG + goldsmith glove tolerance). */
   --touch-min: 44px;
   --touch-comfort: 56px;

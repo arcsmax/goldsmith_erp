@@ -13,21 +13,22 @@ import { customersApi } from '../../api/customers';
 import { NoGo, NoGoCategory, NoGoCreateInput, StyleProfile } from '../../types';
 import { useConfirm, useToast } from '../../contexts';
 import { logError } from '../../lib/logError';
-
-/** Exported for reuse by the summary step (Task 8). */
-export const NO_GO_CATEGORY_LABELS: Record<NoGoCategory, string> = {
-  metal: 'Metall',
-  stone: 'Stein',
-  finish: 'Oberfläche',
-  design_element: 'Designelement',
-  allergy: 'Allergie',
-  other: 'Sonstiges',
-};
+// Moved to labels.ts (kills the bundle coupling — see that file's header);
+// re-exported here for backwards compatibility.
+export { NO_GO_CATEGORY_LABELS } from './labels';
+import { NO_GO_CATEGORY_LABELS } from './labels';
 
 const NO_GO_CATEGORY_KEYS = Object.keys(NO_GO_CATEGORY_LABELS) as NoGoCategory[];
 
 /** One-tap allergy shortcuts — the most common workshop allergens. */
 const QUICK_ALLERGENS = ['Nickel', 'Kupfer', 'Silber'];
+
+// Mirrors the backend's StyleProfile validation (consultation.py:
+// `_StyleProfileItem = Annotated[str, StringConstraints(max_length=100)]`,
+// each list `Field(None, max_length=50)`) — capping here means a runaway
+// chip entry never reaches the API and triggers a 422.
+const MAX_STYLE_ITEMS = 50;
+const MAX_STYLE_ITEM_LENGTH = 100;
 
 type StyleListField = keyof StyleProfile;
 
@@ -180,6 +181,17 @@ export const StyleNoGoStep: React.FC<WizardStepProps> = ({ consultation }) => {
     const trimmed = styleInputs[field].trim();
     setStyleInputs((prev) => ({ ...prev, [field]: '' }));
     if (!trimmed || styleProfile[field].includes(trimmed)) return;
+    // Client-side caps mirroring the backend (see MAX_STYLE_ITEMS/
+    // MAX_STYLE_ITEM_LENGTH above) — reject BEFORE the PATCH instead of
+    // letting a 422 surface as a generic save-failure toast.
+    if (trimmed.length > MAX_STYLE_ITEM_LENGTH) {
+      showToast(`Eintrag darf maximal ${MAX_STYLE_ITEM_LENGTH} Zeichen haben`, 'error');
+      return;
+    }
+    if (styleProfile[field].length >= MAX_STYLE_ITEMS) {
+      showToast(`Maximal ${MAX_STYLE_ITEMS} Einträge pro Liste`, 'error');
+      return;
+    }
     patchStyleField(field, [...styleProfile[field], trimmed]);
   };
 

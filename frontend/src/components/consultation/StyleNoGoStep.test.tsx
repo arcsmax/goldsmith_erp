@@ -185,4 +185,31 @@ describe('StyleNoGoStep', () => {
     );
     expect(await screen.findByText('schlicht')).toBeInTheDocument();
   });
+
+  it('rejects a style entry over 100 chars with a toast and never PATCHes it (mirrors the backend cap)', async () => {
+    renderStep();
+    await waitFor(() => expect(mockGetStyleProfile).toHaveBeenCalled());
+
+    const input = screen.getByLabelText('Stil-Worte');
+    await userEvent.type(input, `${'x'.repeat(101)}{Enter}`);
+
+    expect(mockShowToast).toHaveBeenCalledWith(
+      'Eintrag darf maximal 100 Zeichen haben',
+      'error'
+    );
+    expect(mockUpdateStyleProfile).not.toHaveBeenCalled();
+  });
+
+  it('rejects a new style entry once the list already has 50 items (mirrors the backend cap)', async () => {
+    const fullList = Array.from({ length: 50 }, (_, i) => `wort${i}`);
+    mockGetStyleProfile.mockResolvedValue({ ...EMPTY_PROFILE, style_words: fullList });
+    renderStep();
+    await waitFor(() => expect(mockGetStyleProfile).toHaveBeenCalled());
+
+    const input = screen.getByLabelText('Stil-Worte');
+    await userEvent.type(input, 'einmehr{Enter}');
+
+    expect(mockShowToast).toHaveBeenCalledWith('Maximal 50 Einträge pro Liste', 'error');
+    expect(mockUpdateStyleProfile).not.toHaveBeenCalled();
+  });
 });

@@ -132,6 +132,17 @@ describe('SummaryStep', () => {
     expect(mocks.navigate).toHaveBeenCalledWith('/orders/77');
   });
 
+  it('"Auftrag anlegen": falls back to /orders when the response has no converted_order_id', async () => {
+    mockConvert.mockResolvedValue({ ...makeConsultation(), converted_order_id: null });
+    renderStep(makeConsultation());
+    await waitFor(() => expect(mockGetById).toHaveBeenCalled());
+
+    await userEvent.click(screen.getByRole('button', { name: 'Auftrag anlegen' }));
+
+    await waitFor(() => expect(mockConvert).toHaveBeenCalledWith(9, 'order'));
+    expect(mocks.navigate).toHaveBeenCalledWith('/orders');
+  });
+
   it('409 on convert toasts "Bereits konvertiert" and navigates to the existing order', async () => {
     mockConvert.mockRejectedValue({
       isAxiosError: true,
