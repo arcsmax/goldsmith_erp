@@ -1,7 +1,7 @@
 // Reparatur Detailansicht — status actions, photo tabs, diagnosis, history
 import React, { useCallback, useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { repairsApi } from '../api/repairs';
+import { repairPhotoPath, repairPhotoThumbPath, repairsApi } from '../api/repairs';
 import type {
   RepairCompleteInput,
   RepairDiagnoseInput,
@@ -12,6 +12,9 @@ import type {
 } from '../types';
 import { PhotoCompare } from '../components/PhotoCompare';
 import type { PhotoItem } from '../components/PhotoCompare';
+import { IntakeChecklist } from '../components/repairs/IntakeChecklist';
+import { useConfirm, useToast } from '../contexts';
+import { logError } from '../lib/logError';
 import '../styles/repairs.css';
 
 // ─── helpers ────────────────────────────────────────────────────────────────
@@ -329,20 +332,40 @@ function CompleteModal({ repairId, estimatedCost, onClose, onDone }: CompleteMod
 
 const PHASES: RepairPhotoPhase[] = ['intake', 'during_repair', 'completed'];
 
-/** Map RepairPhoto to the generic PhotoItem shape expected by PhotoCompare. */
+/** Backend limit — reject client-side before any upload attempt. */
+const MAX_PHOTO_BYTES = 8 * 1024 * 1024;
+
+/**
+ * Map RepairPhoto to the generic PhotoItem shape expected by PhotoCompare.
+ *
+ * thumbSrc/fullSrc route rendering through AuthenticatedImage instead of a
+ * raw `<img src={file_path}>` — file_path is now a server-side filesystem
+ * path (real upload, Task 3), not a directly fetchable URL.
+ */
 function toPhotoItem(p: RepairPhoto): PhotoItem {
-  return { id: p.id, file_path: p.file_path, notes: p.notes, timestamp: p.timestamp };
+  return {
+    id: p.id,
+    file_path: p.file_path,
+    notes: p.notes,
+    timestamp: p.timestamp,
+    thumbSrc: repairPhotoThumbPath(p.id),
+    fullSrc: repairPhotoPath(p.id),
+  };
 }
 
 function PhotosTab({
   repair,
   onPhotoAdded,
+  reloadRepair,
 }: {
   repair: RepairJob;
   onPhotoAdded: (photo: RepairPhoto) => void;
+  reloadRepair: () => Promise<void>;
 }) {
+  const { showToast } = useToast();
+  const { showConfirm } = useConfirm();
   const [uploadingPhase, setUploadingPhase] = useState<RepairPhotoPhase | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [deletingPhotoId, setDeletingPhotoId] = useState<number | null>(null);
 
   const photosByPhase = (phase: RepairPhotoPhase) =>
     repair.photos.filter(p => p.phase === phase);
@@ -354,23 +377,45 @@ function PhotosTab({
     const file = e.target.files?.[0];
     if (!file) return;
 
-    // In a real implementation this would upload to S3/storage.
-    // For now we use a local blob URL as the file_path placeholder.
-    const blobUrl = URL.createObjectURL(file);
+    if (file.size > MAX_PHOTO_BYTES) {
+      showToast('Datei zu groß — maximal 8 MB erlaubt', 'error');
+      e.target.value = '';
+      return;
+    }
+
     setUploadingPhase(phase);
-    setError(null);
     try {
-      const photo = await repairsApi.addPhoto(repair.id, {
-        phase,
-        file_path: blobUrl,
-        notes: file.name,
-      });
+      const photo = await repairsApi.uploadPhoto(repair.id, file, phase);
       onPhotoAdded(photo);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Fehler beim Hochladen.');
+      logError('Foto hochladen fehlgeschlagen', err);
+      showToast('Foto konnte nicht hochgeladen werden', 'error');
     } finally {
       setUploadingPhase(null);
       e.target.value = '';
+    }
+  };
+
+  const handleDeletePhoto = async (photo: PhotoItem) => {
+    const confirmed = await showConfirm({
+      title: 'Foto löschen',
+      message: 'Foto wirklich löschen?',
+      confirmLabel: 'Löschen',
+      variant: 'danger',
+    });
+    if (!confirmed) return;
+
+    setDeletingPhotoId(photo.id);
+    try {
+      await repairsApi.deletePhoto(photo.id);
+      // Deleting a photo can auto-downgrade a linked intake-checklist item
+      // back to "open" on the backend — always refetch, never patch locally.
+      await reloadRepair();
+    } catch (err: unknown) {
+      logError('Foto löschen fehlgeschlagen', err);
+      showToast('Foto konnte nicht gelöscht werden', 'error');
+    } finally {
+      setDeletingPhotoId(null);
     }
   };
 
@@ -380,13 +425,13 @@ function PhotosTab({
 
   return (
     <div className="repair-tab-panel">
-      {error && <div className="repairs-error">{error}</div>}
-
       {/* Before / After comparison view */}
       <PhotoCompare
         beforePhotos={intakePhotos}
         duringPhotos={duringPhotos}
         afterPhotos={completedPhotos}
+        onDeletePhoto={handleDeletePhoto}
+        deletingPhotoId={deletingPhotoId}
       />
 
       {/* Upload controls — one per phase, shown below the comparison */}
@@ -405,6 +450,7 @@ function PhotosTab({
               <input
                 type="file"
                 accept="image/*"
+                capture="environment"
                 style={{ display: 'none' }}
                 onChange={e => handleFileSelect(phase, e)}
                 disabled={uploadingPhase !== null}
@@ -745,6 +791,10 @@ export function RepairDetailPage() {
       {/* Error banner */}
       {error && <div className="repairs-error">{error}</div>}
 
+      {/* Eingangs-Checkliste — dispute protection, kept prominent above the
+          tabs so it stays visible regardless of which tab is active. */}
+      <IntakeChecklist repair={repair} onUpdated={setRepair} />
+
       {/* Action buttons */}
       <ActionButtons repair={repair} onAction={handleAction} busy={busy} />
 
@@ -766,7 +816,7 @@ export function RepairDetailPage() {
       {/* Tab panels */}
       {activeTab === 'details' && <DetailsTab repair={repair} />}
       {activeTab === 'fotos' && (
-        <PhotosTab repair={repair} onPhotoAdded={handlePhotoAdded} />
+        <PhotosTab repair={repair} onPhotoAdded={handlePhotoAdded} reloadRepair={loadRepair} />
       )}
       {activeTab === 'diagnose' && <DiagnosisTab repair={repair} />}
       {activeTab === 'historie' && <HistoryTab repair={repair} />}

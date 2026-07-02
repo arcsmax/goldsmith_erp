@@ -798,6 +798,221 @@
   color: var(--color-brand-cta-700);
 }
 
+/* ============================================================
+   INTAKE CHECKLIST (Eingangs-Checkliste)
+   Neutral/gold palette — dispute-protection bookkeeping, not an alarm.
+   ============================================================ */
+
+.intake-checklist {
+  background: var(--color-surface-card);
+  border: 1px solid var(--color-border-default);
+  border-radius: 10px;
+  padding: 1.25rem;
+  margin-bottom: 1.5rem;
+}
+
+.intake-checklist--empty {
+  padding: 1rem 1.25rem;
+  color: var(--color-text-muted);
+  font-size: 0.9rem;
+}
+
+.intake-checklist-header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+  flex-wrap: wrap;
+}
+
+.intake-checklist-header h3 {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--color-text-heading);
+}
+
+.intake-checklist-progress {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  background: #f8f6f0;
+  padding: 0.2rem 0.6rem;
+  border-radius: 999px;
+}
+
+.intake-checklist-collapse-btn {
+  margin-left: auto;
+  background: none;
+  border: none;
+  color: var(--color-brand-cta-700);
+  font-size: 0.8rem;
+  cursor: pointer;
+  font-weight: 600;
+  min-height: 44px;
+  padding: 0 0.5rem;
+}
+
+.intake-checklist-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.intake-checklist-row {
+  border: 1px solid var(--color-border-default);
+  border-radius: 8px;
+  padding: 0.75rem 0.9rem;
+  background: #fdfcf9;
+}
+
+.intake-checklist-row--photo,
+.intake-checklist-row--na {
+  background: #f8f9f7;
+}
+
+.intake-checklist-row-main {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.intake-checklist-row-label {
+  font-size: 0.9rem;
+  color: var(--color-text-body);
+  font-weight: 500;
+}
+
+.intake-checklist-chip {
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.intake-checklist-chip--open {
+  background: #f3f4f6;
+  color: #4b5563;
+}
+
+.intake-checklist-chip--photo {
+  background: #dcfce7;
+  color: #15803d;
+}
+
+.intake-checklist-chip--na {
+  background: #f3f4f6;
+  color: #6b7280;
+}
+
+.intake-checklist-row-actions {
+  display: flex;
+  gap: 0.6rem;
+  margin-top: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.intake-checklist-photo-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  padding: 0 1rem;
+  border-radius: 8px;
+  border: 1px dashed var(--color-border-default);
+  cursor: pointer;
+  font-size: 0.82rem;
+  color: var(--color-text-body);
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.intake-checklist-photo-btn:hover {
+  border-color: var(--color-brand-cta-400);
+  background: var(--color-brand-cta-50);
+  color: var(--color-brand-cta-700);
+}
+
+.intake-checklist-na-btn {
+  min-height: 44px;
+  padding: 0 1rem;
+  border-radius: 8px;
+  border: 1px solid var(--color-border-default);
+  background: #fff;
+  font-size: 0.82rem;
+  cursor: pointer;
+  color: var(--color-text-body);
+  transition: background 0.1s, border-color 0.1s;
+}
+
+.intake-checklist-na-btn:hover {
+  background: #f8f6f0;
+  border-color: var(--color-brand-cta-400);
+}
+
+.intake-checklist-reason-form {
+  margin-top: 0.6rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.intake-checklist-reason-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+
+.intake-checklist-row-photo {
+  margin-top: 0.6rem;
+}
+
+.intake-checklist-thumb {
+  width: 64px;
+  height: 64px;
+  border-radius: 8px;
+  object-fit: cover;
+  display: block;
+}
+
+.intake-checklist-na-reason {
+  margin: 0.6rem 0 0;
+  font-size: 0.85rem;
+  color: var(--color-text-muted);
+  font-style: italic;
+}
+
+.intake-checklist-summary {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  width: 100%;
+  min-height: 44px;
+  padding: 0.75rem 1.25rem;
+  border-radius: 10px;
+  border: 1px solid var(--color-border-default);
+  background: #f0fdf4;
+  color: #15803d;
+  font-weight: 600;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+.intake-checklist-summary-check {
+  font-size: 1.1rem;
+}
+
+.intake-checklist-summary-toggle {
+  margin-left: auto;
+  font-size: 0.8rem;
+  text-decoration: underline;
+}
+
 /* History tab */
 .repair-history-list {
   list-style: none;
@@ -937,9 +1152,15 @@
   gap: 0.75rem;
 }
 
+/* Wrapper around a thumbnail button + its optional delete control */
+.photo-compare-thumb-wrap {
+  position: relative;
+}
+
 /* Individual thumbnail button */
 .photo-compare-thumb {
   position: relative;
+  width: 100%;
   aspect-ratio: 1;
   border-radius: 8px;
   overflow: hidden;
@@ -948,6 +1169,36 @@
   cursor: pointer;
   padding: 0;
   transition: border-color 0.15s, transform 0.12s;
+}
+
+/* Per-photo delete control — 44px+ touch target, matches
+   .consultation-photo-delete's shape/position for visual consistency. */
+.photo-compare-thumb-delete {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.1rem;
+  line-height: 1;
+  border: none;
+  background: rgb(0 0 0 / 0.6);
+  color: #fff;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.photo-compare-thumb-delete:hover {
+  background: rgb(185 28 28 / 0.85);
+}
+
+.photo-compare-thumb-delete:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .photo-compare-thumb:hover {

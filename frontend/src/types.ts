@@ -1055,6 +1055,7 @@ export interface RepairJob {
   created_at: string;
   updated_at: string;
   photos: RepairPhoto[];
+  intake_checklist?: IntakeChecklistItem[] | null;
 }
 
 export interface RepairJobListItem {
@@ -1095,6 +1096,25 @@ export interface RepairCompleteInput {
 
 export interface RepairStatusUpdateInput {
   notes?: string | null;
+}
+
+// ==================== V1.1 REPAIR INTAKE CHECKLIST ====================
+
+/**
+ * Eingangs-Checkliste — dispute protection mirroring insurance-industry
+ * intake practice: every item is satisfied EITHER by an intake-phase photo
+ * ("photo", photo_id set) OR an explicit "nicht zutreffend" declaration
+ * ("na", na_reason set, >=3 chars). "open" is the initial seeded state.
+ * Mirrors backend IntakeChecklistItem (src/goldsmith_erp/models/repair.py).
+ */
+export type IntakeChecklistItemStatus = 'open' | 'photo' | 'na';
+
+export interface IntakeChecklistItem {
+  key: string;
+  label: string;
+  status: IntakeChecklistItemStatus;
+  photo_id?: number | null;
+  na_reason?: string | null;
 }
 
 // ==================== V1.1 CONSULTATION (BERATUNG) ====================

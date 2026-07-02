@@ -2,6 +2,7 @@
 // Accepts typed photo arrays. For repairs: phase-filtered RepairPhoto[].
 // For orders: flat OrderPhoto[] (all shown as a uniform grid).
 import React, { useCallback, useEffect, useState } from 'react';
+import AuthenticatedImage from './AuthenticatedImage';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -10,6 +11,16 @@ export interface PhotoItem {
   file_path: string;
   notes?: string | null;
   timestamp?: string;
+  /**
+   * Authenticated-fetch thumbnail/full endpoints (relative to apiClient
+   * baseURL). When set, rendering goes through AuthenticatedImage instead of
+   * a raw `<img src={file_path}>` — required once file_path is a
+   * server-side filesystem path rather than a directly fetchable URL (real
+   * repair photo uploads, V1.1 Task 3). Orders still pass neither and keep
+   * the original raw-`<img>` behaviour unchanged.
+   */
+  thumbSrc?: string;
+  fullSrc?: string;
 }
 
 export interface PhotoCompareProps {
@@ -23,6 +34,10 @@ export interface PhotoCompareProps {
   gridMode?: boolean;
   /** All photos for gridMode */
   allPhotos?: PhotoItem[];
+  /** When provided, each thumbnail gets a delete button calling this. */
+  onDeletePhoto?: (photo: PhotoItem) => void;
+  /** id of the photo currently being deleted (disables its delete button). */
+  deletingPhotoId?: number | null;
 }
 
 // ─── Lightbox ────────────────────────────────────────────────────────────────
@@ -53,10 +68,12 @@ function Lightbox({ photos, startIndex, onClose }: LightboxProps) {
   }, [onClose, prev, next]);
 
   const photo = photos[index];
+  const authenticatedSrc = photo.fullSrc ?? photo.thumbSrc;
   const isViewable =
-    photo.file_path.startsWith('blob:') ||
-    photo.file_path.startsWith('/') ||
-    photo.file_path.startsWith('http');
+    !authenticatedSrc &&
+    (photo.file_path.startsWith('blob:') ||
+      photo.file_path.startsWith('/') ||
+      photo.file_path.startsWith('http'));
 
   return (
     <div
@@ -84,7 +101,13 @@ function Lightbox({ photos, startIndex, onClose }: LightboxProps) {
 
         {/* Image */}
         <div className="photo-lightbox-image-wrap">
-          {isViewable ? (
+          {authenticatedSrc ? (
+            <AuthenticatedImage
+              src={authenticatedSrc}
+              alt={photo.notes ?? 'Foto'}
+              className="photo-lightbox-image"
+            />
+          ) : isViewable ? (
             <img
               src={photo.file_path}
               alt={photo.notes ?? 'Foto'}
@@ -128,37 +151,63 @@ function Lightbox({ photos, startIndex, onClose }: LightboxProps) {
 interface ThumbProps {
   photo: PhotoItem;
   onClick: () => void;
+  onDelete?: (photo: PhotoItem) => void;
+  isDeleting?: boolean;
 }
 
-function PhotoThumb({ photo, onClick }: ThumbProps) {
+function PhotoThumb({ photo, onClick, onDelete, isDeleting }: ThumbProps) {
   const isViewable =
-    photo.file_path.startsWith('blob:') ||
-    photo.file_path.startsWith('/') ||
-    photo.file_path.startsWith('http');
+    !photo.thumbSrc &&
+    (photo.file_path.startsWith('blob:') ||
+      photo.file_path.startsWith('/') ||
+      photo.file_path.startsWith('http'));
 
   return (
-    <button
-      className="photo-compare-thumb"
-      onClick={onClick}
-      title={photo.notes ?? 'Foto vergroessern'}
-      aria-label={photo.notes ?? 'Foto vergroessern'}
-    >
-      {isViewable ? (
-        <img
-          src={photo.file_path}
-          alt={photo.notes ?? 'Foto'}
-          className="photo-compare-thumb-img"
-        />
-      ) : (
-        <div className="photo-compare-thumb-placeholder">
-          <span style={{ fontSize: '1.5rem' }}>&#128247;</span>
-          <span>{photo.notes ?? photo.file_path.split('/').pop()}</span>
+    <div className="photo-compare-thumb-wrap">
+      <button
+        className="photo-compare-thumb"
+        onClick={onClick}
+        title={photo.notes ?? 'Foto vergroessern'}
+        aria-label={photo.notes ?? 'Foto vergroessern'}
+      >
+        {photo.thumbSrc ? (
+          <AuthenticatedImage
+            src={photo.thumbSrc}
+            alt={photo.notes ?? 'Foto'}
+            className="photo-compare-thumb-img"
+          />
+        ) : isViewable ? (
+          <img
+            src={photo.file_path}
+            alt={photo.notes ?? 'Foto'}
+            className="photo-compare-thumb-img"
+          />
+        ) : (
+          <div className="photo-compare-thumb-placeholder">
+            <span style={{ fontSize: '1.5rem' }}>&#128247;</span>
+            <span>{photo.notes ?? photo.file_path.split('/').pop()}</span>
+          </div>
+        )}
+        <div className="photo-compare-thumb-hover-overlay">
+          <span>&#128269;</span>
         </div>
+      </button>
+      {onDelete && (
+        <button
+          type="button"
+          className="photo-compare-thumb-delete"
+          onClick={(e) => {
+            e.stopPropagation();
+            onDelete(photo);
+          }}
+          disabled={isDeleting}
+          aria-label="Foto löschen"
+          title="Foto löschen"
+        >
+          {isDeleting ? '…' : '×'}
+        </button>
       )}
-      <div className="photo-compare-thumb-hover-overlay">
-        <span>&#128269;</span>
-      </div>
-    </button>
+    </div>
   );
 }
 
@@ -173,6 +222,8 @@ interface ColumnProps {
   allColumnPhotos: PhotoItem[];
   onOpenLightbox: (photos: PhotoItem[], index: number) => void;
   highlightEmpty?: boolean;
+  onDeletePhoto?: (photo: PhotoItem) => void;
+  deletingPhotoId?: number | null;
 }
 
 function PhotoColumn({
@@ -183,6 +234,8 @@ function PhotoColumn({
   allColumnPhotos,
   onOpenLightbox,
   highlightEmpty,
+  onDeletePhoto,
+  deletingPhotoId,
 }: ColumnProps) {
   return (
     <div className="photo-compare-column">
@@ -210,6 +263,8 @@ function PhotoColumn({
               key={photo.id}
               photo={photo}
               onClick={() => onOpenLightbox(allColumnPhotos, i)}
+              onDelete={onDeletePhoto}
+              isDeleting={deletingPhotoId === photo.id}
             />
           ))}
         </div>
@@ -226,6 +281,8 @@ export function PhotoCompare({
   duringPhotos = [],
   gridMode = false,
   allPhotos = [],
+  onDeletePhoto,
+  deletingPhotoId,
 }: PhotoCompareProps) {
   const [lightbox, setLightbox] = useState<{
     photos: PhotoItem[];
@@ -254,6 +311,8 @@ export function PhotoCompare({
               key={photo.id}
               photo={photo}
               onClick={() => openLightbox(allPhotos, i)}
+              onDelete={onDeletePhoto}
+              isDeleting={deletingPhotoId === photo.id}
             />
           ))}
         </div>
@@ -285,6 +344,8 @@ export function PhotoCompare({
           emptyMessage="Keine Eingangsfotos vorhanden"
           allColumnPhotos={beforePhotos}
           onOpenLightbox={openLightbox}
+          onDeletePhoto={onDeletePhoto}
+          deletingPhotoId={deletingPhotoId}
         />
 
         {hasDuring && (
@@ -295,6 +356,8 @@ export function PhotoCompare({
             emptyMessage="Keine Zwischenfotos vorhanden"
             allColumnPhotos={duringPhotos}
             onOpenLightbox={openLightbox}
+            onDeletePhoto={onDeletePhoto}
+            deletingPhotoId={deletingPhotoId}
           />
         )}
 
@@ -306,6 +369,8 @@ export function PhotoCompare({
           allColumnPhotos={afterPhotos}
           onOpenLightbox={openLightbox}
           highlightEmpty={afterPhotos.length === 0}
+          onDeletePhoto={onDeletePhoto}
+          deletingPhotoId={deletingPhotoId}
         />
       </div>
 
