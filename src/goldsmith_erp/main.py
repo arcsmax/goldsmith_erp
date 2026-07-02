@@ -21,7 +21,7 @@ from goldsmith_erp.middleware import RequestLoggingMiddleware, RequestMetricsMid
 from goldsmith_erp.middleware.audit_logging import AuditLoggingMiddleware
 from goldsmith_erp.middleware.auth_required import AuthRequiredMiddleware
 from goldsmith_erp.middleware.security_headers import SecurityHeadersMiddleware
-from goldsmith_erp.api.routers import auth, orders, users, materials, activities, time_tracking, health, customers, metal_inventory, comments, scrap_gold, calendar, invoices, metal_prices, ml, measurements, analytics, notifications, handoffs, photos, metal_types, quotes, repairs, hallmarks, valuations
+from goldsmith_erp.api.routers import auth, orders, users, materials, activities, time_tracking, health, customers, metal_inventory, comments, scrap_gold, calendar, invoices, metal_prices, ml, measurements, analytics, notifications, handoffs, photos, metal_types, quotes, repairs, hallmarks, valuations, consultations
 from goldsmith_erp.api.routers import admin_email
 from goldsmith_erp.api.routers import admin_scan_metrics
 from goldsmith_erp.api.routers import customer_portal
@@ -149,6 +149,11 @@ app.include_router(quotes.router, prefix=f"{settings.API_V1_STR}/quotes", tags=[
 app.include_router(repairs.router, prefix=f"{settings.API_V1_STR}/repairs", tags=["repairs"])  # Repair tracking (Reparaturverwaltung)
 app.include_router(hallmarks.router, prefix=f"{settings.API_V1_STR}", tags=["hallmarks"])  # Hallmarking / Punzierung
 app.include_router(valuations.router, prefix=f"{settings.API_V1_STR}", tags=["valuations"])  # Insurance valuation certificates / Wertgutachten
+app.include_router(
+    consultations.router,
+    prefix=f"{settings.API_V1_STR}/consultations",
+    tags=["consultations"],
+)  # Beratung & Annahme (V1.1)
 app.include_router(admin_email.router, prefix=f"{settings.API_V1_STR}", tags=["admin-email"])  # Email/SMTP admin configuration
 app.include_router(admin_scan_metrics.router, prefix=f"{settings.API_V1_STR}", tags=["admin-scan-metrics"])  # V1.1 Slice 13 — scan-adoption dashboard data
 app.include_router(customer_portal.router, prefix=f"{settings.API_V1_STR}/portal", tags=["customer-portal"])  # Public self-service portal
