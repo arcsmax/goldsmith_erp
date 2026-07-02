@@ -11,12 +11,20 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from goldsmith_erp.api.deps import get_db
-from goldsmith_erp.core.permissions import Permission
-from goldsmith_erp.core.permissions import require_permission_dep as require_permission
 from goldsmith_erp.core.config import settings
 from goldsmith_erp.core.idempotency import IdempotencyContext, get_idempotency_context
+from goldsmith_erp.core.permissions import Permission
+from goldsmith_erp.core.permissions import require_permission_dep as require_permission
 from goldsmith_erp.db.models import Customer as CustomerModel
 from goldsmith_erp.db.models import GDPRRequest, User
+from goldsmith_erp.db.transaction import transactional
+from goldsmith_erp.models.consultation import (
+    NoGoConflict,
+    NoGoCreate,
+    NoGoRead,
+    StyleProfileRead,
+    StyleProfileUpdate,
+)
 from goldsmith_erp.models.customer import (
     CustomerCreate,
     CustomerListItem,
@@ -26,6 +34,7 @@ from goldsmith_erp.models.customer import (
 )
 from goldsmith_erp.services.customer_service import CustomerService
 from goldsmith_erp.services.file_erasure_service import FileErasureService
+from goldsmith_erp.services.no_go_service import NoGoService
 
 logger = logging.getLogger(__name__)
 
@@ -385,11 +394,7 @@ async def _write_pending_gdpr_request(
             notes=(
                 "Art. 17 erasure request received — awaiting "
                 "scrub + file sweep."
-                + (
-                    f" idempotency_key={idem.key}"
-                    if idem.key is not None
-                    else ""
-                )
+                + (f" idempotency_key={idem.key}" if idem.key is not None else "")
             ),
         )
         db.add(pending)
@@ -453,9 +458,7 @@ async def _finalize_pending_gdpr_request(
         row.completed_at = datetime.utcnow()
     if notes_suffix:
         existing = row.notes or ""
-        row.notes = (
-            f"{existing}\n{notes_suffix}" if existing else notes_suffix
-        )
+        row.notes = f"{existing}\n{notes_suffix}" if existing else notes_suffix
     await db.commit()
 
 
@@ -740,3 +743,169 @@ async def delete_customer(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to delete customer",
         )
+
+
+# ---------------------------------------------------------------------------
+# V1.1 consultation module — customer no-gos + style profile (Task 8).
+#
+# No-gos and the style profile are preference data, not design IP (design
+# intent/wishes live on Consultation, which is CONSULTATION_*-gated,
+# GOLDSMITH/ADMIN only). These endpoints reuse the existing customer
+# CUSTOMER_VIEW/CUSTOMER_EDIT permissions, so a VIEWER with customer-view
+# access keeps read access to no-go warnings.
+# ---------------------------------------------------------------------------
+
+
+def _raise_no_go_error(exc: ValueError, customer_id: int) -> None:
+    """Map a ``NoGoService`` ``ValueError`` to 404 (unknown customer) or
+    409 (duplicate no-go).
+
+    SECURITY (binding review note): ``NoGoService.add_no_go``'s duplicate
+    guard raises with the raw no-go value embedded in the message (it can be
+    health-adjacent data, e.g. an allergy). ``str(exc)`` MUST NOT be
+    forwarded to the response body or the log for that branch — only the
+    generic detail below. The unknown-customer branch's message only
+    contains the customer_id, which is safe to return and log as-is.
+    """
+    message = str(exc)
+    if "not found" in message:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=message)
+
+    logger.warning(
+        "Duplicate no-go rejected",
+        extra={"customer_id": customer_id},
+    )
+    raise HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail="Dieses No-Go existiert bereits",
+    )
+
+
+@router.get("/{customer_id}/no-gos", response_model=List[NoGoRead])
+async def list_customer_no_gos(
+    customer_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_permission(Permission.CUSTOMER_VIEW)),
+):
+    """
+    List all no-gos (persistent exclusions, e.g. allergies) for a customer.
+
+    Permissions: Requires CUSTOMER_VIEW permission.
+    """
+    return await NoGoService.list_no_gos(db, customer_id)
+
+
+@router.post(
+    "/{customer_id}/no-gos",
+    response_model=NoGoRead,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_customer_no_go(
+    customer_id: int,
+    no_go_in: NoGoCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_permission(Permission.CUSTOMER_EDIT)),
+):
+    """
+    Add a no-go (persistent exclusion, e.g. an allergy) for a customer.
+
+    404 if the customer does not exist. 409 if an equivalent no-go (same
+    category, case-insensitively equal value) already exists for this
+    customer.
+
+    Permissions: Requires CUSTOMER_EDIT permission.
+    """
+    try:
+        return await NoGoService.add_no_go(db, customer_id, no_go_in)
+    except ValueError as exc:
+        _raise_no_go_error(exc, customer_id)
+
+
+@router.delete(
+    "/{customer_id}/no-gos/{no_go_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def delete_customer_no_go(
+    customer_id: int,
+    no_go_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_permission(Permission.CUSTOMER_EDIT)),
+):
+    """
+    Remove a no-go from a customer.
+
+    Permissions: Requires CUSTOMER_EDIT permission.
+    """
+    try:
+        await NoGoService.delete_no_go(db, customer_id, no_go_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+
+
+@router.get("/{customer_id}/no-gos/check", response_model=List[NoGoConflict])
+async def check_customer_no_go_conflicts(
+    customer_id: int,
+    candidate: List[str] = Query(
+        ...,
+        description="Candidate material/stone/etc. values to check against "
+        "the customer's recorded no-gos",
+    ),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_permission(Permission.CUSTOMER_VIEW)),
+):
+    """
+    Check candidate values (e.g. materials being discussed in a consultation)
+    against a customer's recorded no-gos. Bidirectional, case-insensitive
+    substring match — see ``NoGoService.check_conflicts``.
+
+    Permissions: Requires CUSTOMER_VIEW permission.
+    """
+    return await NoGoService.check_conflicts(db, customer_id, candidate)
+
+
+@router.get("/{customer_id}/style-profile", response_model=StyleProfileRead)
+async def get_style_profile(
+    customer_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_permission(Permission.CUSTOMER_VIEW)),
+):
+    """
+    Get a customer's style profile (metal tones, finishes, stone
+    preferences, style words). Returns empty lists when the column is NULL.
+
+    Permissions: Requires CUSTOMER_VIEW permission.
+    """
+    customer = await db.get(CustomerModel, customer_id)
+    if customer is None or customer.is_deleted:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Customer {customer_id} not found",
+        )
+    return StyleProfileRead(**(customer.style_profile or {}))
+
+
+@router.patch("/{customer_id}/style-profile", response_model=StyleProfileRead)
+async def update_style_profile(
+    customer_id: int,
+    update_in: StyleProfileUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_permission(Permission.CUSTOMER_EDIT)),
+):
+    """
+    Update a customer's style profile with merge semantics — only the keys
+    provided in the request body are replaced; omitted keys keep their
+    previously stored value.
+
+    Permissions: Requires CUSTOMER_EDIT permission.
+    """
+    async with transactional(db):
+        customer = await db.get(CustomerModel, customer_id)
+        if customer is None or customer.is_deleted:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Customer {customer_id} not found",
+            )
+        profile = dict(customer.style_profile or {})
+        profile.update(update_in.model_dump(exclude_unset=True))
+        customer.style_profile = profile
+    return StyleProfileRead(**profile)
