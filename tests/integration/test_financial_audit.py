@@ -10,12 +10,17 @@ access.  R1 (commit 071d542) extended it to log bulk list access.  This
 file (C6) verifies that the SAME middleware now covers the three
 financial resource families:
 
-* ``/api/v1/invoices/*``    -> entity_type="invoice"
-* ``/api/v1/valuations/*``  -> entity_type="valuation"
-* ``/api/v1/scrap-gold/*``  -> entity_type="scrap_gold"  (hyphen in URL,
-                              underscore in audit row — consistent with
-                              Python identifier conventions, easier to
-                              group in reporting queries).
+* ``/api/v1/invoices/*``      -> entity_type="invoice"
+* ``/api/v1/valuations/*``    -> entity_type="valuation"
+* ``/api/v1/scrap-gold/*``    -> entity_type="scrap_gold"  (hyphen in URL,
+                                underscore in audit row — consistent with
+                                Python identifier conventions, easier to
+                                group in reporting queries).
+* ``/api/v1/consultations/*`` -> entity_type="consultation" (final-review
+                                fix — consultations return budget_min/
+                                budget_max, financial data of the erased
+                                person; CLAUDE.md requires every financial
+                                data access to be audit-logged).
 
 Single-record reads produce ``action="financial_read"``.
 List / aggregate reads (no integer id in second segment) produce
@@ -50,6 +55,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from goldsmith_erp.db.models import (
     AlloyType,
+    Consultation,
+    ConsultationOccasion,
     Customer,
     CustomerAuditLog,
     Invoice,
@@ -197,6 +204,23 @@ async def test_scrap_gold(
     await db_session.commit()
     await db_session.refresh(scrap)
     return scrap
+
+
+@pytest_asyncio.fixture
+async def test_consultation(
+    db_session: AsyncSession, test_customer: Customer, admin_user: User
+) -> Consultation:
+    consultation = Consultation(
+        customer_id=test_customer.id,
+        conducted_by=admin_user.id,
+        occasion=ConsultationOccasion.OTHER,
+        budget_min=500.0,
+        budget_max=900.0,
+    )
+    db_session.add(consultation)
+    await db_session.commit()
+    await db_session.refresh(consultation)
+    return consultation
 
 
 # ---------------------------------------------------------------------------
@@ -395,6 +419,69 @@ async def test_scrap_gold_list_style_write_audit_row(
         "every financial-resource read is in scope for GDPR Art. 30"
     )
     assert row.action == "list_accessed_financial"
+    assert row.user_id == admin_user.id
+
+
+# ===========================================================================
+# Consultations (final-review fix — Fix 1)
+# ===========================================================================
+#
+# Consultations return budget_min/budget_max on every read — financial data
+# of the erased person — but were missing from _RESOURCE_ROUTES entirely, so
+# neither single-record nor list reads produced an audit row. Mirrors the
+# invoice tests above exactly.
+
+
+@pytest.mark.asyncio
+async def test_consultation_get_writes_audit_row(
+    authenticated_client: AsyncClient,
+    db_session: AsyncSession,
+    admin_user: User,
+    test_consultation: Consultation,
+):
+    """GET /api/v1/consultations/{id} must produce an audit row."""
+    resp = await authenticated_client.get(
+        f"/api/v1/consultations/{test_consultation.id}"
+    )
+    assert resp.status_code in (200, 404), resp.text
+
+    row = await _latest_audit_row(
+        db_session, entity="consultation", entity_id=test_consultation.id
+    )
+    assert row is not None, (
+        "GET /api/v1/consultations/{id} must write a CustomerAuditLog row "
+        "with entity='consultation' — none found"
+    )
+    assert row.action == "financial_read", (
+        f"single-record financial read must use action='financial_read', "
+        f"got '{row.action}'"
+    )
+    assert row.user_id == admin_user.id
+    assert row.ip_address
+
+
+@pytest.mark.asyncio
+async def test_consultation_list_writes_audit_row(
+    authenticated_client: AsyncClient,
+    db_session: AsyncSession,
+    admin_user: User,
+    test_consultation: Consultation,
+):
+    """GET /api/v1/consultations/ (list) must produce a bulk-access audit row."""
+    _ = test_consultation  # ensure the list has content, not strictly required
+
+    resp = await authenticated_client.get("/api/v1/consultations/")
+    assert resp.status_code in (200, 404), resp.text
+
+    row = await _latest_audit_row(db_session, entity="consultation", entity_id=None)
+    assert row is not None, (
+        "GET /api/v1/consultations/ must write an audit row (bulk financial "
+        "access is a higher-risk event under GDPR Art. 30)"
+    )
+    assert row.action == "list_accessed_financial", (
+        f"bulk financial list must use action='list_accessed_financial', "
+        f"got '{row.action}'"
+    )
     assert row.user_id == admin_user.id
 
 

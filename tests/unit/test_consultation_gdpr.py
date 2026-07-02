@@ -176,6 +176,73 @@ class TestScrubConsultationPii:
         assert counts["consultations.budget"] == 1
 
     @pytest.mark.asyncio
+    async def test_erasure_nulls_materials_discussed_and_occasion_date(
+        self,
+        db_session: AsyncSession,
+        mueller_maria: Customer,
+        admin: User,
+    ):
+        """Final-review fix (Fix 3): materials_discussed (preference data —
+        which metals/stones were discussed) and occasion_date (personal
+        data — e.g. an anniversary or birthday date) are erasure surfaces
+        added on this branch that weren't wired into scrub_customer_pii.
+        """
+        from datetime import date
+
+        consultation = await ConsultationService.create_consultation(
+            db_session,
+            ConsultationCreate(
+                customer_id=mueller_maria.id,
+                occasion_date=date(2026, 6, 1),
+                materials_discussed=[{"metal": "gold_585"}],
+            ),
+            conducted_by_user_id=admin.id,
+        )
+
+        counts = await CustomerService.scrub_customer_pii(
+            db_session,
+            customer_id=mueller_maria.id,
+            performed_by=admin.id,
+        )
+        await db_session.commit()
+
+        row = (
+            await db_session.execute(select(Consultation).filter_by(id=consultation.id))
+        ).scalar_one()
+        assert row.materials_discussed is None
+        assert row.occasion_date is None
+        assert counts["consultations.materials_discussed"] == 1
+        assert counts["consultations.occasion_date"] == 1
+
+    @pytest.mark.asyncio
+    async def test_erasure_nulls_customer_style_profile(
+        self,
+        db_session: AsyncSession,
+        mueller_maria: Customer,
+        admin: User,
+    ):
+        """Final-review fix (Fix 3): style_profile is preference data on the
+        customer row itself (same rationale as the no-go hard-delete) and
+        must be NULLed on erasure.
+        """
+        mueller_maria.style_profile = {"metal_tones": ["rose"]}
+        db_session.add(mueller_maria)
+        await db_session.commit()
+
+        counts = await CustomerService.scrub_customer_pii(
+            db_session,
+            customer_id=mueller_maria.id,
+            performed_by=admin.id,
+        )
+        await db_session.commit()
+
+        row = (
+            await db_session.execute(select(Customer).filter_by(id=mueller_maria.id))
+        ).scalar_one()
+        assert row.style_profile is None
+        assert counts["customers.style_profile"] == 1
+
+    @pytest.mark.asyncio
     async def test_erasure_hard_deletes_no_gos(
         self,
         db_session: AsyncSession,

@@ -756,6 +756,31 @@ async def delete_customer(
 # ---------------------------------------------------------------------------
 
 
+def _normalize_style_profile(raw: Dict[str, Any]) -> Dict[str, Any]:
+    """Coerce ``None`` values in a style-profile dict to ``[]``.
+
+    Final-review fix: ``StyleProfileRead`` declares every field as
+    ``List[str] = []``, so a stored/incoming ``None`` fails Pydantic
+    validation. ``None`` can reach this dict two ways:
+
+    1. An explicit ``PATCH {"metal_tones": null}`` — the key IS present
+       under ``exclude_unset=True`` (the client explicitly set it), just
+       to ``None``. We treat that as "reset this field to []" — the
+       RESTful, most useful interpretation of a client clearing a
+       list-shaped preference field. (The alternative — dropping
+       ``None``-valued keys instead of merging them — would silently
+       keep the stale value rather than honoring the client's intent to
+       clear it.)
+    2. A row poisoned by the pre-fix version of this endpoint, where a
+       raw ``None`` was already persisted into the JSON column.
+
+    Normalizing here (rather than only in the PATCH merge) means a
+    pre-poisoned row self-heals the next time it is read OR patched,
+    instead of continuing to 500 on every subsequent GET.
+    """
+    return {key: ([] if value is None else value) for key, value in raw.items()}
+
+
 @router.get("/{customer_id}/no-gos", response_model=List[NoGoRead])
 async def list_customer_no_gos(
     customer_id: int,
@@ -873,7 +898,7 @@ async def get_style_profile(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Customer {customer_id} not found",
         )
-    return StyleProfileRead(**(customer.style_profile or {}))
+    return StyleProfileRead(**_normalize_style_profile(customer.style_profile or {}))
 
 
 @router.patch("/{customer_id}/style-profile", response_model=StyleProfileRead)
@@ -899,5 +924,11 @@ async def update_style_profile(
             )
         profile = dict(customer.style_profile or {})
         profile.update(update_in.model_dump(exclude_unset=True))
+        # See _normalize_style_profile: an explicit null in the PATCH body
+        # resets that field to [] rather than poisoning the JSON column
+        # with None (which would 500 every subsequent read via
+        # StyleProfileRead). Also self-heals any pre-existing poisoned
+        # value in a field this request didn't touch.
+        profile = _normalize_style_profile(profile)
         customer.style_profile = profile
     return StyleProfileRead(**profile)

@@ -17,6 +17,7 @@ only — see test_consultations.py).
 
 import pytest
 from httpx import AsyncClient
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from goldsmith_erp.db.models import Customer
 
@@ -235,3 +236,60 @@ class TestStyleProfile:
             url, json={"metal_tones": ["rosé"]}, headers=viewer_auth_headers
         )
         assert patched.status_code == 403
+
+    @pytest.mark.asyncio
+    async def test_patch_explicit_null_resets_field_to_empty_list(
+        self,
+        client: AsyncClient,
+        goldsmith_auth_headers: dict,
+        test_customer: Customer,
+    ):
+        """Regression (final-review fix): {"metal_tones": null} used to
+        survive exclude_unset=True (the key IS set, just to None), persist
+        None into the JSON column, then blow up StyleProfileRead with a
+        ValidationError -> 500 on every subsequent style-profile request
+        for that customer. Explicit null is now treated as "reset this
+        field to []" — the RESTful, most useful interpretation of a
+        client explicitly clearing a list-shaped preference field.
+        """
+        url = _style_profile_url(test_customer.id)
+        seeded = await client.patch(
+            url, json={"metal_tones": ["rosé"]}, headers=goldsmith_auth_headers
+        )
+        assert seeded.status_code == 200
+        assert seeded.json()["metal_tones"] == ["rosé"]
+
+        cleared = await client.patch(
+            url, json={"metal_tones": None}, headers=goldsmith_auth_headers
+        )
+        assert cleared.status_code == 200, cleared.text
+        assert cleared.json()["metal_tones"] == []
+
+        # Subsequent GET must not 500 — the poisoned-None regression this
+        # guards against broke every future read, not just the PATCH.
+        get_resp = await client.get(url, headers=goldsmith_auth_headers)
+        assert get_resp.status_code == 200, get_resp.text
+        assert get_resp.json()["metal_tones"] == []
+
+    @pytest.mark.asyncio
+    async def test_get_tolerates_pre_poisoned_none_value(
+        self,
+        client: AsyncClient,
+        goldsmith_auth_headers: dict,
+        test_customer: Customer,
+        db_session: AsyncSession,
+    ):
+        """Regression: a row poisoned by the pre-fix PATCH bug (raw
+        ``{"metal_tones": None}`` written directly to the JSON column,
+        bypassing the endpoint) must not 500 the GET path either. The GET
+        handler coerces None values to [] when building StyleProfileRead.
+        """
+        test_customer.style_profile = {"metal_tones": None}
+        db_session.add(test_customer)
+        await db_session.commit()
+
+        resp = await client.get(
+            _style_profile_url(test_customer.id), headers=goldsmith_auth_headers
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["metal_tones"] == []

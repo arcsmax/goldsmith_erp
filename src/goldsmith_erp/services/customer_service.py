@@ -1034,8 +1034,13 @@ class CustomerService:
             means the field was examined but contained no PII tokens.
             Two extra keys cover the consultation special cases:
             ``consultations.budget`` (rows whose budget_min/budget_max
-            were NULLed) and ``customer_no_gos.deleted`` (preference rows
-            hard-deleted). ``total`` is the sum across all fields.
+            were NULLed), ``consultations.materials_discussed`` /
+            ``consultations.occasion_date`` (rows whose corresponding
+            field was NULLed — final-review Fix 3), ``customers.
+            style_profile`` (the customer's own style-preference JSON,
+            NULLed — final-review Fix 3), and ``customer_no_gos.deleted``
+            (preference rows hard-deleted). ``total`` is the sum across
+            all fields.
             Returns all-zero counts if the customer does not exist
             (caller should 404 before calling this).
         """
@@ -1049,6 +1054,9 @@ class CustomerService:
         # special-case counters + a "total".
         counts: Dict[str, int] = {target.counter_key: 0 for target in SCRUBBABLE_FIELDS}
         counts["consultations.budget"] = 0
+        counts["consultations.materials_discussed"] = 0
+        counts["consultations.occasion_date"] = 0
+        counts["customers.style_profile"] = 0
         counts["customer_no_gos.deleted"] = 0
         counts["total"] = 0
 
@@ -1079,6 +1087,60 @@ class CustomerService:
             .values(budget_min=None, budget_max=None)
         )
         counts["consultations.budget"] = max(budget_result.rowcount or 0, 0)
+
+        # Final-review Fix 3: materials_discussed (which metals/stones were
+        # discussed — preference data) and occasion_date (e.g. an
+        # anniversary/birthday date — personal data) are consultation
+        # surfaces that were left out of the original erasure cascade.
+        # NULLed the same way budget is: an UPDATE filtered on "currently
+        # set" so the counter reflects rows actually changed and stays 0
+        # on a repeat scrub (idempotency). Two separate counters (rather
+        # than folding into "consultations.budget") because they are a
+        # different data category and this keeps Art. 30 per-field
+        # reporting granular.
+        materials_result = await db.execute(
+            update(Consultation)
+            .where(
+                Consultation.customer_id == customer_id,
+                Consultation.materials_discussed.isnot(None),
+            )
+            .values(materials_discussed=None)
+        )
+        counts["consultations.materials_discussed"] = max(
+            materials_result.rowcount or 0, 0
+        )
+        occasion_date_result = await db.execute(
+            update(Consultation)
+            .where(
+                Consultation.customer_id == customer_id,
+                Consultation.occasion_date.isnot(None),
+            )
+            .values(occasion_date=None)
+        )
+        counts["consultations.occasion_date"] = max(
+            occasion_date_result.rowcount or 0, 0
+        )
+
+        # Final-review Fix 3: style_profile lives on the customer row
+        # itself (metal tones / finishes / stone preferences / style
+        # words) — preference data, same rationale as the no-go
+        # hard-delete below. NULLed via a bulk UPDATE rather than through
+        # the ORM object fetched below, matching the Consultation pattern
+        # above; nothing later in this function reads customer.style_
+        # profile so there is no staleness risk from bypassing the
+        # identity map.
+        style_profile_result = await db.execute(
+            update(CustomerModel)
+            .where(
+                CustomerModel.id == customer_id,
+                CustomerModel.style_profile.isnot(None),
+            )
+            .values(style_profile=None)
+        )
+        counts["customers.style_profile"] = max(
+            style_profile_result.rowcount or 0, 0
+        )
+
         no_go_result = await db.execute(
             delete(CustomerNoGo).where(CustomerNoGo.customer_id == customer_id)
         )

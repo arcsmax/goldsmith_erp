@@ -1168,11 +1168,15 @@ class TestScrubH5CrossField:
             )
         )
         log = result.scalar_one()
-        # SCRUBBABLE_FIELDS keys + the two consultation special-case
-        # counters (budget NULL-out / no-go hard-delete — Task 10, not
+        # SCRUBBABLE_FIELDS keys + the special-case counters (budget /
+        # materials_discussed / occasion_date NULL-out, style_profile
+        # NULL-out, no-go hard-delete — Task 10 + final-review Fix 3, not
         # string-scrub targets) + "total".
         expected_keys = {target.counter_key for target in SCRUBBABLE_FIELDS} | {
             "consultations.budget",
+            "consultations.materials_discussed",
+            "consultations.occasion_date",
+            "customers.style_profile",
             "customer_no_gos.deleted",
             "total",
         }
