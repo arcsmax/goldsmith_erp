@@ -4,6 +4,7 @@ import { useToast } from '../contexts';
 import { consultationsApi } from '../api/consultations';
 import { Consultation, ConsultationUpdateInput } from '../types';
 import { WizardProgress } from '../components/consultation/WizardProgress';
+import { CustomerStep } from '../components/consultation/CustomerStep';
 import '../styles/consultations.css';
 
 export interface WizardStepProps {
@@ -130,7 +131,9 @@ export const ConsultationWizardPage: React.FC = () => {
         <h2 id="wizard-step-title">{current.title}</h2>
         {/* Step bodies — replaced task by task. setPendingPatch is handed to
             form steps so their local edits ride the shared Weiter autosave. */}
-        {step === 1 && <p>Folgt in Task 3</p>}
+        {step === 1 && (
+          <CustomerStep onDraftCreated={handleDraftCreated} existingCustomerId={consultation?.customer_id} />
+        )}
         {step === 2 && stepProps && <p>Folgt in Task 4</p>}
         {step === 3 && stepProps && <p>Folgt in Task 4</p>}
         {step === 4 && stepProps && <p>Folgt in Task 5</p>}

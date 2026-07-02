@@ -197,6 +197,23 @@
   background: color-mix(in srgb, var(--color-interactive-primary) 12%, transparent);
 }
 
+/* Customer step — search result confirmation + quick-create entry point */
+.customer-step-quick-create { margin-top: 0.85rem; }
+.customer-confirm-card {
+  padding: 1.1rem 1.25rem;
+  border: 1.5px solid color-mix(in srgb, var(--color-interactive-primary) 35%, transparent);
+  background: color-mix(in srgb, var(--color-interactive-primary) 6%, transparent);
+  border-radius: 12px;
+}
+.customer-confirm-name { font-size: 1.3rem; font-weight: 700; margin: 0 0 0.2rem; }
+.customer-confirm-email { margin: 0 0 0.2rem; color: color-mix(in srgb, var(--text-color-primary) 75%, transparent); }
+.customer-confirm-ring { margin: 0; }
+.customer-confirm-hint {
+  margin: 0.6rem 0 0; font-size: 0.85rem;
+  color: color-mix(in srgb, var(--text-color-primary) 55%, transparent);
+}
+.customer-step-actions { display: flex; flex-wrap: wrap; gap: 0.75rem; margin-top: 1.1rem; }
+
 @media (min-width: 1100px) {
   .wizard-container { padding-top: 2rem; }
   .wizard-step { padding: 2.25rem 2.5rem; }
