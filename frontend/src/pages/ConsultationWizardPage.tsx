@@ -29,10 +29,11 @@ export const ConsultationWizardPage: React.FC = () => {
   const { showToast } = useToast();
 
   const consultationId = id ? Number(id) : null;
-  const step = Math.min(
-    Math.max(Number(searchParams.get('step') || (consultationId ? 2 : 1)), 1),
-    WIZARD_STEPS.length
-  );
+  // Validate the ?step= param: a non-numeric value (Number('abc') = NaN)
+  // must never reach WIZARD_STEPS[step - 1] — fall back to the default.
+  const rawStep = Number(searchParams.get('step'));
+  const parsedStep = Number.isFinite(rawStep) && rawStep >= 1 ? rawStep : consultationId ? 2 : 1;
+  const step = Math.min(Math.max(parsedStep, 1), WIZARD_STEPS.length);
 
   const [consultation, setConsultation] = useState<Consultation | null>(null);
   const [isLoading, setIsLoading] = useState(Boolean(consultationId));
@@ -54,7 +55,8 @@ export const ConsultationWizardPage: React.FC = () => {
         setIsLoading(true);
         const data = await consultationsApi.getById(consultationId);
         if (!cancelled) setConsultation(data);
-      } catch {
+      } catch (err) {
+        console.error('Beratung laden fehlgeschlagen', err);
         if (!cancelled) showToast('Beratung konnte nicht geladen werden', 'error');
       } finally {
         if (!cancelled) setIsLoading(false);
@@ -74,7 +76,8 @@ export const ConsultationWizardPage: React.FC = () => {
         const updated = await consultationsApi.update(consultationId, fields);
         setConsultation(updated);
         return true;
-      } catch {
+      } catch (err) {
+        console.error('Beratung speichern fehlgeschlagen', err);
         showToast('Speichern fehlgeschlagen — bitte erneut versuchen', 'error');
         return false;
       } finally {

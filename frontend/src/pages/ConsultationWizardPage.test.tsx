@@ -75,6 +75,13 @@ describe('ConsultationWizardPage', () => {
     expect(mockUpdate).not.toHaveBeenCalled();
   });
 
+  it('falls back to step 2 and does not crash on a non-numeric ?step= param', async () => {
+    renderAt('/consultations/9?step=abc');
+    // Number('abc') = NaN must never reach WIZARD_STEPS[NaN - 1]; the engine
+    // falls back to the draft default (step 2) instead of crashing the render.
+    expect(await screen.findByRole('heading', { name: 'Anlass & Budget' })).toBeInTheDocument();
+  });
+
   // NOTE: the autosave-failure path (Weiter blocked + error toast) cannot be
   // exercised until a real step reports fields — Task 4 adds
   // `blocks Weiter and toasts when the PATCH fails` to
