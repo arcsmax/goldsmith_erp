@@ -11,11 +11,7 @@ from typing import List, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from goldsmith_erp.db.models import (
-    RepairItemType,
-    RepairJobStatus,
-    RepairPhotoPhase,
-)
+from goldsmith_erp.db.models import RepairItemType, RepairJobStatus, RepairPhotoPhase
 
 
 def _strip_tzinfo(value: Optional[datetime]) -> Optional[datetime]:
@@ -55,14 +51,6 @@ class RepairPhotoRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
-class RepairPhotoCreate(BaseModel):
-    """Schema for uploading a repair photo."""
-
-    phase: RepairPhotoPhase = Field(..., description="Aufnahmephase (Eingang / Reparatur / Fertig)")
-    file_path: str = Field(..., min_length=1, max_length=500, description="Pfad zur Bilddatei")
-    notes: Optional[str] = Field(None, max_length=1000, description="Optionale Notiz zum Foto")
-
-
 # ============================================================================
 # REPAIR JOB SCHEMAS — CREATE / UPDATE
 # ============================================================================
@@ -96,9 +84,9 @@ class RepairJobCreate(BaseModel):
         None, description="Voraussichtliches Fertigstellungsdatum"
     )
 
-    _strip_tz_completion = field_validator(
-        "estimated_completion_date", mode="after"
-    )(lambda cls, v: _strip_tzinfo(v))
+    _strip_tz_completion = field_validator("estimated_completion_date", mode="after")(
+        lambda cls, v: _strip_tzinfo(v)
+    )
 
     @field_validator("item_description")
     @classmethod
@@ -121,22 +109,22 @@ class RepairDiagnoseInput(BaseModel):
     diagnosis_notes: str = Field(
         ..., min_length=1, max_length=5000, description="Befundbeschreibung"
     )
-    estimated_cost: float = Field(
-        ..., ge=0, description="Kostenvoranschlag in EUR"
-    )
+    estimated_cost: float = Field(..., ge=0, description="Kostenvoranschlag in EUR")
     estimated_completion_date: Optional[datetime] = Field(
         None, description="Voraussichtliches Fertigstellungsdatum (aktualisiert)"
     )
 
-    _strip_tz_completion = field_validator(
-        "estimated_completion_date", mode="after"
-    )(lambda cls, v: _strip_tzinfo(v))
+    _strip_tz_completion = field_validator("estimated_completion_date", mode="after")(
+        lambda cls, v: _strip_tzinfo(v)
+    )
 
 
 class RepairStatusUpdate(BaseModel):
     """Generic status update — used for simple transitions like APPROVED or CANCELLED."""
 
-    notes: Optional[str] = Field(None, max_length=2000, description="Optionale Anmerkung")
+    notes: Optional[str] = Field(
+        None, max_length=2000, description="Optionale Anmerkung"
+    )
 
 
 class RepairCompleteInput(BaseModel):

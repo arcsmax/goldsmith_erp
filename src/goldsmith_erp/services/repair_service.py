@@ -26,7 +26,6 @@ from goldsmith_erp.db.models import (
     NotificationTypeEnum,
     RepairJob,
     RepairJobStatus,
-    RepairPhoto,
     User,
 )
 from goldsmith_erp.db.transaction import transactional
@@ -506,37 +505,3 @@ class RepairService:
             extra={"repair_id": repair_id, "deleted_by": user_id},
         )
         return True
-
-    # -------------------------------------------------------------------------
-    # PHOTO MANAGEMENT
-    # -------------------------------------------------------------------------
-
-    @staticmethod
-    async def add_photo(
-        db: AsyncSession,
-        repair_id: int,
-        file_path: str,
-        phase: str,
-        user_id: int,
-        notes: Optional[str] = None,
-    ) -> RepairPhoto:
-        """Add a photo to a repair job for a given phase."""
-        from goldsmith_erp.db.models import RepairPhotoPhase
-
-        repair = await _load_repair(db, repair_id)
-        if repair is None:
-            raise ValueError(f"Reparaturauftrag #{repair_id} nicht gefunden")
-
-        photo = RepairPhoto(
-            repair_job_id=repair_id,
-            phase=RepairPhotoPhase(phase),
-            file_path=file_path,
-            taken_by=user_id,
-            notes=notes,
-        )
-
-        async with transactional(db):
-            db.add(photo)
-            await db.flush()
-
-        return photo

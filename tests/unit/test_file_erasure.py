@@ -19,6 +19,7 @@ Covers:
 
 from __future__ import annotations
 
+import io
 import os
 import uuid
 from datetime import datetime
@@ -26,6 +27,8 @@ from pathlib import Path
 
 import pytest
 import pytest_asyncio
+from fastapi import UploadFile
+from PIL import Image
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -54,7 +57,7 @@ from goldsmith_erp.services.file_erasure_service import (
     FileErasureResult,
     FileErasureService,
 )
-
+from goldsmith_erp.services.repair_photo_service import RepairPhotoService
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -173,6 +176,20 @@ def _write_file(storage_root: Path, rel_path: str, content: bytes = b"pdf") -> P
     abs_path.parent.mkdir(parents=True, exist_ok=True)
     abs_path.write_bytes(content)
     return abs_path
+
+
+def _jpeg_upload(name: str = "intake.jpg") -> UploadFile:
+    """A minimal valid 4x4 white JPEG, Pillow-generated in-memory.
+
+    Used (instead of ``_write_file``) when a test needs a REAL thumbnail on
+    disk alongside the original — ``_write_file`` writes arbitrary bytes with
+    no thumbnail, which is fine for the generic per-column sweep tests above
+    but not for exercising ``FileErasureTarget.has_thumbnail``.
+    """
+    buf = io.BytesIO()
+    Image.new("RGB", (4, 4), "white").save(buf, format="JPEG")
+    buf.seek(0)
+    return UploadFile(filename=name, file=buf)
 
 
 # ---------------------------------------------------------------------------
@@ -671,6 +688,143 @@ class TestLinkResolution:
         assert result.files_deleted == 1
         # photo_path is nullable → NULL after erase.
         assert item.photo_path is None
+
+
+# ---------------------------------------------------------------------------
+# repair_photos thumbnail sweep (FileErasureTarget.has_thumbnail)
+# ---------------------------------------------------------------------------
+
+
+class TestErasureRepairPhotoThumbnails:
+    @pytest.mark.asyncio
+    async def test_erasure_deletes_repair_photo_thumbnail_and_keeps_row(
+        self,
+        db_session: AsyncSession,
+        customer_a: Customer,
+        admin: User,
+        tmp_path: Path,
+        monkeypatch,
+    ):
+        """repair_photos row is KEPT (Art. 30 precedent) but both the
+        original file AND its thumbnail must be gone from disk, and the
+        path column redacted to the sentinel — same declarative-target
+        contract as ``test_repair_job_id_link_resolves_repair_photos``,
+        extended to also assert on the thumbnail.
+        """
+        monkeypatch.setattr(
+            "goldsmith_erp.core.config.settings.PHOTO_STORAGE_PATH", str(tmp_path)
+        )
+        repair = await _mk_repair(db_session, customer_a, admin)
+        photo = await RepairPhotoService.upload_photo(
+            db_session,
+            repair_id=repair.id,
+            file=_jpeg_upload(),
+            user_id=admin.id,
+            phase=RepairPhotoPhase.INTAKE,
+        )
+        await db_session.commit()
+
+        original_path = Path(photo.file_path)
+        thumb_path = original_path.parent / "thumbs" / f"{original_path.stem}.jpg"
+        assert original_path.exists()
+        assert thumb_path.exists()
+
+        service = FileErasureService(tmp_path)
+        result = await service.erase_customer_files(
+            db_session, customer_id=customer_a.id, performed_by=admin.id
+        )
+        await db_session.commit()
+        await db_session.refresh(photo)
+
+        assert not original_path.exists()
+        assert not thumb_path.exists()
+        assert result.per_target_counts["repair_photos.file_path"]["deleted"] == 1
+        assert result.files_failed == 0
+        # Row is KEPT (Art. 30 retention precedent) and path is redacted.
+        assert photo.file_path == REDACTED_PATH_SENTINEL
+
+    @pytest.mark.asyncio
+    async def test_failed_thumb_unlink_counts_failure_and_keeps_path_unredacted(
+        self,
+        db_session: AsyncSession,
+        customer_a: Customer,
+        admin: User,
+        tmp_path: Path,
+        monkeypatch,
+    ):
+        """Regression: a failed unlink of an EXISTING repair-photo thumbnail
+        must count as ``files_failed`` and leave ``file_path`` UNREDACTED
+        (not set to the sentinel) even though the original file was already
+        deleted — mirrors the consultation photo thumb-failure semantics
+        (``test_failed_thumb_unlink_counts_failure_and_keeps_row``), adapted
+        to repair_photos' "row kept, path column redacted" retention model
+        instead of consultation's "row deleted" model.
+        """
+        monkeypatch.setattr(
+            "goldsmith_erp.core.config.settings.PHOTO_STORAGE_PATH", str(tmp_path)
+        )
+        repair = await _mk_repair(db_session, customer_a, admin)
+        photo = await RepairPhotoService.upload_photo(
+            db_session,
+            repair_id=repair.id,
+            file=_jpeg_upload(),
+            user_id=admin.id,
+            phase=RepairPhotoPhase.INTAKE,
+        )
+        await db_session.commit()
+
+        original_path = Path(photo.file_path)
+        thumb_path = original_path.parent / "thumbs" / f"{original_path.stem}.jpg"
+        assert original_path.exists()
+        assert thumb_path.exists()
+
+        real_unlink = os.unlink
+
+        def _unlink_fails_on_thumbs(path, *args, **kwargs):
+            if "thumbs" in str(path):
+                raise PermissionError("EACCES: mocked thumb permission denial")
+            return real_unlink(path, *args, **kwargs)
+
+        monkeypatch.setattr(
+            "goldsmith_erp.services.file_erasure_service.os.unlink",
+            _unlink_fails_on_thumbs,
+        )
+
+        service = FileErasureService(tmp_path)
+        result = await service.erase_customer_files(
+            db_session, customer_id=customer_a.id, performed_by=admin.id
+        )
+        await db_session.commit()
+        await db_session.refresh(photo)
+
+        # Failure is surfaced, not swallowed.
+        assert result.files_failed >= 1
+        assert any("thumbs" in path for path, _ in result.errors)
+        assert result.per_target_counts["repair_photos.file_path"]["failed"] == 1
+
+        # Original was attempted first and deleted; thumb remains on disk.
+        assert not original_path.exists()
+        assert thumb_path.exists()
+
+        # Path is KEPT unredacted so the admin can inspect / retry.
+        assert photo.file_path != REDACTED_PATH_SENTINEL
+        assert Path(photo.file_path) == original_path
+
+        # Retry after the permission problem is fixed: sweep converges —
+        # thumb deleted, path redacted, no failures.
+        monkeypatch.setattr(
+            "goldsmith_erp.services.file_erasure_service.os.unlink",
+            real_unlink,
+        )
+        retry = await service.erase_customer_files(
+            db_session, customer_id=customer_a.id, performed_by=admin.id
+        )
+        await db_session.commit()
+        await db_session.refresh(photo)
+
+        assert retry.files_failed == 0
+        assert not thumb_path.exists()
+        assert photo.file_path == REDACTED_PATH_SENTINEL
 
 
 # ---------------------------------------------------------------------------

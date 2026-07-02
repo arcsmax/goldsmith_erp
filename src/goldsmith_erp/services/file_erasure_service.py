@@ -118,6 +118,23 @@ class FileErasureTarget:
         the column from being nulled. Today every target is
         ``True`` — reserved for future cases where a missing file
         is acceptable (ephemeral cache, regenerated-on-demand PDF).
+    has_thumbnail:
+        When ``True``, a thumbnail is expected alongside the original
+        at ``<original>.parent / "thumbs" / f"{<original>.stem}.jpg"``
+        (same derivation ``ConsultationPhotoService.get_photo_path``
+        and ``photo_service.get_thumbnail_path`` use) and is deleted
+        as part of processing that row. A MISSING thumbnail is
+        tolerated silently (thumbnail generation is already non-fatal
+        at upload). A failed unlink of an EXISTING thumbnail is a
+        hard erasure failure — counted under ``files_failed`` /
+        ``errors`` — and the row is NOT queued for the DB column
+        update (kept, unredacted) even though the original file was
+        already deleted, so the admin can retry and the raw path
+        stays available as the marker of an incomplete erasure.
+        Today only ``repair_photos`` sets this — ``order_photos`` has
+        the identical filesystem layout (see ``photo_service.py``)
+        but retrofitting it is out of scope for this change; noted as
+        a known gap.
     """
 
     table: str
@@ -126,6 +143,7 @@ class FileErasureTarget:
     link: str
     path_column_nullable: bool = True
     is_required_purge: bool = True
+    has_thumbnail: bool = False
 
 
 # The declarative target list — SINGLE source of truth for every
@@ -156,6 +174,10 @@ FILE_ERASURE_TARGETS: List[FileErasureTarget] = [
         link="repair_job_id",
         # repair_photos.file_path is NOT NULL — fall back to sentinel.
         path_column_nullable=False,
+        # repair_photos rows have a thumbs/ sibling (see
+        # repair_photo_service.py) that the declarative loop must also
+        # sweep — see FileErasureTarget.has_thumbnail docstring.
+        has_thumbnail=True,
     ),
     FileErasureTarget(
         table="scrap_gold_items",
@@ -560,7 +582,6 @@ class FileErasureService:
                                 "resolved_path": str(resolved),
                             },
                         )
-                        row_ids_to_update.append(row)
                     else:
                         # File already gone from disk — not an error,
                         # but log so the admin / DPO can tell apart
@@ -582,6 +603,45 @@ class FileErasureService:
                                 "raw_path": raw_path,
                             },
                         )
+
+                    # Thumbnail sweep — only targets that opt in via
+                    # has_thumbnail (currently repair_photos) reach this
+                    # branch. A MISSING thumb is tolerated silently
+                    # (generation is non-fatal at upload). A failed
+                    # unlink of an EXISTING thumb is a hard failure that
+                    # keeps the row un-redacted for retry, even though
+                    # the original above was already deleted — mirrors
+                    # _erase_consultation_photos' thumb-failure handling.
+                    thumb_failed = False
+                    if target.has_thumbnail:
+                        thumb_resolved = (
+                            resolved.parent / "thumbs" / f"{resolved.stem}.jpg"
+                        )
+                        try:
+                            if thumb_resolved.exists():
+                                os.unlink(thumb_resolved)
+                        except (OSError, PermissionError) as thumb_exc:
+                            thumb_failed = True
+                            message = f"{type(thumb_exc).__name__}: {thumb_exc}"
+                            result.files_failed += 1
+                            per_target_failed += 1
+                            result.errors.append((str(thumb_resolved), message))
+                            logger.error(
+                                "file erasure failed — thumbnail IO error",
+                                extra={
+                                    "audit": True,
+                                    "action": "file_erasure_failed",
+                                    "customer_id": customer_id,
+                                    "user_id": performed_by,
+                                    "table": target.table,
+                                    "column": target.path_column,
+                                    "resolved_path": str(thumb_resolved),
+                                    "error_type": type(thumb_exc).__name__,
+                                    "error_message": str(thumb_exc),
+                                },
+                            )
+
+                    if not thumb_failed:
                         row_ids_to_update.append(row)
                 except (OSError, PermissionError) as exc:
                     # Hard IO error — keep the DB reference so the
