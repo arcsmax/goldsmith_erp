@@ -5,6 +5,7 @@ import { customersApi } from '../../api';
 import { useMetalTypes } from '../../hooks/useMetalTypes';
 import { OrderCreateSchema } from '../../lib/validation/schemas';
 import { useFormValidation } from '../../lib/validation/useFormValidation';
+import { NoGoWarning } from '../consultation/NoGoWarning';
 import '../../styles/orders.css';
 
 interface OrderFormModalProps {
@@ -101,6 +102,13 @@ export const OrderFormModal: React.FC<OrderFormModalProps> = ({
 
   const { validate: zodValidate, errors, clearErrors, clearError } = useFormValidation(OrderCreateSchema);
   const [hasAttemptedSubmit, setHasAttemptedSubmit] = useState(false);
+
+  // Shared with the No-Go candidate derivation below and the Metal tab's
+  // <select> options — factored out so both read the same resolved list.
+  const metalTypeOptions =
+    isLoadingMetalTypes || allMetalTypes.length === 0
+      ? METAL_TYPE_OPTIONS_FALLBACK
+      : allMetalTypes.map((o) => ({ value: o.code, label: o.display_name }));
 
   // Fetch customers on mount
   useEffect(() => {
@@ -288,6 +296,28 @@ export const OrderFormModal: React.FC<OrderFormModalProps> = ({
 
     await onSubmit(submitData);
   };
+
+  // No-Go conflict candidates (Task 9): every field on this form that
+  // carries material/appearance identity a customer could have blocked.
+  // metal_type/alloy/surface_finish resolve to their human-readable labels
+  // — the raw enum/codes ("gold_18k", "585") won't textually match a
+  // no-go value like "Weißgold". description is included as a catch-all:
+  // the intake form has no separate gemstone/allergy field, and staff
+  // routinely note stones or materials there (e.g. "mit Opal", "Nickel-Öse
+  // vom Kunden mitgebracht").
+  const selectedMetalTypeLabel = metalTypeOptions.find(
+    (o) => o.value === formData.metal_type
+  )?.label;
+  const selectedAlloyLabel = ALLOY_OPTIONS.find((o) => o.value === formData.alloy)?.label;
+  const selectedSurfaceFinishLabel = SURFACE_FINISH_OPTIONS.find(
+    (o) => o.value === formData.surface_finish
+  )?.label;
+  const noGoCandidates = [
+    selectedMetalTypeLabel,
+    selectedAlloyLabel,
+    selectedSurfaceFinishLabel,
+    formData.description,
+  ].filter((v): v is string => Boolean(v && v.trim()));
 
   if (!isOpen) {
     return null;
@@ -614,10 +644,7 @@ export const OrderFormModal: React.FC<OrderFormModalProps> = ({
                     disabled={isLoadingMetalTypes}
                   >
                     <option value="">-- Metallart auswählen --</option>
-                    {(isLoadingMetalTypes || allMetalTypes.length === 0
-                      ? METAL_TYPE_OPTIONS_FALLBACK
-                      : allMetalTypes.map((o) => ({ value: o.code, label: o.display_name }))
-                    ).map((option) => (
+                    {metalTypeOptions.map((option) => (
                       <option key={option.value} value={option.value}>
                         {option.label}
                       </option>
@@ -799,6 +826,14 @@ export const OrderFormModal: React.FC<OrderFormModalProps> = ({
               </div>
             )}
           </div>
+
+          {/* No-Go conflict warning (Task 9) — purely additive; renders
+              nothing without a selected customer or without any
+              material-identity field filled in. */}
+          <NoGoWarning
+            customerId={Number(formData.customer_id) || null}
+            candidates={noGoCandidates}
+          />
 
           <div className="modal-footer">
             <button
