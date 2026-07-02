@@ -204,6 +204,40 @@ class TestNoGos:
         assert resp.status_code == 422
 
     @pytest.mark.asyncio
+    async def test_check_endpoint_rejects_candidate_over_200_chars(
+        self,
+        client: AsyncClient,
+        goldsmith_auth_headers: dict,
+        test_customer: Customer,
+    ):
+        """Per-item bound (item F, ECC-review fix wave): each candidate
+        value is capped at 200 chars, matching NoGoCreate.value's
+        max_length — beyond that is a 422, not an unbounded string."""
+        base = _no_gos_url(test_customer.id)
+        resp = await client.get(
+            f"{base}/check",
+            params=[("candidate", "x" * 201)],
+            headers=goldsmith_auth_headers,
+        )
+        assert resp.status_code == 422
+
+    @pytest.mark.asyncio
+    async def test_check_endpoint_accepts_candidate_at_200_chars(
+        self,
+        client: AsyncClient,
+        goldsmith_auth_headers: dict,
+        test_customer: Customer,
+    ):
+        """Boundary check: exactly 200 chars is still valid."""
+        base = _no_gos_url(test_customer.id)
+        resp = await client.get(
+            f"{base}/check",
+            params=[("candidate", "x" * 200)],
+            headers=goldsmith_auth_headers,
+        )
+        assert resp.status_code == 200
+
+    @pytest.mark.asyncio
     async def test_check_endpoint_flags_conflict(
         self,
         client: AsyncClient,

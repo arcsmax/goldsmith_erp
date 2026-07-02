@@ -74,17 +74,23 @@ def _media_type_from_ext(suffix: str) -> str:
 
 
 def _raise_not_found_or_conflict(exc: ValueError) -> None:
-    """Map a service ValueError to 404 or 409 — typed dispatch, no string
-    matching (pattern precedent: ``DuplicateNoGoError`` in no_go_service.py
-    / customers.py). ``ConsultationNotFoundError`` -> 404; any other
+    """Map a service ValueError to 404 or 409 — typed dispatch via
+    ``isinstance``, no string matching and no raise-then-catch indirection
+    (pattern precedent: ``DuplicateNoGoError`` in no_go_service.py /
+    customers.py). ``ConsultationNotFoundError`` -> 404; any other
     ``ValueError`` is a business-rule conflict -> 409.
+
+    Both raises use ``from None``: consultation ValueErrors can carry
+    design-IP wish text in ``__context__`` (the underlying exception chain),
+    and FastAPI/logging may render that chain — suppressing it keeps that
+    text from leaking, matching the tested no_go_service pattern (see
+    ``DuplicateNoGoError`` in ``services/no_go_service.py``).
     """
-    try:
-        raise exc
-    except ConsultationNotFoundError:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
-    except ValueError:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
+    if isinstance(exc, ConsultationNotFoundError):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
+        ) from None
+    raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from None
 
 
 # ─── Create ─────────────────────────────────────────────────────────────────
@@ -233,9 +239,11 @@ async def convert_consultation(
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="Beratung konnte nicht konvertiert werden — ungültige Eingabe.",
-        )
+        ) from None
     except ConsultationNotFoundError as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
+        ) from None
     except ValueError as exc:
         # Defensive fallback for any other service-layer ValueError (e.g. an
         # order-service business rule) — preserves the pre-existing

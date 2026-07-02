@@ -291,3 +291,105 @@ async def test_repeated_follow_up_update_reuses_calendar_event(
     assert len(events) == 1
     assert events[0].id == first_event_id
     assert events[0].start_datetime == second_when
+
+
+@pytest.mark.asyncio
+async def test_repeated_follow_up_update_sends_one_notification(
+    db_session, sample_customer, sample_user
+):
+    """Item F (ECC-review fix wave): the "Wiedervorlage geplant" notification
+    must fire only when the REMINDER CalendarEvent is actually CREATED, not
+    on every reuse/update of an already-existing one. Two follow_up_at
+    writes (create + one update) -> one CalendarEvent, one notification."""
+    from sqlalchemy import select
+
+    from goldsmith_erp.db.models import (
+        CalendarEvent,
+        CalendarEventType,
+        Notification,
+        NotificationTypeEnum,
+    )
+
+    first_when = datetime.utcnow() + timedelta(days=7)
+    created = await ConsultationService.create_consultation(
+        db_session,
+        ConsultationCreate(customer_id=sample_customer.id, follow_up_at=first_when),
+        conducted_by_user_id=sample_user.id,
+    )
+
+    second_when = first_when + timedelta(days=10)
+    await ConsultationService.update_consultation(
+        db_session, created.id, ConsultationUpdate(follow_up_at=second_when)
+    )
+
+    events = (
+        (
+            await db_session.execute(
+                select(CalendarEvent).filter(
+                    CalendarEvent.event_type == CalendarEventType.REMINDER
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert len(events) == 1  # one event across create + update
+
+    notifications = (
+        (
+            await db_session.execute(
+                select(Notification).filter(
+                    Notification.notification_type
+                    == NotificationTypeEnum.CONSULTATION_FOLLOWUP
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert len(notifications) == 1  # only the creation notified, not the reuse
+
+
+@pytest.mark.asyncio
+async def test_follow_up_update_ignores_non_reminder_event_at_same_id(
+    db_session, sample_customer, sample_user
+):
+    """Item F: the existing-event lookup filters on
+    ``event_type == CalendarEventType.REMINDER``. If ``calendar_event_id``
+    ever pointed at a non-REMINDER row (defensive scenario — shouldn't
+    happen via the normal create/update flow), the update path must not
+    silently repurpose it; it creates a fresh REMINDER event instead."""
+    from sqlalchemy import select
+
+    from goldsmith_erp.db.models import CalendarEvent, CalendarEventType
+
+    first_when = datetime.utcnow() + timedelta(days=7)
+    created = await ConsultationService.create_consultation(
+        db_session,
+        ConsultationCreate(customer_id=sample_customer.id, follow_up_at=first_when),
+        conducted_by_user_id=sample_user.id,
+    )
+    first_event_id = created.calendar_event_id
+    assert first_event_id is not None
+
+    # Corrupt the linked event's type — simulates calendar_event_id pointing
+    # at a row that is no longer (or never was) a REMINDER.
+    event = await db_session.get(CalendarEvent, first_event_id)
+    event.event_type = CalendarEventType.APPOINTMENT
+    await db_session.commit()
+
+    second_when = first_when + timedelta(days=10)
+    updated = await ConsultationService.update_consultation(
+        db_session, created.id, ConsultationUpdate(follow_up_at=second_when)
+    )
+
+    # A NEW REMINDER event was created rather than mutating the
+    # now-APPOINTMENT row at the old id.
+    assert updated.calendar_event_id != first_event_id
+    new_event = await db_session.get(CalendarEvent, updated.calendar_event_id)
+    assert new_event is not None
+    assert new_event.event_type is CalendarEventType.REMINDER
+    assert new_event.start_datetime == second_when
+
+    old_event = await db_session.get(CalendarEvent, first_event_id)
+    assert old_event.event_type is CalendarEventType.APPOINTMENT  # untouched

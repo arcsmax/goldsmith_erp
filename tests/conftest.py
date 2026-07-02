@@ -4,26 +4,34 @@ Pytest configuration and shared fixtures for Goldsmith ERP tests.
 Provides database sessions, test data fixtures, and authentication helpers.
 Uses an in-memory async SQLite database so unit tests run without PostgreSQL.
 """
+
 import asyncio
 import os
 import uuid
-import pytest
-import pytest_asyncio
-from httpx import ASGITransport, AsyncClient
 from datetime import datetime, timedelta
 from typing import AsyncGenerator
 
+import pytest
+import pytest_asyncio
+from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
 
-from goldsmith_erp.main import app
-from goldsmith_erp.db.session import get_db
-from goldsmith_erp.db.models import (
-    Base, User, Customer, Order, MetalPurchase, Material,
-    MetalType, CostingMethod, OrderStatusEnum, UserRole
-)
 from goldsmith_erp.core.security import get_password_hash
-
+from goldsmith_erp.db.models import (
+    Base,
+    CostingMethod,
+    Customer,
+    Material,
+    MetalPurchase,
+    MetalType,
+    Order,
+    OrderStatusEnum,
+    User,
+    UserRole,
+)
+from goldsmith_erp.db.session import get_db
+from goldsmith_erp.main import app
 
 # ---------------------------------------------------------------------------
 # Test database — file-backed SQLite, unique per session to allow parallel runs
@@ -97,16 +105,31 @@ def mock_publish_event(monkeypatch):
     Unit tests must never connect to Redis. Any service that calls
     publish_event after a DB operation will silently succeed.
 
-    Every service now imports the ``pubsub`` module (not the function) and
-    calls ``pubsub.publish_event(...)`` — see services/consultation_service.py
-    for the original pattern and the V1.1 hardening sweep (issue #13, item 6)
-    that brought notification_service/handoff_service/order_service in line.
-    Patching the module attribute here therefore covers every caller; the
-    old second monkeypatch on ``goldsmith_erp.services.order_service.
-    publish_event`` was needed only because order_service used to import the
-    function directly (binding it into its own module namespace before this
-    fixture could patch it) and no longer applies.
+    This fixture patches the ``pubsub`` module's ``publish_event``
+    attribute — it only intercepts a call site whose lookup of
+    ``publish_event`` happens AT CALL TIME (after this fixture has already
+    run), via either of two safe patterns actually in use across services:
+
+      * module-attribute — ``from goldsmith_erp.core import pubsub`` at
+        import time, then ``pubsub.publish_event(...)`` at call time (see
+        services/consultation_service.py for the original pattern; the
+        V1.1 hardening sweep, issue #13 item 6, brought notification_
+        service/handoff_service/order_service in line, and a later pubsub
+        sweep converted the two remaining offenders, repair_service and
+        system_monitor); or
+      * a function-body (deferred) ``from goldsmith_erp.core.pubsub import
+        publish_event`` INSIDE the calling function — also resolved fresh
+        at call time, so it equally picks up the patched value (used by
+        time_tracking_service, metal_inventory_service).
+
+    What does NOT work — and is the bug this fixture cannot catch on its
+    own: a MODULE-LEVEL ``from goldsmith_erp.core.pubsub import
+    publish_event`` at the top of a service file. That binds a reference
+    to the pre-patch function object once, at first import, permanently
+    bypassing this fixture — the exact shape repair_service.py and
+    system_monitor.py had until the pubsub-sweep follow-up fixed them.
     """
+
     async def _noop(*args, **kwargs):
         pass
 
@@ -123,6 +146,7 @@ def reset_rate_limiters():
     earlier tests in the suite.
     """
     from goldsmith_erp.api.routers.auth import limiter as auth_limiter
+
     auth_limiter.reset()
     yield
     auth_limiter.reset()
@@ -132,7 +156,9 @@ def reset_rate_limiters():
 async def client(db_session: AsyncSession):
     """HTTP client for API testing backed by the SQLite test database."""
     app.dependency_overrides[get_db] = _override_get_db_factory(db_session)
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as ac:
         yield ac
     app.dependency_overrides.clear()
 
@@ -140,6 +166,7 @@ async def client(db_session: AsyncSession):
 def _override_get_db_factory(session: AsyncSession):
     async def _get_db_override():
         yield session
+
     return _get_db_override
 
 
@@ -157,7 +184,7 @@ async def sample_user(db_session: AsyncSession) -> User:
         first_name="Test",
         last_name="User",
         role=UserRole.GOLDSMITH,
-        is_active=True
+        is_active=True,
     )
     db_session.add(user)
     await db_session.commit()
@@ -174,7 +201,7 @@ async def admin_user(db_session: AsyncSession) -> User:
         first_name="Admin",
         last_name="User",
         role=UserRole.ADMIN,
-        is_active=True
+        is_active=True,
     )
     db_session.add(user)
     await db_session.commit()
@@ -194,8 +221,7 @@ async def auth_headers(sample_user: User) -> dict:
     from goldsmith_erp.core.security import create_access_token
 
     token = create_access_token(
-        data={"sub": str(sample_user.id)},
-        expires_delta=timedelta(hours=1)
+        data={"sub": str(sample_user.id)}, expires_delta=timedelta(hours=1)
     )
     return {"Authorization": f"Bearer {token}"}
 
@@ -206,8 +232,7 @@ async def admin_auth_headers(admin_user: User) -> dict:
     from goldsmith_erp.core.security import create_access_token
 
     token = create_access_token(
-        data={"sub": str(admin_user.id)},
-        expires_delta=timedelta(hours=1)
+        data={"sub": str(admin_user.id)}, expires_delta=timedelta(hours=1)
     )
     return {"Authorization": f"Bearer {token}"}
 
@@ -221,7 +246,7 @@ async def inactive_user(db_session: AsyncSession) -> User:
         first_name="Inactive",
         last_name="User",
         role=UserRole.GOLDSMITH,
-        is_active=False  # Inactive!
+        is_active=False,  # Inactive!
     )
     db_session.add(user)
     await db_session.commit()
@@ -243,7 +268,7 @@ async def sample_customer(db_session: AsyncSession) -> Customer:
         email=f"max.mustermann_{uuid.uuid4().hex[:8]}@example.com",
         phone="+49 123 456789",
         customer_type="private",
-        is_active=True
+        is_active=True,
     )
     db_session.add(customer)
     await db_session.commit()
@@ -261,7 +286,7 @@ async def business_customer(db_session: AsyncSession) -> Customer:
         email=f"jane.smith_{uuid.uuid4().hex[:8]}@smithjewelry.com",
         phone="+49 987 654321",
         customer_type="business",
-        is_active=True
+        is_active=True,
     )
     db_session.add(customer)
     await db_session.commit()
@@ -285,7 +310,7 @@ async def sample_metal_purchase(db_session: AsyncSession) -> MetalPurchase:
         price_total=4500.00,
         price_per_gram=45.00,
         supplier="Test Supplier",
-        invoice_number="TEST-001"
+        invoice_number="TEST-001",
     )
     db_session.add(purchase)
     await db_session.commit()
@@ -304,7 +329,7 @@ async def multiple_metal_purchases(db_session: AsyncSession) -> list[MetalPurcha
             remaining_weight_g=100.0,
             price_total=4400.00,
             price_per_gram=44.00,
-            supplier="Supplier A"
+            supplier="Supplier A",
         ),
         MetalPurchase(
             date_purchased=datetime(2025, 6, 1),  # Middle
@@ -313,7 +338,7 @@ async def multiple_metal_purchases(db_session: AsyncSession) -> list[MetalPurcha
             remaining_weight_g=100.0,
             price_total=4500.00,
             price_per_gram=45.00,
-            supplier="Supplier B"
+            supplier="Supplier B",
         ),
         MetalPurchase(
             date_purchased=datetime(2025, 11, 1),  # Newest
@@ -322,7 +347,7 @@ async def multiple_metal_purchases(db_session: AsyncSession) -> list[MetalPurcha
             remaining_weight_g=100.0,
             price_total=4600.00,
             price_per_gram=46.00,
-            supplier="Supplier C"
+            supplier="Supplier C",
         ),
     ]
 
@@ -348,7 +373,7 @@ async def silver_purchase(db_session: AsyncSession) -> MetalPurchase:
         price_total=400.00,
         price_per_gram=0.80,
         supplier="Silver Supplier",
-        invoice_number="SILVER-001"
+        invoice_number="SILVER-001",
     )
     db_session.add(purchase)
     await db_session.commit()
@@ -362,10 +387,7 @@ async def silver_purchase(db_session: AsyncSession) -> MetalPurchase:
 
 
 @pytest_asyncio.fixture
-async def sample_order(
-    db_session: AsyncSession,
-    sample_customer: Customer
-) -> Order:
+async def sample_order(db_session: AsyncSession, sample_customer: Customer) -> Order:
     """Create a test order"""
     order = Order(
         title="Wedding Ring",
@@ -375,7 +397,7 @@ async def sample_order(
         estimated_weight_g=25.0,
         scrap_percentage=5.0,
         profit_margin_percent=40.0,
-        vat_rate=19.0
+        vat_rate=19.0,
     )
     db_session.add(order)
     await db_session.commit()
@@ -385,8 +407,7 @@ async def sample_order(
 
 @pytest_asyncio.fixture
 async def order_with_metal_type(
-    db_session: AsyncSession,
-    sample_customer: Customer
+    db_session: AsyncSession, sample_customer: Customer
 ) -> Order:
     """Create a test order with metal type specified"""
     order = Order(
@@ -401,7 +422,7 @@ async def order_with_metal_type(
         labor_hours=4.0,
         hourly_rate=75.00,
         profit_margin_percent=40.0,
-        vat_rate=19.0
+        vat_rate=19.0,
     )
     db_session.add(order)
     await db_session.commit()
@@ -422,7 +443,7 @@ async def sample_material(db_session: AsyncSession) -> Material:
         description="Test material for legacy system",
         unit_price=10.0,
         stock=100.0,
-        unit="g"
+        unit="g",
     )
     db_session.add(material)
     await db_session.commit()
@@ -447,7 +468,7 @@ async def sample_activity(db_session: AsyncSession):
         color="#3498db",
         usage_count=0,
         is_custom=False,
-        created_at=datetime.utcnow()
+        created_at=datetime.utcnow(),
     )
     db_session.add(activity)
     await db_session.commit()
@@ -467,7 +488,7 @@ async def polishing_activity(db_session: AsyncSession):
         color="#2ecc71",
         usage_count=0,
         is_custom=False,
-        created_at=datetime.utcnow()
+        created_at=datetime.utcnow(),
     )
     db_session.add(activity)
     await db_session.commit()
@@ -477,10 +498,7 @@ async def polishing_activity(db_session: AsyncSession):
 
 @pytest_asyncio.fixture
 async def sample_time_entry(
-    db_session: AsyncSession,
-    sample_order: Order,
-    sample_activity,
-    sample_user: User
+    db_session: AsyncSession, sample_order: Order, sample_activity, sample_user: User
 ):
     """Create a completed time entry for testing"""
     from goldsmith_erp.db.models import TimeEntry
@@ -501,7 +519,7 @@ async def sample_time_entry(
         complexity_rating=3,
         quality_rating=5,
         rework_required=False,
-        created_at=datetime.utcnow()
+        created_at=datetime.utcnow(),
     )
     db_session.add(entry)
     await db_session.commit()
@@ -511,10 +529,7 @@ async def sample_time_entry(
 
 @pytest_asyncio.fixture
 async def active_time_entry(
-    db_session: AsyncSession,
-    sample_order: Order,
-    sample_activity,
-    sample_user: User
+    db_session: AsyncSession, sample_order: Order, sample_activity, sample_user: User
 ):
     """Create an active (running) time entry"""
     from goldsmith_erp.db.models import TimeEntry
@@ -528,7 +543,7 @@ async def active_time_entry(
         end_time=None,  # Still running
         duration_minutes=None,
         location="Werkbank 2",
-        created_at=datetime.utcnow()
+        created_at=datetime.utcnow(),
     )
     db_session.add(entry)
     await db_session.commit()

@@ -3,9 +3,10 @@
 import logging
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Annotated, Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from pydantic import StringConstraints
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -28,6 +29,7 @@ from goldsmith_erp.models.consultation import (
 )
 from goldsmith_erp.models.customer import (
     CustomerCreate,
+    CustomerGdprExport,
     CustomerListItem,
     CustomerRead,
     CustomerUpdate,
@@ -252,7 +254,7 @@ async def update_customer(
         )
 
 
-@router.get("/{customer_id}/export", response_model=Dict[str, Any])
+@router.get("/{customer_id}/export", response_model=CustomerGdprExport)
 async def gdpr_export_customer(
     customer_id: int,
     db: AsyncSession = Depends(get_db),
@@ -333,7 +335,7 @@ async def gdpr_export_customer(
         orders_data.append(
             {
                 "id": order.id,
-                "status": order.status,
+                "status": order.status.value if order.status else None,
                 "description": order.description,
                 "price": float(order.price) if order.price is not None else None,
                 "created_at": (
@@ -833,6 +835,15 @@ async def delete_customer(
 
 _CUSTOMER_NOT_FOUND_DETAIL = "Kunde nicht gefunden"
 
+# Per-item bound for the no-gos check endpoint's `candidate` query values —
+# matches NoGoCreate.value's max_length=200 (models/consultation.py), so a
+# candidate can never be longer than a no-go value could ever legitimately
+# be. Item F (ECC-review fix wave). Same dual-constraint shape already used
+# for StyleProfileUpdate's list items (models/consultation.py
+# `_StyleProfileItem`): the outer Query(max_length=50) below bounds the
+# number of candidates; this bounds each individual candidate's length.
+_CandidateItem = Annotated[str, StringConstraints(max_length=200)]
+
 
 async def _get_active_customer_or_404(
     db: AsyncSession, customer_id: int
@@ -977,11 +988,11 @@ async def delete_customer_no_go(
 @router.get("/{customer_id}/no-gos/check", response_model=List[NoGoConflict])
 async def check_customer_no_go_conflicts(
     customer_id: int,
-    candidate: List[str] = Query(
+    candidate: List[_CandidateItem] = Query(
         ...,
         max_length=50,
         description="Candidate material/stone/etc. values to check against "
-        "the customer's recorded no-gos (max 50)",
+        "the customer's recorded no-gos (max 50 items, 200 chars each)",
     ),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_permission(Permission.CUSTOMER_VIEW)),
@@ -1029,8 +1040,12 @@ async def update_style_profile(
 
     Permissions: Requires CUSTOMER_EDIT permission.
     """
+    # 404 lookup runs BEFORE entering transactional(db) — a routine "no
+    # such customer" must not trip transactional's generic error logger
+    # (matches the other V1.1 no-go/style-profile endpoints and
+    # NoGoService.add_no_go's pre-check ordering rationale).
+    customer = await _get_active_customer_or_404(db, customer_id)
     async with transactional(db):
-        customer = await _get_active_customer_or_404(db, customer_id)
         profile = dict(customer.style_profile or {})
         profile.update(update_in.model_dump(exclude_unset=True))
         # See _normalize_style_profile: an explicit null in the PATCH body

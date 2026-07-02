@@ -13,6 +13,7 @@ import traceback
 from unittest import mock
 
 import pytest
+from sqlalchemy.ext.asyncio import AsyncSession
 
 import goldsmith_erp.db.transaction as transaction_module
 import goldsmith_erp.services.no_go_service as no_go_service_module
@@ -199,15 +200,18 @@ async def test_add_non_allergy_no_go_does_not_touch_legacy_field(
 
 
 async def _add_no_go_bypassing_app_check(
-    db_session, monkeypatch, customer_id, no_go_in
-):
+    db_session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+    customer_id: int,
+    no_go_in: NoGoCreate,
+) -> CustomerNoGo:
     """Call add_no_go with its app-side pre-check forced to see no rows.
 
     Used to reach the DB-level unique-index path directly, without a real
     concurrent second request.
     """
 
-    async def _empty_list_no_gos(db, cid):
+    async def _empty_list_no_gos(db: AsyncSession, cid: int) -> list[CustomerNoGo]:
         return []
 
     monkeypatch.setattr(NoGoService, "list_no_gos", staticmethod(_empty_list_no_gos))
@@ -304,3 +308,71 @@ async def test_db_conflict_duplicate_never_logs_raw_value(
     # The success-path "Customer no-go added" info log must never fire for
     # a rejected duplicate.
     assert not service_info_spy.called
+
+
+# ── value_hash blind-index — casefold-divergent duplicates (item A) ────────
+#
+# The OLD functional index used SQL lower(value), which does NOT perform
+# full Unicode case folding the way Python's str.casefold() does (e.g.
+# German 'ß' -> 'ss'). 'Straße' and 'STRASSE' collided under the app-side
+# pre-check (casefold) but NOT under that old DB index — exactly the gap
+# closed by moving both the app-side check and the DB index to the SAME
+# value_hash (core.encryption.no_go_value_blind_index, casefold-normalised).
+
+
+@pytest.mark.asyncio
+async def test_db_unique_index_catches_casefold_divergent_duplicate(
+    db_session, sample_customer, monkeypatch
+):
+    """'Straße' then a raced 'STRASSE' (app-check bypassed, simulating a
+    concurrent request the pre-check never saw) must still be rejected via
+    the value_hash DB-level unique index — not admitted as a distinct row,
+    which is exactly what the old lower(value) index would have allowed."""
+    # Captured up front: the raced insert's IntegrityError rolls back the
+    # transaction, which expires every ORM object in this session —
+    # `sample_customer.id` afterwards would raise MissingGreenlet (async
+    # lazy-load outside a greenlet context), same trap documented in
+    # consultation_service.py's side-effect guards.
+    customer_id = sample_customer.id
+
+    await NoGoService.add_no_go(
+        db_session, customer_id, NoGoCreate(category="allergy", value="Straße")
+    )
+
+    with pytest.raises(DuplicateNoGoError, match="existiert bereits"):
+        await _add_no_go_bypassing_app_check(
+            db_session,
+            monkeypatch,
+            customer_id,
+            NoGoCreate(category="allergy", value="STRASSE"),
+        )
+
+    # Only the original row persisted — the raced duplicate was rejected.
+    # list_no_gos is still monkeypatched to the empty-list stub from the
+    # bypass helper above (monkeypatch only undoes at test teardown) —
+    # undo it explicitly so this assertion exercises the real query.
+    monkeypatch.undo()
+    assert [
+        n.value for n in await NoGoService.list_no_gos(db_session, customer_id)
+    ] == ["Straße"]
+
+
+# ── source_consultation_id FK pre-validation (item B) ───────────────────────
+
+
+@pytest.mark.asyncio
+async def test_add_no_go_invalid_source_consultation_raises_value_error(
+    db_session, sample_customer
+):
+    """An unknown source_consultation_id must be a typed ValueError raised
+    from the pre-check, NOT misreported as DuplicateNoGoError by the
+    flush-side IntegrityError catch (that catch's broadness is only safe
+    because this FK is validated before the transaction is entered)."""
+    with pytest.raises(ValueError, match="Consultation 999999 not found") as exc_info:
+        await NoGoService.add_no_go(
+            db_session,
+            sample_customer.id,
+            NoGoCreate(category="allergy", value="Nickel"),
+            source_consultation_id=999999,
+        )
+    assert not isinstance(exc_info.value, DuplicateNoGoError)

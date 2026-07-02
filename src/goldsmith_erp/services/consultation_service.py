@@ -382,12 +382,15 @@ class ConsultationService:
                     existing_row = (
                         await db.execute(
                             select(CalendarEvent.id, CalendarEvent.end_datetime).filter(
-                                CalendarEvent.id == existing_calendar_event_id
+                                CalendarEvent.id == existing_calendar_event_id,
+                                CalendarEvent.event_type == CalendarEventType.REMINDER,
                             )
                         )
                     ).first()
                     if existing_row is not None:
-                        update_values: dict = {"start_datetime": follow_up_at}
+                        update_values: dict[str, datetime] = {
+                            "start_datetime": follow_up_at
+                        }
                         if existing_row.end_datetime is not None:
                             update_values["end_datetime"] = follow_up_at
                         await db.execute(
@@ -422,6 +425,15 @@ class ConsultationService:
                 extra={"consultation_id": consultation_id},
                 exc_info=True,
             )
+            return
+
+        if reused_event_id is not None:
+            # Reusing an existing REMINDER event (issue #13 item 7's
+            # in-place update, above) — the user was already notified when
+            # it was first created. Sending "Wiedervorlage geplant" again on
+            # every subsequent follow_up_at edit would be noisy and
+            # misleading (it implies a NEW reminder, not an edit of the
+            # existing one). Only notify on actual creation.
             return
 
         # Notification — lazy import to avoid circular deps (handoff_service pattern).
