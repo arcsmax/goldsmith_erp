@@ -1,0 +1,159 @@
+"""Customer no-gos (persistente Ausschlüsse, z. B. Nickelallergie) — V1.1.
+
+``CustomerNoGo`` is the source of truth. The legacy ``Customer.allergies``
+freetext column is kept read-compatible for UI that hasn't migrated to the
+no-go list yet: adding an ALLERGY no-go also appends the value there, inside
+the same transaction (see ``_sync_legacy_allergies``).
+"""
+
+import logging
+from typing import List, Optional
+
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from goldsmith_erp.db.models import Customer, CustomerNoGo, NoGoCategory
+from goldsmith_erp.db.transaction import transactional
+from goldsmith_erp.models.consultation import NoGoConflict, NoGoCreate
+
+logger = logging.getLogger(__name__)
+
+# Customer.allergies is Column(String(500)) — plain, unencrypted text (db/models.py).
+_ALLERGIES_MAX_LENGTH = 500
+
+
+def _norm(value: str) -> str:
+    return value.strip().casefold()
+
+
+def _sync_legacy_allergies(customer: Customer, value: str, no_go_id: int) -> None:
+    """Append ``value`` to the legacy ``Customer.allergies`` string.
+
+    Comma-separated, case-insensitive de-dup against existing entries. Never
+    truncates existing user data: if the appended result would exceed the
+    column's 500-char limit, the append is skipped (and logged) instead of
+    silently cutting off whatever was already stored. Health-adjacent data —
+    the log only carries the customer/no-go IDs, never the value itself.
+    """
+    existing = customer.allergies or ""
+    existing_values = [v.strip() for v in existing.split(",") if v.strip()]
+    if any(_norm(v) == _norm(value) for v in existing_values):
+        return
+
+    candidate = f"{existing}, {value}" if existing else value
+    if len(candidate) > _ALLERGIES_MAX_LENGTH:
+        logger.warning(
+            "Skipped legacy allergies sync: append would exceed "
+            "%d-char column limit",
+            _ALLERGIES_MAX_LENGTH,
+            extra={"customer_id": customer.id, "no_go_id": no_go_id},
+        )
+        return
+
+    customer.allergies = candidate
+
+
+class NoGoService:
+    @staticmethod
+    async def add_no_go(
+        db: AsyncSession,
+        customer_id: int,
+        no_go_in: NoGoCreate,
+        source_consultation_id: Optional[int] = None,
+    ) -> CustomerNoGo:
+        async with transactional(db):
+            result = await db.execute(
+                select(Customer).filter(Customer.id == customer_id)
+            )
+            customer = result.scalar_one_or_none()
+            if customer is None:
+                raise ValueError(f"Customer {customer_id} not found")
+
+            existing = await NoGoService.list_no_gos(db, customer_id)
+            if any(
+                n.category == no_go_in.category
+                and _norm(n.value) == _norm(no_go_in.value)
+                for n in existing
+            ):
+                raise ValueError(
+                    f"No-Go '{no_go_in.value}' existiert bereits für diesen Kunden"
+                )
+
+            no_go = CustomerNoGo(
+                customer_id=customer_id,
+                category=no_go_in.category,
+                value=no_go_in.value,
+                note=no_go_in.note,
+                source_consultation_id=source_consultation_id,
+            )
+            db.add(no_go)
+            await db.flush()
+            await db.refresh(no_go)
+
+            if no_go_in.category == NoGoCategory.ALLERGY:
+                _sync_legacy_allergies(customer, no_go_in.value, no_go.id)
+
+        logger.info(
+            "Customer no-go added",
+            extra={
+                "customer_id": customer_id,
+                "no_go_id": no_go.id,
+                "category": no_go.category.value,
+            },
+        )
+        return no_go
+
+    @staticmethod
+    async def list_no_gos(db: AsyncSession, customer_id: int) -> List[CustomerNoGo]:
+        result = await db.execute(
+            select(CustomerNoGo)
+            .filter(CustomerNoGo.customer_id == customer_id)
+            .order_by(CustomerNoGo.created_at.asc())
+        )
+        return list(result.scalars().all())
+
+    @staticmethod
+    async def delete_no_go(db: AsyncSession, customer_id: int, no_go_id: int) -> None:
+        async with transactional(db):
+            result = await db.execute(
+                select(CustomerNoGo).filter(
+                    CustomerNoGo.id == no_go_id,
+                    CustomerNoGo.customer_id == customer_id,
+                )
+            )
+            no_go = result.scalar_one_or_none()
+            if no_go is None:
+                raise ValueError(
+                    f"No-Go {no_go_id} not found for customer {customer_id}"
+                )
+            await db.delete(no_go)
+
+        logger.info(
+            "Customer no-go deleted",
+            extra={"customer_id": customer_id, "no_go_id": no_go_id},
+        )
+
+    @staticmethod
+    async def check_conflicts(
+        db: AsyncSession, customer_id: int, candidates: List[str]
+    ) -> List[NoGoConflict]:
+        """Bidirectional normalized substring match: 'Weißgold' hits
+        'Weißgold 585' and 'synthetischer Rubin' hits candidate 'Rubin'."""
+        no_gos = await NoGoService.list_no_gos(db, customer_id)
+        conflicts: List[NoGoConflict] = []
+        for candidate in candidates:
+            cand = _norm(candidate)
+            if not cand:
+                continue
+            for no_go in no_gos:
+                ng = _norm(no_go.value)
+                if ng in cand or cand in ng:
+                    conflicts.append(
+                        NoGoConflict(
+                            no_go_id=no_go.id,
+                            category=no_go.category,
+                            value=no_go.value,
+                            matched_against=candidate,
+                        )
+                    )
+        return conflicts
