@@ -30,7 +30,7 @@ Security notes:
 import logging
 import uuid
 from pathlib import Path
-from typing import List, Optional
+from typing import Any, List, Optional, cast
 
 from fastapi import UploadFile
 from sqlalchemy import select
@@ -225,6 +225,12 @@ class RepairPhotoService:
         The filesystem deletion is best-effort — a missing file is logged
         but does not prevent the DB record from being removed.
 
+        Any intake-checklist item on the parent repair that links this
+        photo (``status="photo"``, ``photo_id`` = this id) is downgraded
+        back to ``status="open"`` in the SAME transaction — otherwise the
+        checklist would keep asserting photo-documented condition while
+        the photo 404s, undermining its dispute-protection purpose.
+
         Args:
             db:       Async database session.
             photo_id: Integer ID of the photo.
@@ -237,6 +243,7 @@ class RepairPhotoService:
         """
         photo = await RepairPhotoService._get_or_raise(db, photo_id)
         original = RepairPhotoService._anchored_path_or_raise(photo)
+        repair_job_id = photo.repair_job_id
 
         if original.exists():
             original.unlink()
@@ -255,7 +262,56 @@ class RepairPhotoService:
             thumb_path.unlink()
 
         await db.delete(photo)
+        await RepairPhotoService._downgrade_checklist_items(
+            db, int(repair_job_id), photo_id
+        )
         await db.flush()
+
+    @staticmethod
+    async def _downgrade_checklist_items(
+        db: AsyncSession, repair_job_id: int, photo_id: int
+    ) -> None:
+        """Reset checklist items linking ``photo_id`` back to ``open``.
+
+        Called from :meth:`delete_photo` inside the same session/transaction
+        (caller commits) so the photo row deletion and the checklist
+        downgrade land atomically. No-op when the repair has no checklist
+        or no item links the deleted photo.
+        """
+        result = await db.execute(
+            select(RepairJob).where(RepairJob.id == repair_job_id)
+        )
+        repair = result.scalar_one_or_none()
+        if repair is None or not repair.intake_checklist:
+            return
+
+        # cast(): mypy sees Column[Any] at class level for the JSON column;
+        # on a mapped instance it holds the runtime list (Task 1 review-nit
+        # pattern).
+        current_items = cast(List[Any], repair.intake_checklist)
+
+        downgraded = 0
+        new_items = []
+        for item in current_items:
+            if isinstance(item, dict) and item.get("photo_id") == photo_id:
+                new_items.append({**item, "status": "open", "photo_id": None})
+                downgraded += 1
+            else:
+                new_items.append(item)
+
+        if downgraded:
+            # Whole-value reassignment — SQLAlchemy's JSON column
+            # change-tracking compares by reference, so an in-place edit
+            # of the existing list would not be persisted.
+            repair.intake_checklist = cast(Any, new_items)
+            logger.info(
+                "Intake checklist item(s) downgraded to open after photo deletion",
+                extra={
+                    "repair_id": repair_job_id,
+                    "photo_id": photo_id,
+                    "downgraded_items": downgraded,
+                },
+            )
 
     @staticmethod
     def _anchored_path_or_raise(photo: RepairPhoto) -> Path:

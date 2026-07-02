@@ -182,6 +182,15 @@ async def update_intake_checklist(
     Jeder Punkt mit Status "photo" muss auf ein INTAKE-Phase-Foto DIESES
     Auftrags verweisen — sonst 422. Unbekannter Auftrag -> 404.
     """
+    # NOTE (reviewed, accepted): FastAPI's automatic 422 for schema-invalid
+    # bodies echoes the submitted items (incl. na_reason free-text) back in
+    # the validation-error response. That is a same-request echo to the
+    # already-authenticated REPAIR_EDIT caller of data they themselves just
+    # sent — same sensitivity tier as item_description on POST /repairs/.
+    # Nothing is persisted or logged from that path; the deliberate
+    # ID-only discipline applies to OUR raised errors (see
+    # InvalidChecklistPhotoError), which can cross transactional()'s
+    # error logger — not to FastAPI's request validation echo.
     try:
         repair = await RepairService.update_intake_checklist(db, repair_id, data.items)
     except InvalidChecklistPhotoError as exc:

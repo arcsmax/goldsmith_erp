@@ -225,6 +225,105 @@ class TestUpdateIntakeChecklist:
 
 
 # ===========================================================================
+# Photo deletion downgrades linked checklist items (fix round 1)
+# ===========================================================================
+
+
+class TestPhotoDeletionDowngradesChecklist:
+    @pytest.mark.asyncio
+    async def test_deleting_linked_photo_resets_item_to_open(
+        self, db_session, tmp_path, monkeypatch, sample_user
+    ):
+        """Deleting a photo that a checklist item links must downgrade the
+        item back to open/photo_id=None in the same transaction — otherwise
+        the checklist keeps asserting photo-documented condition while the
+        photo 404s. Unrelated items (na, other-photo) stay untouched."""
+        monkeypatch.setattr(
+            "goldsmith_erp.core.config.settings.PHOTO_STORAGE_PATH", str(tmp_path)
+        )
+        repair = await RepairService.create_repair(
+            db_session, _create_payload(), sample_user.id
+        )
+
+        photo_a = await RepairPhotoService.upload_photo(
+            db_session,
+            repair_id=repair.id,
+            file=_jpeg_upload("a.jpg"),
+            user_id=sample_user.id,
+            phase=RepairPhotoPhase.INTAKE,
+        )
+        photo_b = await RepairPhotoService.upload_photo(
+            db_session,
+            repair_id=repair.id,
+            file=_jpeg_upload("b.jpg"),
+            user_id=sample_user.id,
+            phase=RepairPhotoPhase.INTAKE,
+        )
+        await db_session.commit()
+
+        items = [
+            IntakeChecklistItem(
+                key="gravuren", label="Gravuren", status="photo", photo_id=photo_a.id
+            ),
+            IntakeChecklistItem(
+                key="krappen-fassungen",
+                label="Krappen/Fassungen",
+                status="photo",
+                photo_id=photo_b.id,
+            ),
+            IntakeChecklistItem(
+                key="punzen-stempel",
+                label="Punzen/Stempel",
+                status="na",
+                na_reason="Kein Punzen vorhanden",
+            ),
+        ]
+        await RepairService.update_intake_checklist(db_session, repair.id, items)
+
+        await RepairPhotoService.delete_photo(db_session, photo_a.id)
+        await db_session.commit()
+
+        refreshed = await RepairService.get_repair(db_session, repair.id)
+        checklist = refreshed.intake_checklist
+
+        # Linked item downgraded to open, photo link cleared.
+        assert checklist[0]["status"] == "open"
+        assert checklist[0]["photo_id"] is None
+        # Other items untouched.
+        assert checklist[1]["status"] == "photo"
+        assert checklist[1]["photo_id"] == photo_b.id
+        assert checklist[2]["status"] == "na"
+        assert checklist[2]["na_reason"] == "Kein Punzen vorhanden"
+
+    @pytest.mark.asyncio
+    async def test_deleting_unlinked_photo_leaves_checklist_untouched(
+        self, db_session, tmp_path, monkeypatch, sample_user
+    ):
+        monkeypatch.setattr(
+            "goldsmith_erp.core.config.settings.PHOTO_STORAGE_PATH", str(tmp_path)
+        )
+        repair = await RepairService.create_repair(
+            db_session, _create_payload(), sample_user.id
+        )
+        photo = await RepairPhotoService.upload_photo(
+            db_session,
+            repair_id=repair.id,
+            file=_jpeg_upload(),
+            user_id=sample_user.id,
+            phase=RepairPhotoPhase.INTAKE,
+        )
+        await db_session.commit()
+
+        seeded_before = [dict(item) for item in repair.intake_checklist]
+
+        await RepairPhotoService.delete_photo(db_session, photo.id)
+        await db_session.commit()
+
+        refreshed = await RepairService.get_repair(db_session, repair.id)
+        assert refreshed.intake_checklist == seeded_before
+
+
+# ===========================================================================
 # IntakeChecklistItem / IntakeChecklistUpdate schema validation
 # ===========================================================================
 
