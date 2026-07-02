@@ -73,4 +73,24 @@ describe('OccasionBudgetStep', () => {
     ).toBeInTheDocument();
     expect(onFieldsChange).toHaveBeenLastCalledWith({});
   });
+
+  it('shows the German negative-value error and withholds the patch when budget_min is negative', () => {
+    // HTML min="0" only constrains the spinner arrows — typing '-50' still
+    // lands in state, so the Zod .min(0) failure must surface inline instead
+    // of silently dropping the patch via onFieldsChange({}).
+    const onFieldsChange = vi.fn();
+    render(
+      <OccasionBudgetStep
+        consultation={makeConsultation()}
+        onPatch={noopPatch}
+        refresh={noopRefresh}
+        onFieldsChange={onFieldsChange}
+      />
+    );
+
+    fireEvent.change(screen.getByLabelText('Budget von €'), { target: { value: '-50' } });
+
+    expect(screen.getByText('Darf nicht negativ sein')).toBeInTheDocument();
+    expect(onFieldsChange).toHaveBeenLastCalledWith({});
+  });
 });

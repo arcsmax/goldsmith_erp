@@ -131,6 +131,9 @@ export const OccasionBudgetStep: React.FC<OccasionBudgetStepProps> = ({
             value={budgetMin}
             onChange={handleBudgetMinChange}
           />
+          {/* HTML min="0" only constrains the spinner arrows — a typed
+              negative value still fails Zod .min(0) and must surface here. */}
+          {errors.budget_min && <div className="error-message">{errors.budget_min}</div>}
         </div>
         <div className="wizard-field">
           <label htmlFor="budget_max">Budget bis €</label>
