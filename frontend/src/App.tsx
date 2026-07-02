@@ -35,6 +35,12 @@ const RepairsPage = lazy(() => import('./pages/RepairsPage').then(m => ({ defaul
 const RepairDetailPage = lazy(() => import('./pages/RepairDetailPage').then(m => ({ default: m.RepairDetailPage })));
 const CustomerPortalPage = lazy(() => import('./pages/CustomerPortalPage').then(m => ({ default: m.CustomerPortalPage })));
 const UserSettingsPage = lazy(() => import('./pages/UserSettingsPage').then(m => ({ default: m.UserSettingsPage })));
+const ConsultationWizardPage = lazy(() =>
+  import('./pages/ConsultationWizardPage').then((m) => ({ default: m.ConsultationWizardPage }))
+);
+const ConsultationsPage = lazy(() =>
+  import('./pages/ConsultationsPage').then((m) => ({ default: m.ConsultationsPage }))
+);
 
 // Loading fallback component
 const PageLoader: React.FC = () => (
@@ -100,6 +106,38 @@ const App: React.FC = () => {
                       element={
                         <ProtectedRoute requiredRoles={['ADMIN', 'GOLDSMITH']}>
                           <CustomerDetailPage />
+                        </ProtectedRoute>
+                      }
+                    />
+
+                    {/* Beratung — ADMIN und GOLDSMITH */}
+                    <Route
+                      path="consultations"
+                      element={
+                        <ProtectedRoute requiredRoles={['ADMIN', 'GOLDSMITH']}>
+                          <ConsultationsPage />
+                        </ProtectedRoute>
+                      }
+                    />
+                    {/* Static "new" segment must be registered alongside the
+                        dynamic ":id" segment below — react-router v7 ranks
+                        static path segments above dynamic ones during
+                        matching regardless of array order, so /consultations/new
+                        always resolves here and never against :id. Pinned by
+                        pages/ConsultationsRoutes.test.tsx. */}
+                    <Route
+                      path="consultations/new"
+                      element={
+                        <ProtectedRoute requiredRoles={['ADMIN', 'GOLDSMITH']}>
+                          <ConsultationWizardPage />
+                        </ProtectedRoute>
+                      }
+                    />
+                    <Route
+                      path="consultations/:id"
+                      element={
+                        <ProtectedRoute requiredRoles={['ADMIN', 'GOLDSMITH']}>
+                          <ConsultationWizardPage />
                         </ProtectedRoute>
                       }
                     />

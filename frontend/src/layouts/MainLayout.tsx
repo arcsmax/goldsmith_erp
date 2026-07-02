@@ -164,6 +164,14 @@ export const MainLayout: React.FC = () => {
               </Link>
             )}
 
+            {/* Beratung — ADMIN und GOLDSMITH */}
+            {canManageCustomers && (
+              <Link to="/consultations" className={`nav-link ${isActivePath('/consultations') ? 'active' : ''}`} onClick={handleNavClick}>
+                <span className="nav-icon">💍</span>
+                Beratung
+              </Link>
+            )}
+
             {/* Materialien — ADMIN und GOLDSMITH */}
             {canManageMaterials && (
               <Link

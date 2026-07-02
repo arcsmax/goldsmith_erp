@@ -1,6 +1,16 @@
 // Customers API Service
 import apiClient from './client';
-import { Customer, CustomerListItem, CustomerCreateInput, CustomerUpdateInput, CustomerStats } from '../types';
+import {
+  Customer,
+  CustomerListItem,
+  CustomerCreateInput,
+  CustomerUpdateInput,
+  CustomerStats,
+  NoGo,
+  NoGoCreateInput,
+  NoGoConflict,
+  StyleProfile,
+} from '../types';
 
 export const customersApi = {
   /**
@@ -77,5 +87,44 @@ export const customersApi = {
    */
   delete: async (id: number): Promise<void> => {
     await apiClient.delete(`/customers/${id}`);
+  },
+
+  // ── V1.1: No-Gos & Stilprofil ──────────────────────────────────────────
+  getNoGos: async (customerId: number): Promise<NoGo[]> => {
+    const response = await apiClient.get<NoGo[]>(`/customers/${customerId}/no-gos`);
+    return response.data;
+  },
+  addNoGo: async (customerId: number, data: NoGoCreateInput): Promise<NoGo> => {
+    const response = await apiClient.post<NoGo>(`/customers/${customerId}/no-gos`, data);
+    return response.data;
+  },
+  deleteNoGo: async (customerId: number, noGoId: number): Promise<void> => {
+    await apiClient.delete(`/customers/${customerId}/no-gos/${noGoId}`);
+  },
+  checkNoGoConflicts: async (
+    customerId: number,
+    candidates: string[]
+  ): Promise<NoGoConflict[]> => {
+    const params = new URLSearchParams();
+    candidates.forEach((c) => params.append('candidate', c));
+    const response = await apiClient.get<NoGoConflict[]>(
+      `/customers/${customerId}/no-gos/check`,
+      { params }
+    );
+    return response.data;
+  },
+  getStyleProfile: async (customerId: number): Promise<StyleProfile> => {
+    const response = await apiClient.get<StyleProfile>(`/customers/${customerId}/style-profile`);
+    return response.data;
+  },
+  updateStyleProfile: async (
+    customerId: number,
+    data: Partial<StyleProfile>
+  ): Promise<StyleProfile> => {
+    const response = await apiClient.patch<StyleProfile>(
+      `/customers/${customerId}/style-profile`,
+      data
+    );
+    return response.data;
   },
 };
