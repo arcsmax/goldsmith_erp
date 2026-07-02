@@ -3,6 +3,7 @@ from datetime import datetime
 from sqlalchemy import Boolean, Column, DateTime, text
 from sqlalchemy import Enum as _SAEnum
 from sqlalchemy import (
+    Date,
     Float,
     ForeignKey,
     Index,
@@ -273,6 +274,9 @@ class Customer(Base):
     preferences = Column(
         JSON, default=dict
     )  # {"bevorzugt": "Platin", "style": "modern"}
+    style_profile = Column(
+        JSON, nullable=True
+    )  # V1.1: {metal_tones, finishes, stone_preferences, style_words}
     birthday = Column(DateTime, nullable=True)  # For marketing/gift vouchers
 
     # Metadata
@@ -1570,6 +1574,7 @@ class NotificationTypeEnum(str, enum.Enum):
     REPAIR_RECEIVED = "repair_received"  # Reparaturauftrag eingegangen
     REPAIR_READY = "repair_ready"  # Reparatur abholbereit
     BIRTHDAY_REMINDER = "birthday_reminder"
+    CONSULTATION_FOLLOWUP = "consultation_followup"  # Beratung: Wiedervorlage fällig
 
 
 class NotificationSeverityEnum(str, enum.Enum):
@@ -1934,6 +1939,174 @@ class RepairPhoto(Base):
 
     def __repr__(self) -> str:
         return f"<RepairPhoto repair={self.repair_job_id} " f"phase={self.phase.value}>"
+
+
+# ---------------------------------------------------------------------------
+# V1.1 Consultation & Intake (Beratung & Annahme)
+# ---------------------------------------------------------------------------
+
+
+class ConsultationStatus(str, enum.Enum):
+    """Lifecycle of a consultation (Beratungsgespräch)."""
+
+    DRAFT = "draft"  # Laufende/unterbrochene Beratung — auto-save target
+    COMPLETED = "completed"  # Beratung abgeschlossen, noch nicht konvertiert
+    CONVERTED = "converted"  # In Auftrag oder Kostenvoranschlag überführt
+    ARCHIVED = "archived"  # Nicht weiterverfolgt
+
+
+class ConsultationOccasion(str, enum.Enum):
+    """Anlass des Schmuckwunsches."""
+
+    ENGAGEMENT = "engagement"
+    WEDDING = "wedding"
+    ANNIVERSARY = "anniversary"
+    BIRTHDAY = "birthday"
+    SELF = "self"  # Selbstkauf
+    REDESIGN = "redesign"  # Umarbeitung
+    REPAIR_CONSULT = "repair_consult"
+    OTHER = "other"
+
+
+class ConsultationPhotoKind(str, enum.Enum):
+    """Art eines Beratungsfotos."""
+
+    SKETCH = "sketch"  # Foto der Papierskizze
+    REFERENCE = "reference"  # Referenz-/Inspirationsbild des Kunden
+    INSPIRATION = "inspiration"
+    EXISTING_PIECE = "existing_piece"  # Mitgebrachtes Stück (z. B. Erbstück)
+
+
+class NoGoCategory(str, enum.Enum):
+    """Kategorie eines Kunden-No-Gos."""
+
+    METAL = "metal"
+    STONE = "stone"
+    FINISH = "finish"
+    DESIGN_ELEMENT = "design_element"
+    ALLERGY = "allergy"
+    OTHER = "other"
+
+
+class Consultation(Base):
+    """Beratungsgespräch — strukturierte Aufnahme eines Schmuckwunsches.
+
+    Wishes/notes/photos are design IP: GOLDSMITH/ADMIN access only.
+    budget_min/budget_max are financial data (ADMIN/GOLDSMITH, audit-logged).
+    """
+
+    __tablename__ = "consultations"
+
+    id = Column(Integer, primary_key=True, index=True)
+    customer_id = Column(
+        Integer,
+        ForeignKey("customers.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    conducted_by = Column(
+        Integer, ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
+    )
+    calendar_event_id = Column(
+        Integer, ForeignKey("calendar_events.id", ondelete="SET NULL"), nullable=True
+    )
+    occasion = Column(
+        SAEnum(ConsultationOccasion),
+        nullable=False,
+        default=ConsultationOccasion.OTHER,
+    )
+    occasion_date = Column(Date, nullable=True)
+    budget_min = Column(Float, nullable=True)  # Finanzdaten — Sichtbarkeitsregeln!
+    budget_max = Column(Float, nullable=True)
+    piece_type = Column(SAEnum(OrderTypeEnum), nullable=True)
+    wishes = Column(Text, nullable=True)  # Design-IP
+    materials_discussed = Column(JSON, nullable=True)  # [{"metal": "gold_585", ...}]
+    source_material = Column(Text, nullable=True)  # Altgold/Erbstück des Kunden
+    status = Column(
+        SAEnum(ConsultationStatus),
+        nullable=False,
+        default=ConsultationStatus.DRAFT,
+        index=True,
+    )
+    converted_quote_id = Column(
+        Integer, ForeignKey("quotes.id", ondelete="SET NULL"), nullable=True
+    )
+    converted_order_id = Column(
+        Integer, ForeignKey("orders.id", ondelete="SET NULL"), nullable=True
+    )
+    follow_up_at = Column(DateTime, nullable=True)
+    notes = Column(Text, nullable=True)  # Design-IP
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    updated_at = Column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+    )
+
+    customer = relationship("Customer")
+    goldsmith = relationship("User", foreign_keys=[conducted_by])
+    photos = relationship(
+        "ConsultationPhoto",
+        back_populates="consultation",
+        cascade="all, delete-orphan",
+        order_by="ConsultationPhoto.timestamp.asc()",
+    )
+
+    def __repr__(self) -> str:
+        return f"<Consultation {self.id} customer={self.customer_id} status={self.status.value}>"
+
+
+class ConsultationPhoto(Base):
+    """Skizzen-/Referenzfoto einer Beratung. Cloned from OrderPhoto conventions."""
+
+    __tablename__ = "consultation_photos"
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    consultation_id = Column(
+        Integer,
+        ForeignKey("consultations.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    # Set on conversion so the bench sees the sketch on the order (spec: link, not copy).
+    order_id = Column(
+        Integer, ForeignKey("orders.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    kind = Column(
+        SAEnum(ConsultationPhotoKind),
+        nullable=False,
+        default=ConsultationPhotoKind.SKETCH,
+    )
+    file_path = Column(String(500), nullable=False)
+    timestamp = Column(DateTime, default=datetime.utcnow, index=True)
+    taken_by = Column(
+        Integer, ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
+    )
+    notes = Column(Text)
+
+    consultation = relationship("Consultation", back_populates="photos")
+    user = relationship("User")
+
+
+class CustomerNoGo(Base):
+    """Persistentes Kunden-No-Go (z. B. 'kein Nickel'). Warn-Quelle für Aufträge."""
+
+    __tablename__ = "customer_no_gos"
+
+    id = Column(Integer, primary_key=True, index=True)
+    customer_id = Column(
+        Integer,
+        ForeignKey("customers.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    category = Column(SAEnum(NoGoCategory), nullable=False)
+    value = Column(String(200), nullable=False)
+    note = Column(Text, nullable=True)
+    source_consultation_id = Column(
+        Integer, ForeignKey("consultations.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    customer = relationship("Customer")
 
 
 # ============================================================================
