@@ -8,9 +8,11 @@ column limit).
 """
 
 import logging
+from unittest import mock
 
 import pytest
 
+import goldsmith_erp.services.no_go_service as no_go_service_module
 from goldsmith_erp.models.consultation import NoGoCreate
 from goldsmith_erp.services.no_go_service import DuplicateNoGoError, NoGoService
 
@@ -143,13 +145,18 @@ async def test_add_allergy_no_go_does_not_duplicate_existing_legacy_value(
 
 @pytest.mark.asyncio
 async def test_add_allergy_no_go_skips_legacy_sync_when_over_500_chars(
-    db_session, sample_customer, caplog
+    db_session, sample_customer
 ):
-    """Appending must never truncate existing user data — skip instead and warn."""
+    """Appending must never truncate existing user data — skip instead and warn.
+
+    Uses a spy on the module logger instead of caplog: root-handler capture
+    proved environment-dependent in CI (setup_logging() reconfigures the root
+    logger at app import), while the spy asserts the same contract anywhere.
+    """
     sample_customer.allergies = "A" * 495
     await db_session.commit()
 
-    with caplog.at_level(logging.WARNING):
+    with mock.patch.object(no_go_service_module.logger, "warning") as warn_spy:
         await NoGoService.add_no_go(
             db_session,
             sample_customer.id,
@@ -157,7 +164,10 @@ async def test_add_allergy_no_go_skips_legacy_sync_when_over_500_chars(
         )
 
     assert sample_customer.allergies == "A" * 495  # untouched, not truncated
-    assert any("500" in record.message for record in caplog.records)
+    assert warn_spy.called
+    template = warn_spy.call_args.args[0]
+    rendered = template % tuple(warn_spy.call_args.args[1:])
+    assert "500" in rendered
 
 
 @pytest.mark.asyncio
