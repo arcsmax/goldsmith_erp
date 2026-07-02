@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
-from sqlalchemy import and_, delete, desc, func, or_, select, update
+from sqlalchemy import and_, delete, desc, func, null, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -1038,9 +1038,11 @@ class CustomerService:
             ``consultations.occasion_date`` (rows whose corresponding
             field was NULLed — final-review Fix 3), ``customers.
             style_profile`` (the customer's own style-preference JSON,
-            NULLed — final-review Fix 3), and ``customer_no_gos.deleted``
-            (preference rows hard-deleted). ``total`` is the sum across
-            all fields.
+            NULLed — final-review Fix 3), ``customer_no_gos.deleted``
+            (preference rows hard-deleted), and ``repair_jobs.
+            intake_checklist`` (checklist JSON NULLed — na_reason values
+            are free text about the erased customer's item). ``total`` is
+            the sum across all fields.
             Returns all-zero counts if the customer does not exist
             (caller should 404 before calling this).
         """
@@ -1058,6 +1060,7 @@ class CustomerService:
         counts["consultations.occasion_date"] = 0
         counts["customers.style_profile"] = 0
         counts["customer_no_gos.deleted"] = 0
+        counts["repair_jobs.intake_checklist"] = 0
         counts["total"] = 0
 
         if customer is None:
@@ -1137,14 +1140,39 @@ class CustomerService:
             )
             .values(style_profile=None)
         )
-        counts["customers.style_profile"] = max(
-            style_profile_result.rowcount or 0, 0
-        )
+        counts["customers.style_profile"] = max(style_profile_result.rowcount or 0, 0)
 
         no_go_result = await db.execute(
             delete(CustomerNoGo).where(CustomerNoGo.customer_id == customer_id)
         )
         counts["customer_no_gos.deleted"] = max(no_go_result.rowcount or 0, 0)
+
+        # Repair intake checklist (V1.1 Task 2, fix round 1): ``na_reason``
+        # values are operator free-text ABOUT the erased customer's item
+        # (e.g. "Kein Stein — Kundin traegt ihn nie"), and the linked
+        # intake photos are erased by FileErasureService anyway, so the
+        # simplest consistent rule is to NULL the whole column for the
+        # erased customer's repairs. Same bulk-UPDATE shape as
+        # ``style_profile`` above: filtered on "currently set" so the
+        # counter reflects rows actually changed and stays 0 on a repeat
+        # scrub (idempotency); additive counter keeps Art. 30 per-field
+        # reporting granular. sa.null() (not Python None): Column(JSON)
+        # defaults to none_as_null=False, so ``values(...=None)`` would
+        # persist the JSON literal 'null' — which still matches
+        # ``isnot(None)`` (a SQL-NULL check) and would re-count the same
+        # rows on every repeat scrub, breaking the idempotent-counter
+        # guarantee.
+        intake_checklist_result = await db.execute(
+            update(RepairJob)
+            .where(
+                RepairJob.customer_id == customer_id,
+                RepairJob.intake_checklist.isnot(None),
+            )
+            .values(intake_checklist=null())
+        )
+        counts["repair_jobs.intake_checklist"] = max(
+            intake_checklist_result.rowcount or 0, 0
+        )
 
         # Decrypt phone / mobile / address fields in-place so the matcher
         # sees plaintext values. _decrypt_pii is a no-op when encryption

@@ -38,6 +38,7 @@ from goldsmith_erp.db.models import (
 from goldsmith_erp.services.image_validation import (
     create_thumbnail,
     read_validated_image,
+    resolve_within_root,
 )
 
 logger = logging.getLogger(__name__)
@@ -198,11 +199,15 @@ class ConsultationPhotoService:
             Path to the original file, or its thumbnail if `thumbnail=True`.
 
         Raises:
-            ValueError: If no photo with `photo_id` exists.
+            ValueError: If no photo with `photo_id` exists, or if the stored
+                ``file_path`` does not resolve inside the photo storage root
+                (defense-in-depth — consultation paths were never
+                client-writable, but the guard is cheap and shared).
         """
         photo = await ConsultationPhotoService._get_or_raise(db, photo_id)
-        original = Path(photo.file_path)
+        original = ConsultationPhotoService._anchored_path_or_raise(photo)
         if thumbnail:
+            # Derived from the already-anchored original — stays inside root.
             return original.parent / "thumbs" / f"{original.stem}.jpg"
         return original
 
@@ -219,11 +224,14 @@ class ConsultationPhotoService:
             photo_id: UUID string of the photo.
 
         Raises:
-            ValueError: If no photo with `photo_id` exists.
+            ValueError: If no photo with `photo_id` exists, or if the stored
+                ``file_path`` does not resolve inside the photo storage root
+                (the row is left untouched — nothing outside the root is
+                ever unlinked).
         """
         photo = await ConsultationPhotoService._get_or_raise(db, photo_id)
+        original = ConsultationPhotoService._anchored_path_or_raise(photo)
 
-        original = Path(photo.file_path)
         if original.exists():
             original.unlink()
             logger.info(
@@ -242,6 +250,33 @@ class ConsultationPhotoService:
 
         await db.delete(photo)
         await db.flush()
+
+    @staticmethod
+    def _anchored_path_or_raise(photo: ConsultationPhoto) -> Path:
+        """Resolve ``photo.file_path`` anchored to the storage root.
+
+        Defense-in-depth twin of ``RepairPhotoService._anchored_path_or_raise``:
+        consultation ``file_path`` values were never client-writable (the
+        service has always written them itself), so no tainted data exists —
+        but the guard is cheap, shared (``image_validation.resolve_within_root``),
+        and protects against any future write path or DB tampering. Refused
+        values raise an ID-only ValueError (→ 404 at the router; the raw path
+        is logged server-side but never echoed to the client).
+        """
+        resolved = resolve_within_root(photo.file_path, _storage_root())
+        if resolved is None:
+            logger.error(
+                "Consultation photo path escapes storage root — refused",
+                extra={
+                    "photo_id": photo.id,
+                    "raw_path": photo.file_path,
+                    "storage_root": str(_storage_root()),
+                },
+            )
+            raise ValueError(
+                f"Consultation photo {photo.id} has an invalid storage path"
+            )
+        return resolved
 
     @staticmethod
     async def _get_or_raise(db: AsyncSession, photo_id: str) -> ConsultationPhoto:

@@ -1,6 +1,7 @@
 // Repairs API Service — Reparaturverwaltung
 import apiClient from './client';
 import {
+  IntakeChecklistItem,
   RepairCompleteInput,
   RepairDiagnoseInput,
   RepairJob,
@@ -8,10 +9,16 @@ import {
   RepairJobListItem,
   RepairJobStatus,
   RepairPhoto,
+  RepairPhotoPhase,
   RepairStatusUpdateInput,
 } from '../types';
 
 const BASE = '/repairs';
+
+/** Path helpers for AuthenticatedImage (relative to apiClient baseURL). */
+export const repairPhotoPath = (photoId: number): string => `${BASE}/photos/${photoId}`;
+export const repairPhotoThumbPath = (photoId: number): string =>
+  `${BASE}/photos/${photoId}/thumbnail`;
 
 export const repairsApi = {
   /**
@@ -114,13 +121,25 @@ export const repairsApi = {
   },
 
   /**
-   * Add a photo to a repair job.
+   * Upload a photo to a repair job (multipart, real file upload).
+   *
+   * Replaces the former JSON `addPhoto` shape, which only ever sent a
+   * client-side `blob:` URL string that never reached the server — no file
+   * was ever stored, and GDPR erasure of repair photos was a silent no-op.
    */
-  addPhoto: async (
+  uploadPhoto: async (
     repairId: number,
-    data: { phase: string; file_path: string; notes?: string }
+    file: File,
+    phase: RepairPhotoPhase,
+    notes?: string
   ): Promise<RepairPhoto> => {
-    const response = await apiClient.post<RepairPhoto>(`${BASE}/${repairId}/photos`, data);
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('phase', phase);
+    if (notes) formData.append('notes', notes);
+    const response = await apiClient.post<RepairPhoto>(`${BASE}/${repairId}/photos`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
     return response.data;
   },
 
@@ -129,6 +148,33 @@ export const repairsApi = {
    */
   getPhotos: async (repairId: number): Promise<RepairPhoto[]> => {
     const response = await apiClient.get<RepairPhoto[]>(`${BASE}/${repairId}/photos`);
+    return response.data;
+  },
+
+  /**
+   * Delete a repair photo (file + thumbnail + DB row).
+   *
+   * The backend auto-downgrades any intake_checklist item linked to this
+   * photo back to "open" — callers MUST refetch the repair afterwards
+   * rather than trust locally-held checklist state.
+   */
+  deletePhoto: async (photoId: number): Promise<void> => {
+    await apiClient.delete(`${BASE}/photos/${photoId}`);
+  },
+
+  /**
+   * Replace the full intake checklist (Eingangs-Checkliste).
+   *
+   * The backend expects the COMPLETE item array on every call (full
+   * replace, not a partial patch) — always resubmit every item.
+   */
+  updateIntakeChecklist: async (
+    repairId: number,
+    items: IntakeChecklistItem[]
+  ): Promise<RepairJob> => {
+    const response = await apiClient.put<RepairJob>(`${BASE}/${repairId}/intake-checklist`, {
+      items,
+    });
     return response.data;
   },
 };

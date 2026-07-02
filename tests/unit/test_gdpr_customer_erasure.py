@@ -776,6 +776,61 @@ class TestScrubH5CustomerScopedFields:
         assert counts["repair_jobs.diagnosis_notes"] == 2
 
     @pytest.mark.asyncio
+    async def test_scrub_nulls_repair_intake_checklist(
+        self,
+        db_session: AsyncSession,
+        mueller_maria: Customer,
+        admin: User,
+    ):
+        """V1.1 fix round 1: intake-checklist ``na_reason`` values are
+        operator free-text about the erased customer's item, so the whole
+        JSON column is NULLed for the customer's repairs (the linked intake
+        photos are erased by FileErasureService anyway). Counter is
+        additive like the consultation special-cases and idempotent —
+        a second scrub finds nothing left to NULL."""
+        repair = RepairJob(
+            repair_number=f"REP-2026-{uuid.uuid4().hex[:6]}",
+            bag_number="A2",
+            customer_id=mueller_maria.id,
+            received_by=admin.id,
+            item_description="Goldring - Stein nachfassen",
+            item_type=RepairItemType.RING,
+            status=RepairJobStatus.RECEIVED,
+            intake_checklist=[
+                {
+                    "key": "punzen-stempel",
+                    "label": "Punzen/Stempel",
+                    "status": "na",
+                    "photo_id": None,
+                    "na_reason": "Kein Punzen — Erbstueck von Maria Mueller",
+                }
+            ],
+        )
+        db_session.add(repair)
+        await db_session.commit()
+        await db_session.refresh(repair)
+
+        counts = await CustomerService.scrub_customer_pii(
+            db_session,
+            customer_id=mueller_maria.id,
+            performed_by=admin.id,
+        )
+        await db_session.commit()
+        await db_session.refresh(repair)
+
+        assert repair.intake_checklist is None
+        assert counts["repair_jobs.intake_checklist"] == 1
+
+        # Idempotency: repeat scrub finds no checklist left to NULL.
+        counts_again = await CustomerService.scrub_customer_pii(
+            db_session,
+            customer_id=mueller_maria.id,
+            performed_by=admin.id,
+        )
+        await db_session.commit()
+        assert counts_again["repair_jobs.intake_checklist"] == 0
+
+    @pytest.mark.asyncio
     async def test_scrub_redacts_valuation_certificate_fields(
         self,
         db_session: AsyncSession,
@@ -1170,7 +1225,8 @@ class TestScrubH5CrossField:
         log = result.scalar_one()
         # SCRUBBABLE_FIELDS keys + the special-case counters (budget /
         # materials_discussed / occasion_date NULL-out, style_profile
-        # NULL-out, no-go hard-delete — Task 10 + final-review Fix 3, not
+        # NULL-out, no-go hard-delete — Task 10 + final-review Fix 3;
+        # repair intake-checklist NULL-out — V1.1 fix round 1; not
         # string-scrub targets) + "total".
         expected_keys = {target.counter_key for target in SCRUBBABLE_FIELDS} | {
             "consultations.budget",
@@ -1178,6 +1234,7 @@ class TestScrubH5CrossField:
             "consultations.occasion_date",
             "customers.style_profile",
             "customer_no_gos.deleted",
+            "repair_jobs.intake_checklist",
             "total",
         }
         assert set(log.details["counts"].keys()) == expected_keys

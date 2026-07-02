@@ -16,7 +16,8 @@ class Settings(BaseSettings):
 
     # ── Tell Pydantic to read `/app/.env` at runtime ───────────────────────────
     model_config = SettingsConfigDict(
-        env_file=Path(__file__).parents[3] / ".env",  # project root/.env  (src/goldsmith_erp/core/config.py → parents[3])
+        env_file=Path(__file__).parents[3]
+        / ".env",  # project root/.env  (src/goldsmith_erp/core/config.py → parents[3])
         env_file_encoding="utf-8",
         case_sensitive=True,
         extra="ignore",  # .env carries compose-only vars (DB_PORT, REDIS_EXT_PORT, BACKEND_PORT); ignore them at the Settings layer
@@ -182,6 +183,19 @@ class Settings(BaseSettings):
     # Relative paths are resolved from the project root at runtime.
     PHOTO_STORAGE_PATH: str = "./uploads/photos"
     PHOTO_MAX_SIZE_MB: int = 8
+
+    # ── Repair Intake Checklist (V1.1) ───────────────────────────────────────────
+    # Seeded onto every new RepairJob.intake_checklist at creation (one item
+    # per label, see RepairService.create_repair). Each item is satisfied by
+    # an INTAKE-phase photo or an explicit "nicht zutreffend" + reason —
+    # dispute-protection mirroring insurance-industry intake practice.
+    REPAIR_INTAKE_CHECKLIST: list[str] = [
+        "Krappen/Fassungen",
+        "Pavé-Besatz",
+        "Gravuren",
+        "Punzen/Stempel",
+        "Vorhandene Tragespuren und Schäden",
+    ]
 
     # ── File Storage Root (GDPR Art. 17 file erasure) ────────────────────────────
     # Root directory containing every filesystem artefact referenced by DB path

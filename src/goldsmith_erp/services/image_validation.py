@@ -28,6 +28,54 @@ class PhotoValidationError(ValueError):
     """Raised when an uploaded photo fails validation (type or size)."""
 
 
+# ─── Storage-root anchoring ────────────────────────────────────────────────────
+
+
+def resolve_within_root(raw_path: str, root: Path) -> Optional[Path]:
+    """
+    Resolve ``raw_path`` and return it only if it lies inside ``root``.
+
+    Shared path-traversal guard for the photo services (mirrors
+    ``FileErasureService._safe_resolve``). DB path columns are not
+    trustworthy by construction — the legacy repair-photo API accepted
+    arbitrary client strings into ``repair_photos.file_path`` — so every
+    read/serve/delete that starts from a stored path must be anchored
+    here before any filesystem I/O.
+
+    Behaviour:
+      - Relative paths are anchored under ``root`` before resolution.
+      - Absolute paths are resolved as-is so escapes are detectable.
+      - Symlinks are followed (``Path.resolve``), so a link pointing
+        outside ``root`` is refused too.
+
+    Returns:
+        The resolved absolute Path when it is inside (or equal to)
+        ``root``; ``None`` when the candidate escapes the root, is
+        empty, or cannot be resolved. Callers receiving ``None`` MUST
+        NOT perform any filesystem I/O on the raw value and should
+        surface an ID-only error (never echo the raw path to clients).
+    """
+    if not raw_path:
+        return None
+
+    candidate = Path(raw_path)
+    root_resolved = root.resolve(strict=False)
+
+    if not candidate.is_absolute():
+        candidate = root_resolved / candidate
+
+    try:
+        resolved = candidate.resolve(strict=False)
+    except (OSError, RuntimeError):
+        # Pathological input (e.g. infinite symlink loop) — refuse.
+        return None
+
+    if not resolved.is_relative_to(root_resolved):
+        return None
+
+    return resolved
+
+
 # ─── Type detection ────────────────────────────────────────────────────────────
 
 

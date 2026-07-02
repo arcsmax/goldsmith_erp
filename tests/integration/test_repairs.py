@@ -11,20 +11,36 @@ Endpoint coverage:
   POST   /api/v1/repairs/{id}/quality-check  - submit for quality check
   POST   /api/v1/repairs/{id}/complete       - mark ready for pickup
   POST   /api/v1/repairs/{id}/pickup         - confirm pickup
+  POST   /api/v1/repairs/{id}/photos         - upload photo (multipart)
+  GET    /api/v1/repairs/{id}/photos         - list photos
+  GET    /api/v1/repairs/photos/{photo_id}            - serve original
+  GET    /api/v1/repairs/photos/{photo_id}/thumbnail  - serve thumbnail
+  DELETE /api/v1/repairs/photos/{photo_id}            - delete photo
 
 Permission matrix:
   - ADMIN / GOLDSMITH  — full create + edit workflow
   - VIEWER             — REPAIR_VIEW (list, get) only
   - No auth            — 401
 """
+
+import io
 import uuid
+
 import pytest
 from httpx import AsyncClient
+from PIL import Image
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from goldsmith_erp.db.models import Customer, RepairItemType, User
 
 REPAIRS_URL = "/api/v1/repairs/"
+
+
+def _jpeg_bytes() -> bytes:
+    """A minimal valid 4x4 white JPEG, Pillow-generated in-memory."""
+    buf = io.BytesIO()
+    Image.new("RGB", (4, 4), "white").save(buf, format="JPEG")
+    return buf.getvalue()
 
 
 def _repair_url(repair_id: int) -> str:
@@ -38,6 +54,7 @@ def _action_url(repair_id: int, action: str) -> str:
 # ---------------------------------------------------------------------------
 # Payload helpers
 # ---------------------------------------------------------------------------
+
 
 def _create_payload(customer_id: int | None = None) -> dict:
     payload: dict = {
@@ -68,8 +85,13 @@ def _complete_payload() -> dict:
 # Helper: create a repair and return its ID
 # ---------------------------------------------------------------------------
 
-async def _create_repair(client: AsyncClient, headers: dict, customer_id: int | None = None) -> int:
-    resp = await client.post(REPAIRS_URL, json=_create_payload(customer_id), headers=headers)
+
+async def _create_repair(
+    client: AsyncClient, headers: dict, customer_id: int | None = None
+) -> int:
+    resp = await client.post(
+        REPAIRS_URL, json=_create_payload(customer_id), headers=headers
+    )
     assert resp.status_code == 201, resp.text
     return resp.json()["id"]
 
@@ -78,12 +100,11 @@ async def _create_repair(client: AsyncClient, headers: dict, customer_id: int | 
 # POST /api/v1/repairs/ — create
 # ===========================================================================
 
+
 class TestCreateRepair:
 
     @pytest.mark.asyncio
-    async def test_create_repair_unauthenticated_returns_401(
-        self, client: AsyncClient
-    ):
+    async def test_create_repair_unauthenticated_returns_401(self, client: AsyncClient):
         """Deny-by-default middleware blocks unauthenticated requests."""
         response = await client.post(REPAIRS_URL, json=_create_payload())
         assert response.status_code == 401
@@ -93,7 +114,9 @@ class TestCreateRepair:
         self, client: AsyncClient, admin_auth_headers: dict
     ):
         """ADMIN can create a new repair intake."""
-        response = await client.post(REPAIRS_URL, json=_create_payload(), headers=admin_auth_headers)
+        response = await client.post(
+            REPAIRS_URL, json=_create_payload(), headers=admin_auth_headers
+        )
         assert response.status_code == 201
 
     @pytest.mark.asyncio
@@ -101,7 +124,9 @@ class TestCreateRepair:
         self, client: AsyncClient, goldsmith_auth_headers: dict
     ):
         """GOLDSMITH has REPAIR_CREATE permission."""
-        response = await client.post(REPAIRS_URL, json=_create_payload(), headers=goldsmith_auth_headers)
+        response = await client.post(
+            REPAIRS_URL, json=_create_payload(), headers=goldsmith_auth_headers
+        )
         assert response.status_code == 201
 
     @pytest.mark.asyncio
@@ -109,7 +134,9 @@ class TestCreateRepair:
         self, client: AsyncClient, admin_auth_headers: dict
     ):
         """Created repair must have a REP-YYYY-NNNN number and correct initial status."""
-        response = await client.post(REPAIRS_URL, json=_create_payload(), headers=admin_auth_headers)
+        response = await client.post(
+            REPAIRS_URL, json=_create_payload(), headers=admin_auth_headers
+        )
         assert response.status_code == 201
         data = response.json()
 
@@ -127,7 +154,9 @@ class TestCreateRepair:
         self, client: AsyncClient, admin_auth_headers: dict
     ):
         """Created repair must have an auto-generated bag number."""
-        response = await client.post(REPAIRS_URL, json=_create_payload(), headers=admin_auth_headers)
+        response = await client.post(
+            REPAIRS_URL, json=_create_payload(), headers=admin_auth_headers
+        )
         assert response.status_code == 201
         data = response.json()
         assert "bag_number" in data
@@ -138,7 +167,9 @@ class TestCreateRepair:
         self, client: AsyncClient, admin_auth_headers: dict
     ):
         """Initial status must always be RECEIVED."""
-        response = await client.post(REPAIRS_URL, json=_create_payload(), headers=admin_auth_headers)
+        response = await client.post(
+            REPAIRS_URL, json=_create_payload(), headers=admin_auth_headers
+        )
         assert response.status_code == 201
         assert response.json()["status"] == "received"
 
@@ -151,7 +182,9 @@ class TestCreateRepair:
     ):
         """Creating repair with a customer_id links customer correctly."""
         payload = _create_payload(customer_id=test_customer.id)
-        response = await client.post(REPAIRS_URL, json=payload, headers=admin_auth_headers)
+        response = await client.post(
+            REPAIRS_URL, json=payload, headers=admin_auth_headers
+        )
         assert response.status_code == 201
         data = response.json()
         assert data["customer_id"] == test_customer.id
@@ -161,7 +194,9 @@ class TestCreateRepair:
         self, client: AsyncClient, viewer_auth_headers: dict
     ):
         """VIEWER does not have REPAIR_CREATE permission."""
-        response = await client.post(REPAIRS_URL, json=_create_payload(), headers=viewer_auth_headers)
+        response = await client.post(
+            REPAIRS_URL, json=_create_payload(), headers=viewer_auth_headers
+        )
         assert response.status_code == 403
 
 
@@ -169,12 +204,11 @@ class TestCreateRepair:
 # GET /api/v1/repairs/ — list
 # ===========================================================================
 
+
 class TestListRepairs:
 
     @pytest.mark.asyncio
-    async def test_list_repairs_unauthenticated_returns_401(
-        self, client: AsyncClient
-    ):
+    async def test_list_repairs_unauthenticated_returns_401(self, client: AsyncClient):
         response = await client.get(REPAIRS_URL)
         assert response.status_code == 401
 
@@ -212,6 +246,7 @@ class TestListRepairs:
 # POST /api/v1/repairs/{id}/diagnose — diagnose
 # ===========================================================================
 
+
 class TestDiagnoseRepair:
 
     @pytest.mark.asyncio
@@ -221,8 +256,16 @@ class TestDiagnoseRepair:
         """
         Calling /diagnose on a RECEIVED repair transitions through
         DIAGNOSED to QUOTED (the service does both steps in one call).
+
+        Also pins that the settings-seeded intake_checklist survives this
+        status transition untouched — /diagnose has no business mutating it.
         """
-        repair_id = await _create_repair(client, admin_auth_headers)
+        create_resp = await client.post(
+            REPAIRS_URL, json=_create_payload(), headers=admin_auth_headers
+        )
+        assert create_resp.status_code == 201, create_resp.text
+        repair_id = create_resp.json()["id"]
+        seeded_checklist = create_resp.json()["intake_checklist"]
 
         resp = await client.post(
             _action_url(repair_id, "diagnose"),
@@ -233,6 +276,11 @@ class TestDiagnoseRepair:
         data = resp.json()
         # The diagnose endpoint transitions to QUOTED (via DIAGNOSED)
         assert data["status"] in ("diagnosed", "quoted")
+        assert data["intake_checklist"] == seeded_checklist
+
+        # Confirm persistence via an independent GET, not just the response echo.
+        get_resp = await client.get(_repair_url(repair_id), headers=admin_auth_headers)
+        assert get_resp.json()["intake_checklist"] == seeded_checklist
 
     @pytest.mark.asyncio
     async def test_diagnose_repair_stores_cost(
@@ -278,11 +326,10 @@ class TestDiagnoseRepair:
 #          -> READY -> PICKED_UP
 # ===========================================================================
 
+
 class TestStatusTransitions:
 
-    async def _advance_to_approved(
-        self, client: AsyncClient, headers: dict
-    ) -> int:
+    async def _advance_to_approved(self, client: AsyncClient, headers: dict) -> int:
         """Create a repair and advance it to APPROVED status."""
         repair_id = await _create_repair(client, headers)
 
@@ -312,12 +359,16 @@ class TestStatusTransitions:
         repair_id = await self._advance_to_approved(client, admin_auth_headers)
 
         # Start repair (APPROVED -> IN_REPAIR)
-        resp = await client.post(_action_url(repair_id, "start"), headers=admin_auth_headers)
+        resp = await client.post(
+            _action_url(repair_id, "start"), headers=admin_auth_headers
+        )
         assert resp.status_code == 200
         assert resp.json()["status"] == "in_repair"
 
         # Quality check (IN_REPAIR -> QUALITY_CHECK)
-        resp = await client.post(_action_url(repair_id, "quality-check"), headers=admin_auth_headers)
+        resp = await client.post(
+            _action_url(repair_id, "quality-check"), headers=admin_auth_headers
+        )
         assert resp.status_code == 200
         assert resp.json()["status"] == "quality_check"
 
@@ -331,7 +382,9 @@ class TestStatusTransitions:
         assert resp.json()["status"] == "ready"
 
         # Pickup (READY -> PICKED_UP)
-        resp = await client.post(_action_url(repair_id, "pickup"), headers=admin_auth_headers)
+        resp = await client.post(
+            _action_url(repair_id, "pickup"), headers=admin_auth_headers
+        )
         assert resp.status_code == 200
         assert resp.json()["status"] == "picked_up"
 
@@ -346,7 +399,9 @@ class TestStatusTransitions:
         repair_id = await _create_repair(client, admin_auth_headers)
 
         # Skipping diagnose + approve and trying to start directly
-        resp = await client.post(_action_url(repair_id, "start"), headers=admin_auth_headers)
+        resp = await client.post(
+            _action_url(repair_id, "start"), headers=admin_auth_headers
+        )
         assert resp.status_code == 422
 
     @pytest.mark.asyncio
@@ -370,7 +425,9 @@ class TestStatusTransitions:
         """RECEIVED -> PICKED_UP is an invalid skip."""
         repair_id = await _create_repair(client, admin_auth_headers)
 
-        resp = await client.post(_action_url(repair_id, "pickup"), headers=admin_auth_headers)
+        resp = await client.post(
+            _action_url(repair_id, "pickup"), headers=admin_auth_headers
+        )
         assert resp.status_code == 422
 
     @pytest.mark.asyncio
@@ -386,3 +443,422 @@ class TestStatusTransitions:
             headers=viewer_auth_headers,
         )
         assert resp.status_code == 403
+
+
+# ===========================================================================
+# Photos — POST/GET/DELETE /api/v1/repairs/{id}/photos, /photos/{photo_id}[/thumbnail]
+# ===========================================================================
+
+
+class TestRepairPhotos:
+
+    @pytest.mark.asyncio
+    async def test_upload_list_get_thumbnail_delete_roundtrip(
+        self,
+        client: AsyncClient,
+        admin_auth_headers: dict,
+        tmp_path,
+        monkeypatch,
+    ):
+        monkeypatch.setattr(
+            "goldsmith_erp.core.config.settings.PHOTO_STORAGE_PATH", str(tmp_path)
+        )
+        repair_id = await _create_repair(client, admin_auth_headers)
+
+        files = {"file": ("intake.jpg", _jpeg_bytes(), "image/jpeg")}
+        data = {"phase": "intake", "notes": "Zustand bei Annahme"}
+        upload = await client.post(
+            f"{REPAIRS_URL}{repair_id}/photos",
+            files=files,
+            data=data,
+            headers=admin_auth_headers,
+        )
+        assert upload.status_code == 201, upload.text
+        photo_id = upload.json()["id"]
+        assert upload.json()["phase"] == "intake"
+        assert isinstance(photo_id, int)
+
+        # List — route "/{repair_id}/photos" must not be shadowed
+        listed = await client.get(
+            f"{REPAIRS_URL}{repair_id}/photos", headers=admin_auth_headers
+        )
+        assert listed.status_code == 200
+        assert any(p["id"] == photo_id for p in listed.json())
+
+        # Serve original — route "/photos/{photo_id}" must not be shadowed by
+        # "/{repair_id}"
+        file_resp = await client.get(
+            f"{REPAIRS_URL}photos/{photo_id}", headers=admin_auth_headers
+        )
+        assert file_resp.status_code == 200
+        assert file_resp.headers["content-type"] == "image/jpeg"
+
+        thumb_resp = await client.get(
+            f"{REPAIRS_URL}photos/{photo_id}/thumbnail", headers=admin_auth_headers
+        )
+        assert thumb_resp.status_code == 200
+
+        delete_resp = await client.delete(
+            f"{REPAIRS_URL}photos/{photo_id}", headers=admin_auth_headers
+        )
+        assert delete_resp.status_code == 204
+
+        missing = await client.get(
+            f"{REPAIRS_URL}photos/{photo_id}", headers=admin_auth_headers
+        )
+        assert missing.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_upload_rejects_non_image(
+        self,
+        client: AsyncClient,
+        admin_auth_headers: dict,
+        tmp_path,
+        monkeypatch,
+    ):
+        monkeypatch.setattr(
+            "goldsmith_erp.core.config.settings.PHOTO_STORAGE_PATH", str(tmp_path)
+        )
+        repair_id = await _create_repair(client, admin_auth_headers)
+
+        files = {"file": ("x.pdf", b"%PDF-1.4 not an image", "application/pdf")}
+        resp = await client.post(
+            f"{REPAIRS_URL}{repair_id}/photos",
+            files=files,
+            data={"phase": "intake"},
+            headers=admin_auth_headers,
+        )
+        assert resp.status_code == 422
+
+    @pytest.mark.asyncio
+    async def test_upload_unknown_repair_returns_404(
+        self,
+        client: AsyncClient,
+        admin_auth_headers: dict,
+        tmp_path,
+        monkeypatch,
+    ):
+        monkeypatch.setattr(
+            "goldsmith_erp.core.config.settings.PHOTO_STORAGE_PATH", str(tmp_path)
+        )
+        files = {"file": ("intake.jpg", _jpeg_bytes(), "image/jpeg")}
+        resp = await client.post(
+            f"{REPAIRS_URL}999999/photos",
+            files=files,
+            data={"phase": "intake"},
+            headers=admin_auth_headers,
+        )
+        assert resp.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_upload_old_json_body_returns_422(
+        self,
+        client: AsyncClient,
+        admin_auth_headers: dict,
+    ):
+        """The endpoint contract changed from JSON body to multipart — a
+        client still POSTing the old ``{phase, file_path, notes}`` JSON
+        shape (no multipart ``file`` part) must get 422, not be silently
+        accepted as a fake "upload" with a client-supplied path string.
+        """
+        repair_id = await _create_repair(client, admin_auth_headers)
+
+        resp = await client.post(
+            f"{REPAIRS_URL}{repair_id}/photos",
+            json={"phase": "intake", "file_path": "blob:http://localhost/abc"},
+            headers=admin_auth_headers,
+        )
+        assert resp.status_code == 422
+
+    @pytest.mark.asyncio
+    async def test_get_unknown_photo_returns_404(
+        self, client: AsyncClient, admin_auth_headers: dict
+    ):
+        resp = await client.get(
+            f"{REPAIRS_URL}photos/999999", headers=admin_auth_headers
+        )
+        assert resp.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_delete_unknown_photo_returns_404(
+        self, client: AsyncClient, admin_auth_headers: dict
+    ):
+        resp = await client.delete(
+            f"{REPAIRS_URL}photos/999999", headers=admin_auth_headers
+        )
+        assert resp.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_viewer_can_get_photo_but_not_upload_or_delete(
+        self,
+        client: AsyncClient,
+        admin_auth_headers: dict,
+        viewer_auth_headers: dict,
+        tmp_path,
+        monkeypatch,
+    ):
+        """VIEWER has REPAIR_VIEW (GET) but not REPAIR_EDIT (POST/DELETE)."""
+        monkeypatch.setattr(
+            "goldsmith_erp.core.config.settings.PHOTO_STORAGE_PATH", str(tmp_path)
+        )
+        repair_id = await _create_repair(client, admin_auth_headers)
+
+        files = {"file": ("intake.jpg", _jpeg_bytes(), "image/jpeg")}
+        upload_as_viewer = await client.post(
+            f"{REPAIRS_URL}{repair_id}/photos",
+            files=files,
+            data={"phase": "intake"},
+            headers=viewer_auth_headers,
+        )
+        assert upload_as_viewer.status_code == 403
+
+        # Upload for real as admin so VIEWER has something to GET.
+        upload = await client.post(
+            f"{REPAIRS_URL}{repair_id}/photos",
+            files=files,
+            data={"phase": "intake"},
+            headers=admin_auth_headers,
+        )
+        assert upload.status_code == 201, upload.text
+        photo_id = upload.json()["id"]
+
+        get_resp = await client.get(
+            f"{REPAIRS_URL}photos/{photo_id}", headers=viewer_auth_headers
+        )
+        assert get_resp.status_code == 200
+
+        thumb_resp = await client.get(
+            f"{REPAIRS_URL}photos/{photo_id}/thumbnail", headers=viewer_auth_headers
+        )
+        assert thumb_resp.status_code == 200
+
+        list_resp = await client.get(
+            f"{REPAIRS_URL}{repair_id}/photos", headers=viewer_auth_headers
+        )
+        assert list_resp.status_code == 200
+
+        delete_as_viewer = await client.delete(
+            f"{REPAIRS_URL}photos/{photo_id}", headers=viewer_auth_headers
+        )
+        assert delete_as_viewer.status_code == 403
+
+    @pytest.mark.asyncio
+    async def test_unanchored_legacy_path_returns_404_without_leaking_path(
+        self,
+        client: AsyncClient,
+        admin_auth_headers: dict,
+        db_session: AsyncSession,
+        tmp_path,
+        monkeypatch,
+    ):
+        """A legacy row with a client-supplied file_path outside the storage
+        root (the old JSON API imposed no validation) must be refused: GET
+        serves 404 — with the hostile path absent from the response body —
+        and DELETE 404s without unlinking anything or removing the row.
+        """
+        from goldsmith_erp.db.models import RepairPhoto, RepairPhotoPhase
+
+        monkeypatch.setattr(
+            "goldsmith_erp.core.config.settings.PHOTO_STORAGE_PATH", str(tmp_path)
+        )
+        repair_id = await _create_repair(client, admin_auth_headers)
+
+        hostile = "/etc/passwd"
+        photo = RepairPhoto(
+            repair_job_id=repair_id,
+            phase=RepairPhotoPhase.INTAKE,
+            file_path=hostile,
+        )
+        db_session.add(photo)
+        await db_session.commit()
+        await db_session.refresh(photo)
+
+        serve = await client.get(
+            f"{REPAIRS_URL}photos/{photo.id}", headers=admin_auth_headers
+        )
+        assert serve.status_code == 404
+        assert hostile not in serve.text
+
+        thumb = await client.get(
+            f"{REPAIRS_URL}photos/{photo.id}/thumbnail", headers=admin_auth_headers
+        )
+        assert thumb.status_code == 404
+        assert hostile not in thumb.text
+
+        delete = await client.delete(
+            f"{REPAIRS_URL}photos/{photo.id}", headers=admin_auth_headers
+        )
+        assert delete.status_code == 404
+
+        # Row untouched — kept for the migration quarantine to handle.
+        listed = await client.get(
+            f"{REPAIRS_URL}{repair_id}/photos", headers=admin_auth_headers
+        )
+        assert listed.status_code == 200
+        assert [p["id"] for p in listed.json()] == [photo.id]
+
+
+# ===========================================================================
+# PUT /api/v1/repairs/{id}/intake-checklist
+# ===========================================================================
+
+
+class TestIntakeChecklist:
+
+    @pytest.mark.asyncio
+    async def test_create_repair_response_includes_seeded_checklist(
+        self, client: AsyncClient, admin_auth_headers: dict
+    ):
+        """RepairJobRead includes the settings-seeded checklist right after
+        creation — every item open, no photo_id/na_reason yet."""
+        response = await client.post(
+            REPAIRS_URL, json=_create_payload(), headers=admin_auth_headers
+        )
+        assert response.status_code == 201
+        data = response.json()
+        assert data["intake_checklist"]
+        for item in data["intake_checklist"]:
+            assert item["status"] == "open"
+            assert item["photo_id"] is None
+            assert item["na_reason"] is None
+
+    @pytest.mark.asyncio
+    async def test_put_checklist_roundtrip_links_photo_and_na(
+        self,
+        client: AsyncClient,
+        admin_auth_headers: dict,
+        tmp_path,
+        monkeypatch,
+    ):
+        monkeypatch.setattr(
+            "goldsmith_erp.core.config.settings.PHOTO_STORAGE_PATH", str(tmp_path)
+        )
+        repair_id = await _create_repair(client, admin_auth_headers)
+
+        files = {"file": ("intake.jpg", _jpeg_bytes(), "image/jpeg")}
+        upload = await client.post(
+            f"{REPAIRS_URL}{repair_id}/photos",
+            files=files,
+            data={"phase": "intake"},
+            headers=admin_auth_headers,
+        )
+        assert upload.status_code == 201, upload.text
+        photo_id = upload.json()["id"]
+
+        seeded = (
+            await client.get(_repair_url(repair_id), headers=admin_auth_headers)
+        ).json()["intake_checklist"]
+        assert len(seeded) >= 2
+
+        payload = {
+            "items": [
+                {
+                    **seeded[0],
+                    "status": "photo",
+                    "photo_id": photo_id,
+                    "na_reason": None,
+                },
+                {
+                    **seeded[1],
+                    "status": "na",
+                    "na_reason": "Kein Punzen vorhanden",
+                    "photo_id": None,
+                },
+            ]
+        }
+        put_resp = await client.put(
+            f"{REPAIRS_URL}{repair_id}/intake-checklist",
+            json=payload,
+            headers=admin_auth_headers,
+        )
+        assert put_resp.status_code == 200, put_resp.text
+        checklist = put_resp.json()["intake_checklist"]
+        assert checklist[0]["status"] == "photo"
+        assert checklist[0]["photo_id"] == photo_id
+        assert checklist[1]["status"] == "na"
+        assert checklist[1]["na_reason"] == "Kein Punzen vorhanden"
+
+    @pytest.mark.asyncio
+    async def test_put_checklist_rejects_photo_from_other_repair(
+        self,
+        client: AsyncClient,
+        admin_auth_headers: dict,
+        tmp_path,
+        monkeypatch,
+    ):
+        monkeypatch.setattr(
+            "goldsmith_erp.core.config.settings.PHOTO_STORAGE_PATH", str(tmp_path)
+        )
+        repair_a = await _create_repair(client, admin_auth_headers)
+        repair_b = await _create_repair(client, admin_auth_headers)
+
+        files = {"file": ("intake.jpg", _jpeg_bytes(), "image/jpeg")}
+        upload = await client.post(
+            f"{REPAIRS_URL}{repair_a}/photos",
+            files=files,
+            data={"phase": "intake"},
+            headers=admin_auth_headers,
+        )
+        assert upload.status_code == 201, upload.text
+        photo_id = upload.json()["id"]
+
+        seeded = (
+            await client.get(_repair_url(repair_b), headers=admin_auth_headers)
+        ).json()["intake_checklist"]
+
+        payload = {
+            "items": [
+                {
+                    **seeded[0],
+                    "status": "photo",
+                    "photo_id": photo_id,
+                    "na_reason": None,
+                },
+            ]
+        }
+        put_resp = await client.put(
+            f"{REPAIRS_URL}{repair_b}/intake-checklist",
+            json=payload,
+            headers=admin_auth_headers,
+        )
+        assert put_resp.status_code == 422
+
+    @pytest.mark.asyncio
+    async def test_put_checklist_unknown_repair_returns_404(
+        self, client: AsyncClient, admin_auth_headers: dict
+    ):
+        payload = {"items": [{"key": "k", "label": "L", "status": "open"}]}
+        resp = await client.put(
+            f"{REPAIRS_URL}999999/intake-checklist",
+            json=payload,
+            headers=admin_auth_headers,
+        )
+        assert resp.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_put_checklist_viewer_returns_403(
+        self,
+        client: AsyncClient,
+        admin_auth_headers: dict,
+        viewer_auth_headers: dict,
+    ):
+        """VIEWER lacks REPAIR_EDIT; PUT must return 403."""
+        repair_id = await _create_repair(client, admin_auth_headers)
+        payload = {"items": [{"key": "k", "label": "L", "status": "open"}]}
+        resp = await client.put(
+            f"{REPAIRS_URL}{repair_id}/intake-checklist",
+            json=payload,
+            headers=viewer_auth_headers,
+        )
+        assert resp.status_code == 403
+
+    @pytest.mark.asyncio
+    async def test_put_checklist_unauthenticated_returns_401(
+        self, client: AsyncClient, admin_auth_headers: dict
+    ):
+        repair_id = await _create_repair(client, admin_auth_headers)
+        resp = await client.put(
+            f"{REPAIRS_URL}{repair_id}/intake-checklist",
+            json={"items": []},
+        )
+        assert resp.status_code == 401
