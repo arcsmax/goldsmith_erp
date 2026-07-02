@@ -114,7 +114,7 @@
 .wizard-field:last-child { margin-bottom: 0; }
 .wizard-field > label { display: block; font-weight: 600; margin-bottom: 0.5rem; }
 .wizard-field-row { display: flex; gap: 1rem; }
-.wizard-field-row .wizard-field { flex: 1; }
+.wizard-field-row .wizard-field { flex: 1; min-width: 0; }
 .field-hint {
   font-size: 0.85rem;
   color: color-mix(in srgb, var(--text-color-primary) 55%, transparent);
@@ -238,6 +238,19 @@
 @media (max-width: 520px) {
   .wizard-progress-label { display: none; }
   .wizard-nav-btn { min-width: 110px; }
+  /* 2-4 field rows (budget von/bis; No-Go category/value/note) would force
+     each <input>/<select> below its intrinsic content width in a row layout
+     — flex items default to min-width:auto, so native form controls refuse
+     to shrink past ~170px and blow out the 320px min-supported viewport
+     (body { min-width: 320px } in index.css). Stack instead of cramming. */
+  .wizard-field-row { flex-direction: column; gap: 0; }
+  /* Progress dots are fixed at the 44px touch-target minimum (--touch-min)
+     and must not shrink to fit — 7 steps x 44px + 6 x 0.25rem gaps (332px)
+     already exceeds the 320px minimum viewport before container padding is
+     even counted, so let the strip scroll horizontally in its own box
+     rather than visually overflowing the page. */
+  .wizard-progress { overflow-x: auto; justify-content: flex-start; }
+  .wizard-progress-step { flex: 0 0 44px; }
 }
 
 /* ==================== Consultations list page (Task 9) ==================== */
@@ -305,8 +318,8 @@
   letter-spacing: 0.03em;
 }
 .consultation-status-badge.status-draft {
-  background: color-mix(in srgb, #6b7280 15%, transparent);
-  color: #374151;
+  background: color-mix(in srgb, var(--color-text-muted) 15%, transparent);
+  color: var(--color-text-body);
 }
 .consultation-status-badge.status-completed {
   background: color-mix(in srgb, #16a34a 15%, transparent);
@@ -317,6 +330,6 @@
   color: var(--color-interactive-primary);
 }
 .consultation-status-badge.status-archived {
-  background: color-mix(in srgb, #6b7280 10%, transparent);
-  color: #6b7280;
+  background: color-mix(in srgb, var(--color-text-muted) 10%, transparent);
+  color: var(--color-text-muted);
 }
