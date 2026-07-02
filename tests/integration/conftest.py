@@ -150,8 +150,13 @@ async def client(db_session: AsyncSession):
     Redis publish_event is patched to a no-op.
     """
     app.dependency_overrides[get_db] = _override_get_db_factory(db_session)
+    # Every service now imports the `pubsub` module (not the function) and
+    # calls `pubsub.publish_event(...)` — see services/consultation_service.py
+    # for the pattern and the V1.1 hardening sweep (issue #13, item 6) that
+    # brought notification_service/handoff_service/order_service in line.
+    # Patching the module attribute covers every caller from a single site.
     with patch(
-        "goldsmith_erp.services.order_service.publish_event",
+        "goldsmith_erp.core.pubsub.publish_event",
         new=AsyncMock(return_value=None),
     ):
         async with AsyncClient(
@@ -278,8 +283,13 @@ async def authenticated_client(db_session: AsyncSession, admin_user: User):
     """
     app.dependency_overrides[get_db] = _override_get_db_factory(db_session)
     headers = _make_bearer_headers(admin_user)
+    # Every service now imports the `pubsub` module (not the function) and
+    # calls `pubsub.publish_event(...)` — see services/consultation_service.py
+    # for the pattern and the V1.1 hardening sweep (issue #13, item 6) that
+    # brought notification_service/handoff_service/order_service in line.
+    # Patching the module attribute covers every caller from a single site.
     with patch(
-        "goldsmith_erp.services.order_service.publish_event",
+        "goldsmith_erp.core.pubsub.publish_event",
         new=AsyncMock(return_value=None),
     ):
         async with AsyncClient(

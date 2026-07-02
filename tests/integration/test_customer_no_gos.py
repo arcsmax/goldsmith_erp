@@ -135,6 +135,109 @@ class TestNoGos:
         assert response.json()["detail"] == "Kunde nicht gefunden"
 
     @pytest.mark.asyncio
+    async def test_list_no_gos_unknown_customer_returns_404(
+        self, client: AsyncClient, goldsmith_auth_headers: dict
+    ):
+        """Regression (issue #13, item 4): GET used to return an empty
+        list for any unknown customer_id instead of 404 — matching the
+        style-profile endpoint's existing guard."""
+        response = await client.get(_no_gos_url(999999), headers=goldsmith_auth_headers)
+        assert response.status_code == 404
+        assert response.json()["detail"] == "Kunde nicht gefunden"
+
+    @pytest.mark.asyncio
+    async def test_no_go_endpoints_404_for_deactivated_customer(
+        self,
+        client: AsyncClient,
+        goldsmith_auth_headers: dict,
+        test_customer: Customer,
+        db_session: AsyncSession,
+    ):
+        """Regression (issue #13, item 5): CustomerService.delete_customer
+        soft-deletes via is_active=False (not is_deleted). The V1.1 no-go
+        endpoints previously guarded only is_deleted, so a customer removed
+        through DELETE /customers/{id} stayed fully visible here."""
+        test_customer.is_active = False
+        db_session.add(test_customer)
+        await db_session.commit()
+
+        base = _no_gos_url(test_customer.id)
+
+        listed = await client.get(base, headers=goldsmith_auth_headers)
+        assert listed.status_code == 404
+        assert listed.json()["detail"] == "Kunde nicht gefunden"
+
+        created = await client.post(
+            base,
+            json={"category": "allergy", "value": "Nickel"},
+            headers=goldsmith_auth_headers,
+        )
+        assert created.status_code == 404
+        assert created.json()["detail"] == "Kunde nicht gefunden"
+
+        checked = await client.get(
+            f"{base}/check",
+            params=[("candidate", "Nickel")],
+            headers=goldsmith_auth_headers,
+        )
+        assert checked.status_code == 404
+        assert checked.json()["detail"] == "Kunde nicht gefunden"
+
+        deleted = await client.delete(f"{base}/1", headers=goldsmith_auth_headers)
+        assert deleted.status_code == 404
+        assert deleted.json()["detail"] == "Kunde nicht gefunden"
+
+    @pytest.mark.asyncio
+    async def test_check_endpoint_rejects_more_than_50_candidates(
+        self,
+        client: AsyncClient,
+        goldsmith_auth_headers: dict,
+        test_customer: Customer,
+    ):
+        """Input bounds (issue #13, item 2): the candidate query list is
+        capped at 50 items — beyond that is a 422, not an unbounded scan."""
+        base = _no_gos_url(test_customer.id)
+        params = [("candidate", str(i)) for i in range(51)]
+        resp = await client.get(
+            f"{base}/check", params=params, headers=goldsmith_auth_headers
+        )
+        assert resp.status_code == 422
+
+    @pytest.mark.asyncio
+    async def test_check_endpoint_rejects_candidate_over_200_chars(
+        self,
+        client: AsyncClient,
+        goldsmith_auth_headers: dict,
+        test_customer: Customer,
+    ):
+        """Per-item bound (item F, ECC-review fix wave): each candidate
+        value is capped at 200 chars, matching NoGoCreate.value's
+        max_length — beyond that is a 422, not an unbounded string."""
+        base = _no_gos_url(test_customer.id)
+        resp = await client.get(
+            f"{base}/check",
+            params=[("candidate", "x" * 201)],
+            headers=goldsmith_auth_headers,
+        )
+        assert resp.status_code == 422
+
+    @pytest.mark.asyncio
+    async def test_check_endpoint_accepts_candidate_at_200_chars(
+        self,
+        client: AsyncClient,
+        goldsmith_auth_headers: dict,
+        test_customer: Customer,
+    ):
+        """Boundary check: exactly 200 chars is still valid."""
+        base = _no_gos_url(test_customer.id)
+        resp = await client.get(
+            f"{base}/check",
+            params=[("candidate", "x" * 200)],
+            headers=goldsmith_auth_headers,
+        )
+        assert resp.status_code == 200
+
+    @pytest.mark.asyncio
     async def test_check_endpoint_flags_conflict(
         self,
         client: AsyncClient,
@@ -213,6 +316,9 @@ class TestStyleProfile:
             _style_profile_url(999999), headers=goldsmith_auth_headers
         )
         assert get_resp.status_code == 404
+        # Unified German detail (issue #13, item 8) — matches every other
+        # V1.1 customer-endpoint 404 (see create_customer_no_go).
+        assert get_resp.json()["detail"] == "Kunde nicht gefunden"
 
         patch_resp = await client.patch(
             _style_profile_url(999999),
@@ -220,6 +326,67 @@ class TestStyleProfile:
             headers=goldsmith_auth_headers,
         )
         assert patch_resp.status_code == 404
+        assert patch_resp.json()["detail"] == "Kunde nicht gefunden"
+
+    @pytest.mark.asyncio
+    async def test_style_profile_404_for_deactivated_customer(
+        self,
+        client: AsyncClient,
+        goldsmith_auth_headers: dict,
+        test_customer: Customer,
+        db_session: AsyncSession,
+    ):
+        """Regression (issue #13, item 5): is_active=False (the flag
+        CustomerService.delete_customer actually sets) must 404 here, not
+        just is_deleted=True."""
+        test_customer.is_active = False
+        db_session.add(test_customer)
+        await db_session.commit()
+
+        url = _style_profile_url(test_customer.id)
+        get_resp = await client.get(url, headers=goldsmith_auth_headers)
+        assert get_resp.status_code == 404
+        assert get_resp.json()["detail"] == "Kunde nicht gefunden"
+
+        patch_resp = await client.patch(
+            url, json={"metal_tones": ["rosé"]}, headers=goldsmith_auth_headers
+        )
+        assert patch_resp.status_code == 404
+        assert patch_resp.json()["detail"] == "Kunde nicht gefunden"
+
+    @pytest.mark.asyncio
+    async def test_style_profile_rejects_oversized_list(
+        self,
+        client: AsyncClient,
+        goldsmith_auth_headers: dict,
+        test_customer: Customer,
+    ):
+        """Input bounds (issue #13, item 2): each style-profile list is
+        capped at 50 items."""
+        url = _style_profile_url(test_customer.id)
+        resp = await client.patch(
+            url,
+            json={"metal_tones": [f"ton-{i}" for i in range(51)]},
+            headers=goldsmith_auth_headers,
+        )
+        assert resp.status_code == 422
+
+    @pytest.mark.asyncio
+    async def test_style_profile_rejects_oversized_item(
+        self,
+        client: AsyncClient,
+        goldsmith_auth_headers: dict,
+        test_customer: Customer,
+    ):
+        """Input bounds (issue #13, item 2): each item is capped at 100
+        characters."""
+        url = _style_profile_url(test_customer.id)
+        resp = await client.patch(
+            url,
+            json={"metal_tones": ["x" * 101]},
+            headers=goldsmith_auth_headers,
+        )
+        assert resp.status_code == 422
 
     @pytest.mark.asyncio
     async def test_viewer_can_view_style_profile_but_not_edit(

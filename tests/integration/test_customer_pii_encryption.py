@@ -27,7 +27,6 @@ import os
 import pytest
 from cryptography.fernet import Fernet
 
-
 # ---------------------------------------------------------------------------
 # Env priming — must happen before the goldsmith_erp imports pick up
 # settings.ENCRYPTION_KEY via `from core.config import settings`.
@@ -47,7 +46,7 @@ from sqlalchemy import text  # noqa: E402
 
 from goldsmith_erp.core import encryption as encryption_mod  # noqa: E402
 from goldsmith_erp.core.encryption import hmac_blind_index  # noqa: E402
-from goldsmith_erp.db.models import Customer  # noqa: E402
+from goldsmith_erp.db.models import Customer, CustomerNoGo, NoGoCategory  # noqa: E402
 from goldsmith_erp.services.customer_service import CustomerService  # noqa: E402
 
 
@@ -122,6 +121,79 @@ async def test_customer_names_stored_as_ciphertext(db_session):
     assert row[0].startswith("gAAAAA")
     assert row[1].startswith("gAAAAA")
     assert row[2].startswith("gAAAAA")
+
+
+@pytest.mark.asyncio
+async def test_customer_allergies_stored_as_ciphertext(db_session):
+    """I15 — ``allergies`` (health-adjacent PII) is ciphertext at rest,
+    plaintext via the ORM. Same contract as the C1 columns, mirrored here
+    for the standalone I15 fix."""
+    customer = Customer(
+        first_name="Hannah",
+        last_name="Allergy",
+        email="hannah.allergy@example.com",
+        email_hash=hmac_blind_index("hannah.allergy@example.com"),
+        allergies="Nickel, Kupfer",
+    )
+    db_session.add(customer)
+    await db_session.commit()
+
+    raw = await db_session.execute(
+        text("SELECT allergies FROM customers WHERE id = :id"),
+        {"id": customer.id},
+    )
+    raw_value = raw.scalar()
+    assert raw_value != "Nickel, Kupfer"
+    assert raw_value is not None and len(raw_value) > 30  # Fernet token
+    assert raw_value.startswith("gAAAAA")  # Fernet version marker
+
+    orm_customer = await db_session.get(Customer, customer.id)
+    assert orm_customer.allergies == "Nickel, Kupfer"
+
+
+@pytest.mark.asyncio
+async def test_customer_no_go_value_and_note_stored_as_ciphertext(db_session):
+    """Item A (ECC-review fix wave) — CustomerNoGo.value/note are
+    health-adjacent PII (this table is the source of truth for allergies)
+    and are encrypted at rest, same C1 pattern as the other PII columns.
+    ``value_hash`` is a deterministic HMAC tag, NOT ciphertext — it must
+    look nothing like a Fernet token."""
+    customer = Customer(
+        first_name="Ida",
+        last_name="NoGo",
+        email="ida.nogo@example.com",
+        email_hash=hmac_blind_index("ida.nogo@example.com"),
+    )
+    db_session.add(customer)
+    await db_session.commit()
+
+    no_go = CustomerNoGo(
+        customer_id=customer.id,
+        category=NoGoCategory.ALLERGY,
+        value="Nickelsulfat",
+        note="Schwere Reaktion bei Hautkontakt",
+    )
+    db_session.add(no_go)
+    await db_session.commit()
+
+    raw = await db_session.execute(
+        text("SELECT value, note, value_hash FROM customer_no_gos WHERE id = :id"),
+        {"id": no_go.id},
+    )
+    row = raw.one()
+    assert row[0] != "Nickelsulfat"
+    assert row[0] is not None and len(row[0]) > 30  # Fernet token
+    assert row[0].startswith("gAAAAA")  # Fernet version marker
+    assert row[1] != "Schwere Reaktion bei Hautkontakt"
+    assert row[1].startswith("gAAAAA")
+    # value_hash is a 64-char hex HMAC tag — deterministic, not ciphertext.
+    assert row[2] is not None
+    assert len(row[2]) == 64
+    assert not row[2].startswith("gAAAAA")
+
+    orm_no_go = await db_session.get(CustomerNoGo, no_go.id)
+    assert orm_no_go.value == "Nickelsulfat"
+    assert orm_no_go.note == "Schwere Reaktion bei Hautkontakt"
 
 
 @pytest.mark.asyncio

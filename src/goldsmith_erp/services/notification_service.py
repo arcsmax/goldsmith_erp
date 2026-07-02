@@ -22,7 +22,10 @@ from sqlalchemy import and_, select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from goldsmith_erp.core.pubsub import publish_event
+# Import the module (not the function) so the unit-test conftest monkeypatch on
+# goldsmith_erp.core.pubsub.publish_event actually intercepts our calls (see
+# services/consultation_service.py for the pattern this follows).
+from goldsmith_erp.core import pubsub
 from goldsmith_erp.db.models import (
     Customer,
     Material,
@@ -717,7 +720,7 @@ class NotificationService:
             }
         )
         try:
-            await publish_event(channel, payload)
+            await pubsub.publish_event(channel, payload)
         except Exception as exc:
             # Delivery failure must NOT roll back the persisted notification.
             # The client will fetch unread notifications on next page load.

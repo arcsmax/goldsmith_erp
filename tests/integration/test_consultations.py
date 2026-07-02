@@ -313,6 +313,40 @@ class TestConsultationConvert:
         assert body["converted_order_id"] is None
 
     @pytest.mark.asyncio
+    async def test_convert_rejects_dangerous_wishes_with_generic_422(
+        self,
+        client: AsyncClient,
+        goldsmith_auth_headers: dict,
+        test_customer: Customer,
+    ):
+        """SECURITY (issue #13, item 1): the consultation's `wishes` text
+        becomes the target order's `description`, which OrderCreate's
+        SQL-keyword sanitizer validates. pydantic.ValidationError IS a
+        ValueError subclass, so an untyped except-ValueError branch would
+        misroute this to 404 AND echo the raw validation message — which
+        embeds the offending wish text (business-confidential design
+        intent). Must be 422 with a generic detail instead."""
+        cid = await _create_consultation(
+            client, goldsmith_auth_headers, test_customer.id
+        )
+        secret_wish = "Ring mit DROP TABLE orders Gravur"
+        patch_resp = await client.patch(
+            f"{CONSULTATIONS_URL}{cid}",
+            json={"wishes": secret_wish},
+            headers=goldsmith_auth_headers,
+        )
+        assert patch_resp.status_code == 200, patch_resp.text
+
+        resp = await client.post(
+            f"{CONSULTATIONS_URL}{cid}/convert",
+            json={"target": "order"},
+            headers=goldsmith_auth_headers,
+        )
+        assert resp.status_code == 422, resp.text
+        assert "DROP TABLE" not in resp.text
+        assert secret_wish not in resp.text
+
+    @pytest.mark.asyncio
     async def test_convert_unknown_consultation_returns_404(
         self, client: AsyncClient, goldsmith_auth_headers: dict
     ):
@@ -512,3 +546,104 @@ class TestConsultationPhotos:
             f"{CONSULTATIONS_URL}{cid}/photos", headers=viewer_auth_headers
         )
         assert resp.status_code == 403
+
+    @pytest.mark.asyncio
+    async def test_viewer_cannot_get_photo_file(
+        self,
+        client: AsyncClient,
+        goldsmith_auth_headers: dict,
+        viewer_auth_headers: dict,
+        test_customer: Customer,
+        tmp_path,
+        monkeypatch,
+    ):
+        monkeypatch.setattr(
+            "goldsmith_erp.core.config.settings.PHOTO_STORAGE_PATH", str(tmp_path)
+        )
+        cid = await _create_consultation(
+            client, goldsmith_auth_headers, test_customer.id
+        )
+        files = {"file": ("sketch.jpg", _jpeg_bytes(), "image/jpeg")}
+        upload = await client.post(
+            f"{CONSULTATIONS_URL}{cid}/photos",
+            files=files,
+            data={"kind": "sketch"},
+            headers=goldsmith_auth_headers,
+        )
+        assert upload.status_code == 201, upload.text
+        photo_id = upload.json()["id"]
+
+        resp = await client.get(
+            f"{CONSULTATIONS_URL}photos/{photo_id}", headers=viewer_auth_headers
+        )
+        assert resp.status_code == 403
+
+    @pytest.mark.asyncio
+    async def test_viewer_cannot_get_photo_thumbnail(
+        self,
+        client: AsyncClient,
+        goldsmith_auth_headers: dict,
+        viewer_auth_headers: dict,
+        test_customer: Customer,
+        tmp_path,
+        monkeypatch,
+    ):
+        monkeypatch.setattr(
+            "goldsmith_erp.core.config.settings.PHOTO_STORAGE_PATH", str(tmp_path)
+        )
+        cid = await _create_consultation(
+            client, goldsmith_auth_headers, test_customer.id
+        )
+        files = {"file": ("sketch.jpg", _jpeg_bytes(), "image/jpeg")}
+        upload = await client.post(
+            f"{CONSULTATIONS_URL}{cid}/photos",
+            files=files,
+            data={"kind": "sketch"},
+            headers=goldsmith_auth_headers,
+        )
+        assert upload.status_code == 201, upload.text
+        photo_id = upload.json()["id"]
+
+        resp = await client.get(
+            f"{CONSULTATIONS_URL}photos/{photo_id}/thumbnail",
+            headers=viewer_auth_headers,
+        )
+        assert resp.status_code == 403
+
+    @pytest.mark.asyncio
+    async def test_viewer_cannot_delete_photo(
+        self,
+        client: AsyncClient,
+        goldsmith_auth_headers: dict,
+        viewer_auth_headers: dict,
+        test_customer: Customer,
+        tmp_path,
+        monkeypatch,
+    ):
+        monkeypatch.setattr(
+            "goldsmith_erp.core.config.settings.PHOTO_STORAGE_PATH", str(tmp_path)
+        )
+        cid = await _create_consultation(
+            client, goldsmith_auth_headers, test_customer.id
+        )
+        files = {"file": ("sketch.jpg", _jpeg_bytes(), "image/jpeg")}
+        upload = await client.post(
+            f"{CONSULTATIONS_URL}{cid}/photos",
+            files=files,
+            data={"kind": "sketch"},
+            headers=goldsmith_auth_headers,
+        )
+        assert upload.status_code == 201, upload.text
+        photo_id = upload.json()["id"]
+
+        resp = await client.delete(
+            f"{CONSULTATIONS_URL}photos/{photo_id}", headers=viewer_auth_headers
+        )
+        assert resp.status_code == 403
+
+        # Still retrievable by GOLDSMITH — the VIEWER call must not have
+        # deleted the photo despite the 403.
+        still_there = await client.get(
+            f"{CONSULTATIONS_URL}photos/{photo_id}", headers=goldsmith_auth_headers
+        )
+        assert still_there.status_code == 200

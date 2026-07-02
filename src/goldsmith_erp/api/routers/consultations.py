@@ -32,6 +32,7 @@ from fastapi import APIRouter, Depends
 from fastapi import File as FastAPIFile
 from fastapi import Form, HTTPException, Query, UploadFile, status
 from fastapi.responses import FileResponse
+from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from goldsmith_erp.api.deps import get_current_user
@@ -49,6 +50,7 @@ from goldsmith_erp.models.consultation import (
 from goldsmith_erp.services.consultation_photo_service import ConsultationPhotoService
 from goldsmith_erp.services.consultation_service import (
     AlreadyConvertedError,
+    ConsultationNotFoundError,
     ConsultationService,
 )
 from goldsmith_erp.services.photo_service import PhotoValidationError
@@ -72,10 +74,23 @@ def _media_type_from_ext(suffix: str) -> str:
 
 
 def _raise_not_found_or_conflict(exc: ValueError) -> None:
-    """Map a service ValueError to 404 ("not found") or 409 (business conflict)."""
-    if "not found" in str(exc):
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
-    raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
+    """Map a service ValueError to 404 or 409 — typed dispatch via
+    ``isinstance``, no string matching and no raise-then-catch indirection
+    (pattern precedent: ``DuplicateNoGoError`` in no_go_service.py /
+    customers.py). ``ConsultationNotFoundError`` -> 404; any other
+    ``ValueError`` is a business-rule conflict -> 409.
+
+    Both raises use ``from None``: consultation ValueErrors can carry
+    design-IP wish text in ``__context__`` (the underlying exception chain),
+    and FastAPI/logging may render that chain — suppressing it keeps that
+    text from leaking, matching the tested no_go_service pattern (see
+    ``DuplicateNoGoError`` in ``services/no_go_service.py``).
+    """
+    if isinstance(exc, ConsultationNotFoundError):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
+        ) from None
+    raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from None
 
 
 # ─── Create ─────────────────────────────────────────────────────────────────
@@ -213,7 +228,26 @@ async def convert_consultation(
                 "quote_id": exc.quote_id,
             },
         )
+    except ValidationError:
+        # OrderCreate/QuoteCreate rejected the derived content (e.g. the
+        # SQL-keyword sanitizer on title/description/notes tripped on the
+        # consultation's wishes text). pydantic.ValidationError IS a
+        # ValueError subclass, so this MUST be checked before the generic
+        # ValueError branch below — and its detail must stay GENERIC: the
+        # underlying error embeds the offending input value, which can be
+        # customer wish text / business-confidential design intent.
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Beratung konnte nicht konvertiert werden — ungültige Eingabe.",
+        ) from None
+    except ConsultationNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
+        ) from None
     except ValueError as exc:
+        # Defensive fallback for any other service-layer ValueError (e.g. an
+        # order-service business rule) — preserves the pre-existing
+        # blanket-404 behaviour for anything not explicitly typed above.
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
 
 

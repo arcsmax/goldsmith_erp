@@ -18,7 +18,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from goldsmith_erp.core.pubsub import publish_event
+from goldsmith_erp.core import pubsub
 from goldsmith_erp.db.models import (
     Customer,
     Notification,
@@ -45,7 +45,10 @@ _VALID_TRANSITIONS: dict[RepairJobStatus, list[RepairJobStatus]] = {
     RepairJobStatus.DIAGNOSED: [RepairJobStatus.QUOTED, RepairJobStatus.CANCELLED],
     RepairJobStatus.QUOTED: [RepairJobStatus.APPROVED, RepairJobStatus.CANCELLED],
     RepairJobStatus.APPROVED: [RepairJobStatus.IN_REPAIR, RepairJobStatus.CANCELLED],
-    RepairJobStatus.IN_REPAIR: [RepairJobStatus.QUALITY_CHECK, RepairJobStatus.CANCELLED],
+    RepairJobStatus.IN_REPAIR: [
+        RepairJobStatus.QUALITY_CHECK,
+        RepairJobStatus.CANCELLED,
+    ],
     RepairJobStatus.QUALITY_CHECK: [RepairJobStatus.READY, RepairJobStatus.IN_REPAIR],
     RepairJobStatus.READY: [RepairJobStatus.PICKED_UP],
     RepairJobStatus.PICKED_UP: [],
@@ -189,7 +192,7 @@ class RepairService:
 
             # Fire REPAIR_RECEIVED notification for all goldsmiths/admins
             # (real-time via Redis pub/sub)
-            await publish_event(
+            await pubsub.publish_event(
                 "repair_updates",
                 json.dumps(
                     {
@@ -245,7 +248,7 @@ class RepairService:
                 for field, value in extra_updates.items():
                     setattr(repair, field, value)
 
-            await publish_event(
+            await pubsub.publish_event(
                 "repair_updates",
                 json.dumps(
                     {
@@ -311,10 +314,11 @@ class RepairService:
                 ecd = data.estimated_completion_date
                 if ecd.tzinfo is not None:
                     from datetime import timezone as _tz
+
                     ecd = ecd.astimezone(_tz.utc).replace(tzinfo=None)
                 repair.estimated_completion_date = ecd
 
-            await publish_event(
+            await pubsub.publish_event(
                 "repair_updates",
                 json.dumps(
                     {
@@ -362,7 +366,9 @@ class RepairService:
         user_id: int,
     ) -> RepairJob:
         """Repair work done — advance to QUALITY_CHECK."""
-        return await RepairService._transition(db, repair_id, RepairJobStatus.QUALITY_CHECK)
+        return await RepairService._transition(
+            db, repair_id, RepairJobStatus.QUALITY_CHECK
+        )
 
     @staticmethod
     async def complete_repair(
@@ -409,9 +415,7 @@ class RepairService:
 
         customer_name = "Laufkunde"
         if repair.customer:
-            customer_name = (
-                f"{repair.customer.first_name} {repair.customer.last_name}"
-            )
+            customer_name = f"{repair.customer.first_name} {repair.customer.last_name}"
 
         async with transactional(db):
             for user in users:

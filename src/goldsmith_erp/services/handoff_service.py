@@ -22,7 +22,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from goldsmith_erp.core.pubsub import publish_event
+# Import the module (not the function) so the unit-test conftest monkeypatch on
+# goldsmith_erp.core.pubsub.publish_event actually intercepts our calls (see
+# services/consultation_service.py for the pattern this follows).
+from goldsmith_erp.core import pubsub
 from goldsmith_erp.db.models import (
     HandoffStatusEnum,
     HandoffTypeEnum,
@@ -194,7 +197,7 @@ class HandoffService:
 
         # --- Publish order update event ---
         try:
-            await publish_event(
+            await pubsub.publish_event(
                 "order_updates",
                 json.dumps(
                     {
@@ -284,7 +287,7 @@ class HandoffService:
 
         # --- Publish event ---
         try:
-            await publish_event(
+            await pubsub.publish_event(
                 "order_updates",
                 json.dumps(
                     {
@@ -373,7 +376,7 @@ class HandoffService:
 
         # --- Publish event ---
         try:
-            await publish_event(
+            await pubsub.publish_event(
                 "order_updates",
                 json.dumps(
                     {

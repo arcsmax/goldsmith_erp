@@ -3,9 +3,10 @@
 import logging
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Annotated, Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from pydantic import StringConstraints
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -15,8 +16,9 @@ from goldsmith_erp.core.config import settings
 from goldsmith_erp.core.idempotency import IdempotencyContext, get_idempotency_context
 from goldsmith_erp.core.permissions import Permission
 from goldsmith_erp.core.permissions import require_permission_dep as require_permission
+from goldsmith_erp.db.models import Consultation
 from goldsmith_erp.db.models import Customer as CustomerModel
-from goldsmith_erp.db.models import GDPRRequest, User
+from goldsmith_erp.db.models import CustomerNoGo, GDPRRequest, User
 from goldsmith_erp.db.transaction import transactional
 from goldsmith_erp.models.consultation import (
     NoGoConflict,
@@ -27,6 +29,7 @@ from goldsmith_erp.models.consultation import (
 )
 from goldsmith_erp.models.customer import (
     CustomerCreate,
+    CustomerGdprExport,
     CustomerListItem,
     CustomerRead,
     CustomerUpdate,
@@ -251,7 +254,7 @@ async def update_customer(
         )
 
 
-@router.get("/{customer_id}/export", response_model=Dict[str, Any])
+@router.get("/{customer_id}/export", response_model=CustomerGdprExport)
 async def gdpr_export_customer(
     customer_id: int,
     db: AsyncSession = Depends(get_db),
@@ -261,8 +264,18 @@ async def gdpr_export_customer(
     GDPR Art. 15 — Export all personal data held for a customer.
 
     Returns the customer record along with all related data (orders,
-    measurements) as a JSON object.  Access is restricted to ADMIN role
-    (CUSTOMER_DELETE permission) because the export contains raw PII.
+    measurements, no-gos, style profile, consultation metadata) as a JSON
+    object.  Access is restricted to ADMIN role (CUSTOMER_DELETE
+    permission) because the export contains raw PII.
+
+    Design-IP exclusion (V1.1, issue #14): consultation ``wishes``,
+    ``notes``, ``source_material``, ``materials_discussed``, and
+    consultation photos (sketches/reference images) are the GOLDSMITH's
+    design work product, not the data subject's personal data — CLAUDE.md
+    "Design IP" rule restricts them to GOLDSMITH/ADMIN access and excludes
+    them from data exports without explicit consent. They are deliberately
+    left out of the ``consultations`` list below; the ``design_data_excluded``
+    flag documents that omission for anyone auditing a DPO response.
 
     Permissions: Requires CUSTOMER_DELETE permission (Admin only).
     """
@@ -283,6 +296,27 @@ async def gdpr_export_customer(
             detail=f"Customer {customer_id} not found",
         )
 
+    # No-gos and consultations have no back-populated collection on Customer
+    # (see db/models.py — only the forward `customer = relationship(...)`
+    # exists), so they can't ride along on the selectinload above. Query
+    # them directly. Consultations are loaded without a limit/offset — the
+    # shared ConsultationService.list_consultations() paginates (default
+    # limit=100), which would silently truncate a legal Art. 15 export for
+    # a customer with more than 100 consultations.
+    no_gos_result = await db.execute(
+        select(CustomerNoGo)
+        .filter(CustomerNoGo.customer_id == customer_id)
+        .order_by(CustomerNoGo.created_at.asc())
+    )
+    no_gos = list(no_gos_result.scalars().all())
+
+    consultations_result = await db.execute(
+        select(Consultation)
+        .filter(Consultation.customer_id == customer_id)
+        .order_by(Consultation.created_at.asc())
+    )
+    consultations = list(consultations_result.scalars().all())
+
     # Audit log — financial/PII data export must be traceable
     logger.info(
         "GDPR data export",
@@ -301,7 +335,7 @@ async def gdpr_export_customer(
         orders_data.append(
             {
                 "id": order.id,
-                "status": order.status,
+                "status": order.status.value if order.status else None,
                 "description": order.description,
                 "price": float(order.price) if order.price is not None else None,
                 "created_at": (
@@ -325,6 +359,43 @@ async def gdpr_export_customer(
                 "finger": m.finger.value if m.finger else None,
                 "notes": m.notes,
                 "measured_at": m.measured_at.isoformat() if m.measured_at else None,
+            }
+        )
+
+    no_gos_data = []
+    for ng in no_gos:
+        no_gos_data.append(
+            {
+                "category": ng.category.value if ng.category else None,
+                "value": ng.value,
+                "note": ng.note,
+                "created_at": ng.created_at.isoformat() if ng.created_at else None,
+            }
+        )
+
+    # Consultations: financial (budget) + life-event (occasion) data of the
+    # data subject. EXPLICITLY EXCLUDED — design-IP rule (CLAUDE.md,
+    # binding): wishes, notes, source_material, materials_discussed, and
+    # consultation photos/sketches. Those fields are the GOLDSMITH's design
+    # work product, not the customer's personal data, and are business-
+    # confidential — see the docstring above and the "design_data_excluded"
+    # flag on the returned payload. Do NOT add those fields here without
+    # updating both.
+    consultations_data = []
+    for c in consultations:
+        consultations_data.append(
+            {
+                "id": c.id,
+                "occasion": c.occasion.value if c.occasion else None,
+                "occasion_date": (
+                    c.occasion_date.isoformat() if c.occasion_date else None
+                ),
+                "budget_min": c.budget_min,
+                "budget_max": c.budget_max,
+                "status": c.status.value if c.status else None,
+                "created_at": c.created_at.isoformat() if c.created_at else None,
+                "converted_order_id": c.converted_order_id,
+                "converted_quote_id": c.converted_quote_id,
             }
         )
 
@@ -359,6 +430,13 @@ async def gdpr_export_customer(
         },
         "orders": orders_data,
         "measurements": measurements_data,
+        "no_gos": no_gos_data,
+        "style_profile": customer.style_profile or {},
+        "consultations": consultations_data,
+        # Machine-readable companion to the docstring's design-IP note —
+        # keep true whenever consultations are exported without wishes/
+        # notes/source_material/materials_discussed/photos.
+        "design_data_excluded": True,
     }
 
 
@@ -755,6 +833,42 @@ async def delete_customer(
 # access keeps read access to no-go warnings.
 # ---------------------------------------------------------------------------
 
+_CUSTOMER_NOT_FOUND_DETAIL = "Kunde nicht gefunden"
+
+# Per-item bound for the no-gos check endpoint's `candidate` query values —
+# matches NoGoCreate.value's max_length=200 (models/consultation.py), so a
+# candidate can never be longer than a no-go value could ever legitimately
+# be. Item F (ECC-review fix wave). Same dual-constraint shape already used
+# for StyleProfileUpdate's list items (models/consultation.py
+# `_StyleProfileItem`): the outer Query(max_length=50) below bounds the
+# number of candidates; this bounds each individual candidate's length.
+_CandidateItem = Annotated[str, StringConstraints(max_length=200)]
+
+
+async def _get_active_customer_or_404(
+    db: AsyncSession, customer_id: int
+) -> CustomerModel:
+    """404 unless the customer exists, is not soft-deleted, and is active.
+
+    ``CustomerService.delete_customer`` soft-deletes via ``is_active =
+    False`` (not ``is_deleted`` — that flag belongs to a separate, GDPR
+    hard-delete-adjacent path). The V1.1 no-go / style-profile endpoints
+    below previously guarded ``is_deleted`` only (or nothing at all), so a
+    customer removed through the normal DELETE /customers/{id} endpoint
+    stayed visible through these routes. Scoped fix (issue #13, item 5):
+    used ONLY by the V1.1 endpoints in this section — the rest of this
+    router's pre-existing endpoints are intentionally left untouched here;
+    unifying every customer endpoint's soft-delete guard is tracked
+    separately.
+    """
+    customer = await db.get(CustomerModel, customer_id)
+    if customer is None or customer.is_deleted or not customer.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=_CUSTOMER_NOT_FOUND_DETAIL,
+        )
+    return customer
+
 
 def _normalize_style_profile(raw: Dict[str, Any]) -> Dict[str, Any]:
     """Coerce ``None`` values in a style-profile dict to ``[]``.
@@ -790,8 +904,12 @@ async def list_customer_no_gos(
     """
     List all no-gos (persistent exclusions, e.g. allergies) for a customer.
 
+    404 if the customer does not exist (or is soft-deleted/deactivated) —
+    previously returned an empty list for any unknown customer_id.
+
     Permissions: Requires CUSTOMER_VIEW permission.
     """
+    await _get_active_customer_or_404(db, customer_id)
     return await NoGoService.list_no_gos(db, customer_id)
 
 
@@ -809,12 +927,13 @@ async def create_customer_no_go(
     """
     Add a no-go (persistent exclusion, e.g. an allergy) for a customer.
 
-    404 if the customer does not exist. 409 if an equivalent no-go (same
-    category, case-insensitively equal value) already exists for this
-    customer.
+    404 if the customer does not exist (or is soft-deleted/deactivated).
+    409 if an equivalent no-go (same category, case-insensitively equal
+    value) already exists for this customer.
 
     Permissions: Requires CUSTOMER_EDIT permission.
     """
+    await _get_active_customer_or_404(db, customer_id)
     try:
         return await NoGoService.add_no_go(db, customer_id, no_go_in)
     except DuplicateNoGoError:
@@ -831,10 +950,13 @@ async def create_customer_no_go(
             detail="Dieses No-Go existiert bereits",
         )
     except ValueError:
-        # Unknown customer. Generic detail — never forward the message.
+        # Defensive fallback: NoGoService.add_no_go re-checks customer
+        # existence itself (a TOCTOU backstop, see no_go_service.py); the
+        # guard above makes this unreachable in practice. Generic detail —
+        # never forward the message.
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Kunde nicht gefunden",
+            detail=_CUSTOMER_NOT_FOUND_DETAIL,
         )
 
 
@@ -851,8 +973,12 @@ async def delete_customer_no_go(
     """
     Remove a no-go from a customer.
 
+    404 if the customer does not exist (or is soft-deleted/deactivated), or
+    if no matching no-go is found for that customer.
+
     Permissions: Requires CUSTOMER_EDIT permission.
     """
+    await _get_active_customer_or_404(db, customer_id)
     try:
         await NoGoService.delete_no_go(db, customer_id, no_go_id)
     except ValueError as exc:
@@ -862,10 +988,11 @@ async def delete_customer_no_go(
 @router.get("/{customer_id}/no-gos/check", response_model=List[NoGoConflict])
 async def check_customer_no_go_conflicts(
     customer_id: int,
-    candidate: List[str] = Query(
+    candidate: List[_CandidateItem] = Query(
         ...,
+        max_length=50,
         description="Candidate material/stone/etc. values to check against "
-        "the customer's recorded no-gos",
+        "the customer's recorded no-gos (max 50 items, 200 chars each)",
     ),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_permission(Permission.CUSTOMER_VIEW)),
@@ -875,8 +1002,11 @@ async def check_customer_no_go_conflicts(
     against a customer's recorded no-gos. Bidirectional, case-insensitive
     substring match — see ``NoGoService.check_conflicts``.
 
+    404 if the customer does not exist (or is soft-deleted/deactivated).
+
     Permissions: Requires CUSTOMER_VIEW permission.
     """
+    await _get_active_customer_or_404(db, customer_id)
     return await NoGoService.check_conflicts(db, customer_id, candidate)
 
 
@@ -892,12 +1022,7 @@ async def get_style_profile(
 
     Permissions: Requires CUSTOMER_VIEW permission.
     """
-    customer = await db.get(CustomerModel, customer_id)
-    if customer is None or customer.is_deleted:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Customer {customer_id} not found",
-        )
+    customer = await _get_active_customer_or_404(db, customer_id)
     return StyleProfileRead(**_normalize_style_profile(customer.style_profile or {}))
 
 
@@ -915,13 +1040,12 @@ async def update_style_profile(
 
     Permissions: Requires CUSTOMER_EDIT permission.
     """
+    # 404 lookup runs BEFORE entering transactional(db) — a routine "no
+    # such customer" must not trip transactional's generic error logger
+    # (matches the other V1.1 no-go/style-profile endpoints and
+    # NoGoService.add_no_go's pre-check ordering rationale).
+    customer = await _get_active_customer_or_404(db, customer_id)
     async with transactional(db):
-        customer = await db.get(CustomerModel, customer_id)
-        if customer is None or customer.is_deleted:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Customer {customer_id} not found",
-            )
         profile = dict(customer.style_profile or {})
         profile.update(update_in.model_dump(exclude_unset=True))
         # See _normalize_style_profile: an explicit null in the PATCH body

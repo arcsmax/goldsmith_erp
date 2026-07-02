@@ -36,6 +36,7 @@ import logging
 from typing import Optional
 
 from cryptography.fernet import Fernet, InvalidToken
+
 from goldsmith_erp.core.config import settings
 
 logger = logging.getLogger(__name__)
@@ -43,6 +44,7 @@ logger = logging.getLogger(__name__)
 
 class EncryptionError(Exception):
     """Raised when encryption or decryption fails, or the key is misconfigured."""
+
     pass
 
 
@@ -153,6 +155,50 @@ def hmac_blind_index(value: str) -> str:
     return hmac.new(_BLIND_INDEX_KEY, normalised, hashlib.sha256).hexdigest()
 
 
+def no_go_value_blind_index(category: str, value: str) -> str:
+    """Composite HMAC blind-index tag for ``CustomerNoGo.value``.
+
+    Reuses :func:`hmac_blind_index` (same HMAC-SHA-256 primitive, same
+    keyed construction) over a composite string ``"<category>:<value>"``
+    instead of a single field — a no-go is only a duplicate of another
+    when BOTH the category and the (casefolded) value match, so both
+    parts must feed the tag.
+
+    Normalisation: the value is ``.strip()``-ped and ``.casefold()``-ed
+    BEFORE composing the string — deliberately ``casefold()``, not
+    ``lower()``. ``str.casefold()`` performs full Unicode case folding
+    (e.g. German ``ß`` → ``ss``) where ``str.lower()`` does not, and SQL
+    ``lower()`` (used by the no-longer-current functional index this
+    replaces) doesn't either. Using ``casefold()`` here — and ONLY here,
+    for both the DB-level unique index and every app-side comparison —
+    gives the no-go duplicate check exactly one normalisation semantics
+    everywhere, closing the gap where 'Straße' and 'STRASSE' collided
+    app-side (Python ``casefold()``) but not at the old DB index (SQL
+    ``lower()``).
+
+    ``hmac_blind_index`` itself still applies its own ``.strip().lower()``
+    to whatever it's given — harmless here: the composite string is
+    already casefolded (hence already fully lowercase), so that second
+    pass is a no-op.
+
+    Args:
+        category: A ``NoGoCategory`` enum's ``.value`` (already a
+            lowercase string, e.g. ``"allergy"``) — callers pass the raw
+            string so this module has no dependency on the domain enum.
+        value: The plaintext no-go value (e.g. ``"Nickel"``).
+
+    Returns:
+        64-character lowercase hex digest (SHA-256 = 32 bytes = 64 hex).
+
+    Example:
+        >>> no_go_value_blind_index("allergy", "Straße") == \
+        ...     no_go_value_blind_index("allergy", "STRASSE")
+        True
+    """
+    composite = f"{category}:{value.strip().casefold()}"
+    return hmac_blind_index(composite)
+
+
 class EncryptionService:
     """
     Service for encrypting and decrypting sensitive customer data (PII).
@@ -182,7 +228,7 @@ class EncryptionService:
 
             # Convert string key to bytes if needed
             if isinstance(encryption_key, str):
-                encryption_key = encryption_key.encode('utf-8')
+                encryption_key = encryption_key.encode("utf-8")
 
             # Initialize Fernet cipher
             self._cipher = Fernet(encryption_key)
@@ -214,13 +260,13 @@ class EncryptionService:
 
         try:
             # Convert string to bytes
-            plaintext_bytes = plaintext.encode('utf-8')
+            plaintext_bytes = plaintext.encode("utf-8")
 
             # Encrypt (returns base64-encoded token)
             encrypted_bytes = self._cipher.encrypt(plaintext_bytes)
 
             # Convert bytes to string for database storage
-            encrypted_str = encrypted_bytes.decode('utf-8')
+            encrypted_str = encrypted_bytes.decode("utf-8")
 
             return encrypted_str
 
@@ -251,18 +297,20 @@ class EncryptionService:
 
         try:
             # Convert string to bytes
-            encrypted_bytes = encrypted.encode('utf-8')
+            encrypted_bytes = encrypted.encode("utf-8")
 
             # Decrypt (validates integrity automatically)
             decrypted_bytes = self._cipher.decrypt(encrypted_bytes)
 
             # Convert bytes back to string
-            decrypted_str = decrypted_bytes.decode('utf-8')
+            decrypted_str = decrypted_bytes.decode("utf-8")
 
             return decrypted_str
 
         except InvalidToken:
-            logger.error("Decryption failed: Invalid token (wrong key or tampered data)")
+            logger.error(
+                "Decryption failed: Invalid token (wrong key or tampered data)"
+            )
             raise EncryptionError("Failed to decrypt data: Invalid encryption token")
         except Exception as e:
             logger.error(f"Decryption failed: {e}")
@@ -357,6 +405,7 @@ def get_encryption_service() -> EncryptionService:
 # Convenience Functions
 # ═══════════════════════════════════════════════════════════════════════════
 
+
 def encrypt_phone(phone: Optional[str]) -> Optional[str]:
     """
     Encrypt a phone number.
@@ -429,6 +478,7 @@ def decrypt_address(encrypted_address: Optional[str]) -> Optional[str]:
 # Key Generation Utility
 # ═══════════════════════════════════════════════════════════════════════════
 
+
 def generate_encryption_key() -> str:
     """
     Generate a new Fernet encryption key.
@@ -446,7 +496,7 @@ def generate_encryption_key() -> str:
         Never regenerate in production without a key rotation strategy.
     """
     key = Fernet.generate_key()
-    return key.decode('utf-8')
+    return key.decode("utf-8")
 
 
 if __name__ == "__main__":

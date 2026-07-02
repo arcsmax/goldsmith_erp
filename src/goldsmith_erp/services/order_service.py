@@ -10,7 +10,11 @@ import logging
 
 from goldsmith_erp.db.models import Order as OrderModel, Material, Customer, OrderStatusEnum, LocationHistory, TimeEntry
 from goldsmith_erp.models.order import OrderCreate, OrderUpdate
-from goldsmith_erp.core.pubsub import publish_event  # Import the Redis publish function
+
+# Import the module (not the function) so the unit-test conftest monkeypatch on
+# goldsmith_erp.core.pubsub.publish_event actually intercepts our calls (see
+# services/consultation_service.py for the pattern this follows).
+from goldsmith_erp.core import pubsub
 from goldsmith_erp.db.transaction import transactional
 
 logger = logging.getLogger(__name__)
@@ -210,7 +214,7 @@ class OrderService:
         # Publish event to Redis AFTER successful transaction commit
         # If this fails, the order is still created (eventual consistency)
         try:
-            await publish_event(
+            await pubsub.publish_event(
                 "order_updates",
                 json.dumps({
                     "action": "create",
@@ -428,7 +432,7 @@ class OrderService:
         }
         publish_ok = False
         try:
-            await publish_event("order_updates", json.dumps(envelope))
+            await pubsub.publish_event("order_updates", json.dumps(envelope))
             publish_ok = True
         except Exception as e:
             logger.error(
@@ -539,7 +543,7 @@ class OrderService:
 
         # Publish event to Redis AFTER successful transaction commit
         try:
-            await publish_event(
+            await pubsub.publish_event(
                 "order_updates",
                 json.dumps({
                     "action": "delete",
@@ -587,7 +591,7 @@ class OrderService:
         updated_order = await OrderService.get_order(db, order_id)
 
         try:
-            await publish_event(
+            await pubsub.publish_event(
                 "order_updates",
                 json.dumps({
                     "action": "location_change",

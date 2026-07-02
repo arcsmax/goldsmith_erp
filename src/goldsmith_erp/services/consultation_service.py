@@ -36,6 +36,17 @@ logger = logging.getLogger(__name__)
 _MUTABLE_AFTER_CONVERSION = {"status", "notes"}
 
 
+class ConsultationNotFoundError(ValueError):
+    """A referenced consultation — or, during creation, its customer —
+    could not be found.
+
+    Subclasses ``ValueError`` so pre-existing callers that catch
+    ``ValueError`` keep working. Lets the router dispatch on type instead
+    of string-matching "not found" in the message (pattern precedent:
+    ``DuplicateNoGoError`` in no_go_service.py).
+    """
+
+
 class AlreadyConvertedError(ValueError):
     """Consultation was already converted — carries the existing target ids."""
 
@@ -60,7 +71,9 @@ class ConsultationService:
                 select(Customer.id).filter(Customer.id == consultation_in.customer_id)
             )
             if customer_exists.scalar_one_or_none() is None:
-                raise ValueError(f"Customer {consultation_in.customer_id} not found")
+                raise ConsultationNotFoundError(
+                    f"Customer {consultation_in.customer_id} not found"
+                )
             consultation = Consultation(
                 conducted_by=conducted_by_user_id,
                 **consultation_in.model_dump(),
@@ -157,7 +170,9 @@ class ConsultationService:
                 db, consultation_id
             )
             if consultation is None:
-                raise ValueError(f"Consultation {consultation_id} not found")
+                raise ConsultationNotFoundError(
+                    f"Consultation {consultation_id} not found"
+                )
             if consultation.status is ConsultationStatus.CONVERTED and (
                 set(changed) - _MUTABLE_AFTER_CONVERSION
             ):
@@ -175,6 +190,7 @@ class ConsultationService:
         customer_id: int = consultation.customer_id
         follow_up_at: Optional[datetime] = consultation.follow_up_at
         conducted_by: int = consultation.conducted_by
+        existing_calendar_event_id: Optional[int] = consultation.calendar_event_id
 
         if "follow_up_at" in changed and follow_up_at is not None:
             await ConsultationService._ensure_follow_up_reminder(
@@ -182,6 +198,7 @@ class ConsultationService:
                 consultation_id=consultation_id,
                 customer_id=customer_id,
                 follow_up_at=follow_up_at,
+                existing_calendar_event_id=existing_calendar_event_id,
                 user_id=conducted_by,
             )
 
@@ -219,7 +236,7 @@ class ConsultationService:
 
         consultation = await ConsultationService.get_consultation(db, consultation_id)
         if consultation is None:
-            raise ValueError(f"Consultation {consultation_id} not found")
+            raise ConsultationNotFoundError(f"Consultation {consultation_id} not found")
         if consultation.status is ConsultationStatus.CONVERTED:
             raise AlreadyConvertedError(
                 consultation.converted_order_id, consultation.converted_quote_id
@@ -337,8 +354,19 @@ class ConsultationService:
         customer_id: int,
         follow_up_at: datetime,
         user_id: int,
+        existing_calendar_event_id: Optional[int] = None,
     ) -> None:
-        """Create the REMINDER calendar event + notification.
+        """Create or reuse the REMINDER calendar event + notify.
+
+        When ``existing_calendar_event_id`` refers to a still-existing
+        CalendarEvent row (the consultation was already linked to a
+        reminder from an earlier follow_up_at), that row's start_datetime
+        is UPDATEd in place — and its end_datetime too, if it had one —
+        instead of creating a second CalendarEvent. Without this, every
+        autosave PATCH that touched follow_up_at left the previous
+        reminder behind as an orphan. If the referenced row no longer
+        exists (deleted out-of-band), a fresh event is created exactly
+        like the create_consultation path.
 
         Takes plain scalars (not the ORM object): if the inner transaction
         fails, its rollback expires every object in the session's identity
@@ -349,30 +377,63 @@ class ConsultationService:
         """
         try:
             async with transactional(db):
-                event = CalendarEvent(
-                    title=f"Wiedervorlage Beratung #{consultation_id}",
-                    description="Kunde wollte über den Schmuckwunsch nachdenken.",
-                    event_type=CalendarEventType.REMINDER,
-                    start_datetime=follow_up_at,
-                    end_datetime=None,
-                    all_day=True,
-                    user_id=user_id,
-                )
-                db.add(event)
-                await db.flush()
-                # UPDATE by id instead of mutating a possibly-detached ORM
-                # object — no attribute access on expired instances.
-                await db.execute(
-                    update(Consultation)
-                    .where(Consultation.id == consultation_id)
-                    .values(calendar_event_id=event.id)
-                )
+                reused_event_id: Optional[int] = None
+                if existing_calendar_event_id is not None:
+                    existing_row = (
+                        await db.execute(
+                            select(CalendarEvent.id, CalendarEvent.end_datetime).filter(
+                                CalendarEvent.id == existing_calendar_event_id,
+                                CalendarEvent.event_type == CalendarEventType.REMINDER,
+                            )
+                        )
+                    ).first()
+                    if existing_row is not None:
+                        update_values: dict[str, datetime] = {
+                            "start_datetime": follow_up_at
+                        }
+                        if existing_row.end_datetime is not None:
+                            update_values["end_datetime"] = follow_up_at
+                        await db.execute(
+                            update(CalendarEvent)
+                            .where(CalendarEvent.id == existing_calendar_event_id)
+                            .values(**update_values)
+                        )
+                        reused_event_id = existing_calendar_event_id
+
+                if reused_event_id is None:
+                    event = CalendarEvent(
+                        title=f"Wiedervorlage Beratung #{consultation_id}",
+                        description="Kunde wollte über den Schmuckwunsch nachdenken.",
+                        event_type=CalendarEventType.REMINDER,
+                        start_datetime=follow_up_at,
+                        end_datetime=None,
+                        all_day=True,
+                        user_id=user_id,
+                    )
+                    db.add(event)
+                    await db.flush()
+                    # UPDATE by id instead of mutating a possibly-detached ORM
+                    # object — no attribute access on expired instances.
+                    await db.execute(
+                        update(Consultation)
+                        .where(Consultation.id == consultation_id)
+                        .values(calendar_event_id=event.id)
+                    )
         except Exception:
             logger.error(
-                "Failed to create follow-up calendar event",
+                "Failed to create or update follow-up calendar event",
                 extra={"consultation_id": consultation_id},
                 exc_info=True,
             )
+            return
+
+        if reused_event_id is not None:
+            # Reusing an existing REMINDER event (issue #13 item 7's
+            # in-place update, above) — the user was already notified when
+            # it was first created. Sending "Wiedervorlage geplant" again on
+            # every subsequent follow_up_at edit would be noisy and
+            # misleading (it implies a NEW reminder, not an edit of the
+            # existing one). Only notify on actual creation.
             return
 
         # Notification — lazy import to avoid circular deps (handoff_service pattern).

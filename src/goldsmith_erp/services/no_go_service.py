@@ -10,15 +10,23 @@ import logging
 from typing import List, Optional
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from goldsmith_erp.db.models import Customer, CustomerNoGo, NoGoCategory
+from goldsmith_erp.core.encryption import no_go_value_blind_index
+from goldsmith_erp.db.models import Consultation, Customer, CustomerNoGo, NoGoCategory
 from goldsmith_erp.db.transaction import transactional
 from goldsmith_erp.models.consultation import NoGoConflict, NoGoCreate
 
 logger = logging.getLogger(__name__)
 
-# Customer.allergies is Column(String(500)) — plain, unencrypted text (db/models.py).
+# Customer.allergies is Column(EncryptedString) (db/models.py) — encrypted at
+# rest since issue #15, following the C1 pattern used for the other Customer
+# PII columns (see db/types.py). This constant is a PLAINTEXT-length product
+# decision (max allergy freetext a user may enter), not a storage constraint:
+# EncryptedString maps to TEXT, so Fernet ciphertext (always longer than the
+# plaintext it wraps) is never truncated regardless of this limit. Keep this
+# at 500 for UX/product reasons only.
 _ALLERGIES_MAX_LENGTH = 500
 
 
@@ -39,6 +47,14 @@ class DuplicateNoGoError(ValueError):
 
 def _norm(value: str) -> str:
     return value.strip().casefold()
+
+
+def _no_go_value_hash(category: NoGoCategory, value: str) -> str:
+    """Blind-index tag for (category, value) — see ``core.encryption.
+    no_go_value_blind_index`` for the composite-normalisation rationale
+    (casefold, not SQL ``lower()`` — closes the app/DB normalisation gap
+    that issue #12's original functional index missed)."""
+    return no_go_value_blind_index(category.value, value)
 
 
 def _sync_legacy_allergies(customer: Customer, value: str, no_go_id: int) -> None:
@@ -91,11 +107,30 @@ class NoGoService:
             # Safe to embed: message contains only the numeric ID.
             raise ValueError(f"Customer {customer_id} not found")
 
+        # FK pre-validation (item B — a broad IntegrityError catch below
+        # must not misreport a bad FK as a duplicate). Checked here, not
+        # left to fail at flush time, so an invalid source_consultation_id
+        # surfaces as its own typed ValueError rather than being
+        # swallowed into DuplicateNoGoError by the catch-all below.
+        if source_consultation_id is not None:
+            consultation_exists = await db.execute(
+                select(Consultation.id).filter(
+                    Consultation.id == source_consultation_id
+                )
+            )
+            if consultation_exists.scalar_one_or_none() is None:
+                raise ValueError(f"Consultation {source_consultation_id} not found")
+
+        # Duplicate pre-check now compares via the same HMAC blind-index tag
+        # the DB-level unique index enforces (core.encryption.
+        # no_go_value_blind_index — composite over category + casefolded
+        # value), instead of a separate casefold string compare. Hash
+        # compare matches the DB's normalisation EXACTLY by construction —
+        # no risk of the app/DB semantics drifting apart again (see the
+        # CustomerNoGo docstring for the 'Straße'/'STRASSE' gap this closes).
+        candidate_hash = _no_go_value_hash(no_go_in.category, no_go_in.value)
         existing = await NoGoService.list_no_gos(db, customer_id)
-        if any(
-            n.category == no_go_in.category and _norm(n.value) == _norm(no_go_in.value)
-            for n in existing
-        ):
+        if any(n.value_hash == candidate_hash for n in existing):
             # Generic message — never embeds the submitted value.
             raise DuplicateNoGoError()
 
@@ -106,9 +141,38 @@ class NoGoService:
                 value=no_go_in.value,
                 note=no_go_in.note,
                 source_consultation_id=source_consultation_id,
+                value_hash=candidate_hash,
             )
             db.add(no_go)
-            await db.flush()
+            try:
+                # Explicit flush (rather than letting transactional's
+                # commit surface it) so the DB-level unique index's
+                # IntegrityError — the TOCTOU backstop for the app-side
+                # check above, see CustomerNoGo.__table_args__ / issue
+                # #12 — is caught HERE, inside this block. SQLAlchemy's
+                # IntegrityError.__str__ includes the failed INSERT's
+                # bound PARAMETERS, i.e. the raw (health-adjacent) no-go
+                # value. transactional()'s except-clause logs str(exc) at
+                # ERROR for ANY exception that escapes this block — so
+                # letting the raw IntegrityError propagate would write
+                # that value to the logs on every raced duplicate. Catch
+                # and swap it for the generic DuplicateNoGoError before it
+                # ever reaches that handler.
+                #
+                # Item B: this catch is intentionally broad (any
+                # IntegrityError -> Duplicate), but by this point customer
+                # existence AND source_consultation_id existence (if given)
+                # were already validated above, outside the transaction —
+                # so the only FK/constraint violation realistically left
+                # to trip here is the value_hash unique index (a raced
+                # concurrent insert). A genuine FK violation should not be
+                # possible at this point; if one somehow still occurs, it
+                # is misreported as a duplicate rather than surfaced
+                # distinctly — an accepted tradeoff given the pre-checks
+                # above cover every FK this row has.
+                await db.flush()
+            except IntegrityError:
+                raise DuplicateNoGoError() from None
             await db.refresh(no_go)
 
             if no_go_in.category == NoGoCategory.ALLERGY:

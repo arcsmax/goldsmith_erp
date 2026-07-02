@@ -20,8 +20,8 @@ from typing import Any, Dict, Optional
 from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from goldsmith_erp.core import pubsub
 from goldsmith_erp.core.config import settings
-from goldsmith_erp.core.pubsub import publish_event
 from goldsmith_erp.db.models import (
     MetalPriceSource,
     Notification,
@@ -277,7 +277,7 @@ async def _refresh_metal_prices(db: AsyncSession) -> None:
                 for metal, (price, source, _) in prices.items()
             },
         }
-        await publish_event("metal_price_updates", json.dumps(event_payload))
+        await pubsub.publish_event("metal_price_updates", json.dumps(event_payload))
 
         _last_price_refresh = now
 

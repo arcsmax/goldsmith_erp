@@ -349,7 +349,7 @@ class TestUpdateOrderPubsubFailure:
         order = await _order(db_session, sample_customer.id, alloy=None)
 
         with patch(
-            "goldsmith_erp.services.order_service.publish_event",
+            "goldsmith_erp.core.pubsub.publish_event",
             new=AsyncMock(side_effect=ConnectionError("redis reset")),
         ):
             updated = await OrderService.update_order(
@@ -384,7 +384,7 @@ class TestUpdateOrderPubsubFailure:
         order = await _order(db_session, sample_customer.id, alloy=None)
 
         with patch(
-            "goldsmith_erp.services.order_service.publish_event",
+            "goldsmith_erp.core.pubsub.publish_event",
             new=AsyncMock(side_effect=ConnectionError("down")),
         ):
             updated = await OrderService.update_order(
@@ -413,7 +413,7 @@ class TestAdvanceStatusPubsubFailure:
         order = await _order(db_session, sample_customer.id, alloy=None)
 
         with patch(
-            "goldsmith_erp.services.order_service.publish_event",
+            "goldsmith_erp.core.pubsub.publish_event",
             new=AsyncMock(side_effect=ConnectionError("nope")),
         ):
             updated = await OrderService.advance_status(
