@@ -202,7 +202,7 @@ describe('IntakeChecklist', () => {
     await waitFor(() => expect(onUpdated).toHaveBeenCalledWith(updatedRepair));
   });
 
-  it('shows a completed summary once all items are resolved, and can be collapsed', async () => {
+  it('starts collapsed when the checklist is already complete on mount, and supports manual expand/collapse', async () => {
     const repair = makeRepair({
       intake_checklist: [
         { key: 'a', label: 'A', status: 'photo', photo_id: 1 },
@@ -211,10 +211,83 @@ describe('IntakeChecklist', () => {
     });
     render(<IntakeChecklist repair={repair} onUpdated={vi.fn()} />);
 
+    // Fully resolved on the initial `repair` prop -> collapsed summary only,
+    // no full list, no "Einklappen" control.
+    expect(screen.queryByRole('button', { name: 'Einklappen' })).not.toBeInTheDocument();
+    const summaryButton = screen.getByRole('button', { name: /2\/2 erledigt/ });
+    expect(summaryButton).toBeInTheDocument();
+
+    // Manual toggle still works: expand...
+    await userEvent.click(summaryButton);
     expect(screen.getByText('2/2 erledigt')).toBeInTheDocument();
+    const collapseButton = screen.getByRole('button', { name: 'Einklappen' });
+    expect(collapseButton).toBeInTheDocument();
 
-    await userEvent.click(screen.getByRole('button', { name: 'Einklappen' }));
-
+    // ...and collapse again.
+    await userEvent.click(collapseButton);
     expect(screen.getByRole('button', { name: /2\/2 erledigt/ })).toBeInTheDocument();
+  });
+
+  it('starts expanded when the checklist is not yet complete on mount', () => {
+    const repair = makeRepair({
+      intake_checklist: [
+        { key: 'a', label: 'A', status: 'photo', photo_id: 1 },
+        { key: 'b', label: 'B', status: 'open' },
+      ],
+    });
+    render(<IntakeChecklist repair={repair} onUpdated={vi.fn()} />);
+
+    expect(screen.getByText('1/2 erledigt')).toBeInTheDocument();
+    expect(screen.getByText('Eingangs-Checkliste')).toBeInTheDocument();
+  });
+
+  it('shows a generic upload-failure toast when the photo upload itself fails', async () => {
+    const repair = makeRepair({
+      intake_checklist: [{ key: 'krappen', label: 'Krappen/Fassungen', status: 'open' }],
+    });
+    mockUploadPhoto.mockRejectedValue(new Error('network down'));
+    const onUpdated = vi.fn();
+
+    render(<IntakeChecklist repair={repair} onUpdated={onUpdated} />);
+
+    const file = new File(['x'], 'krappen.jpg', { type: 'image/jpeg' });
+    const input = screen.getByLabelText(/Foto aufnehmen/i, { selector: 'input' });
+    await userEvent.upload(input, file);
+
+    await waitFor(() =>
+      expect(mockShowToast).toHaveBeenCalledWith(
+        'Foto konnte nicht hochgeladen werden',
+        'error'
+      )
+    );
+    expect(mockUpdateIntakeChecklist).not.toHaveBeenCalled();
+    expect(onUpdated).not.toHaveBeenCalled();
+  });
+
+  it('shows an honest partial-failure toast and still refreshes when the photo uploads but the checklist PUT fails', async () => {
+    const repair = makeRepair({
+      intake_checklist: [{ key: 'krappen', label: 'Krappen/Fassungen', status: 'open' }],
+    });
+    mockUploadPhoto.mockResolvedValue({ id: 55 });
+    mockUpdateIntakeChecklist.mockRejectedValue(new Error('put failed'));
+    const onUpdated = vi.fn();
+    const onRefresh = vi.fn();
+
+    render(<IntakeChecklist repair={repair} onUpdated={onUpdated} onRefresh={onRefresh} />);
+
+    const file = new File(['x'], 'krappen.jpg', { type: 'image/jpeg' });
+    const input = screen.getByLabelText(/Foto aufnehmen/i, { selector: 'input' });
+    await userEvent.upload(input, file);
+
+    await waitFor(() =>
+      expect(mockShowToast).toHaveBeenCalledWith(
+        'Foto gespeichert, Verknüpfung fehlgeschlagen — bitte Seite neu laden',
+        'error'
+      )
+    );
+    // No crash, no false-success callback, but the parent still gets a
+    // chance to refetch so the (now unlinked) stored photo becomes visible.
+    expect(onUpdated).not.toHaveBeenCalled();
+    expect(onRefresh).toHaveBeenCalledTimes(1);
   });
 });

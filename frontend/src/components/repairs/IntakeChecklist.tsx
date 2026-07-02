@@ -34,6 +34,13 @@ interface IntakeChecklistProps {
   repair: RepairJob;
   /** Called with the full, fresh RepairJob after every successful mutation. */
   onUpdated: (repair: RepairJob) => void;
+  /**
+   * Optional parent refetch, invoked when a photo upload succeeds but the
+   * follow-up checklist PUT fails — the photo is safely stored server-side
+   * but this component has no fresh RepairJob to hand to onUpdated, so the
+   * parent must refresh from the server for the photo to become visible.
+   */
+  onRefresh?: () => void;
 }
 
 interface IntakeChecklistRowProps {
@@ -159,14 +166,20 @@ function IntakeChecklistRow({
   );
 }
 
-export function IntakeChecklist({ repair, onUpdated }: IntakeChecklistProps) {
+export function IntakeChecklist({ repair, onUpdated, onRefresh }: IntakeChecklistProps) {
   const { showToast } = useToast();
+  const items = repair.intake_checklist;
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [reasonDraft, setReasonDraft] = useState<Record<string, string>>({});
   const [openReasonKey, setOpenReasonKey] = useState<string | null>(null);
-  const [expanded, setExpanded] = useState(true);
-
-  const items = repair.intake_checklist;
+  // Computed once from the initial `repair` prop: a checklist that is
+  // already fully complete on mount starts collapsed. Later mutations that
+  // complete the list do NOT auto-collapse — only the manual toggle does.
+  const [expanded, setExpanded] = useState(() => {
+    const initiallyAllDone =
+      !!items && items.length > 0 && items.every((i) => i.status !== 'open');
+    return !initiallyAllDone;
+  });
 
   if (!items || items.length === 0) {
     return (
@@ -196,8 +209,21 @@ export function IntakeChecklist({ repair, onUpdated }: IntakeChecklistProps) {
           ? { key: i.key, label: i.label, status: 'photo', photo_id: photo.id }
           : i
       );
-      const updated = await repairsApi.updateIntakeChecklist(repair.id, nextItems);
-      onUpdated(updated);
+      try {
+        const updated = await repairsApi.updateIntakeChecklist(repair.id, nextItems);
+        onUpdated(updated);
+      } catch (linkErr) {
+        // The photo is already safely stored server-side — only the
+        // checklist linkage failed. Say so honestly instead of the generic
+        // upload-failure toast, and still ask the parent to refresh so the
+        // stored (but unlinked) photo becomes visible rather than looking lost.
+        logError('Checklisten-Foto-Verknüpfung fehlgeschlagen', linkErr);
+        showToast(
+          'Foto gespeichert, Verknüpfung fehlgeschlagen — bitte Seite neu laden',
+          'error'
+        );
+        onRefresh?.();
+      }
     } catch (err) {
       logError('Checklisten-Foto fehlgeschlagen', err);
       showToast('Foto konnte nicht hochgeladen werden', 'error');

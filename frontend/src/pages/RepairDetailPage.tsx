@@ -793,7 +793,7 @@ export function RepairDetailPage() {
 
       {/* Eingangs-Checkliste — dispute protection, kept prominent above the
           tabs so it stays visible regardless of which tab is active. */}
-      <IntakeChecklist repair={repair} onUpdated={setRepair} />
+      <IntakeChecklist repair={repair} onUpdated={setRepair} onRefresh={loadRepair} />
 
       {/* Action buttons */}
       <ActionButtons repair={repair} onAction={handleAction} busy={busy} />

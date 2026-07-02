@@ -256,8 +256,16 @@ class TestDiagnoseRepair:
         """
         Calling /diagnose on a RECEIVED repair transitions through
         DIAGNOSED to QUOTED (the service does both steps in one call).
+
+        Also pins that the settings-seeded intake_checklist survives this
+        status transition untouched — /diagnose has no business mutating it.
         """
-        repair_id = await _create_repair(client, admin_auth_headers)
+        create_resp = await client.post(
+            REPAIRS_URL, json=_create_payload(), headers=admin_auth_headers
+        )
+        assert create_resp.status_code == 201, create_resp.text
+        repair_id = create_resp.json()["id"]
+        seeded_checklist = create_resp.json()["intake_checklist"]
 
         resp = await client.post(
             _action_url(repair_id, "diagnose"),
@@ -268,6 +276,11 @@ class TestDiagnoseRepair:
         data = resp.json()
         # The diagnose endpoint transitions to QUOTED (via DIAGNOSED)
         assert data["status"] in ("diagnosed", "quoted")
+        assert data["intake_checklist"] == seeded_checklist
+
+        # Confirm persistence via an independent GET, not just the response echo.
+        get_resp = await client.get(_repair_url(repair_id), headers=admin_auth_headers)
+        assert get_resp.json()["intake_checklist"] == seeded_checklist
 
     @pytest.mark.asyncio
     async def test_diagnose_repair_stores_cost(
