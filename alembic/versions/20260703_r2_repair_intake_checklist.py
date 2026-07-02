@@ -21,7 +21,7 @@ on a fresh ``v1_initial`` DB (``create_all()`` already includes the column
 since it's declared on the ``RepairJob`` model) and safe to re-run against
 an already-migrated DB.
 
-Revision ID: 20260703_r2_repair_intake_checklist
+Revision ID: 20260703_r2_intake_checklist
 Revises: 20260703_r1_repair_photo_cleanup
 Create Date: 2026-07-03
 """
@@ -33,7 +33,7 @@ from typing import Sequence, Union
 import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
-revision: str = "20260703_r2_repair_intake_checklist"
+revision: str = "20260703_r2_intake_checklist"
 down_revision: Union[str, None] = "20260703_r1_repair_photo_cleanup"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
