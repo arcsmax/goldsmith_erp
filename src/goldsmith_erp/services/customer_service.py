@@ -1024,9 +1024,12 @@ class CustomerService:
             Dict counting redactions per field. Keys enumerate every field
             in the scrub scope (from ``SCRUBBABLE_FIELDS``) — a value of 0
             means the field was examined but contained no PII tokens.
-            ``total`` is the sum across all fields. Returns all-zero
-            counts if the customer does not exist (caller should 404
-            before calling this).
+            Two extra keys cover the consultation special cases:
+            ``consultations.budget`` (rows whose budget_min/budget_max
+            were NULLed) and ``customer_no_gos.deleted`` (preference rows
+            hard-deleted). ``total`` is the sum across all fields.
+            Returns all-zero counts if the customer does not exist
+            (caller should 404 before calling this).
         """
         # Step 1: fetch customer and decrypt PII (needed for matching tokens).
         customer_result = await db.execute(
@@ -1034,14 +1037,46 @@ class CustomerService:
         )
         customer = customer_result.scalar_one_or_none()
 
-        # Counter dict: one entry per ScrubTarget + a "total".
+        # Counter dict: one entry per ScrubTarget + the consultation
+        # special-case counters + a "total".
         counts: Dict[str, int] = {
             target.counter_key: 0 for target in SCRUBBABLE_FIELDS
         }
+        counts["consultations.budget"] = 0
+        counts["customer_no_gos.deleted"] = 0
         counts["total"] = 0
 
         if customer is None:
             return counts
+
+        # Consultations: financial + preference data of the erased person.
+        # These don't fit the string-scrub ScrubTarget shape (budget is a
+        # NULL-out, no-gos are a hard delete — not a text redaction) and
+        # they do NOT depend on PII tokens, so they run unconditionally
+        # BEFORE the zero-token early return below. Consultation rows
+        # themselves stay (their free-text fields are ScrubTargets); the
+        # no-go rows are pure preference data with no Art. 30 retention
+        # duty, so they are deleted outright rather than anonymised.
+        # Rowcounts are folded into ``counts`` so the audit trail
+        # reflects them. The budget UPDATE filters on non-NULL budgets
+        # so the counter reflects rows actually changed and stays 0 on
+        # a repeat scrub (idempotency).
+        budget_result = await db.execute(
+            update(Consultation)
+            .where(
+                Consultation.customer_id == customer_id,
+                or_(
+                    Consultation.budget_min.isnot(None),
+                    Consultation.budget_max.isnot(None),
+                ),
+            )
+            .values(budget_min=None, budget_max=None)
+        )
+        counts["consultations.budget"] = max(budget_result.rowcount or 0, 0)
+        no_go_result = await db.execute(
+            delete(CustomerNoGo).where(CustomerNoGo.customer_id == customer_id)
+        )
+        counts["customer_no_gos.deleted"] = max(no_go_result.rowcount or 0, 0)
 
         # Decrypt phone / mobile / address fields in-place so the matcher
         # sees plaintext values. _decrypt_pii is a no-op when encryption
@@ -1051,6 +1086,11 @@ class CustomerService:
         tokens = CustomerService._collect_pii_tokens(customer)
         if not tokens:
             # Nothing to match — write an audit log and exit cleanly.
+            # The consultation budget/no-go erasure above already ran;
+            # include it in the total so the audit row reflects it.
+            counts["total"] = sum(
+                v for k, v in counts.items() if k != "total"
+            )
             await CustomerService._write_scrub_audit_logs(
                 db,
                 customer_id=customer_id,
@@ -1157,22 +1197,6 @@ class CustomerService:
                     if n > 0:
                         setattr(row, target.column, new_value)
                         counts[target.counter_key] += n
-
-        # Consultations: financial + preference data of the erased person.
-        # These don't fit the string-scrub ScrubTarget shape (budget is a
-        # NULL-out, no-gos are a hard delete — not a text redaction), so
-        # they run as an explicit post-loop block rather than a declarative
-        # target. Consultation rows themselves stay (scrubbed above); the
-        # no-go rows are pure preference data with no Art. 30 retention
-        # duty, so they are deleted outright rather than anonymised.
-        await db.execute(
-            update(Consultation)
-            .where(Consultation.customer_id == customer_id)
-            .values(budget_min=None, budget_max=None)
-        )
-        await db.execute(
-            delete(CustomerNoGo).where(CustomerNoGo.customer_id == customer_id)
-        )
 
         counts["total"] = sum(
             v for k, v in counts.items() if k != "total"

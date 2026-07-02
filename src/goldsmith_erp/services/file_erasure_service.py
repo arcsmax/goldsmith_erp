@@ -703,17 +703,22 @@ class FileErasureService:
         by ``CustomerService.scrub_customer_pii`` and the row survives for
         Art. 30 record-keeping, matching RepairJob.
 
-        Thumbnail deletion is best-effort: a missing / failed thumbnail
-        does not block the original file's outcome or the row deletion —
-        thumbnail generation is already non-fatal on upload
+        A MISSING thumbnail is tolerated silently — thumbnail generation
+        is already non-fatal on upload
         (``ConsultationPhotoService.upload_photo``), so a thumb can be
-        legitimately absent.
+        legitimately absent. A failed unlink of an EXISTING thumbnail,
+        however, is a hard erasure failure (counted under
+        ``files_failed`` + ``errors``, row kept) — otherwise the sweep
+        would report "all files erased cleanly" while design-IP remains
+        on disk with no DB reference left for retry.
 
         A row whose ORIGINAL file fails to delete (path-traversal escape,
-        IO error) is left in place — same as the declarative targets — so
-        the admin can inspect / retry. Idempotent: a second sweep finds no
-        rows left under ``consultation_ids`` (they were deleted in the
-        first sweep) and is a no-op.
+        IO error) is likewise left in place — same as the declarative
+        targets — so the admin can inspect / retry. Idempotent: a second
+        sweep finds no rows left under ``consultation_ids`` (they were
+        deleted in the first sweep) and is a no-op; rows retained due to
+        a failure are retried and converge (a deleted original counts as
+        ``files_missing`` on retry, then the thumb is attempted again).
         """
         table = "consultation_photos"
         column = "file_path"
@@ -848,24 +853,40 @@ class FileErasureService:
                 # targets' files_failed handling.
                 continue
 
-            # Thumbnail — best-effort, never blocks the row-delete decision.
+            # Thumbnail. A MISSING thumb is fine — thumbnail generation
+            # is non-fatal at upload, so a thumb can legitimately be
+            # absent. A failed unlink of an EXISTING thumb is a hard
+            # erasure failure: the customer's design-IP thumbnail is
+            # still on disk, so it must count under ``files_failed`` /
+            # ``errors`` (→ 207 / PARTIAL_FILE_ERASURE at the endpoint)
+            # and the row must be KEPT so the admin can inspect and a
+            # re-run can retry. On that retry the (already-deleted)
+            # original counts as ``files_missing`` and the thumb is
+            # attempted again — the sweep converges.
             try:
                 if thumb_resolved.exists():
                     os.unlink(thumb_resolved)
             except (OSError, PermissionError) as exc:
-                logger.warning(
-                    "consultation photo thumbnail erasure failed — "
-                    "continuing (best-effort, original already handled)",
+                message = f"{type(exc).__name__}: {exc}"
+                result.files_failed += 1
+                per_target_failed += 1
+                result.errors.append((str(thumb_resolved), message))
+                logger.error(
+                    "file erasure failed — thumbnail IO error",
                     extra={
                         "audit": True,
-                        "action": "file_erasure_thumb_failed",
+                        "action": "file_erasure_failed",
                         "customer_id": customer_id,
                         "user_id": performed_by,
+                        "table": table,
+                        "column": column,
                         "resolved_path": str(thumb_resolved),
                         "error_type": type(exc).__name__,
                         "error_message": str(exc),
                     },
                 )
+                # Row NOT queued for deletion — kept for admin retry.
+                continue
 
             row_ids_to_delete.append(row.id)
 

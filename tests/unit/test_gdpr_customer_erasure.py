@@ -1102,9 +1102,14 @@ class TestScrubH5CrossField:
             )
         )
         log = result.scalar_one()
-        expected_keys = {
-            target.counter_key for target in SCRUBBABLE_FIELDS
-        } | {"total"}
+        # SCRUBBABLE_FIELDS keys + the two consultation special-case
+        # counters (budget NULL-out / no-go hard-delete — Task 10, not
+        # string-scrub targets) + "total".
+        expected_keys = {target.counter_key for target in SCRUBBABLE_FIELDS} | {
+            "consultations.budget",
+            "customer_no_gos.deleted",
+            "total",
+        }
         assert set(log.details["counts"].keys()) == expected_keys
         assert log.details["counts"]["repair_jobs.item_description"] == 2
 

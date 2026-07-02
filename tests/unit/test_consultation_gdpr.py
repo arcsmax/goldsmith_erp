@@ -161,7 +161,7 @@ class TestScrubConsultationPii:
             conducted_by_user_id=admin.id,
         )
 
-        await CustomerService.scrub_customer_pii(
+        counts = await CustomerService.scrub_customer_pii(
             db_session,
             customer_id=mueller_maria.id,
             performed_by=admin.id,
@@ -173,6 +173,8 @@ class TestScrubConsultationPii:
         ).scalar_one()
         assert row.budget_min is None
         assert row.budget_max is None
+        # Audit counter reflects the one row whose budget was NULLed.
+        assert counts["consultations.budget"] == 1
 
     @pytest.mark.asyncio
     async def test_erasure_hard_deletes_no_gos(
@@ -188,7 +190,7 @@ class TestScrubConsultationPii:
         )
         await db_session.commit()
 
-        await CustomerService.scrub_customer_pii(
+        counts = await CustomerService.scrub_customer_pii(
             db_session,
             customer_id=mueller_maria.id,
             performed_by=admin.id,
@@ -205,6 +207,8 @@ class TestScrubConsultationPii:
             .all()
         )
         assert no_gos == []
+        # Audit counter reflects the one hard-deleted preference row.
+        assert counts["customer_no_gos.deleted"] == 1
 
     @pytest.mark.asyncio
     async def test_consultation_row_survives_erasure(
@@ -353,3 +357,102 @@ class TestErasureConsultationPhotos:
             db_session, other_consultation.id
         )
         assert len(other_remaining) == 1
+
+    @pytest.mark.asyncio
+    async def test_failed_thumb_unlink_counts_failure_and_keeps_row(
+        self,
+        db_session: AsyncSession,
+        mueller_maria: Customer,
+        admin: User,
+        tmp_path: Path,
+        monkeypatch,
+    ):
+        """Regression: a failed unlink of an EXISTING thumbnail must count
+        as ``files_failed`` (→ 207 / PARTIAL_FILE_ERASURE upstream) and
+        KEEP the row for admin retry — the sweep must never report
+        "all files erased cleanly" while design-IP remains on disk.
+
+        Implementation choice under test: the original is attempted FIRST
+        and is deleted; the thumb failure then keeps the row and surfaces
+        in ``errors``, so a re-run retries the thumb (original counts as
+        missing).
+        """
+        monkeypatch.setattr(
+            "goldsmith_erp.core.config.settings.PHOTO_STORAGE_PATH", str(tmp_path)
+        )
+
+        consultation = await ConsultationService.create_consultation(
+            db_session,
+            ConsultationCreate(customer_id=mueller_maria.id),
+            conducted_by_user_id=admin.id,
+        )
+        photo = await ConsultationPhotoService.upload_photo(
+            db_session,
+            consultation_id=consultation.id,
+            file=_jpeg_upload(),
+            user_id=admin.id,
+            kind=ConsultationPhotoKind.SKETCH,
+        )
+        await db_session.commit()
+
+        original_path = Path(photo.file_path)
+        thumb_path = original_path.parent / "thumbs" / f"{original_path.stem}.jpg"
+        assert original_path.exists()
+        assert thumb_path.exists()
+
+        import os as real_os
+
+        real_unlink = real_os.unlink
+
+        def _unlink_fails_on_thumbs(path, *args, **kwargs):
+            if "thumbs" in str(path):
+                raise PermissionError("EACCES: mocked thumb permission denial")
+            return real_unlink(path, *args, **kwargs)
+
+        monkeypatch.setattr(
+            "goldsmith_erp.services.file_erasure_service.os.unlink",
+            _unlink_fails_on_thumbs,
+        )
+
+        service = FileErasureService(tmp_path)
+        result = await service.erase_customer_files(
+            db_session,
+            customer_id=mueller_maria.id,
+            performed_by=admin.id,
+        )
+        await db_session.commit()
+
+        # Failure is surfaced, not swallowed.
+        assert result.files_failed >= 1
+        assert any("thumbs" in path for path, _ in result.errors)
+        assert result.per_target_counts["consultation_photos.file_path"]["failed"] == 1
+
+        # Original was attempted first and deleted; thumb remains on disk.
+        assert not original_path.exists()
+        assert thumb_path.exists()
+
+        # Row is KEPT so the admin can inspect / retry.
+        remaining = await ConsultationPhotoService.list_photos(
+            db_session, consultation.id
+        )
+        assert len(remaining) == 1
+
+        # Retry after the permission problem is fixed: sweep converges —
+        # thumb deleted, row removed, no failures.
+        monkeypatch.setattr(
+            "goldsmith_erp.services.file_erasure_service.os.unlink",
+            real_unlink,
+        )
+        retry = await service.erase_customer_files(
+            db_session,
+            customer_id=mueller_maria.id,
+            performed_by=admin.id,
+        )
+        await db_session.commit()
+
+        assert retry.files_failed == 0
+        assert not thumb_path.exists()
+        remaining_after_retry = await ConsultationPhotoService.list_photos(
+            db_session, consultation.id
+        )
+        assert remaining_after_retry == []
