@@ -457,7 +457,8 @@ interface EditableLineItemsProps {
 
 // Editable line-items table shown for DRAFT quotes. Every add/edit/remove
 // persists immediately; the server returns the quote with recomputed totals.
-function EditableLineItems({ items, disabled, onAdd, onSave, onRemove }: EditableLineItemsProps) {
+// Exported for unit testing.
+export function EditableLineItems({ items, disabled, onAdd, onSave, onRemove }: EditableLineItemsProps) {
   const [draft, setDraft] = useState<QuoteLineItemInput>(EMPTY_LINE_DRAFT);
   const [busy, setBusy] = useState(false);
 
