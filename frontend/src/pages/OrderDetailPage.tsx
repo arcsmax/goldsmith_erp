@@ -15,6 +15,7 @@ import { SollIstTab } from '../components/orders/SollIstTab';
 import HandoffTab from '../components/orders/HandoffTab';
 import ArbeitszettelTab from '../components/orders/ArbeitszettelTab';
 import { KundeninfoTab } from '../components/orders/KundeninfoTab';
+import { CostAlertBanner } from '../components/orders/CostAlertBanner';
 import { PhotoCompare } from '../components/PhotoCompare';
 import { photosApi } from '../api/photos';
 import '../styles/order-detail.css';
@@ -157,6 +158,11 @@ export const OrderDetailPage: React.FC = () => {
           </span>
         </div>
       </header>
+
+      <CostAlertBanner
+        orderId={order.id}
+        onCreateCostChange={() => handleTabChange('kosten')}
+      />
 
       {/* Tabs */}
       <div className="order-tabs">
