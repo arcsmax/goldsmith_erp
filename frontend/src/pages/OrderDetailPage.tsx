@@ -14,6 +14,7 @@ import { CustomerInfoCard } from '../components/orders/CustomerInfoCard';
 import { SollIstTab } from '../components/orders/SollIstTab';
 import HandoffTab from '../components/orders/HandoffTab';
 import ArbeitszettelTab from '../components/orders/ArbeitszettelTab';
+import { KundeninfoTab } from '../components/orders/KundeninfoTab';
 import { PhotoCompare } from '../components/PhotoCompare';
 import { photosApi } from '../api/photos';
 import '../styles/order-detail.css';
@@ -227,6 +228,12 @@ export const OrderDetailPage: React.FC = () => {
         >
           🤝 Übergabe
         </button>
+        <button
+          className={`tab ${activeTab === 'kundeninfo' ? 'active' : ''}`}
+          onClick={() => handleTabChange('kundeninfo')}
+        >
+          👤 Kundeninfo
+        </button>
         {order.status !== 'draft' && (
           <button
             className={`tab ${activeTab === 'arbeitszettel' ? 'active' : ''}`}
@@ -289,6 +296,17 @@ export const OrderDetailPage: React.FC = () => {
 
         {activeTab === 'handoff' && (
           <HandoffTab orderId={order.id} />
+        )}
+
+        {activeTab === 'kundeninfo' && (
+          <KundeninfoTab
+            orderId={order.id}
+            customerName={
+              order.customer
+                ? `${order.customer.first_name} ${order.customer.last_name}`
+                : undefined
+            }
+          />
         )}
 
         {activeTab === 'arbeitszettel' && (
