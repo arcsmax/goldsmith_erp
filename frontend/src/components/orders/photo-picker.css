@@ -1,0 +1,104 @@
+/* PhotoPicker — multi-select photo grid (Kundeninfo compose, V1.2).
+   Mirrors the visual language of .photo-compare-thumb / .photo-compare-grid
+   (src/styles/repairs.css) so selectable order photos feel consistent with
+   the rest of the photo UI, while using picker-scoped class names. */
+
+.photo-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.photo-picker-status {
+  padding: 1rem;
+  border: 1px dashed var(--color-border-default);
+  border-radius: 8px;
+  color: var(--color-text-muted);
+  font-size: 0.85rem;
+  text-align: center;
+}
+
+.photo-picker-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.photo-picker-count {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--color-text-muted);
+}
+
+.photo-picker-hint {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--color-warning-600);
+  background: var(--color-warning-bg);
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+}
+
+.photo-picker-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+  gap: 0.6rem;
+}
+
+.photo-picker-thumb {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 2px solid var(--color-border-default);
+  background: #f0ece4;
+  cursor: pointer;
+  padding: 0;
+  transition: border-color 0.15s, transform 0.12s, opacity 0.15s;
+}
+
+.photo-picker-thumb:hover:not(:disabled) {
+  border-color: var(--color-brand-cta-500);
+  transform: scale(1.03);
+}
+
+.photo-picker-thumb:focus-visible {
+  outline: 3px solid var(--color-border-focus);
+  outline-offset: 2px;
+}
+
+.photo-picker-thumb-selected {
+  border-color: var(--color-success-500);
+  box-shadow: 0 0 0 2px var(--color-success-500);
+}
+
+.photo-picker-thumb:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.photo-picker-thumb-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.photo-picker-thumb-check {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.85rem;
+  line-height: 1;
+  background: var(--color-success-500);
+  color: #fff;
+}
