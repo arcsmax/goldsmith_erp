@@ -264,6 +264,82 @@ def test_real_template_plain_text_contains_no_css():
 
 
 # ---------------------------------------------------------------------------
+# base.html footer — workshop contact + overridable footer_note block
+# (review fix: replaces the hardcoded "automatisch versandt" line)
+# ---------------------------------------------------------------------------
+
+
+def test_footer_shows_default_note_and_omits_contact_when_unset(monkeypatch):
+    monkeypatch.setattr(settings, "WORKSHOP_CONTACT", None)
+
+    html = EmailService._render_template(
+        "customer_update.html",
+        {
+            "customer_name": "Erika Musterfrau",
+            "body": "Body",
+            "order_ref": "Auftrag #1042",
+            "photo_count": 0,
+        },
+    )
+
+    assert "automatisch versandt" in html
+    assert "Tel." not in html
+
+
+def test_footer_shows_workshop_contact_when_set(monkeypatch):
+    monkeypatch.setattr(settings, "WORKSHOP_CONTACT", "Tel. 01234 56789")
+
+    html = EmailService._render_template(
+        "customer_update.html",
+        {
+            "customer_name": "Erika Musterfrau",
+            "body": "Body",
+            "order_ref": "Auftrag #1042",
+            "photo_count": 0,
+        },
+    )
+
+    assert "Tel. 01234 56789" in html
+
+
+def test_cost_change_footer_overrides_note_with_reply_instructions(monkeypatch):
+    """cost_change.html overrides the shared footer_note block — it must
+    NOT show the generic "automatisch versandt" line, since a reply to a
+    §649 cost-change email IS meaningful (the customer's approval)."""
+    html = EmailService._render_template(
+        "cost_change.html",
+        {
+            "customer_name": "Erika Musterfrau",
+            "order_ref": "Auftrag #1042",
+            "original_amount": "1.000,00 €",
+            "new_amount": "1.200,00 €",
+            "delta_percent": "20,0 %",
+            "reason": "Zusaetzliche Fassung",
+            "line_items": [],
+        },
+    )
+
+    assert "Sie können direkt auf diese E-Mail antworten." in html
+    assert "automatisch versandt" not in html
+
+
+def test_customer_update_footer_keeps_default_note():
+    """A non-overriding template (customer_update.html) must keep the
+    default footer_note text."""
+    html = EmailService._render_template(
+        "customer_update.html",
+        {
+            "customer_name": "Erika Musterfrau",
+            "body": "Body",
+            "order_ref": "Auftrag #1042",
+            "photo_count": 0,
+        },
+    )
+
+    assert "automatisch versandt" in html
+
+
+# ---------------------------------------------------------------------------
 # Typed senders — customer_update / cost_change (template render + send)
 # ---------------------------------------------------------------------------
 
@@ -335,6 +411,31 @@ async def test_send_cost_change_renders_template_with_line_items(monkeypatch):
     assert "20,8 %" in html_text
     assert "Zusatzfassung" in html_text
     assert "649" in html_text  # §649 BGB reference
+
+
+async def test_send_cost_change_renders_reason_line_breaks(monkeypatch):
+    """Review fix: reason now goes through the nl2br filter (matches
+    customer_update.html's body handling) so a multi-line Begruendung
+    keeps its paragraph breaks instead of running together."""
+    _enable_smtp(monkeypatch)
+    capture = _CapturingSend()
+    monkeypatch.setattr(email_service_module.aiosmtplib, "send", capture)
+
+    ok = await EmailService.send_cost_change(
+        to="kunde@example.com",
+        subject="Kostenänderung",
+        customer_name="Erika Musterfrau",
+        order_ref="Auftrag #1042",
+        original_amount="1.200,00 €",
+        new_amount="1.450,00 €",
+        delta_percent="20,8 %",
+        reason="Erste Zeile der Begruendung.\nZweite Zeile mit mehr Details.",
+    )
+
+    assert ok is True
+    _, html_text = _plain_and_html_parts(capture.sent_messages[0])
+    assert "Erste Zeile der Begruendung.<br" in html_text
+    assert "Zweite Zeile mit mehr Details." in html_text
 
 
 async def test_send_cost_change_without_line_items_still_renders(monkeypatch):

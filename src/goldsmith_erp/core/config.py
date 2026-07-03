@@ -98,6 +98,11 @@ class Settings(BaseSettings):
     # ── Workshop / Application identity ──────────────────────────────────────────
     WORKSHOP_NAME: str = "Goldschmiede"
     APP_VERSION: str = "1.0.0"
+    # Optional contact line (e.g. "Tel. 01234 56789") rendered in the shared
+    # email footer (templates/email/base.html) when set. Review fix — lets
+    # the footer offer a real contact channel instead of only the
+    # hardcoded "automatisch versandt" text.
+    WORKSHOP_CONTACT: Optional[str] = None
 
     # ── Backup ───────────────────────────────────────────────────────────────────
     BACKUP_DIR: str = "~/goldsmith-backups"

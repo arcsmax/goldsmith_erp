@@ -15,6 +15,7 @@ from __future__ import annotations
 import logging
 import re
 from email.mime.application import MIMEApplication
+from email.mime.image import MIMEImage
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from html import unescape as _html_unescape
@@ -275,7 +276,20 @@ class EmailService:
             msg.attach(alternative)
 
             for filename, data in attachments or []:
-                part = MIMEApplication(data, Name=filename)
+                # Review fix: JPEG attachments (customer-update photos —
+                # see customer_update_service._load_photo_variant_bytes,
+                # always named "foto-N.jpg") get a proper image/jpeg
+                # Content-Type via MIMEImage instead of the generic
+                # application/octet-stream MIMEApplication previously
+                # used for every attachment — mail clients render an
+                # image attachment inline/as a thumbnail instead of
+                # offering it as an opaque download. Non-JPEG attachments
+                # (invoice/quote/receipt PDFs) are unaffected — they still
+                # go through MIMEApplication exactly as before.
+                if filename.lower().endswith((".jpg", ".jpeg")):
+                    part: MIMEApplication | MIMEImage = MIMEImage(data, _subtype="jpeg")
+                else:
+                    part = MIMEApplication(data, Name=filename)
                 part["Content-Disposition"] = f'attachment; filename="{filename}"'
                 msg.attach(part)
 
@@ -318,15 +332,17 @@ class EmailService:
         """
         Render a Jinja2 HTML template.
 
-        Injects WORKSHOP_NAME from settings automatically.
-        Returns an empty string on render failure so callers can still
-        fall through gracefully.
+        Injects WORKSHOP_NAME (and WORKSHOP_CONTACT, review fix — renders
+        an optional contact line in the shared base.html footer when set)
+        from settings automatically. Returns an empty string on render
+        failure so callers can still fall through gracefully.
         """
         try:
             env = _get_jinja_env()
             tmpl = env.get_template(template_name)
             return tmpl.render(
                 workshop_name=settings.WORKSHOP_NAME,
+                workshop_contact=settings.WORKSHOP_CONTACT,
                 **context,
             )
         except TemplateNotFound:

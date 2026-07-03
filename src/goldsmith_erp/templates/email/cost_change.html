@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% block title %}Kostenänderung zu Auftrag {{ order_ref }} — {{ workshop_name }}{% endblock %}
+{% block footer_note %}Sie können direkt auf diese E-Mail antworten.{% endblock %}
 
 {% block body %}
 <h2>Wichtiger Hinweis zu den Kosten Ihres Auftrags</h2>
@@ -25,7 +26,7 @@
   <dd>{{ delta_percent }}</dd>
 </dl>
 
-<p><strong>Begründung:</strong> {{ reason }}</p>
+<p><strong>Begründung:</strong> {{ reason | nl2br }}</p>
 
 {% if line_items %}
 <p><strong>Im Einzelnen:</strong></p>

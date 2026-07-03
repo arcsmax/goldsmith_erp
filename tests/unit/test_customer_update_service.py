@@ -20,6 +20,7 @@ Covers:
 aiosmtplib is mocked at the boundary test_email_customer_update.py
 established: ``email_service_module.aiosmtplib.send``.
 """
+import io
 import uuid
 
 import pytest
@@ -86,6 +87,29 @@ async def _make_order_photo(db_session, tmp_path, order: Order, user) -> OrderPh
     photo_dir.mkdir(parents=True, exist_ok=True)
     photo_path = photo_dir / f"{uuid.uuid4().hex}.jpg"
     Image.new("RGB", (200, 100), color=(10, 20, 30)).save(photo_path, format="JPEG")
+
+    photo = OrderPhoto(
+        id=str(uuid.uuid4()),
+        order_id=order.id,
+        file_path=str(photo_path),
+        taken_by=user.id,
+    )
+    db_session.add(photo)
+    await db_session.commit()
+    await db_session.refresh(photo)
+    return photo
+
+
+async def _make_colored_order_photo(
+    db_session, tmp_path, order: Order, user, color: tuple
+) -> OrderPhoto:
+    """Like _make_order_photo but with a caller-chosen solid color, so a
+    test can identify which original photo ended up at which attachment
+    position after re-encoding."""
+    photo_dir = tmp_path / str(order.id)
+    photo_dir.mkdir(parents=True, exist_ok=True)
+    photo_path = photo_dir / f"{uuid.uuid4().hex}.jpg"
+    Image.new("RGB", (200, 100), color=color).save(photo_path, format="JPEG")
 
     photo = OrderPhoto(
         id=str(uuid.uuid4()),
@@ -638,6 +662,137 @@ class TestSend:
             assert "/etc/passwd" not in record.getMessage()
             assert "/etc/passwd" not in str(record.__dict__)
         assert "/etc/passwd" not in result.model_dump_json()
+
+    async def test_send_skips_corrupt_photo_without_raising(
+        self, db_session, sample_order, sample_user, tmp_path, monkeypatch
+    ):
+        """Review fix: a photo file that exists and resolves within the
+        storage root but is not a real image (corrupt/truncated) must be
+        skipped with a warning — not raise PIL.UnidentifiedImageError (or
+        a plain OSError from a truncated decode) out of send()."""
+        _enable_smtp(monkeypatch)
+        monkeypatch.setattr(
+            "goldsmith_erp.core.config.settings.PHOTO_STORAGE_PATH", str(tmp_path)
+        )
+        capture = _CapturingSend()
+        monkeypatch.setattr(email_service_module.aiosmtplib, "send", capture)
+
+        good_photo = await _make_order_photo(
+            db_session, tmp_path, sample_order, sample_user
+        )
+
+        corrupt_dir = tmp_path / str(sample_order.id)
+        corrupt_dir.mkdir(parents=True, exist_ok=True)
+        corrupt_path = corrupt_dir / f"{uuid.uuid4().hex}.jpg"
+        corrupt_path.write_bytes(b"not a real image, just garbage bytes")
+        corrupt_photo = OrderPhoto(
+            id=str(uuid.uuid4()),
+            order_id=sample_order.id,
+            file_path=str(corrupt_path),
+            taken_by=sample_user.id,
+        )
+        db_session.add(corrupt_photo)
+        await db_session.commit()
+        await db_session.refresh(corrupt_photo)
+
+        draft = await CustomerUpdateService.create_draft(
+            db_session,
+            order_id=sample_order.id,
+            repair_job_id=None,
+            data=CustomerUpdateCreate(
+                kind=CustomerUpdateKind.PROGRESS,
+                photo_ids=[good_photo.id, corrupt_photo.id],
+            ),
+            user_id=sample_user.id,
+        )
+
+        result = await CustomerUpdateService.send(db_session, draft.id, sample_user.id)
+
+        assert result.delivered is True
+        msg = capture.sent_messages[0]
+        mixed_parts = msg.get_payload()
+        assert len(mixed_parts) == 2  # alternative + ONE (the good) photo attachment
+
+    async def test_send_preserves_explicit_photo_order(
+        self, db_session, sample_order, sample_user, tmp_path, monkeypatch
+    ):
+        """Review fix: SQL's IN clause does not guarantee row order — the
+        outgoing attachments must follow the order the goldsmith actually
+        selected (photo_ids), not whatever order the DB happens to
+        return rows in."""
+        _enable_smtp(monkeypatch)
+        monkeypatch.setattr(
+            "goldsmith_erp.core.config.settings.PHOTO_STORAGE_PATH", str(tmp_path)
+        )
+        capture = _CapturingSend()
+        monkeypatch.setattr(email_service_module.aiosmtplib, "send", capture)
+
+        red = await _make_colored_order_photo(
+            db_session, tmp_path, sample_order, sample_user, (255, 0, 0)
+        )
+        green = await _make_colored_order_photo(
+            db_session, tmp_path, sample_order, sample_user, (0, 255, 0)
+        )
+        blue = await _make_colored_order_photo(
+            db_session, tmp_path, sample_order, sample_user, (0, 0, 255)
+        )
+        # Deliberately not insertion order.
+        explicit_order = [green.id, red.id, blue.id]
+        expected_colors = [(0, 255, 0), (255, 0, 0), (0, 0, 255)]
+
+        draft = await CustomerUpdateService.create_draft(
+            db_session,
+            order_id=sample_order.id,
+            repair_job_id=None,
+            data=CustomerUpdateCreate(
+                kind=CustomerUpdateKind.PROGRESS, photo_ids=explicit_order
+            ),
+            user_id=sample_user.id,
+        )
+
+        await CustomerUpdateService.send(db_session, draft.id, sample_user.id)
+
+        msg = capture.sent_messages[0]
+        photo_parts = msg.get_payload()[1:]
+        assert len(photo_parts) == 3
+
+        for part, expected_color in zip(photo_parts, expected_colors):
+            img_bytes = part.get_payload(decode=True)
+            with Image.open(io.BytesIO(img_bytes)) as img:
+                pixel = img.convert("RGB").getpixel((10, 10))
+            # JPEG re-encoding introduces minor compression drift.
+            assert all(abs(a - b) < 40 for a, b in zip(pixel, expected_color))
+
+    async def test_send_attaches_photos_as_mime_image_jpeg(
+        self, db_session, sample_order, sample_user, tmp_path, monkeypatch
+    ):
+        """Review fix: photo attachments get a real image/jpeg Content-Type
+        (MIMEImage) instead of the generic application/octet-stream
+        (MIMEApplication) previously used for every attachment."""
+        _enable_smtp(monkeypatch)
+        monkeypatch.setattr(
+            "goldsmith_erp.core.config.settings.PHOTO_STORAGE_PATH", str(tmp_path)
+        )
+        capture = _CapturingSend()
+        monkeypatch.setattr(email_service_module.aiosmtplib, "send", capture)
+
+        photo = await _make_order_photo(db_session, tmp_path, sample_order, sample_user)
+        draft = await CustomerUpdateService.create_draft(
+            db_session,
+            order_id=sample_order.id,
+            repair_job_id=None,
+            data=CustomerUpdateCreate(
+                kind=CustomerUpdateKind.PROGRESS, photo_ids=[photo.id]
+            ),
+            user_id=sample_user.id,
+        )
+
+        await CustomerUpdateService.send(db_session, draft.id, sample_user.id)
+
+        msg = capture.sent_messages[0]
+        photo_part = msg.get_payload()[1]
+        assert photo_part.get_content_type() == "image/jpeg"
+        assert photo_part.get_filename() == "foto-1.jpg"
 
     async def test_cost_change_kind_uses_cost_change_template(
         self, db_session, sample_order, sample_user, monkeypatch

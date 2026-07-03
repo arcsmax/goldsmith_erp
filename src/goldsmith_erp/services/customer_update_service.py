@@ -54,6 +54,7 @@ symmetric repair endpoint can be added later without any service changes.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import datetime
 from pathlib import Path
@@ -380,10 +381,14 @@ async def _load_photo_variant_bytes(
 ) -> List[bytes]:
     """
     Load the explicitly-selected OrderPhotos and return EXIF-stripped
-    email-variant JPEG bytes for each one that can be read. A photo whose
-    path is missing/invalid/escapes the storage root is skipped with a
-    logged warning — one bad photo must not block the whole send/PDF
-    (mirrors ``pdf_service._embed_photo_grid``'s graceful degradation).
+    email-variant JPEG bytes for each one that can be read, in the SAME
+    order as ``photo_ids`` (review fix — a SQL ``IN`` clause does not
+    guarantee result ordering, so without this the goldsmith's chosen
+    photo order could silently scramble in the outgoing email/PDF). A
+    photo whose path is missing/invalid/escapes the storage root is
+    skipped with a logged warning — one bad photo must not block the
+    whole send/PDF (mirrors ``pdf_service._embed_photo_grid``'s graceful
+    degradation).
     """
     if not photo_ids or order_id is None:
         return []
@@ -393,7 +398,12 @@ async def _load_photo_variant_bytes(
             OrderPhoto.id.in_(photo_ids), OrderPhoto.order_id == order_id
         )
     )
-    photos = result.scalars().all()
+    # cast(): mypy sees Column[str] at class level for `id` (classic
+    # Column() style, no Mapped[] here) — at runtime, on a loaded
+    # instance, it is a plain str (established cast() precedent for this
+    # exact false-positive class throughout this module).
+    photos_by_id = {cast(str, photo.id): photo for photo in result.scalars().all()}
+    photos = [photos_by_id[pid] for pid in photo_ids if pid in photos_by_id]
     storage_root = Path(settings.PHOTO_STORAGE_PATH).resolve()
 
     variants: List[bytes] = []
@@ -406,8 +416,20 @@ async def _load_photo_variant_bytes(
             )
             continue
         try:
-            variants.append(create_email_variant(resolved))
-        except PhotoValidationError:
+            # CPU-bound (Pillow decode/resize/re-encode) — offloaded to a
+            # thread so it doesn't block the event loop on the request
+            # path (review fix, ml.py asyncio.to_thread precedent).
+            variants.append(await asyncio.to_thread(create_email_variant, resolved))
+        except (PhotoValidationError, OSError):
+            # Review fix: PIL.UnidentifiedImageError (raised by
+            # Image.open() on a corrupt/non-image file) IS an OSError
+            # subclass, and a genuinely truncated/corrupt file can also
+            # raise a plain OSError from Pillow's decoder — neither was
+            # previously caught here, so one bad photo could crash the
+            # whole send()/render_pdf() instead of degrading gracefully
+            # like every other bad-photo case in this loop. IDs only in
+            # the log (never the path — see resolve_within_root's
+            # docstring on why stored paths are untrustworthy).
             logger.warning(
                 "Customer-update photo failed validation",
                 extra={"photo_id": photo.id, "order_id": order_id},
@@ -786,7 +808,11 @@ class CustomerUpdateService:
             cast(Optional[List[str]], update.photo_ids) or [],
         )
 
-        return PDFService.render_customer_update_pdf(
+        # CPU-bound (fpdf2 font subsetting + drawing) — offloaded to a
+        # thread so a PDF render never blocks the event loop on this
+        # request path (review fix, ml.py asyncio.to_thread precedent).
+        return await asyncio.to_thread(
+            PDFService.render_customer_update_pdf,
             update=update,
             order_ref=order_ref,
             customer_name=customer_name,

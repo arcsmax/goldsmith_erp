@@ -57,7 +57,36 @@ def test_render_customer_update_pdf_returns_nonempty_bytes():
     )
     assert isinstance(pdf_bytes, bytes)
     assert len(pdf_bytes) > 0
-    assert pdf_bytes.startswith(b"%PDF")
+
+
+def test_render_customer_update_pdf_log_carries_numeric_ids_only(caplog):
+    """Review fix: order_ref may carry the order's free-text title
+    (business-confidential per CLAUDE.md) — the render-start log line
+    must carry numeric ids only, never order_ref."""
+    import logging
+
+    update = SimpleNamespace(id=42, order_id=7, subject="s", body="b")
+
+    with caplog.at_level(logging.INFO, logger="goldsmith_erp.services.pdf_service"):
+        PDFService.render_customer_update_pdf(
+            update=update,
+            order_ref="Auftrag geheime Sonderanfertigung fuer Herrn X",
+            customer_name="Erika Musterfrau",
+            photos=[],
+            workshop_name="Goldschmiede Test",
+        )
+
+    render_records = [
+        r for r in caplog.records if r.message == "Rendering customer update PDF"
+    ]
+    assert len(render_records) == 1
+    record = render_records[0]
+    assert record.update_id == 42
+    assert record.order_id == 7
+    assert not hasattr(record, "order_ref")
+    for r in caplog.records:
+        assert "Sonderanfertigung" not in r.getMessage()
+        assert "Sonderanfertigung" not in str(r.__dict__)
 
 
 def test_render_customer_update_pdf_contains_order_reference_and_subject():

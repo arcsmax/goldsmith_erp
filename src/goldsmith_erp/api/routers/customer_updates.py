@@ -242,8 +242,11 @@ async def create_cost_change(
     """
     Erstellt eine Kostenaenderungsanfrage (DRAFT). ``original_amount``
     stammt aus dem referenzierbaren Kostenvoranschlag des Auftrags (nicht
-    aus dem Request-Body). Eine noch offene (SENT) Anfrage fuer denselben
-    Auftrag wird automatisch superseded.
+    aus dem Request-Body). Mehrere Entwuerfe koennen nebeneinander
+    bestehen — das Erstellen superseded nichts. Erst beim VERSCHICKEN
+    (``POST /cost-changes/{id}/send``) wird eine noch offene (SENT)
+    Anfrage fuer denselben Auftrag automatisch superseded (siehe
+    ``CostChangeService.send``).
     """
     try:
         cost_change = await CostChangeService.create(

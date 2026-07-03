@@ -1461,9 +1461,18 @@ class PDFService:
         Returns:
             Raw PDF bytes. Caller streams via StreamingResponse.
         """
+        # order_ref is a human-readable string that may carry the order's
+        # free-text title (Order.title, business-confidential per
+        # CLAUDE.md) — never log it. Numeric ids only (matches branch
+        # convention, e.g. customer_update_service._log_financial_access).
         logger.info(
             "Rendering customer update PDF",
-            extra={"order_ref": order_ref, "photo_count": len(photos)},
+            extra={
+                "update_id": getattr(update, "id", None),
+                "order_id": getattr(update, "order_id", None),
+                "repair_job_id": getattr(update, "repair_job_id", None),
+                "photo_count": len(photos),
+            },
         )
         return _render_customer_update_fpdf(
             update=update,
