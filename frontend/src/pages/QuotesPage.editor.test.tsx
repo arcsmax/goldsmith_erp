@@ -94,6 +94,23 @@ describe('EditableLineItems', () => {
     expect(onRemove).toHaveBeenCalledWith(7);
   });
 
+  it('does not persist an invalid (cleared) quantity to the API', async () => {
+    const user = userEvent.setup();
+    render(
+      <EditableLineItems
+        items={[makeItem({ id: 5 })]}
+        disabled={false}
+        onAdd={onAdd}
+        onSave={onSave}
+        onRemove={onRemove}
+      />
+    );
+    const qty = screen.getByLabelText('Menge');
+    await user.clear(qty); // empty → NaN
+    await user.tab(); // blur
+    expect(onSave).not.toHaveBeenCalled();
+  });
+
   it('editing a description and blurring calls onSave with the full item', async () => {
     const user = userEvent.setup();
     render(

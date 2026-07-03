@@ -180,7 +180,7 @@ export const SummaryStep: React.FC<WizardStepProps> = ({
     try {
       await consultationsApi.unconvert(consultation.id);
       showToast('Überführung rückgängig gemacht', 'success');
-      if (refresh) await refresh();
+      await refresh();
     } catch (err) {
       if (axios.isAxiosError(err) && err.response?.status === 409) {
         showToast('Nur Entwürfe können zurückgesetzt werden', 'error');

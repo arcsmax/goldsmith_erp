@@ -348,8 +348,9 @@ interface LineItemRowProps {
 
 // A single editable line-item row. Local state is seeded from the item and
 // committed on blur / select-change, so typing does not round-trip to the API
-// on every keystroke. After a save the server recomputes totals and the parent
-// replaces the whole quote, re-seeding this row via `key={item.id}`.
+// on every keystroke. `key={item.id}` keeps the row bound to its DB row but does
+// NOT remount on a save (the id is stable), so the useEffect below resyncs the
+// draft from the server-canonical item after each save.
 function LineItemRow({ item, index, disabled, onSave, onRemove }: LineItemRowProps) {
   const [draft, setDraft] = useState<QuoteLineItemInput>({
     line_type: item.line_type,
@@ -358,6 +359,17 @@ function LineItemRow({ item, index, disabled, onSave, onRemove }: LineItemRowPro
     unit_price: item.unit_price,
   });
   const [busy, setBusy] = useState(false);
+
+  // Resync when the server-canonical values change (post-save/normalisation),
+  // so the row never keeps a stale locally-typed value.
+  useEffect(() => {
+    setDraft({
+      line_type: item.line_type,
+      description: item.description,
+      quantity: item.quantity,
+      unit_price: item.unit_price,
+    });
+  }, [item.line_type, item.description, item.quantity, item.unit_price]);
 
   const commit = async (next: QuoteLineItemInput) => {
     if (
@@ -369,9 +381,29 @@ function LineItemRow({ item, index, disabled, onSave, onRemove }: LineItemRowPro
       return; // unchanged — skip the round-trip
     }
     if (!next.description.trim()) return; // never persist an empty description
+    // Never send NaN / negative numbers to the API (empty or '-' number inputs
+    // read as NaN/negative). Skip silently; the field keeps the typed value for
+    // the user to correct, and the stored total stays correct from props.
+    if (
+      !Number.isFinite(next.quantity) ||
+      next.quantity <= 0 ||
+      !Number.isFinite(next.unit_price) ||
+      next.unit_price < 0
+    ) {
+      return; // backend requires quantity > 0, unit_price >= 0
+    }
     setBusy(true);
     try {
       await onSave(item.id, next);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleRemove = async () => {
+    setBusy(true);
+    try {
+      await onRemove(item.id);
     } finally {
       setBusy(false);
     }
@@ -436,11 +468,11 @@ function LineItemRow({ item, index, disabled, onSave, onRemove }: LineItemRowPro
           type="button"
           className="btn btn-reject btn-sm"
           disabled={disabled || busy}
-          onClick={() => void onRemove(item.id)}
+          onClick={() => void handleRemove()}
           aria-label={`Position ${index + 1} entfernen`}
           title="Position entfernen"
         >
-          🗑
+          <span aria-hidden="true">🗑</span>
         </button>
       </td>
     </tr>
@@ -464,6 +496,14 @@ export function EditableLineItems({ items, disabled, onAdd, onSave, onRemove }: 
 
   const handleAdd = async () => {
     if (!draft.description.trim()) return;
+    if (
+      !Number.isFinite(draft.quantity) ||
+      draft.quantity <= 0 ||
+      !Number.isFinite(draft.unit_price) ||
+      draft.unit_price < 0
+    ) {
+      return; // backend requires quantity > 0, unit_price >= 0
+    }
     setBusy(true);
     try {
       await onAdd(draft);
@@ -916,49 +956,68 @@ export const QuotesPage: React.FC = () => {
     }
   }, [selectedQuote, showToast]);
 
+  // Guard every line-item mutation against out-of-order responses: a slower
+  // response must not clobber a newer selection or resurrect a just-deleted
+  // quote. Only apply the result if the panel still shows the same quote.
+  const applyIfCurrent = useCallback((quoteId: number, updated: Quote) => {
+    setSelectedQuote(prev => (prev && prev.id === quoteId ? updated : prev));
+  }, []);
+
   const handleAddLineItem = useCallback(
     async (data: QuoteLineItemInput) => {
       if (!selectedQuote) return;
+      const quoteId = selectedQuote.id;
+      setActionLoading(true);
       try {
-        const updated = await quotesApi.addLineItem(selectedQuote.id, data);
-        setSelectedQuote(updated);
+        const updated = await quotesApi.addLineItem(quoteId, data);
+        applyIfCurrent(quoteId, updated);
         await loadQuotes();
       } catch (err) {
         logError('quote.addLineItem', err);
         showToast('Position konnte nicht hinzugefügt werden.', 'error');
+      } finally {
+        setActionLoading(false);
       }
     },
-    [selectedQuote, showToast, loadQuotes]
+    [selectedQuote, applyIfCurrent, showToast, loadQuotes]
   );
 
   const handleSaveLineItem = useCallback(
     async (itemId: number, data: QuoteLineItemInput) => {
       if (!selectedQuote) return;
+      const quoteId = selectedQuote.id;
+      setActionLoading(true);
       try {
-        const updated = await quotesApi.updateLineItem(selectedQuote.id, itemId, data);
-        setSelectedQuote(updated);
+        const updated = await quotesApi.updateLineItem(quoteId, itemId, data);
+        applyIfCurrent(quoteId, updated);
         await loadQuotes();
       } catch (err) {
         logError('quote.updateLineItem', err);
         showToast('Position konnte nicht gespeichert werden.', 'error');
+      } finally {
+        setActionLoading(false);
       }
     },
-    [selectedQuote, showToast, loadQuotes]
+    [selectedQuote, applyIfCurrent, showToast, loadQuotes]
   );
 
   const handleRemoveLineItem = useCallback(
     async (itemId: number) => {
       if (!selectedQuote) return;
+      const quoteId = selectedQuote.id;
+      setActionLoading(true);
       try {
-        const updated = await quotesApi.deleteLineItem(selectedQuote.id, itemId);
-        setSelectedQuote(updated);
+        const updated = await quotesApi.deleteLineItem(quoteId, itemId);
+        applyIfCurrent(quoteId, updated);
         await loadQuotes();
       } catch (err) {
         logError('quote.deleteLineItem', err);
         showToast('Position konnte nicht entfernt werden.', 'error');
+      } finally {
+        setActionLoading(false);
       }
     },
-    [selectedQuote, showToast, loadQuotes]
+    [selectedQuote, applyIfCurrent, showToast, loadQuotes]
   );
 
   const handleDeleteQuote = useCallback(async () => {
