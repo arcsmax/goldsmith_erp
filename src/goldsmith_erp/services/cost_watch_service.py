@@ -110,8 +110,21 @@ class CostWatchService:
         delta_abs are None and over_threshold is False (nothing to compare
         against).
 
-        delta_percent is None when a Quote exists but its total is 0 (or
-        the order has no quote at all) — a percentage delta against a
+        NETTO/BRUTTO — the comparison basis is NET (Quote.subtotal), not
+        gross (Quote.total): the cost rollup above is a net-cost figure
+        (material cost_at_time, gemstone purchase cost, labor at the hourly
+        rate — none carry VAT), so comparing it against the gross quote
+        total (×1.19 by default) would systematically understate the
+        overrun (a 15% percent threshold would only fire at ~37% real
+        overrun), defeating the §649 early-warning purpose. Consequences:
+        ``ProjectedCost.quote_total`` carries ``Quote.subtotal`` (the NET
+        reference), ``delta_abs`` is in NET euros — so
+        ``settings.COST_ALERT_THRESHOLD_ABS_EUR`` is interpreted as a NET
+        amount — and ``delta_percent`` is scale-invariant (net-vs-net gives
+        the legally correct percentage).
+
+        delta_percent is None when a Quote exists but its net subtotal is 0
+        (or the order has no quote at all) — a percentage delta against a
         zero total is not meaningful; over_threshold in that case falls
         back to the absolute-EUR comparison only.
         """
@@ -161,9 +174,12 @@ class CostWatchService:
             )
         ).scalar_one()
 
+        # `is not None`, NOT truthiness: an explicit 0.0 rate (e.g. warranty
+        # rework billed at zero) is a valid override and must not silently
+        # fall back to the default rate.
         hourly_rate = (
             order.hourly_rate
-            if order is not None and order.hourly_rate
+            if order is not None and order.hourly_rate is not None
             else settings.DEFAULT_HOURLY_RATE
         )
         labor_cost = (billable_minutes / 60.0) * hourly_rate
@@ -182,7 +198,9 @@ class CostWatchService:
             # these attributes (classic Column() style, no Mapped[] here) —
             # at runtime, on a loaded instance, these are plain int/float.
             quote_id = cast(int, quote.id)
-            quote_total = cast(float, quote.total)
+            # NET reference — Quote.subtotal, NOT Quote.total (gross incl.
+            # VAT). See the netto/brutto note in this method's docstring.
+            quote_total = cast(float, quote.subtotal)
             delta_abs = projected_total - quote_total
             delta_percent = (delta_abs / quote_total) * 100.0 if quote_total else None
             over_threshold = (
@@ -312,15 +330,25 @@ class CostWatchService:
         )
 
         for user in target_users:
-            dedup_stmt = select(Notification.id).where(
-                and_(
-                    Notification.user_id == user.id,
-                    Notification.related_order_id == order_id,
-                    Notification.notification_type == NotificationTypeEnum.COST_ALERT,
-                    Notification.is_read.is_(False),
+            # .limit(1) + .first(), NOT scalar_one_or_none(): two unread
+            # COST_ALERTs can legitimately coexist for the same user/order
+            # (concurrent hook invocations racing the dedup check) —
+            # scalar_one_or_none() would raise MultipleResultsFound and
+            # abort the alert loop for the remaining users.
+            dedup_stmt = (
+                select(Notification.id)
+                .where(
+                    and_(
+                        Notification.user_id == user.id,
+                        Notification.related_order_id == order_id,
+                        Notification.notification_type
+                        == NotificationTypeEnum.COST_ALERT,
+                        Notification.is_read.is_(False),
+                    )
                 )
+                .limit(1)
             )
-            existing = (await db.execute(dedup_stmt)).scalar_one_or_none()
+            existing = (await db.execute(dedup_stmt)).scalars().first()
             if existing is not None:
                 continue  # Unread alert already outstanding for this user
 

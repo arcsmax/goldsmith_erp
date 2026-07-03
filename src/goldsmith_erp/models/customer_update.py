@@ -250,6 +250,16 @@ class ProjectedCost(BaseModel):
     Task 3's quote-selection rule: latest SENT/APPROVED, fallback latest
     DRAFT). Deltas are signed (can be negative when actuals run under the
     quote) so they are intentionally not constrained to ``ge=0``.
+
+    NETTO/BRUTTO — all amounts here are NET (netto): the cost rollup
+    (material/gemstone/labor) carries no VAT, so ``quote_total`` is
+    populated with ``Quote.subtotal`` (the net quote amount), NOT
+    ``Quote.total`` (gross incl. VAT). ``delta_abs`` is therefore in NET
+    euros and ``settings.COST_ALERT_THRESHOLD_ABS_EUR`` is interpreted as
+    a net amount; ``delta_percent`` is scale-invariant, so net-vs-net
+    yields the legally correct §649 overrun percentage. Comparing net
+    costs against the gross total would understate overruns by the VAT
+    factor (~19%), firing the 15% threshold only at ~37% real overrun.
     """
 
     material_cost: float = Field(..., ge=0)

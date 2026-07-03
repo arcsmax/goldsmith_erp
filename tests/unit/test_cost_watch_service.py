@@ -112,9 +112,19 @@ async def _add_quote(
     customer_id: int,
     created_by_id: int,
     status: QuoteStatus,
-    total: float,
+    subtotal: float,
     created_at: datetime | None = None,
 ) -> Quote:
+    """Create a REALISTIC quote: net subtotal + 19% VAT grossed into total.
+
+    Regression guard: an earlier fixture set tax_amount=0 / total=subtotal,
+    which masked the netto/brutto bug (service compared net costs against
+    the gross total). Keeping tax_rate at the German default 19% ensures
+    subtotal != total, so any accidental use of Quote.total as the net
+    reference makes the threshold tests fail.
+    """
+    tax_rate = 19.0
+    tax_amount = round(subtotal * tax_rate / 100.0, 2)
     quote = Quote(
         quote_number=f"KV-TEST-{uuid.uuid4().hex[:8]}",
         order_id=order_id,
@@ -122,9 +132,10 @@ async def _add_quote(
         created_by=created_by_id,
         status=status,
         valid_until=datetime.utcnow() + timedelta(days=14),
-        subtotal=total,
-        tax_amount=0.0,
-        total=total,
+        subtotal=subtotal,
+        tax_rate=tax_rate,
+        tax_amount=tax_amount,
+        total=subtotal + tax_amount,
         created_at=created_at or datetime.utcnow(),
     )
     db.add(quote)
@@ -320,6 +331,36 @@ class TestGetProjectedCostRollup:
 
         assert projected.labor_cost == pytest.approx(60.0)
 
+    async def test_explicit_zero_hourly_rate_is_honoured_not_defaulted(
+        self, db_session, sample_customer, sample_user, sample_activity
+    ):
+        """An explicit 0.0 rate (e.g. warranty rework billed at zero) must
+        yield zero labor cost — NOT silently fall back to the default rate
+        (truthiness-vs-is-None regression)."""
+        order = Order(
+            title="Warranty rework order",
+            customer_id=sample_customer.id,
+            status=OrderStatusEnum.NEW,
+            hourly_rate=0.0,
+        )
+        db_session.add(order)
+        await db_session.commit()
+        await db_session.refresh(order)
+        assert order.hourly_rate == 0.0
+
+        await _add_time_entry(
+            db_session,
+            order_id=order.id,
+            user_id=sample_user.id,
+            activity_id=sample_activity.id,
+            duration_minutes=60,
+        )
+
+        projected = await CostWatchService.get_projected_cost(db_session, order.id)
+
+        assert projected.labor_minutes_billable == 60.0
+        assert projected.labor_cost == 0.0
+
     async def test_projected_total_is_sum_of_all_three_components(
         self,
         db_session,
@@ -389,7 +430,7 @@ class TestQuoteReferenceAndDeltas:
             customer_id=sample_customer.id,
             created_by_id=sample_user.id,
             status=QuoteStatus.DRAFT,
-            total=1000.0,
+            subtotal=1000.0,
             created_at=datetime.utcnow() - timedelta(days=1),
         )
         sent = await _add_quote(
@@ -398,7 +439,7 @@ class TestQuoteReferenceAndDeltas:
             customer_id=sample_customer.id,
             created_by_id=sample_user.id,
             status=QuoteStatus.SENT,
-            total=1200.0,
+            subtotal=1200.0,
         )
 
         projected = await CostWatchService.get_projected_cost(
@@ -417,7 +458,7 @@ class TestQuoteReferenceAndDeltas:
             customer_id=sample_customer.id,
             created_by_id=sample_user.id,
             status=QuoteStatus.DRAFT,
-            total=900.0,
+            subtotal=900.0,
             created_at=datetime.utcnow() - timedelta(days=1),
         )
         latest_draft = await _add_quote(
@@ -426,7 +467,7 @@ class TestQuoteReferenceAndDeltas:
             customer_id=sample_customer.id,
             created_by_id=sample_user.id,
             status=QuoteStatus.DRAFT,
-            total=950.0,
+            subtotal=950.0,
         )
 
         projected = await CostWatchService.get_projected_cost(
@@ -435,6 +476,49 @@ class TestQuoteReferenceAndDeltas:
 
         assert projected.quote_id == latest_draft.id
         assert projected.quote_total == 950.0
+
+    async def test_compares_against_net_subtotal_not_gross_total(
+        self,
+        db_session,
+        sample_order,
+        sample_customer,
+        sample_user,
+        sample_metal_purchase,
+    ):
+        """Netto/brutto regression (§649 Critical fix): the projected cost
+        rollup is a NET figure, so the threshold must compare against
+        Quote.subtotal (net), not Quote.total (gross, ×1.19).
+
+        Quote: subtotal 1000 net → gross total 1190. Projected 1160 is 16%
+        over NET (>= 15% threshold) → over_threshold MUST be True. The old
+        gross-comparison code computed 1160 vs 1190 = -30 EUR delta and said
+        False — a real overrun hidden behind the VAT margin.
+        """
+        quote = await _add_quote(
+            db_session,
+            order_id=sample_order.id,
+            customer_id=sample_customer.id,
+            created_by_id=sample_user.id,
+            status=QuoteStatus.SENT,
+            subtotal=1000.0,
+        )
+        assert quote.total == pytest.approx(1190.0)  # realistic grossed quote
+
+        await _add_material_usage(
+            db_session,
+            order_id=sample_order.id,
+            metal_purchase_id=sample_metal_purchase.id,
+            cost_at_time=1160.0,
+        )
+
+        projected = await CostWatchService.get_projected_cost(
+            db_session, sample_order.id
+        )
+
+        assert projected.quote_total == pytest.approx(1000.0)  # NET reference
+        assert projected.delta_abs == pytest.approx(160.0)  # NET euros
+        assert projected.delta_percent == pytest.approx(16.0)
+        assert projected.over_threshold is True
 
     async def test_delta_percent_crossing_triggers_over_threshold(
         self,
@@ -450,7 +534,7 @@ class TestQuoteReferenceAndDeltas:
             customer_id=sample_customer.id,
             created_by_id=sample_user.id,
             status=QuoteStatus.SENT,
-            total=100.0,
+            subtotal=100.0,
         )
         # Actual cost 120 vs quote 100 -> +20% (>=15% threshold), +20 EUR (<150 abs)
         await _add_material_usage(
@@ -482,7 +566,7 @@ class TestQuoteReferenceAndDeltas:
             customer_id=sample_customer.id,
             created_by_id=sample_user.id,
             status=QuoteStatus.SENT,
-            total=2000.0,
+            subtotal=2000.0,
         )
         # Actual cost 2160 vs quote 2000 -> +8% (<15%), +160 EUR (>=150 abs)
         await _add_material_usage(
@@ -514,7 +598,7 @@ class TestQuoteReferenceAndDeltas:
             customer_id=sample_customer.id,
             created_by_id=sample_user.id,
             status=QuoteStatus.SENT,
-            total=2000.0,
+            subtotal=2000.0,
         )
         # +100 EUR (<150), +5% (<15%)
         await _add_material_usage(
@@ -544,7 +628,7 @@ class TestQuoteReferenceAndDeltas:
             customer_id=sample_customer.id,
             created_by_id=sample_user.id,
             status=QuoteStatus.SENT,
-            total=0.0,
+            subtotal=0.0,
         )
         await _add_material_usage(
             db_session,
@@ -584,7 +668,7 @@ class TestCheckOrderAlerting:
             customer_id=sample_customer.id,
             created_by_id=sample_user.id,
             status=QuoteStatus.SENT,
-            total=100.0,
+            subtotal=100.0,
         )
         await _add_material_usage(
             db_session,
@@ -629,7 +713,7 @@ class TestCheckOrderAlerting:
             customer_id=sample_customer.id,
             created_by_id=sample_user.id,
             status=QuoteStatus.SENT,
-            total=10_000.0,
+            subtotal=10_000.0,
         )
 
         result = await CostWatchService.check_order(db_session, sample_order.id)
@@ -685,7 +769,7 @@ class TestCheckOrderDedup:
             customer_id=sample_customer.id,
             created_by_id=sample_user.id,
             status=QuoteStatus.SENT,
-            total=100.0,
+            subtotal=100.0,
         )
         await _add_material_usage(
             db_session,
