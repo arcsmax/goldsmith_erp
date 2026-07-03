@@ -303,6 +303,19 @@ class ProjectedCost(BaseModel):
     yields the legally correct §649 overrun percentage. Comparing net
     costs against the gross total would understate overruns by the VAT
     factor (~19%), firing the 15% threshold only at ~37% real overrun.
+
+    Approved-cost-change baseline (issue #27): when the order has a latest
+    APPROVED ``CostChangeRequest``, ``quote_total`` (and therefore
+    ``delta_percent``/``delta_abs``/``over_threshold``) is computed against
+    that request's ``new_amount`` instead of the original quote's
+    ``subtotal`` — ``new_amount`` is itself a NET figure (same basis,
+    see ``CostChangeService.create``), so no unit conversion is needed.
+    This keeps the §649 alert from re-firing for an overrun the customer
+    already approved; the alert only re-fires once actuals exceed the
+    newly approved amount. ``quote_id``/``quote_total`` field NAMES are
+    kept unchanged for API stability — ``baseline_source`` tells the
+    caller (e.g. a frontend banner) which one ``quote_total`` actually
+    holds.
     """
 
     material_cost: float = Field(..., ge=0)
@@ -315,5 +328,14 @@ class ProjectedCost(BaseModel):
     delta_percent: Optional[float] = None
     delta_abs: Optional[float] = None
     over_threshold: bool
+    baseline_source: Optional[Literal["quote", "approved_change"]] = Field(
+        None,
+        description=(
+            "Which reference 'quote_total' was computed against: the "
+            "original quote's net subtotal, or the latest APPROVED "
+            "CostChangeRequest's new_amount. None when there is no "
+            "referenceable baseline at all (no quote, no approved change)."
+        ),
+    )
 
     model_config = ConfigDict(from_attributes=True)

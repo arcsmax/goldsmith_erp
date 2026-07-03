@@ -27,6 +27,8 @@ import pytest
 from goldsmith_erp.core.config import settings
 from goldsmith_erp.db.models import (
     Activity,
+    CostChangeRequest,
+    CostChangeStatus,
     CostingMethod,
     Gemstone,
     MaterialUsage,
@@ -142,6 +144,41 @@ async def _add_quote(
     await db.commit()
     await db.refresh(quote)
     return quote
+
+
+async def _add_cost_change(
+    db,
+    *,
+    order_id: int,
+    created_by_id: int,
+    status: CostChangeStatus,
+    original_amount: float,
+    new_amount: float,
+    created_at: datetime | None = None,
+) -> CostChangeRequest:
+    """Insert a CostChangeRequest directly (bypasses CostChangeService —
+    test_cost_change_service.py precedent for constructing sibling/rival
+    rows straight against the model when only the row's presence/status
+    matters, not the create()/send() state-machine plumbing)."""
+    delta_percent = (
+        ((new_amount - original_amount) / original_amount) * 100.0
+        if original_amount
+        else 0.0
+    )
+    cost_change = CostChangeRequest(
+        order_id=order_id,
+        original_amount=original_amount,
+        new_amount=new_amount,
+        delta_percent=round(delta_percent, 2),
+        reason="Testweise erfasste Kostenänderung",
+        status=status,
+        created_by=created_by_id,
+        created_at=created_at or datetime.utcnow(),
+    )
+    db.add(cost_change)
+    await db.commit()
+    await db.refresh(cost_change)
+    return cost_change
 
 
 async def _cost_alert_notifications(db, order_id: int) -> list[Notification]:
@@ -645,6 +682,283 @@ class TestQuoteReferenceAndDeltas:
         assert projected.delta_abs == pytest.approx(200.0)
         # Percent undefined but abs (200 >= 150) still trips the alert.
         assert projected.over_threshold is True
+
+
+# ---------------------------------------------------------------------------
+# get_projected_cost — approved-cost-change baseline override (issue #27)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+class TestApprovedCostChangeBaseline:
+    async def test_approved_change_becomes_baseline_source(
+        self,
+        db_session,
+        sample_order,
+        sample_customer,
+        sample_user,
+        sample_metal_purchase,
+    ):
+        await _add_quote(
+            db_session,
+            order_id=sample_order.id,
+            customer_id=sample_customer.id,
+            created_by_id=sample_user.id,
+            status=QuoteStatus.SENT,
+            subtotal=1000.0,
+        )
+        await _add_cost_change(
+            db_session,
+            order_id=sample_order.id,
+            created_by_id=sample_user.id,
+            status=CostChangeStatus.APPROVED,
+            original_amount=1000.0,
+            new_amount=1300.0,
+        )
+
+        projected = await CostWatchService.get_projected_cost(
+            db_session, sample_order.id
+        )
+
+        assert projected.baseline_source == "approved_change"
+        assert projected.quote_total == pytest.approx(1300.0)
+
+    async def test_cost_between_old_subtotal_and_approved_amount_not_over_threshold(
+        self,
+        db_session,
+        sample_order,
+        sample_customer,
+        sample_user,
+        sample_metal_purchase,
+    ):
+        """The customer approved a jump from 1000 -> 1300 net. Actual costs
+        of 1200 (well past the original 1000 subtotal, but under the
+        approved 1300) must NOT re-fire the §649 alert — that's exactly the
+        alarm-fatigue bug from issue #27."""
+        await _add_quote(
+            db_session,
+            order_id=sample_order.id,
+            customer_id=sample_customer.id,
+            created_by_id=sample_user.id,
+            status=QuoteStatus.SENT,
+            subtotal=1000.0,
+        )
+        await _add_cost_change(
+            db_session,
+            order_id=sample_order.id,
+            created_by_id=sample_user.id,
+            status=CostChangeStatus.APPROVED,
+            original_amount=1000.0,
+            new_amount=1300.0,
+        )
+        await _add_material_usage(
+            db_session,
+            order_id=sample_order.id,
+            metal_purchase_id=sample_metal_purchase.id,
+            cost_at_time=1200.0,
+        )
+
+        projected = await CostWatchService.get_projected_cost(
+            db_session, sample_order.id
+        )
+
+        assert projected.baseline_source == "approved_change"
+        assert projected.quote_total == pytest.approx(1300.0)
+        assert projected.delta_abs == pytest.approx(-100.0)
+        assert projected.over_threshold is False
+
+    async def test_cost_exceeding_approved_amount_by_threshold_triggers(
+        self,
+        db_session,
+        sample_order,
+        sample_customer,
+        sample_user,
+        sample_metal_purchase,
+    ):
+        """Once actuals blow past the newly APPROVED baseline itself by the
+        usual threshold, the alert must fire again."""
+        await _add_quote(
+            db_session,
+            order_id=sample_order.id,
+            customer_id=sample_customer.id,
+            created_by_id=sample_user.id,
+            status=QuoteStatus.SENT,
+            subtotal=1000.0,
+        )
+        await _add_cost_change(
+            db_session,
+            order_id=sample_order.id,
+            created_by_id=sample_user.id,
+            status=CostChangeStatus.APPROVED,
+            original_amount=1000.0,
+            new_amount=1300.0,
+        )
+        # 1300 * 1.16 = 1508 -> +16% (>=15%) and +208 EUR (>=150) over the
+        # APPROVED baseline, not the stale 1000 quote subtotal.
+        await _add_material_usage(
+            db_session,
+            order_id=sample_order.id,
+            metal_purchase_id=sample_metal_purchase.id,
+            cost_at_time=1508.0,
+        )
+
+        projected = await CostWatchService.get_projected_cost(
+            db_session, sample_order.id
+        )
+
+        assert projected.baseline_source == "approved_change"
+        assert projected.delta_percent == pytest.approx(16.0, abs=0.1)
+        assert projected.delta_abs == pytest.approx(208.0)
+        assert projected.over_threshold is True
+
+    async def test_non_approved_cost_change_does_not_move_baseline(
+        self,
+        db_session,
+        sample_order,
+        sample_customer,
+        sample_user,
+        sample_metal_purchase,
+    ):
+        """A DRAFT/SENT cost change is just a pending proposal — it must NOT
+        silence or shift the alert baseline until it is actually APPROVED."""
+        await _add_quote(
+            db_session,
+            order_id=sample_order.id,
+            customer_id=sample_customer.id,
+            created_by_id=sample_user.id,
+            status=QuoteStatus.SENT,
+            subtotal=1000.0,
+        )
+        await _add_cost_change(
+            db_session,
+            order_id=sample_order.id,
+            created_by_id=sample_user.id,
+            status=CostChangeStatus.SENT,
+            original_amount=1000.0,
+            new_amount=1300.0,
+        )
+        # 1200 is under the SENT-but-not-approved 1300, but +20% / +200 EUR
+        # over the still-in-force 1000 quote subtotal -> must still alert.
+        await _add_material_usage(
+            db_session,
+            order_id=sample_order.id,
+            metal_purchase_id=sample_metal_purchase.id,
+            cost_at_time=1200.0,
+        )
+
+        projected = await CostWatchService.get_projected_cost(
+            db_session, sample_order.id
+        )
+
+        assert projected.baseline_source == "quote"
+        assert projected.quote_total == pytest.approx(1000.0)
+        assert projected.delta_abs == pytest.approx(200.0)
+        assert projected.delta_percent == pytest.approx(20.0)
+        assert projected.over_threshold is True
+
+    async def test_latest_of_multiple_approved_changes_wins(
+        self,
+        db_session,
+        sample_order,
+        sample_customer,
+        sample_user,
+        sample_metal_purchase,
+    ):
+        """Two APPROVED requests can exist across an order's lifetime — the
+        most recent (by created_at) must win as the baseline, not the
+        first."""
+        await _add_quote(
+            db_session,
+            order_id=sample_order.id,
+            customer_id=sample_customer.id,
+            created_by_id=sample_user.id,
+            status=QuoteStatus.SENT,
+            subtotal=1000.0,
+        )
+        await _add_cost_change(
+            db_session,
+            order_id=sample_order.id,
+            created_by_id=sample_user.id,
+            status=CostChangeStatus.APPROVED,
+            original_amount=1000.0,
+            new_amount=1300.0,
+            created_at=datetime.utcnow() - timedelta(days=2),
+        )
+        latest = await _add_cost_change(
+            db_session,
+            order_id=sample_order.id,
+            created_by_id=sample_user.id,
+            status=CostChangeStatus.APPROVED,
+            original_amount=1300.0,
+            new_amount=1500.0,
+            created_at=datetime.utcnow() - timedelta(days=1),
+        )
+
+        projected = await CostWatchService.get_projected_cost(
+            db_session, sample_order.id
+        )
+
+        assert latest.new_amount == 1500.0
+        assert projected.baseline_source == "approved_change"
+        assert projected.quote_total == pytest.approx(1500.0)
+
+    async def test_latest_of_two_approved_changes_at_same_timestamp_breaks_tie_by_id(
+        self,
+        db_session,
+        sample_order,
+        sample_customer,
+        sample_user,
+    ):
+        """When two APPROVED rows share a created_at (e.g. a low-resolution
+        clock), the higher id — the row created later in real insertion
+        order — must win, keeping "latest" fully deterministic."""
+        await _add_quote(
+            db_session,
+            order_id=sample_order.id,
+            customer_id=sample_customer.id,
+            created_by_id=sample_user.id,
+            status=QuoteStatus.SENT,
+            subtotal=1000.0,
+        )
+        same_ts = datetime.utcnow()
+        await _add_cost_change(
+            db_session,
+            order_id=sample_order.id,
+            created_by_id=sample_user.id,
+            status=CostChangeStatus.APPROVED,
+            original_amount=1000.0,
+            new_amount=1300.0,
+            created_at=same_ts,
+        )
+        second = await _add_cost_change(
+            db_session,
+            order_id=sample_order.id,
+            created_by_id=sample_user.id,
+            status=CostChangeStatus.APPROVED,
+            original_amount=1300.0,
+            new_amount=1400.0,
+            created_at=same_ts,
+        )
+
+        projected = await CostWatchService.get_projected_cost(
+            db_session, sample_order.id
+        )
+
+        assert second.new_amount == 1400.0
+        assert projected.quote_total == pytest.approx(1400.0)
+
+    async def test_no_approved_change_falls_back_to_quote_baseline(
+        self, db_session, sample_order, sample_customer, sample_user
+    ):
+        """With neither a quote nor an approved change, baseline_source is
+        None (nothing to compare against) — regression guard for the plain
+        no-quote case now that baseline selection has a second source."""
+        projected = await CostWatchService.get_projected_cost(
+            db_session, sample_order.id
+        )
+
+        assert projected.baseline_source is None
+        assert projected.quote_total is None
 
 
 # ---------------------------------------------------------------------------

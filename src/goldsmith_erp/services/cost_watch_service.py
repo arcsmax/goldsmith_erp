@@ -34,6 +34,30 @@ Both call ``CostWatchService.safe_check(db, order_id)`` via a late import
 convention already used at both sites) so a failure here can never roll back
 or interrupt the caller's already-committed mutation.
 
+Approved-cost-change baseline (issue #27 fix):
+    Once a customer APPROVES a §649 cost-change notice
+    (``CostChangeRequest.status == APPROVED``), every subsequent material
+    consumption / timer stop must stop comparing against the ORIGINAL
+    quote's net subtotal — that overrun is exactly what the customer just
+    approved. ``get_projected_cost`` now selects the latest (by
+    ``created_at``, ties broken by ``id``) APPROVED CostChangeRequest for
+    the order and, when one exists, uses its ``new_amount`` as the
+    comparison baseline instead of the quote's ``subtotal``.
+    ``CostChangeRequest.new_amount`` is set verbatim from
+    ``CostChangeCreate.new_amount`` (cost_change_service.py ``create()``)
+    and compared directly against ``original_amount`` — which is itself
+    derived from THIS service's own ``quote_total`` (the NET quote
+    subtotal, see the netto/brutto note above) — so ``new_amount`` is on
+    the same NET basis as ``quote_total`` and no unit conversion is
+    needed. If multiple APPROVED requests exist (e.g. a second approved
+    change after the first was superseded is not possible via the normal
+    flow, but nothing prevents more than one row reaching APPROVED across
+    the order's lifetime), the most recent one wins. A DRAFT/SENT/
+    DECLINED/SUPERSEDED request never moves the baseline. This baseline
+    swap is reflected in ``ProjectedCost.quote_total`` (field name kept
+    for API stability) and exposed explicitly via
+    ``ProjectedCost.baseline_source``.
+
 Dedup decision (documented per plan Task 3):
     Adapted from ``NotificationService.check_deadline_warnings``
     (notification_service.py:292-318), which checks per-TARGET-USER whether
@@ -54,7 +78,7 @@ Dedup decision (documented per plan Task 3):
 from __future__ import annotations
 
 import logging
-from typing import Optional, cast
+from typing import Literal, Optional, cast
 
 from sqlalchemy import and_, case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -62,6 +86,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from goldsmith_erp.core.config import settings
 from goldsmith_erp.db.models import (
     Activity,
+    CostChangeRequest,
+    CostChangeStatus,
     Gemstone,
     MaterialUsage,
     Notification,
@@ -106,9 +132,9 @@ class CostWatchService:
 
         Quote reference (None-safe): latest Quote for the order with status
         in (SENT, APPROVED); if none, fallback to the latest DRAFT Quote.
-        When no Quote at all exists, quote_id/quote_total/delta_percent/
-        delta_abs are None and over_threshold is False (nothing to compare
-        against).
+        When no Quote at all exists AND no approved cost change exists,
+        quote_id/quote_total/delta_percent/delta_abs are None and
+        over_threshold is False (nothing to compare against).
 
         NETTO/BRUTTO — the comparison basis is NET (Quote.subtotal), not
         gross (Quote.total): the cost rollup above is a net-cost figure
@@ -123,9 +149,21 @@ class CostWatchService:
         amount — and ``delta_percent`` is scale-invariant (net-vs-net gives
         the legally correct percentage).
 
-        delta_percent is None when a Quote exists but its net subtotal is 0
-        (or the order has no quote at all) — a percentage delta against a
-        zero total is not meaningful; over_threshold in that case falls
+        Approved-cost-change baseline override (issue #27, see module
+        docstring): if the order has a latest APPROVED CostChangeRequest,
+        its ``new_amount`` (already NET, same basis) REPLACES the quote's
+        subtotal as the comparison baseline for delta_abs/delta_percent/
+        over_threshold — ``ProjectedCost.quote_total`` then carries
+        ``new_amount``, not ``Quote.subtotal``, and
+        ``ProjectedCost.baseline_source`` is set to ``"approved_change"``
+        (else ``"quote"``, or ``None`` when neither exists). ``quote_id``
+        still identifies the underlying reference Quote (if any) —
+        independent of which value won the baseline — so callers can still
+        link back to the original Kostenvoranschlag.
+
+        delta_percent is None when the effective baseline is 0 (or neither
+        a Quote nor an approved change exists) — a percentage delta against
+        a zero total is not meaningful; over_threshold in that case falls
         back to the absolute-EUR comparison only.
         """
         order = (
@@ -186,9 +224,13 @@ class CostWatchService:
         projected_total = material_cost + gemstone_cost + labor_cost
 
         quote = await CostWatchService._select_reference_quote(db, order_id)
+        approved_change = await CostWatchService._select_latest_approved_cost_change(
+            db, order_id
+        )
 
         quote_id: Optional[int] = None
-        quote_total: Optional[float] = None
+        baseline: Optional[float] = None
+        baseline_source: Optional[Literal["quote", "approved_change"]] = None
         delta_abs: Optional[float] = None
         delta_percent: Optional[float] = None
         over_threshold = False
@@ -198,11 +240,22 @@ class CostWatchService:
             # these attributes (classic Column() style, no Mapped[] here) —
             # at runtime, on a loaded instance, these are plain int/float.
             quote_id = cast(int, quote.id)
+
+        if approved_change is not None:
+            # Approved-cost-change baseline override (issue #27) — see
+            # module docstring + this method's docstring. new_amount is
+            # already NET, same basis as Quote.subtotal, no conversion.
+            baseline = cast(float, approved_change.new_amount)
+            baseline_source = "approved_change"
+        elif quote is not None:
             # NET reference — Quote.subtotal, NOT Quote.total (gross incl.
             # VAT). See the netto/brutto note in this method's docstring.
-            quote_total = cast(float, quote.subtotal)
-            delta_abs = projected_total - quote_total
-            delta_percent = (delta_abs / quote_total) * 100.0 if quote_total else None
+            baseline = cast(float, quote.subtotal)
+            baseline_source = "quote"
+
+        if baseline is not None:
+            delta_abs = projected_total - baseline
+            delta_percent = (delta_abs / baseline) * 100.0 if baseline else None
             over_threshold = (
                 delta_percent is not None
                 and delta_percent >= settings.COST_ALERT_THRESHOLD_PERCENT
@@ -215,12 +268,13 @@ class CostWatchService:
             labor_cost=round(labor_cost, 2),
             projected_total=round(projected_total, 2),
             quote_id=quote_id,
-            quote_total=round(quote_total, 2) if quote_total is not None else None,
+            quote_total=round(baseline, 2) if baseline is not None else None,
             delta_percent=(
                 round(delta_percent, 2) if delta_percent is not None else None
             ),
             delta_abs=round(delta_abs, 2) if delta_abs is not None else None,
             over_threshold=bool(over_threshold),
+            baseline_source=baseline_source,
         )
 
     @staticmethod
@@ -278,6 +332,33 @@ class CostWatchService:
             .limit(1)
         )
         return (await db.execute(fallback_stmt)).scalar_one_or_none()
+
+    @staticmethod
+    async def _select_latest_approved_cost_change(
+        db: AsyncSession, order_id: int
+    ) -> Optional[CostChangeRequest]:
+        """Latest APPROVED CostChangeRequest for the order, if any (issue
+        #27 baseline override — see module + get_projected_cost
+        docstrings).
+
+        Ordered by created_at desc, ties broken by id desc: two APPROVED
+        rows for the same order could in principle share a created_at
+        timestamp under a low-resolution clock (or in tests that stub
+        datetime.utcnow), so the id tiebreak keeps "most recent" fully
+        deterministic ("latest-of-multiple-approved wins" contract).
+        """
+        stmt = (
+            select(CostChangeRequest)
+            .where(
+                and_(
+                    CostChangeRequest.order_id == order_id,
+                    CostChangeRequest.status == CostChangeStatus.APPROVED,
+                )
+            )
+            .order_by(CostChangeRequest.created_at.desc(), CostChangeRequest.id.desc())
+            .limit(1)
+        )
+        return (await db.execute(stmt)).scalar_one_or_none()
 
     # ------------------------------------------------------------------
     # Threshold check + alert
