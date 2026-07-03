@@ -48,6 +48,17 @@ export const consultationsApi = {
     return response.data;
   },
 
+  /**
+   * Reverse a quote conversion: deletes the linked DRAFT quote and returns the
+   * consultation to 'completed'. Only works while the quote is still a draft
+   * (409 otherwise). Order conversions are not reversible.
+   * POST /consultations/{id}/unconvert
+   */
+  unconvert: async (id: number): Promise<Consultation> => {
+    const response = await apiClient.post<Consultation>(`${BASE}/${id}/unconvert`, {});
+    return response.data;
+  },
+
   getPhotos: async (id: number): Promise<ConsultationPhoto[]> => {
     const response = await apiClient.get<ConsultationPhoto[]>(`${BASE}/${id}/photos`);
     return response.data;
