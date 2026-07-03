@@ -574,6 +574,16 @@ class MetalInventoryService:
             alloy_override=bool(alloy_override),
         )
 
+        # ---- V1.2 cost watcher (post-commit, fire-and-forget) ----
+        # Late import to avoid a module-load cycle; mirrors the
+        # notification_service import above. Must never block or fail this
+        # already-committed consumption — see CostWatchService.safe_check.
+        from goldsmith_erp.services.cost_watch_service import (  # noqa: PLC0415
+            CostWatchService,
+        )
+
+        await CostWatchService.safe_check(db, usage_data.order_id)
+
         return usage
 
     @staticmethod

@@ -189,6 +189,17 @@ class TimeTrackingService:
         # --- Anomaly detection (fire-and-forget, must not block the stop flow) ---
         await TimeTrackingService._check_and_publish_anomaly(db, stopped_entry, duration)
 
+        # --- V1.2 cost watcher (post-commit, fire-and-forget) ---
+        # Late import to avoid a module-load cycle; mirrors the anomaly
+        # detection imports above. Must never block or fail the stop flow —
+        # see CostWatchService.safe_check.
+        from goldsmith_erp.services.cost_watch_service import (  # noqa: PLC0415
+            CostWatchService,
+        )
+
+        order_id = stopped_entry.order_id if stopped_entry is not None else None
+        await CostWatchService.safe_check(db, order_id)
+
         return stopped_entry
 
     @staticmethod
