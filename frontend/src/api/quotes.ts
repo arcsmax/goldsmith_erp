@@ -6,6 +6,7 @@ import {
   QuoteListResponse,
   QuoteCreateInput,
   QuoteUpdateInput,
+  QuoteLineItemInput,
   ApproveQuoteInput,
   RejectQuoteInput,
 } from '../types';
@@ -96,6 +97,42 @@ export const quotesApi = {
    */
   deleteQuote: async (id: number): Promise<void> => {
     await apiClient.delete(`/quotes/${id}`);
+  },
+
+  /**
+   * Add a line item to a DRAFT quote; returns the quote with recomputed totals.
+   * POST /quotes/{id}/line-items
+   */
+  addLineItem: async (quoteId: number, item: QuoteLineItemInput): Promise<Quote> => {
+    const response = await apiClient.post<Quote>(`/quotes/${quoteId}/line-items`, item);
+    return response.data;
+  },
+
+  /**
+   * Update a line item on a DRAFT quote; returns the quote with recomputed totals.
+   * PATCH /quotes/{id}/line-items/{itemId}
+   */
+  updateLineItem: async (
+    quoteId: number,
+    itemId: number,
+    item: QuoteLineItemInput
+  ): Promise<Quote> => {
+    const response = await apiClient.patch<Quote>(
+      `/quotes/${quoteId}/line-items/${itemId}`,
+      item
+    );
+    return response.data;
+  },
+
+  /**
+   * Remove a line item from a DRAFT quote; returns the quote with recomputed totals.
+   * DELETE /quotes/{id}/line-items/{itemId}
+   */
+  deleteLineItem: async (quoteId: number, itemId: number): Promise<Quote> => {
+    const response = await apiClient.delete<Quote>(
+      `/quotes/${quoteId}/line-items/${itemId}`
+    );
+    return response.data;
   },
 
   /**

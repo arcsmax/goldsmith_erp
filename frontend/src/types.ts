@@ -802,6 +802,14 @@ export interface QuoteLineItem {
   total: number;
 }
 
+/** Payload for creating/updating a quote line item (DRAFT quotes only). */
+export interface QuoteLineItemInput {
+  line_type: QuoteLineType;
+  description: string;
+  quantity: number;
+  unit_price: number;
+}
+
 /** Full quote including line items (used for detail view). */
 export interface Quote {
   id: number;

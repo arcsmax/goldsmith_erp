@@ -627,3 +627,33 @@
     padding-top: 0.1rem;
   }
 }
+
+/* Editable line items (DRAFT quotes) — editable-quotes feature */
+.line-items-hint {
+  font-size: 0.85rem;
+  color: var(--text-color-secondary, #6b7280);
+  margin: 0.5rem 0 0.75rem;
+}
+.line-items-editable td {
+  padding: 0.3rem 0.4rem;
+  vertical-align: middle;
+}
+.line-items-editable input[type='text'],
+.line-items-editable input[type='number'],
+.line-items-editable select {
+  width: 100%;
+  min-height: 40px;
+  box-sizing: border-box;
+  padding: 0.35rem 0.5rem;
+  font-size: 0.95rem;
+}
+.line-items-editable input[type='number'] {
+  text-align: right;
+}
+.line-item-add-row {
+  border-top: 2px dashed color-mix(in srgb, var(--text-color-primary, #374151) 20%, transparent);
+  background: color-mix(in srgb, var(--color-interactive-primary, #d97706) 6%, transparent);
+}
+.line-items-editable .btn-sm {
+  min-height: 40px;
+}
