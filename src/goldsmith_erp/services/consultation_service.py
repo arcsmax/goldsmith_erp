@@ -9,7 +9,7 @@ are individually guarded: their failure is logged, never propagated.
 import json
 import logging
 from datetime import datetime
-from typing import List, Optional
+from typing import List, Optional, cast
 
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -26,6 +26,7 @@ from goldsmith_erp.db.models import (
     Customer,
     NotificationSeverityEnum,
     NotificationTypeEnum,
+    QuoteLineType,
 )
 from goldsmith_erp.db.transaction import transactional
 from goldsmith_erp.models.consultation import ConsultationCreate, ConsultationUpdate
@@ -228,9 +229,20 @@ class ConsultationService:
         consultation was never linked to it (orphaned conversion) — this is
         logged at ERROR with both ids and re-raised. Fail loudly; no silent
         inconsistency.
+
+        Quote branch: the created quote is seeded with a single OTHER line
+        item priced from the consultation's budget_min/budget_max — a
+        budget-based ESTIMATE, not a computed cost. It exists so the
+        conversion never produces a frozen 0 EUR shell; the goldsmith is
+        expected to review and adjust it (add/edit/remove line items) before
+        sending. The quote is created DRAFT and is now editable end-to-end
+        (line-item CRUD + total recompute).
         """
         from goldsmith_erp.models.order import OrderCreate  # noqa: PLC0415
-        from goldsmith_erp.models.quote import QuoteCreate  # noqa: PLC0415
+        from goldsmith_erp.models.quote import (  # noqa: PLC0415
+            QuoteCreate,
+            QuoteLineItemCreate,
+        )
         from goldsmith_erp.services.order_service import OrderService  # noqa: PLC0415
         from goldsmith_erp.services.quote_service import QuoteService  # noqa: PLC0415
 
@@ -245,11 +257,19 @@ class ConsultationService:
         piece_label = (
             consultation.piece_type.value if consultation.piece_type else "Schmuckstück"
         )
-        description = (
+        wishes_text = (
             consultation.wishes
             or consultation.notes
             or (f"Aus Beratung #{consultation.id} übernommen")
         )
+        # Read BEFORE the create_quote call (which commits its own
+        # transaction) so no ORM attribute access happens after a possible
+        # rollback — plain scalars stay valid regardless of session state.
+        # cast(): mypy sees Column[float] at class level for these (classic
+        # Column style, no Mapped[] annotations) — see cost_change_service.py
+        # for the same pattern.
+        budget_min = cast(Optional[float], consultation.budget_min)
+        budget_max = cast(Optional[float], consultation.budget_max)
 
         new_order_id: Optional[int] = None
         new_quote_id: Optional[int] = None
@@ -259,16 +279,34 @@ class ConsultationService:
                 OrderCreate(
                     customer_id=consultation.customer_id,
                     title=f"Beratung #{consultation.id}: {piece_label}"[:200],
-                    description=description[:2000],
+                    description=wishes_text[:2000],
                 ),
             )
             new_order_id = order.id
         else:
+            estimate_description = f"{piece_label} – Schätzung laut Beratung"
+            if budget_min is not None and budget_max is not None:
+                estimate_description += (
+                    f" (Budget {int(budget_min)}–{int(budget_max)} €)"
+                )
+            elif budget_min is not None:
+                estimate_description += f" (Budget ab {int(budget_min)} €)"
+            elif budget_max is not None:
+                estimate_description += f" (Budget bis {int(budget_max)} €)"
+
+            estimate_line_item = QuoteLineItemCreate(
+                line_type=QuoteLineType.OTHER,
+                description=estimate_description[:500],
+                quantity=1.0,
+                unit_price=(budget_min or budget_max or 0.0),
+            )
+
             quote = await QuoteService.create_quote(
                 db,
                 QuoteCreate(
                     customer_id=consultation.customer_id,
-                    notes=description[:2000],
+                    notes=wishes_text[:2000],
+                    additional_line_items=[estimate_line_item],
                 ),
                 current_user,
             )
