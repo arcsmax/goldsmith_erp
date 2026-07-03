@@ -63,6 +63,7 @@ def _embed_png_signature(
     """
     _embed_image_bytes(pdf, img_data, rect, suffix=".png")
 
+
 # Path to Jinja2 templates directory
 _TEMPLATES_DIR = Path(__file__).parent.parent / "templates"
 
@@ -72,7 +73,7 @@ _FONT_REGULAR = str(_FONTS_DIR / "DejaVuSans.ttf")
 _FONT_BOLD = str(_FONTS_DIR / "DejaVuSans-Bold.ttf")
 
 # Font family names used throughout the service
-_FONT = "DejaVu"        # regular weight
+_FONT = "DejaVu"  # regular weight
 _FONT_B = "DejaVuBold"  # bold weight
 
 
@@ -111,8 +112,8 @@ def _html_to_pdf_bytes(html_content: str, title: str = "Dokument") -> bytes:
 # Internal FPDF helpers
 # ─────────────────────────────────────────────────────────────────────────────
 
-_GOLD = (139, 105, 20)       # RGB for #8B6914
-_DARK = (34, 34, 34)         # Near-black
+_GOLD = (139, 105, 20)  # RGB for #8B6914
+_DARK = (34, 34, 34)  # Near-black
 _GRAY = (120, 120, 120)
 _LIGHT_GOLD_BG = (249, 245, 236)  # #F9F5EC
 
@@ -139,7 +140,7 @@ class _GoldsmithPDF(FPDF):
         self.set_draw_color(200, 200, 200)
         self.line(10, self.get_y(), 200, self.get_y())
         self.ln(2)
-        self.set_font(_FONT, "",7)
+        self.set_font(_FONT, "", 7)
         self.set_text_color(*_GRAY)
         text = self._footer_text or self._workshop_name
         self.cell(0, 4, text, align="C")
@@ -167,13 +168,13 @@ class _GoldsmithPDF(FPDF):
 
     def kv_row(self, label: str, value: str, label_w: float = 55) -> None:
         """Print a label: value row in the current font."""
-        self.set_font(_FONT, "",9)
+        self.set_font(_FONT, "", 9)
         self.set_text_color(*_GRAY)
         self.cell(label_w, 5, label)
         self.set_text_color(*_DARK)
         self.set_font(_FONT_B, "", 9)
         self.cell(0, 5, value, ln=True)
-        self.set_font(_FONT, "",9)
+        self.set_font(_FONT, "", 9)
 
     def filled_header_row(self, cols: list[tuple[str, float, str]]) -> None:
         """
@@ -198,7 +199,7 @@ class _GoldsmithPDF(FPDF):
     ) -> None:
         """Draw a data row; alternating rows get a light gold background."""
         self.set_fill_color(*(_LIGHT_GOLD_BG if even else (255, 255, 255)))
-        self.set_font(_FONT, "",9.5)
+        self.set_font(_FONT, "", 9.5)
         row_h = 6
         for text, w, align in cols:
             self.cell(w, row_h, text, border=0, align=align, fill=True)
@@ -210,6 +211,7 @@ class _GoldsmithPDF(FPDF):
 # Invoice renderer
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 def _render_invoice_fpdf(
     invoice: Any,
     customer: Any,
@@ -219,9 +221,7 @@ def _render_invoice_fpdf(
 ) -> bytes:
     """Build an invoice PDF with fpdf2 and return raw bytes."""
 
-    footer_text = (
-        f"{workshop_name}  |  Rechnung {invoice.invoice_number}"
-    )
+    footer_text = f"{workshop_name}  |  Rechnung {invoice.invoice_number}"
     pdf = _GoldsmithPDF(workshop_name=workshop_name, footer_text=footer_text)
 
     # ── Page top: workshop name + RECHNUNG title ──────────────────────────────
@@ -233,7 +233,7 @@ def _render_invoice_fpdf(
     pdf.set_text_color(60, 60, 60)
     pdf.cell(0, 10, "RECHNUNG", align="R", ln=True)
 
-    pdf.set_font(_FONT, "",8)
+    pdf.set_font(_FONT, "", 8)
     pdf.set_text_color(*_GRAY)
     pdf.cell(110, 5, "Goldschmiede & Atelier")
     pdf.set_font(_FONT_B, "", 10)
@@ -256,7 +256,7 @@ def _render_invoice_fpdf(
     pdf.set_text_color(*_DARK)
     pdf.set_font(_FONT_B, "", 10)
     pdf.cell(90, 5, workshop_name, ln=True)
-    pdf.set_font(_FONT, "",9)
+    pdf.set_font(_FONT, "", 9)
 
     # Right column: customer (Rechnungsempfänger)
     pdf.set_xy(x_left + 100, y_addr)
@@ -271,7 +271,7 @@ def _render_invoice_fpdf(
     pdf.set_font(_FONT_B, "", 10)
     pdf.cell(90, 5, customer_name, ln=True)
     pdf.set_xy(x_left + 100, pdf.get_y())
-    pdf.set_font(_FONT, "",9)
+    pdf.set_font(_FONT, "", 9)
 
     for attr in ("address", "city", "email", "phone"):
         val = _safe_str(getattr(customer, attr, None))
@@ -293,7 +293,7 @@ def _render_invoice_fpdf(
         meta.append(("Zahlungsart:", str(invoice.payment_method)))
 
     for label, value in meta:
-        pdf.set_font(_FONT, "",9)
+        pdf.set_font(_FONT, "", 9)
         pdf.set_text_color(*_GRAY)
         pdf.cell(155, 4.5, label, align="R")
         pdf.set_text_color(*_DARK)
@@ -309,23 +309,28 @@ def _render_invoice_fpdf(
     col_unit = 28
     col_total = 28
 
-    pdf.filled_header_row([
-        ("Pos.", col_pos, "C"),
-        ("Beschreibung", col_desc, "L"),
-        ("Menge", col_qty, "R"),
-        ("Einzelpreis", col_unit, "R"),
-        ("Gesamtpreis", col_total, "R"),
-    ])
+    pdf.filled_header_row(
+        [
+            ("Pos.", col_pos, "C"),
+            ("Beschreibung", col_desc, "L"),
+            ("Menge", col_qty, "R"),
+            ("Einzelpreis", col_unit, "R"),
+            ("Gesamtpreis", col_total, "R"),
+        ]
+    )
 
     for i, item in enumerate(line_items):
-        even = (i % 2 == 0)
-        pdf.table_data_row([
-            (str(i + 1), col_pos, "C"),
-            (_safe_str(item.description)[:65], col_desc, "L"),
-            (_fmt_num(item.quantity), col_qty, "R"),
-            (_fmt_eur(item.unit_price), col_unit, "R"),
-            (_fmt_eur(item.total), col_total, "R"),
-        ], even=even)
+        even = i % 2 == 0
+        pdf.table_data_row(
+            [
+                (str(i + 1), col_pos, "C"),
+                (_safe_str(item.description)[:65], col_desc, "L"),
+                (_fmt_num(item.quantity), col_qty, "R"),
+                (_fmt_eur(item.unit_price), col_unit, "R"),
+                (_fmt_eur(item.total), col_total, "R"),
+            ],
+            even=even,
+        )
 
     # Divider below table
     pdf.set_draw_color(180, 180, 180)
@@ -337,7 +342,9 @@ def _render_invoice_fpdf(
     label_w = 140
     value_w = 38
 
-    def _total_row(label: str, value: str, bold: bool = False, gold_bg: bool = False) -> None:
+    def _total_row(
+        label: str, value: str, bold: bool = False, gold_bg: bool = False
+    ) -> None:
         if gold_bg:
             pdf.set_fill_color(*_GOLD)
             pdf.set_text_color(255, 255, 255)
@@ -381,13 +388,13 @@ def _render_invoice_fpdf(
         pdf.set_text_color(*_GOLD)
         pdf.cell(0, 5, "HINWEISE", ln=True)
         pdf.set_x(15)
-        pdf.set_font(_FONT, "",9)
+        pdf.set_font(_FONT, "", 9)
         pdf.set_text_color(*_DARK)
         pdf.multi_cell(175, 4.5, notes[:400])
         pdf.ln(2)
 
     # ── Payment instruction ───────────────────────────────────────────────────
-    pdf.set_font(_FONT, "",9)
+    pdf.set_font(_FONT, "", 9)
     pdf.set_text_color(*_GRAY)
     payment_text = (
         f"Bitte überweisen Sie den Gesamtbetrag von {_fmt_eur(invoice.total)} "
@@ -403,6 +410,7 @@ def _render_invoice_fpdf(
 # ─────────────────────────────────────────────────────────────────────────────
 # Scrap gold receipt renderer
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 def _render_scrap_gold_fpdf(
     scrap_gold: Any,
@@ -429,9 +437,15 @@ def _render_scrap_gold_fpdf(
     pdf.set_font(_FONT_B, "", 20)
     pdf.set_text_color(60, 60, 60)
     pdf.cell(0, 10, "ANKAUFSBELEG", align="C", ln=True)
-    pdf.set_font(_FONT, "",8)
+    pdf.set_font(_FONT, "", 8)
     pdf.set_text_color(*_GRAY)
-    pdf.cell(0, 5, f"Datum: {_fmt_date(scrap_gold.created_at)}     Beleg-Nr.: {receipt_nr}", align="C", ln=True)
+    pdf.cell(
+        0,
+        5,
+        f"Datum: {_fmt_date(scrap_gold.created_at)}     Beleg-Nr.: {receipt_nr}",
+        align="C",
+        ln=True,
+    )
     pdf.set_text_color(*_DARK)
     pdf.gold_rule()
     pdf.ln(4)
@@ -457,7 +471,7 @@ def _render_scrap_gold_fpdf(
     pdf.set_x(103)
     pdf.cell(88, 5, customer_name, ln=True)
 
-    pdf.set_font(_FONT, "",8.5)
+    pdf.set_font(_FONT, "", 8.5)
     pdf.set_text_color(*_GRAY)
 
     for attr in ("address", "city", "phone"):
@@ -478,21 +492,26 @@ def _render_scrap_gold_fpdf(
     col_weight = 40
     col_fine = 43
 
-    pdf.filled_header_row([
-        ("Beschreibung", col_desc, "L"),
-        ("Legierung", col_alloy, "C"),
-        ("Gewicht (g)", col_weight, "R"),
-        ("Feingehalt (g)", col_fine, "R"),
-    ])
+    pdf.filled_header_row(
+        [
+            ("Beschreibung", col_desc, "L"),
+            ("Legierung", col_alloy, "C"),
+            ("Gewicht (g)", col_weight, "R"),
+            ("Feingehalt (g)", col_fine, "R"),
+        ]
+    )
 
     for i, item in enumerate(items):
-        even = (i % 2 == 0)
-        pdf.table_data_row([
-            (_safe_str(item.description)[:45], col_desc, "L"),
-            (_safe_str(item.alloy), col_alloy, "C"),
-            (f"{item.weight_g:.3f}", col_weight, "R"),
-            (f"{item.fine_content_g:.3f}", col_fine, "R"),
-        ], even=even)
+        even = i % 2 == 0
+        pdf.table_data_row(
+            [
+                (_safe_str(item.description)[:45], col_desc, "L"),
+                (_safe_str(item.alloy), col_alloy, "C"),
+                (f"{item.weight_g:.3f}", col_weight, "R"),
+                (f"{item.fine_content_g:.3f}", col_fine, "R"),
+            ],
+            even=even,
+        )
 
     pdf.set_draw_color(180, 180, 180)
     pdf.line(10, pdf.get_y(), 200, pdf.get_y())
@@ -511,7 +530,7 @@ def _render_scrap_gold_fpdf(
         else:
             pdf.set_fill_color(255, 255, 255)
             pdf.set_text_color(*_GRAY)
-            pdf.set_font(_FONT, "",9)
+            pdf.set_font(_FONT, "", 9)
         pdf.cell(label_w, 6, label, fill=gold_bg)
         pdf.cell(value_w, 6, value, align="R", fill=gold_bg, ln=True)
         pdf.set_text_color(*_DARK)
@@ -552,7 +571,7 @@ def _render_scrap_gold_fpdf(
     pdf.set_line_width(0.2)
 
     pdf.set_y(sig_y + line_h + 1)
-    pdf.set_font(_FONT, "",7.5)
+    pdf.set_font(_FONT, "", 7.5)
     pdf.set_text_color(*_GRAY)
     pdf.cell(col_w + 10, 4, "Unterschrift Verkäufer / Kunde", align="C")
     pdf.cell(0, 4, "Unterschrift Goldschmiede / Ankäufer", align="C", ln=True)
@@ -577,7 +596,7 @@ def _render_scrap_gold_fpdf(
     pdf.set_text_color(80, 80, 80)
     pdf.cell(0, 4, "RECHTLICHER HINWEIS", ln=True)
     pdf.set_x(13)
-    pdf.set_font(_FONT, "",7.5)
+    pdf.set_font(_FONT, "", 7.5)
     pdf.multi_cell(184, 3.8, legal)
     pdf.set_text_color(*_DARK)
 
@@ -587,6 +606,7 @@ def _render_scrap_gold_fpdf(
 # ─────────────────────────────────────────────────────────────────────────────
 # Formatting helpers
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 def _fmt_date(dt: Any) -> str:
     """Format a datetime as German dd.mm.YYYY."""
@@ -627,11 +647,10 @@ def _safe_str(value: Any) -> str:
     return str(value)
 
 
-
-
 # ─────────────────────────────────────────────────────────────────────────────
 # Quote renderer (Kostenvoranschlag)
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 def _render_quote_fpdf(
     quote: Any,
@@ -642,9 +661,7 @@ def _render_quote_fpdf(
     """Build a Kostenvoranschlag PDF with fpdf2 and return raw bytes."""
     import base64
 
-    footer_text = (
-        f"{workshop_name}  |  Kostenvoranschlag {quote.quote_number}"
-    )
+    footer_text = f"{workshop_name}  |  Kostenvoranschlag {quote.quote_number}"
     pdf = _GoldsmithPDF(workshop_name=workshop_name, footer_text=footer_text)
 
     # ── Page top: workshop name + KOSTENVORANSCHLAG title ─────────────────────
@@ -730,23 +747,28 @@ def _render_quote_fpdf(
     col_unit = 28
     col_total = 28
 
-    pdf.filled_header_row([
-        ("Pos.", col_pos, "C"),
-        ("Beschreibung", col_desc, "L"),
-        ("Menge", col_qty, "R"),
-        ("Einzelpreis", col_unit, "R"),
-        ("Gesamtpreis", col_total, "R"),
-    ])
+    pdf.filled_header_row(
+        [
+            ("Pos.", col_pos, "C"),
+            ("Beschreibung", col_desc, "L"),
+            ("Menge", col_qty, "R"),
+            ("Einzelpreis", col_unit, "R"),
+            ("Gesamtpreis", col_total, "R"),
+        ]
+    )
 
     for i, item in enumerate(line_items):
-        even = (i % 2 == 0)
-        pdf.table_data_row([
-            (str(i + 1), col_pos, "C"),
-            (_safe_str(item.description)[:65], col_desc, "L"),
-            (_fmt_num(item.quantity), col_qty, "R"),
-            (_fmt_eur(item.unit_price), col_unit, "R"),
-            (_fmt_eur(item.total), col_total, "R"),
-        ], even=even)
+        even = i % 2 == 0
+        pdf.table_data_row(
+            [
+                (str(i + 1), col_pos, "C"),
+                (_safe_str(item.description)[:65], col_desc, "L"),
+                (_fmt_num(item.quantity), col_qty, "R"),
+                (_fmt_eur(item.unit_price), col_unit, "R"),
+                (_fmt_eur(item.total), col_total, "R"),
+            ],
+            even=even,
+        )
 
     # Divider below table
     pdf.set_draw_color(180, 180, 180)
@@ -758,7 +780,9 @@ def _render_quote_fpdf(
     label_w = 140
     value_w = 38
 
-    def _total_row(label: str, value: str, bold: bool = False, gold_bg: bool = False) -> None:
+    def _total_row(
+        label: str, value: str, bold: bool = False, gold_bg: bool = False
+    ) -> None:
         if gold_bg:
             pdf.set_fill_color(*_GOLD)
             pdf.set_text_color(255, 255, 255)
@@ -848,9 +872,11 @@ def _render_quote_fpdf(
 
     return bytes(pdf.output())
 
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Valuation certificate renderer (Wertgutachten)
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 def _render_valuation_certificate_fpdf(
     certificate: Any,
@@ -1025,7 +1051,9 @@ def _render_valuation_certificate_fpdf(
     pdf.set_y(sig_y + 2)
     pdf.set_font(_FONT, "", 7.5)
     pdf.set_text_color(*_GRAY)
-    pdf.cell(col_w + 10, 4, f"Ort, Datum / Place, Date: ______________________", align="L")
+    pdf.cell(
+        col_w + 10, 4, f"Ort, Datum / Place, Date: ______________________", align="L"
+    )
     pdf.set_y(sig_y + 2)
     pdf.set_x(10 + col_w + 10)
     pdf.cell(0, 4, "Unterschrift + Stempel / Signature + Stamp", align="L", ln=True)

@@ -6,26 +6,36 @@ Supports multiple costing methods: FIFO, LIFO, Weighted Average, and Specific Id
 """
 
 import json
-from fastapi import HTTPException
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, and_, desc, asc
-from sqlalchemy.orm import selectinload
-from typing import List, Literal, Optional, Tuple
-from datetime import datetime
 import logging
+from datetime import datetime
+from typing import List, Literal, Optional, Tuple
+
+from fastapi import HTTPException
+from sqlalchemy import and_, asc, desc, func, select
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from ..db.models import (
-    MetalPurchase, MaterialUsage, InventoryAdjustment,
-    MetalType, CostingMethod, Order
-)
-from ..models.metal_inventory import (
-    MetalPurchaseCreate, MetalPurchaseUpdate, MetalPurchaseRead,
-    MaterialUsageCreate, MaterialUsageRead,
-    InventoryAdjustmentCreate,
-    MetalInventorySummary, InventoryStatistics,
-    MetalAllocation, OrderMaterialAllocation
+    CostingMethod,
+    InventoryAdjustment,
+    MaterialUsage,
+    MetalPurchase,
+    MetalType,
+    Order,
 )
 from ..db.transaction import transactional
+from ..models.metal_inventory import (
+    InventoryAdjustmentCreate,
+    InventoryStatistics,
+    MaterialUsageCreate,
+    MaterialUsageRead,
+    MetalAllocation,
+    MetalInventorySummary,
+    MetalPurchaseCreate,
+    MetalPurchaseRead,
+    MetalPurchaseUpdate,
+    OrderMaterialAllocation,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -116,8 +126,7 @@ class MetalInventoryService:
 
     @staticmethod
     async def create_purchase(
-        db: AsyncSession,
-        purchase_data: MetalPurchaseCreate
+        db: AsyncSession, purchase_data: MetalPurchaseCreate
     ) -> MetalPurchase:
         """
         Record a new metal purchase.
@@ -154,7 +163,9 @@ class MetalInventoryService:
         return purchase
 
     @staticmethod
-    async def get_purchase(db: AsyncSession, purchase_id: int) -> Optional[MetalPurchase]:
+    async def get_purchase(
+        db: AsyncSession, purchase_id: int
+    ) -> Optional[MetalPurchase]:
         """Get a single metal purchase by ID"""
         result = await db.execute(
             select(MetalPurchase)
@@ -169,7 +180,7 @@ class MetalInventoryService:
         metal_type: Optional[MetalType] = None,
         include_depleted: bool = False,
         skip: int = 0,
-        limit: int = 100
+        limit: int = 100,
     ) -> List[MetalPurchase]:
         """
         List metal purchases with optional filtering.
@@ -197,9 +208,7 @@ class MetalInventoryService:
 
     @staticmethod
     async def update_purchase(
-        db: AsyncSession,
-        purchase_id: int,
-        update_data: MetalPurchaseUpdate
+        db: AsyncSession, purchase_id: int, update_data: MetalPurchaseUpdate
     ) -> Optional[MetalPurchase]:
         """Update metal purchase metadata (not weight or price)"""
         async with transactional(db):
@@ -232,7 +241,7 @@ class MetalInventoryService:
         metal_type: MetalType,
         required_weight_g: float,
         costing_method: CostingMethod,
-        specific_purchase_id: Optional[int] = None
+        specific_purchase_id: Optional[int] = None,
     ) -> OrderMaterialAllocation:
         """
         Allocate metal from inventory using specified costing method.
@@ -255,9 +264,13 @@ class MetalInventoryService:
         # Validate specific purchase if SPECIFIC method
         if costing_method == CostingMethod.SPECIFIC:
             if not specific_purchase_id:
-                raise ValueError("specific_purchase_id required for SPECIFIC costing method")
+                raise ValueError(
+                    "specific_purchase_id required for SPECIFIC costing method"
+                )
 
-            purchase = await MetalInventoryService.get_purchase(db, specific_purchase_id)
+            purchase = await MetalInventoryService.get_purchase(
+                db, specific_purchase_id
+            )
             if not purchase:
                 raise ValueError(f"Metal purchase {specific_purchase_id} not found")
             if purchase.metal_type != metal_type:
@@ -279,7 +292,7 @@ class MetalInventoryService:
                     weight_allocated_g=required_weight_g,
                     price_per_gram=purchase.price_per_gram,
                     cost=required_weight_g * purchase.price_per_gram,
-                    date_purchased=purchase.date_purchased
+                    date_purchased=purchase.date_purchased,
                 )
             ]
 
@@ -288,7 +301,7 @@ class MetalInventoryService:
                 required_weight_g=required_weight_g,
                 allocations=allocations,
                 total_cost=sum(a.cost for a in allocations),
-                costing_method=costing_method
+                costing_method=costing_method,
             )
 
         # For FIFO, LIFO, AVERAGE: Get available purchases
@@ -297,7 +310,9 @@ class MetalInventoryService:
         elif costing_method == CostingMethod.LIFO:
             order_by = desc(MetalPurchase.date_purchased)
         else:  # AVERAGE
-            order_by = asc(MetalPurchase.date_purchased)  # Order doesn't matter for average
+            order_by = asc(
+                MetalPurchase.date_purchased
+            )  # Order doesn't matter for average
 
         # Get available batches
         result = await db.execute(
@@ -305,7 +320,7 @@ class MetalInventoryService:
             .filter(
                 and_(
                     MetalPurchase.metal_type == metal_type,
-                    MetalPurchase.remaining_weight_g > 0.01
+                    MetalPurchase.remaining_weight_g > 0.01,
                 )
             )
             .order_by(order_by)
@@ -325,7 +340,9 @@ class MetalInventoryService:
 
         # Weighted Average Cost calculation
         if costing_method == CostingMethod.AVERAGE:
-            total_value = sum(p.remaining_weight_g * p.price_per_gram for p in available_purchases)
+            total_value = sum(
+                p.remaining_weight_g * p.price_per_gram for p in available_purchases
+            )
             avg_price_per_gram = total_value / total_available
 
             # Allocate from first batch (for simplicity), but use average price
@@ -336,7 +353,7 @@ class MetalInventoryService:
                     weight_allocated_g=required_weight_g,
                     price_per_gram=avg_price_per_gram,
                     cost=required_weight_g * avg_price_per_gram,
-                    date_purchased=available_purchases[0].date_purchased
+                    date_purchased=available_purchases[0].date_purchased,
                 )
             ]
 
@@ -345,7 +362,7 @@ class MetalInventoryService:
                 required_weight_g=required_weight_g,
                 allocations=allocations,
                 total_cost=sum(a.cost for a in allocations),
-                costing_method=costing_method
+                costing_method=costing_method,
             )
 
         # FIFO/LIFO: Allocate from multiple batches if needed
@@ -366,7 +383,7 @@ class MetalInventoryService:
                     weight_allocated_g=allocated_from_batch,
                     price_per_gram=purchase.price_per_gram,
                     cost=allocated_from_batch * purchase.price_per_gram,
-                    date_purchased=purchase.date_purchased
+                    date_purchased=purchase.date_purchased,
                 )
             )
 
@@ -380,7 +397,7 @@ class MetalInventoryService:
             required_weight_g=required_weight_g,
             allocations=allocations,
             total_cost=sum(a.cost for a in allocations),
-            costing_method=costing_method
+            costing_method=costing_method,
         )
 
     @staticmethod
@@ -454,7 +471,7 @@ class MetalInventoryService:
                 metal_type=metal_type,
                 required_weight_g=usage_data.weight_used_g,
                 costing_method=usage_data.costing_method,
-                specific_purchase_id=usage_data.metal_purchase_id
+                specific_purchase_id=usage_data.metal_purchase_id,
             )
 
             # 2. Consume from inventory with ROW LOCKS (A3.4 / Lena §3).
@@ -629,12 +646,12 @@ class MetalInventoryService:
             return
 
         try:
-            from goldsmith_erp.services.notification_service import (  # noqa: PLC0415
-                NotificationService,
-            )
             from goldsmith_erp.db.models import (  # noqa: PLC0415
                 NotificationSeverityEnum,
                 NotificationTypeEnum,
+            )
+            from goldsmith_erp.services.notification_service import (  # noqa: PLC0415
+                NotificationService,
             )
 
             await NotificationService.create_notification(
@@ -670,11 +687,13 @@ class MetalInventoryService:
         result = await db.execute(
             select(
                 MetalPurchase.metal_type,
-                func.sum(MetalPurchase.remaining_weight_g).label('total_weight'),
-                func.sum(MetalPurchase.remaining_weight_g * MetalPurchase.price_per_gram).label('total_value'),
-                func.count(MetalPurchase.id).label('batch_count'),
-                func.min(MetalPurchase.date_purchased).label('oldest'),
-                func.max(MetalPurchase.date_purchased).label('newest')
+                func.sum(MetalPurchase.remaining_weight_g).label("total_weight"),
+                func.sum(
+                    MetalPurchase.remaining_weight_g * MetalPurchase.price_per_gram
+                ).label("total_value"),
+                func.count(MetalPurchase.id).label("batch_count"),
+                func.min(MetalPurchase.date_purchased).label("oldest"),
+                func.max(MetalPurchase.date_purchased).label("newest"),
             )
             .filter(MetalPurchase.remaining_weight_g > 0.01)
             .group_by(MetalPurchase.metal_type)
@@ -682,7 +701,9 @@ class MetalInventoryService:
 
         summaries = []
         for row in result:
-            avg_price = row.total_value / row.total_weight if row.total_weight > 0 else 0
+            avg_price = (
+                row.total_value / row.total_weight if row.total_weight > 0 else 0
+            )
             summaries.append(
                 MetalInventorySummary(
                     metal_type=row.metal_type,
@@ -691,7 +712,7 @@ class MetalInventoryService:
                     average_price_per_gram=round(avg_price, 2),
                     batch_count=row.batch_count,
                     oldest_batch_date=row.oldest,
-                    newest_batch_date=row.newest
+                    newest_batch_date=row.newest,
                 )
             )
 
@@ -701,8 +722,9 @@ class MetalInventoryService:
 
         # Count depleted batches
         depleted_result = await db.execute(
-            select(func.count(MetalPurchase.id))
-            .filter(MetalPurchase.remaining_weight_g <= 0.01)
+            select(func.count(MetalPurchase.id)).filter(
+                MetalPurchase.remaining_weight_g <= 0.01
+            )
         )
         depleted_count = depleted_result.scalar() or 0
 
@@ -718,7 +740,7 @@ class MetalInventoryService:
             total_weight_g=round(total_weight, 2),
             metal_types=summaries,
             depleted_batches_count=depleted_count,
-            low_stock_alerts=low_stock_alerts
+            low_stock_alerts=low_stock_alerts,
         )
 
     @staticmethod
@@ -727,20 +749,26 @@ class MetalInventoryService:
         order_id: Optional[int] = None,
         metal_type: Optional[MetalType] = None,
         skip: int = 0,
-        limit: int = 100
+        limit: int = 100,
     ) -> List[MaterialUsage]:
         """Get material usage history with optional filtering"""
-        query = select(MaterialUsage).options(
-            selectinload(MaterialUsage.metal_purchase),
-            selectinload(MaterialUsage.order)
-        ).order_by(desc(MaterialUsage.used_at))
+        query = (
+            select(MaterialUsage)
+            .options(
+                selectinload(MaterialUsage.metal_purchase),
+                selectinload(MaterialUsage.order),
+            )
+            .order_by(desc(MaterialUsage.used_at))
+        )
 
         if order_id:
             query = query.filter(MaterialUsage.order_id == order_id)
 
         if metal_type:
             # Join with metal_purchases to filter by metal_type
-            query = query.join(MetalPurchase).filter(MetalPurchase.metal_type == metal_type)
+            query = query.join(MetalPurchase).filter(
+                MetalPurchase.metal_type == metal_type
+            )
 
         query = query.offset(skip).limit(limit)
 
