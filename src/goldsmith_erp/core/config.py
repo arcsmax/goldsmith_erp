@@ -113,6 +113,18 @@ class Settings(BaseSettings):
     SMTP_FROM: Optional[str] = None
     EMAIL_NOTIFICATIONS_ENABLED: bool = False
 
+    # ── Cost Watcher / Customer Updates (V1.2) ──────────────────────────────────
+    # §649 BGB Anzeigepflicht thresholds — the watcher (services/cost_watch_
+    # service.py) alerts when EITHER is crossed (percent OR absolute delta),
+    # since courts weigh both dimensions (Verbraucherzentrale/HWK guidance).
+    COST_ALERT_THRESHOLD_PERCENT: float = 15.0
+    COST_ALERT_THRESHOLD_ABS_EUR: float = 150.0
+    # Fallback hourly rate for projected-cost labor calc when an order has no
+    # explicit rate. Deliberately NOT used to refactor the existing hardcoded
+    # 75s elsewhere in the codebase (e.g. METAL_PRICE_FALLBACK_GOLD) — that's
+    # a separate follow-up, not in scope here.
+    DEFAULT_HOURLY_RATE: float = 75.0
+
     # ── Encryption ───────────────────────────────────────────────────────────────
     # Fernet key for PII field encryption at rest. Generate with setup.sh.
     # Optional: app starts without it but PII fields will not be encrypted.
@@ -176,6 +188,31 @@ class Settings(BaseSettings):
                     "ANONYMIZATION_SALT not set — anonymize_user() will use a "
                     "dev-only fallback salt. Acceptable only in development."
                 )
+        return self
+
+    @model_validator(mode="after")
+    def _check_email_notification_config(self) -> "Settings":
+        """Fail-fast in production if email notifications are enabled but SMTP
+        is not fully configured.
+
+        Mirrors ``_check_encryption_key``: raise in production (DEBUG=False),
+        warn in development. The customer-update feature (V1.2) degrades
+        gracefully to PDF-only mode when SMTP is unset entirely, but that
+        degradation must never be silent (spec: "fail loudly, never
+        silently") — a workshop that flips EMAIL_NOTIFICATIONS_ENABLED=true
+        without also setting SMTP_HOST/SMTP_FROM would otherwise discover the
+        misconfiguration only when the first send silently fails.
+        """
+        if self.EMAIL_NOTIFICATIONS_ENABLED and not (self.SMTP_HOST and self.SMTP_FROM):
+            message = (
+                "EMAIL_NOTIFICATIONS_ENABLED=true but SMTP_HOST/SMTP_FROM are "
+                "not both set — email sending will fail. Set both or disable "
+                "EMAIL_NOTIFICATIONS_ENABLED to run in PDF-only mode."
+            )
+            if not self.DEBUG:
+                raise ValueError(message)
+            else:
+                logging.getLogger(__name__).warning(message)
         return self
 
     # ── Photo Upload ─────────────────────────────────────────────────────────────

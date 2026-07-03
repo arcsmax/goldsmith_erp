@@ -116,6 +116,17 @@ class Permission(str, Enum):
     VALUATION_CREATE = "valuation:create"  # Create certificate (ADMIN + GOLDSMITH)
     VALUATION_EXPORT = "valuation:export"  # Download PDF (ADMIN only)
 
+    # Customer update permissions (Kundeninfo — V1.2, GOLDSMITH + ADMIN only)
+    CUSTOMER_UPDATE_VIEW = "customer_update:view"  # View update history/drafts
+    CUSTOMER_UPDATE_SEND = "customer_update:send"  # Create + send updates
+
+    # Cost change request permissions (§649 BGB Kostenfreigabe — financial
+    # data, V1.2, GOLDSMITH + ADMIN only)
+    COST_CHANGE_VIEW = "cost_change:view"  # View cost-change requests + projected cost
+    COST_CHANGE_MANAGE = (
+        "cost_change:manage"  # Create/send cost changes, record customer response
+    )
+
     # Scanner permissions (V1.1 QR/Barcode workflow)
     # Granted to all three roles — the service layer performs role-based
     # content projection, so VIEWER may call /scan/resolve but will never
@@ -189,6 +200,12 @@ ROLE_PERMISSIONS: dict[UserRole, List[Permission]] = {
         Permission.VALUATION_CREATE,
         # Scanner (V1.1) — goldsmiths are the primary scanner users
         Permission.SCAN_READ,
+        # Customer updates (V1.2) — goldsmiths draft and send Kundeninfo
+        Permission.CUSTOMER_UPDATE_VIEW,
+        Permission.CUSTOMER_UPDATE_SEND,
+        # Cost change requests (V1.2) — financial data, goldsmiths manage them
+        Permission.COST_CHANGE_VIEW,
+        Permission.COST_CHANGE_MANAGE,
     ],
     UserRole.VIEWER: [
         # View-only access
