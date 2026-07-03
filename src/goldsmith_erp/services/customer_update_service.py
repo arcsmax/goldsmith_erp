@@ -146,6 +146,21 @@ class MissingCustomerUpdateContentError(CustomerUpdateValidationError):
         )
 
 
+class CostChangeKindNotAllowedError(CustomerUpdateValidationError):
+    """
+    kind=cost_change was submitted to the generic updates endpoint —
+    cost-change updates are ONLY created internally by
+    ``CostChangeService.send()`` (they must carry a linked
+    CostChangeRequest with derived amounts; a hand-rolled one would be a
+    §649 notice with no evidence record behind it). Review fix round 1.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(
+            "Kostenänderungen werden über den Kostenänderungs-Workflow erstellt"
+        )
+
+
 # ---------------------------------------------------------------------------
 # Default subject/body per kind (template prefill) — see report for why this
 # is NOT routed through EmailService.render_preview: that method's
@@ -386,10 +401,16 @@ class CustomerUpdateService:
                 invariant is violated (both/neither id supplied — router bug
                 guard, not expected from real callers).
             InvalidUpdatePhotoError / PhotosNotAllowedForRepairError /
-                MissingCustomerUpdateContentError: malformed input (422).
+                MissingCustomerUpdateContentError /
+                CostChangeKindNotAllowedError: malformed input (422).
         """
         if (order_id is None) == (repair_job_id is None):
             raise ValueError("Exakt eines von order_id/repair_job_id muss gesetzt sein")
+
+        if data.kind == CustomerUpdateKind.COST_CHANGE:
+            # cost_change updates are only created internally by
+            # CostChangeService.send() — see the exception's docstring.
+            raise CostChangeKindNotAllowedError()
 
         order_ref: str
         if order_id is not None:

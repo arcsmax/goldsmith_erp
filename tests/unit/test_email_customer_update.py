@@ -183,6 +183,42 @@ async def test_send_email_never_raises_on_smtp_failure(monkeypatch):
     assert ok is False
 
 
+async def test_send_email_never_logs_subject_text(monkeypatch, caplog):
+    """Fix round 1 (PII): with V1.2 kind=custom updates the subject is
+    staff-authored free text that may carry a customer name — it must
+    never appear in log records (success OR failure path). send_email
+    logs subject_len instead."""
+    import logging
+
+    _enable_smtp(monkeypatch)
+    sentinel = "SENTINEL_SUBJECT_Erika_Musterfrau"
+
+    # Success path (INFO log line).
+    capture = _CapturingSend()
+    monkeypatch.setattr(email_service_module.aiosmtplib, "send", capture)
+    with caplog.at_level(logging.DEBUG):
+        ok = await EmailService.send_email(
+            to="kunde@example.com", subject=sentinel, html_body="<p>x</p>"
+        )
+    assert ok is True
+    for record in caplog.records:
+        assert sentinel not in record.getMessage()
+        assert sentinel not in str(record.__dict__)
+    caplog.clear()
+
+    # Failure path (ERROR log line).
+    failing = _CapturingSend(should_raise=True)
+    monkeypatch.setattr(email_service_module.aiosmtplib, "send", failing)
+    with caplog.at_level(logging.DEBUG):
+        ok = await EmailService.send_email(
+            to="kunde@example.com", subject=sentinel, html_body="<p>x</p>"
+        )
+    assert ok is False
+    for record in caplog.records:
+        assert sentinel not in record.getMessage()
+        assert sentinel not in str(record.__dict__)
+
+
 def test_html_to_plain_text_strips_tags_and_unescapes_entities():
     html = "<h2>Titel</h2><p>Erste Zeile</p><p>Zweite &amp; dritte Zeile</p>"
     text = _html_to_plain_text(html)

@@ -274,7 +274,7 @@ class EmailService:
             alternative.attach(MIMEText(html_body, "html", "utf-8"))
             msg.attach(alternative)
 
-            for filename, data in (attachments or []):
+            for filename, data in attachments or []:
                 part = MIMEApplication(data, Name=filename)
                 part["Content-Disposition"] = f'attachment; filename="{filename}"'
                 msg.attach(part)
@@ -291,16 +291,20 @@ class EmailService:
 
             await aiosmtplib.send(msg, **smtp_kwargs)
 
+            # subject is NOT logged: with V1.2 customer updates the subject
+            # can be staff-authored free text (kind=custom) that may carry
+            # customer names — PII must never reach log lines (CLAUDE.md).
+            # Log its length instead for debugging signal.
             logger.info(
                 "Email sent",
-                extra={"to": safe_to, "subject": subject},
+                extra={"to": safe_to, "subject_len": len(subject)},
             )
             return True
 
         except Exception as exc:
             logger.error(
                 "Failed to send email — operation continues normally",
-                extra={"to": safe_to, "subject": subject, "error": str(exc)},
+                extra={"to": safe_to, "subject_len": len(subject), "error": str(exc)},
                 exc_info=True,
             )
             return False
@@ -369,11 +373,17 @@ class EmailService:
         """Notify customer that their repair item has been received."""
         html = EmailService._render_template(
             "repair_received.html",
-            {"order_id": order_id, "description": description, "bag_number": bag_number},
+            {
+                "order_id": order_id,
+                "description": description,
+                "bag_number": bag_number,
+            },
         )
         if not html:
             return False
-        subject = f"Ihre Reparatur #{order_id} wurde angenommen — {settings.WORKSHOP_NAME}"
+        subject = (
+            f"Ihre Reparatur #{order_id} wurde angenommen — {settings.WORKSHOP_NAME}"
+        )
         return await EmailService.send_email(to, subject, html)
 
     @staticmethod
@@ -428,7 +438,9 @@ class EmailService:
         attachments = []
         if invoice_pdf_bytes:
             attachments.append((f"Rechnung-Auftrag-{order_id}.pdf", invoice_pdf_bytes))
-        subject = f"Vielen Dank für Ihren Auftrag #{order_id} — {settings.WORKSHOP_NAME}"
+        subject = (
+            f"Vielen Dank für Ihren Auftrag #{order_id} — {settings.WORKSHOP_NAME}"
+        )
         return await EmailService.send_email(to, subject, html, attachments)
 
     @staticmethod
@@ -444,7 +456,9 @@ class EmailService:
         )
         if not html:
             return False
-        subject = f"Erinnerung: Ihre Anprobe am {fitting_date} — {settings.WORKSHOP_NAME}"
+        subject = (
+            f"Erinnerung: Ihre Anprobe am {fitting_date} — {settings.WORKSHOP_NAME}"
+        )
         return await EmailService.send_email(to, subject, html)
 
     # ------------------------------------------------------------------

@@ -44,6 +44,7 @@ from goldsmith_erp.db.models import (
 from goldsmith_erp.models.customer_update import CustomerUpdateCreate
 from goldsmith_erp.services import email_service as email_service_module
 from goldsmith_erp.services.customer_update_service import (
+    CostChangeKindNotAllowedError,
     CustomerUpdateNotFoundError,
     CustomerUpdateService,
     CustomerUpdateValidationError,
@@ -180,6 +181,25 @@ class TestCreateDraft:
             or "abholbereit" in update.subject.lower()
         )
         assert update.body
+
+    async def test_cost_change_kind_is_rejected_on_generic_endpoint(
+        self, db_session, sample_order, sample_user
+    ):
+        """Fix round 1: kind=cost_change updates are only created
+        internally by CostChangeService.send() — the generic create path
+        must reject them with the typed validation error (422)."""
+        with pytest.raises(CostChangeKindNotAllowedError):
+            await CustomerUpdateService.create_draft(
+                db_session,
+                order_id=sample_order.id,
+                repair_job_id=None,
+                data=CustomerUpdateCreate(
+                    kind=CustomerUpdateKind.COST_CHANGE,
+                    subject="Handgebaute Kostenaenderung",
+                    body="Sollte nie akzeptiert werden.",
+                ),
+                user_id=sample_user.id,
+            )
 
     async def test_custom_kind_requires_explicit_subject_and_body(
         self, db_session, sample_order, sample_user
@@ -506,6 +526,70 @@ class TestSend:
         msg = capture.sent_messages[0]
         mixed_parts = msg.get_payload()
         assert len(mixed_parts) == 2  # alternative + one photo attachment
+
+    async def test_send_skips_photo_with_path_outside_storage_root(
+        self, db_session, sample_order, sample_user, tmp_path, monkeypatch, caplog
+    ):
+        """Security (fix round 1, V1.1 resolve_within_root precedent):
+        an OrderPhoto row whose file_path escapes the storage root (e.g.
+        '/etc/passwd' injected directly into the DB) must be skipped with
+        a warning — the send still proceeds with the remaining valid
+        photos, no exception, and the hostile path never appears in log
+        records or the response."""
+        import logging
+
+        _enable_smtp(monkeypatch)
+        monkeypatch.setattr(
+            "goldsmith_erp.core.config.settings.PHOTO_STORAGE_PATH", str(tmp_path)
+        )
+        capture = _CapturingSend()
+        monkeypatch.setattr(email_service_module.aiosmtplib, "send", capture)
+
+        good_photo = await _make_order_photo(
+            db_session, tmp_path, sample_order, sample_user
+        )
+        evil_photo = OrderPhoto(
+            id=str(uuid.uuid4()),
+            order_id=sample_order.id,
+            file_path="/etc/passwd",  # direct-insert hostile path
+            taken_by=sample_user.id,
+        )
+        db_session.add(evil_photo)
+        await db_session.commit()
+        await db_session.refresh(evil_photo)
+
+        draft = await CustomerUpdateService.create_draft(
+            db_session,
+            order_id=sample_order.id,
+            repair_job_id=None,
+            data=CustomerUpdateCreate(
+                kind=CustomerUpdateKind.PROGRESS,
+                photo_ids=[good_photo.id, evil_photo.id],
+            ),
+            user_id=sample_user.id,
+        )
+
+        # caplog accumulates from test start — clear the setup phase's own
+        # SQLAlchemy INSERT echo (which necessarily carries the seeded
+        # file_path parameter) so the assertion below scopes to what the
+        # send() code path itself logs.
+        caplog.clear()
+        with caplog.at_level(logging.DEBUG):
+            result = await CustomerUpdateService.send(
+                db_session, draft.id, sample_user.id
+            )
+
+        # Delivery proceeds with the one valid photo only.
+        assert result.delivered is True
+        msg = capture.sent_messages[0]
+        mixed_parts = msg.get_payload()
+        assert len(mixed_parts) == 2  # alternative + ONE photo attachment
+
+        # The hostile path never reaches logs or the response body.
+        for record in caplog.records:
+            assert "/etc/passwd" not in record.getMessage()
+            assert "/etc/passwd" not in str(record.__dict__)
+        assert "/etc/passwd" not in result.model_dump_json()
 
     async def test_cost_change_kind_uses_cost_change_template(
         self, db_session, sample_order, sample_user, monkeypatch

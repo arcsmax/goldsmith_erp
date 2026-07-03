@@ -5,10 +5,12 @@ Unit tests for CostChangeService (V1.2 Task 5).
 Covers:
 - create: original_amount derived from CostWatchService's quote reference
   (never client-supplied), 409 when no referenceable Quote exists, delta
-  math, superseding an existing SENT request for the same order in the
-  same transaction, 404 on missing order.
+  math, 404 on missing order; supersedes NOTHING (fix round 1 — drafts
+  coexist freely).
 - send: creates+sends the linked CustomerUpdate(kind=cost_change), only
-  valid from DRAFT (409 otherwise), 404 on missing request.
+  valid from DRAFT (409 otherwise), 404 on missing request; sibling-SENT
+  invariant — any OTHER SENT request for the same order is superseded in
+  the same transaction (fix round 1), scoped per-order.
 - record_response: evidence logging, only valid from SENT (409
   otherwise), sets approved/declined + method/evidence/responded_at/
   recorded_by, 404 on missing request.
@@ -170,9 +172,13 @@ class TestCreate:
             {"label": "Fassung", "amount": 150.0, "kind": "add"}
         ]
 
-    async def test_supersedes_existing_sent_request_for_same_order(
+    async def test_create_supersedes_nothing(
         self, db_session, sample_order, sample_customer, sample_user
     ):
+        """Fix round 1: creation supersedes NOTHING — the sibling-SENT
+        invariant is enforced at send-time. A pre-existing SENT request
+        and a pre-existing draft must both survive a new create()
+        untouched."""
         await _add_quote(
             db_session,
             order=sample_order,
@@ -181,47 +187,16 @@ class TestCreate:
             status=QuoteStatus.SENT,
             subtotal=1000.0,
         )
-        first = CostChangeRequest(
+        sent_sibling = CostChangeRequest(
             order_id=sample_order.id,
             original_amount=1000.0,
             new_amount=1100.0,
             delta_percent=10.0,
-            reason="Erste Anfrage",
+            reason="Bereits verschickte Anfrage",
             status=CostChangeStatus.SENT,
             created_by=sample_user.id,
         )
-        db_session.add(first)
-        await db_session.commit()
-        await db_session.refresh(first)
-
-        await CostChangeService.create(
-            db_session,
-            sample_order.id,
-            CostChangeCreate(new_amount=1300.0, reason="Neue Anfrage ersetzt die alte"),
-            sample_user.id,
-        )
-
-        from sqlalchemy import select
-
-        refetched_first = (
-            await db_session.execute(
-                select(CostChangeRequest).where(CostChangeRequest.id == first.id)
-            )
-        ).scalar_one()
-        assert refetched_first.status == CostChangeStatus.SUPERSEDED
-
-    async def test_does_not_supersede_draft_requests(
-        self, db_session, sample_order, sample_customer, sample_user
-    ):
-        await _add_quote(
-            db_session,
-            order=sample_order,
-            customer=sample_customer,
-            user=sample_user,
-            status=QuoteStatus.SENT,
-            subtotal=1000.0,
-        )
-        existing_draft = CostChangeRequest(
+        draft_sibling = CostChangeRequest(
             order_id=sample_order.id,
             original_amount=1000.0,
             new_amount=1050.0,
@@ -230,27 +205,34 @@ class TestCreate:
             status=CostChangeStatus.DRAFT,
             created_by=sample_user.id,
         )
-        db_session.add(existing_draft)
+        db_session.add_all([sent_sibling, draft_sibling])
         await db_session.commit()
-        await db_session.refresh(existing_draft)
+        await db_session.refresh(sent_sibling)
+        await db_session.refresh(draft_sibling)
 
         await CostChangeService.create(
             db_session,
             sample_order.id,
-            CostChangeCreate(new_amount=1300.0, reason="Weitere Anfrage"),
+            CostChangeCreate(new_amount=1300.0, reason="Weitere neue Anfrage"),
             sample_user.id,
         )
 
         from sqlalchemy import select
 
-        refetched = (
+        refetched_sent = (
+            await db_session.execute(
+                select(CostChangeRequest).where(CostChangeRequest.id == sent_sibling.id)
+            )
+        ).scalar_one()
+        refetched_draft = (
             await db_session.execute(
                 select(CostChangeRequest).where(
-                    CostChangeRequest.id == existing_draft.id
+                    CostChangeRequest.id == draft_sibling.id
                 )
             )
         ).scalar_one()
-        assert refetched.status == CostChangeStatus.DRAFT
+        assert refetched_sent.status == CostChangeStatus.SENT
+        assert refetched_draft.status == CostChangeStatus.DRAFT
 
 
 # ---------------------------------------------------------------------------
@@ -321,6 +303,148 @@ class TestSend:
             )
         ).scalar_one()
         assert refetched.status == CostChangeStatus.SENT
+
+    async def test_send_supersedes_sibling_sent_request(
+        self, db_session, sample_order, sample_customer, sample_user, monkeypatch
+    ):
+        """Fix round 1 sibling-SENT invariant: two drafts, send A, then
+        send B — A must become SUPERSEDED (inside B's send transaction),
+        B is SENT; at most one live notice per order."""
+        _enable_smtp(monkeypatch)
+        monkeypatch.setattr(email_service_module.aiosmtplib, "send", _CapturingSend())
+
+        await _add_quote(
+            db_session,
+            order=sample_order,
+            customer=sample_customer,
+            user=sample_user,
+            status=QuoteStatus.SENT,
+            subtotal=1000.0,
+        )
+        draft_a = await CostChangeService.create(
+            db_session,
+            sample_order.id,
+            CostChangeCreate(new_amount=1100.0, reason="Erste Anfrage (Entwurf A)"),
+            sample_user.id,
+        )
+        draft_b = await CostChangeService.create(
+            db_session,
+            sample_order.id,
+            CostChangeCreate(new_amount=1300.0, reason="Zweite Anfrage (Entwurf B)"),
+            sample_user.id,
+        )
+
+        await CostChangeService.send(db_session, draft_a.id, sample_user.id)
+        await CostChangeService.send(db_session, draft_b.id, sample_user.id)
+
+        from sqlalchemy import select
+
+        refetched_a = (
+            await db_session.execute(
+                select(CostChangeRequest).where(CostChangeRequest.id == draft_a.id)
+            )
+        ).scalar_one()
+        refetched_b = (
+            await db_session.execute(
+                select(CostChangeRequest).where(CostChangeRequest.id == draft_b.id)
+            )
+        ).scalar_one()
+        assert refetched_a.status == CostChangeStatus.SUPERSEDED
+        assert refetched_b.status == CostChangeStatus.SENT
+
+    async def test_record_response_on_superseded_request_returns_conflict(
+        self, db_session, sample_order, sample_customer, sample_user, monkeypatch
+    ):
+        """After A is superseded by sending B, record_response on A must
+        raise InvalidCostChangeStateError (409) — only SENT accepts a
+        customer response."""
+        _enable_smtp(monkeypatch)
+        monkeypatch.setattr(email_service_module.aiosmtplib, "send", _CapturingSend())
+
+        await _add_quote(
+            db_session,
+            order=sample_order,
+            customer=sample_customer,
+            user=sample_user,
+            status=QuoteStatus.SENT,
+            subtotal=1000.0,
+        )
+        draft_a = await CostChangeService.create(
+            db_session,
+            sample_order.id,
+            CostChangeCreate(new_amount=1100.0, reason="Erste Anfrage (Entwurf A)"),
+            sample_user.id,
+        )
+        draft_b = await CostChangeService.create(
+            db_session,
+            sample_order.id,
+            CostChangeCreate(new_amount=1300.0, reason="Zweite Anfrage (Entwurf B)"),
+            sample_user.id,
+        )
+        await CostChangeService.send(db_session, draft_a.id, sample_user.id)
+        await CostChangeService.send(db_session, draft_b.id, sample_user.id)
+
+        with pytest.raises(InvalidCostChangeStateError):
+            await CostChangeService.record_response(
+                db_session,
+                draft_a.id,
+                CostChangeRecordResponse(
+                    status="approved",
+                    response_method=CostChangeResponseMethod.EMAIL_REPLY,
+                    response_evidence="Antwort auf die alte, ersetzte Anfrage",
+                ),
+                sample_user.id,
+            )
+
+    async def test_send_does_not_supersede_sent_requests_of_other_orders(
+        self, db_session, sample_order, sample_customer, sample_user, monkeypatch
+    ):
+        """The sibling supersede is scoped to the SAME order — a SENT
+        request on a different order must not be touched."""
+        _enable_smtp(monkeypatch)
+        monkeypatch.setattr(email_service_module.aiosmtplib, "send", _CapturingSend())
+
+        other_order = Order(title="Anderer Auftrag", customer_id=sample_customer.id)
+        db_session.add(other_order)
+        await db_session.commit()
+        await db_session.refresh(other_order)
+        other_sent = CostChangeRequest(
+            order_id=other_order.id,
+            original_amount=500.0,
+            new_amount=600.0,
+            delta_percent=20.0,
+            reason="Anfrage am anderen Auftrag",
+            status=CostChangeStatus.SENT,
+            created_by=sample_user.id,
+        )
+        db_session.add(other_sent)
+        await db_session.commit()
+        await db_session.refresh(other_sent)
+
+        await _add_quote(
+            db_session,
+            order=sample_order,
+            customer=sample_customer,
+            user=sample_user,
+            status=QuoteStatus.SENT,
+            subtotal=1000.0,
+        )
+        draft = await CostChangeService.create(
+            db_session,
+            sample_order.id,
+            CostChangeCreate(new_amount=1300.0, reason="Anfrage am Hauptauftrag"),
+            sample_user.id,
+        )
+        await CostChangeService.send(db_session, draft.id, sample_user.id)
+
+        from sqlalchemy import select
+
+        refetched_other = (
+            await db_session.execute(
+                select(CostChangeRequest).where(CostChangeRequest.id == other_sent.id)
+            )
+        ).scalar_one()
+        assert refetched_other.status == CostChangeStatus.SENT
 
 
 # ---------------------------------------------------------------------------

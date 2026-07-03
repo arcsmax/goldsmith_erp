@@ -171,9 +171,16 @@ class CostChangeService:
         db: AsyncSession, order_id: int, data: CostChangeCreate, user_id: int
     ) -> CostChangeRequest:
         """
-        Create a DRAFT CostChangeRequest. Any existing SENT request for
-        this order is superseded in the SAME transaction (spec: a newer
-        request replaces one still awaiting a customer response).
+        Create a DRAFT CostChangeRequest.
+
+        Drafts may freely coexist (harmless — nothing customer-facing has
+        happened yet), so creation supersedes NOTHING. The "at most one
+        live (SENT) notice per order" invariant is enforced at SEND time
+        instead: ``send()`` supersedes any other sibling SENT request for
+        the same order inside the same transaction that transitions its
+        target to SENT (review fix round 1 — the invariant lives at
+        send-time, not create-time, so it holds no matter how many drafts
+        exist or in which order they are sent).
 
         Raises:
             ValueError: order does not exist (404).
@@ -202,15 +209,6 @@ class CostChangeService:
         )
 
         async with transactional(db):
-            existing_result = await db.execute(
-                select(CostChangeRequest).where(
-                    CostChangeRequest.order_id == order_id,
-                    CostChangeRequest.status == CostChangeStatus.SENT,
-                )
-            )
-            for existing in existing_result.scalars().all():
-                existing.status = cast(Any, CostChangeStatus.SUPERSEDED)
-
             cost_change = CostChangeRequest(
                 order_id=order_id,
                 quote_id=projected.quote_id,
@@ -240,6 +238,12 @@ class CostChangeService:
         Create+send the linked CustomerUpdate(kind=cost_change) for this
         request. Only valid from DRAFT.
 
+        Sibling-SENT invariant (review fix round 1): inside the same
+        transaction that transitions THIS request to SENT, any OTHER
+        request for the same order currently in SENT status is marked
+        SUPERSEDED — preserving "at most one live notice per order" no
+        matter how many drafts coexist or in which order they are sent.
+
         Raises:
             CostChangeNotFoundError: no such request (404).
             InvalidCostChangeStateError: request not in DRAFT status (409).
@@ -266,6 +270,18 @@ class CostChangeService:
         body = _compose_cost_change_body(cost_change, order_ref)
 
         async with transactional(db):
+            # Sibling-SENT supersede — same transaction as the SENT
+            # transition below (see docstring).
+            siblings_result = await db.execute(
+                select(CostChangeRequest).where(
+                    CostChangeRequest.order_id == cost_change.order_id,
+                    CostChangeRequest.status == CostChangeStatus.SENT,
+                    CostChangeRequest.id != cost_change.id,
+                )
+            )
+            for sibling in siblings_result.scalars().all():
+                sibling.status = cast(Any, CostChangeStatus.SUPERSEDED)
+
             update = CustomerUpdate(
                 order_id=cost_change.order_id,
                 kind=CustomerUpdateKind.COST_CHANGE,

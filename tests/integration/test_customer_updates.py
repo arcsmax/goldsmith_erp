@@ -313,6 +313,23 @@ class TestPhotoOwnershipRejection:
         )
         assert resp.status_code == 422
 
+    async def test_cost_change_kind_returns_422_on_generic_endpoint(
+        self, client: AsyncClient, goldsmith_auth_headers: dict, test_order: Order
+    ):
+        """Fix round 1: cost-change updates are only created internally by
+        CostChangeService.send() — the generic endpoint rejects the kind."""
+        resp = await client.post(
+            f"/api/v1/orders/{test_order.id}/updates",
+            json={
+                "kind": "cost_change",
+                "subject": "Handgebaut",
+                "body": "Sollte abgelehnt werden.",
+            },
+            headers=goldsmith_auth_headers,
+        )
+        assert resp.status_code == 422
+        assert "Kostenänderungs-Workflow" in resp.json()["detail"]
+
 
 # ---------------------------------------------------------------------------
 # Cost-change lifecycle
@@ -396,13 +413,16 @@ class TestCostChangeLifecycle:
         )
         assert resp.status_code == 409
 
-    async def test_creating_new_request_supersedes_sent_one(
+    async def test_sending_new_request_supersedes_sent_one(
         self,
         client: AsyncClient,
         goldsmith_auth_headers: dict,
         order_with_quote: Order,
         monkeypatch,
     ):
+        """Fix round 1 sibling-SENT invariant: creating a second request
+        leaves the first SENT one untouched; SENDING the second supersedes
+        it — at most one live notice per order."""
         _enable_smtp(monkeypatch)
         monkeypatch.setattr(email_service_module.aiosmtplib, "send", _CapturingSend())
 
@@ -416,18 +436,45 @@ class TestCostChangeLifecycle:
             f"/api/v1/cost-changes/{first_id}/send", headers=goldsmith_auth_headers
         )
 
-        await client.post(
+        second_resp = await client.post(
             f"/api/v1/orders/{order_with_quote.id}/cost-changes",
             json={"new_amount": 1300.0, "reason": "Zweite, groessere Anfrage"},
             headers=goldsmith_auth_headers,
         )
+        second_id = second_resp.json()["id"]
 
+        # Creation alone supersedes nothing — the first notice is still live.
+        history_resp = await client.get(
+            f"/api/v1/orders/{order_with_quote.id}/cost-changes",
+            headers=goldsmith_auth_headers,
+        )
+        by_id = {r["id"]: r for r in history_resp.json()}
+        assert by_id[first_id]["status"] == "sent"
+        assert by_id[second_id]["status"] == "draft"
+
+        # Sending the second supersedes the first in the same transaction.
+        await client.post(
+            f"/api/v1/cost-changes/{second_id}/send", headers=goldsmith_auth_headers
+        )
         history_resp = await client.get(
             f"/api/v1/orders/{order_with_quote.id}/cost-changes",
             headers=goldsmith_auth_headers,
         )
         by_id = {r["id"]: r for r in history_resp.json()}
         assert by_id[first_id]["status"] == "superseded"
+        assert by_id[second_id]["status"] == "sent"
+
+        # record_response on the superseded first request -> 409.
+        resp = await client.post(
+            f"/api/v1/cost-changes/{first_id}/record-response",
+            json={
+                "status": "approved",
+                "response_method": "email_reply",
+                "response_evidence": "Antwort auf die ersetzte Anfrage",
+            },
+            headers=goldsmith_auth_headers,
+        )
+        assert resp.status_code == 409
 
     async def test_send_missing_cost_change_returns_404(
         self, client: AsyncClient, goldsmith_auth_headers: dict
