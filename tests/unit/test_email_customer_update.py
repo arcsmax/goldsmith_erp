@@ -192,6 +192,41 @@ def test_html_to_plain_text_strips_tags_and_unescapes_entities():
     assert "Zweite & dritte Zeile" in text
 
 
+def test_html_to_plain_text_removes_style_and_head_content():
+    """Style/head ELEMENT CONTENT must be removed, not just the tags — a
+    naive tag-strip leaves the raw CSS text behind."""
+    html = (
+        "<head><style>body { font-family: Arial; color: #333; }</style></head>"
+        "<body><p>Sichtbarer Inhalt</p></body>"
+    )
+    text = _html_to_plain_text(html)
+    assert "Sichtbarer Inhalt" in text
+    assert "font-family" not in text
+    assert "{" not in text
+
+
+def test_real_template_plain_text_contains_no_css():
+    """Regression guard (review finding): base.html carries a ~70-line
+    <style> block in <head> — the derived text/plain part of EVERY outgoing
+    email (all existing typed senders included) must not open with raw CSS."""
+    html = EmailService._render_template(
+        "customer_update.html",
+        {
+            "customer_name": "Erika Musterfrau",
+            "body": "SENTINEL_BODY_TEXT",
+            "order_ref": "Auftrag #1042",
+            "photo_count": 0,
+        },
+    )
+    assert html  # template rendered
+
+    text = _html_to_plain_text(html)
+
+    assert "SENTINEL_BODY_TEXT" in text
+    assert "font-family" not in text
+    assert "{" not in text
+
+
 # ---------------------------------------------------------------------------
 # Typed senders — customer_update / cost_change (template render + send)
 # ---------------------------------------------------------------------------

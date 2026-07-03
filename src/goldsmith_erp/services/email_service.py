@@ -33,16 +33,22 @@ logger = logging.getLogger(__name__)
 #
 # Regex-based HTML→text conversion — NOT a general HTML→text engine. Limits
 # (documented per plan Task 4):
-#   - Block-level tags are turned into newlines before stripping so
+#   - Whole <head>/<style>/<script> ELEMENTS (tags AND their content) are
+#     removed first — base.html carries a ~70-line <style> block in <head>,
+#     so a naive tag-strip alone would open every plain-text part with raw
+#     CSS (customer-facing regression caught in review).
+#   - Block-level tags are then turned into newlines before stripping so
 #     paragraphs / list items / headings don't run together; every other
 #     tag simply disappears (no bullet markers, no link URLs surfaced).
-#   - Does not handle malformed HTML, <script>/<style> blocks, or nested
-#     comments — none of our own templates emit those, so this is safe for
+#   - Does not handle malformed/unclosed HTML or nested comments — safe for
 #     our controlled template set but must NOT be reused on arbitrary
 #     third-party HTML.
 #   - Entities are unescaped via the stdlib `html` module (covers named +
 #     numeric references).
 #   - Consecutive blank lines collapse to at most one.
+_HEAD_RE = re.compile(r"(?is)<head\b[^>]*>.*?</head\s*>")
+_STYLE_RE = re.compile(r"(?is)<style\b[^>]*>.*?</style\s*>")
+_SCRIPT_RE = re.compile(r"(?is)<script\b[^>]*>.*?</script\s*>")
 _BLOCK_BREAK_RE = re.compile(r"(?i)<\s*(br|/p|/div|/li|/tr|/h[1-6])\s*/?\s*>")
 _TAG_RE = re.compile(r"<[^>]+>")
 _INLINE_WS_RE = re.compile(r"[ \t]+")
@@ -50,7 +56,12 @@ _INLINE_WS_RE = re.compile(r"[ \t]+")
 
 def _html_to_plain_text(html_body: str) -> str:
     """Derive a readable plain-text alternative from a rendered HTML email body."""
-    text = _BLOCK_BREAK_RE.sub("\n", html_body)
+    # Element-content removal must run BEFORE the generic tag strip — the
+    # tag strip removes <style> tags but would leave the CSS text behind.
+    text = _HEAD_RE.sub("", html_body)
+    text = _STYLE_RE.sub("", text)
+    text = _SCRIPT_RE.sub("", text)
+    text = _BLOCK_BREAK_RE.sub("\n", text)
     text = _TAG_RE.sub("", text)
     text = _html_unescape(text)
     lines = [_INLINE_WS_RE.sub(" ", line).strip() for line in text.splitlines()]

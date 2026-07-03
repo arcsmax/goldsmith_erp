@@ -1065,6 +1065,8 @@ def _render_valuation_certificate_fpdf(
 _PHOTO_MAX_W_MM = 100.0
 _PHOTO_MAX_H_MM = 70.0
 _PHOTO_MARGIN_MM = 4.0
+_UPDATE_BODY_MAX_CHARS = 4000
+_UPDATE_TRUNCATION_MARKER = "[Text gekürzt]"
 
 
 def _embed_photo_grid(pdf: "_GoldsmithPDF", photos: list[bytes]) -> None:
@@ -1076,6 +1078,12 @@ def _embed_photo_grid(pdf: "_GoldsmithPDF", photos: list[bytes]) -> None:
     filesystem path). A photo that cannot be read/embedded is skipped with a
     logged warning rather than aborting the whole document — a bad photo
     must not block delivery of the rest of the update.
+
+    Page breaks: ``pdf.image()`` bypasses fpdf2's auto-page-break (that
+    mechanism only triggers on text cells), so each photo's height is
+    checked against ``pdf.page_break_trigger`` up front and a fresh page is
+    started when it would not fit — otherwise photos past the first ~3 would
+    be drawn off the bottom edge of the page.
     """
     for photo_bytes in photos:
         try:
@@ -1097,6 +1105,9 @@ def _embed_photo_grid(pdf: "_GoldsmithPDF", photos: list[bytes]) -> None:
             h_mm = _PHOTO_MAX_H_MM
             w_mm = h_mm / aspect
 
+        if pdf.get_y() + h_mm > pdf.page_break_trigger:
+            pdf.add_page()
+
         y = pdf.get_y()
         try:
             _embed_image_bytes(pdf, photo_bytes, (10, y, w_mm, h_mm), suffix=".jpg")
@@ -1106,6 +1117,60 @@ def _embed_photo_grid(pdf: "_GoldsmithPDF", photos: list[bytes]) -> None:
             )
             continue
         pdf.set_y(y + h_mm + _PHOTO_MARGIN_MM)
+
+
+def _compose_update_pdf_lines(
+    update: Any,
+    order_ref: str,
+    customer_name: str,
+) -> list[tuple[str, str]]:
+    """
+    Compose the ordered visible text content of a customer-update PDF.
+
+    Pure function (no FPDF dependency) so the document's textual content is
+    directly unit-testable — fpdf2's embedded-TTF page streams are
+    glyph-index encoded and not text-searchable in the output bytes, so
+    without this seam a regression that dropped a draw call (e.g. the body
+    ``multi_cell``) would be invisible to byte-level assertions.
+    ``_render_customer_update_fpdf`` consumes this list verbatim; it draws
+    nothing text-wise that is not produced here (except the workshop name,
+    which it receives separately).
+
+    Returns a list of ``(kind, text)`` tuples in draw order. Kinds:
+    ``title`` / ``kv`` (label and value separated by a tab) / ``section`` /
+    ``body`` / ``footer``.
+
+    Body handling: truncated to ``_UPDATE_BODY_MAX_CHARS`` with a visible
+    German marker line (``_UPDATE_TRUNCATION_MARKER``) appended, and an INFO
+    log carrying the update id — never silent (CLAUDE.md: fail loudly).
+    """
+    subject = _safe_str(getattr(update, "subject", ""))
+    body = _safe_str(getattr(update, "body", ""))
+
+    if len(body) > _UPDATE_BODY_MAX_CHARS:
+        logger.info(
+            "Customer update body truncated for PDF render",
+            extra={
+                "update_id": getattr(update, "id", None),
+                "body_length": len(body),
+                "max_chars": _UPDATE_BODY_MAX_CHARS,
+            },
+        )
+        body = f"{body[:_UPDATE_BODY_MAX_CHARS]}\n\n{_UPDATE_TRUNCATION_MARKER}"
+
+    return [
+        ("title", "KUNDENINFORMATION"),
+        ("kv", f"Auftrag:\t{order_ref}"),
+        ("kv", f"Kunde:\t{customer_name}"),
+        ("section", subject or "Update"),
+        ("body", body),
+        (
+            "footer",
+            f"Referenz: {order_ref}  |  "
+            "Ihre Daten werden ausschliesslich zur Bearbeitung dieses "
+            "Auftrags verwendet.",
+        ),
+    ]
 
 
 def _render_customer_update_fpdf(
@@ -1121,10 +1186,12 @@ def _render_customer_update_fpdf(
     the goldsmith prefers to hand/print/send it herself (spec:
     ``delivery_method=pdf_manual``). Mirrors the email template's content
     (subject/body/order reference/footer) so both delivery paths carry
-    identical information.
+    identical information. All visible text content comes from
+    ``_compose_update_pdf_lines`` (the unit-testable seam) — this function
+    only owns layout, styling, and photo embedding.
     """
     subject = _safe_str(getattr(update, "subject", ""))
-    body = _safe_str(getattr(update, "body", ""))
+    lines = _compose_update_pdf_lines(update, order_ref, customer_name)
 
     footer_text = f"{workshop_name}  |  {order_ref}"
     pdf = _GoldsmithPDF(workshop_name=workshop_name, footer_text=footer_text)
@@ -1137,45 +1204,48 @@ def _render_customer_update_fpdf(
     if subject:
         pdf.set_subject(subject)
 
-    # ── Header ────────────────────────────────────────────────────────────────
+    # ── Workshop name (header) ────────────────────────────────────────────────
     pdf.set_font(_FONT_B, "", 16)
     pdf.set_text_color(*_GOLD)
     pdf.cell(0, 9, workshop_name, ln=True)
 
-    pdf.set_font(_FONT_B, "", 18)
-    pdf.set_text_color(60, 60, 60)
-    pdf.cell(0, 10, "KUNDENINFORMATION", ln=True)
-    pdf.set_text_color(*_DARK)
-    pdf.gold_rule()
-    pdf.ln(4)
+    # ── Composed text content, in order ───────────────────────────────────────
+    photos_drawn = False
+    for kind, text in lines:
+        if kind == "title":
+            pdf.set_font(_FONT_B, "", 18)
+            pdf.set_text_color(60, 60, 60)
+            pdf.cell(0, 10, text, ln=True)
+            pdf.set_text_color(*_DARK)
+            pdf.gold_rule()
+            pdf.ln(4)
+        elif kind == "kv":
+            label, _, value = text.partition("\t")
+            pdf.kv_row(label, value, label_w=40)
+        elif kind == "section":
+            pdf.ln(3)
+            pdf.section_title(text)
+        elif kind == "body":
+            pdf.set_font(_FONT, "", 10)
+            pdf.multi_cell(0, 5, text)
+            pdf.ln(4)
+        elif kind == "footer":
+            # Photos sit between body and footer note.
+            if photos:
+                pdf.section_title(f"Fotos ({len(photos)})")
+                _embed_photo_grid(pdf, photos)
+                pdf.ln(2)
+                photos_drawn = True
+            pdf.set_font(_FONT, "", 8)
+            pdf.set_text_color(*_GRAY)
+            pdf.multi_cell(0, 4, text)
+            pdf.set_text_color(*_DARK)
 
-    pdf.kv_row("Auftrag:", order_ref, label_w=40)
-    pdf.kv_row("Kunde:", customer_name, label_w=40)
-    pdf.ln(3)
-
-    # ── Subject + body ────────────────────────────────────────────────────────
-    pdf.section_title(subject or "Update")
-    pdf.set_font(_FONT, "", 10)
-    pdf.multi_cell(0, 5, body[:4000])
-    pdf.ln(4)
-
-    # ── Photos ────────────────────────────────────────────────────────────────
-    if photos:
+    # Defensive: if the composed lines ever lose their footer entry, the
+    # photos must still be drawn rather than silently dropped.
+    if photos and not photos_drawn:
         pdf.section_title(f"Fotos ({len(photos)})")
         _embed_photo_grid(pdf, photos)
-        pdf.ln(2)
-
-    # ── Footer note (order reference + privacy line) ─────────────────────────
-    pdf.set_font(_FONT, "", 8)
-    pdf.set_text_color(*_GRAY)
-    pdf.multi_cell(
-        0,
-        4,
-        f"Referenz: {order_ref}  |  {workshop_name}  |  "
-        "Ihre Daten werden ausschliesslich zur Bearbeitung dieses Auftrags "
-        "verwendet.",
-    )
-    pdf.set_text_color(*_DARK)
 
     return bytes(pdf.output())
 
