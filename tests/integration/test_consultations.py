@@ -313,6 +313,77 @@ class TestConsultationConvert:
         assert body["converted_order_id"] is None
 
     @pytest.mark.asyncio
+    async def test_unconvert_quote_conversion_resets_and_deletes_draft(
+        self,
+        client: AsyncClient,
+        goldsmith_auth_headers: dict,
+        test_customer: Customer,
+    ):
+        cid = await _create_consultation(
+            client, goldsmith_auth_headers, test_customer.id
+        )
+        convert = await client.post(
+            f"{CONSULTATIONS_URL}{cid}/convert",
+            json={"target": "quote"},
+            headers=goldsmith_auth_headers,
+        )
+        quote_id = convert.json()["converted_quote_id"]
+
+        unconvert = await client.post(
+            f"{CONSULTATIONS_URL}{cid}/unconvert", headers=goldsmith_auth_headers
+        )
+        assert unconvert.status_code == 200, unconvert.text
+        body = unconvert.json()
+        assert body["status"] == "completed"
+        assert body["converted_quote_id"] is None
+        # The empty draft quote is gone.
+        gone = await client.get(
+            f"/api/v1/quotes/{quote_id}", headers=goldsmith_auth_headers
+        )
+        assert gone.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_unconvert_order_conversion_returns_409(
+        self,
+        client: AsyncClient,
+        goldsmith_auth_headers: dict,
+        test_customer: Customer,
+    ):
+        cid = await _create_consultation(
+            client, goldsmith_auth_headers, test_customer.id
+        )
+        await client.post(
+            f"{CONSULTATIONS_URL}{cid}/convert",
+            json={"target": "order"},
+            headers=goldsmith_auth_headers,
+        )
+        resp = await client.post(
+            f"{CONSULTATIONS_URL}{cid}/unconvert", headers=goldsmith_auth_headers
+        )
+        assert resp.status_code == 409, resp.text
+
+    @pytest.mark.asyncio
+    async def test_viewer_cannot_unconvert(
+        self,
+        client: AsyncClient,
+        goldsmith_auth_headers: dict,
+        viewer_auth_headers: dict,
+        test_customer: Customer,
+    ):
+        cid = await _create_consultation(
+            client, goldsmith_auth_headers, test_customer.id
+        )
+        await client.post(
+            f"{CONSULTATIONS_URL}{cid}/convert",
+            json={"target": "quote"},
+            headers=goldsmith_auth_headers,
+        )
+        resp = await client.post(
+            f"{CONSULTATIONS_URL}{cid}/unconvert", headers=viewer_auth_headers
+        )
+        assert resp.status_code == 403
+
+    @pytest.mark.asyncio
     async def test_convert_rejects_dangerous_wishes_with_generic_422(
         self,
         client: AsyncClient,

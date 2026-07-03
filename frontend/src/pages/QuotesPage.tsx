@@ -1,6 +1,6 @@
 // Quotes Page — Kostenvoranschlagsverwaltung
 import React, { useEffect, useState, useCallback } from 'react';
-import { useToast } from '../contexts';
+import { useToast, useConfirm } from '../contexts';
 import { quotesApi } from '../api/quotes';
 import { customersApi } from '../api/customers';
 import {
@@ -8,9 +8,13 @@ import {
   Quote,
   QuoteStatus,
   QuoteCreateInput,
+  QuoteLineItem,
+  QuoteLineItemInput,
+  QuoteLineType,
   ApproveQuoteInput,
   Customer,
 } from '../types';
+import { logError } from '../lib/logError';
 import { SignatureCanvas } from '../components/SignatureCanvas';
 import '../styles/quotes.css';
 
@@ -320,6 +324,284 @@ const ApproveModal: React.FC<ApproveModalProps> = ({ quote, onClose, onApprove }
 // Quote Detail Panel
 // ---------------------------------------------------------------------------
 
+const LINE_TYPE_LABELS: Record<QuoteLineType, string> = {
+  material: 'Material',
+  labor: 'Arbeit',
+  gemstone: 'Edelstein',
+  other: 'Sonstiges',
+};
+
+const EMPTY_LINE_DRAFT: QuoteLineItemInput = {
+  line_type: 'labor',
+  description: '',
+  quantity: 1,
+  unit_price: 0,
+};
+
+interface LineItemRowProps {
+  item: QuoteLineItem;
+  index: number;
+  disabled: boolean;
+  onSave: (itemId: number, data: QuoteLineItemInput) => Promise<void>;
+  onRemove: (itemId: number) => Promise<void>;
+}
+
+// A single editable line-item row. Local state is seeded from the item and
+// committed on blur / select-change, so typing does not round-trip to the API
+// on every keystroke. `key={item.id}` keeps the row bound to its DB row but does
+// NOT remount on a save (the id is stable), so the useEffect below resyncs the
+// draft from the server-canonical item after each save.
+function LineItemRow({ item, index, disabled, onSave, onRemove }: LineItemRowProps) {
+  const [draft, setDraft] = useState<QuoteLineItemInput>({
+    line_type: item.line_type,
+    description: item.description,
+    quantity: item.quantity,
+    unit_price: item.unit_price,
+  });
+  const [busy, setBusy] = useState(false);
+
+  // Resync when the server-canonical values change (post-save/normalisation),
+  // so the row never keeps a stale locally-typed value.
+  useEffect(() => {
+    setDraft({
+      line_type: item.line_type,
+      description: item.description,
+      quantity: item.quantity,
+      unit_price: item.unit_price,
+    });
+  }, [item.line_type, item.description, item.quantity, item.unit_price]);
+
+  const commit = async (next: QuoteLineItemInput) => {
+    if (
+      next.line_type === item.line_type &&
+      next.description === item.description &&
+      next.quantity === item.quantity &&
+      next.unit_price === item.unit_price
+    ) {
+      return; // unchanged — skip the round-trip
+    }
+    if (!next.description.trim()) return; // never persist an empty description
+    // Never send NaN / negative numbers to the API (empty or '-' number inputs
+    // read as NaN/negative). Skip silently; the field keeps the typed value for
+    // the user to correct, and the stored total stays correct from props.
+    if (
+      !Number.isFinite(next.quantity) ||
+      next.quantity <= 0 ||
+      !Number.isFinite(next.unit_price) ||
+      next.unit_price < 0
+    ) {
+      return; // backend requires quantity > 0, unit_price >= 0
+    }
+    setBusy(true);
+    try {
+      await onSave(item.id, next);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleRemove = async () => {
+    setBusy(true);
+    try {
+      await onRemove(item.id);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <tr>
+      <td>{index + 1}</td>
+      <td>
+        <select
+          value={draft.line_type}
+          disabled={disabled || busy}
+          onChange={e => {
+            const next = { ...draft, line_type: e.target.value as QuoteLineType };
+            setDraft(next);
+            void commit(next);
+          }}
+          aria-label="Art der Position"
+        >
+          {(Object.keys(LINE_TYPE_LABELS) as QuoteLineType[]).map(t => (
+            <option key={t} value={t}>{LINE_TYPE_LABELS[t]}</option>
+          ))}
+        </select>
+      </td>
+      <td>
+        <input
+          type="text"
+          value={draft.description}
+          disabled={disabled || busy}
+          onChange={e => setDraft({ ...draft, description: e.target.value })}
+          onBlur={() => void commit(draft)}
+          aria-label="Beschreibung"
+        />
+      </td>
+      <td style={{ textAlign: 'right' }}>
+        <input
+          type="number"
+          min={0}
+          step="0.01"
+          value={draft.quantity}
+          disabled={disabled || busy}
+          onChange={e => setDraft({ ...draft, quantity: Number(e.target.value) })}
+          onBlur={() => void commit(draft)}
+          aria-label="Menge"
+        />
+      </td>
+      <td style={{ textAlign: 'right' }}>
+        <input
+          type="number"
+          min={0}
+          step="0.01"
+          value={draft.unit_price}
+          disabled={disabled || busy}
+          onChange={e => setDraft({ ...draft, unit_price: Number(e.target.value) })}
+          onBlur={() => void commit(draft)}
+          aria-label="Einzelpreis"
+        />
+      </td>
+      <td style={{ textAlign: 'right' }}>{formatAmount(item.total)}</td>
+      <td style={{ textAlign: 'right' }}>
+        <button
+          type="button"
+          className="btn btn-reject btn-sm"
+          disabled={disabled || busy}
+          onClick={() => void handleRemove()}
+          aria-label={`Position ${index + 1} entfernen`}
+          title="Position entfernen"
+        >
+          <span aria-hidden="true">🗑</span>
+        </button>
+      </td>
+    </tr>
+  );
+}
+
+interface EditableLineItemsProps {
+  items: QuoteLineItem[];
+  disabled: boolean;
+  onAdd: (data: QuoteLineItemInput) => Promise<void>;
+  onSave: (itemId: number, data: QuoteLineItemInput) => Promise<void>;
+  onRemove: (itemId: number) => Promise<void>;
+}
+
+// Editable line-items table shown for DRAFT quotes. Every add/edit/remove
+// persists immediately; the server returns the quote with recomputed totals.
+// Exported for unit testing.
+export function EditableLineItems({ items, disabled, onAdd, onSave, onRemove }: EditableLineItemsProps) {
+  const [draft, setDraft] = useState<QuoteLineItemInput>(EMPTY_LINE_DRAFT);
+  const [busy, setBusy] = useState(false);
+
+  const handleAdd = async () => {
+    if (!draft.description.trim()) return;
+    if (
+      !Number.isFinite(draft.quantity) ||
+      draft.quantity <= 0 ||
+      !Number.isFinite(draft.unit_price) ||
+      draft.unit_price < 0
+    ) {
+      return; // backend requires quantity > 0, unit_price >= 0
+    }
+    setBusy(true);
+    try {
+      await onAdd(draft);
+      setDraft(EMPTY_LINE_DRAFT);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <table className="line-items-table line-items-editable">
+      <thead>
+        <tr>
+          <th>Pos.</th>
+          <th>Art</th>
+          <th>Beschreibung</th>
+          <th style={{ textAlign: 'right' }}>Menge</th>
+          <th style={{ textAlign: 'right' }}>Einzelpreis</th>
+          <th style={{ textAlign: 'right' }}>Gesamt</th>
+          <th />
+        </tr>
+      </thead>
+      <tbody>
+        {items.map((item, idx) => (
+          <LineItemRow
+            key={item.id}
+            item={item}
+            index={idx}
+            disabled={disabled}
+            onSave={onSave}
+            onRemove={onRemove}
+          />
+        ))}
+        <tr className="line-item-add-row">
+          <td>+</td>
+          <td>
+            <select
+              value={draft.line_type}
+              disabled={disabled || busy}
+              onChange={e => setDraft({ ...draft, line_type: e.target.value as QuoteLineType })}
+              aria-label="Art der neuen Position"
+            >
+              {(Object.keys(LINE_TYPE_LABELS) as QuoteLineType[]).map(t => (
+                <option key={t} value={t}>{LINE_TYPE_LABELS[t]}</option>
+              ))}
+            </select>
+          </td>
+          <td>
+            <input
+              type="text"
+              placeholder="Neue Position…"
+              value={draft.description}
+              disabled={disabled || busy}
+              onChange={e => setDraft({ ...draft, description: e.target.value })}
+              aria-label="Beschreibung der neuen Position"
+            />
+          </td>
+          <td style={{ textAlign: 'right' }}>
+            <input
+              type="number"
+              min={0}
+              step="0.01"
+              value={draft.quantity}
+              disabled={disabled || busy}
+              onChange={e => setDraft({ ...draft, quantity: Number(e.target.value) })}
+              aria-label="Menge der neuen Position"
+            />
+          </td>
+          <td style={{ textAlign: 'right' }}>
+            <input
+              type="number"
+              min={0}
+              step="0.01"
+              value={draft.unit_price}
+              disabled={disabled || busy}
+              onChange={e => setDraft({ ...draft, unit_price: Number(e.target.value) })}
+              aria-label="Einzelpreis der neuen Position"
+            />
+          </td>
+          <td style={{ textAlign: 'right' }}>
+            {formatAmount(draft.quantity * draft.unit_price)}
+          </td>
+          <td style={{ textAlign: 'right' }}>
+            <button
+              type="button"
+              className="btn btn-primary btn-sm"
+              disabled={disabled || busy || !draft.description.trim()}
+              onClick={() => void handleAdd()}
+            >
+              {busy ? '…' : 'Hinzufügen'}
+            </button>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  );
+}
+
 interface QuoteDetailPanelProps {
   quote: Quote;
   onSend: () => void;
@@ -327,6 +609,10 @@ interface QuoteDetailPanelProps {
   onReject: () => void;
   onConvert: () => void;
   onDownloadPdf: () => void;
+  onDeleteQuote: () => void;
+  onAddLineItem: (data: QuoteLineItemInput) => Promise<void>;
+  onSaveLineItem: (itemId: number, data: QuoteLineItemInput) => Promise<void>;
+  onRemoveLineItem: (itemId: number) => Promise<void>;
   isLoading: boolean;
 }
 
@@ -337,8 +623,14 @@ const QuoteDetailPanel: React.FC<QuoteDetailPanelProps> = ({
   onReject,
   onConvert,
   onDownloadPdf,
+  onDeleteQuote,
+  onAddLineItem,
+  onSaveLineItem,
+  onRemoveLineItem,
   isLoading,
 }) => {
+  const isDraft = quote.status === 'DRAFT';
+  const isDeletable = quote.status === 'DRAFT' || quote.status === 'REJECTED';
   return (
     <div className="quote-detail-panel">
       <div className="detail-header">
@@ -375,6 +667,15 @@ const QuoteDetailPanel: React.FC<QuoteDetailPanelProps> = ({
               In Auftrag umwandeln
             </button>
           )}
+          {isDeletable && (
+            <button
+              className="btn btn-reject btn-sm"
+              onClick={onDeleteQuote}
+              disabled={isLoading}
+            >
+              Löschen
+            </button>
+          )}
         </div>
       </div>
 
@@ -409,31 +710,19 @@ const QuoteDetailPanel: React.FC<QuoteDetailPanelProps> = ({
         )}
       </div>
 
-      {quote.line_items.length > 0 && (
+      {isDraft ? (
         <>
-          <table className="line-items-table">
-            <thead>
-              <tr>
-                <th>Pos.</th>
-                <th>Beschreibung</th>
-                <th style={{ textAlign: 'right' }}>Menge</th>
-                <th style={{ textAlign: 'right' }}>Einzelpreis</th>
-                <th style={{ textAlign: 'right' }}>Gesamt</th>
-              </tr>
-            </thead>
-            <tbody>
-              {quote.line_items.map((item, idx) => (
-                <tr key={item.id}>
-                  <td>{idx + 1}</td>
-                  <td>{item.description}</td>
-                  <td style={{ textAlign: 'right' }}>{item.quantity}</td>
-                  <td style={{ textAlign: 'right' }}>{formatAmount(item.unit_price)}</td>
-                  <td style={{ textAlign: 'right' }}>{formatAmount(item.total)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-
+          <p className="line-items-hint">
+            Entwurf — Positionen und Beträge lassen sich hier anpassen. Der
+            Kostenvoranschlag friert erst beim Versenden ein.
+          </p>
+          <EditableLineItems
+            items={quote.line_items}
+            disabled={isLoading}
+            onAdd={onAddLineItem}
+            onSave={onSaveLineItem}
+            onRemove={onRemoveLineItem}
+          />
           <div className="quote-totals">
             <div className="totals-row">
               <span className="totals-label">Zwischensumme:</span>
@@ -449,6 +738,48 @@ const QuoteDetailPanel: React.FC<QuoteDetailPanelProps> = ({
             </div>
           </div>
         </>
+      ) : (
+        quote.line_items.length > 0 && (
+          <>
+            <table className="line-items-table">
+              <thead>
+                <tr>
+                  <th>Pos.</th>
+                  <th>Beschreibung</th>
+                  <th style={{ textAlign: 'right' }}>Menge</th>
+                  <th style={{ textAlign: 'right' }}>Einzelpreis</th>
+                  <th style={{ textAlign: 'right' }}>Gesamt</th>
+                </tr>
+              </thead>
+              <tbody>
+                {quote.line_items.map((item, idx) => (
+                  <tr key={item.id}>
+                    <td>{idx + 1}</td>
+                    <td>{item.description}</td>
+                    <td style={{ textAlign: 'right' }}>{item.quantity}</td>
+                    <td style={{ textAlign: 'right' }}>{formatAmount(item.unit_price)}</td>
+                    <td style={{ textAlign: 'right' }}>{formatAmount(item.total)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+
+            <div className="quote-totals">
+              <div className="totals-row">
+                <span className="totals-label">Zwischensumme:</span>
+                <span className="totals-value">{formatAmount(quote.subtotal)}</span>
+              </div>
+              <div className="totals-row">
+                <span className="totals-label">MwSt {quote.tax_rate}%:</span>
+                <span className="totals-value">{formatAmount(quote.tax_amount)}</span>
+              </div>
+              <div className="totals-row totals-grand">
+                <span className="totals-label">Gesamtbetrag:</span>
+                <span className="totals-value">{formatAmount(quote.total)}</span>
+              </div>
+            </div>
+          </>
+        )
       )}
 
       {quote.notes && (
@@ -467,6 +798,7 @@ const QuoteDetailPanel: React.FC<QuoteDetailPanelProps> = ({
 
 export const QuotesPage: React.FC = () => {
   const { showToast } = useToast();
+  const { showConfirm } = useConfirm();
   const [quotes, setQuotes] = useState<QuoteListItem[]>([]);
   const [selectedQuote, setSelectedQuote] = useState<Quote | null>(null);
   const [customers, setCustomers] = useState<Customer[]>([]);
@@ -624,6 +956,93 @@ export const QuotesPage: React.FC = () => {
     }
   }, [selectedQuote, showToast]);
 
+  // Guard every line-item mutation against out-of-order responses: a slower
+  // response must not clobber a newer selection or resurrect a just-deleted
+  // quote. Only apply the result if the panel still shows the same quote.
+  const applyIfCurrent = useCallback((quoteId: number, updated: Quote) => {
+    setSelectedQuote(prev => (prev && prev.id === quoteId ? updated : prev));
+  }, []);
+
+  const handleAddLineItem = useCallback(
+    async (data: QuoteLineItemInput) => {
+      if (!selectedQuote) return;
+      const quoteId = selectedQuote.id;
+      setActionLoading(true);
+      try {
+        const updated = await quotesApi.addLineItem(quoteId, data);
+        applyIfCurrent(quoteId, updated);
+        await loadQuotes();
+      } catch (err) {
+        logError('quote.addLineItem', err);
+        showToast('Position konnte nicht hinzugefügt werden.', 'error');
+      } finally {
+        setActionLoading(false);
+      }
+    },
+    [selectedQuote, applyIfCurrent, showToast, loadQuotes]
+  );
+
+  const handleSaveLineItem = useCallback(
+    async (itemId: number, data: QuoteLineItemInput) => {
+      if (!selectedQuote) return;
+      const quoteId = selectedQuote.id;
+      setActionLoading(true);
+      try {
+        const updated = await quotesApi.updateLineItem(quoteId, itemId, data);
+        applyIfCurrent(quoteId, updated);
+        await loadQuotes();
+      } catch (err) {
+        logError('quote.updateLineItem', err);
+        showToast('Position konnte nicht gespeichert werden.', 'error');
+      } finally {
+        setActionLoading(false);
+      }
+    },
+    [selectedQuote, applyIfCurrent, showToast, loadQuotes]
+  );
+
+  const handleRemoveLineItem = useCallback(
+    async (itemId: number) => {
+      if (!selectedQuote) return;
+      const quoteId = selectedQuote.id;
+      setActionLoading(true);
+      try {
+        const updated = await quotesApi.deleteLineItem(quoteId, itemId);
+        applyIfCurrent(quoteId, updated);
+        await loadQuotes();
+      } catch (err) {
+        logError('quote.deleteLineItem', err);
+        showToast('Position konnte nicht entfernt werden.', 'error');
+      } finally {
+        setActionLoading(false);
+      }
+    },
+    [selectedQuote, applyIfCurrent, showToast, loadQuotes]
+  );
+
+  const handleDeleteQuote = useCallback(async () => {
+    if (!selectedQuote) return;
+    const ok = await showConfirm({
+      title: 'Angebot löschen',
+      message: `Angebot ${selectedQuote.quote_number} wirklich löschen?`,
+      confirmLabel: 'Löschen',
+      variant: 'danger',
+    });
+    if (!ok) return;
+    setActionLoading(true);
+    try {
+      await quotesApi.deleteQuote(selectedQuote.id);
+      setSelectedQuote(null);
+      showToast('Angebot gelöscht.', 'success');
+      await loadQuotes();
+    } catch (err) {
+      logError('quote.deleteQuote', err);
+      showToast('Angebot konnte nicht gelöscht werden.', 'error');
+    } finally {
+      setActionLoading(false);
+    }
+  }, [selectedQuote, showConfirm, showToast, loadQuotes]);
+
   // ------------------------------------------------------------------
   // Render
   // ------------------------------------------------------------------
@@ -744,6 +1163,10 @@ export const QuotesPage: React.FC = () => {
           onReject={handleReject}
           onConvert={handleConvert}
           onDownloadPdf={handleDownloadPdf}
+          onDeleteQuote={handleDeleteQuote}
+          onAddLineItem={handleAddLineItem}
+          onSaveLineItem={handleSaveLineItem}
+          onRemoveLineItem={handleRemoveLineItem}
           isLoading={actionLoading}
         />
       )}

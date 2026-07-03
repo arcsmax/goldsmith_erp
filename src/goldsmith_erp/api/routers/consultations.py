@@ -50,6 +50,7 @@ from goldsmith_erp.models.consultation import (
 from goldsmith_erp.services.consultation_photo_service import ConsultationPhotoService
 from goldsmith_erp.services.consultation_service import (
     AlreadyConvertedError,
+    CannotUnconvertError,
     ConsultationNotFoundError,
     ConsultationService,
 )
@@ -249,6 +250,36 @@ async def convert_consultation(
         # order-service business rule) — preserves the pre-existing
         # blanket-404 behaviour for anything not explicitly typed above.
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+
+
+@router.post("/{consultation_id}/unconvert", response_model=ConsultationRead)
+@require_permission(Permission.CONSULTATION_EDIT)
+async def unconvert_consultation(
+    consultation_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Überführung einer Beratung in einen Kostenvoranschlag rückgängig machen.
+
+    Nur möglich, solange der verknüpfte Kostenvoranschlag ein Entwurf ist: der
+    leere Entwurf wird gelöscht und die Beratung auf 'abgeschlossen'
+    zurückgesetzt. Überführungen in einen Auftrag sind nicht umkehrbar (409).
+
+    Requires CONSULTATION_EDIT permission.
+    """
+    try:
+        return await ConsultationService.unconvert_consultation(
+            db, consultation_id, current_user
+        )
+    except ConsultationNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
+        ) from None
+    except CannotUnconvertError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=str(exc)
+        ) from None
 
 
 # ─── Photos: upload ─────────────────────────────────────────────────────────

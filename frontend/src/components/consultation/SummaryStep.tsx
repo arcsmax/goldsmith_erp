@@ -52,10 +52,15 @@ interface ConvertConflictDetail {
   quote_id?: number | null;
 }
 
-export const SummaryStep: React.FC<WizardStepProps> = ({ consultation, onPatch }) => {
+export const SummaryStep: React.FC<WizardStepProps> = ({
+  consultation,
+  onPatch,
+  refresh,
+}) => {
   const navigate = useNavigate();
   const { showToast } = useToast();
   const { showConfirm } = useConfirm();
+  const [isUnconverting, setIsUnconverting] = useState(false);
 
   const [customer, setCustomer] = useState<Customer | null>(null);
   const [isLoadingCustomer, setIsLoadingCustomer] = useState(true);
@@ -121,7 +126,9 @@ export const SummaryStep: React.FC<WizardStepProps> = ({ consultation, onPatch }
       title: target === 'quote' ? 'Kostenvoranschlag erstellen' : 'Auftrag anlegen',
       message:
         target === 'quote'
-          ? 'Beratung in einen Kostenvoranschlag überführen?'
+          ? 'Aus der Beratung wird ein Kostenvoranschlag als Entwurf erstellt — '
+            + 'mit einer Budget-Schätzung, die Sie anschließend anpassen können. '
+            + 'Fortfahren?'
           : 'Beratung in einen Auftrag überführen?',
       confirmLabel: target === 'quote' ? 'Kostenvoranschlag erstellen' : 'Auftrag anlegen',
     });
@@ -156,6 +163,33 @@ export const SummaryStep: React.FC<WizardStepProps> = ({ consultation, onPatch }
       showToast('Konvertierung fehlgeschlagen', 'error');
     } finally {
       setConvertingTarget(null);
+    }
+  };
+
+  const handleUnconvert = async () => {
+    const confirmed = await showConfirm({
+      title: 'Überführung rückgängig machen',
+      message:
+        'Der Kostenvoranschlag-Entwurf wird gelöscht und die Beratung '
+        + 'zurückgesetzt. Fortfahren?',
+      confirmLabel: 'Rückgängig machen',
+      variant: 'danger',
+    });
+    if (!confirmed) return;
+    setIsUnconverting(true);
+    try {
+      await consultationsApi.unconvert(consultation.id);
+      showToast('Überführung rückgängig gemacht', 'success');
+      await refresh();
+    } catch (err) {
+      if (axios.isAxiosError(err) && err.response?.status === 409) {
+        showToast('Nur Entwürfe können zurückgesetzt werden', 'error');
+      } else {
+        logError('Überführung rückgängig machen fehlgeschlagen', err);
+        showToast('Rückgängig machen fehlgeschlagen', 'error');
+      }
+    } finally {
+      setIsUnconverting(false);
     }
   };
 
@@ -211,6 +245,16 @@ export const SummaryStep: React.FC<WizardStepProps> = ({ consultation, onPatch }
             <button type="button" className="btn-secondary" onClick={() => navigate(target)}>
               {hasOrder ? 'Zum Auftrag' : 'Zum Kostenvoranschlag'}
             </button>
+            {!hasOrder && (
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={handleUnconvert}
+                disabled={isUnconverting}
+              >
+                {isUnconverting ? 'Wird zurückgesetzt…' : 'Überführung rückgängig machen'}
+              </button>
+            )}
           </div>
         </div>
       </div>

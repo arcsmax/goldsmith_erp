@@ -16,14 +16,23 @@ Endpoints:
   POST   /api/v1/quotes/{quote_id}/convert       - Convert to order (CONVERTED)
   DELETE /api/v1/quotes/{quote_id}               - Delete DRAFT or REJECTED quote
   GET    /api/v1/quotes/{quote_id}/pdf           - Download quote as PDF
+  POST   /api/v1/quotes/{quote_id}/line-items              - Add a line item (DRAFT only)
+  PATCH  /api/v1/quotes/{quote_id}/line-items/{item_id}     - Update a line item (DRAFT only)
+  DELETE /api/v1/quotes/{quote_id}/line-items/{item_id}     - Delete a line item (DRAFT only)
 
 IMPORTANT: Static sub-paths (/export/*) must be registered BEFORE /{quote_id}
-to avoid FastAPI treating string segments as integer path params.
+to avoid FastAPI treating string segments as integer path params. The
+line-item routes below do not collide with /{quote_id}/pdf, /send,
+/approve, /reject, or /convert — Starlette matches by literal segment text
+and segment count, and every one of those sub-paths has a distinct literal
+second segment ("pdf" vs "line-items") or segment count (2 vs 3 for
+/line-items/{item_id}), so registration order does not matter here
+(precedent/rationale: consultations.py module docstring, photo routes).
 """
 
 import io
 import logging
-from typing import List, Optional
+from typing import List, NoReturn, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
@@ -38,17 +47,44 @@ from goldsmith_erp.db.session import get_db
 from goldsmith_erp.models.quote import (
     ApproveQuoteRequest,
     QuoteCreate,
+    QuoteLineItemCreate,
     QuoteListResponse,
     QuoteResponse,
     QuoteUpdate,
     RejectQuoteRequest,
 )
-from goldsmith_erp.services.quote_service import QuoteService
 from goldsmith_erp.services.pdf_service import PDFService
+from goldsmith_erp.services.quote_service import (
+    QuoteNotEditableError,
+    QuoteNotFoundError,
+    QuoteService,
+)
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+def _raise_quote_error(exc: ValueError) -> NoReturn:
+    """
+    Map a typed quote-service ValueError to 404 or 409 — typed dispatch via
+    ``isinstance``, no string matching (pattern precedent:
+    ``_raise_not_found_or_conflict`` in consultations.py). Shared by the
+    line-item endpoints AND update_quote (the status-change / tax_rate
+    guards both raise ``QuoteNotEditableError``).
+
+    ``QuoteNotFoundError`` (and its ``QuoteLineItemNotFoundError`` subclass)
+    -> 404; ``QuoteNotEditableError`` -> 409. Both raises use ``from None``
+    so the original exception's chain (and any ``str(exc)`` FastAPI/logging
+    might otherwise render from it) never leaks past the generic detail.
+    ``NoReturn`` documents that this always raises — callers can treat the
+    post-call state as unreachable.
+    """
+    if isinstance(exc, QuoteNotFoundError):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
+        ) from None
+    raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from None
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -170,11 +206,17 @@ async def update_quote(
     """
     Kostenvoranschlag aktualisieren (Update quote fields).
 
-    Editable fields: status, valid_until, notes, tax_rate.
-    Quote number, customer_id, and order_id are immutable.
-    CONVERTED quotes cannot be updated.
+    Editable fields: valid_until, notes, and — DRAFT only — tax_rate.
+    Quote number, customer_id, and order_id are immutable. Status is NOT
+    editable here: a status change goes through the dedicated
+    send/approve/reject/convert actions (a status flip in the payload that
+    differs from the current status → 409). tax_rate is DRAFT-only (→ 409 on
+    a non-DRAFT quote). CONVERTED quotes cannot be updated at all (→ 422).
     """
-    quote = await QuoteService.update_quote(db, quote_id, quote_in, current_user)
+    try:
+        quote = await QuoteService.update_quote(db, quote_id, quote_in, current_user)
+    except ValueError as exc:
+        _raise_quote_error(exc)
     if not quote:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -293,6 +335,80 @@ async def delete_quote(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Kostenvoranschlag {quote_id} nicht gefunden",
         )
+
+
+@router.post(
+    "/{quote_id}/line-items",
+    response_model=QuoteResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+@require_permission(Permission.QUOTE_EDIT)
+async def add_quote_line_item(
+    quote_id: int,
+    item_in: QuoteLineItemCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Angebotsposition hinzufuegen (Add a line item to a DRAFT quote).
+
+    Only DRAFT quotes can be edited (a SENT/APPROVED/CONVERTED quote is
+    legally relevant and stays immutable). subtotal/tax_amount/total are
+    recomputed from ALL current line items and returned in the response.
+    """
+    try:
+        return await QuoteService.add_line_item(db, quote_id, item_in, current_user)
+    except ValueError as exc:
+        _raise_quote_error(exc)
+
+
+@router.patch(
+    "/{quote_id}/line-items/{item_id}",
+    response_model=QuoteResponse,
+)
+@require_permission(Permission.QUOTE_EDIT)
+async def update_quote_line_item(
+    quote_id: int,
+    item_id: int,
+    item_in: QuoteLineItemCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Angebotsposition aktualisieren (Update a line item on a DRAFT quote).
+
+    Only DRAFT quotes can be edited. subtotal/tax_amount/total are
+    recomputed from ALL current line items and returned in the response.
+    """
+    try:
+        return await QuoteService.update_line_item(
+            db, quote_id, item_id, item_in, current_user
+        )
+    except ValueError as exc:
+        _raise_quote_error(exc)
+
+
+@router.delete(
+    "/{quote_id}/line-items/{item_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+@require_permission(Permission.QUOTE_EDIT)
+async def delete_quote_line_item(
+    quote_id: int,
+    item_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Angebotsposition loeschen (Delete a line item from a DRAFT quote).
+
+    Only DRAFT quotes can be edited. subtotal/tax_amount/total are
+    recomputed from the remaining line items.
+    """
+    try:
+        await QuoteService.delete_line_item(db, quote_id, item_id, current_user)
+    except ValueError as exc:
+        _raise_quote_error(exc)
 
 
 @router.get("/{quote_id}/pdf")

@@ -16,6 +16,7 @@ Permission matrix:
   - VIEWER   — no QUOTE_VIEW, all endpoints return 403
   - No auth  — 401
 """
+
 import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -36,6 +37,7 @@ def _action_url(quote_id: int, action: str) -> str:
 # ---------------------------------------------------------------------------
 # Payload helpers
 # ---------------------------------------------------------------------------
+
 
 def _create_payload(customer_id: int, with_line_items: bool = True) -> dict:
     payload: dict = {
@@ -66,6 +68,7 @@ def _create_payload(customer_id: int, with_line_items: bool = True) -> dict:
 # Helper: create a quote and return its ID
 # ---------------------------------------------------------------------------
 
+
 async def _create_quote(
     client: AsyncClient,
     headers: dict,
@@ -84,6 +87,7 @@ async def _create_quote(
 # ===========================================================================
 # POST /api/v1/quotes/ — create
 # ===========================================================================
+
 
 class TestCreateQuote:
 
@@ -217,12 +221,11 @@ class TestCreateQuote:
 # GET /api/v1/quotes/ — list
 # ===========================================================================
 
+
 class TestListQuotes:
 
     @pytest.mark.asyncio
-    async def test_list_quotes_unauthenticated_returns_401(
-        self, client: AsyncClient
-    ):
+    async def test_list_quotes_unauthenticated_returns_401(self, client: AsyncClient):
         response = await client.get(QUOTES_URL)
         assert response.status_code == 401
 
@@ -272,6 +275,7 @@ class TestListQuotes:
 # POST /api/v1/quotes/{id}/send — mark SENT
 # ===========================================================================
 
+
 class TestSendQuote:
 
     @pytest.mark.asyncio
@@ -283,7 +287,9 @@ class TestSendQuote:
     ):
         quote_id = await _create_quote(client, admin_auth_headers, test_customer.id)
 
-        resp = await client.post(_action_url(quote_id, "send"), headers=admin_auth_headers)
+        resp = await client.post(
+            _action_url(quote_id, "send"), headers=admin_auth_headers
+        )
         assert resp.status_code == 200
         assert resp.json()["status"] == "sent"
 
@@ -309,6 +315,7 @@ class TestSendQuote:
 # ===========================================================================
 # POST /api/v1/quotes/{id}/approve — mark APPROVED
 # ===========================================================================
+
 
 class TestApproveQuote:
 
@@ -382,6 +389,7 @@ class TestApproveQuote:
 # POST /api/v1/quotes/{id}/reject — mark REJECTED
 # ===========================================================================
 
+
 class TestRejectQuote:
 
     @pytest.mark.asyncio
@@ -454,6 +462,7 @@ class TestRejectQuote:
 # GET /api/v1/quotes/{id}/pdf — download PDF
 # ===========================================================================
 
+
 class TestQuotePdf:
 
     @pytest.mark.asyncio
@@ -477,7 +486,9 @@ class TestQuotePdf:
         """PDF endpoint must return application/pdf content-type."""
         quote_id = await _create_quote(client, admin_auth_headers, test_customer.id)
 
-        resp = await client.get(_action_url(quote_id, "pdf"), headers=admin_auth_headers)
+        resp = await client.get(
+            _action_url(quote_id, "pdf"), headers=admin_auth_headers
+        )
         assert resp.status_code == 200
         assert "application/pdf" in resp.headers.get("content-type", "")
 
@@ -498,5 +509,384 @@ class TestQuotePdf:
     ):
         """VIEWER has no QUOTE_VIEW permission, PDF must be denied."""
         quote_id = await _create_quote(client, admin_auth_headers, test_customer.id)
-        resp = await client.get(_action_url(quote_id, "pdf"), headers=viewer_auth_headers)
+        resp = await client.get(
+            _action_url(quote_id, "pdf"), headers=viewer_auth_headers
+        )
         assert resp.status_code == 403
+
+
+# ===========================================================================
+# Line-item CRUD (editable-quotes plan, Task 1)
+# ===========================================================================
+
+
+def _line_items_url(quote_id: int, item_id: int | None = None) -> str:
+    base = f"{_quote_url(quote_id)}/line-items"
+    return f"{base}/{item_id}" if item_id is not None else base
+
+
+def _line_item_payload(
+    quantity: float = 1.0, unit_price: float = 10.0, description: str = "Position"
+) -> dict:
+    return {
+        "line_type": QuoteLineType.OTHER.value,
+        "description": description,
+        "quantity": quantity,
+        "unit_price": unit_price,
+    }
+
+
+class TestAddQuoteLineItem:
+
+    @pytest.mark.asyncio
+    async def test_add_line_item_as_admin_recomputes_totals(
+        self,
+        client: AsyncClient,
+        admin_auth_headers: dict,
+        test_customer: Customer,
+    ):
+        """Quote fixture starts with subtotal 210 (see _create_payload).
+        Adding a 100 EUR line item must recompute subtotal/tax/total."""
+        quote_id = await _create_quote(client, admin_auth_headers, test_customer.id)
+
+        resp = await client.post(
+            _line_items_url(quote_id),
+            json=_line_item_payload(1.0, 100.0, "Zusatzposition"),
+            headers=admin_auth_headers,
+        )
+        assert resp.status_code == 201, resp.text
+        data = resp.json()
+        assert len(data["line_items"]) == 3
+        assert data["subtotal"] == pytest.approx(310.0, abs=0.01)
+        assert data["tax_amount"] == pytest.approx(310.0 * 0.19, abs=0.01)
+        assert data["total"] == pytest.approx(310.0 * 1.19, abs=0.01)
+
+    @pytest.mark.asyncio
+    async def test_add_line_item_unauthenticated_returns_401(
+        self, client: AsyncClient, admin_auth_headers: dict, test_customer: Customer
+    ):
+        quote_id = await _create_quote(client, admin_auth_headers, test_customer.id)
+        resp = await client.post(_line_items_url(quote_id), json=_line_item_payload())
+        assert resp.status_code == 401
+
+    @pytest.mark.asyncio
+    async def test_add_line_item_viewer_returns_403(
+        self,
+        client: AsyncClient,
+        admin_auth_headers: dict,
+        viewer_auth_headers: dict,
+        test_customer: Customer,
+    ):
+        """VIEWER has no QUOTE_EDIT permission."""
+        quote_id = await _create_quote(client, admin_auth_headers, test_customer.id)
+        resp = await client.post(
+            _line_items_url(quote_id),
+            json=_line_item_payload(),
+            headers=viewer_auth_headers,
+        )
+        assert resp.status_code == 403
+
+    @pytest.mark.asyncio
+    async def test_add_line_item_nonexistent_quote_returns_404(
+        self, client: AsyncClient, admin_auth_headers: dict
+    ):
+        resp = await client.post(
+            _line_items_url(99999),
+            json=_line_item_payload(),
+            headers=admin_auth_headers,
+        )
+        assert resp.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_add_line_item_non_draft_quote_returns_409(
+        self,
+        client: AsyncClient,
+        admin_auth_headers: dict,
+        test_customer: Customer,
+    ):
+        quote_id = await _create_quote(client, admin_auth_headers, test_customer.id)
+        await client.post(_action_url(quote_id, "send"), headers=admin_auth_headers)
+
+        resp = await client.post(
+            _line_items_url(quote_id),
+            json=_line_item_payload(),
+            headers=admin_auth_headers,
+        )
+        assert resp.status_code == 409
+
+
+class TestUpdateQuoteLineItem:
+
+    @pytest.mark.asyncio
+    async def test_update_line_item_recomputes_totals(
+        self,
+        client: AsyncClient,
+        admin_auth_headers: dict,
+        test_customer: Customer,
+    ):
+        quote_id = await _create_quote(client, admin_auth_headers, test_customer.id)
+        get_resp = await client.get(_quote_url(quote_id), headers=admin_auth_headers)
+        item_id = get_resp.json()["line_items"][0]["id"]
+
+        resp = await client.patch(
+            _line_items_url(quote_id, item_id),
+            json=_line_item_payload(1.0, 500.0, "Angepasste Position"),
+            headers=admin_auth_headers,
+        )
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        updated_item = next(li for li in data["line_items"] if li["id"] == item_id)
+        assert updated_item["description"] == "Angepasste Position"
+        assert updated_item["total"] == pytest.approx(500.0, abs=0.01)
+        # Other original line item (Gold 585 1.5g, 60.0) + 500.0 = 560.0
+        assert data["subtotal"] == pytest.approx(560.0, abs=0.01)
+
+    @pytest.mark.asyncio
+    async def test_update_line_item_unknown_item_returns_404(
+        self,
+        client: AsyncClient,
+        admin_auth_headers: dict,
+        test_customer: Customer,
+    ):
+        quote_id = await _create_quote(client, admin_auth_headers, test_customer.id)
+
+        resp = await client.patch(
+            _line_items_url(quote_id, 99999),
+            json=_line_item_payload(),
+            headers=admin_auth_headers,
+        )
+        assert resp.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_update_line_item_nonexistent_quote_returns_404(
+        self, client: AsyncClient, admin_auth_headers: dict
+    ):
+        resp = await client.patch(
+            _line_items_url(99999, 1),
+            json=_line_item_payload(),
+            headers=admin_auth_headers,
+        )
+        assert resp.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_update_line_item_non_draft_quote_returns_409(
+        self,
+        client: AsyncClient,
+        admin_auth_headers: dict,
+        test_customer: Customer,
+    ):
+        quote_id = await _create_quote(client, admin_auth_headers, test_customer.id)
+        get_resp = await client.get(_quote_url(quote_id), headers=admin_auth_headers)
+        item_id = get_resp.json()["line_items"][0]["id"]
+        await client.post(_action_url(quote_id, "send"), headers=admin_auth_headers)
+
+        resp = await client.patch(
+            _line_items_url(quote_id, item_id),
+            json=_line_item_payload(),
+            headers=admin_auth_headers,
+        )
+        assert resp.status_code == 409
+
+
+class TestDeleteQuoteLineItem:
+
+    @pytest.mark.asyncio
+    async def test_delete_line_item_recomputes_totals(
+        self,
+        client: AsyncClient,
+        admin_auth_headers: dict,
+        test_customer: Customer,
+    ):
+        quote_id = await _create_quote(client, admin_auth_headers, test_customer.id)
+        get_resp = await client.get(_quote_url(quote_id), headers=admin_auth_headers)
+        items = get_resp.json()["line_items"]
+        item_id = items[0]["id"]
+        remaining_total = items[1]["total"]
+
+        resp = await client.delete(
+            _line_items_url(quote_id, item_id), headers=admin_auth_headers
+        )
+        assert resp.status_code == 204
+
+        follow_up = await client.get(_quote_url(quote_id), headers=admin_auth_headers)
+        data = follow_up.json()
+        assert len(data["line_items"]) == 1
+        assert data["subtotal"] == pytest.approx(remaining_total, abs=0.01)
+
+    @pytest.mark.asyncio
+    async def test_delete_line_item_unknown_item_returns_404(
+        self,
+        client: AsyncClient,
+        admin_auth_headers: dict,
+        test_customer: Customer,
+    ):
+        quote_id = await _create_quote(client, admin_auth_headers, test_customer.id)
+
+        resp = await client.delete(
+            _line_items_url(quote_id, 99999), headers=admin_auth_headers
+        )
+        assert resp.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_delete_line_item_nonexistent_quote_returns_404(
+        self, client: AsyncClient, admin_auth_headers: dict
+    ):
+        resp = await client.delete(
+            _line_items_url(99999, 1), headers=admin_auth_headers
+        )
+        assert resp.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_delete_line_item_non_draft_quote_returns_409(
+        self,
+        client: AsyncClient,
+        admin_auth_headers: dict,
+        test_customer: Customer,
+    ):
+        quote_id = await _create_quote(client, admin_auth_headers, test_customer.id)
+        get_resp = await client.get(_quote_url(quote_id), headers=admin_auth_headers)
+        item_id = get_resp.json()["line_items"][0]["id"]
+        await client.post(_action_url(quote_id, "send"), headers=admin_auth_headers)
+
+        resp = await client.delete(
+            _line_items_url(quote_id, item_id), headers=admin_auth_headers
+        )
+        assert resp.status_code == 409
+
+
+# ===========================================================================
+# Route-shadowing: /line-items sub-paths vs /{quote_id}/pdf etc.
+# ===========================================================================
+
+
+class TestLineItemRouteShadowing:
+
+    @pytest.mark.asyncio
+    async def test_pdf_and_line_items_routes_are_both_reachable(
+        self,
+        client: AsyncClient,
+        admin_auth_headers: dict,
+        test_customer: Customer,
+    ):
+        """Deliberate check that /{quote_id}/pdf and /{quote_id}/line-items
+        (and /{quote_id}/line-items/{item_id}) are distinct routes that do
+        not shadow one another — each must be handled by its own endpoint,
+        not accidentally matched against a differently-shaped path."""
+        quote_id = await _create_quote(client, admin_auth_headers, test_customer.id)
+
+        pdf_resp = await client.get(
+            _action_url(quote_id, "pdf"), headers=admin_auth_headers
+        )
+        assert pdf_resp.status_code == 200
+        assert "application/pdf" in pdf_resp.headers.get("content-type", "")
+
+        add_resp = await client.post(
+            _line_items_url(quote_id),
+            json=_line_item_payload(),
+            headers=admin_auth_headers,
+        )
+        assert add_resp.status_code == 201
+        item_id = add_resp.json()["line_items"][-1]["id"]
+
+        update_resp = await client.patch(
+            _line_items_url(quote_id, item_id),
+            json=_line_item_payload(2.0, 20.0),
+            headers=admin_auth_headers,
+        )
+        assert update_resp.status_code == 200
+
+        delete_resp = await client.delete(
+            _line_items_url(quote_id, item_id), headers=admin_auth_headers
+        )
+        assert delete_resp.status_code == 204
+
+        # /pdf still resolves correctly after line-item routes were hit.
+        pdf_resp_2 = await client.get(
+            _action_url(quote_id, "pdf"), headers=admin_auth_headers
+        )
+        assert pdf_resp_2.status_code == 200
+
+
+# ===========================================================================
+# PUT /quotes/{id} status/tax_rate guards (Fix round 1: HIGH + MEDIUM)
+# ===========================================================================
+
+
+class TestUpdateQuoteGuards:
+
+    @pytest.mark.asyncio
+    async def test_status_revert_via_put_is_rejected_and_edits_stay_locked(
+        self,
+        client: AsyncClient,
+        admin_auth_headers: dict,
+        test_customer: Customer,
+    ):
+        """HIGH: the send/approve→revert-to-DRAFT→edit→re-send bypass.
+        A SENT quote must reject PUT status=draft with 409, and line items
+        must remain non-addable (409) — the immutability premise holds."""
+        quote_id = await _create_quote(client, admin_auth_headers, test_customer.id)
+        send_resp = await client.post(
+            _action_url(quote_id, "send"), headers=admin_auth_headers
+        )
+        assert send_resp.status_code == 200
+
+        # Attempt the status revert via PUT → 409, status unchanged.
+        revert_resp = await client.put(
+            _quote_url(quote_id),
+            json={"status": "draft"},
+            headers=admin_auth_headers,
+        )
+        assert revert_resp.status_code == 409
+
+        still_sent = await client.get(_quote_url(quote_id), headers=admin_auth_headers)
+        assert still_sent.json()["status"] == "sent"
+
+        # Line items still cannot be added to the (still SENT) quote.
+        add_resp = await client.post(
+            _line_items_url(quote_id),
+            json=_line_item_payload(),
+            headers=admin_auth_headers,
+        )
+        assert add_resp.status_code == 409
+
+    @pytest.mark.asyncio
+    async def test_tax_rate_change_on_sent_quote_returns_409(
+        self,
+        client: AsyncClient,
+        admin_auth_headers: dict,
+        test_customer: Customer,
+    ):
+        """MEDIUM: tax_rate is DRAFT-only — writing it on a SENT quote is 409
+        (never a stale rate/total mismatch)."""
+        quote_id = await _create_quote(client, admin_auth_headers, test_customer.id)
+        await client.post(_action_url(quote_id, "send"), headers=admin_auth_headers)
+
+        resp = await client.put(
+            _quote_url(quote_id),
+            json={"tax_rate": 7.0},
+            headers=admin_auth_headers,
+        )
+        assert resp.status_code == 409
+
+    @pytest.mark.asyncio
+    async def test_tax_rate_change_on_draft_recomputes_via_put(
+        self,
+        client: AsyncClient,
+        admin_auth_headers: dict,
+        test_customer: Customer,
+    ):
+        """DRAFT tax_rate edit via PUT recomputes tax_amount/total (subtotal
+        210 from the fixture)."""
+        quote_id = await _create_quote(client, admin_auth_headers, test_customer.id)
+
+        resp = await client.put(
+            _quote_url(quote_id),
+            json={"tax_rate": 7.0},
+            headers=admin_auth_headers,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["tax_rate"] == pytest.approx(7.0)
+        assert data["subtotal"] == pytest.approx(210.0, abs=0.01)
+        assert data["tax_amount"] == pytest.approx(210.0 * 0.07, abs=0.01)
+        assert data["total"] == pytest.approx(210.0 * 1.07, abs=0.01)

@@ -15,33 +15,28 @@ All service methods are async and accept AsyncSession as first parameter.
 
 import logging
 from datetime import datetime, timedelta
-from typing import List, Optional
-
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.future import select
-from sqlalchemy import func
-from sqlalchemy.orm import selectinload
+from typing import List, Optional, cast
 
 from fastapi import HTTPException
+from sqlalchemy import func
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.future import select
+from sqlalchemy.orm import selectinload
 
-from goldsmith_erp.db.models import (
-    Quote as QuoteModel,
-    QuoteLineItem as QuoteLineItemModel,
-    QuoteStatus,
-    QuoteLineType,
-    Order as OrderModel,
-    OrderStatusEnum,
-    Customer as CustomerModel,
-    User as UserModel,
-    MetalType,
-    InvoiceLineType,
-)
+from goldsmith_erp.db.models import Customer as CustomerModel
+from goldsmith_erp.db.models import InvoiceLineType, MetalType
+from goldsmith_erp.db.models import Order as OrderModel
+from goldsmith_erp.db.models import OrderStatusEnum
+from goldsmith_erp.db.models import Quote as QuoteModel
+from goldsmith_erp.db.models import QuoteLineItem as QuoteLineItemModel
+from goldsmith_erp.db.models import QuoteLineType, QuoteStatus
+from goldsmith_erp.db.models import User as UserModel
 from goldsmith_erp.db.transaction import transactional
 from goldsmith_erp.models.quote import (
-    QuoteCreate,
-    QuoteUpdate,
-    QuoteLineItemCreate,
     ApproveQuoteRequest,
+    QuoteCreate,
+    QuoteLineItemCreate,
+    QuoteUpdate,
 )
 
 logger = logging.getLogger(__name__)
@@ -78,6 +73,57 @@ def _log_quote_access(
 def _user_role_str(user: UserModel) -> str:
     """Extract role string safely from a User ORM object."""
     return user.role.value if hasattr(user.role, "value") else str(user.role)
+
+
+# -----------------------------------------------------------------------------
+# Typed exceptions — line-item editing (Task 1, editable-quotes plan).
+#
+# Follows the ``ConsultationNotFoundError`` / ``CostChangeNotFoundError``
+# precedent (consultation_service.py / cost_change_service.py): typed
+# subclasses of ``ValueError`` so the router dispatches on type instead of
+# string-matching, and messages carry IDs only — never free-text business
+# data — so they are safe to surface verbatim in both the HTTP response and
+# the log line.
+# -----------------------------------------------------------------------------
+
+
+class QuoteNotFoundError(ValueError):
+    """No Quote row with this id — maps to 404."""
+
+    def __init__(self, quote_id: int) -> None:
+        super().__init__(f"Kostenvoranschlag {quote_id} nicht gefunden")
+
+
+class QuoteLineItemNotFoundError(QuoteNotFoundError):
+    """No QuoteLineItem row with this id on the given quote — maps to 404.
+
+    Subclasses ``QuoteNotFoundError`` (mirrors the
+    ``SentCostChangeConflictError(InvalidCostChangeStateError)`` precedent in
+    cost_change_service.py) so a single ``isinstance(exc, QuoteNotFoundError)``
+    check in the router catches both cases without a second branch.
+    """
+
+    def __init__(self, quote_id: int, item_id: int) -> None:
+        ValueError.__init__(
+            self,
+            f"Position {item_id} in Kostenvoranschlag {quote_id} nicht gefunden",
+        )
+
+
+class QuoteNotEditableError(ValueError):
+    """A forbidden mutation on a non-DRAFT (or otherwise immutable) quote.
+    Maps to 409.
+
+    Generic German message with no quote_id — a SENT/APPROVED/CONVERTED
+    Kostenvoranschlag is legally relevant and must stay immutable (CLAUDE.md
+    / plan Global Constraints). The default message covers line-item and
+    tax_rate edits; a caller may pass a more specific reason (e.g. the
+    status-change-via-PUT guard) — every message here is a fixed template
+    with no user free-text, so it is safe to surface verbatim.
+    """
+
+    def __init__(self, message: str = "Nur Entwürfe können bearbeitet werden") -> None:
+        super().__init__(message)
 
 
 class QuoteService:
@@ -138,6 +184,37 @@ class QuoteService:
         subtotal = round(subtotal, 2)
         return {"subtotal": subtotal, "tax_amount": tax_amount, "total": total}
 
+    @staticmethod
+    def _recompute_totals_from_items(quote: QuoteModel) -> None:
+        """
+        Recompute subtotal/tax_amount/total from the quote's CURRENT
+        ``line_items`` collection, via ``calculate_totals`` — never
+        hand-roll the arithmetic (Global Constraints).
+
+        Must be called after the line_items collection reflects the desired
+        end state (item appended/mutated/removed) and any pending flush, and
+        while still inside the open ``transactional(db)`` block so the
+        recomputed totals commit atomically with the mutation.
+        """
+        # cast(): mypy sees Column[T] at class level for these attributes
+        # (classic Column() style, no Mapped[] here) — at runtime, on a
+        # loaded instance, they are plain float/str (cost_change_service.py
+        # precedent for this exact false-positive class).
+        tax_rate = cast(float, quote.tax_rate)
+        items = [
+            QuoteLineItemCreate(
+                line_type=cast(QuoteLineType, li.line_type),
+                description=cast(str, li.description),
+                quantity=cast(float, li.quantity),
+                unit_price=cast(float, li.unit_price),
+            )
+            for li in quote.line_items
+        ]
+        totals = QuoteService.calculate_totals(items, tax_rate)
+        quote.subtotal = totals["subtotal"]
+        quote.tax_amount = totals["tax_amount"]
+        quote.total = totals["total"]
+
     # -------------------------------------------------------------------------
     # Auto-generate line items from order data (mirrors invoice_service)
     # -------------------------------------------------------------------------
@@ -157,7 +234,9 @@ class QuoteService:
         material_cost = order.material_cost_override or order.material_cost_calculated
         if material_cost and material_cost > 0:
             metal_desc = (
-                f"Material: {order.metal_type.value}" if order.metal_type else "Material"
+                f"Material: {order.metal_type.value}"
+                if order.metal_type
+                else "Material"
             )
             if order.actual_weight_g:
                 metal_desc += f", {order.actual_weight_g:.2f}g"
@@ -232,7 +311,9 @@ class QuoteService:
     # -------------------------------------------------------------------------
 
     @staticmethod
-    async def _get_order_with_relations(db: AsyncSession, order_id: int) -> Optional[OrderModel]:
+    async def _get_order_with_relations(
+        db: AsyncSession, order_id: int
+    ) -> Optional[OrderModel]:
         """Load order with all relationships needed for quote generation."""
         result = await db.execute(
             select(OrderModel)
@@ -245,6 +326,44 @@ class QuoteService:
             .where(OrderModel.is_deleted.is_(False))
         )
         return result.scalar_one_or_none()
+
+    @staticmethod
+    async def _load_editable_quote_locked(
+        db: AsyncSession, quote_id: int
+    ) -> QuoteModel:
+        """
+        Load a quote FOR UPDATE with line items eagerly loaded, enforcing the
+        DRAFT-only line-item edit gate shared by add/update/delete_line_item.
+
+        MUST be called INSIDE an open ``transactional(db)`` block: the
+        ``with_for_update()`` row lock is held until that block commits, so
+        the DRAFT check, the mutation, and the total recompute all execute
+        against a row no concurrent request can transition out of DRAFT in
+        between (closes the check-then-mutate race; mirrors the FOR UPDATE
+        precedent in cost_change_service.py). On SQLite the clause is a
+        silent no-op — correctness there rests on SQLite's whole-database
+        write lock instead.
+
+        The typed raises here surface inside the transactional block; both
+        messages are ID-only / fixed templates (never user free-text), so
+        transactional()'s ``str(exc)`` rollback logger stays PII-clean.
+
+        Raises:
+            QuoteNotFoundError: no such quote (404).
+            QuoteNotEditableError: quote.status != DRAFT (409).
+        """
+        result = await db.execute(
+            select(QuoteModel)
+            .options(selectinload(QuoteModel.line_items))
+            .where(QuoteModel.id == quote_id)
+            .with_for_update()
+        )
+        quote = result.scalar_one_or_none()
+        if not quote:
+            raise QuoteNotFoundError(quote_id)
+        if quote.status != QuoteStatus.DRAFT:
+            raise QuoteNotEditableError()
+        return quote
 
     @staticmethod
     async def create_quote(
@@ -420,13 +539,34 @@ class QuoteService:
         current_user: UserModel,
     ) -> Optional[QuoteModel]:
         """
-        Update mutable quote fields (status, valid_until, notes, tax_rate).
+        Update mutable quote fields (valid_until, notes, and — DRAFT only —
+        tax_rate).
 
         Returns None if not found.
-        Raises 422 if attempting to update an APPROVED/CONVERTED quote.
+        Raises 422 if attempting to update a CONVERTED quote.
+
+        Status is NOT mutable here (security review round 1, HIGH): a status
+        change via PUT would let a caller send/approve a quote, flip it back
+        to DRAFT, edit the now-"legal" line items, and flip it forward again
+        — defeating the SENT/APPROVED/CONVERTED immutability premise and
+        leaving a re-approved quote with a stale customer_signature_data.
+        Any status change must go through the dedicated
+        send/approve/reject/convert actions. A ``status`` in the payload that
+        differs from the current status → QuoteNotEditableError (409); an
+        identical status is a harmless no-op and is allowed.
+
+        tax_rate (security review round 1, MEDIUM): only editable while
+        DRAFT. Writing tax_rate on a non-DRAFT quote would store a new rate
+        while subtotal/tax_amount/total stay old — the PDF would then print a
+        mismatched "MwSt X%" label. tax_rate in the payload on a non-DRAFT
+        quote → QuoteNotEditableError (409). On a DRAFT quote, totals are
+        recomputed from the existing line items via calculate_totals — never
+        hand-rolled (bug fix: the rate used to be saved without recomputing).
         """
         result = await db.execute(
-            select(QuoteModel).where(QuoteModel.id == quote_id)
+            select(QuoteModel)
+            .options(selectinload(QuoteModel.line_items))
+            .where(QuoteModel.id == quote_id)
         )
         quote = result.scalar_one_or_none()
         if not quote:
@@ -443,19 +583,174 @@ class QuoteService:
         if not update_data:
             return await QuoteService.get_quote(db, quote_id, current_user)
 
+        # HIGH: reject status transitions via PUT — dedicated actions only.
+        if "status" in update_data and update_data["status"] != quote.status:
+            raise QuoteNotEditableError(
+                "Statuswechsel nur über die dedizierten Aktionen "
+                "(Versenden/Genehmigen/Ablehnen/Umwandeln)"
+            )
+
+        # MEDIUM: tax_rate is DRAFT-only (mirrors the line-item edit gate).
+        if "tax_rate" in update_data and quote.status != QuoteStatus.DRAFT:
+            raise QuoteNotEditableError()
+
+        recompute_totals = (
+            "tax_rate" in update_data and quote.status == QuoteStatus.DRAFT
+        )
+
         async with transactional(db):
             for field, value in update_data.items():
                 setattr(quote, field, value)
+            if recompute_totals:
+                QuoteService._recompute_totals_from_items(quote)
 
         _log_quote_access(
             action="updated",
             quote_id=quote_id,
             user_id=current_user.id,
             user_role=_user_role_str(current_user),
-            extra={"updated_fields": list(update_data.keys())},
+            extra={
+                "updated_fields": list(update_data.keys()),
+                "recomputed_totals": recompute_totals,
+            },
         )
 
         return await QuoteService.get_quote(db, quote_id, current_user)
+
+    # -------------------------------------------------------------------------
+    # Line-item CRUD (editable-quotes plan, Task 1)
+    # -------------------------------------------------------------------------
+
+    @staticmethod
+    async def add_line_item(
+        db: AsyncSession,
+        quote_id: int,
+        item: QuoteLineItemCreate,
+        current_user: UserModel,
+    ) -> QuoteModel:
+        """
+        Add an Angebotsposition to a DRAFT quote and recompute totals.
+
+        The FOR UPDATE load, DRAFT check, mutation, and recompute all run in
+        one transactional block so the row lock is held through commit
+        (security review round 1, MEDIUM: closes the check-then-mutate race).
+
+        Raises:
+            QuoteNotFoundError: no such quote (404).
+            QuoteNotEditableError: quote.status != DRAFT (409).
+        """
+        async with transactional(db):
+            quote = await QuoteService._load_editable_quote_locked(db, quote_id)
+            db_line = QuoteLineItemModel(
+                quote_id=quote.id,
+                line_type=item.line_type,
+                description=item.description,
+                quantity=item.quantity,
+                unit_price=item.unit_price,
+                total=round(item.quantity * item.unit_price, 2),
+            )
+            quote.line_items.append(db_line)
+            await db.flush()
+            QuoteService._recompute_totals_from_items(quote)
+            new_item_id = db_line.id
+            new_total = quote.total
+
+        _log_quote_access(
+            action="line_item_added",
+            quote_id=quote_id,
+            user_id=current_user.id,
+            user_role=_user_role_str(current_user),
+            extra={"item_id": new_item_id, "new_total": new_total},
+        )
+
+        reloaded = await QuoteService.get_quote(db, quote_id, current_user)
+        if reloaded is None:
+            raise QuoteNotFoundError(quote_id)
+        return reloaded
+
+    @staticmethod
+    async def update_line_item(
+        db: AsyncSession,
+        quote_id: int,
+        item_id: int,
+        item: QuoteLineItemCreate,
+        current_user: UserModel,
+    ) -> QuoteModel:
+        """
+        Update an Angebotsposition on a DRAFT quote and recompute totals.
+
+        The FOR UPDATE load, DRAFT check, mutation, and recompute all run in
+        one transactional block (security review round 1, MEDIUM).
+
+        Raises:
+            QuoteNotFoundError: no such quote, or no such item on the quote (404).
+            QuoteNotEditableError: quote.status != DRAFT (409).
+        """
+        async with transactional(db):
+            quote = await QuoteService._load_editable_quote_locked(db, quote_id)
+            db_line = next((li for li in quote.line_items if li.id == item_id), None)
+            if db_line is None:
+                raise QuoteLineItemNotFoundError(quote_id, item_id)
+            db_line.line_type = item.line_type
+            db_line.description = item.description
+            db_line.quantity = item.quantity
+            db_line.unit_price = item.unit_price
+            db_line.total = round(item.quantity * item.unit_price, 2)
+            QuoteService._recompute_totals_from_items(quote)
+            new_total = quote.total
+
+        _log_quote_access(
+            action="line_item_updated",
+            quote_id=quote_id,
+            user_id=current_user.id,
+            user_role=_user_role_str(current_user),
+            extra={"item_id": item_id, "new_total": new_total},
+        )
+
+        reloaded = await QuoteService.get_quote(db, quote_id, current_user)
+        if reloaded is None:
+            raise QuoteNotFoundError(quote_id)
+        return reloaded
+
+    @staticmethod
+    async def delete_line_item(
+        db: AsyncSession,
+        quote_id: int,
+        item_id: int,
+        current_user: UserModel,
+    ) -> QuoteModel:
+        """
+        Delete an Angebotsposition from a DRAFT quote and recompute totals.
+
+        The FOR UPDATE load, DRAFT check, deletion, and recompute all run in
+        one transactional block (security review round 1, MEDIUM).
+
+        Raises:
+            QuoteNotFoundError: no such quote, or no such item on the quote (404).
+            QuoteNotEditableError: quote.status != DRAFT (409).
+        """
+        async with transactional(db):
+            quote = await QuoteService._load_editable_quote_locked(db, quote_id)
+            db_line = next((li for li in quote.line_items if li.id == item_id), None)
+            if db_line is None:
+                raise QuoteLineItemNotFoundError(quote_id, item_id)
+            quote.line_items.remove(db_line)
+            await db.flush()
+            QuoteService._recompute_totals_from_items(quote)
+            new_total = quote.total
+
+        _log_quote_access(
+            action="line_item_deleted",
+            quote_id=quote_id,
+            user_id=current_user.id,
+            user_role=_user_role_str(current_user),
+            extra={"item_id": item_id, "new_total": new_total},
+        )
+
+        reloaded = await QuoteService.get_quote(db, quote_id, current_user)
+        if reloaded is None:
+            raise QuoteNotFoundError(quote_id)
+        return reloaded
 
     # -------------------------------------------------------------------------
     # Status transitions
@@ -472,9 +767,7 @@ class QuoteService:
 
         Only DRAFT quotes can be sent. Records audit log.
         """
-        result = await db.execute(
-            select(QuoteModel).where(QuoteModel.id == quote_id)
-        )
+        result = await db.execute(select(QuoteModel).where(QuoteModel.id == quote_id))
         quote = result.scalar_one_or_none()
         if not quote:
             return None
@@ -483,7 +776,7 @@ class QuoteService:
             raise HTTPException(
                 status_code=422,
                 detail=f"Nur Entwuerfe koennen versendet werden. "
-                       f"Aktueller Status: {quote.status.value}",
+                f"Aktueller Status: {quote.status.value}",
             )
 
         async with transactional(db):
@@ -510,9 +803,7 @@ class QuoteService:
 
         Only SENT quotes can be approved.
         """
-        result = await db.execute(
-            select(QuoteModel).where(QuoteModel.id == quote_id)
-        )
+        result = await db.execute(select(QuoteModel).where(QuoteModel.id == quote_id))
         quote = result.scalar_one_or_none()
         if not quote:
             return None
@@ -521,7 +812,7 @@ class QuoteService:
             raise HTTPException(
                 status_code=422,
                 detail=f"Nur gesendete oder Entwurf-Angebote koennen genehmigt werden. "
-                       f"Aktueller Status: {quote.status.value}",
+                f"Aktueller Status: {quote.status.value}",
             )
 
         now = datetime.utcnow()
@@ -554,9 +845,7 @@ class QuoteService:
 
         Only SENT or DRAFT quotes can be rejected.
         """
-        result = await db.execute(
-            select(QuoteModel).where(QuoteModel.id == quote_id)
-        )
+        result = await db.execute(select(QuoteModel).where(QuoteModel.id == quote_id))
         quote = result.scalar_one_or_none()
         if not quote:
             return None
@@ -565,7 +854,7 @@ class QuoteService:
             raise HTTPException(
                 status_code=422,
                 detail=f"Nur gesendete oder Entwurf-Angebote koennen abgelehnt werden. "
-                       f"Aktueller Status: {quote.status.value}",
+                f"Aktueller Status: {quote.status.value}",
             )
 
         now = datetime.utcnow()
@@ -616,7 +905,7 @@ class QuoteService:
             raise HTTPException(
                 status_code=422,
                 detail=f"Nur genehmigte Angebote koennen umgewandelt werden. "
-                       f"Aktueller Status: {quote.status.value}",
+                f"Aktueller Status: {quote.status.value}",
             )
 
         now = datetime.utcnow()
@@ -664,19 +953,21 @@ class QuoteService:
         SENT, APPROVED, or CONVERTED quotes cannot be deleted.
         Returns True if deleted, False if not found.
         """
-        result = await db.execute(
-            select(QuoteModel).where(QuoteModel.id == quote_id)
-        )
+        result = await db.execute(select(QuoteModel).where(QuoteModel.id == quote_id))
         quote = result.scalar_one_or_none()
         if not quote:
             return False
 
-        protected_statuses = {QuoteStatus.SENT, QuoteStatus.APPROVED, QuoteStatus.CONVERTED}
+        protected_statuses = {
+            QuoteStatus.SENT,
+            QuoteStatus.APPROVED,
+            QuoteStatus.CONVERTED,
+        }
         if quote.status in protected_statuses:
             raise HTTPException(
                 status_code=422,
                 detail=f"Angebote mit Status '{quote.status.value}' koennen nicht geloescht werden. "
-                       f"Nur Entwuerfe und abgelehnte Angebote sind loeschbar.",
+                f"Nur Entwuerfe und abgelehnte Angebote sind loeschbar.",
             )
 
         async with transactional(db):
