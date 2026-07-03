@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block title %}Kostenänderung zu Auftrag {{ order_ref }} — {{ workshop_name }}{% endblock %}
+
+{% block body %}
+<h2>Wichtiger Hinweis zu den Kosten Ihres Auftrags</h2>
+
+<p>Liebe/r {{ customer_name }},</p>
+
+<p>
+  im Rahmen der Bearbeitung Ihres Auftrags <strong>{{ order_ref }}</strong> hat
+  sich gezeigt, dass die tatsächlichen Kosten voraussichtlich von dem Ihnen
+  erteilten Kostenvoranschlag abweichen werden. Gemäß &sect;&nbsp;649 BGB sind
+  wir verpflichtet, Sie hierüber zu informieren, bevor wir mit den
+  Mehrkosten verursachenden Arbeiten fortfahren.
+</p>
+
+<dl class="info-box">
+  <dt>Ursprünglicher Betrag (Kostenvoranschlag, zzgl. MwSt.)</dt>
+  <dd>{{ original_amount }}</dd>
+
+  <dt>Neuer voraussichtlicher Betrag (zzgl. MwSt.)</dt>
+  <dd><strong>{{ new_amount }}</strong></dd>
+
+  <dt>Abweichung</dt>
+  <dd>{{ delta_percent }}</dd>
+</dl>
+
+<p><strong>Begründung:</strong> {{ reason }}</p>
+
+{% if line_items %}
+<p><strong>Im Einzelnen:</strong></p>
+<ul>
+  {% for item in line_items %}
+  <li>
+    {% if item.kind == 'add' %}Neu:{% elif item.kind == 'remove' %}Entfällt:{% else %}Geändert:{% endif %}
+    {{ item.label }} — {{ item.amount }}
+  </li>
+  {% endfor %}
+</ul>
+{% endif %}
+
+<p>
+  Bitte teilen Sie uns mit, ob Sie mit dieser Kostenänderung einverstanden
+  sind. Antworten Sie hierzu einfach direkt auf diese E-Mail mit
+  "Ich stimme zu" oder "Ich lehne ab" — oder kontaktieren Sie uns
+  telefonisch bzw. persönlich in unserer Werkstatt. Ohne Ihre Zustimmung
+  werden wir die Mehrkosten verursachenden Arbeiten nicht fortsetzen.
+</p>
+
+<p style="font-size:13px;color:#7a6a50;">
+  Auftragsreferenz: <strong>{{ order_ref }}</strong>
+</p>
+
+<p style="font-size:12px;color:#9a8a70;">
+  Ihre Daten werden ausschließlich zur Bearbeitung dieses Auftrags verwendet
+  und nicht an Dritte weitergegeben.
+</p>
+{% endblock %}

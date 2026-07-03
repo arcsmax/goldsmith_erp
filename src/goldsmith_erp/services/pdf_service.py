@@ -11,6 +11,7 @@ For templates: src/goldsmith_erp/templates/
   - scrap_gold_receipt.html → Altgold Ankaufsbeleg with signature
 """
 
+import io
 import logging
 import os
 import tempfile
@@ -19,8 +20,36 @@ from typing import Any, Optional
 
 from fpdf import FPDF
 from jinja2 import Environment, FileSystemLoader, select_autoescape
+from PIL import Image
 
 logger = logging.getLogger(__name__)
+
+
+def _embed_image_bytes(
+    pdf: FPDF,
+    img_data: bytes,
+    rect: tuple[float, float, float, float],
+    suffix: str = ".png",
+) -> None:
+    """Embed image bytes into the PDF via a secure temp file.
+
+    fpdf2 needs a filesystem path, so the bytes are written to a
+    NamedTemporaryFile (secure mkstemp-based API). The temp file is always
+    removed afterwards, even if image embedding raises. ``rect`` is the
+    placement box as ``(x, y, width, height)``. ``suffix`` selects the format
+    fpdf2/Pillow infer from the extension (``.png`` for signatures, ``.jpg``
+    for the JPEG email-variant photos used by ``render_customer_update_pdf``).
+    """
+    x, y, w, h = rect
+    tmp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+            tmp.write(img_data)
+            tmp_path = tmp.name
+        pdf.image(tmp_path, x=x, y=y, w=w, h=h)
+    finally:
+        if tmp_path and os.path.exists(tmp_path):
+            os.unlink(tmp_path)
 
 
 def _embed_png_signature(
@@ -28,21 +57,11 @@ def _embed_png_signature(
 ) -> None:
     """Embed a PNG signature into the PDF via a secure temp file.
 
-    fpdf2 needs a filesystem path, so the bytes are written to a
-    NamedTemporaryFile (secure mkstemp-based API). The temp file is always
-    removed afterwards, even if image embedding raises. ``rect`` is the
-    placement box as ``(x, y, width, height)``.
+    Thin wrapper around ``_embed_image_bytes`` (kept as a distinct, named
+    function since every existing call site already refers to it by this
+    name) — see that function's docstring for the temp-file mechanics.
     """
-    x, y, w, h = rect
-    tmp_path = None
-    try:
-        with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
-            tmp.write(img_data)
-            tmp_path = tmp.name
-        pdf.image(tmp_path, x=x, y=y, w=w, h=h)
-    finally:
-        if tmp_path and os.path.exists(tmp_path):
-            os.unlink(tmp_path)
+    _embed_image_bytes(pdf, img_data, rect, suffix=".png")
 
 # Path to Jinja2 templates directory
 _TEMPLATES_DIR = Path(__file__).parent.parent / "templates"
@@ -1040,6 +1059,128 @@ def _render_valuation_certificate_fpdf(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Customer update renderer (Kundeninfo — PDF-only fallback delivery)
+# ─────────────────────────────────────────────────────────────────────────────
+
+_PHOTO_MAX_W_MM = 100.0
+_PHOTO_MAX_H_MM = 70.0
+_PHOTO_MARGIN_MM = 4.0
+
+
+def _embed_photo_grid(pdf: "_GoldsmithPDF", photos: list[bytes]) -> None:
+    """
+    Place each of `photos` (JPEG bytes, e.g. from
+    ``image_validation.create_email_variant``) into the PDF, one per row,
+    scaled to fit within a fixed box while preserving aspect ratio. Uses the
+    ``_embed_image_bytes`` NamedTemporaryFile pattern (fpdf2 needs a
+    filesystem path). A photo that cannot be read/embedded is skipped with a
+    logged warning rather than aborting the whole document — a bad photo
+    must not block delivery of the rest of the update.
+    """
+    for photo_bytes in photos:
+        try:
+            with Image.open(io.BytesIO(photo_bytes)) as img:
+                w_px, h_px = img.size
+        except Exception:
+            logger.warning(
+                "Could not read photo dimensions for customer-update PDF embed",
+                exc_info=True,
+            )
+            continue
+        if w_px <= 0 or h_px <= 0:
+            continue
+
+        aspect = h_px / w_px
+        w_mm = _PHOTO_MAX_W_MM
+        h_mm = w_mm * aspect
+        if h_mm > _PHOTO_MAX_H_MM:
+            h_mm = _PHOTO_MAX_H_MM
+            w_mm = h_mm / aspect
+
+        y = pdf.get_y()
+        try:
+            _embed_image_bytes(pdf, photo_bytes, (10, y, w_mm, h_mm), suffix=".jpg")
+        except Exception:
+            logger.warning(
+                "Could not embed photo into customer-update PDF", exc_info=True
+            )
+            continue
+        pdf.set_y(y + h_mm + _PHOTO_MARGIN_MM)
+
+
+def _render_customer_update_fpdf(
+    update: Any,
+    order_ref: str,
+    customer_name: str,
+    photos: list[bytes],
+    workshop_name: str,
+) -> bytes:
+    """
+    Build a Kundeninfo PDF (progress / cost-change / ready-for-pickup / custom
+    update) — the PDF-only fallback delivery path used when SMTP is unset or
+    the goldsmith prefers to hand/print/send it herself (spec:
+    ``delivery_method=pdf_manual``). Mirrors the email template's content
+    (subject/body/order reference/footer) so both delivery paths carry
+    identical information.
+    """
+    subject = _safe_str(getattr(update, "subject", ""))
+    body = _safe_str(getattr(update, "body", ""))
+
+    footer_text = f"{workshop_name}  |  {order_ref}"
+    pdf = _GoldsmithPDF(workshop_name=workshop_name, footer_text=footer_text)
+    # Document metadata (/Info dict) — stored as a literal PDF string, unlike
+    # the embedded-Unicode-TTF page content (glyph-index encoded, not
+    # ASCII-searchable). This is the reliable way to assert "the reference
+    # string is present in the output" without a PDF text-extraction
+    # dependency (none is currently installed in this project).
+    pdf.set_title(f"Kundeninformation {order_ref}")
+    if subject:
+        pdf.set_subject(subject)
+
+    # ── Header ────────────────────────────────────────────────────────────────
+    pdf.set_font(_FONT_B, "", 16)
+    pdf.set_text_color(*_GOLD)
+    pdf.cell(0, 9, workshop_name, ln=True)
+
+    pdf.set_font(_FONT_B, "", 18)
+    pdf.set_text_color(60, 60, 60)
+    pdf.cell(0, 10, "KUNDENINFORMATION", ln=True)
+    pdf.set_text_color(*_DARK)
+    pdf.gold_rule()
+    pdf.ln(4)
+
+    pdf.kv_row("Auftrag:", order_ref, label_w=40)
+    pdf.kv_row("Kunde:", customer_name, label_w=40)
+    pdf.ln(3)
+
+    # ── Subject + body ────────────────────────────────────────────────────────
+    pdf.section_title(subject or "Update")
+    pdf.set_font(_FONT, "", 10)
+    pdf.multi_cell(0, 5, body[:4000])
+    pdf.ln(4)
+
+    # ── Photos ────────────────────────────────────────────────────────────────
+    if photos:
+        pdf.section_title(f"Fotos ({len(photos)})")
+        _embed_photo_grid(pdf, photos)
+        pdf.ln(2)
+
+    # ── Footer note (order reference + privacy line) ─────────────────────────
+    pdf.set_font(_FONT, "", 8)
+    pdf.set_text_color(*_GRAY)
+    pdf.multi_cell(
+        0,
+        4,
+        f"Referenz: {order_ref}  |  {workshop_name}  |  "
+        "Ihre Daten werden ausschliesslich zur Bearbeitung dieses Auftrags "
+        "verwendet.",
+    )
+    pdf.set_text_color(*_DARK)
+
+    return bytes(pdf.output())
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Public service class
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -1191,5 +1332,45 @@ class PDFService:
         return _render_valuation_certificate_fpdf(
             certificate=certificate,
             customer=customer,
+            workshop_name=workshop_name,
+        )
+
+    @staticmethod
+    def render_customer_update_pdf(
+        update: Any,
+        order_ref: str,
+        customer_name: str,
+        photos: list[bytes],
+        workshop_name: str,
+    ) -> bytes:
+        """
+        Render a Kundeninfo update as PDF — the ``delivery_method=pdf_manual``
+        fallback path used when SMTP is unset or the goldsmith sends it
+        herself.
+
+        Args:
+            update:        CustomerUpdate ORM object or Pydantic response.
+                           Required attrs: subject, body.
+            order_ref:     Human-readable order/repair reference string
+                           (e.g. "Auftrag #1042").
+            customer_name: Customer display name.
+            photos:        List of JPEG bytes — the explicitly-selected,
+                           EXIF-stripped email-variant photos (see
+                           ``image_validation.create_email_variant``), NOT
+                           all order photos (design-IP rule).
+            workshop_name: Business name from settings.
+
+        Returns:
+            Raw PDF bytes. Caller streams via StreamingResponse.
+        """
+        logger.info(
+            "Rendering customer update PDF",
+            extra={"order_ref": order_ref, "photo_count": len(photos)},
+        )
+        return _render_customer_update_fpdf(
+            update=update,
+            order_ref=order_ref,
+            customer_name=customer_name,
+            photos=photos,
             workshop_name=workshop_name,
         )

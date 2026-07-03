@@ -12,6 +12,7 @@ Security notes:
     or filename extension, to prevent content-type spoofing.
 """
 
+import io
 from pathlib import Path
 from typing import Optional
 
@@ -21,6 +22,8 @@ from PIL import Image
 # ─── Constants ────────────────────────────────────────────────────────────────
 
 THUMBNAIL_WIDTH: int = 200
+EMAIL_VARIANT_MAX_PX: int = 1600
+_JPEG_QUALITY: int = 85
 _MAX_MAGIC_BYTES: int = 12  # Enough to cover all signatures below
 
 
@@ -130,7 +133,27 @@ async def read_validated_image(file: UploadFile, max_mb: int) -> tuple[bytes, st
     return raw, ext
 
 
-# ─── Thumbnail generation ──────────────────────────────────────────────────────
+# ─── Thumbnail / email-variant generation ──────────────────────────────────────
+#
+# Both create_thumbnail and create_email_variant re-encode a source image as
+# a resized JPEG. They differ only in HOW the target size is derived
+# (fixed-width upscale-or-downscale vs. longest-side cap, no upscale) — the
+# convert-to-RGB and resize-via-LANCZOS mechanics are shared via the two
+# helpers below so neither function duplicates that logic.
+
+
+def _convert_for_jpeg(img: Image.Image) -> Image.Image:
+    """Convert RGBA/P/LA images to RGB so they can be saved as JPEG."""
+    if img.mode in ("RGBA", "P", "LA"):
+        return img.convert("RGB")
+    return img
+
+
+def _resize_to(img: Image.Image, size: tuple[int, int]) -> Image.Image:
+    """Resize `img` to `size` via LANCZOS resampling; no-op if already that size."""
+    if img.size == size:
+        return img
+    return img.resize(size, Image.LANCZOS)
 
 
 def create_thumbnail(source_path: Path, thumb_path: Path) -> None:
@@ -140,15 +163,60 @@ def create_thumbnail(source_path: Path, thumb_path: Path) -> None:
     The thumbnail is THUMBNAIL_WIDTH pixels wide; height is auto-scaled.
     Output is always saved as JPEG for consistency and small file size.
     """
-    with Image.open(source_path) as img:
-        # Convert RGBA/P images to RGB so they can be saved as JPEG.
-        if img.mode in ("RGBA", "P", "LA"):
-            img = img.convert("RGB")
+    with Image.open(source_path) as opened:
+        # Explicit `Image.Image` annotation: `_convert_for_jpeg`/`_resize_to`
+        # return the base `Image.Image` type, wider than the `ImageFile`
+        # subtype mypy infers for the `with ... as` target — annotating the
+        # rebind target up front avoids an "incompatible assignment" report.
+        img: Image.Image = opened
+        img = _convert_for_jpeg(img)
         w_orig, h_orig = img.size
         if w_orig == 0:
             raise PhotoValidationError("Image has zero width — corrupt file.")
         scale = THUMBNAIL_WIDTH / w_orig
         new_h = max(1, int(h_orig * scale))
-        img_resized = img.resize((THUMBNAIL_WIDTH, new_h), Image.LANCZOS)
+        img_resized = _resize_to(img, (THUMBNAIL_WIDTH, new_h))
         thumb_path.parent.mkdir(parents=True, exist_ok=True)
-        img_resized.save(thumb_path, format="JPEG", quality=85, optimize=True)
+        img_resized.save(
+            thumb_path, format="JPEG", quality=_JPEG_QUALITY, optimize=True
+        )
+
+
+def create_email_variant(source: Path, max_px: int = EMAIL_VARIANT_MAX_PX) -> bytes:
+    """
+    Produce an email-safe JPEG variant of `source`.
+
+    - Longest side is capped at `max_px` (no upscaling — smaller images pass
+      through at their original size, unlike `create_thumbnail`'s fixed-width
+      scaling).
+    - Re-saved as JPEG at quality 85, same as `create_thumbnail`.
+    - EXIF metadata is stripped as a side effect: Pillow only embeds EXIF on
+      save when explicitly passed via the `exif=` kwarg, which this function
+      never does, so re-encoding through `Image.save()` here drops GPS/camera
+      metadata even when the source carried it (design-IP / customer-privacy
+      requirement — photos shared with customers must not leak shoot location
+      or device details).
+
+    Returns the encoded JPEG bytes directly (no filesystem write) — the
+    caller (EmailService attachments, PDFService photo embeds) consumes the
+    bytes immediately.
+
+    Raises:
+        PhotoValidationError: if the source image has a zero width or height
+            (corrupt file).
+    """
+    with Image.open(source) as opened:
+        img: Image.Image = opened
+        img = _convert_for_jpeg(img)
+        w_orig, h_orig = img.size
+        if w_orig == 0 or h_orig == 0:
+            raise PhotoValidationError("Image has zero dimension — corrupt file.")
+        longest = max(w_orig, h_orig)
+        if longest > max_px:
+            scale = max_px / longest
+            new_w = max(1, int(w_orig * scale))
+            new_h = max(1, int(h_orig * scale))
+            img = _resize_to(img, (new_w, new_h))
+        buffer = io.BytesIO()
+        img.save(buffer, format="JPEG", quality=_JPEG_QUALITY, optimize=True)
+        return buffer.getvalue()
