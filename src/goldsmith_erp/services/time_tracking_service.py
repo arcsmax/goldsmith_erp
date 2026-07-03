@@ -1,31 +1,28 @@
 import json
 import logging
-
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.future import select
-from sqlalchemy import update, delete, and_, func, case
-from sqlalchemy.orm import selectinload
-from typing import List, Optional, Dict, Any
-from datetime import datetime, timedelta
 import uuid
+from datetime import datetime, timedelta
+from typing import Any, Dict, List, Optional
 
 from fastapi import HTTPException
+from sqlalchemy import and_, case, delete, func, update
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.future import select
+from sqlalchemy.orm import selectinload
 
-from goldsmith_erp.db.models import (
-    TimeEntry as TimeEntryModel,
-    Activity as ActivityModel,
-    Order as OrderModel,
-    User as UserModel,
-    Interruption as InterruptionModel,
-)
+from goldsmith_erp.db.models import Activity as ActivityModel
+from goldsmith_erp.db.models import Interruption as InterruptionModel
+from goldsmith_erp.db.models import Order as OrderModel
+from goldsmith_erp.db.models import TimeEntry as TimeEntryModel
+from goldsmith_erp.db.models import User as UserModel
+from goldsmith_erp.models.interruption import InterruptionCreate
 from goldsmith_erp.models.time_entry import (
     TimeEntryCreate,
-    TimeEntryUpdate,
     TimeEntryStart,
     TimeEntryStop,
+    TimeEntryUpdate,
     TimeSummaryStats,
 )
-from goldsmith_erp.models.interruption import InterruptionCreate
 from goldsmith_erp.services.activity_service import ActivityService
 
 logger = logging.getLogger(__name__)
@@ -77,14 +74,15 @@ class CrossUserTimerError(HTTPException):
     repeated attempts can be observed.
     """
 
-    def __init__(self, *, old_entry_id: str, caller_user_id: int, owner_user_id: int) -> None:
+    def __init__(
+        self, *, old_entry_id: str, caller_user_id: int, owner_user_id: int
+    ) -> None:
         super().__init__(
             status_code=403,
             detail={
                 "code": "CROSS_USER_TIMER_FORBIDDEN",
                 "message": (
-                    "Timer gehoert einem anderen Benutzer — Wechsel nicht "
-                    "erlaubt."
+                    "Timer gehoert einem anderen Benutzer — Wechsel nicht " "erlaubt."
                 ),
             },
         )
@@ -111,7 +109,9 @@ class TimeTrackingService:
             Created TimeEntry
         """
         # Prüfe ob bereits eine laufende Entry für diesen User existiert
-        running_entry = await TimeTrackingService.get_running_entry(db, entry_in.user_id)
+        running_entry = await TimeTrackingService.get_running_entry(
+            db, entry_in.user_id
+        )
         if running_entry:
             raise ValueError(
                 f"User hat bereits eine laufende Zeiterfassung (ID: {running_entry.id}). "
@@ -181,13 +181,28 @@ class TimeTrackingService:
         await db.commit()
 
         # Update activity average duration
-        await ActivityService.update_average_duration(db, entry.activity_id, float(duration))
+        await ActivityService.update_average_duration(
+            db, entry.activity_id, float(duration)
+        )
 
         # Reload the entry with relationships for anomaly check and return value
         stopped_entry = await TimeTrackingService.get_time_entry(db, entry_id)
 
         # --- Anomaly detection (fire-and-forget, must not block the stop flow) ---
-        await TimeTrackingService._check_and_publish_anomaly(db, stopped_entry, duration)
+        await TimeTrackingService._check_and_publish_anomaly(
+            db, stopped_entry, duration
+        )
+
+        # --- V1.2 cost watcher (post-commit, fire-and-forget) ---
+        # Late import to avoid a module-load cycle; mirrors the anomaly
+        # detection imports above. Must never block or fail the stop flow —
+        # see CostWatchService.safe_check.
+        from goldsmith_erp.services.cost_watch_service import (  # noqa: PLC0415
+            CostWatchService,
+        )
+
+        order_id = stopped_entry.order_id if stopped_entry is not None else None
+        await CostWatchService.safe_check(db, order_id)
 
         return stopped_entry
 
@@ -208,9 +223,9 @@ class TimeTrackingService:
             return
 
         try:
-            from goldsmith_erp.ml.anomaly_detection import AnomalyDetector
-            from goldsmith_erp.ml.anomaly_alerts import AnomalyAlert
             from goldsmith_erp.core.pubsub import publish_event
+            from goldsmith_erp.ml.anomaly_alerts import AnomalyAlert
+            from goldsmith_erp.ml.anomaly_detection import AnomalyDetector
 
             detector = AnomalyDetector()
             result = await detector.check_anomaly(
@@ -230,7 +245,9 @@ class TimeTrackingService:
                 else f"User #{entry.user_id}"
             )
             activity_name = (
-                entry.activity.name if entry.activity else f"Activity #{entry.activity_id}"
+                entry.activity.name
+                if entry.activity
+                else f"Activity #{entry.activity_id}"
             )
 
             alert = AnomalyAlert(
@@ -271,7 +288,9 @@ class TimeTrackingService:
             )
 
     @staticmethod
-    async def get_time_entry(db: AsyncSession, entry_id: str) -> Optional[TimeEntryModel]:
+    async def get_time_entry(
+        db: AsyncSession, entry_id: str
+    ) -> Optional[TimeEntryModel]:
         """Holt eine einzelne TimeEntry über ihre ID."""
         result = await db.execute(
             select(TimeEntryModel)
@@ -297,13 +316,14 @@ class TimeTrackingService:
                 selectinload(TimeEntryModel.activity),
                 selectinload(TimeEntryModel.order),
                 selectinload(TimeEntryModel.user),  # FIXED: Added user
-                selectinload(TimeEntryModel.interruptions),  # FIXED: Added interruptions
+                selectinload(
+                    TimeEntryModel.interruptions
+                ),  # FIXED: Added interruptions
                 selectinload(TimeEntryModel.photos),  # FIXED: Added photos
             )
             .filter(
                 and_(
-                    TimeEntryModel.user_id == user_id,
-                    TimeEntryModel.end_time.is_(None)
+                    TimeEntryModel.user_id == user_id, TimeEntryModel.end_time.is_(None)
                 )
             )
         )
@@ -320,7 +340,9 @@ class TimeTrackingService:
                 selectinload(TimeEntryModel.activity),
                 selectinload(TimeEntryModel.user),
                 selectinload(TimeEntryModel.order),  # FIXED: Added order
-                selectinload(TimeEntryModel.interruptions),  # FIXED: Added interruptions
+                selectinload(
+                    TimeEntryModel.interruptions
+                ),  # FIXED: Added interruptions
                 selectinload(TimeEntryModel.photos),  # FIXED: Added photos
             )
             .filter(TimeEntryModel.order_id == order_id)
@@ -340,20 +362,28 @@ class TimeTrackingService:
         limit: int = 100,
     ) -> List[TimeEntryModel]:
         """Holt alle Zeiterfassungen für einen User, optional gefiltert nach Datum."""
-        query = select(TimeEntryModel).options(
-            selectinload(TimeEntryModel.activity),
-            selectinload(TimeEntryModel.order),
-            selectinload(TimeEntryModel.user),  # FIXED: Added user
-            selectinload(TimeEntryModel.interruptions),  # FIXED: Added interruptions
-            selectinload(TimeEntryModel.photos),  # FIXED: Added photos
-        ).filter(TimeEntryModel.user_id == user_id)
+        query = (
+            select(TimeEntryModel)
+            .options(
+                selectinload(TimeEntryModel.activity),
+                selectinload(TimeEntryModel.order),
+                selectinload(TimeEntryModel.user),  # FIXED: Added user
+                selectinload(
+                    TimeEntryModel.interruptions
+                ),  # FIXED: Added interruptions
+                selectinload(TimeEntryModel.photos),  # FIXED: Added photos
+            )
+            .filter(TimeEntryModel.user_id == user_id)
+        )
 
         if start_date:
             query = query.filter(TimeEntryModel.start_time >= start_date)
         if end_date:
             query = query.filter(TimeEntryModel.start_time <= end_date)
 
-        query = query.order_by(TimeEntryModel.start_time.desc()).offset(skip).limit(limit)
+        query = (
+            query.order_by(TimeEntryModel.start_time.desc()).offset(skip).limit(limit)
+        )
 
         result = await db.execute(query)
         return result.scalars().all()
@@ -368,7 +398,9 @@ class TimeTrackingService:
         # Berechne Dauer falls nicht angegeben
         duration = entry_in.duration_minutes
         if not duration and entry_in.end_time:
-            duration = int((entry_in.end_time - entry_in.start_time).total_seconds() / 60)
+            duration = int(
+                (entry_in.end_time - entry_in.start_time).total_seconds() / 60
+            )
 
         db_entry = TimeEntryModel(
             id=str(uuid.uuid4()),
@@ -386,7 +418,9 @@ class TimeTrackingService:
 
         # Update average duration if entry is completed
         if duration:
-            await ActivityService.update_average_duration(db, entry_in.activity_id, float(duration))
+            await ActivityService.update_average_duration(
+                db, entry_in.activity_id, float(duration)
+            )
 
         return db_entry
 
@@ -403,7 +437,9 @@ class TimeTrackingService:
 
         # Berechne Dauer neu falls end_time geändert wurde
         if "end_time" in update_data and update_data["end_time"] and entry.start_time:
-            duration = int((update_data["end_time"] - entry.start_time).total_seconds() / 60)
+            duration = int(
+                (update_data["end_time"] - entry.start_time).total_seconds() / 60
+            )
             update_data["duration_minutes"] = duration
 
         await db.execute(
@@ -422,9 +458,7 @@ class TimeTrackingService:
         if not entry:
             return {"success": False, "message": "Time entry not found"}
 
-        await db.execute(
-            delete(TimeEntryModel).where(TimeEntryModel.id == entry_id)
-        )
+        await db.execute(delete(TimeEntryModel).where(TimeEntryModel.id == entry_id))
         await db.commit()
 
         return {"success": True}
@@ -435,7 +469,9 @@ class TimeTrackingService:
     ) -> InterruptionModel:
         """Fügt eine Unterbrechung zu einer laufenden TimeEntry hinzu."""
         # Prüfe ob TimeEntry existiert
-        entry = await TimeTrackingService.get_time_entry(db, interruption_in.time_entry_id)
+        entry = await TimeTrackingService.get_time_entry(
+            db, interruption_in.time_entry_id
+        )
         if not entry:
             raise ValueError("Time entry not found")
 
@@ -457,9 +493,7 @@ class TimeTrackingService:
     # ==================================================================
 
     @staticmethod
-    async def _check_stale_timer(
-        db: AsyncSession, old_entry: TimeEntryModel
-    ) -> None:
+    async def _check_stale_timer(db: AsyncSession, old_entry: TimeEntryModel) -> None:
         """Raise ``TimerPossiblyStaleError`` if ``old_entry`` looks abandoned.
 
         The "stale" signal is *intentionally conservative*: we only block
@@ -921,12 +955,12 @@ class TimeTrackingService:
         # production via the notification service. For now we rely on
         # the logged ERROR + a best-effort notification write.
         try:
-            from goldsmith_erp.services.notification_service import (  # noqa: PLC0415
-                NotificationService,
-            )
             from goldsmith_erp.db.models import (  # noqa: PLC0415
                 NotificationSeverityEnum,
                 NotificationTypeEnum,
+            )
+            from goldsmith_erp.services.notification_service import (  # noqa: PLC0415
+                NotificationService,
             )
 
             await NotificationService.create_notification(
@@ -955,14 +989,15 @@ class TimeTrackingService:
             )
 
     @staticmethod
-    async def get_total_time_for_order(db: AsyncSession, order_id: int) -> Dict[str, Any]:
+    async def get_total_time_for_order(
+        db: AsyncSession, order_id: int
+    ) -> Dict[str, Any]:
         """Berechnet die Gesamtzeit für einen Auftrag."""
         result = await db.execute(
             select(
                 func.sum(TimeEntryModel.duration_minutes).label("total_minutes"),
                 func.count(TimeEntryModel.id).label("entry_count"),
-            )
-            .filter(
+            ).filter(
                 and_(
                     TimeEntryModel.order_id == order_id,
                     TimeEntryModel.end_time.isnot(None),  # Nur abgeschlossene Einträge

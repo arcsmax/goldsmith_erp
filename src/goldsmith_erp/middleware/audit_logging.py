@@ -33,11 +33,11 @@ History:
 """
 
 import ipaddress
+import json
 import logging
 import time
-import json
-from typing import Callable, Optional, Tuple
 from datetime import datetime
+from typing import Callable, Optional, Tuple
 
 from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -132,6 +132,35 @@ _RESOURCE_ROUTES: dict[str, Tuple[str, str, str, bool]] = {
         "list_accessed_financial",
         True,
     ),
+    # V1.2 (Kundeninfo / §649 BGB Kostenfreigabe): covers
+    # ``GET /api/v1/updates/{id}/pdf`` (parts[2] == "updates"). The
+    # "cost-changes" entry is added for symmetry/future-proofing but is
+    # currently INERT — every existing ``/cost-changes/...`` route is a
+    # POST (create-linked-update / record-response), and this table's
+    # is_financial=True GET-only filter (see dispatch()) means non-GET
+    # traffic under a financial family never reaches _log_to_database at
+    # all. RESOLVED (final-review fix): the THREE ``/orders/{id}/...``
+    # GETs this table structurally cannot see (history, cost-changes
+    # list, projected-cost — they key on the FIRST path segment "orders",
+    # which is not itself a registered family; a blanket "orders" entry
+    # was deliberately rejected — it would audit every unrelated order
+    # fetch app-wide) now ALSO write a ``CustomerAuditLog`` row directly
+    # from the service layer: ``customer_update_service.
+    # write_financial_audit_row`` (shared by
+    # ``CustomerUpdateService.list_for_order``,
+    # ``CostChangeService.list_for_order``, and the projected-cost router
+    # handler), mirroring this middleware's ``_log_to_database`` action
+    # naming and ``details`` JSON shape. Real DB-row audit coverage for
+    # CostChangeRequest mutations remains structured-log-only (kept as
+    # before, per the same rationale) — only the three specified GETs
+    # were in scope for this fix. See the report for the full resolution.
+    "updates": ("customer_update", "financial_read", "list_accessed_financial", True),
+    "cost-changes": (
+        "cost_change",
+        "financial_read",
+        "list_accessed_financial",
+        True,
+    ),
 }
 
 
@@ -150,6 +179,12 @@ class AuditLoggingMiddleware(BaseHTTPMiddleware):
     * ``/api/v1/scrap-gold/*``     — financial data, GET-only audit (C6)
     * ``/api/v1/consultations/*``  — financial data (budget_min/budget_max),
       GET-only audit (final-review fix)
+    * ``/api/v1/updates/*``        — V1.2 Kundeninfo updates, GET-only audit
+      (currently only reaches ``GET /updates/{id}/pdf`` — see
+      ``_RESOURCE_ROUTES``'s comment on the ``/orders/{id}/...`` blind spot)
+    * ``/api/v1/cost-changes/*``   — V1.2 §649 cost-change requests (table
+      entry present but currently inert — no GET route exists under this
+      root; see ``_RESOURCE_ROUTES`` comment)
 
     CLAUDE.md:
         "All financial data access MUST be audit-logged."
@@ -158,9 +193,7 @@ class AuditLoggingMiddleware(BaseHTTPMiddleware):
         app.add_middleware(AuditLoggingMiddleware)
     """
 
-    async def dispatch(
-        self, request: Request, call_next: Callable
-    ) -> Response:
+    async def dispatch(self, request: Request, call_next: Callable) -> Response:
         """
         Process each request and, when it targets an audited resource,
         write a ``CustomerAuditLog`` row.
@@ -488,9 +521,7 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
         app.add_middleware(RequestLoggingMiddleware)
     """
 
-    async def dispatch(
-        self, request: Request, call_next: Callable
-    ) -> Response:
+    async def dispatch(self, request: Request, call_next: Callable) -> Response:
         """
         Log incoming requests.
 
@@ -547,9 +578,7 @@ class RequestIDMiddleware(BaseHTTPMiddleware):
         app.add_middleware(RequestIDMiddleware)
     """
 
-    async def dispatch(
-        self, request: Request, call_next: Callable
-    ) -> Response:
+    async def dispatch(self, request: Request, call_next: Callable) -> Response:
         """
         Add request ID to request and response.
 

@@ -11,6 +11,7 @@ For templates: src/goldsmith_erp/templates/
   - scrap_gold_receipt.html → Altgold Ankaufsbeleg with signature
 """
 
+import io
 import logging
 import os
 import tempfile
@@ -19,8 +20,36 @@ from typing import Any, Optional
 
 from fpdf import FPDF
 from jinja2 import Environment, FileSystemLoader, select_autoescape
+from PIL import Image
 
 logger = logging.getLogger(__name__)
+
+
+def _embed_image_bytes(
+    pdf: FPDF,
+    img_data: bytes,
+    rect: tuple[float, float, float, float],
+    suffix: str = ".png",
+) -> None:
+    """Embed image bytes into the PDF via a secure temp file.
+
+    fpdf2 needs a filesystem path, so the bytes are written to a
+    NamedTemporaryFile (secure mkstemp-based API). The temp file is always
+    removed afterwards, even if image embedding raises. ``rect`` is the
+    placement box as ``(x, y, width, height)``. ``suffix`` selects the format
+    fpdf2/Pillow infer from the extension (``.png`` for signatures, ``.jpg``
+    for the JPEG email-variant photos used by ``render_customer_update_pdf``).
+    """
+    x, y, w, h = rect
+    tmp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+            tmp.write(img_data)
+            tmp_path = tmp.name
+        pdf.image(tmp_path, x=x, y=y, w=w, h=h)
+    finally:
+        if tmp_path and os.path.exists(tmp_path):
+            os.unlink(tmp_path)
 
 
 def _embed_png_signature(
@@ -28,21 +57,12 @@ def _embed_png_signature(
 ) -> None:
     """Embed a PNG signature into the PDF via a secure temp file.
 
-    fpdf2 needs a filesystem path, so the bytes are written to a
-    NamedTemporaryFile (secure mkstemp-based API). The temp file is always
-    removed afterwards, even if image embedding raises. ``rect`` is the
-    placement box as ``(x, y, width, height)``.
+    Thin wrapper around ``_embed_image_bytes`` (kept as a distinct, named
+    function since every existing call site already refers to it by this
+    name) — see that function's docstring for the temp-file mechanics.
     """
-    x, y, w, h = rect
-    tmp_path = None
-    try:
-        with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
-            tmp.write(img_data)
-            tmp_path = tmp.name
-        pdf.image(tmp_path, x=x, y=y, w=w, h=h)
-    finally:
-        if tmp_path and os.path.exists(tmp_path):
-            os.unlink(tmp_path)
+    _embed_image_bytes(pdf, img_data, rect, suffix=".png")
+
 
 # Path to Jinja2 templates directory
 _TEMPLATES_DIR = Path(__file__).parent.parent / "templates"
@@ -53,7 +73,7 @@ _FONT_REGULAR = str(_FONTS_DIR / "DejaVuSans.ttf")
 _FONT_BOLD = str(_FONTS_DIR / "DejaVuSans-Bold.ttf")
 
 # Font family names used throughout the service
-_FONT = "DejaVu"        # regular weight
+_FONT = "DejaVu"  # regular weight
 _FONT_B = "DejaVuBold"  # bold weight
 
 
@@ -92,8 +112,8 @@ def _html_to_pdf_bytes(html_content: str, title: str = "Dokument") -> bytes:
 # Internal FPDF helpers
 # ─────────────────────────────────────────────────────────────────────────────
 
-_GOLD = (139, 105, 20)       # RGB for #8B6914
-_DARK = (34, 34, 34)         # Near-black
+_GOLD = (139, 105, 20)  # RGB for #8B6914
+_DARK = (34, 34, 34)  # Near-black
 _GRAY = (120, 120, 120)
 _LIGHT_GOLD_BG = (249, 245, 236)  # #F9F5EC
 
@@ -120,7 +140,7 @@ class _GoldsmithPDF(FPDF):
         self.set_draw_color(200, 200, 200)
         self.line(10, self.get_y(), 200, self.get_y())
         self.ln(2)
-        self.set_font(_FONT, "",7)
+        self.set_font(_FONT, "", 7)
         self.set_text_color(*_GRAY)
         text = self._footer_text or self._workshop_name
         self.cell(0, 4, text, align="C")
@@ -148,13 +168,13 @@ class _GoldsmithPDF(FPDF):
 
     def kv_row(self, label: str, value: str, label_w: float = 55) -> None:
         """Print a label: value row in the current font."""
-        self.set_font(_FONT, "",9)
+        self.set_font(_FONT, "", 9)
         self.set_text_color(*_GRAY)
         self.cell(label_w, 5, label)
         self.set_text_color(*_DARK)
         self.set_font(_FONT_B, "", 9)
         self.cell(0, 5, value, ln=True)
-        self.set_font(_FONT, "",9)
+        self.set_font(_FONT, "", 9)
 
     def filled_header_row(self, cols: list[tuple[str, float, str]]) -> None:
         """
@@ -179,7 +199,7 @@ class _GoldsmithPDF(FPDF):
     ) -> None:
         """Draw a data row; alternating rows get a light gold background."""
         self.set_fill_color(*(_LIGHT_GOLD_BG if even else (255, 255, 255)))
-        self.set_font(_FONT, "",9.5)
+        self.set_font(_FONT, "", 9.5)
         row_h = 6
         for text, w, align in cols:
             self.cell(w, row_h, text, border=0, align=align, fill=True)
@@ -191,6 +211,7 @@ class _GoldsmithPDF(FPDF):
 # Invoice renderer
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 def _render_invoice_fpdf(
     invoice: Any,
     customer: Any,
@@ -200,9 +221,7 @@ def _render_invoice_fpdf(
 ) -> bytes:
     """Build an invoice PDF with fpdf2 and return raw bytes."""
 
-    footer_text = (
-        f"{workshop_name}  |  Rechnung {invoice.invoice_number}"
-    )
+    footer_text = f"{workshop_name}  |  Rechnung {invoice.invoice_number}"
     pdf = _GoldsmithPDF(workshop_name=workshop_name, footer_text=footer_text)
 
     # ── Page top: workshop name + RECHNUNG title ──────────────────────────────
@@ -214,7 +233,7 @@ def _render_invoice_fpdf(
     pdf.set_text_color(60, 60, 60)
     pdf.cell(0, 10, "RECHNUNG", align="R", ln=True)
 
-    pdf.set_font(_FONT, "",8)
+    pdf.set_font(_FONT, "", 8)
     pdf.set_text_color(*_GRAY)
     pdf.cell(110, 5, "Goldschmiede & Atelier")
     pdf.set_font(_FONT_B, "", 10)
@@ -237,7 +256,7 @@ def _render_invoice_fpdf(
     pdf.set_text_color(*_DARK)
     pdf.set_font(_FONT_B, "", 10)
     pdf.cell(90, 5, workshop_name, ln=True)
-    pdf.set_font(_FONT, "",9)
+    pdf.set_font(_FONT, "", 9)
 
     # Right column: customer (Rechnungsempfänger)
     pdf.set_xy(x_left + 100, y_addr)
@@ -252,7 +271,7 @@ def _render_invoice_fpdf(
     pdf.set_font(_FONT_B, "", 10)
     pdf.cell(90, 5, customer_name, ln=True)
     pdf.set_xy(x_left + 100, pdf.get_y())
-    pdf.set_font(_FONT, "",9)
+    pdf.set_font(_FONT, "", 9)
 
     for attr in ("address", "city", "email", "phone"):
         val = _safe_str(getattr(customer, attr, None))
@@ -274,7 +293,7 @@ def _render_invoice_fpdf(
         meta.append(("Zahlungsart:", str(invoice.payment_method)))
 
     for label, value in meta:
-        pdf.set_font(_FONT, "",9)
+        pdf.set_font(_FONT, "", 9)
         pdf.set_text_color(*_GRAY)
         pdf.cell(155, 4.5, label, align="R")
         pdf.set_text_color(*_DARK)
@@ -290,23 +309,28 @@ def _render_invoice_fpdf(
     col_unit = 28
     col_total = 28
 
-    pdf.filled_header_row([
-        ("Pos.", col_pos, "C"),
-        ("Beschreibung", col_desc, "L"),
-        ("Menge", col_qty, "R"),
-        ("Einzelpreis", col_unit, "R"),
-        ("Gesamtpreis", col_total, "R"),
-    ])
+    pdf.filled_header_row(
+        [
+            ("Pos.", col_pos, "C"),
+            ("Beschreibung", col_desc, "L"),
+            ("Menge", col_qty, "R"),
+            ("Einzelpreis", col_unit, "R"),
+            ("Gesamtpreis", col_total, "R"),
+        ]
+    )
 
     for i, item in enumerate(line_items):
-        even = (i % 2 == 0)
-        pdf.table_data_row([
-            (str(i + 1), col_pos, "C"),
-            (_safe_str(item.description)[:65], col_desc, "L"),
-            (_fmt_num(item.quantity), col_qty, "R"),
-            (_fmt_eur(item.unit_price), col_unit, "R"),
-            (_fmt_eur(item.total), col_total, "R"),
-        ], even=even)
+        even = i % 2 == 0
+        pdf.table_data_row(
+            [
+                (str(i + 1), col_pos, "C"),
+                (_safe_str(item.description)[:65], col_desc, "L"),
+                (_fmt_num(item.quantity), col_qty, "R"),
+                (_fmt_eur(item.unit_price), col_unit, "R"),
+                (_fmt_eur(item.total), col_total, "R"),
+            ],
+            even=even,
+        )
 
     # Divider below table
     pdf.set_draw_color(180, 180, 180)
@@ -318,7 +342,9 @@ def _render_invoice_fpdf(
     label_w = 140
     value_w = 38
 
-    def _total_row(label: str, value: str, bold: bool = False, gold_bg: bool = False) -> None:
+    def _total_row(
+        label: str, value: str, bold: bool = False, gold_bg: bool = False
+    ) -> None:
         if gold_bg:
             pdf.set_fill_color(*_GOLD)
             pdf.set_text_color(255, 255, 255)
@@ -362,13 +388,13 @@ def _render_invoice_fpdf(
         pdf.set_text_color(*_GOLD)
         pdf.cell(0, 5, "HINWEISE", ln=True)
         pdf.set_x(15)
-        pdf.set_font(_FONT, "",9)
+        pdf.set_font(_FONT, "", 9)
         pdf.set_text_color(*_DARK)
         pdf.multi_cell(175, 4.5, notes[:400])
         pdf.ln(2)
 
     # ── Payment instruction ───────────────────────────────────────────────────
-    pdf.set_font(_FONT, "",9)
+    pdf.set_font(_FONT, "", 9)
     pdf.set_text_color(*_GRAY)
     payment_text = (
         f"Bitte überweisen Sie den Gesamtbetrag von {_fmt_eur(invoice.total)} "
@@ -384,6 +410,7 @@ def _render_invoice_fpdf(
 # ─────────────────────────────────────────────────────────────────────────────
 # Scrap gold receipt renderer
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 def _render_scrap_gold_fpdf(
     scrap_gold: Any,
@@ -410,9 +437,15 @@ def _render_scrap_gold_fpdf(
     pdf.set_font(_FONT_B, "", 20)
     pdf.set_text_color(60, 60, 60)
     pdf.cell(0, 10, "ANKAUFSBELEG", align="C", ln=True)
-    pdf.set_font(_FONT, "",8)
+    pdf.set_font(_FONT, "", 8)
     pdf.set_text_color(*_GRAY)
-    pdf.cell(0, 5, f"Datum: {_fmt_date(scrap_gold.created_at)}     Beleg-Nr.: {receipt_nr}", align="C", ln=True)
+    pdf.cell(
+        0,
+        5,
+        f"Datum: {_fmt_date(scrap_gold.created_at)}     Beleg-Nr.: {receipt_nr}",
+        align="C",
+        ln=True,
+    )
     pdf.set_text_color(*_DARK)
     pdf.gold_rule()
     pdf.ln(4)
@@ -438,7 +471,7 @@ def _render_scrap_gold_fpdf(
     pdf.set_x(103)
     pdf.cell(88, 5, customer_name, ln=True)
 
-    pdf.set_font(_FONT, "",8.5)
+    pdf.set_font(_FONT, "", 8.5)
     pdf.set_text_color(*_GRAY)
 
     for attr in ("address", "city", "phone"):
@@ -459,21 +492,26 @@ def _render_scrap_gold_fpdf(
     col_weight = 40
     col_fine = 43
 
-    pdf.filled_header_row([
-        ("Beschreibung", col_desc, "L"),
-        ("Legierung", col_alloy, "C"),
-        ("Gewicht (g)", col_weight, "R"),
-        ("Feingehalt (g)", col_fine, "R"),
-    ])
+    pdf.filled_header_row(
+        [
+            ("Beschreibung", col_desc, "L"),
+            ("Legierung", col_alloy, "C"),
+            ("Gewicht (g)", col_weight, "R"),
+            ("Feingehalt (g)", col_fine, "R"),
+        ]
+    )
 
     for i, item in enumerate(items):
-        even = (i % 2 == 0)
-        pdf.table_data_row([
-            (_safe_str(item.description)[:45], col_desc, "L"),
-            (_safe_str(item.alloy), col_alloy, "C"),
-            (f"{item.weight_g:.3f}", col_weight, "R"),
-            (f"{item.fine_content_g:.3f}", col_fine, "R"),
-        ], even=even)
+        even = i % 2 == 0
+        pdf.table_data_row(
+            [
+                (_safe_str(item.description)[:45], col_desc, "L"),
+                (_safe_str(item.alloy), col_alloy, "C"),
+                (f"{item.weight_g:.3f}", col_weight, "R"),
+                (f"{item.fine_content_g:.3f}", col_fine, "R"),
+            ],
+            even=even,
+        )
 
     pdf.set_draw_color(180, 180, 180)
     pdf.line(10, pdf.get_y(), 200, pdf.get_y())
@@ -492,7 +530,7 @@ def _render_scrap_gold_fpdf(
         else:
             pdf.set_fill_color(255, 255, 255)
             pdf.set_text_color(*_GRAY)
-            pdf.set_font(_FONT, "",9)
+            pdf.set_font(_FONT, "", 9)
         pdf.cell(label_w, 6, label, fill=gold_bg)
         pdf.cell(value_w, 6, value, align="R", fill=gold_bg, ln=True)
         pdf.set_text_color(*_DARK)
@@ -533,7 +571,7 @@ def _render_scrap_gold_fpdf(
     pdf.set_line_width(0.2)
 
     pdf.set_y(sig_y + line_h + 1)
-    pdf.set_font(_FONT, "",7.5)
+    pdf.set_font(_FONT, "", 7.5)
     pdf.set_text_color(*_GRAY)
     pdf.cell(col_w + 10, 4, "Unterschrift Verkäufer / Kunde", align="C")
     pdf.cell(0, 4, "Unterschrift Goldschmiede / Ankäufer", align="C", ln=True)
@@ -558,7 +596,7 @@ def _render_scrap_gold_fpdf(
     pdf.set_text_color(80, 80, 80)
     pdf.cell(0, 4, "RECHTLICHER HINWEIS", ln=True)
     pdf.set_x(13)
-    pdf.set_font(_FONT, "",7.5)
+    pdf.set_font(_FONT, "", 7.5)
     pdf.multi_cell(184, 3.8, legal)
     pdf.set_text_color(*_DARK)
 
@@ -568,6 +606,7 @@ def _render_scrap_gold_fpdf(
 # ─────────────────────────────────────────────────────────────────────────────
 # Formatting helpers
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 def _fmt_date(dt: Any) -> str:
     """Format a datetime as German dd.mm.YYYY."""
@@ -608,11 +647,10 @@ def _safe_str(value: Any) -> str:
     return str(value)
 
 
-
-
 # ─────────────────────────────────────────────────────────────────────────────
 # Quote renderer (Kostenvoranschlag)
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 def _render_quote_fpdf(
     quote: Any,
@@ -623,9 +661,7 @@ def _render_quote_fpdf(
     """Build a Kostenvoranschlag PDF with fpdf2 and return raw bytes."""
     import base64
 
-    footer_text = (
-        f"{workshop_name}  |  Kostenvoranschlag {quote.quote_number}"
-    )
+    footer_text = f"{workshop_name}  |  Kostenvoranschlag {quote.quote_number}"
     pdf = _GoldsmithPDF(workshop_name=workshop_name, footer_text=footer_text)
 
     # ── Page top: workshop name + KOSTENVORANSCHLAG title ─────────────────────
@@ -711,23 +747,28 @@ def _render_quote_fpdf(
     col_unit = 28
     col_total = 28
 
-    pdf.filled_header_row([
-        ("Pos.", col_pos, "C"),
-        ("Beschreibung", col_desc, "L"),
-        ("Menge", col_qty, "R"),
-        ("Einzelpreis", col_unit, "R"),
-        ("Gesamtpreis", col_total, "R"),
-    ])
+    pdf.filled_header_row(
+        [
+            ("Pos.", col_pos, "C"),
+            ("Beschreibung", col_desc, "L"),
+            ("Menge", col_qty, "R"),
+            ("Einzelpreis", col_unit, "R"),
+            ("Gesamtpreis", col_total, "R"),
+        ]
+    )
 
     for i, item in enumerate(line_items):
-        even = (i % 2 == 0)
-        pdf.table_data_row([
-            (str(i + 1), col_pos, "C"),
-            (_safe_str(item.description)[:65], col_desc, "L"),
-            (_fmt_num(item.quantity), col_qty, "R"),
-            (_fmt_eur(item.unit_price), col_unit, "R"),
-            (_fmt_eur(item.total), col_total, "R"),
-        ], even=even)
+        even = i % 2 == 0
+        pdf.table_data_row(
+            [
+                (str(i + 1), col_pos, "C"),
+                (_safe_str(item.description)[:65], col_desc, "L"),
+                (_fmt_num(item.quantity), col_qty, "R"),
+                (_fmt_eur(item.unit_price), col_unit, "R"),
+                (_fmt_eur(item.total), col_total, "R"),
+            ],
+            even=even,
+        )
 
     # Divider below table
     pdf.set_draw_color(180, 180, 180)
@@ -739,7 +780,9 @@ def _render_quote_fpdf(
     label_w = 140
     value_w = 38
 
-    def _total_row(label: str, value: str, bold: bool = False, gold_bg: bool = False) -> None:
+    def _total_row(
+        label: str, value: str, bold: bool = False, gold_bg: bool = False
+    ) -> None:
         if gold_bg:
             pdf.set_fill_color(*_GOLD)
             pdf.set_text_color(255, 255, 255)
@@ -829,9 +872,11 @@ def _render_quote_fpdf(
 
     return bytes(pdf.output())
 
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Valuation certificate renderer (Wertgutachten)
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 def _render_valuation_certificate_fpdf(
     certificate: Any,
@@ -1006,7 +1051,9 @@ def _render_valuation_certificate_fpdf(
     pdf.set_y(sig_y + 2)
     pdf.set_font(_FONT, "", 7.5)
     pdf.set_text_color(*_GRAY)
-    pdf.cell(col_w + 10, 4, f"Ort, Datum / Place, Date: ______________________", align="L")
+    pdf.cell(
+        col_w + 10, 4, f"Ort, Datum / Place, Date: ______________________", align="L"
+    )
     pdf.set_y(sig_y + 2)
     pdf.set_x(10 + col_w + 10)
     pdf.cell(0, 4, "Unterschrift + Stempel / Signature + Stamp", align="L", ln=True)
@@ -1035,6 +1082,198 @@ def _render_valuation_certificate_fpdf(
     pdf.set_font(_FONT, "", 7)
     pdf.multi_cell(184, 3.5, legal)
     pdf.set_text_color(*_DARK)
+
+    return bytes(pdf.output())
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Customer update renderer (Kundeninfo — PDF-only fallback delivery)
+# ─────────────────────────────────────────────────────────────────────────────
+
+_PHOTO_MAX_W_MM = 100.0
+_PHOTO_MAX_H_MM = 70.0
+_PHOTO_MARGIN_MM = 4.0
+_UPDATE_BODY_MAX_CHARS = 4000
+_UPDATE_TRUNCATION_MARKER = "[Text gekürzt]"
+
+
+def _embed_photo_grid(pdf: "_GoldsmithPDF", photos: list[bytes]) -> None:
+    """
+    Place each of `photos` (JPEG bytes, e.g. from
+    ``image_validation.create_email_variant``) into the PDF, one per row,
+    scaled to fit within a fixed box while preserving aspect ratio. Uses the
+    ``_embed_image_bytes`` NamedTemporaryFile pattern (fpdf2 needs a
+    filesystem path). A photo that cannot be read/embedded is skipped with a
+    logged warning rather than aborting the whole document — a bad photo
+    must not block delivery of the rest of the update.
+
+    Page breaks: ``pdf.image()`` bypasses fpdf2's auto-page-break (that
+    mechanism only triggers on text cells), so each photo's height is
+    checked against ``pdf.page_break_trigger`` up front and a fresh page is
+    started when it would not fit — otherwise photos past the first ~3 would
+    be drawn off the bottom edge of the page.
+    """
+    for photo_bytes in photos:
+        try:
+            with Image.open(io.BytesIO(photo_bytes)) as img:
+                w_px, h_px = img.size
+        except Exception:
+            logger.warning(
+                "Could not read photo dimensions for customer-update PDF embed",
+                exc_info=True,
+            )
+            continue
+        if w_px <= 0 or h_px <= 0:
+            continue
+
+        aspect = h_px / w_px
+        w_mm = _PHOTO_MAX_W_MM
+        h_mm = w_mm * aspect
+        if h_mm > _PHOTO_MAX_H_MM:
+            h_mm = _PHOTO_MAX_H_MM
+            w_mm = h_mm / aspect
+
+        if pdf.get_y() + h_mm > pdf.page_break_trigger:
+            pdf.add_page()
+
+        y = pdf.get_y()
+        try:
+            _embed_image_bytes(pdf, photo_bytes, (10, y, w_mm, h_mm), suffix=".jpg")
+        except Exception:
+            logger.warning(
+                "Could not embed photo into customer-update PDF", exc_info=True
+            )
+            continue
+        pdf.set_y(y + h_mm + _PHOTO_MARGIN_MM)
+
+
+def _compose_update_pdf_lines(
+    update: Any,
+    order_ref: str,
+    customer_name: str,
+) -> list[tuple[str, str]]:
+    """
+    Compose the ordered visible text content of a customer-update PDF.
+
+    Pure function (no FPDF dependency) so the document's textual content is
+    directly unit-testable — fpdf2's embedded-TTF page streams are
+    glyph-index encoded and not text-searchable in the output bytes, so
+    without this seam a regression that dropped a draw call (e.g. the body
+    ``multi_cell``) would be invisible to byte-level assertions.
+    ``_render_customer_update_fpdf`` consumes this list verbatim; it draws
+    nothing text-wise that is not produced here (except the workshop name,
+    which it receives separately).
+
+    Returns a list of ``(kind, text)`` tuples in draw order. Kinds:
+    ``title`` / ``kv`` (label and value separated by a tab) / ``section`` /
+    ``body`` / ``footer``.
+
+    Body handling: truncated to ``_UPDATE_BODY_MAX_CHARS`` with a visible
+    German marker line (``_UPDATE_TRUNCATION_MARKER``) appended, and an INFO
+    log carrying the update id — never silent (CLAUDE.md: fail loudly).
+    """
+    subject = _safe_str(getattr(update, "subject", ""))
+    body = _safe_str(getattr(update, "body", ""))
+
+    if len(body) > _UPDATE_BODY_MAX_CHARS:
+        logger.info(
+            "Customer update body truncated for PDF render",
+            extra={
+                "update_id": getattr(update, "id", None),
+                "body_length": len(body),
+                "max_chars": _UPDATE_BODY_MAX_CHARS,
+            },
+        )
+        body = f"{body[:_UPDATE_BODY_MAX_CHARS]}\n\n{_UPDATE_TRUNCATION_MARKER}"
+
+    return [
+        ("title", "KUNDENINFORMATION"),
+        ("kv", f"Auftrag:\t{order_ref}"),
+        ("kv", f"Kunde:\t{customer_name}"),
+        ("section", subject or "Update"),
+        ("body", body),
+        (
+            "footer",
+            f"Referenz: {order_ref}  |  "
+            "Ihre Daten werden ausschliesslich zur Bearbeitung dieses "
+            "Auftrags verwendet.",
+        ),
+    ]
+
+
+def _render_customer_update_fpdf(
+    update: Any,
+    order_ref: str,
+    customer_name: str,
+    photos: list[bytes],
+    workshop_name: str,
+) -> bytes:
+    """
+    Build a Kundeninfo PDF (progress / cost-change / ready-for-pickup / custom
+    update) — the PDF-only fallback delivery path used when SMTP is unset or
+    the goldsmith prefers to hand/print/send it herself (spec:
+    ``delivery_method=pdf_manual``). Mirrors the email template's content
+    (subject/body/order reference/footer) so both delivery paths carry
+    identical information. All visible text content comes from
+    ``_compose_update_pdf_lines`` (the unit-testable seam) — this function
+    only owns layout, styling, and photo embedding.
+    """
+    subject = _safe_str(getattr(update, "subject", ""))
+    lines = _compose_update_pdf_lines(update, order_ref, customer_name)
+
+    footer_text = f"{workshop_name}  |  {order_ref}"
+    pdf = _GoldsmithPDF(workshop_name=workshop_name, footer_text=footer_text)
+    # Document metadata (/Info dict) — stored as a literal PDF string, unlike
+    # the embedded-Unicode-TTF page content (glyph-index encoded, not
+    # ASCII-searchable). This is the reliable way to assert "the reference
+    # string is present in the output" without a PDF text-extraction
+    # dependency (none is currently installed in this project).
+    pdf.set_title(f"Kundeninformation {order_ref}")
+    if subject:
+        pdf.set_subject(subject)
+
+    # ── Workshop name (header) ────────────────────────────────────────────────
+    pdf.set_font(_FONT_B, "", 16)
+    pdf.set_text_color(*_GOLD)
+    pdf.cell(0, 9, workshop_name, ln=True)
+
+    # ── Composed text content, in order ───────────────────────────────────────
+    photos_drawn = False
+    for kind, text in lines:
+        if kind == "title":
+            pdf.set_font(_FONT_B, "", 18)
+            pdf.set_text_color(60, 60, 60)
+            pdf.cell(0, 10, text, ln=True)
+            pdf.set_text_color(*_DARK)
+            pdf.gold_rule()
+            pdf.ln(4)
+        elif kind == "kv":
+            label, _, value = text.partition("\t")
+            pdf.kv_row(label, value, label_w=40)
+        elif kind == "section":
+            pdf.ln(3)
+            pdf.section_title(text)
+        elif kind == "body":
+            pdf.set_font(_FONT, "", 10)
+            pdf.multi_cell(0, 5, text)
+            pdf.ln(4)
+        elif kind == "footer":
+            # Photos sit between body and footer note.
+            if photos:
+                pdf.section_title(f"Fotos ({len(photos)})")
+                _embed_photo_grid(pdf, photos)
+                pdf.ln(2)
+                photos_drawn = True
+            pdf.set_font(_FONT, "", 8)
+            pdf.set_text_color(*_GRAY)
+            pdf.multi_cell(0, 4, text)
+            pdf.set_text_color(*_DARK)
+
+    # Defensive: if the composed lines ever lose their footer entry, the
+    # photos must still be drawn rather than silently dropped.
+    if photos and not photos_drawn:
+        pdf.section_title(f"Fotos ({len(photos)})")
+        _embed_photo_grid(pdf, photos)
 
     return bytes(pdf.output())
 
@@ -1191,5 +1430,54 @@ class PDFService:
         return _render_valuation_certificate_fpdf(
             certificate=certificate,
             customer=customer,
+            workshop_name=workshop_name,
+        )
+
+    @staticmethod
+    def render_customer_update_pdf(
+        update: Any,
+        order_ref: str,
+        customer_name: str,
+        photos: list[bytes],
+        workshop_name: str,
+    ) -> bytes:
+        """
+        Render a Kundeninfo update as PDF — the ``delivery_method=pdf_manual``
+        fallback path used when SMTP is unset or the goldsmith sends it
+        herself.
+
+        Args:
+            update:        CustomerUpdate ORM object or Pydantic response.
+                           Required attrs: subject, body.
+            order_ref:     Human-readable order/repair reference string
+                           (e.g. "Auftrag #1042").
+            customer_name: Customer display name.
+            photos:        List of JPEG bytes — the explicitly-selected,
+                           EXIF-stripped email-variant photos (see
+                           ``image_validation.create_email_variant``), NOT
+                           all order photos (design-IP rule).
+            workshop_name: Business name from settings.
+
+        Returns:
+            Raw PDF bytes. Caller streams via StreamingResponse.
+        """
+        # order_ref is a human-readable string that may carry the order's
+        # free-text title (Order.title, business-confidential per
+        # CLAUDE.md) — never log it. Numeric ids only (matches branch
+        # convention, e.g. customer_update_service._log_financial_access).
+        logger.info(
+            "Rendering customer update PDF",
+            extra={
+                "update_id": getattr(update, "id", None),
+                "order_id": getattr(update, "order_id", None),
+                "repair_job_id": getattr(update, "repair_job_id", None),
+                "photo_count": len(photos),
+            },
+        )
+        return _render_customer_update_fpdf(
+            update=update,
+            order_ref=order_ref,
+            customer_name=customer_name,
+            photos=photos,
             workshop_name=workshop_name,
         )

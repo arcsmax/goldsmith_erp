@@ -24,6 +24,7 @@ from goldsmith_erp.api.routers import (
     comments,
     consultations,
     customer_portal,
+    customer_updates,
     customers,
     hallmarks,
     handoffs,
@@ -256,6 +257,12 @@ app.include_router(
 app.include_router(
     scanner_router.router, prefix=f"{settings.API_V1_STR}/scan", tags=["scanner"]
 )  # V1.1 QR/Barcode scanner workflow
+app.include_router(
+    customer_updates.router,
+    prefix=f"{settings.API_V1_STR}",
+    tags=["customer-updates"],
+)  # V1.2 Kundeninfo + §649 BGB Kostenfreigabe (mixed /orders, /updates,
+#    /cost-changes path roots — bare API prefix, handoffs.py precedent)
 
 
 async def _authenticate_websocket(websocket: WebSocket) -> int | None:

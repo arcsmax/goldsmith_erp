@@ -120,7 +120,8 @@
     <div class="email-footer">
       <p>
         <strong>{{ workshop_name }}</strong><br>
-        Diese E-Mail wurde automatisch versandt. Bitte antworten Sie direkt in der Werkstatt.<br>
+        {% block footer_note %}Diese E-Mail wurde automatisch versandt. Bitte antworten Sie direkt in der Werkstatt.{% endblock %}<br>
+        {% if workshop_contact %}{{ workshop_contact }}<br>{% endif %}
         &copy; {{ workshop_name }} — Alle Rechte vorbehalten.
       </p>
     </div>

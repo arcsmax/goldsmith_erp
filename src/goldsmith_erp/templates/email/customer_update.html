@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}Update zu Ihrem Auftrag {{ order_ref }} — {{ workshop_name }}{% endblock %}
+
+{% block body %}
+<h2>Neuigkeiten zu Ihrem Auftrag</h2>
+
+<p>Liebe/r {{ customer_name }},</p>
+
+<p>{{ body | nl2br }}</p>
+
+{% if photo_count and photo_count > 0 %}
+<div class="info-box">
+  <p style="margin:0;">
+    Diesem Update {{ "ist" if photo_count == 1 else "sind" }}
+    <strong>{{ photo_count }}</strong> Foto{{ "" if photo_count == 1 else "s" }} beigefügt.
+  </p>
+</div>
+{% endif %}
+
+<p style="font-size:13px;color:#7a6a50;">
+  Auftragsreferenz: <strong>{{ order_ref }}</strong>
+</p>
+
+<p style="font-size:12px;color:#9a8a70;">
+  Ihre Daten werden ausschließlich zur Bearbeitung dieses Auftrags verwendet
+  und nicht an Dritte weitergegeben.
+</p>
+{% endblock %}

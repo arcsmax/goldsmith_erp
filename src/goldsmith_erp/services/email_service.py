@@ -13,18 +13,87 @@ Design contract:
 from __future__ import annotations
 
 import logging
+import re
 from email.mime.application import MIMEApplication
+from email.mime.image import MIMEImage
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+from html import unescape as _html_unescape
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 import aiosmtplib
 from jinja2 import Environment, FileSystemLoader, TemplateNotFound
+from markupsafe import Markup, escape
 
 from goldsmith_erp.core.config import settings
 
 logger = logging.getLogger(__name__)
+
+# ─── Plain-text derivation (multipart/alternative text part) ──────────────────
+#
+# Regex-based HTML→text conversion — NOT a general HTML→text engine. Limits
+# (documented per plan Task 4):
+#   - Whole <head>/<style>/<script> ELEMENTS (tags AND their content) are
+#     removed first — base.html carries a ~70-line <style> block in <head>,
+#     so a naive tag-strip alone would open every plain-text part with raw
+#     CSS (customer-facing regression caught in review).
+#   - Block-level tags are then turned into newlines before stripping so
+#     paragraphs / list items / headings don't run together; every other
+#     tag simply disappears (no bullet markers, no link URLs surfaced).
+#   - Does not handle malformed/unclosed HTML or nested comments — safe for
+#     our controlled template set but must NOT be reused on arbitrary
+#     third-party HTML.
+#   - Entities are unescaped via the stdlib `html` module (covers named +
+#     numeric references).
+#   - Consecutive blank lines collapse to at most one.
+_HEAD_RE = re.compile(r"(?is)<head\b[^>]*>.*?</head\s*>")
+_STYLE_RE = re.compile(r"(?is)<style\b[^>]*>.*?</style\s*>")
+_SCRIPT_RE = re.compile(r"(?is)<script\b[^>]*>.*?</script\s*>")
+_BLOCK_BREAK_RE = re.compile(r"(?i)<\s*(br|/p|/div|/li|/tr|/h[1-6])\s*/?\s*>")
+_TAG_RE = re.compile(r"<[^>]+>")
+_INLINE_WS_RE = re.compile(r"[ \t]+")
+
+
+def _html_to_plain_text(html_body: str) -> str:
+    """Derive a readable plain-text alternative from a rendered HTML email body."""
+    # Element-content removal must run BEFORE the generic tag strip — the
+    # tag strip removes <style> tags but would leave the CSS text behind.
+    text = _HEAD_RE.sub("", html_body)
+    text = _STYLE_RE.sub("", text)
+    text = _SCRIPT_RE.sub("", text)
+    text = _BLOCK_BREAK_RE.sub("\n", text)
+    text = _TAG_RE.sub("", text)
+    text = _html_unescape(text)
+    lines = [_INLINE_WS_RE.sub(" ", line).strip() for line in text.splitlines()]
+    collapsed: list[str] = []
+    for line in lines:
+        if line == "" and collapsed and collapsed[-1] == "":
+            continue
+        collapsed.append(line)
+    return "\n".join(collapsed).strip()
+
+
+def _nl2br(value: Optional[str]) -> Markup:
+    """
+    Escape `value` for HTML, then convert newlines to ``<br>`` tags.
+
+    Used by ``customer_update.html`` to render the goldsmith-edited free-text
+    ``body`` (untrusted customer-facing content) safely while preserving her
+    paragraph breaks. This is deliberately NOT the naive
+    ``{{ body | e | replace('\\n', '<br>') | safe }}`` template idiom: since
+    ``markupsafe.Markup.replace()`` re-escapes ITS OWN arguments (a
+    well-known Jinja2 gotcha), that chain HTML-escapes the ``<br>`` we insert
+    too, producing a literal ``&lt;br&gt;`` in the rendered email instead of
+    a line break. Building the ``Markup("<br>\\n")`` join value in Python
+    (where it is trusted, not user input) and joining already-escaped pieces
+    sidesteps that trap.
+    """
+    if not value:
+        return Markup("")
+    escaped_lines = escape(value).split("\n")
+    return Markup("<br>\n").join(escaped_lines)
+
 
 # Jinja2 environment pointing at the email template directory.
 _TEMPLATE_DIR = Path(__file__).parents[1] / "templates" / "email"
@@ -39,6 +108,7 @@ def _get_jinja_env() -> Environment:
             loader=FileSystemLoader(str(_TEMPLATE_DIR)),
             autoescape=True,
         )
+        _jinja_env.filters["nl2br"] = _nl2br
     return _jinja_env
 
 
@@ -143,6 +213,7 @@ class EmailService:
         subject: str,
         html_body: str,
         attachments: list[tuple[str, bytes]] | None = None,
+        plain_body: Optional[str] = None,
     ) -> bool:
         """
         Send an HTML email via SMTP.
@@ -158,11 +229,23 @@ class EmailService:
         attachments:
             Optional list of (filename, bytes) tuples — used for PDF invoices /
             quotes.  Each item is attached as application/octet-stream.
+        plain_body:
+            Optional explicit plain-text alternative. When omitted, a plain-text
+            version is derived from `html_body` via `_html_to_plain_text` (a
+            simple tag-strip — see that function's docstring for limits).
 
         Returns
         -------
         True if the message was accepted by the SMTP server, False otherwise.
         This method never raises.
+
+        Message structure
+        ------------------
+        multipart/mixed
+          └── multipart/alternative
+                ├── text/plain  (plain_body or derived from html_body)
+                └── text/html   (html_body)
+          └── application/* attachments (if any)
         """
         if not settings.EMAIL_NOTIFICATIONS_ENABLED:
             logger.debug("Email notifications disabled, skipping send")
@@ -184,10 +267,29 @@ class EmailService:
             msg["To"] = to
             msg["Subject"] = subject
 
-            msg.attach(MIMEText(html_body, "html", "utf-8"))
+            alternative = MIMEMultipart("alternative")
+            text = (
+                plain_body if plain_body is not None else _html_to_plain_text(html_body)
+            )
+            alternative.attach(MIMEText(text, "plain", "utf-8"))
+            alternative.attach(MIMEText(html_body, "html", "utf-8"))
+            msg.attach(alternative)
 
-            for filename, data in (attachments or []):
-                part = MIMEApplication(data, Name=filename)
+            for filename, data in attachments or []:
+                # Review fix: JPEG attachments (customer-update photos —
+                # see customer_update_service._load_photo_variant_bytes,
+                # always named "foto-N.jpg") get a proper image/jpeg
+                # Content-Type via MIMEImage instead of the generic
+                # application/octet-stream MIMEApplication previously
+                # used for every attachment — mail clients render an
+                # image attachment inline/as a thumbnail instead of
+                # offering it as an opaque download. Non-JPEG attachments
+                # (invoice/quote/receipt PDFs) are unaffected — they still
+                # go through MIMEApplication exactly as before.
+                if filename.lower().endswith((".jpg", ".jpeg")):
+                    part: MIMEApplication | MIMEImage = MIMEImage(data, _subtype="jpeg")
+                else:
+                    part = MIMEApplication(data, Name=filename)
                 part["Content-Disposition"] = f'attachment; filename="{filename}"'
                 msg.attach(part)
 
@@ -203,16 +305,20 @@ class EmailService:
 
             await aiosmtplib.send(msg, **smtp_kwargs)
 
+            # subject is NOT logged: with V1.2 customer updates the subject
+            # can be staff-authored free text (kind=custom) that may carry
+            # customer names — PII must never reach log lines (CLAUDE.md).
+            # Log its length instead for debugging signal.
             logger.info(
                 "Email sent",
-                extra={"to": safe_to, "subject": subject},
+                extra={"to": safe_to, "subject_len": len(subject)},
             )
             return True
 
         except Exception as exc:
             logger.error(
                 "Failed to send email — operation continues normally",
-                extra={"to": safe_to, "subject": subject, "error": str(exc)},
+                extra={"to": safe_to, "subject_len": len(subject), "error": str(exc)},
                 exc_info=True,
             )
             return False
@@ -226,15 +332,17 @@ class EmailService:
         """
         Render a Jinja2 HTML template.
 
-        Injects WORKSHOP_NAME from settings automatically.
-        Returns an empty string on render failure so callers can still
-        fall through gracefully.
+        Injects WORKSHOP_NAME (and WORKSHOP_CONTACT, review fix — renders
+        an optional contact line in the shared base.html footer when set)
+        from settings automatically. Returns an empty string on render
+        failure so callers can still fall through gracefully.
         """
         try:
             env = _get_jinja_env()
             tmpl = env.get_template(template_name)
             return tmpl.render(
                 workshop_name=settings.WORKSHOP_NAME,
+                workshop_contact=settings.WORKSHOP_CONTACT,
                 **context,
             )
         except TemplateNotFound:
@@ -281,11 +389,17 @@ class EmailService:
         """Notify customer that their repair item has been received."""
         html = EmailService._render_template(
             "repair_received.html",
-            {"order_id": order_id, "description": description, "bag_number": bag_number},
+            {
+                "order_id": order_id,
+                "description": description,
+                "bag_number": bag_number,
+            },
         )
         if not html:
             return False
-        subject = f"Ihre Reparatur #{order_id} wurde angenommen — {settings.WORKSHOP_NAME}"
+        subject = (
+            f"Ihre Reparatur #{order_id} wurde angenommen — {settings.WORKSHOP_NAME}"
+        )
         return await EmailService.send_email(to, subject, html)
 
     @staticmethod
@@ -340,7 +454,9 @@ class EmailService:
         attachments = []
         if invoice_pdf_bytes:
             attachments.append((f"Rechnung-Auftrag-{order_id}.pdf", invoice_pdf_bytes))
-        subject = f"Vielen Dank für Ihren Auftrag #{order_id} — {settings.WORKSHOP_NAME}"
+        subject = (
+            f"Vielen Dank für Ihren Auftrag #{order_id} — {settings.WORKSHOP_NAME}"
+        )
         return await EmailService.send_email(to, subject, html, attachments)
 
     @staticmethod
@@ -356,5 +472,82 @@ class EmailService:
         )
         if not html:
             return False
-        subject = f"Erinnerung: Ihre Anprobe am {fitting_date} — {settings.WORKSHOP_NAME}"
+        subject = (
+            f"Erinnerung: Ihre Anprobe am {fitting_date} — {settings.WORKSHOP_NAME}"
+        )
+        return await EmailService.send_email(to, subject, html)
+
+    # ------------------------------------------------------------------
+    # V1.2 Customer Updates & §649 BGB Cost Approval (Kundeninfo)
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    async def send_customer_update(
+        to: str,
+        subject: str,
+        customer_name: str,
+        body: str,
+        order_ref: str,
+        photo_count: int = 0,
+        attachments: list[tuple[str, bytes]] | None = None,
+    ) -> bool:
+        """
+        Send a Kundeninfo update (progress / ready-for-pickup / custom kind).
+
+        `subject` and `body` are the goldsmith-edited, already-final text
+        (CustomerUpdate.subject/body — Task 5 owns creation/editing); this
+        method only renders them into the shared German template and sends.
+        `attachments` should be the explicitly-selected, EXIF-stripped
+        email-variant photos (see `image_validation.create_email_variant`) —
+        never all order photos (design-IP rule).
+        """
+        html = EmailService._render_template(
+            "customer_update.html",
+            {
+                "customer_name": customer_name,
+                "body": body,
+                "order_ref": order_ref,
+                "photo_count": photo_count,
+            },
+        )
+        if not html:
+            return False
+        return await EmailService.send_email(to, subject, html, attachments)
+
+    @staticmethod
+    async def send_cost_change(
+        to: str,
+        subject: str,
+        customer_name: str,
+        order_ref: str,
+        original_amount: str,
+        new_amount: str,
+        delta_percent: str,
+        reason: str,
+        line_items: Optional[list[Any]] = None,
+    ) -> bool:
+        """
+        Send a §649 BGB cost-change notice (Kostenänderungsanzeige).
+
+        Amount/percent values are pre-formatted strings (e.g. "1.234,56 €",
+        "18 %") — this service only renders what it is given (plan Task 4:
+        "template just renders what it gets"); the caller (Task 5's
+        CostChangeService) owns NET-vs-GROSS presentation decisions.
+        `line_items` entries need only expose `.label` / `.amount` / `.kind`
+        (attribute or mapping access both work in Jinja2).
+        """
+        html = EmailService._render_template(
+            "cost_change.html",
+            {
+                "customer_name": customer_name,
+                "order_ref": order_ref,
+                "original_amount": original_amount,
+                "new_amount": new_amount,
+                "delta_percent": delta_percent,
+                "reason": reason,
+                "line_items": line_items or [],
+            },
+        )
+        if not html:
+            return False
         return await EmailService.send_email(to, subject, html)

@@ -11,12 +11,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from goldsmith_erp.core.encryption import EncryptionError, hmac_blind_index
-from goldsmith_erp.db.models import CalendarEvent, Consultation
+
+# Aliased — ``goldsmith_erp.models.customer.CustomerUpdate`` (the Pydantic
+# schema for updating a Customer's own fields, imported below) would
+# otherwise shadow this ORM model at module scope, same collision the
+# existing ``Customer as CustomerModel`` alias above already guards
+# against.
+from goldsmith_erp.db.models import CalendarEvent, Consultation, CostChangeRequest
 from goldsmith_erp.db.models import Customer as CustomerModel
+from goldsmith_erp.db.models import CustomerAuditLog, CustomerMeasurement, CustomerNoGo
+from goldsmith_erp.db.models import CustomerUpdate as CustomerUpdateModel
 from goldsmith_erp.db.models import (
-    CustomerAuditLog,
-    CustomerMeasurement,
-    CustomerNoGo,
     GDPRRequest,
     Gemstone,
     Invoice,
@@ -273,6 +278,31 @@ SCRUBBABLE_FIELDS: List[ScrubTarget] = [
     ScrubTarget(Consultation, "notes", "customer_id", "consultations.notes"),
     ScrubTarget(
         Consultation, "source_material", "customer_id", "consultations.source_material"
+    ),
+    # ── V1.2 customer updates / cost-change requests (2026-07-03) ──────
+    # CustomerUpdate attaches to EITHER an Order OR a RepairJob (exactly
+    # one of order_id/repair_job_id is set per row — Pydantic-enforced,
+    # see the model docstring), so ``body``/``subject`` each need two
+    # ScrubTarget entries — one per link kind — sharing the SAME
+    # counter_key (table.column convention): a given row is only ever
+    # reachable via one of the two links, so counts never double-count.
+    ScrubTarget(CustomerUpdateModel, "body", "order_id", "customer_updates.body"),
+    ScrubTarget(CustomerUpdateModel, "subject", "order_id", "customer_updates.subject"),
+    ScrubTarget(CustomerUpdateModel, "body", "repair_job_id", "customer_updates.body"),
+    ScrubTarget(
+        CustomerUpdateModel,
+        "subject",
+        "repair_job_id",
+        "customer_updates.subject",
+    ),
+    # CostChangeRequest.order_id is required (RESTRICT — financial
+    # retention, see model docstring), so a single order_id link suffices.
+    ScrubTarget(CostChangeRequest, "reason", "order_id", "cost_change_requests.reason"),
+    ScrubTarget(
+        CostChangeRequest,
+        "response_evidence",
+        "order_id",
+        "cost_change_requests.response_evidence",
     ),
 ]
 
@@ -1041,8 +1071,11 @@ class CustomerService:
             NULLed — final-review Fix 3), ``customer_no_gos.deleted``
             (preference rows hard-deleted), and ``repair_jobs.
             intake_checklist`` (checklist JSON NULLed — na_reason values
-            are free text about the erased customer's item). ``total`` is
-            the sum across all fields.
+            are free text about the erased customer's item). V1.2 adds
+            ``customer_updates.photo_ids`` and ``cost_change_requests.
+            line_items`` (structured JSON columns NULLed wholesale — same
+            rationale as intake_checklist). ``total`` is the sum across
+            all fields.
             Returns all-zero counts if the customer does not exist
             (caller should 404 before calling this).
         """
@@ -1061,6 +1094,8 @@ class CustomerService:
         counts["customers.style_profile"] = 0
         counts["customer_no_gos.deleted"] = 0
         counts["repair_jobs.intake_checklist"] = 0
+        counts["customer_updates.photo_ids"] = 0
+        counts["cost_change_requests.line_items"] = 0
         counts["total"] = 0
 
         if customer is None:
@@ -1174,30 +1209,14 @@ class CustomerService:
             intake_checklist_result.rowcount or 0, 0
         )
 
-        # Decrypt phone / mobile / address fields in-place so the matcher
-        # sees plaintext values. _decrypt_pii is a no-op when encryption
-        # is not configured.
-        _decrypt_pii(customer)
-
-        tokens = CustomerService._collect_pii_tokens(customer)
-        if not tokens:
-            # Nothing to match — write an audit log and exit cleanly.
-            # The consultation budget/no-go erasure above already ran;
-            # include it in the total so the audit row reflects it.
-            counts["total"] = sum(v for k, v in counts.items() if k != "total")
-            await CustomerService._write_scrub_audit_logs(
-                db,
-                customer_id=customer_id,
-                performed_by=performed_by,
-                counts=counts,
-                token_count=0,
-            )
-            return counts
-
         # Step 2: resolve the customer's owned parent-row IDs once. Every
         # ScrubTarget link_kind that is not ``customer_id`` reads from
         # one of these lists, so we compute them up-front and pass them
-        # through rather than re-querying per target.
+        # through rather than re-querying per target. Moved ahead of the
+        # token check (V1.2) because the photo_ids/line_items NULL-outs
+        # immediately below need order_ids/repair_job_ids and — like the
+        # intake_checklist/budget/no-go special cases above — must run
+        # even when the customer has no PII tokens to match.
         order_ids = [
             o.id
             for o in (
@@ -1246,6 +1265,80 @@ class CustomerService:
             .scalars()
             .all()
         ]
+
+        # V1.2 (2026-07-03): CustomerUpdate.photo_ids / CostChangeRequest.
+        # line_items are structured JSON columns, not free text — no PII
+        # token can be regex-matched inside them, so (like
+        # repair_jobs.intake_checklist above) they don't fit the
+        # string-scrub ScrubTarget shape and are NULLed wholesale instead
+        # of partially redacted. photo_ids references specific OrderPhoto
+        # UUIDs (design-IP adjacent); line_items carries free-text labels
+        # about the erased customer's order. sa.null() (not Python None):
+        # Column(JSON) defaults to none_as_null=False, so
+        # ``values(...=None)`` would persist the JSON literal 'null' —
+        # which still matches ``isnot(None)`` (a SQL-NULL check) and would
+        # re-count the same rows on every repeat scrub, breaking the
+        # idempotent-counter guarantee. Same sa.null() + isnot(None)-
+        # guarded, additive-counter shape as intake_checklist.
+        #
+        # CustomerUpdate reaches a customer via EITHER order_id OR
+        # repair_job_id (exactly one set per row) — both link kinds are
+        # checked, whichever list is non-empty.
+        customer_update_link_clauses = []
+        if order_ids:
+            customer_update_link_clauses.append(
+                CustomerUpdateModel.order_id.in_(order_ids)
+            )
+        if repair_job_ids:
+            customer_update_link_clauses.append(
+                CustomerUpdateModel.repair_job_id.in_(repair_job_ids)
+            )
+        if customer_update_link_clauses:
+            photo_ids_result = await db.execute(
+                update(CustomerUpdateModel)
+                .where(
+                    or_(*customer_update_link_clauses),
+                    CustomerUpdateModel.photo_ids.isnot(None),
+                )
+                .values(photo_ids=null())
+            )
+            counts["customer_updates.photo_ids"] = max(
+                photo_ids_result.rowcount or 0, 0
+            )
+
+        if order_ids:
+            line_items_result = await db.execute(
+                update(CostChangeRequest)
+                .where(
+                    CostChangeRequest.order_id.in_(order_ids),
+                    CostChangeRequest.line_items.isnot(None),
+                )
+                .values(line_items=null())
+            )
+            counts["cost_change_requests.line_items"] = max(
+                line_items_result.rowcount or 0, 0
+            )
+
+        # Decrypt phone / mobile / address fields in-place so the matcher
+        # sees plaintext values. _decrypt_pii is a no-op when encryption
+        # is not configured.
+        _decrypt_pii(customer)
+
+        tokens = CustomerService._collect_pii_tokens(customer)
+        if not tokens:
+            # Nothing to match — write an audit log and exit cleanly.
+            # The consultation budget/no-go erasure + the photo_ids/
+            # line_items NULL-outs above already ran; include them in the
+            # total so the audit row reflects it.
+            counts["total"] = sum(v for k, v in counts.items() if k != "total")
+            await CustomerService._write_scrub_audit_logs(
+                db,
+                customer_id=customer_id,
+                performed_by=performed_by,
+                counts=counts,
+                token_count=0,
+            )
+            return counts
 
         # Step 3: walk SCRUBBABLE_FIELDS — one pass per target.
         for target in SCRUBBABLE_FIELDS:

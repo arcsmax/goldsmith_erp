@@ -44,6 +44,11 @@ test_engine = create_async_engine(
     TEST_DATABASE_URL,
     connect_args={"check_same_thread": False},
     echo=False,
+    # Parity with the production engine (db/session.py) — see that file's
+    # comment. Keeping this OFF in tests would make the security regression
+    # test for hide_parameters exercise a config that never matches
+    # production, defeating the point of testing it at all.
+    hide_parameters=True,
 )
 
 TestSessionLocal = sessionmaker(
