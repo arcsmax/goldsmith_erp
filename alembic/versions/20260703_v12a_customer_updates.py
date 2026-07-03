@@ -6,9 +6,12 @@ Adds two new tables:
 
 - ``cost_change_requests`` — §649 BGB change-order style approval record
   (created first: ``customer_updates.cost_change_request_id`` FKs into it).
+  ``order_id`` is ``ondelete="RESTRICT"``: financial record, blocks order
+  hard-deletes (Invoice precedent, Art. 30 retention).
 - ``customer_updates`` — Kundeninfo sent to a customer (progress, cost
   change, ready-for-pickup, custom), attaches to EITHER an order or a
-  repair job.
+  repair job via ``ondelete="SET NULL"`` links (skeleton rows survive
+  entity deletion — spec: "same pattern as invoice retention").
 
 Idempotency
 -----------
@@ -47,13 +50,16 @@ def upgrade() -> None:
     # Column `index=True` flags mirror db/models.CostChangeRequest exactly —
     # on a fresh DB create_all() already produces these indexes, but a
     # legacy-DB catch-up run executes THIS raw DDL, so it must match.
+    # order_id: RESTRICT — a cost-change request is §649 BGB approval
+    # evidence / a financial record with Art. 30 retention duties, so it
+    # blocks order hard-deletes exactly like Invoice.order_id.
     create_table_if_not_exists(
         "cost_change_requests",
         sa.Column("id", sa.Integer(), primary_key=True, autoincrement=True, index=True),
         sa.Column(
             "order_id",
             sa.Integer(),
-            sa.ForeignKey("orders.id", ondelete="CASCADE"),
+            sa.ForeignKey("orders.id", ondelete="RESTRICT"),
             nullable=False,
             index=True,
         ),
@@ -96,20 +102,23 @@ def upgrade() -> None:
     )
 
     # Same index-parity note as above — mirrors db/models.CustomerUpdate.
+    # order_id / repair_job_id: SET NULL — sent updates are correspondence
+    # records kept as skeleton rows for Art. 30 accountability when the
+    # linked order/repair is hard-deleted (Quote.order_id precedent).
     create_table_if_not_exists(
         "customer_updates",
         sa.Column("id", sa.Integer(), primary_key=True, autoincrement=True, index=True),
         sa.Column(
             "order_id",
             sa.Integer(),
-            sa.ForeignKey("orders.id", ondelete="CASCADE"),
+            sa.ForeignKey("orders.id", ondelete="SET NULL"),
             nullable=True,
             index=True,
         ),
         sa.Column(
             "repair_job_id",
             sa.Integer(),
-            sa.ForeignKey("repair_jobs.id", ondelete="CASCADE"),
+            sa.ForeignKey("repair_jobs.id", ondelete="SET NULL"),
             nullable=True,
             index=True,
         ),

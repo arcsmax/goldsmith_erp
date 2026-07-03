@@ -2659,6 +2659,14 @@ class CustomerUpdate(Base):
     ``token`` is a portal-ready opaque handle (unused by V1.2 emails except
     as a reference id) so a future hosted portal can render identical content
     without a data-model change (spec: "Decision context: no live portal").
+
+    FK deletion semantics: ``order_id``/``repair_job_id`` use ``SET NULL``
+    (not CASCADE) — sent updates are outbound-correspondence records kept as
+    skeleton rows for Art. 30 accountability even when the linked order/
+    repair is hard-deleted (spec GDPR section: "skeleton rows kept for
+    Art. 30 / financial audit — same pattern as invoice retention"; matches
+    ``Quote.order_id``'s nullable-link precedent). GDPR erasure scrubs the
+    free-text content (Task 6), it does not delete the rows.
     """
 
     __tablename__ = "customer_updates"
@@ -2666,13 +2674,14 @@ class CustomerUpdate(Base):
     id = Column(Integer, primary_key=True, index=True)
 
     # Exactly one of these two must be set — Pydantic-layer invariant, see
-    # class docstring.
+    # class docstring. SET NULL, not CASCADE — Art. 30 retention, see
+    # docstring.
     order_id = Column(
-        Integer, ForeignKey("orders.id", ondelete="CASCADE"), nullable=True, index=True
+        Integer, ForeignKey("orders.id", ondelete="SET NULL"), nullable=True, index=True
     )
     repair_job_id = Column(
         Integer,
-        ForeignKey("repair_jobs.id", ondelete="CASCADE"),
+        ForeignKey("repair_jobs.id", ondelete="SET NULL"),
         nullable=True,
         index=True,
     )
@@ -2743,13 +2752,24 @@ class CostChangeRequest(Base):
     it via ``record_response`` (Task 5). ``reason``/``response_evidence`` are
     GDPR scrub targets via the ``order_id`` link (Task 6). Financial data —
     ADMIN/GOLDSMITH only, all access audit-logged.
+
+    FK deletion semantics: ``order_id`` uses ``ondelete="RESTRICT"`` — an
+    approved/declined cost change is the §649 BGB approval evidence and a
+    financial record with Art. 30 retention duties, so it must block a hard
+    delete of its order exactly like ``Invoice.order_id`` does (the spec's
+    "same pattern as invoice retention"). GDPR erasure scrubs the free-text
+    fields (Task 6), it never deletes the rows.
     """
 
     __tablename__ = "cost_change_requests"
 
     id = Column(Integer, primary_key=True, index=True)
+    # RESTRICT, not CASCADE — financial-retention backstop, see docstring.
     order_id = Column(
-        Integer, ForeignKey("orders.id", ondelete="CASCADE"), nullable=False, index=True
+        Integer,
+        ForeignKey("orders.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
     )
     quote_id = Column(
         Integer, ForeignKey("quotes.id", ondelete="SET NULL"), nullable=True, index=True
