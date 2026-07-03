@@ -235,6 +235,45 @@ describe('KundeninfoTab', () => {
     ).not.toBeInTheDocument();
   });
 
+  it('never offers "Kostenänderung" (cost_change) as a compose option, but offers the others', async () => {
+    mockUseAuth.mockReturnValue(manageAuth());
+    mockListUpdates.mockResolvedValue([]);
+
+    render(<KundeninfoTab orderId={3} />);
+    await waitFor(() => expect(mockListUpdates).toHaveBeenCalledWith(3));
+
+    const select = screen.getByLabelText('Art') as HTMLSelectElement;
+    const optionValues = within(select)
+      .getAllByRole('option')
+      .map((option) => (option as HTMLOptionElement).value);
+
+    expect(optionValues).not.toContain('cost_change');
+    expect(optionValues).toEqual(
+      expect.arrayContaining(['progress', 'ready_for_pickup', 'custom'])
+    );
+  });
+
+  it('clicking "Senden" on a draft history row sends that update and shows the delivery toast', async () => {
+    mockUseAuth.mockReturnValue(manageAuth());
+    const draftUpdate = makeUpdate({ id: 77, status: 'draft' });
+    mockListUpdates.mockResolvedValue([draftUpdate]);
+    mockSendUpdate.mockResolvedValue({
+      update: makeUpdate({ id: 77, status: 'sent', delivery_method: 'email' }),
+      delivered: true,
+      method: 'email',
+    });
+
+    render(<KundeninfoTab orderId={13} />);
+
+    const item = (await screen.findAllByRole('listitem'))[0];
+    await userEvent.click(within(item).getByRole('button', { name: 'Senden' }));
+
+    await waitFor(() => expect(mockSendUpdate).toHaveBeenCalledWith(77));
+    await waitFor(() =>
+      expect(mockShowToast).toHaveBeenCalledWith(expect.stringContaining('versendet'), 'success')
+    );
+  });
+
   it('hides the compose form and never calls listUpdates for a user without the manage role', () => {
     mockUseAuth.mockReturnValue(viewerAuth());
 

@@ -200,15 +200,19 @@ export function KundeninfoTab({ orderId, customerName }: KundeninfoTabProps) {
 
   const handleDownloadPdf = useCallback(
     async (update: CustomerUpdate) => {
+      if (actionLoading) return;
+      setActionLoading(true);
       try {
         const blob = await customerUpdatesApi.downloadUpdatePdf(update.id);
         downloadBlob(blob, `kundeninfo_${update.id}.pdf`);
       } catch (err) {
         logError('KundeninfoTab.downloadPdf', err);
         showToast('PDF-Download fehlgeschlagen.', 'error');
+      } finally {
+        setActionLoading(false);
       }
     },
-    [showToast]
+    [actionLoading, showToast]
   );
 
   const handleSendExisting = useCallback(
@@ -387,11 +391,13 @@ export function KundeninfoTab({ orderId, customerName }: KundeninfoTabProps) {
             }
             disabled={actionLoading}
           >
-            {(Object.keys(KIND_LABELS) as CustomerUpdateKind[]).map((kind) => (
-              <option key={kind} value={kind}>
-                {KIND_LABELS[kind]}
-              </option>
-            ))}
+            {(Object.keys(KIND_LABELS) as CustomerUpdateKind[])
+              .filter((kind) => kind !== 'cost_change')
+              .map((kind) => (
+                <option key={kind} value={kind}>
+                  {KIND_LABELS[kind]}
+                </option>
+              ))}
           </select>
         </div>
 
