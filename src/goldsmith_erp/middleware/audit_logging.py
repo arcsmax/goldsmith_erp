@@ -139,17 +139,21 @@ _RESOURCE_ROUTES: dict[str, Tuple[str, str, str, bool]] = {
     # POST (create-linked-update / record-response), and this table's
     # is_financial=True GET-only filter (see dispatch()) means non-GET
     # traffic under a financial family never reaches _log_to_database at
-    # all. Real audit coverage for CostChangeRequest mutations, and for
-    # the THREE ``/orders/{id}/...`` GETs this table structurally cannot
-    # see (history, cost-changes list, projected-cost — they key on the
-    # FIRST path segment "orders", which is not itself a registered
-    # family and would need a much larger blanket "orders" entry auditing
-    # every order fetch app-wide to catch them here), comes from the
-    # service-level structured "audit": True logging in
-    # customer_update_service.py / cost_change_service.py (mirrors
-    # invoice_service.py's `_log_financial_access` pattern) plus one
-    # explicit call in the projected-cost router handler. See the V1.2
-    # Task 5 report for the full resolution of this open question.
+    # all. RESOLVED (final-review fix): the THREE ``/orders/{id}/...``
+    # GETs this table structurally cannot see (history, cost-changes
+    # list, projected-cost — they key on the FIRST path segment "orders",
+    # which is not itself a registered family; a blanket "orders" entry
+    # was deliberately rejected — it would audit every unrelated order
+    # fetch app-wide) now ALSO write a ``CustomerAuditLog`` row directly
+    # from the service layer: ``customer_update_service.
+    # write_financial_audit_row`` (shared by
+    # ``CustomerUpdateService.list_for_order``,
+    # ``CostChangeService.list_for_order``, and the projected-cost router
+    # handler), mirroring this middleware's ``_log_to_database`` action
+    # naming and ``details`` JSON shape. Real DB-row audit coverage for
+    # CostChangeRequest mutations remains structured-log-only (kept as
+    # before, per the same rationale) — only the three specified GETs
+    # were in scope for this fix. See the report for the full resolution.
     "updates": ("customer_update", "financial_read", "list_accessed_financial", True),
     "cost-changes": (
         "cost_change",

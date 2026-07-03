@@ -92,6 +92,35 @@ def test_customer_update_create_has_no_target_fields():
     assert "repair_job_id" not in CustomerUpdateCreate.model_fields
 
 
+def test_customer_update_create_rejects_newline_in_subject():
+    """Review fix: subject becomes an email Subject: header and is
+    embedded into the PDF's /Info metadata — a raw LF must be rejected."""
+    with pytest.raises(ValidationError, match="Zeilenumbrueche"):
+        CustomerUpdateCreate(
+            kind=CustomerUpdateKind.CUSTOM,
+            subject="Erster Teil\nInjizierte-Zeile",
+            body="Ausreichend langer Text.",
+        )
+
+
+def test_customer_update_create_rejects_carriage_return_in_subject():
+    with pytest.raises(ValidationError, match="Zeilenumbrueche"):
+        CustomerUpdateCreate(
+            kind=CustomerUpdateKind.CUSTOM,
+            subject="Erster Teil\rInjizierte-Zeile",
+            body="Ausreichend langer Text.",
+        )
+
+
+def test_customer_update_create_allows_normal_subject_text():
+    update = CustomerUpdateCreate(
+        kind=CustomerUpdateKind.CUSTOM,
+        subject="Ganz normaler Betreff ohne Zeilenumbruch",
+        body="Ausreichend langer Text.",
+    )
+    assert update.subject == "Ganz normaler Betreff ohne Zeilenumbruch"
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 # CustomerUpdateRead — from_attributes roundtrip vs the ORM model
 # ═══════════════════════════════════════════════════════════════════════════
@@ -227,6 +256,39 @@ def test_cost_change_create_rejects_invalid_line_item_kind():
         )
 
 
+def test_cost_change_create_rejects_reason_over_2000_chars():
+    with pytest.raises(ValidationError):
+        CostChangeCreate(new_amount=1200.0, reason="x" * 2001)
+
+
+def test_cost_change_create_allows_reason_at_2000_chars():
+    change = CostChangeCreate(new_amount=1200.0, reason="x" * 2000)
+    assert len(change.reason) == 2000
+
+
+def test_cost_change_create_rejects_more_than_30_line_items():
+    with pytest.raises(ValidationError):
+        CostChangeCreate(
+            new_amount=1200.0,
+            reason="Zusaetzlicher Steinbesatz vom Kunden gewuenscht.",
+            line_items=[
+                {"label": f"Posten {i}", "amount": 10.0, "kind": "add"}
+                for i in range(31)
+            ],
+        )
+
+
+def test_cost_change_create_allows_exactly_30_line_items():
+    change = CostChangeCreate(
+        new_amount=1200.0,
+        reason="Zusaetzlicher Steinbesatz vom Kunden gewuenscht.",
+        line_items=[
+            {"label": f"Posten {i}", "amount": 10.0, "kind": "add"} for i in range(30)
+        ],
+    )
+    assert len(change.line_items) == 30
+
+
 def test_cost_change_create_has_no_order_id_field():
     """order_id is path-supplied (Task 5); original_amount is derived from
     the order's quote, not client input."""
@@ -317,6 +379,24 @@ def test_cost_change_record_response_accepts_valid_payload():
     )
     assert result.response_evidence == "Kundin hat vor Ort abgelehnt."
     assert result.status == "declined"
+
+
+def test_cost_change_record_response_rejects_evidence_over_2000_chars():
+    with pytest.raises(ValidationError):
+        CostChangeRecordResponse(
+            status="approved",
+            response_method=CostChangeResponseMethod.EMAIL_REPLY,
+            response_evidence="x" * 2001,
+        )
+
+
+def test_cost_change_record_response_allows_evidence_at_2000_chars():
+    result = CostChangeRecordResponse(
+        status="approved",
+        response_method=CostChangeResponseMethod.EMAIL_REPLY,
+        response_evidence="x" * 2000,
+    )
+    assert len(result.response_evidence) == 2000
 
 
 def test_cost_change_record_response_rejects_invalid_status_literal():

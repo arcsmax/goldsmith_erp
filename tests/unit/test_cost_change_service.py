@@ -264,6 +264,56 @@ class TestSend:
         with pytest.raises(InvalidCostChangeStateError):
             await CostChangeService.send(db_session, cost_change.id, sample_user.id)
 
+    async def test_concurrent_sends_only_one_wins_the_cas_claim(
+        self, db_session, sample_order, sample_customer, sample_user, monkeypatch
+    ):
+        """Security/correctness (review fix — send-path race): two
+        concurrent send() calls for the SAME DRAFT cost-change request
+        must not both create+dispatch a linked CustomerUpdate. Exercised
+        with two independent AsyncSession objects bound to the same
+        underlying (file-backed) SQLite engine, raced via asyncio.gather
+        — same pattern as
+        test_customer_update_service.py's equivalent CAS test."""
+        import asyncio
+
+        from sqlalchemy.ext.asyncio import AsyncSession as _AsyncSession
+
+        _enable_smtp(monkeypatch)
+        monkeypatch.setattr(email_service_module.aiosmtplib, "send", _CapturingSend())
+
+        await _add_quote(
+            db_session,
+            order=sample_order,
+            customer=sample_customer,
+            user=sample_user,
+            status=QuoteStatus.SENT,
+            subtotal=1000.0,
+        )
+        cost_change = await CostChangeService.create(
+            db_session,
+            sample_order.id,
+            CostChangeCreate(new_amount=1200.0, reason="Zusaetzliche Fassung noetig"),
+            sample_user.id,
+        )
+
+        session_b = _AsyncSession(bind=db_session.bind, expire_on_commit=False)
+        try:
+            results = await asyncio.gather(
+                CostChangeService.send(db_session, cost_change.id, sample_user.id),
+                CostChangeService.send(session_b, cost_change.id, sample_user.id),
+                return_exceptions=True,
+            )
+        finally:
+            await session_b.close()
+
+        successes = [r for r in results if not isinstance(r, BaseException)]
+        errors = [r for r in results if isinstance(r, BaseException)]
+
+        assert len(successes) == 1, results
+        assert len(errors) == 1, results
+        assert isinstance(errors[0], InvalidCostChangeStateError)
+        assert successes[0].delivered is True
+
     async def test_creates_and_sends_linked_customer_update(
         self, db_session, sample_order, sample_customer, sample_user, monkeypatch
     ):

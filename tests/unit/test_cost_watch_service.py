@@ -648,6 +648,37 @@ class TestQuoteReferenceAndDeltas:
 
 
 # ---------------------------------------------------------------------------
+# get_projected_cost_or_404 — strict variant for the endpoint (review fix)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+class TestGetProjectedCostOr404:
+    async def test_returns_none_for_unknown_order(self, db_session):
+        result = await CostWatchService.get_projected_cost_or_404(db_session, 999_999)
+        assert result is None
+
+    async def test_returns_projection_for_existing_order(
+        self, db_session, sample_order
+    ):
+        result = await CostWatchService.get_projected_cost_or_404(
+            db_session, sample_order.id
+        )
+        assert result is not None
+        assert result.over_threshold is False
+
+    async def test_does_not_change_get_projected_cost_tolerant_behavior(
+        self, db_session
+    ):
+        """get_projected_cost itself must stay tolerant of an unknown
+        order (check_order's fire-and-forget hook-site callers rely on
+        this) — only the new _or_404 variant is strict."""
+        projected = await CostWatchService.get_projected_cost(db_session, 999_999)
+        assert projected is not None
+        assert projected.material_cost == 0.0
+
+
+# ---------------------------------------------------------------------------
 # check_order — alerting + dedup
 # ---------------------------------------------------------------------------
 

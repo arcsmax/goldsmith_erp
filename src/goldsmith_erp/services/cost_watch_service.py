@@ -224,6 +224,34 @@ class CostWatchService:
         )
 
     @staticmethod
+    async def get_projected_cost_or_404(
+        db: AsyncSession, order_id: int
+    ) -> Optional[ProjectedCost]:
+        """
+        Like ``get_projected_cost``, but returns ``None`` when the order
+        itself does not exist — used ONLY by
+        ``GET /orders/{id}/projected-cost`` (final-review fix: that
+        endpoint must 404 on an unknown order rather than silently
+        returning a cost breakdown computed against a fallback hourly
+        rate for a non-existent order).
+
+        ``get_projected_cost``'s own tolerant behaviour (defaulting
+        ``hourly_rate`` when ``order`` is ``None``) is deliberately left
+        untouched: ``check_order``'s fire-and-forget hook-site callers
+        (``MetalInventoryService.consume_material``,
+        ``TimeTrackingService.stop_time_entry``) only ever run against a
+        real, just-mutated order and must keep their existing
+        never-raises contract — they must not start branching on a
+        lookup that "shouldn't" fail there.
+        """
+        order_exists = (
+            await db.execute(select(Order.id).where(Order.id == order_id))
+        ).scalar_one_or_none()
+        if order_exists is None:
+            return None
+        return await CostWatchService.get_projected_cost(db, order_id)
+
+    @staticmethod
     async def _select_reference_quote(
         db: AsyncSession, order_id: int
     ) -> Optional[Quote]:

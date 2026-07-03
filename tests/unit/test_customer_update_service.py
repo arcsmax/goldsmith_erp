@@ -476,6 +476,54 @@ class TestSend:
         with pytest.raises(InvalidUpdateStateError):
             await CustomerUpdateService.send(db_session, draft.id, sample_user.id)
 
+    async def test_concurrent_sends_only_one_wins_the_cas_claim(
+        self, db_session, sample_order, sample_user, monkeypatch
+    ):
+        """Security/correctness (review fix — send-path race): two
+        concurrent send() calls for the SAME update must not both
+        dispatch email to the customer. The initial status SELECT is
+        racy on its own (both callers can observe DRAFT); the CAS
+        UPDATE...WHERE status IN (...)...RETURNING id is the actual
+        authority for the transition. Exercised with two independent
+        AsyncSession objects bound to the SAME underlying (file-backed)
+        SQLite engine — one per simulated concurrent request, matching
+        how get_db() hands each real request its own session — raced via
+        asyncio.gather so this is a genuine concurrent write, not two
+        sequential calls that merely look concurrent."""
+        import asyncio
+
+        from sqlalchemy.ext.asyncio import AsyncSession as _AsyncSession
+
+        _enable_smtp(monkeypatch)
+        monkeypatch.setattr(email_service_module.aiosmtplib, "send", _CapturingSend())
+
+        draft = await CustomerUpdateService.create_draft(
+            db_session,
+            order_id=sample_order.id,
+            repair_job_id=None,
+            data=CustomerUpdateCreate(kind=CustomerUpdateKind.PROGRESS),
+            user_id=sample_user.id,
+        )
+
+        session_b = _AsyncSession(bind=db_session.bind, expire_on_commit=False)
+        try:
+            results = await asyncio.gather(
+                CustomerUpdateService.send(db_session, draft.id, sample_user.id),
+                CustomerUpdateService.send(session_b, draft.id, sample_user.id),
+                return_exceptions=True,
+            )
+        finally:
+            await session_b.close()
+
+        successes = [r for r in results if not isinstance(r, BaseException)]
+        errors = [r for r in results if isinstance(r, BaseException)]
+
+        assert len(successes) == 1, results
+        assert len(errors) == 1, results
+        assert isinstance(errors[0], InvalidUpdateStateError)
+        assert successes[0].delivered is True
+        assert successes[0].update.status == CustomerUpdateStatus.SENT
+
     async def test_send_failed_update_can_be_retried(
         self, db_session, sample_order, sample_user, monkeypatch
     ):

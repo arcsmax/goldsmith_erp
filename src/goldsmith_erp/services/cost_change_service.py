@@ -17,11 +17,26 @@ customer_update_service module docstring for the rationale
 (transactional() logs str(exc) at ERROR; pre-flight raises keep that
 logger ID-only).
 
-Financial-data audit logging: structured "audit": True logging
-(mirrors invoice_service._log_financial_access) rather than DB
-CustomerAuditLog rows — see customer_update_service's module docstring
-for why (the /orders/{id}/... GETs and every mutation here are outside
-what AuditLoggingMiddleware's first-path-segment keying can see).
+Financial-data audit logging: structured "audit": True logging (mirrors
+invoice_service._log_financial_access) is kept for every mutation and
+read in this module. The GET /orders/{id}/cost-changes list — outside
+what AuditLoggingMiddleware's first-path-segment keying can see (see
+customer_update_service's module docstring for the full explanation) —
+ALSO writes a CustomerAuditLog row directly (final-review fix), via
+customer_update_service.write_financial_audit_row (imported here — this
+module already depends on customer_update_service for
+CustomerUpdateService.send, so this adds no new coupling axis).
+
+Concurrency (review fix): send()'s DRAFT -> SENT transition on the
+target CostChangeRequest uses the same conditional-UPDATE/RETURNING CAS
+shape as CustomerUpdateService.send (see that method's docstring) — two
+concurrent send() calls for the same cost_change_id must not both
+create+dispatch a linked CustomerUpdate. The sibling-SENT scan
+additionally locks its candidate rows with SELECT ... FOR UPDATE
+(effective on Postgres/production; SQLite silently ignores the clause,
+relying instead on its own whole-database write lock) so two concurrent
+sends for DIFFERENT requests on the SAME order cannot both act on a
+stale view of which sibling is currently SENT.
 """
 from __future__ import annotations
 
@@ -30,6 +45,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional, cast
 
 from sqlalchemy import select
+from sqlalchemy import update as sa_update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from goldsmith_erp.db.models import (
@@ -47,7 +63,10 @@ from goldsmith_erp.models.customer_update import (
     CustomerUpdateSendResult,
 )
 from goldsmith_erp.services.cost_watch_service import CostWatchService
-from goldsmith_erp.services.customer_update_service import CustomerUpdateService
+from goldsmith_erp.services.customer_update_service import (
+    CustomerUpdateService,
+    write_financial_audit_row,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -244,9 +263,22 @@ class CostChangeService:
         SUPERSEDED — preserving "at most one live notice per order" no
         matter how many drafts coexist or in which order they are sent.
 
+        Concurrency (final-review fix): the DRAFT -> SENT transition on
+        THIS request is claimed with a conditional ``UPDATE ... WHERE
+        id=:id AND status='draft' ... RETURNING id`` INSIDE the same
+        transaction as the sibling-supersede scan and the linked-update
+        creation (see module docstring) — a losing concurrent caller's
+        UPDATE affects zero rows, so it never creates a duplicate
+        CustomerUpdate or supersedes a sibling, and raises
+        InvalidCostChangeStateError (409) exactly as if it had lost a
+        plain sequential race. The sibling scan is additionally locked
+        with SELECT ... FOR UPDATE so two concurrent sends for different
+        requests on the same order serialize on that read too.
+
         Raises:
             CostChangeNotFoundError: no such request (404).
-            InvalidCostChangeStateError: request not in DRAFT status (409).
+            InvalidCostChangeStateError: request not in DRAFT status,
+                including the concurrent-race case above (409).
         """
         cost_change = (
             await db.execute(
@@ -269,30 +301,50 @@ class CostChangeService:
         subject = f"Kostenaenderung zu {order_ref}"
         body = _compose_cost_change_body(cost_change, order_ref)
 
+        update: Optional[CustomerUpdate] = None
         async with transactional(db):
-            # Sibling-SENT supersede — same transaction as the SENT
-            # transition below (see docstring).
-            siblings_result = await db.execute(
-                select(CostChangeRequest).where(
-                    CostChangeRequest.order_id == cost_change.order_id,
-                    CostChangeRequest.status == CostChangeStatus.SENT,
-                    CostChangeRequest.id != cost_change.id,
+            # CAS claim — see docstring. Must run BEFORE the sibling scan
+            # / linked-update creation so a losing concurrent caller
+            # never creates a duplicate CustomerUpdate row.
+            claim_result = await db.execute(
+                sa_update(CostChangeRequest)
+                .where(
+                    CostChangeRequest.id == cost_change_id,
+                    CostChangeRequest.status == CostChangeStatus.DRAFT,
                 )
+                .values(status=CostChangeStatus.SENT)
+                .returning(CostChangeRequest.id)
             )
-            for sibling in siblings_result.scalars().all():
-                sibling.status = cast(Any, CostChangeStatus.SUPERSEDED)
+            claimed_id = claim_result.scalar_one_or_none()
 
-            update = CustomerUpdate(
-                order_id=cost_change.order_id,
-                kind=CustomerUpdateKind.COST_CHANGE,
-                subject=subject,
-                body=body,
-                cost_change_request_id=cost_change.id,
-                status=CustomerUpdateStatus.DRAFT,
-                sent_by=user_id,
-            )
-            db.add(update)
-            cost_change.status = cast(Any, CostChangeStatus.SENT)
+            if claimed_id is not None:
+                # Sibling-SENT supersede — locked against concurrent
+                # sends for the SAME order (see module docstring).
+                siblings_result = await db.execute(
+                    select(CostChangeRequest)
+                    .where(
+                        CostChangeRequest.order_id == cost_change.order_id,
+                        CostChangeRequest.status == CostChangeStatus.SENT,
+                        CostChangeRequest.id != cost_change.id,
+                    )
+                    .with_for_update()
+                )
+                for sibling in siblings_result.scalars().all():
+                    sibling.status = cast(Any, CostChangeStatus.SUPERSEDED)
+
+                update = CustomerUpdate(
+                    order_id=cost_change.order_id,
+                    kind=CustomerUpdateKind.COST_CHANGE,
+                    subject=subject,
+                    body=body,
+                    cost_change_request_id=cost_change.id,
+                    status=CustomerUpdateStatus.DRAFT,
+                    sent_by=user_id,
+                )
+                db.add(update)
+
+        if update is None:
+            raise InvalidCostChangeStateError(cost_change_id, cost_change.status.value)
 
         await db.refresh(update)
         await db.refresh(cost_change)
@@ -374,4 +426,13 @@ class CostChangeService:
         )
         requests = list(result.scalars().all())
         _log_financial_access("list_accessed", None, order_id, user_id)
+        await write_financial_audit_row(
+            db,
+            action="list_accessed_financial",
+            entity="cost_change",
+            entity_id=None,
+            order_id=order_id,
+            user_id=user_id,
+            endpoint=f"/api/v1/orders/{order_id}/cost-changes",
+        )
         return requests

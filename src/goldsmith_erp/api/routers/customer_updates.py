@@ -59,6 +59,7 @@ from goldsmith_erp.services.customer_update_service import (
     CustomerUpdateService,
     CustomerUpdateValidationError,
     InvalidUpdateStateError,
+    write_financial_audit_row,
 )
 
 router = APIRouter()
@@ -341,9 +342,17 @@ async def get_order_projected_cost(
     """
     Liefert die aktuelle Kostenprojektion (Material + Edelsteine + Arbeit)
     und den Abgleich mit dem Kostenvoranschlag. Reiner Lesezugriff — nutzt
-    ``CostWatchService.get_projected_cost`` (side-effect-free), NIEMALS
-    ``check_order`` (wuerde eine Benachrichtigung ausloesen).
+    ``CostWatchService.get_projected_cost_or_404`` (side-effect-free,
+    404s on an unknown order — final-review fix), NIEMALS ``check_order``
+    (wuerde eine Benachrichtigung ausloesen).
     """
+    projected = await CostWatchService.get_projected_cost_or_404(db, order_id)
+    if projected is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Auftrag #{order_id} nicht gefunden",
+        )
+
     logger.info(
         "Financial data access",
         extra={
@@ -355,4 +364,18 @@ async def get_order_projected_cost(
             "user_id": current_user.id,
         },
     )
-    return await CostWatchService.get_projected_cost(db, order_id)
+    # Final-review fix: this order-scoped GET is outside what
+    # AuditLoggingMiddleware's first-path-segment keying can see (see
+    # customer_update_service's module docstring) — write the DB-backed
+    # CustomerAuditLog row directly, in addition to the structured log
+    # above.
+    await write_financial_audit_row(
+        db,
+        action="financial_read",
+        entity="projected_cost",
+        entity_id=order_id,
+        order_id=order_id,
+        user_id=current_user.id,
+        endpoint=f"/api/v1/orders/{order_id}/projected-cost",
+    )
+    return projected

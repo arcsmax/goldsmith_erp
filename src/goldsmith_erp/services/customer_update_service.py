@@ -12,19 +12,28 @@ Precedent followed:
       raise (before entering the block) keeps that logger ID-only.
     - Financial-data structured audit logging mirrors
       ``invoice_service._log_financial_access`` (a per-file structured
-      logger helper, "audit": True extra) rather than writing
-      ``CustomerAuditLog`` rows directly — see the module docstring on
-      ``AuditLoggingMiddleware`` for why: ``/orders/{id}/updates`` keys on
-      the FIRST path segment ("orders"), which is not itself an audited
+      logger helper, "audit": True extra) — kept as-is for every
+      mutation and read in this module. See the module docstring on
+      ``AuditLoggingMiddleware`` for why that middleware alone cannot
+      cover this module's reads: ``/orders/{id}/updates`` keys on the
+      FIRST path segment ("orders"), which is not itself an audited
       resource family, so the middleware cannot see these order-scoped
-      reads. The ``updates`` family IS added to
+      GETs. The ``updates`` family IS added to
       ``middleware.audit_logging._RESOURCE_ROUTES`` (covers
-      ``GET /updates/{id}/pdf``), but the three ``/orders/{id}/...`` GETs
-      (history, cost-changes list, projected-cost) and every mutation
-      need this service-level fallback to satisfy CLAUDE.md's "All
-      financial data access MUST be audit-logged" for the read paths the
-      middleware structurally cannot key on. See report for the full
-      resolution.
+      ``GET /updates/{id}/pdf``), but the structural blind spot for
+      ``GET /orders/{id}/updates`` (and the sibling
+      ``/orders/{id}/cost-changes`` list + ``/orders/{id}/projected-cost``
+      in ``cost_change_service.py`` / the router) is RESOLVED
+      (final-review fix, decision: service-level and scoped — not a
+      blanket ``/orders`` middleware family, which would over-audit every
+      unrelated order fetch app-wide): each of those three GETs now ALSO
+      writes a ``CustomerAuditLog`` row directly, via
+      ``write_financial_audit_row`` below, mirroring
+      ``AuditLoggingMiddleware._log_to_database``'s action naming
+      (``list_accessed_financial`` / ``financial_read``) and ``details``
+      JSON shape (endpoint/http_method/legal_basis/purpose), with
+      ``customer_id`` derived from the order. See the report for the
+      full resolution.
     - Photo attachments/embeds are built from the EXPLICIT
       ``photo_ids`` only (design-IP rule — nothing auto-shared), read via
       ``image_validation.resolve_within_root`` (V1.1 security precedent:
@@ -51,12 +60,14 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, cast
 
 from sqlalchemy import select
+from sqlalchemy import update as sa_update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from goldsmith_erp.core.config import settings
 from goldsmith_erp.db.models import (
     CostChangeRequest,
     Customer,
+    CustomerAuditLog,
     CustomerUpdate,
     CustomerUpdateKind,
     CustomerUpdateStatus,
@@ -234,6 +245,91 @@ def _log_financial_access(
             **(extra or {}),
         },
     )
+
+
+# ---------------------------------------------------------------------------
+# DB-backed financial audit rows for the 3 GETs AuditLoggingMiddleware
+# structurally cannot see (final-review fix — see module docstring).
+#
+# Shared by CustomerUpdateService.list_for_order (this module),
+# CostChangeService.list_for_order (imports this function — that module
+# already depends on this one for CustomerUpdateService.send, so this adds
+# no new coupling axis) and the router's projected-cost handler.
+# ---------------------------------------------------------------------------
+
+
+async def write_financial_audit_row(
+    db: AsyncSession,
+    *,
+    action: str,
+    entity: str,
+    entity_id: Optional[int],
+    order_id: Optional[int],
+    user_id: int,
+    endpoint: str,
+) -> None:
+    """
+    Persist a ``CustomerAuditLog`` row for a financial-data GET that
+    ``AuditLoggingMiddleware`` cannot key on (see that middleware's
+    ``_RESOURCE_ROUTES`` comment on the ``/orders/{id}/...`` blind spot).
+
+    Mirrors ``AuditLoggingMiddleware._log_to_database``'s row shape:
+    same ``action`` naming convention (``list_accessed_financial`` /
+    ``financial_read``), same legal-basis / purpose derivation, and the
+    same ``details`` JSON keys (``endpoint``, ``http_method``,
+    ``legal_basis``, ``purpose``) — minus ``status_code``/``duration_ms``,
+    which the middleware measures around the whole request and are not
+    available at this call depth; this is only ever invoked once the
+    underlying read has already succeeded, so a 200 is implied. Only GET
+    reads call this today, so ``http_method`` is hardcoded.
+
+    ``customer_id`` is derived from the order (CLAUDE.md: financial-data
+    audit rows must be traceable to the customer), not from the caller —
+    a caller supplying the wrong id here would silently mis-attribute the
+    row, so this method does its own lookup rather than trusting a
+    passed-in value.
+
+    Fire-and-forget, mirroring the middleware's own broad except: a DB
+    outage on the audit path must never deny (or 500) the legitimate read
+    it is auditing (security > correctness > convenience, but here
+    "correctness of the response" outranks "completeness of the audit
+    trail" — the exact same tradeoff the middleware documents for its own
+    write). Failures are logged loudly instead of swallowed.
+    """
+    customer_id: Optional[int] = None
+    if order_id is not None:
+        order = (
+            await db.execute(select(Order).where(Order.id == order_id))
+        ).scalar_one_or_none()
+        if order is not None:
+            customer_id = cast(Optional[int], order.customer_id)
+
+    details = {
+        "endpoint": endpoint,
+        "http_method": "GET",
+        "legal_basis": "GDPR Article 6(1)(c) - Legal obligation (§147 AO)",
+        "purpose": f"{entity.replace('_', ' ').title()} {action} via API",
+    }
+
+    try:
+        audit_log = CustomerAuditLog(
+            customer_id=customer_id,
+            action=action,
+            entity=entity,
+            entity_id=entity_id,
+            user_id=user_id,
+            timestamp=datetime.utcnow(),
+            details=details,
+        )
+        db.add(audit_log)
+        await db.commit()
+    except Exception:
+        await db.rollback()
+        logger.error(
+            "financial audit DB write failed",
+            extra={"audit": True, "entity": entity, "entity_id": entity_id},
+            exc_info=True,
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -483,11 +579,41 @@ class CustomerUpdateService:
         with ``delivered=False`` — the draft always persists (spec: a
         failed send is a recorded outcome, not a 5xx).
 
+        Concurrency (review fix — send-path race): two concurrent
+        ``send()`` calls for the SAME update must not both dispatch email
+        to the customer. The initial status read above is a plain
+        SELECT — racy: two callers can both observe DRAFT/SEND_FAILED and
+        both proceed. The actual DRAFT/SEND_FAILED -> SENT transition is
+        therefore claimed with a conditional
+        ``UPDATE ... WHERE id=:id AND status IN ('draft','send_failed')
+        ... RETURNING id``, committed BEFORE any SMTP dispatch starts.
+        Only the caller whose UPDATE affects a row proceeds; a second,
+        truly concurrent caller's UPDATE affects zero rows (the winner's
+        commit already flipped the status) and it raises
+        ``InvalidUpdateStateError`` (409) — same outcome as if it had
+        arrived after the winner's commit, just enforced at the DB level
+        instead of trusted from a stale in-process read.
+
+        The CAS optimistically writes ``status=SENT``/``sent_at=now()``
+        BEFORE the dispatch outcome is known; on failure a follow-up
+        transaction flips the status to SEND_FAILED (``delivery_method``
+        stays unset, ``sent_at`` is NOT rolled back — it now records the
+        moment delivery was attempted, whether or not it worked).
+        Consequence: a process crash between the CAS commit and either
+        the dispatch attempt or the SEND_FAILED follow-up leaves the row
+        at status=SENT despite no email ever having gone out. Accepted
+        risk — claiming the row only AFTER a successful dispatch would
+        reopen the exact double-send race this CAS exists to close, and
+        the failure window is mitigated (not eliminated) by the
+        SEND_FAILED follow-up + sender-notification path, which still
+        fires and lets the goldsmith notice and retry or fall back to a
+        manual PDF.
+
         Raises:
             CustomerUpdateNotFoundError: no such update (404).
-            InvalidUpdateStateError: update already SENT — re-sending a
-                sent update is rejected (409). DRAFT and SEND_FAILED may
-                both (re-)attempt delivery.
+            InvalidUpdateStateError: update already SENT, or lost the
+                concurrent CAS race described above (409). DRAFT and
+                SEND_FAILED may both (re-)attempt delivery.
         """
         update = (
             await db.execute(
@@ -509,17 +635,54 @@ class CustomerUpdateService:
             (f"foto-{i + 1}.jpg", data) for i, data in enumerate(photo_variants)
         ]
 
-        delivered = False
-        attempted = False
+        will_attempt = bool(settings.EMAIL_NOTIFICATIONS_ENABLED and settings.SMTP_HOST)
 
-        if not settings.EMAIL_NOTIFICATIONS_ENABLED or not settings.SMTP_HOST:
-            # PDF-only mode — expected, not a failure. Nothing attempted.
-            pass
-        elif customer is None or not customer.email:
+        if not will_attempt:
+            # PDF-only mode — expected, not a failure. Nothing is
+            # dispatched, so there is no race to close here; status is
+            # left untouched (still DRAFT/SEND_FAILED) so a later send()
+            # (once SMTP is configured) can still claim it.
+            await db.refresh(update)
+            _log_financial_access(
+                "send_attempted",
+                update_id,
+                cast(Optional[int], update.order_id),
+                user_id,
+                extra={"delivered": False},
+            )
+            return CustomerUpdateSendResult(
+                update=CustomerUpdateRead.model_validate(update),
+                delivered=False,
+                method=None,
+            )
+
+        # CAS claim — see docstring. Runs BEFORE any SMTP dispatch.
+        async with transactional(db):
+            claim_result = await db.execute(
+                sa_update(CustomerUpdate)
+                .where(
+                    CustomerUpdate.id == update_id,
+                    CustomerUpdate.status.in_(
+                        [
+                            CustomerUpdateStatus.DRAFT,
+                            CustomerUpdateStatus.SEND_FAILED,
+                        ]
+                    ),
+                )
+                .values(status=CustomerUpdateStatus.SENT, sent_at=datetime.utcnow())
+                .returning(CustomerUpdate.id)
+            )
+            claimed_id = claim_result.scalar_one_or_none()
+
+        if claimed_id is None:
+            raise InvalidUpdateStateError(update_id, update.status.value)
+
+        await db.refresh(update)
+
+        if customer is None or not customer.email:
             # A real per-record data gap the sender needs to act on.
-            attempted = True
+            delivered = False
         else:
-            attempted = True
             customer_name = f"{customer.first_name} {customer.last_name}".strip()
             if update.kind == CustomerUpdateKind.COST_CHANGE:
                 delivered = await _send_cost_change_email(
@@ -537,16 +700,13 @@ class CustomerUpdateService:
                 )
 
         method: Optional[UpdateDeliveryMethod] = None
-        async with transactional(db):
-            if delivered:
-                update.status = cast(Any, CustomerUpdateStatus.SENT)
-                update.sent_at = cast(Any, datetime.utcnow())
+        if delivered:
+            async with transactional(db):
                 update.delivery_method = cast(Any, UpdateDeliveryMethod.EMAIL)
-                method = UpdateDeliveryMethod.EMAIL
-            elif attempted:
+            method = UpdateDeliveryMethod.EMAIL
+        else:
+            async with transactional(db):
                 update.status = cast(Any, CustomerUpdateStatus.SEND_FAILED)
-
-        if attempted and not delivered:
             await CustomerUpdateService._notify_send_failure(db, update, user_id)
 
         await db.refresh(update)
@@ -695,4 +855,13 @@ class CustomerUpdateService:
         )
         updates = list(result.scalars().all())
         _log_financial_access("list_accessed", None, order_id, user_id)
+        await write_financial_audit_row(
+            db,
+            action="list_accessed_financial",
+            entity="customer_update",
+            entity_id=None,
+            order_id=order_id,
+            user_id=user_id,
+            endpoint=f"/api/v1/orders/{order_id}/updates",
+        )
         return updates

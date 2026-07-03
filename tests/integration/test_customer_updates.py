@@ -504,6 +504,152 @@ class TestProjectedCost:
         assert body["quote_total"] == 1000.0
         assert "over_threshold" in body
 
+    async def test_unknown_order_returns_404(
+        self, client: AsyncClient, goldsmith_auth_headers: dict
+    ):
+        """Review fix: an unknown order must 404, not silently return a
+        cost breakdown computed against a fallback hourly rate."""
+        resp = await client.get(
+            "/api/v1/orders/999999/projected-cost",
+            headers=goldsmith_auth_headers,
+        )
+        assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# DB-backed financial audit rows (review fix — the 3 GETs
+# AuditLoggingMiddleware structurally cannot see: order-scoped updates
+# history, cost-changes history, projected-cost)
+# ---------------------------------------------------------------------------
+
+
+class TestFinancialAuditRows:
+    async def test_get_order_updates_writes_audit_row(
+        self,
+        client: AsyncClient,
+        goldsmith_auth_headers: dict,
+        test_order: Order,
+        db_session: AsyncSession,
+    ):
+        from sqlalchemy import select
+
+        from goldsmith_erp.db.models import CustomerAuditLog
+
+        resp = await client.get(
+            f"/api/v1/orders/{test_order.id}/updates", headers=goldsmith_auth_headers
+        )
+        assert resp.status_code == 200
+
+        rows = (
+            (
+                await db_session.execute(
+                    select(CustomerAuditLog).where(
+                        CustomerAuditLog.entity == "customer_update",
+                        CustomerAuditLog.action == "list_accessed_financial",
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert len(rows) == 1
+        assert rows[0].customer_id == test_order.customer_id
+
+    async def test_get_order_cost_changes_writes_audit_row(
+        self,
+        client: AsyncClient,
+        goldsmith_auth_headers: dict,
+        order_with_quote: Order,
+        db_session: AsyncSession,
+    ):
+        from sqlalchemy import select
+
+        from goldsmith_erp.db.models import CustomerAuditLog
+
+        resp = await client.get(
+            f"/api/v1/orders/{order_with_quote.id}/cost-changes",
+            headers=goldsmith_auth_headers,
+        )
+        assert resp.status_code == 200
+
+        rows = (
+            (
+                await db_session.execute(
+                    select(CustomerAuditLog).where(
+                        CustomerAuditLog.entity == "cost_change",
+                        CustomerAuditLog.action == "list_accessed_financial",
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert len(rows) == 1
+        assert rows[0].customer_id == order_with_quote.customer_id
+
+    async def test_get_projected_cost_writes_audit_row(
+        self,
+        client: AsyncClient,
+        goldsmith_auth_headers: dict,
+        order_with_quote: Order,
+        db_session: AsyncSession,
+    ):
+        from sqlalchemy import select
+
+        from goldsmith_erp.db.models import CustomerAuditLog
+
+        resp = await client.get(
+            f"/api/v1/orders/{order_with_quote.id}/projected-cost",
+            headers=goldsmith_auth_headers,
+        )
+        assert resp.status_code == 200
+
+        rows = (
+            (
+                await db_session.execute(
+                    select(CustomerAuditLog).where(
+                        CustomerAuditLog.entity == "projected_cost",
+                        CustomerAuditLog.action == "financial_read",
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert len(rows) == 1
+        assert rows[0].entity_id == order_with_quote.id
+        assert rows[0].customer_id == order_with_quote.customer_id
+
+    async def test_unknown_order_projected_cost_does_not_write_audit_row(
+        self,
+        client: AsyncClient,
+        goldsmith_auth_headers: dict,
+        db_session: AsyncSession,
+    ):
+        """A 404 discloses no financial data — no audit row should be
+        written for the attempt."""
+        from sqlalchemy import select
+
+        from goldsmith_erp.db.models import CustomerAuditLog
+
+        resp = await client.get(
+            "/api/v1/orders/999999/projected-cost", headers=goldsmith_auth_headers
+        )
+        assert resp.status_code == 404
+
+        rows = (
+            (
+                await db_session.execute(
+                    select(CustomerAuditLog).where(
+                        CustomerAuditLog.entity == "projected_cost"
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert rows == []
+
 
 # ---------------------------------------------------------------------------
 # Permission matrix — VIEWER excluded (financial / design-IP data)

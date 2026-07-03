@@ -92,6 +92,26 @@ class CustomerUpdateCreate(BaseModel):
             raise ValueError("Feld darf nicht nur aus Leerzeichen bestehen")
         return stripped
 
+    @field_validator("subject")
+    @classmethod
+    def _reject_crlf_in_subject(cls, v: Optional[str]) -> Optional[str]:
+        """
+        Review fix: ``subject`` becomes an email ``Subject:`` header
+        (EmailService.send_email / send_customer_update / send_cost_change)
+        and is also embedded verbatim into the customer-update PDF's
+        ``/Info`` metadata. A raw CR/LF in staff-authored free text
+        (kind=custom) is never legitimate here — reject it at the input
+        boundary instead of relying on downstream libraries (Python's
+        ``email`` module folds/escapes header values safely today, but
+        that is an implementation detail of a dependency, not a contract
+        this schema should lean on).
+        """
+        if v is None:
+            return v
+        if "\r" in v or "\n" in v:
+            raise ValueError("Betreff darf keine Zeilenumbrueche enthalten")
+        return v
+
 
 class CustomerUpdateRead(BaseModel):
     """
@@ -187,8 +207,14 @@ class CostChangeCreate(BaseModel):
     """
 
     new_amount: float = Field(..., gt=0)
-    reason: str = Field(..., description="Begruendung fuer die Kostenaenderung")
-    line_items: Optional[List[CostChangeLineItem]] = None
+    reason: str = Field(
+        ..., max_length=2000, description="Begruendung fuer die Kostenaenderung"
+    )
+    line_items: Optional[List[CostChangeLineItem]] = Field(
+        None,
+        max_length=30,
+        description="Einzelposten der Kostenaenderung — begrenzt auf 30 Zeilen",
+    )
 
     @field_validator("reason")
     @classmethod
@@ -241,6 +267,7 @@ class CostChangeRecordResponse(BaseModel):
     response_method: CostChangeResponseMethod
     response_evidence: str = Field(
         ...,
+        max_length=2000,
         description="Nachweistext — z.B. zitierte Email-Antwort oder Gespraechsnotiz",
     )
 
