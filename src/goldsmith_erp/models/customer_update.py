@@ -127,6 +127,22 @@ class CustomerUpdateRead(BaseModel):
         return v if v is not None else []
 
 
+class MarkDeliveredRequest(BaseModel):
+    """
+    Schema for ``POST /updates/{id}/mark-delivered``.
+
+    Added in Task 5 (not part of the original Task 2 contract): the plan's
+    binding semantics require an EXPLICIT confirmation step for the
+    PDF-manual delivery path — ``GET /updates/{id}/pdf`` must stay a pure
+    read (downloading a PDF must not itself mark the update delivered).
+    Restricted to ``pdf_manual`` — the ``email`` delivery method is only
+    ever set by ``CustomerUpdateService.send``'s own successful-send path,
+    never by this manual confirmation endpoint.
+    """
+
+    method: Literal["pdf_manual"] = "pdf_manual"
+
+
 class CustomerUpdateSendResult(BaseModel):
     """
     Result of POST /updates/{id}/send.
