@@ -14,12 +14,15 @@ from PIL import Image
 from goldsmith_erp.db.models import (
     ConsultationPhotoKind,
     ConsultationStatus,
+    Quote,
     QuoteLineType,
+    QuoteStatus,
 )
-from goldsmith_erp.models.consultation import ConsultationCreate
+from goldsmith_erp.models.consultation import ConsultationCreate, ConsultationUpdate
 from goldsmith_erp.services.consultation_photo_service import ConsultationPhotoService
 from goldsmith_erp.services.consultation_service import (
     AlreadyConvertedError,
+    CannotUnconvertError,
     ConsultationService,
 )
 from goldsmith_erp.services.quote_service import QuoteService
@@ -200,3 +203,119 @@ async def test_convert_to_order_branch_unchanged(
     assert converted.converted_order_id is not None
     assert converted.converted_quote_id is None
     assert converted.status is ConsultationStatus.CONVERTED
+
+
+# ── Task 3: reversible conversion (unconvert) + status-escape guard ──────────
+
+
+async def _make_quote_conversion(db_session, sample_customer, sample_user, **kw):
+    consultation = await ConsultationService.create_consultation(
+        db_session,
+        ConsultationCreate(customer_id=sample_customer.id, wishes="Ring", **kw),
+        conducted_by_user_id=sample_user.id,
+    )
+    converted = await ConsultationService.convert_consultation(
+        db_session, consultation.id, "quote", current_user=sample_user
+    )
+    return converted
+
+
+@pytest.mark.asyncio
+async def test_unconvert_deletes_draft_quote_and_resets(
+    db_session, sample_customer, sample_user
+):
+    converted = await _make_quote_conversion(db_session, sample_customer, sample_user)
+    quote_id = converted.converted_quote_id
+    assert quote_id is not None
+
+    result = await ConsultationService.unconvert_consultation(
+        db_session, converted.id, current_user=sample_user
+    )
+    assert result.status is ConsultationStatus.COMPLETED
+    assert result.converted_quote_id is None
+    assert result.converted_order_id is None
+    # The empty draft quote is gone.
+    assert (await db_session.get(Quote, quote_id)) is None
+
+
+@pytest.mark.asyncio
+async def test_unconvert_blocked_when_quote_not_draft(
+    db_session, sample_customer, sample_user
+):
+    converted = await _make_quote_conversion(db_session, sample_customer, sample_user)
+    quote = await db_session.get(Quote, converted.converted_quote_id)
+    quote.status = QuoteStatus.SENT
+    await db_session.commit()
+
+    with pytest.raises(CannotUnconvertError, match="Entwürfe"):
+        await ConsultationService.unconvert_consultation(
+            db_session, converted.id, current_user=sample_user
+        )
+
+
+@pytest.mark.asyncio
+async def test_unconvert_blocked_for_order_conversion(
+    db_session, sample_customer, sample_user
+):
+    consultation = await ConsultationService.create_consultation(
+        db_session,
+        ConsultationCreate(customer_id=sample_customer.id, wishes="Kette"),
+        conducted_by_user_id=sample_user.id,
+    )
+    converted = await ConsultationService.convert_consultation(
+        db_session, consultation.id, "order", current_user=sample_user
+    )
+    with pytest.raises(CannotUnconvertError, match="Auftrag"):
+        await ConsultationService.unconvert_consultation(
+            db_session, converted.id, current_user=sample_user
+        )
+
+
+@pytest.mark.asyncio
+async def test_unconvert_non_converted_raises(db_session, sample_customer, sample_user):
+    consultation = await ConsultationService.create_consultation(
+        db_session,
+        ConsultationCreate(customer_id=sample_customer.id, wishes="X"),
+        conducted_by_user_id=sample_user.id,
+    )
+    with pytest.raises(CannotUnconvertError, match="nicht überführt"):
+        await ConsultationService.unconvert_consultation(
+            db_session, consultation.id, current_user=sample_user
+        )
+
+
+@pytest.mark.asyncio
+async def test_patch_status_away_from_converted_rejected(
+    db_session, sample_customer, sample_user
+):
+    converted = await _make_quote_conversion(db_session, sample_customer, sample_user)
+    with pytest.raises(ValueError, match="rückgängig"):
+        await ConsultationService.update_consultation(
+            db_session,
+            converted.id,
+            ConsultationUpdate(status=ConsultationStatus.COMPLETED),
+        )
+
+
+@pytest.mark.asyncio
+async def test_convert_to_quote_budget_min_zero_gives_zero_unit_price(
+    db_session, sample_customer, sample_user
+):
+    # budget_min=0.0 is falsy but must NOT fall through to budget_max.
+    consultation = await ConsultationService.create_consultation(
+        db_session,
+        ConsultationCreate(
+            customer_id=sample_customer.id,
+            wishes="Gratis-Nacharbeit",
+            budget_min=0.0,
+            budget_max=500.0,
+        ),
+        conducted_by_user_id=sample_user.id,
+    )
+    converted = await ConsultationService.convert_consultation(
+        db_session, consultation.id, "quote", current_user=sample_user
+    )
+    quote = await db_session.get(Quote, converted.converted_quote_id)
+    await db_session.refresh(quote, ["line_items"])
+    assert len(quote.line_items) == 1
+    assert quote.line_items[0].unit_price == 0.0

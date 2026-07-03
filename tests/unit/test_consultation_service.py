@@ -95,10 +95,12 @@ async def test_follow_up_creates_calendar_event(
 
 
 @pytest.mark.asyncio
-async def test_converted_consultation_can_still_update_status_and_notes(
+async def test_converted_consultation_notes_stay_mutable_but_status_locked(
     db_session, sample_customer, sample_user
 ):
-    """Post-conversion bookkeeping: status/notes stay mutable on CONVERTED rows."""
+    """Post-conversion bookkeeping: notes stay mutable on CONVERTED rows, but
+    the status may only leave CONVERTED via the dedicated unconvert path — a
+    bare PATCH status flip would orphan the linked quote (Task 3 gap fix)."""
     created = await ConsultationService.create_consultation(
         db_session,
         ConsultationCreate(customer_id=sample_customer.id, notes="alt"),
@@ -107,13 +109,22 @@ async def test_converted_consultation_can_still_update_status_and_notes(
     created.status = ConsultationStatus.CONVERTED
     await db_session.flush()
 
+    # Notes remain editable (status re-stated as CONVERTED is a no-op, allowed).
     updated = await ConsultationService.update_consultation(
         db_session,
         created.id,
-        ConsultationUpdate(status=ConsultationStatus.ARCHIVED, notes="neu"),
+        ConsultationUpdate(status=ConsultationStatus.CONVERTED, notes="neu"),
     )
-    assert updated.status is ConsultationStatus.ARCHIVED
+    assert updated.status is ConsultationStatus.CONVERTED
     assert updated.notes == "neu"
+
+    # Moving the status OUT of CONVERTED via PATCH is now rejected.
+    with pytest.raises(ValueError, match="rückgängig"):
+        await ConsultationService.update_consultation(
+            db_session,
+            created.id,
+            ConsultationUpdate(status=ConsultationStatus.ARCHIVED),
+        )
 
 
 @pytest.mark.asyncio

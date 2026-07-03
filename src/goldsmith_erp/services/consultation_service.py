@@ -26,7 +26,9 @@ from goldsmith_erp.db.models import (
     Customer,
     NotificationSeverityEnum,
     NotificationTypeEnum,
+    Quote,
     QuoteLineType,
+    QuoteStatus,
 )
 from goldsmith_erp.db.transaction import transactional
 from goldsmith_erp.models.consultation import ConsultationCreate, ConsultationUpdate
@@ -58,6 +60,12 @@ class AlreadyConvertedError(ValueError):
             "Beratung wurde bereits konvertiert "
             f"(order_id={order_id}, quote_id={quote_id})"
         )
+
+
+class CannotUnconvertError(ValueError):
+    """The conversion cannot be reversed — the consultation is not converted,
+    was converted into an order (orders are never auto-deleted), or the linked
+    quote is no longer a draft. Message is generic/ID-free for the router."""
 
 
 class ConsultationService:
@@ -181,6 +189,19 @@ class ConsultationService:
                     "Beratung ist bereits konvertiert und kann nicht mehr "
                     "geändert werden"
                 )
+            # A CONVERTED consultation may only LEAVE that state via the
+            # dedicated unconvert path — a bare PATCH status flip here would
+            # orphan the linked quote (converted_quote_id/order_id are not
+            # clearable through PATCH) and permit a silent second conversion.
+            if (
+                consultation.status is ConsultationStatus.CONVERTED
+                and "status" in changed
+                and changed["status"] != ConsultationStatus.CONVERTED
+            ):
+                raise ValueError(
+                    "Der Status einer überführten Beratung kann nur über "
+                    "'Überführung rückgängig machen' geändert werden"
+                )
             for field, value in changed.items():
                 setattr(consultation, field, value)
             await db.flush()
@@ -298,7 +319,13 @@ class ConsultationService:
                 line_type=QuoteLineType.OTHER,
                 description=estimate_description[:500],
                 quantity=1.0,
-                unit_price=(budget_min or budget_max or 0.0),
+                # Explicit None checks — a budget_min of 0.0 is falsy and must
+                # NOT fall through to budget_max (Task 2 review, MINOR).
+                unit_price=(
+                    budget_min
+                    if budget_min is not None
+                    else (budget_max if budget_max is not None else 0.0)
+                ),
             )
 
             quote = await QuoteService.create_quote(
@@ -364,6 +391,56 @@ class ConsultationService:
                 "order_id": new_order_id,
                 "quote_id": new_quote_id,
             },
+        )
+        return await ConsultationService._reload(db, consultation_id)
+
+    @staticmethod
+    async def unconvert_consultation(
+        db: AsyncSession,
+        consultation_id: int,
+        current_user,  # User — typed loosely to avoid a circular import
+    ) -> Consultation:
+        """Reverse a consultation → quote conversion.
+
+        Only reversible while the linked quote is still a DRAFT (an already
+        sent/approved/converted Kostenvoranschlag is legally relevant and must
+        stay). Order conversions are NOT reversible here — orders are never
+        auto-deleted. In one transaction the linked draft quote is deleted
+        (its line items cascade), the consultation returns to COMPLETED, and
+        the conversion links are cleared. This is the ONLY sanctioned way for a
+        consultation to leave the CONVERTED state (see update_consultation).
+        """
+        consultation = await ConsultationService.get_consultation(db, consultation_id)
+        if consultation is None:
+            raise ConsultationNotFoundError(f"Consultation {consultation_id} not found")
+        if consultation.status is not ConsultationStatus.CONVERTED:
+            raise CannotUnconvertError("Diese Beratung ist nicht überführt")
+        if consultation.converted_order_id is not None:
+            raise CannotUnconvertError(
+                "Überführung in einen Auftrag kann nicht zurückgenommen werden"
+            )
+
+        quote_id = cast(Optional[int], consultation.converted_quote_id)
+        quote: Optional[Quote] = None
+        if quote_id is not None:
+            quote = (
+                await db.execute(select(Quote).filter(Quote.id == quote_id))
+            ).scalar_one_or_none()
+            if quote is not None and quote.status is not QuoteStatus.DRAFT:
+                raise CannotUnconvertError("Nur Entwürfe können zurückgesetzt werden")
+
+        async with transactional(db):
+            reloaded = await ConsultationService._reload(db, consultation_id)
+            reloaded.status = ConsultationStatus.COMPLETED
+            reloaded.converted_quote_id = None
+            reloaded.converted_order_id = None
+            if quote is not None:
+                # cascade="all, delete-orphan" on Quote.line_items removes rows.
+                await db.delete(quote)
+
+        logger.info(
+            "Consultation unconverted",
+            extra={"consultation_id": consultation_id, "deleted_quote_id": quote_id},
         )
         return await ConsultationService._reload(db, consultation_id)
 
