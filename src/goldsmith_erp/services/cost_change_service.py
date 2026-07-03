@@ -27,16 +27,24 @@ customer_update_service.write_financial_audit_row (imported here — this
 module already depends on customer_update_service for
 CustomerUpdateService.send, so this adds no new coupling axis).
 
-Concurrency (review fix): send()'s DRAFT -> SENT transition on the
-target CostChangeRequest uses the same conditional-UPDATE/RETURNING CAS
-shape as CustomerUpdateService.send (see that method's docstring) — two
-concurrent send() calls for the same cost_change_id must not both
-create+dispatch a linked CustomerUpdate. The sibling-SENT scan
-additionally locks its candidate rows with SELECT ... FOR UPDATE
-(effective on Postgres/production; SQLite silently ignores the clause,
-relying instead on its own whole-database write lock) so two concurrent
-sends for DIFFERENT requests on the SAME order cannot both act on a
-stale view of which sibling is currently SENT.
+Concurrency (review fix + security re-review fix): send()'s DRAFT ->
+SENT transition on the target CostChangeRequest uses the same
+conditional-UPDATE/RETURNING CAS shape as CustomerUpdateService.send
+(see that method's docstring) — two concurrent send() calls for the
+SAME cost_change_id must not both create+dispatch a linked
+CustomerUpdate. The CROSS-ROW race (two concurrent sends of two
+DIFFERENT drafts for the same order) is NOT closed by the FOR UPDATE
+sibling scan — under READ COMMITTED neither target row is visible as
+SENT in the other's snapshot, so no lock is ever requested. The real
+invariant is the DB-level partial unique index
+``uq_cost_change_one_sent_per_order`` (at most one status='sent'
+CostChangeRequest per order — see db/models.CostChangeRequest.
+__table_args__ / migration 20260703_v12a): the race loser's CAS raises
+IntegrityError, caught inside the transaction and mapped to
+SentCostChangeConflictError (409). The FOR UPDATE scan is retained only
+to serialize concurrent sends against the SENT sibling they both intend
+to supersede (effective on Postgres/production; SQLite silently ignores
+the clause, relying instead on its own whole-database write lock).
 """
 from __future__ import annotations
 
@@ -46,6 +54,7 @@ from typing import Any, Dict, List, Optional, cast
 
 from sqlalchemy import select
 from sqlalchemy import update as sa_update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from goldsmith_erp.db.models import (
@@ -104,6 +113,30 @@ class InvalidCostChangeStateError(ValueError):
         super().__init__(
             f"Kostenänderungsanfrage #{cost_change_id} hat Status "
             f"'{current_status}' — Aktion nicht erlaubt"
+        )
+
+
+class SentCostChangeConflictError(InvalidCostChangeStateError):
+    """
+    Lost the cross-row send race: another request for the same order is
+    already SENT — the ``uq_cost_change_one_sent_per_order`` partial
+    unique index rejected this request's DRAFT -> SENT transition
+    (security re-review fix). Subclasses ``InvalidCostChangeStateError``
+    so the router's existing 409 mapping catches it unchanged.
+
+    Fixed, ID-free message (V1.1 ``DuplicateNoGoError`` precedent): raised
+    ``from None`` INSIDE the transactional block so the parameter-laden
+    ``IntegrityError`` never reaches ``transactional()``'s ``str(exc)``
+    ERROR logger (belt; ``hide_parameters=True`` on the engine is the
+    suspenders).
+    """
+
+    def __init__(self) -> None:
+        # Deliberately skip the parent's id+status formatting — this error
+        # is about the ORDER's state (a sibling notice is live), not this
+        # row's own status.
+        ValueError.__init__(
+            self, "Für diesen Auftrag ist bereits eine Kostenänderung versendet"
         )
 
 
@@ -250,6 +283,33 @@ class CostChangeService:
     # ------------------------------------------------------------------
 
     @staticmethod
+    async def _supersede_sent_siblings(
+        db: AsyncSession, cost_change: CostChangeRequest
+    ) -> None:
+        """
+        Mark every OTHER SENT request for the same order SUPERSEDED
+        (pending — caller flushes). Extracted so the test suite can
+        bypass it to reach the DB-index backstop deterministically
+        (mirrors ``no_go_service``'s bypassable app-side pre-check,
+        ``_add_no_go_bypassing_app_check`` precedent). The FOR UPDATE is
+        NOT what closes the cross-row send race (see ``send``'s
+        docstring point 2 — the partial unique index is) — it only
+        serializes concurrent sends against the SENT sibling they both
+        intend to supersede.
+        """
+        siblings_result = await db.execute(
+            select(CostChangeRequest)
+            .where(
+                CostChangeRequest.order_id == cost_change.order_id,
+                CostChangeRequest.status == CostChangeStatus.SENT,
+                CostChangeRequest.id != cost_change.id,
+            )
+            .with_for_update()
+        )
+        for sibling in siblings_result.scalars().all():
+            sibling.status = cast(Any, CostChangeStatus.SUPERSEDED)
+
+    @staticmethod
     async def send(
         db: AsyncSession, cost_change_id: int, user_id: int
     ) -> CustomerUpdateSendResult:
@@ -262,23 +322,39 @@ class CostChangeService:
         request for the same order currently in SENT status is marked
         SUPERSEDED — preserving "at most one live notice per order" no
         matter how many drafts coexist or in which order they are sent.
+        The supersede is flushed BEFORE the CAS below so the partial
+        unique index never sees two SENT rows for the order
+        mid-transaction on the legitimate sequential path.
 
-        Concurrency (final-review fix): the DRAFT -> SENT transition on
-        THIS request is claimed with a conditional ``UPDATE ... WHERE
-        id=:id AND status='draft' ... RETURNING id`` INSIDE the same
-        transaction as the sibling-supersede scan and the linked-update
-        creation (see module docstring) — a losing concurrent caller's
-        UPDATE affects zero rows, so it never creates a duplicate
-        CustomerUpdate or supersedes a sibling, and raises
-        InvalidCostChangeStateError (409) exactly as if it had lost a
-        plain sequential race. The sibling scan is additionally locked
-        with SELECT ... FOR UPDATE so two concurrent sends for different
-        requests on the same order serialize on that read too.
+        Concurrency (final-review + security re-review fix): two layers.
+
+        1. Same-row race — the DRAFT -> SENT transition on THIS request
+           is claimed with a conditional ``UPDATE ... WHERE id=:id AND
+           status='draft' ... RETURNING id`` inside the same transaction
+           as the sibling-supersede and linked-update creation; a losing
+           concurrent caller's UPDATE affects zero rows, creates nothing,
+           and raises InvalidCostChangeStateError (409). The raise
+           happens INSIDE the transactional block so its pending sibling
+           supersede rolls back with it.
+        2. Cross-row race — two concurrent sends of two DIFFERENT drafts
+           for the same order are NOT serialized by the FOR UPDATE
+           sibling scan (under READ COMMITTED neither target row is
+           visible as SENT in the other's snapshot, so no lock is ever
+           requested). The REAL invariant is the DB-level partial unique
+           index ``uq_cost_change_one_sent_per_order`` (at most one
+           status='sent' row per order): the race loser's CAS raises
+           IntegrityError, caught inside the block and mapped to
+           SentCostChangeConflictError (409, fixed ID-free message —
+           DuplicateNoGoError precedent). The FOR UPDATE scan is kept
+           only to serialize concurrent sends against the SENT sibling
+           they both intend to supersede.
 
         Raises:
             CostChangeNotFoundError: no such request (404).
             InvalidCostChangeStateError: request not in DRAFT status,
-                including the concurrent-race case above (409).
+                including the same-row race case above (409).
+            SentCostChangeConflictError: lost the cross-row race — a
+                sibling notice for this order is already SENT (409).
         """
         cost_change = (
             await db.execute(
@@ -301,50 +377,57 @@ class CostChangeService:
         subject = f"Kostenaenderung zu {order_ref}"
         body = _compose_cost_change_body(cost_change, order_ref)
 
-        update: Optional[CustomerUpdate] = None
         async with transactional(db):
-            # CAS claim — see docstring. Must run BEFORE the sibling scan
-            # / linked-update creation so a losing concurrent caller
-            # never creates a duplicate CustomerUpdate row.
-            claim_result = await db.execute(
-                sa_update(CostChangeRequest)
-                .where(
-                    CostChangeRequest.id == cost_change_id,
-                    CostChangeRequest.status == CostChangeStatus.DRAFT,
+            # Sibling-SENT supersede FIRST, flushed before the CAS — the
+            # partial unique index (the real invariant, see docstring)
+            # must never see two SENT rows for this order on the
+            # legitimate sequential path.
+            await CostChangeService._supersede_sent_siblings(db, cost_change)
+            # Session runs autoflush=False — push the SENT -> SUPERSEDED
+            # transition to the DB explicitly before the CAS below frees
+            # up the index slot it needs.
+            await db.flush()
+
+            # CAS claim — same-row race guard (docstring point 1). The
+            # partial unique index turns the cross-row race loser into an
+            # IntegrityError right here (docstring point 2).
+            try:
+                claim_result = await db.execute(
+                    sa_update(CostChangeRequest)
+                    .where(
+                        CostChangeRequest.id == cost_change_id,
+                        CostChangeRequest.status == CostChangeStatus.DRAFT,
+                    )
+                    .values(status=CostChangeStatus.SENT)
+                    .returning(CostChangeRequest.id)
                 )
-                .values(status=CostChangeStatus.SENT)
-                .returning(CostChangeRequest.id)
-            )
+            except IntegrityError:
+                # `from None` + fixed ID-free message: the IntegrityError
+                # (parameter-laden str()) must never reach transactional()'s
+                # str(exc) ERROR logger — DuplicateNoGoError precedent.
+                raise SentCostChangeConflictError() from None
             claimed_id = claim_result.scalar_one_or_none()
 
-            if claimed_id is not None:
-                # Sibling-SENT supersede — locked against concurrent
-                # sends for the SAME order (see module docstring).
-                siblings_result = await db.execute(
-                    select(CostChangeRequest)
-                    .where(
-                        CostChangeRequest.order_id == cost_change.order_id,
-                        CostChangeRequest.status == CostChangeStatus.SENT,
-                        CostChangeRequest.id != cost_change.id,
-                    )
-                    .with_for_update()
+            if claimed_id is None:
+                # Same-row race loser: the pre-flight check saw DRAFT but
+                # the row was concurrently flipped — the only legal
+                # transition out of DRAFT is send() -> SENT, so report
+                # that. Raised INSIDE the block so the pending sibling
+                # supersede above rolls back with it.
+                raise InvalidCostChangeStateError(
+                    cost_change_id, CostChangeStatus.SENT.value
                 )
-                for sibling in siblings_result.scalars().all():
-                    sibling.status = cast(Any, CostChangeStatus.SUPERSEDED)
 
-                update = CustomerUpdate(
-                    order_id=cost_change.order_id,
-                    kind=CustomerUpdateKind.COST_CHANGE,
-                    subject=subject,
-                    body=body,
-                    cost_change_request_id=cost_change.id,
-                    status=CustomerUpdateStatus.DRAFT,
-                    sent_by=user_id,
-                )
-                db.add(update)
-
-        if update is None:
-            raise InvalidCostChangeStateError(cost_change_id, cost_change.status.value)
+            update = CustomerUpdate(
+                order_id=cost_change.order_id,
+                kind=CustomerUpdateKind.COST_CHANGE,
+                subject=subject,
+                body=body,
+                cost_change_request_id=cost_change.id,
+                status=CustomerUpdateStatus.DRAFT,
+                sent_by=user_id,
+            )
+            db.add(update)
 
         await db.refresh(update)
         await db.refresh(cost_change)

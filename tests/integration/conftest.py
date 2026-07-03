@@ -15,6 +15,7 @@ Isolation strategy:
   Every user/customer fixture creates rows with uuid-suffixed e-mail addresses
   so they never collide across tests even when commits are permanent.
 """
+
 import asyncio
 import os
 import uuid
@@ -63,6 +64,11 @@ else:
     # connection reuse so each checkout creates a fresh connection.
     _engine_kwargs["poolclass"] = NullPool
 
+# Parity with the production engine (db/session.py) and the unit-test
+# engine (tests/conftest.py) — see db/session.py's comment on why bound
+# parameters must never appear in DBAPIError.__str__.
+_engine_kwargs["hide_parameters"] = True
+
 test_engine = create_async_engine(TEST_DATABASE_URL, **_engine_kwargs)
 
 TestSessionLocal = sessionmaker(
@@ -78,6 +84,7 @@ TestSessionLocal = sessionmaker(
 # Event loop (session-scoped so all async fixtures share it)
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture(scope="session")
 def event_loop():
     """Single event loop for the whole integration test session."""
@@ -89,6 +96,7 @@ def event_loop():
 # ---------------------------------------------------------------------------
 # Database lifecycle
 # ---------------------------------------------------------------------------
+
 
 @pytest_asyncio.fixture(scope="session", autouse=True)
 async def create_tables():
@@ -132,16 +140,20 @@ async def db_session() -> AsyncGenerator[AsyncSession, None]:
 # Dependency override helpers
 # ---------------------------------------------------------------------------
 
+
 def _override_get_db_factory(session: AsyncSession):
     """Return a get_db override that always yields the provided session."""
+
     async def _get_db_override():
         yield session
+
     return _get_db_override
 
 
 # ---------------------------------------------------------------------------
 # HTTP client fixtures
 # ---------------------------------------------------------------------------
+
 
 @pytest_asyncio.fixture
 async def client(db_session: AsyncSession):
@@ -171,6 +183,7 @@ async def client(db_session: AsyncSession):
 # User fixtures — each call creates a user with a unique e-mail address
 # so tests that commit never collide with each other.
 # ---------------------------------------------------------------------------
+
 
 def _unique(prefix: str) -> str:
     """Return a unique e-mail-safe string prefixed by prefix."""
@@ -248,6 +261,7 @@ async def test_customer(db_session: AsyncSession) -> Customer:
 # ---------------------------------------------------------------------------
 # Auth header helpers
 # ---------------------------------------------------------------------------
+
 
 def _make_bearer_headers(user: User) -> dict:
     token = create_access_token(

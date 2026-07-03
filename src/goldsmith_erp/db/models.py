@@ -2804,6 +2804,28 @@ class CostChangeRequest(Base):
         DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
     )
 
+    # At-most-one-SENT-per-order invariant (security re-review fix): the
+    # DB-level partial unique index is the REAL §649 single-live-notice
+    # guarantee — the service-level supersede + CAS in
+    # ``CostChangeService.send()`` cannot close the cross-row race under
+    # READ COMMITTED (two concurrent sends of two DIFFERENT drafts each
+    # see no SENT sibling in their snapshot, so neither's FOR UPDATE scan
+    # locks anything). 'sent' (lowercase) matches the stored enum VALUE
+    # (SAEnum uses values_callable). Named identically to the index
+    # created by alembic/versions/20260703_v12a_customer_updates.py so
+    # ``Base.metadata.create_all()`` (unit-test DBs) and
+    # ``alembic upgrade head`` (real deployments) produce the same shape
+    # (uq_customer_no_gos_customer_value_hash precedent).
+    __table_args__ = (
+        Index(
+            "uq_cost_change_one_sent_per_order",
+            "order_id",
+            unique=True,
+            postgresql_where=text("status = 'sent'"),
+            sqlite_where=text("status = 'sent'"),
+        ),
+    )
+
     # Relationships
     order = relationship("Order")
     quote = relationship("Quote")

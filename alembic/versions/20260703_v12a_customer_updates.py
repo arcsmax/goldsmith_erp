@@ -43,6 +43,7 @@ depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade() -> None:
     from goldsmith_erp.db.migration_helpers import (  # noqa: PLC0415
+        create_index_if_not_exists,
         create_table_if_not_exists,
     )
 
@@ -151,6 +152,27 @@ def upgrade() -> None:
         sa.Column("delivery_method", sa.String(20), nullable=True),
         sa.Column("created_at", sa.DateTime(), nullable=False, index=True),
         sa.Column("updated_at", sa.DateTime(), nullable=False),
+    )
+
+    # ── At-most-one-SENT-per-order invariant (security re-review fix) ─────
+    # Partial unique index: at most one CostChangeRequest in status='sent'
+    # per order. This is the REAL §649 single-live-notice invariant — the
+    # service-level supersede + CAS in CostChangeService.send() cannot
+    # close the cross-row race under READ COMMITTED (two concurrent sends
+    # of two DIFFERENT drafts each see no SENT sibling in their snapshot,
+    # so neither's FOR UPDATE scan locks anything). Both PG and SQLite
+    # support partial indexes; 'sent' (lowercase) matches the stored enum
+    # VALUE — db/models.SAEnum uses values_callable, consistent with the
+    # server_default="draft" strings above. Mirrored on the ORM
+    # (CostChangeRequest.__table_args__) so create_all() (unit-test DBs)
+    # and this migration (real deployments) produce the same shape.
+    create_index_if_not_exists(
+        "uq_cost_change_one_sent_per_order",
+        "cost_change_requests",
+        ["order_id"],
+        unique=True,
+        postgresql_where=sa.text("status = 'sent'"),
+        sqlite_where=sa.text("status = 'sent'"),
     )
 
     # PostgreSQL stores NotificationTypeEnum as a native enum; SQLite as strings.

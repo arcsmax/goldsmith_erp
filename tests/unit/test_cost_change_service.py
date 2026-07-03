@@ -15,6 +15,11 @@ Covers:
   otherwise), sets approved/declined + method/evidence/responded_at/
   recorded_by, 404 on missing request.
 - list_for_order: newest first.
+- uq_cost_change_one_sent_per_order (security re-review fix): the DB
+  partial unique index enforces at most one SENT request per order —
+  direct-insert enforcement proof, per-order/per-status scoping, and the
+  service-level IntegrityError -> SentCostChangeConflictError (409)
+  mapping on the cross-row race path.
 
 aiosmtplib is mocked at the same boundary as test_customer_update_service.py.
 """
@@ -42,6 +47,7 @@ from goldsmith_erp.services.cost_change_service import (
     CostChangeService,
     InvalidCostChangeStateError,
     NoQuoteAvailableError,
+    SentCostChangeConflictError,
 )
 
 pytestmark = pytest.mark.asyncio
@@ -495,6 +501,194 @@ class TestSend:
             )
         ).scalar_one()
         assert refetched_other.status == CostChangeStatus.SENT
+
+
+# ---------------------------------------------------------------------------
+# uq_cost_change_one_sent_per_order — DB-level single-live-notice invariant
+# (security re-review fix: the FOR UPDATE sibling scan does NOT serialize
+# the cross-row race under READ COMMITTED; the partial unique index is the
+# real invariant)
+# ---------------------------------------------------------------------------
+
+
+class TestOneSentPerOrderIndex:
+    async def test_db_index_rejects_second_sent_row_for_same_order(
+        self, db_session, sample_order, sample_user
+    ):
+        """Direct-insert proof of enforcement: two SENT rows for one order
+        must violate the partial unique index regardless of any
+        service-level logic."""
+        from sqlalchemy.exc import IntegrityError
+
+        first = CostChangeRequest(
+            order_id=sample_order.id,
+            original_amount=1000.0,
+            new_amount=1100.0,
+            delta_percent=10.0,
+            reason="Erste versendete Anfrage",
+            status=CostChangeStatus.SENT,
+            created_by=sample_user.id,
+        )
+        db_session.add(first)
+        await db_session.commit()
+
+        second = CostChangeRequest(
+            order_id=sample_order.id,
+            original_amount=1000.0,
+            new_amount=1200.0,
+            delta_percent=20.0,
+            reason="Zweite versendete Anfrage",
+            status=CostChangeStatus.SENT,
+            created_by=sample_user.id,
+        )
+        db_session.add(second)
+        with pytest.raises(IntegrityError):
+            await db_session.commit()
+        await db_session.rollback()
+
+    async def test_db_index_allows_sent_rows_on_different_orders(
+        self, db_session, sample_order, sample_customer, sample_user
+    ):
+        """The invariant is per-order — SENT rows on two different orders
+        must coexist."""
+        other_order = Order(title="Anderer Auftrag", customer_id=sample_customer.id)
+        db_session.add(other_order)
+        await db_session.commit()
+        await db_session.refresh(other_order)
+
+        for order_id in (sample_order.id, other_order.id):
+            db_session.add(
+                CostChangeRequest(
+                    order_id=order_id,
+                    original_amount=1000.0,
+                    new_amount=1100.0,
+                    delta_percent=10.0,
+                    reason="Versendete Anfrage pro Auftrag",
+                    status=CostChangeStatus.SENT,
+                    created_by=sample_user.id,
+                )
+            )
+        await db_session.commit()  # must not raise
+
+    async def test_db_index_allows_many_non_sent_rows_per_order(
+        self, db_session, sample_order, sample_user
+    ):
+        """Partial index scoping: DRAFT/SUPERSEDED/APPROVED rows are
+        outside the WHERE clause and may pile up freely."""
+        for status in (
+            CostChangeStatus.DRAFT,
+            CostChangeStatus.DRAFT,
+            CostChangeStatus.SUPERSEDED,
+            CostChangeStatus.APPROVED,
+        ):
+            db_session.add(
+                CostChangeRequest(
+                    order_id=sample_order.id,
+                    original_amount=1000.0,
+                    new_amount=1100.0,
+                    delta_percent=10.0,
+                    reason="Nicht-versendete Anfrage",
+                    status=status,
+                    created_by=sample_user.id,
+                )
+            )
+        await db_session.commit()  # must not raise
+
+    async def test_send_maps_index_conflict_to_409_conflict_error(
+        self, db_session, sample_order, sample_customer, sample_user, monkeypatch
+    ):
+        """Cross-row race loser path, reached deterministically: bypass the
+        sibling supersede (simulating READ COMMITTED's invisible-sibling
+        snapshot — the exact condition the security re-review proved) so
+        send()'s CAS trips the partial unique index. The IntegrityError
+        must surface as the typed SentCostChangeConflictError (409 via
+        the router's InvalidCostChangeStateError mapping), and the
+        transaction must roll back cleanly: sibling still SENT, target
+        still DRAFT, no linked CustomerUpdate created. Mirrors
+        no_go_service's _add_no_go_bypassing_app_check precedent."""
+        from sqlalchemy import select
+
+        from goldsmith_erp.db.models import CustomerUpdate
+
+        _enable_smtp(monkeypatch)
+        monkeypatch.setattr(email_service_module.aiosmtplib, "send", _CapturingSend())
+
+        sent_sibling = CostChangeRequest(
+            order_id=sample_order.id,
+            original_amount=1000.0,
+            new_amount=1100.0,
+            delta_percent=10.0,
+            reason="Bereits versendete Anfrage",
+            status=CostChangeStatus.SENT,
+            created_by=sample_user.id,
+        )
+        db_session.add(sent_sibling)
+        await db_session.commit()
+        await db_session.refresh(sent_sibling)
+
+        await _add_quote(
+            db_session,
+            order=sample_order,
+            customer=sample_customer,
+            user=sample_user,
+            status=QuoteStatus.SENT,
+            subtotal=1000.0,
+        )
+        draft = await CostChangeService.create(
+            db_session,
+            sample_order.id,
+            CostChangeCreate(new_amount=1300.0, reason="Konkurrierende Anfrage"),
+            sample_user.id,
+        )
+        # Captured up front: the CAS's rolled-back transaction expires
+        # every ORM object in this session — attribute access afterwards
+        # would raise MissingGreenlet (async lazy-load outside a greenlet
+        # context; same trap documented in test_no_go_service).
+        sibling_id = sent_sibling.id
+        draft_id = draft.id
+
+        async def _no_supersede(db, cost_change):
+            return None
+
+        monkeypatch.setattr(
+            CostChangeService,
+            "_supersede_sent_siblings",
+            staticmethod(_no_supersede),
+        )
+
+        with pytest.raises(SentCostChangeConflictError) as exc_info:
+            await CostChangeService.send(db_session, draft_id, sample_user.id)
+
+        # Typed error, catchable by the router's existing 409 mapping,
+        # with the fixed ID-free message.
+        assert isinstance(exc_info.value, InvalidCostChangeStateError)
+        assert "bereits eine Kostenänderung versendet" in str(exc_info.value)
+
+        # Full rollback: nothing changed, nothing was created.
+        refetched_sibling = (
+            await db_session.execute(
+                select(CostChangeRequest).where(CostChangeRequest.id == sibling_id)
+            )
+        ).scalar_one()
+        refetched_draft = (
+            await db_session.execute(
+                select(CostChangeRequest).where(CostChangeRequest.id == draft_id)
+            )
+        ).scalar_one()
+        linked_updates = (
+            (
+                await db_session.execute(
+                    select(CustomerUpdate).where(
+                        CustomerUpdate.cost_change_request_id == draft_id
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert refetched_sibling.status == CostChangeStatus.SENT
+        assert refetched_draft.status == CostChangeStatus.DRAFT
+        assert linked_updates == []
 
 
 # ---------------------------------------------------------------------------
