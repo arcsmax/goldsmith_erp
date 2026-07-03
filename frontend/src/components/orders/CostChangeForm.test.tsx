@@ -87,6 +87,27 @@ describe('CostChangeForm', () => {
     });
   });
 
+  it('blocks submit when a line-item row has a filled label but a blank amount', async () => {
+    const onSubmit = vi.fn();
+    render(<CostChangeForm onSubmit={onSubmit} />);
+
+    await userEvent.type(screen.getByLabelText(/Neuer Betrag/), '500');
+    await userEvent.type(
+      screen.getByLabelText(/Begründung/),
+      'Ausreichend lange Begründung für den Test.'
+    );
+    await userEvent.click(screen.getByRole('button', { name: '+ Position hinzufügen' }));
+    await userEvent.type(screen.getByLabelText('Bezeichnung Position 1'), 'Saphir 0.5ct');
+    // Amount is left blank on purpose — Number('') === 0 must NOT pass validation.
+
+    await userEvent.click(screen.getByRole('button', { name: 'Kostenänderung anlegen' }));
+
+    expect(
+      await screen.findByText(/Jede Position benötigt eine Bezeichnung und einen gültigen Betrag/)
+    ).toBeInTheDocument();
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
   it('disables all fields when disabled is true', () => {
     render(<CostChangeForm onSubmit={vi.fn()} disabled />);
 

@@ -62,6 +62,16 @@ function StatusBadge({ status }: { status: CostChangeStatus }) {
 // Record-response modal
 // ---------------------------------------------------------------------------
 
+// Focus-trap helpers — mirrors the convention in AlloyMismatchModal /
+// QuickActionModalV2 / PunzierungsCheckModal (no shared primitive exists yet
+// to extract this into).
+const FOCUSABLE_SELECTOR =
+  'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+function getFocusable(root: HTMLElement): HTMLElement[] {
+  return Array.from(root.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR));
+}
+
 interface RecordResponseModalProps {
   costChange: CostChange | null;
   onClose: () => void;
@@ -75,6 +85,8 @@ function RecordResponseModal({ costChange, onClose, onSubmit }: RecordResponseMo
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
+  const dialogRef = useRef<HTMLDivElement>(null);
+
   // Reset the draft whenever a different (or no) cost-change is targeted, so
   // a stale evidence text never leaks into the next row's response.
   useEffect(() => {
@@ -83,6 +95,46 @@ function RecordResponseModal({ costChange, onClose, onSubmit }: RecordResponseMo
     setEvidence('');
     setError(null);
   }, [costChange]);
+
+  // Focus management — move focus into the dialog whenever it opens (or
+  // re-targets a different cost-change), so keyboard/screen-reader users
+  // land inside the modal instead of on the row button that opened it.
+  useEffect(() => {
+    if (!costChange) return;
+    const rafId = window.requestAnimationFrame(() => {
+      const root = dialogRef.current;
+      if (!root) return;
+      getFocusable(root)[0]?.focus();
+    });
+    return () => window.cancelAnimationFrame(rafId);
+  }, [costChange]);
+
+  // Esc closes the modal; Tab/Shift+Tab cycles focus within it so it never
+  // escapes to the page behind the overlay.
+  const handleDialogKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      onClose();
+      return;
+    }
+    if (e.key !== 'Tab') return;
+    const root = dialogRef.current;
+    if (!root) return;
+    const focusable = getFocusable(root);
+    if (focusable.length === 0) return;
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    const active = document.activeElement as HTMLElement | null;
+    if (e.shiftKey) {
+      if (active === first || active === null || !root.contains(active)) {
+        e.preventDefault();
+        last.focus();
+      }
+    } else if (active === last) {
+      e.preventDefault();
+      first.focus();
+    }
+  };
 
   if (!costChange) return null;
 
@@ -115,6 +167,8 @@ function RecordResponseModal({ costChange, onClose, onSubmit }: RecordResponseMo
         role="dialog"
         aria-modal="true"
         aria-labelledby="cost-change-response-title"
+        ref={dialogRef}
+        onKeyDown={handleDialogKeyDown}
       >
         <div className="cost-change-modal-header">
           <h3 id="cost-change-response-title">Antwort erfassen</h3>
@@ -261,11 +315,16 @@ export function CostChangeSection({ orderId, onChanged }: CostChangeSectionProps
       return;
     }
     void loadHistory(orderId);
+    // loadHistory is a useCallback whose own deps (isCurrent, showToast) are
+    // themselves stable across renders, so its identity never changes here —
+    // safe to omit from this effect's deps.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [orderId, canManage]);
 
   const handleCreate = useCallback(
     async (input: CostChangeCreateInput) => {
+      if (actionLoading) return;
+      setActionLoading(true);
       try {
         await customerUpdatesApi.createCostChange(orderId, input);
         showToast('Kostenänderung wurde angelegt.', 'success');
@@ -274,9 +333,11 @@ export function CostChangeSection({ orderId, onChanged }: CostChangeSectionProps
       } catch (err) {
         logError('CostChangeSection.createCostChange', err);
         showToast('Kostenänderung konnte nicht angelegt werden.', 'error');
+      } finally {
+        setActionLoading(false);
       }
     },
-    [orderId, loadHistory, onChanged, showToast]
+    [actionLoading, orderId, loadHistory, onChanged, showToast]
   );
 
   const handleSend = useCallback(

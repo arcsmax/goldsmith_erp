@@ -50,7 +50,11 @@ function isLineItemFilled(item: LineItemDraft): boolean {
 }
 
 function isLineItemValid(item: LineItemDraft): boolean {
-  return item.label.trim().length > 0 && Number.isFinite(Number(item.amount));
+  return (
+    item.label.trim().length > 0 &&
+    item.amount.trim().length > 0 &&
+    Number.isFinite(Number(item.amount))
+  );
 }
 
 function toLineItemPayload(item: LineItemDraft): CostChangeLineItem {
@@ -182,6 +186,7 @@ export function CostChangeForm({ onSubmit, disabled = false }: CostChangeFormPro
               type="text"
               aria-label={`Bezeichnung Position ${index + 1}`}
               placeholder="Bezeichnung"
+              maxLength={200}
               value={item.label}
               onChange={(e) => updateLineItem(index, { label: e.target.value })}
               disabled={isBusy}

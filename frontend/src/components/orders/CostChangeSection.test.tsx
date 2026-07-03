@@ -14,7 +14,7 @@
 //   (e) write actions are hidden AND listCostChanges is never called for a
 //       VIEWER (COST_CHANGE_VIEW 403s backend-side for that role).
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { CostChange } from '../../api/customer-updates';
 
@@ -190,6 +190,23 @@ describe('CostChangeSection', () => {
     );
     await waitFor(() => expect(onChanged).toHaveBeenCalledTimes(1));
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('closes the record-response modal when Escape is pressed', async () => {
+    mockUseAuth.mockReturnValue(manageAuth());
+    const sentChange = makeCostChange({ id: 43, status: 'sent' });
+    mockListCostChanges.mockResolvedValue([sentChange]);
+
+    render(<CostChangeSection orderId={3} />);
+
+    const item = (await screen.findAllByRole('listitem'))[0];
+    await userEvent.click(within(item).getByRole('button', { name: 'Antwort erfassen' }));
+
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.keyDown(dialog, { key: 'Escape' });
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(mockRecordCostChangeResponse).not.toHaveBeenCalled();
   });
 
   it('"Senden" on a draft row confirms, sends, and shows the honest delivered toast', async () => {
