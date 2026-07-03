@@ -20,7 +20,7 @@ Covers:
 """
 import pytest
 
-from goldsmith_erp.db.models import Customer, QuoteLineType, User
+from goldsmith_erp.db.models import Customer, QuoteLineType, QuoteStatus, User
 from goldsmith_erp.models.quote import QuoteCreate, QuoteLineItemCreate, QuoteUpdate
 from goldsmith_erp.services.quote_service import (
     QuoteLineItemNotFoundError,
@@ -281,14 +281,13 @@ class TestUpdateQuoteTaxRateRecompute:
         assert updated.tax_amount == pytest.approx(7.0)  # 100 * 0.07
         assert updated.total == pytest.approx(107.0)
 
-    async def test_tax_rate_change_on_non_draft_quote_does_not_recompute(
+    async def test_tax_rate_change_on_non_draft_quote_raises_conflict(
         self, db_session, sample_customer, sample_user
     ):
-        """Documents the gate's exact boundary: the plan says 'only if
-        DRAFT' — a SENT quote's tax_rate field still updates (update_quote's
-        existing behavior for non-CONVERTED quotes) but totals are left as
-        they were, since a legally-relevant sent quote's amounts must not
-        silently change."""
+        """Fix round 1 (MEDIUM): tax_rate is DRAFT-only. Writing it on a SENT
+        quote would store a new rate while tax_amount/total stay old (the PDF
+        would print a mismatched "MwSt X%" label), so it is rejected outright
+        rather than silently left stale."""
         quote = await _create_draft_quote(
             db_session,
             sample_customer,
@@ -298,11 +297,55 @@ class TestUpdateQuoteTaxRateRecompute:
         )
         await QuoteService.send_quote(db_session, quote.id, sample_user)
 
+        with pytest.raises(QuoteNotEditableError):
+            await QuoteService.update_quote(
+                db_session, quote.id, QuoteUpdate(tax_rate=7.0), sample_user
+            )
+
+
+# ---------------------------------------------------------------------------
+# update_quote — status change forbidden via PUT (Fix round 1, HIGH)
+# ---------------------------------------------------------------------------
+
+
+class TestUpdateQuoteStatusGuard:
+    async def test_status_change_via_update_raises_conflict(
+        self, db_session, sample_customer, sample_user
+    ):
+        """A status transition must go through send/approve/reject/convert.
+        Reverting a SENT quote to DRAFT via PUT (the bypass the review found)
+        is rejected — otherwise a caller could unlock line-item edits on a
+        legally-relevant sent quote and then re-send it."""
+        quote = await _create_draft_quote(
+            db_session, sample_customer, sample_user, [_line_item(1.0, 10.0)]
+        )
+        await QuoteService.send_quote(db_session, quote.id, sample_user)
+
+        with pytest.raises(QuoteNotEditableError, match="Statuswechsel"):
+            await QuoteService.update_quote(
+                db_session,
+                quote.id,
+                QuoteUpdate(status=QuoteStatus.DRAFT),
+                sample_user,
+            )
+
+    async def test_status_noop_same_value_is_allowed(
+        self, db_session, sample_customer, sample_user
+    ):
+        """Passing the current status unchanged is a harmless no-op (some
+        clients round-trip the whole object) — only a DIFFERING status is
+        rejected."""
+        quote = await _create_draft_quote(
+            db_session, sample_customer, sample_user, [_line_item(1.0, 10.0)]
+        )
+
         updated = await QuoteService.update_quote(
-            db_session, quote.id, QuoteUpdate(tax_rate=7.0), sample_user
+            db_session,
+            quote.id,
+            QuoteUpdate(status=QuoteStatus.DRAFT, notes="Notiz"),
+            sample_user,
         )
 
         assert updated is not None
-        assert updated.tax_rate == pytest.approx(7.0)
-        assert updated.tax_amount == pytest.approx(19.0)  # stale on purpose
-        assert updated.total == pytest.approx(119.0)
+        assert updated.status == QuoteStatus.DRAFT
+        assert updated.notes == "Notiz"

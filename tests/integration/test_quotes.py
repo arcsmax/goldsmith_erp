@@ -805,3 +805,88 @@ class TestLineItemRouteShadowing:
             _action_url(quote_id, "pdf"), headers=admin_auth_headers
         )
         assert pdf_resp_2.status_code == 200
+
+
+# ===========================================================================
+# PUT /quotes/{id} status/tax_rate guards (Fix round 1: HIGH + MEDIUM)
+# ===========================================================================
+
+
+class TestUpdateQuoteGuards:
+
+    @pytest.mark.asyncio
+    async def test_status_revert_via_put_is_rejected_and_edits_stay_locked(
+        self,
+        client: AsyncClient,
+        admin_auth_headers: dict,
+        test_customer: Customer,
+    ):
+        """HIGH: the send/approve→revert-to-DRAFT→edit→re-send bypass.
+        A SENT quote must reject PUT status=draft with 409, and line items
+        must remain non-addable (409) — the immutability premise holds."""
+        quote_id = await _create_quote(client, admin_auth_headers, test_customer.id)
+        send_resp = await client.post(
+            _action_url(quote_id, "send"), headers=admin_auth_headers
+        )
+        assert send_resp.status_code == 200
+
+        # Attempt the status revert via PUT → 409, status unchanged.
+        revert_resp = await client.put(
+            _quote_url(quote_id),
+            json={"status": "draft"},
+            headers=admin_auth_headers,
+        )
+        assert revert_resp.status_code == 409
+
+        still_sent = await client.get(_quote_url(quote_id), headers=admin_auth_headers)
+        assert still_sent.json()["status"] == "sent"
+
+        # Line items still cannot be added to the (still SENT) quote.
+        add_resp = await client.post(
+            _line_items_url(quote_id),
+            json=_line_item_payload(),
+            headers=admin_auth_headers,
+        )
+        assert add_resp.status_code == 409
+
+    @pytest.mark.asyncio
+    async def test_tax_rate_change_on_sent_quote_returns_409(
+        self,
+        client: AsyncClient,
+        admin_auth_headers: dict,
+        test_customer: Customer,
+    ):
+        """MEDIUM: tax_rate is DRAFT-only — writing it on a SENT quote is 409
+        (never a stale rate/total mismatch)."""
+        quote_id = await _create_quote(client, admin_auth_headers, test_customer.id)
+        await client.post(_action_url(quote_id, "send"), headers=admin_auth_headers)
+
+        resp = await client.put(
+            _quote_url(quote_id),
+            json={"tax_rate": 7.0},
+            headers=admin_auth_headers,
+        )
+        assert resp.status_code == 409
+
+    @pytest.mark.asyncio
+    async def test_tax_rate_change_on_draft_recomputes_via_put(
+        self,
+        client: AsyncClient,
+        admin_auth_headers: dict,
+        test_customer: Customer,
+    ):
+        """DRAFT tax_rate edit via PUT recomputes tax_amount/total (subtotal
+        210 from the fixture)."""
+        quote_id = await _create_quote(client, admin_auth_headers, test_customer.id)
+
+        resp = await client.put(
+            _quote_url(quote_id),
+            json={"tax_rate": 7.0},
+            headers=admin_auth_headers,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["tax_rate"] == pytest.approx(7.0)
+        assert data["subtotal"] == pytest.approx(210.0, abs=0.01)
+        assert data["tax_amount"] == pytest.approx(210.0 * 0.07, abs=0.01)
+        assert data["total"] == pytest.approx(210.0 * 1.07, abs=0.01)

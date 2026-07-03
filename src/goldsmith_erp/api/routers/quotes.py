@@ -32,7 +32,7 @@ second segment ("pdf" vs "line-items") or segment count (2 vs 3 for
 
 import io
 import logging
-from typing import List, Optional
+from typing import List, NoReturn, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
@@ -65,16 +65,20 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-def _raise_line_item_error(exc: ValueError) -> None:
+def _raise_quote_error(exc: ValueError) -> NoReturn:
     """
-    Map a line-item service ValueError to 404 or 409 — typed dispatch via
+    Map a typed quote-service ValueError to 404 or 409 — typed dispatch via
     ``isinstance``, no string matching (pattern precedent:
-    ``_raise_not_found_or_conflict`` in consultations.py).
+    ``_raise_not_found_or_conflict`` in consultations.py). Shared by the
+    line-item endpoints AND update_quote (the status-change / tax_rate
+    guards both raise ``QuoteNotEditableError``).
 
     ``QuoteNotFoundError`` (and its ``QuoteLineItemNotFoundError`` subclass)
     -> 404; ``QuoteNotEditableError`` -> 409. Both raises use ``from None``
     so the original exception's chain (and any ``str(exc)`` FastAPI/logging
     might otherwise render from it) never leaks past the generic detail.
+    ``NoReturn`` documents that this always raises — callers can treat the
+    post-call state as unreachable.
     """
     if isinstance(exc, QuoteNotFoundError):
         raise HTTPException(
@@ -202,11 +206,17 @@ async def update_quote(
     """
     Kostenvoranschlag aktualisieren (Update quote fields).
 
-    Editable fields: status, valid_until, notes, tax_rate.
-    Quote number, customer_id, and order_id are immutable.
-    CONVERTED quotes cannot be updated.
+    Editable fields: valid_until, notes, and — DRAFT only — tax_rate.
+    Quote number, customer_id, and order_id are immutable. Status is NOT
+    editable here: a status change goes through the dedicated
+    send/approve/reject/convert actions (a status flip in the payload that
+    differs from the current status → 409). tax_rate is DRAFT-only (→ 409 on
+    a non-DRAFT quote). CONVERTED quotes cannot be updated at all (→ 422).
     """
-    quote = await QuoteService.update_quote(db, quote_id, quote_in, current_user)
+    try:
+        quote = await QuoteService.update_quote(db, quote_id, quote_in, current_user)
+    except ValueError as exc:
+        _raise_quote_error(exc)
     if not quote:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -349,7 +359,7 @@ async def add_quote_line_item(
     try:
         return await QuoteService.add_line_item(db, quote_id, item_in, current_user)
     except ValueError as exc:
-        _raise_line_item_error(exc)
+        _raise_quote_error(exc)
 
 
 @router.patch(
@@ -375,7 +385,7 @@ async def update_quote_line_item(
             db, quote_id, item_id, item_in, current_user
         )
     except ValueError as exc:
-        _raise_line_item_error(exc)
+        _raise_quote_error(exc)
 
 
 @router.delete(
@@ -398,7 +408,7 @@ async def delete_quote_line_item(
     try:
         await QuoteService.delete_line_item(db, quote_id, item_id, current_user)
     except ValueError as exc:
-        _raise_line_item_error(exc)
+        _raise_quote_error(exc)
 
 
 @router.get("/{quote_id}/pdf")
