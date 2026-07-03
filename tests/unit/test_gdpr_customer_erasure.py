@@ -41,10 +41,13 @@ from goldsmith_erp.db.models import (
     CalendarEvent,
     CalendarEventType,
     Consultation,
+    CostChangeRequest,
     CostingMethod,
     Customer,
     CustomerAuditLog,
     CustomerMeasurement,
+    CustomerUpdate,
+    CustomerUpdateKind,
     GDPRRequest,
     Gemstone,
     HallmarkStatus,
@@ -1226,8 +1229,9 @@ class TestScrubH5CrossField:
         # SCRUBBABLE_FIELDS keys + the special-case counters (budget /
         # materials_discussed / occasion_date NULL-out, style_profile
         # NULL-out, no-go hard-delete — Task 10 + final-review Fix 3;
-        # repair intake-checklist NULL-out — V1.1 fix round 1; not
-        # string-scrub targets) + "total".
+        # repair intake-checklist NULL-out — V1.1 fix round 1; customer
+        # update photo_ids / cost-change line_items NULL-out — V1.2 Task
+        # 6; not string-scrub targets) + "total".
         expected_keys = {target.counter_key for target in SCRUBBABLE_FIELDS} | {
             "consultations.budget",
             "consultations.materials_discussed",
@@ -1235,6 +1239,8 @@ class TestScrubH5CrossField:
             "customers.style_profile",
             "customer_no_gos.deleted",
             "repair_jobs.intake_checklist",
+            "customer_updates.photo_ids",
+            "cost_change_requests.line_items",
             "total",
         }
         assert set(log.details["counts"].keys()) == expected_keys
@@ -1721,6 +1727,75 @@ async def _f_material_usage_notes(db, customer, admin, pii_value):
     return usage
 
 
+async def _mk_customer_update(
+    db: AsyncSession,
+    customer: Customer,
+    admin: User,
+    **overrides,
+) -> CustomerUpdate:
+    """Order-linked CustomerUpdate — representative factory for the
+    ``customer_updates.body``/``customer_updates.subject`` counter keys
+    (which each cover TWO ScrubTarget entries — order_id and
+    repair_job_id links — sharing one counter_key; see
+    ``tests/unit/test_customer_update_gdpr.py`` for explicit coverage of
+    the repair_job_id link path)."""
+    order = await _mk_order(db, customer, admin)
+    defaults = dict(
+        order_id=order.id,
+        kind=CustomerUpdateKind.PROGRESS,
+        subject="Update",
+        body="Update body",
+        sent_by=admin.id,
+    )
+    defaults.update(overrides)
+    update_row = CustomerUpdate(**defaults)
+    db.add(update_row)
+    await db.commit()
+    await db.refresh(update_row)
+    return update_row
+
+
+async def _f_customer_updates_body(db, customer, admin, pii_value):
+    return await _mk_customer_update(db, customer, admin, body=pii_value)
+
+
+async def _f_customer_updates_subject(db, customer, admin, pii_value):
+    return await _mk_customer_update(db, customer, admin, subject=pii_value)
+
+
+async def _mk_cost_change_request(
+    db: AsyncSession,
+    customer: Customer,
+    admin: User,
+    **overrides,
+) -> CostChangeRequest:
+    order = await _mk_order(db, customer, admin)
+    defaults = dict(
+        order_id=order.id,
+        original_amount=100.0,
+        new_amount=120.0,
+        delta_percent=20.0,
+        reason="Standard reason",
+        created_by=admin.id,
+    )
+    defaults.update(overrides)
+    request = CostChangeRequest(**defaults)
+    db.add(request)
+    await db.commit()
+    await db.refresh(request)
+    return request
+
+
+async def _f_cost_change_requests_reason(db, customer, admin, pii_value):
+    return await _mk_cost_change_request(db, customer, admin, reason=pii_value)
+
+
+async def _f_cost_change_requests_response_evidence(db, customer, admin, pii_value):
+    return await _mk_cost_change_request(
+        db, customer, admin, response_evidence=pii_value
+    )
+
+
 async def _f_calendar_events_title(db, customer, admin, pii_value):
     order = await _mk_order(db, customer, admin)
     event = CalendarEvent(
@@ -1873,6 +1948,16 @@ _FACTORY_MAP = {
     "consultations.wishes": _f_consultations_wishes,
     "consultations.notes": _f_consultations_notes,
     "consultations.source_material": _f_consultations_source_material,
+    # V1.2 (2026-07-03) — customer updates / cost-change requests. Each
+    # counter_key below is shared by TWO ScrubTarget entries in
+    # SCRUBBABLE_FIELDS (order_id link + repair_job_id link) — one
+    # factory suffices for this table-driven coverage matrix; the
+    # repair_job_id link path is exercised explicitly in
+    # tests/unit/test_customer_update_gdpr.py.
+    "customer_updates.body": _f_customer_updates_body,
+    "customer_updates.subject": _f_customer_updates_subject,
+    "cost_change_requests.reason": _f_cost_change_requests_reason,
+    "cost_change_requests.response_evidence": _f_cost_change_requests_response_evidence,
 }
 
 
