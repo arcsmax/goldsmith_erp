@@ -16,9 +16,11 @@ consumes, plus /Info metadata byte checks for the reference string.
 import io
 import re
 from types import SimpleNamespace
+from unittest import mock
 
 from PIL import Image
 
+import goldsmith_erp.services.pdf_service as pdf_service_module
 from goldsmith_erp.services.pdf_service import (
     _UPDATE_BODY_MAX_CHARS,
     _UPDATE_TRUNCATION_MARKER,
@@ -59,15 +61,18 @@ def test_render_customer_update_pdf_returns_nonempty_bytes():
     assert len(pdf_bytes) > 0
 
 
-def test_render_customer_update_pdf_log_carries_numeric_ids_only(caplog):
+def test_render_customer_update_pdf_log_carries_numeric_ids_only():
     """Review fix: order_ref may carry the order's free-text title
     (business-confidential per CLAUDE.md) — the render-start log line
-    must carry numeric ids only, never order_ref."""
-    import logging
+    must carry numeric ids only, never order_ref.
 
+    Uses a spy on the module logger instead of caplog: root-handler capture
+    proved environment-dependent in CI (setup_logging() reconfigures the
+    root logger at app import) — established pattern, see
+    tests/unit/test_no_go_service.py."""
     update = SimpleNamespace(id=42, order_id=7, subject="s", body="b")
 
-    with caplog.at_level(logging.INFO, logger="goldsmith_erp.services.pdf_service"):
+    with mock.patch.object(pdf_service_module.logger, "info") as info_spy:
         PDFService.render_customer_update_pdf(
             update=update,
             order_ref="Auftrag geheime Sonderanfertigung fuer Herrn X",
@@ -76,17 +81,19 @@ def test_render_customer_update_pdf_log_carries_numeric_ids_only(caplog):
             workshop_name="Goldschmiede Test",
         )
 
-    render_records = [
-        r for r in caplog.records if r.message == "Rendering customer update PDF"
+    render_calls = [
+        c
+        for c in info_spy.call_args_list
+        if c.args and c.args[0] == "Rendering customer update PDF"
     ]
-    assert len(render_records) == 1
-    record = render_records[0]
-    assert record.update_id == 42
-    assert record.order_id == 7
-    assert not hasattr(record, "order_ref")
-    for r in caplog.records:
-        assert "Sonderanfertigung" not in r.getMessage()
-        assert "Sonderanfertigung" not in str(r.__dict__)
+    assert len(render_calls) == 1
+    extra = render_calls[0].kwargs.get("extra", {})
+    assert extra.get("update_id") == 42
+    assert extra.get("order_id") == 7
+    assert "order_ref" not in extra
+    for c in info_spy.call_args_list:
+        serialized = " ".join(str(a) for a in c.args) + " " + str(c.kwargs)
+        assert "Sonderanfertigung" not in serialized
 
 
 def test_render_customer_update_pdf_contains_order_reference_and_subject():
@@ -206,10 +213,11 @@ def test_compose_update_pdf_lines_contains_subject_body_and_reference():
     assert "Auftrag #1042" in dict(zip(kinds, texts))["footer"]
 
 
-def test_compose_update_pdf_lines_truncates_long_body_with_visible_marker(caplog):
+def test_compose_update_pdf_lines_truncates_long_body_with_visible_marker():
     long_body = "x" * (_UPDATE_BODY_MAX_CHARS + 500)
 
-    with caplog.at_level("INFO", logger="goldsmith_erp.services.pdf_service"):
+    # Logger spy instead of caplog (env-dependent capture in CI — see above).
+    with mock.patch.object(pdf_service_module.logger, "info") as info_spy:
         lines = _compose_update_pdf_lines(
             _make_update(body=long_body),
             order_ref="Auftrag #1042",
@@ -220,7 +228,9 @@ def test_compose_update_pdf_lines_truncates_long_body_with_visible_marker(caplog
     assert body_text.endswith(_UPDATE_TRUNCATION_MARKER)
     assert len(body_text) < len(long_body)
     # Truncation is never silent — INFO log carries the update id.
-    assert any("truncated" in rec.message for rec in caplog.records)
+    assert any(
+        c.args and "truncated" in str(c.args[0]) for c in info_spy.call_args_list
+    )
 
 
 def test_compose_update_pdf_lines_short_body_untouched():
