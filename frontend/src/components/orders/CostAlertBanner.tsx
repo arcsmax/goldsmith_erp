@@ -20,6 +20,9 @@ import './cost-alert-banner.css';
 export interface CostAlertBannerProps {
   orderId: number;
   onCreateCostChange: () => void;
+  /** Bump this to force a re-fetch (e.g. after a cost-change action changes
+   *  the projected cost) without changing `orderId`. */
+  refreshKey?: number;
 }
 
 const BASELINE_LABELS: Record<string, string> = {
@@ -35,7 +38,11 @@ function baselineLabel(source: ProjectedCost['baseline_source']): string {
   return DEFAULT_BASELINE_LABEL;
 }
 
-export function CostAlertBanner({ orderId, onCreateCostChange }: CostAlertBannerProps) {
+export function CostAlertBanner({
+  orderId,
+  onCreateCostChange,
+  refreshKey,
+}: CostAlertBannerProps) {
   const { hasRole } = useAuth();
   const canView = hasRole(['ADMIN', 'GOLDSMITH']);
 
@@ -65,7 +72,7 @@ export function CostAlertBanner({ orderId, onCreateCostChange }: CostAlertBanner
     return () => {
       cancelled = true;
     };
-  }, [orderId, canView]);
+  }, [orderId, canView, refreshKey]);
 
   if (!projected || !projected.over_threshold) return null;
 

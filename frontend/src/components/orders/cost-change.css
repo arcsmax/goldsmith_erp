@@ -1,0 +1,291 @@
+/* CostChangeSection / CostChangeForm — §649 cost-change history, request
+   form & record-response modal (V1.2 Task 5). Mirrors the visual language of
+   kundeninfo.css so the kosten tab feels consistent with the Kundeninfo tab.
+   Defines its own modal classes (cost-change-modal-overlay/-modal) rather
+   than reusing the global .modal-overlay from styles/quotes.css etc., since
+   order-detail.css does not import those page-scoped stylesheets. */
+
+.cost-change-section {
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+  max-width: 900px;
+  margin-top: 1.5rem;
+}
+
+.cost-change-section-forbidden {
+  padding: 1.5rem;
+  color: var(--color-text-muted);
+}
+
+.cost-change-section h3 {
+  margin: 0 0 1rem;
+  font-size: 1.25rem;
+  color: var(--color-text-heading);
+}
+
+/* ─── History ──────────────────────────────────────────────────────────── */
+
+.cost-change-empty {
+  color: var(--color-text-muted);
+  font-size: 0.9rem;
+}
+
+.cost-change-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.cost-change-item {
+  border: 1px solid var(--color-border-default);
+  border-radius: 10px;
+  padding: 0.85rem 1rem;
+  background: var(--color-surface-card);
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.cost-change-item-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.cost-change-amounts {
+  font-weight: 600;
+  font-size: 0.95rem;
+  color: var(--color-text-heading);
+}
+
+.cost-change-delta {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--color-brand-accent-700);
+  font-weight: 600;
+}
+
+.cost-change-reason {
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--color-text-body);
+}
+
+.cost-change-status-badge {
+  padding: 0.2rem 0.6rem;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+
+.cost-change-status-badge.status-draft {
+  background: #f3f4f6;
+  color: #6b7280;
+  border-color: #d1d5db;
+  border-style: dashed;
+}
+
+.cost-change-status-badge.status-sent {
+  background: var(--color-warning-bg);
+  color: var(--color-warning-600);
+  border-color: var(--color-warning-500);
+}
+
+.cost-change-status-badge.status-approved {
+  background: var(--color-success-bg);
+  color: var(--color-success-600);
+  border-color: var(--color-success-500);
+}
+
+.cost-change-status-badge.status-declined {
+  background: #fee2e2;
+  color: #991b1b;
+  border-color: #fca5a5;
+}
+
+.cost-change-status-badge.status-superseded {
+  background: #ede9fe;
+  color: #5b21b6;
+  border-color: #c4b5fd;
+}
+
+.cost-change-item-actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.25rem;
+}
+
+.cost-change-item-actions button {
+  font-size: 0.8rem;
+  padding: 0.3rem 0.7rem;
+}
+
+/* ─── Form (shared: compose + modal) ───────────────────────────────────── */
+
+.cost-change-form .form-group,
+.cost-change-modal .form-group {
+  margin-bottom: 1rem;
+}
+
+.cost-change-form label,
+.cost-change-modal label {
+  display: block;
+  margin-bottom: 0.3rem;
+  font-weight: 600;
+  font-size: 0.85rem;
+  color: var(--color-text-body);
+}
+
+.cost-change-form select,
+.cost-change-form input[type='text'],
+.cost-change-form input[type='number'],
+.cost-change-form textarea,
+.cost-change-modal select,
+.cost-change-modal textarea {
+  width: 100%;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid var(--color-border-default);
+  border-radius: 8px;
+  font-size: 0.9rem;
+  font-family: inherit;
+  background: var(--color-surface-card);
+  color: var(--color-text-heading);
+}
+
+.cost-change-form textarea,
+.cost-change-modal textarea {
+  resize: vertical;
+  min-height: 90px;
+}
+
+.cost-change-form select:focus,
+.cost-change-form input:focus,
+.cost-change-form textarea:focus,
+.cost-change-modal select:focus,
+.cost-change-modal textarea:focus {
+  outline: none;
+  border-color: var(--color-border-focus);
+  box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.15);
+}
+
+.cost-change-counter {
+  margin: 0.3rem 0 0;
+  font-size: 0.78rem;
+  color: var(--color-text-muted);
+}
+
+.cost-change-error {
+  margin: 0.3rem 0 0;
+  font-size: 0.8rem;
+  color: #991b1b;
+  font-weight: 600;
+}
+
+.cost-change-form-actions {
+  display: flex;
+  gap: 0.75rem;
+  margin-top: 1.25rem;
+}
+
+/* ─── Line items ───────────────────────────────────────────────────────── */
+
+.cost-change-line-items {
+  margin-top: 0.5rem;
+}
+
+.cost-change-line-items-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.6rem;
+  font-weight: 600;
+  font-size: 0.85rem;
+  color: var(--color-text-body);
+}
+
+.cost-change-line-item-row {
+  display: grid;
+  grid-template-columns: 2fr 1fr 1fr auto;
+  gap: 0.5rem;
+  align-items: center;
+  margin-bottom: 0.5rem;
+}
+
+.cost-change-line-item-row input,
+.cost-change-line-item-row select {
+  width: 100%;
+  padding: 0.45rem 0.6rem;
+  border: 1px solid var(--color-border-default);
+  border-radius: 8px;
+  font-size: 0.85rem;
+  font-family: inherit;
+  background: var(--color-surface-card);
+  color: var(--color-text-heading);
+}
+
+/* ─── Record-response modal ────────────────────────────────────────────── */
+
+.cost-change-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 1rem;
+}
+
+.cost-change-modal {
+  background: var(--color-surface-card);
+  border-radius: 12px;
+  padding: 1.5rem;
+  width: 100%;
+  max-width: 480px;
+  max-height: 90vh;
+  overflow-y: auto;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.2);
+}
+
+.cost-change-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1rem;
+}
+
+.cost-change-modal-header h3 {
+  margin: 0;
+  color: var(--color-text-heading);
+}
+
+.cost-change-modal-close {
+  background: none;
+  border: none;
+  font-size: 1.1rem;
+  cursor: pointer;
+  color: var(--color-text-muted);
+  padding: 0.2rem 0.4rem;
+}
+
+.cost-change-modal-close:hover {
+  color: var(--color-text-heading);
+}
+
+.cost-change-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  margin-top: 1.25rem;
+}

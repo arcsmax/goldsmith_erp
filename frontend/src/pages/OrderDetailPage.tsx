@@ -16,6 +16,7 @@ import HandoffTab from '../components/orders/HandoffTab';
 import ArbeitszettelTab from '../components/orders/ArbeitszettelTab';
 import { KundeninfoTab } from '../components/orders/KundeninfoTab';
 import { CostAlertBanner } from '../components/orders/CostAlertBanner';
+import { CostChangeSection } from '../components/orders/CostChangeSection';
 import { PhotoCompare } from '../components/PhotoCompare';
 import { photosApi } from '../api/photos';
 import '../styles/order-detail.css';
@@ -31,6 +32,10 @@ export const OrderDetailPage: React.FC = () => {
   const [orderPhotos, setOrderPhotos] = useState<OrderPhoto[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // Bumped whenever a §649 cost-change action (create/send/record-response)
+  // may have changed the projected cost, so CostAlertBanner re-fetches
+  // without needing orderId to change.
+  const [costDataVersion, setCostDataVersion] = useState(0);
 
   // Get active tab from context (remembers last tab)
   const activeTab = orderId ? getOrderTab(parseInt(orderId)) : 'details';
@@ -162,6 +167,7 @@ export const OrderDetailPage: React.FC = () => {
       <CostAlertBanner
         orderId={order.id}
         onCreateCostChange={() => handleTabChange('kosten')}
+        refreshKey={costDataVersion}
       />
 
       {/* Tabs */}
@@ -265,7 +271,10 @@ export const OrderDetailPage: React.FC = () => {
         )}
 
         {activeTab === 'kosten' && (
-          <CostsTab order={order} />
+          <CostsTab
+            order={order}
+            onCostChangeUpdated={() => setCostDataVersion((v) => v + 1)}
+          />
         )}
 
         {activeTab === 'metall' && order.metal_type && (
@@ -390,10 +399,14 @@ const DetailsTab: React.FC<{ order: OrderType }> = ({ order }) => (
   </div>
 );
 
-const CostsTab: React.FC<{ order: OrderType }> = ({ order }) => (
+const CostsTab: React.FC<{ order: OrderType; onCostChangeUpdated: () => void }> = ({
+  order,
+  onCostChangeUpdated,
+}) => (
   <div className="tab-panel">
     <h2>Kostenaufstellung</h2>
     <CostBreakdownCard order={order} />
+    <CostChangeSection orderId={order.id} onChanged={onCostChangeUpdated} />
   </div>
 );
 
