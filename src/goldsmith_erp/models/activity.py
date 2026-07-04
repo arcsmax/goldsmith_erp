@@ -1,6 +1,7 @@
 # src/goldsmith_erp/models/activity.py
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from datetime import datetime
+from decimal import Decimal
 from typing import Optional
 
 class ActivityBase(BaseModel):
@@ -80,6 +81,14 @@ class ActivityUpdate(BaseModel):
         None,
         description="Whether time on this activity counts toward billable hours"
     )
+    hourly_rate: Optional[Decimal] = Field(
+        None,
+        ge=0,
+        description=(
+            "Per-activity labor rate in EUR/hour. Null/omitted leaves it "
+            "unset — cost calculation then falls back to the shop default rate."
+        ),
+    )
 
     @field_validator('category')
     @classmethod
@@ -101,6 +110,14 @@ class ActivityRead(ActivityBase):
     average_duration_minutes: Optional[float] = None
     last_used: Optional[datetime] = None
     is_custom: bool
+    hourly_rate: Optional[Decimal] = Field(
+        None,
+        ge=0,
+        description=(
+            "Per-activity labor rate in EUR/hour; null means the shop "
+            "default rate applies."
+        ),
+    )
     created_by: Optional[int] = None
     created_at: datetime
 

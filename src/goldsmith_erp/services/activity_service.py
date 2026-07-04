@@ -113,7 +113,14 @@ class ActivityService:
     async def update_activity(
         db: AsyncSession, activity_id: int, activity_in: ActivityUpdate
     ) -> Optional[ActivityModel]:
-        """Aktualisiert eine bestehende Aktivität."""
+        """Aktualisiert eine bestehende Aktivität.
+
+        Any field present on ``ActivityUpdate`` — including ``hourly_rate`` —
+        flows through generically via ``model_dump(exclude_unset=True)``.
+        Explicitly passing ``hourly_rate=None`` persists NULL (falls back to
+        the shop default in ``CostCalculationService``); omitting the field
+        entirely leaves the stored value untouched.
+        """
         # Prüfen ob Aktivität existiert
         activity = await ActivityService.get_activity(db, activity_id)
         if not activity:

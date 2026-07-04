@@ -7,6 +7,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    Numeric,
     String,
     Table,
     Text,
@@ -673,6 +674,9 @@ class Activity(Base):
     is_billable = Column(
         Boolean, nullable=False, server_default=text("true"), default=True
     )  # fabrication billable; administration/waiting non-billable by default
+    hourly_rate = Column(Numeric(10, 2), nullable=True)
+    # Per-activity labor rate (EUR/hour). NULL = use the shop default
+    # (settings.DEFAULT_HOURLY_RATE) — see CostCalculationService.
     created_by = Column(
         Integer, ForeignKey("users.id", ondelete="RESTRICT"), nullable=True
     )
