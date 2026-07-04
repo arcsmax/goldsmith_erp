@@ -119,6 +119,125 @@ class TestPredictDuration:
 
 
 # ---------------------------------------------------------------------------
+# POST /api/v1/ml/predict/duration — trained-model path
+#
+# Regression coverage for the bug where the router called DurationPredictor
+# methods that did not exist (.fit(), .is_ready, .get_metadata()), so
+# getattr(model, "is_ready", False) was permanently False and every
+# prediction silently fell back to the heuristic, even once trained.
+# ---------------------------------------------------------------------------
+
+def _build_synthetic_training_set() -> tuple[list[dict], list[float]]:
+    """
+    Build a small (but >= the 10-sample minimum) synthetic training set with
+    a real, learnable relationship between complexity/weight/gemstones and
+    duration, so DurationPredictor.train() produces a genuine fitted model.
+    """
+    order_types = ["ring", "chain", "pendant", "earrings"]
+    complexities = ["low", "medium", "high", "very_high"]
+    base_hours = {"low": 2.0, "medium": 4.0, "high": 6.0, "very_high": 9.0}
+
+    features: list[dict] = []
+    targets: list[float] = []
+    for i in range(20):
+        complexity = complexities[i % len(complexities)]
+        weight = 5.0 + i
+        gemstones = float(i % 4)
+        features.append(
+            {
+                "order_type": order_types[i % len(order_types)],
+                "metal_type": "gold_18k",
+                "complexity": complexity,
+                "estimated_weight_g": weight,
+                "gemstone_count": gemstones,
+                "gemstone_total_carat": gemstones * 0.2,
+                "has_engraving": bool(i % 2),
+                "scrap_percentage": 5.0,
+                "customer_order_count": float(i),
+                "deadline_days": 14.0,
+            }
+        )
+        targets.append(base_hours[complexity] + weight * 0.1 + gemstones * 0.5)
+    return features, targets
+
+
+class TestPredictDurationTrainedModel:
+    """Exercises the trained-model path once DurationPredictor.is_ready is True."""
+
+    @pytest.mark.asyncio
+    async def test_predict_duration_uses_trained_model_when_ready(
+        self, client: AsyncClient, goldsmith_auth_headers: dict, monkeypatch
+    ):
+        """
+        With a genuinely trained DurationPredictor wired into the router,
+        the endpoint must return a model-sourced prediction — not the
+        heuristic — and must say so honestly in the response.
+        """
+        import goldsmith_erp.api.routers.ml as ml_router
+        from goldsmith_erp.ml.duration_model import DurationPredictor
+
+        predictor = DurationPredictor()
+        features, targets = _build_synthetic_training_set()
+        predictor.train(features, targets)
+        assert predictor.is_ready is True  # sanity check on the fixture itself
+
+        monkeypatch.setattr(ml_router, "_duration_predictor", predictor)
+
+        payload = {
+            "order_type": "ring",
+            "complexity_rating": 3,
+            "metal_type": "gold_18k",
+            "estimated_weight_g": 10.0,
+            "gemstone_count": 2,
+        }
+        response = await client.post(
+            f"{ML_BASE}/predict/duration",
+            json=payload,
+            headers=goldsmith_auth_headers,
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["model_status"] == "trained"
+        assert data["is_heuristic"] is False
+        assert data["estimated_hours"] > 0
+        assert (
+            data["confidence_interval_low"]
+            <= data["estimated_hours"]
+            <= data["confidence_interval_high"]
+        )
+        assert data["confidence_level"] in ("low", "medium", "high")
+
+    @pytest.mark.asyncio
+    async def test_predict_duration_falls_back_to_heuristic_when_untrained(
+        self, client: AsyncClient, goldsmith_auth_headers: dict, monkeypatch
+    ):
+        """
+        A DurationPredictor that exists but has never been trained (no
+        insufficient data) must still yield a clean heuristic fallback,
+        not an error and not a false "trained" label.
+        """
+        import goldsmith_erp.api.routers.ml as ml_router
+        from goldsmith_erp.ml.duration_model import DurationPredictor
+
+        untrained_predictor = DurationPredictor()
+        assert untrained_predictor.is_ready is False
+
+        monkeypatch.setattr(ml_router, "_duration_predictor", untrained_predictor)
+
+        payload = {"order_type": "ring", "complexity_rating": 3}
+        response = await client.post(
+            f"{ML_BASE}/predict/duration",
+            json=payload,
+            headers=goldsmith_auth_headers,
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["model_status"] == "not_trained"
+        assert data["is_heuristic"] is True
+        assert data["estimated_hours"] > 0
+
+
+# ---------------------------------------------------------------------------
 # GET /api/v1/ml/predict/order/{order_id}
 # ---------------------------------------------------------------------------
 
