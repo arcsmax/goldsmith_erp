@@ -89,7 +89,34 @@ async def record(
     commits. Callers with an in-flight transaction of their own should call
     this via `safe_record_on_completion` (post-commit) rather than nesting
     it inside their own `transactional()` block.
+
+    Idempotent per `order_id` (Task-4 review carry-forward, ahead of V1.3
+    Task 5 wiring real values through): if an `EstimateAccuracy` row
+    already exists for this `order.id`, that existing row is returned
+    unchanged and NO new row is written. This guards against an order
+    that is completed, reopened, and completed again from double-counting
+    into `calibration()` — without this guard a reopen->recomplete cycle
+    would silently skew MAPE/bias with a duplicate observation of the
+    same job. This is a plain check-then-insert (not a DB-level unique
+    constraint) — acceptable here because the only caller is the single,
+    sequential `OrderService.update_order` completion hook, not a
+    high-concurrency write path.
     """
+    existing = (
+        await db.execute(
+            select(EstimateAccuracy).where(EstimateAccuracy.order_id == order.id)
+        )
+    ).scalar_one_or_none()
+    if existing is not None:
+        logger.info(
+            "EstimateAccuracyService.record: order %s already has an "
+            "accuracy row (id=%s) — skipping duplicate write",
+            order.id,
+            existing.id,
+            extra={"order_id": order.id, "existing_accuracy_id": existing.id},
+        )
+        return existing
+
     accuracy = EstimateAccuracy(
         order_id=order.id,
         estimated_hours=estimated_hours,

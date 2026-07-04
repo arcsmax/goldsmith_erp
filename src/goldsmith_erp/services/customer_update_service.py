@@ -268,11 +268,17 @@ async def write_financial_audit_row(
     order_id: Optional[int],
     user_id: int,
     endpoint: str,
+    http_method: str = "GET",
 ) -> None:
     """
-    Persist a ``CustomerAuditLog`` row for a financial-data GET that
-    ``AuditLoggingMiddleware`` cannot key on (see that middleware's
-    ``_RESOURCE_ROUTES`` comment on the ``/orders/{id}/...`` blind spot).
+    Persist a ``CustomerAuditLog`` row for a financial-data access that
+    ``AuditLoggingMiddleware`` cannot (fully) key on — either because it
+    is a GET under a first-path-segment the middleware doesn't recognize
+    (see that middleware's ``_RESOURCE_ROUTES`` comment on the
+    ``/orders/{id}/...`` blind spot), or because it is a non-GET under a
+    financial family, which the middleware's ``is_financial`` GET-only
+    gate structurally skips (e.g. ``POST /estimates/labor`` — see
+    ``api/routers/estimator.py``).
 
     Mirrors ``AuditLoggingMiddleware._log_to_database``'s row shape:
     same ``action`` naming convention (``list_accessed_financial`` /
@@ -281,21 +287,26 @@ async def write_financial_audit_row(
     ``legal_basis``, ``purpose``) — minus ``status_code``/``duration_ms``,
     which the middleware measures around the whole request and are not
     available at this call depth; this is only ever invoked once the
-    underlying read has already succeeded, so a 200 is implied. Only GET
-    reads call this today, so ``http_method`` is hardcoded.
+    underlying operation has already succeeded, so a 200/201 is implied.
+    ``http_method`` defaults to ``"GET"`` (every call site before V1.3
+    Task 5 was a GET); pass ``http_method="POST"`` explicitly for a
+    non-GET call site so the audit row's ``details`` reflect the real
+    verb instead of a stale hardcoded one.
 
     ``customer_id`` is derived from the order (CLAUDE.md: financial-data
     audit rows must be traceable to the customer), not from the caller —
     a caller supplying the wrong id here would silently mis-attribute the
     row, so this method does its own lookup rather than trusting a
-    passed-in value.
+    passed-in value. ``order_id=None`` (e.g. a prospective labor estimate
+    with no associated order yet) is a valid input — ``customer_id``
+    simply stays ``None``.
 
     Fire-and-forget, mirroring the middleware's own broad except: a DB
-    outage on the audit path must never deny (or 500) the legitimate read
-    it is auditing (security > correctness > convenience, but here
-    "correctness of the response" outranks "completeness of the audit
-    trail" — the exact same tradeoff the middleware documents for its own
-    write). Failures are logged loudly instead of swallowed.
+    outage on the audit path must never deny (or 500) the legitimate
+    operation it is auditing (security > correctness > convenience, but
+    here "correctness of the response" outranks "completeness of the
+    audit trail" — the exact same tradeoff the middleware documents for
+    its own write). Failures are logged loudly instead of swallowed.
     """
     customer_id: Optional[int] = None
     if order_id is not None:
@@ -307,7 +318,7 @@ async def write_financial_audit_row(
 
     details = {
         "endpoint": endpoint,
-        "http_method": "GET",
+        "http_method": http_method,
         "legal_basis": "GDPR Article 6(1)(c) - Legal obligation (§147 AO)",
         "purpose": f"{entity.replace('_', ' ').title()} {action} via API",
     }

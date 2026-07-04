@@ -26,6 +26,7 @@ from goldsmith_erp.api.routers import (
     customer_portal,
     customer_updates,
     customers,
+    estimator,
     hallmarks,
     handoffs,
     health,
@@ -263,6 +264,11 @@ app.include_router(
     tags=["customer-updates"],
 )  # V1.2 Kundeninfo + §649 BGB Kostenfreigabe (mixed /orders, /updates,
 #    /cost-changes path roots — bare API prefix, handoffs.py precedent)
+app.include_router(
+    estimator.router,
+    prefix=f"{settings.API_V1_STR}/estimates",
+    tags=["estimator"],
+)  # V1.3 Phase 1 — statistical labor estimator (financial, ADMIN/GOLDSMITH only)
 
 
 async def _authenticate_websocket(websocket: WebSocket) -> int | None:
