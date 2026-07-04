@@ -394,6 +394,20 @@ class OrderService:
             user_id=verified_by_user_id,
         )
 
+        # V1.3 estimator Task 4 — post-commit, fire-and-forget calibration
+        # hook (mirrors the CostWatchService.safe_check placement above:
+        # AFTER the transactional() block, so a failure here can never
+        # unwind the already-committed completion). NO-OP today: no
+        # estimate values are passed because Order has no stored-estimate
+        # column yet (V1.3 Task 5 owns adding that + wiring real values
+        # through here) — see
+        # EstimateAccuracyService.safe_record_on_completion's docstring.
+        if is_completing and updated_order is not None:
+            from goldsmith_erp.services.estimate_accuracy_service import (  # noqa: PLC0415
+                safe_record_on_completion,
+            )
+            await safe_record_on_completion(db, updated_order)
+
         return updated_order
 
     @staticmethod
