@@ -4,6 +4,7 @@ import axios, {
   AxiosError,
   InternalAxiosRequestConfig,
 } from 'axios';
+import { logError } from '../lib/logError';
 
 // Base API URL - uses proxy in development via vite.config.ts
 const BASE_URL = '/api/v1';
@@ -136,12 +137,12 @@ apiClient.interceptors.response.use(
 
     // --- 403 Forbidden ---
     if (error.response?.status === 403) {
-      console.error('Access forbidden:', error.response.data);
+      logError('Access forbidden', error);
     }
 
     // --- 500 Internal Server Error ---
     if (error.response?.status === 500) {
-      console.error('Server error:', error.response.data);
+      logError('Server error', error);
     }
 
     return Promise.reject(error);

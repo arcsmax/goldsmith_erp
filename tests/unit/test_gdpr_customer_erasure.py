@@ -32,7 +32,7 @@ from datetime import datetime, timedelta
 
 import pytest
 import pytest_asyncio
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from goldsmith_erp.db.models import (
@@ -832,6 +832,112 @@ class TestScrubH5CustomerScopedFields:
         )
         await db_session.commit()
         assert counts_again["repair_jobs.intake_checklist"] == 0
+
+    @pytest.mark.asyncio
+    async def test_scrub_nulls_consultation_materials_discussed_as_sql_null(
+        self,
+        db_session: AsyncSession,
+        mueller_maria: Customer,
+        admin: User,
+    ):
+        """Issue #25: ``Consultation.materials_discussed`` is Column(JSON)
+        with the SQLAlchemy default ``none_as_null=False`` — a bare
+        ``.values(materials_discussed=None)`` would persist the JSON
+        literal ``'null'`` (a real, non-NULL cell) rather than SQL NULL.
+        That literal still satisfies ``isnot(None)`` at the SQL level, so
+        it would silently re-count the same row on every repeat scrub,
+        breaking the idempotent-counter guarantee. Assert both: (1) the
+        raw stored value is a true SQL NULL, not the ORM-deserialized
+        ``None`` (which a JSON 'null' string would *also* deserialize to,
+        masking the bug), and (2) a second scrub is idempotent (0 rows).
+        """
+        consultation = Consultation(
+            customer_id=mueller_maria.id,
+            conducted_by=admin.id,
+            materials_discussed=[{"metal": "gold_585", "note": "Maria Mueller"}],
+        )
+        db_session.add(consultation)
+        await db_session.commit()
+        await db_session.refresh(consultation)
+
+        counts = await CustomerService.scrub_customer_pii(
+            db_session,
+            customer_id=mueller_maria.id,
+            performed_by=admin.id,
+        )
+        await db_session.commit()
+        await db_session.refresh(consultation)
+
+        assert consultation.materials_discussed is None
+        assert counts["consultations.materials_discussed"] == 1
+
+        # Bypass the ORM's JSON type decorator — a JSON literal 'null'
+        # string deserializes back to Python None too, so the assertion
+        # above alone would not catch a regression to Python ``None``.
+        raw_value = (
+            await db_session.execute(
+                text("SELECT materials_discussed FROM consultations WHERE id = :id"),
+                {"id": consultation.id},
+            )
+        ).scalar_one()
+        assert raw_value is None
+
+        # Idempotency: a repeat scrub must find nothing left to NULL. If
+        # the column held the JSON literal 'null' instead of SQL NULL,
+        # ``isnot(None)`` would still match it and this would be 1 again.
+        counts_again = await CustomerService.scrub_customer_pii(
+            db_session,
+            customer_id=mueller_maria.id,
+            performed_by=admin.id,
+        )
+        await db_session.commit()
+        assert counts_again["consultations.materials_discussed"] == 0
+
+    @pytest.mark.asyncio
+    async def test_scrub_nulls_customer_style_profile_as_sql_null(
+        self,
+        db_session: AsyncSession,
+        mueller_maria: Customer,
+        admin: User,
+    ):
+        """Issue #25: ``CustomerModel.style_profile`` is the same
+        Column(JSON) / ``none_as_null=False`` shape as
+        ``materials_discussed`` above — same bug, same assertions.
+        """
+        mueller_maria.style_profile = {
+            "metal_tones": ["gold"],
+            "style_words": ["klassisch"],
+        }
+        db_session.add(mueller_maria)
+        await db_session.commit()
+        await db_session.refresh(mueller_maria)
+
+        counts = await CustomerService.scrub_customer_pii(
+            db_session,
+            customer_id=mueller_maria.id,
+            performed_by=admin.id,
+        )
+        await db_session.commit()
+        await db_session.refresh(mueller_maria)
+
+        assert mueller_maria.style_profile is None
+        assert counts["customers.style_profile"] == 1
+
+        raw_value = (
+            await db_session.execute(
+                text("SELECT style_profile FROM customers WHERE id = :id"),
+                {"id": mueller_maria.id},
+            )
+        ).scalar_one()
+        assert raw_value is None
+
+        counts_again = await CustomerService.scrub_customer_pii(
+            db_session,
+            customer_id=mueller_maria.id,
+            performed_by=admin.id,
+        )
+        await db_session.commit()
+        assert counts_again["customers.style_profile"] == 0
 
     @pytest.mark.asyncio
     async def test_scrub_redacts_valuation_certificate_fields(

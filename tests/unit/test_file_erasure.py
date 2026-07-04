@@ -57,6 +57,7 @@ from goldsmith_erp.services.file_erasure_service import (
     FileErasureResult,
     FileErasureService,
 )
+from goldsmith_erp.services.photo_service import PhotoService
 from goldsmith_erp.services.repair_photo_service import RepairPhotoService
 
 # ---------------------------------------------------------------------------
@@ -826,6 +827,60 @@ class TestErasureRepairPhotoThumbnails:
 
         assert retry.files_failed == 0
         assert not thumb_path.exists()
+        assert photo.file_path == REDACTED_PATH_SENTINEL
+
+
+class TestErasureOrderPhotoThumbnails:
+    @pytest.mark.asyncio
+    async def test_erasure_deletes_order_photo_thumbnail_and_keeps_row(
+        self,
+        db_session: AsyncSession,
+        customer_a: Customer,
+        admin: User,
+        tmp_path: Path,
+        monkeypatch,
+    ):
+        """Issue #24: ``order_photos`` has the identical filesystem layout
+        as ``repair_photos`` (original + a ``thumbs/`` sibling — see
+        ``photo_service.py``) but its ``FileErasureTarget`` was missing
+        ``has_thumbnail=True``, so order-photo thumbnails were never erased
+        on GDPR deletion. Mirrors
+        ``test_erasure_deletes_repair_photo_thumbnail_and_keeps_row`` above:
+        the row is KEPT (Art. 30 retention precedent) but both the original
+        file AND its thumbnail must be gone from disk, and the path column
+        redacted to the sentinel.
+        """
+        monkeypatch.setattr(
+            "goldsmith_erp.core.config.settings.PHOTO_STORAGE_PATH", str(tmp_path)
+        )
+        order = await _mk_order(db_session, customer_a)
+        photo = await PhotoService.upload_photo(
+            db_session,
+            order_id=order.id,
+            file=_jpeg_upload(),
+            user_id=admin.id,
+        )
+        await db_session.commit()
+
+        original_path = Path(photo.file_path)
+        thumb_path = original_path.parent / "thumbs" / f"{original_path.stem}.jpg"
+        assert original_path.exists()
+        assert thumb_path.exists()
+
+        service = FileErasureService(tmp_path)
+        result = await service.erase_customer_files(
+            db_session, customer_id=customer_a.id, performed_by=admin.id
+        )
+        await db_session.commit()
+        await db_session.refresh(photo)
+
+        assert not original_path.exists()
+        assert not thumb_path.exists()
+        # Original + thumbnail both count as deleted files (report accuracy —
+        # the counters reflect every file actually removed from disk).
+        assert result.per_target_counts["order_photos.file_path"]["deleted"] == 2
+        assert result.files_failed == 0
+        # Row is KEPT (Art. 30 retention precedent) and path is redacted.
         assert photo.file_path == REDACTED_PATH_SENTINEL
 
 
