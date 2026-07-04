@@ -9,11 +9,13 @@ prediction path.
 Decision-Making: security > correctness > performance > convenience.
 Fail loudly on training errors; be graceful on prediction cold-start.
 """
+
 from __future__ import annotations
 
 import logging
 import math
 import os
+from datetime import datetime, timezone
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -26,8 +28,8 @@ logger = logging.getLogger(__name__)
 # while prediction uses the cold-start heuristic path.
 # ---------------------------------------------------------------------------
 try:
-    import numpy as np
     import joblib
+    import numpy as np
     import pandas as pd
     from sklearn.metrics import mean_squared_error, r2_score
     from sklearn.model_selection import KFold, cross_val_score
@@ -55,16 +57,16 @@ CATEGORICAL_FEATURES: list[str] = ["order_type", "metal_type", "complexity"]
 
 # All feature columns used by the model (in order).
 FEATURE_COLUMNS: list[str] = [
-    "order_type",        # e.g. "ring", "necklace", "repair", "resize"
-    "metal_type",        # MetalType enum value string
-    "complexity",        # "low", "medium", "high", "very_high"
+    "order_type",  # e.g. "ring", "necklace", "repair", "resize"
+    "metal_type",  # MetalType enum value string
+    "complexity",  # "low", "medium", "high", "very_high"
     "estimated_weight_g",
     "gemstone_count",
     "gemstone_total_carat",
     "has_engraving",
     "scrap_percentage",
     "customer_order_count",  # historical order count for this customer
-    "deadline_days",         # days between order creation and deadline (or 0)
+    "deadline_days",  # days between order creation and deadline (or 0)
 ]
 
 # Reasonable default when no model is trained and no historical data exists.
@@ -135,6 +137,7 @@ class DurationPredictor:
 
     MODEL_FILENAME = "duration_model.joblib"
     ENCODERS_FILENAME = "label_encoders.joblib"
+    MODEL_VERSION = "xgboost-duration-v1"
 
     def __init__(self, model_path: str | None = None) -> None:
         self._model: Any | None = None  # XGBRegressor
@@ -142,6 +145,7 @@ class DurationPredictor:
         self._training_metrics: dict[str, float] = {}
         self._training_data_size: int = 0
         self._cold_start_avg: float | None = None  # average from training set
+        self._trained_at: datetime | None = None  # set on successful train()
 
         if model_path is not None:
             try:
@@ -157,6 +161,22 @@ class DurationPredictor:
                 raise RuntimeError(
                     f"Failed to load duration model from {model_path}: {exc}"
                 ) from exc
+
+    # ------------------------------------------------------------------
+    # Readiness
+    # ------------------------------------------------------------------
+
+    @property
+    def is_ready(self) -> bool:
+        """
+        True once a model is available for real predictions.
+
+        Set the moment a training run succeeds (see ``train()``) or an
+        existing model is loaded from disk (see ``load_model()``). While
+        this is False, ``predict()`` always returns the cold-start
+        heuristic and callers should treat any prediction as non-authoritative.
+        """
+        return self._model is not None
 
     # ------------------------------------------------------------------
     # Training
@@ -270,8 +290,7 @@ class DurationPredictor:
             # Feature importance mapping.
             importance_raw = model.feature_importances_
             feature_importance = {
-                col: float(importance_raw[i])
-                for i, col in enumerate(FEATURE_COLUMNS)
+                col: float(importance_raw[i]) for i, col in enumerate(FEATURE_COLUMNS)
             }
 
             metrics: dict[str, Any] = {
@@ -290,6 +309,7 @@ class DurationPredictor:
                 k: v for k, v in metrics.items() if isinstance(v, float)
             }
             self._training_data_size = n_samples
+            self._trained_at = datetime.now(timezone.utc)
 
             logger.info(
                 "Training complete — RMSE=%.2fh, MAPE=%.1f%%, R²=%.3f, "
@@ -305,9 +325,21 @@ class DurationPredictor:
 
         except Exception as exc:
             # Fail loudly — training errors must surface to the caller.
-            raise RuntimeError(
-                f"DurationPredictor training failed: {exc}"
-            ) from exc
+            raise RuntimeError(f"DurationPredictor training failed: {exc}") from exc
+
+    def fit(
+        self,
+        features: list[dict[str, Any]],
+        targets: list[float],
+    ) -> dict[str, Any]:
+        """
+        Alias for :meth:`train`.
+
+        Some callers (e.g. the ML API router) use the conventional
+        scikit-learn ``fit`` verb instead of ``train``. This delegates
+        directly — the statistical logic lives solely in :meth:`train`.
+        """
+        return self.train(features, targets)
 
     # ------------------------------------------------------------------
     # Prediction
@@ -513,7 +545,7 @@ class DurationPredictor:
 
             # Euclidean distances.
             diffs = matrix_norm - query_norm
-            distances = np.sqrt((diffs ** 2).sum(axis=1))
+            distances = np.sqrt((diffs**2).sum(axis=1))
 
             # Convert distance to similarity score in [0, 1].
             max_dist = distances.max()
@@ -536,12 +568,8 @@ class DurationPredictor:
             return result
 
         except Exception as exc:
-            logger.error(
-                "find_similar_orders failed: %s", exc, exc_info=True
-            )
-            raise RuntimeError(
-                f"find_similar_orders failed: {exc}"
-            ) from exc
+            logger.error("find_similar_orders failed: %s", exc, exc_info=True)
+            raise RuntimeError(f"find_similar_orders failed: {exc}") from exc
 
     # ------------------------------------------------------------------
     # Introspection
@@ -554,9 +582,7 @@ class DurationPredictor:
         Raises RuntimeError if no model has been trained yet.
         """
         if self._model is None:
-            raise RuntimeError(
-                "No trained model available. Call train() first."
-            )
+            raise RuntimeError("No trained model available. Call train() first.")
         importance_raw = self._model.feature_importances_
         return {
             col: round(float(importance_raw[i]), 6)
@@ -570,6 +596,40 @@ class DurationPredictor:
         Returns an empty dict if no training has occurred.
         """
         return dict(self._training_metrics)
+
+    def get_metadata(self) -> dict[str, Any]:
+        """
+        Return provenance metadata about the currently trained model.
+
+        Used by the model-status API endpoint so it can report training
+        history without reaching into private attributes. Safe to call at
+        any time — when no model has been trained yet, ``metrics`` is
+        omitted entirely (rather than populated with Nones) so callers can
+        distinguish "not trained" from "trained with zero-valued metrics".
+
+        Returns
+        -------
+        dict with keys: model_name, version, trained_at, data_size, and
+        (only when trained) metrics — a copy of the training metrics dict
+        plus data_size.
+        """
+        if self._model is None:
+            return {
+                "model_name": "DurationPredictor",
+                "version": None,
+                "trained_at": None,
+                "data_size": 0,
+            }
+
+        metrics = dict(self._training_metrics)
+        metrics["data_size"] = self._training_data_size
+        return {
+            "model_name": "DurationPredictor",
+            "version": self.MODEL_VERSION,
+            "trained_at": self._trained_at,
+            "data_size": self._training_data_size,
+            "metrics": metrics,
+        }
 
     # ------------------------------------------------------------------
     # Persistence
@@ -585,9 +645,7 @@ class DurationPredictor:
         RuntimeError — if the save fails for any I/O reason.
         """
         if self._model is None:
-            raise RuntimeError(
-                "No trained model to save. Call train() first."
-            )
+            raise RuntimeError("No trained model to save. Call train() first.")
         if not _ML_DEPS_AVAILABLE:
             raise ImportError("joblib is required to save the model.")
 
@@ -599,9 +657,7 @@ class DurationPredictor:
             joblib.dump(self._label_encoders, encoders_path)
             logger.info("Model saved to %s", directory)
         except Exception as exc:
-            raise RuntimeError(
-                f"Failed to save model to {directory}: {exc}"
-            ) from exc
+            raise RuntimeError(f"Failed to save model to {directory}: {exc}") from exc
 
     def load_model(self, directory: str) -> None:
         """
@@ -619,9 +675,7 @@ class DurationPredictor:
         encoders_path = os.path.join(directory, self.ENCODERS_FILENAME)
 
         if not os.path.exists(model_path):
-            raise FileNotFoundError(
-                f"Model file not found: {model_path}"
-            )
+            raise FileNotFoundError(f"Model file not found: {model_path}")
 
         try:
             self._model = joblib.load(model_path)
@@ -638,6 +692,4 @@ class DurationPredictor:
         except FileNotFoundError:
             raise
         except Exception as exc:
-            raise RuntimeError(
-                f"Failed to load model from {directory}: {exc}"
-            ) from exc
+            raise RuntimeError(f"Failed to load model from {directory}: {exc}") from exc

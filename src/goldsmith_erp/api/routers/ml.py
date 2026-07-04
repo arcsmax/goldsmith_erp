@@ -34,8 +34,8 @@ from goldsmith_erp.models.ml import (
     FieldCoverage,
     ModelStatusResponse,
     SimilarOrder,
-    TrainResponse,
     TrainingMetrics,
+    TrainResponse,
 )
 
 logger = logging.getLogger(__name__)
@@ -47,7 +47,9 @@ router = APIRouter()
 # ---------------------------------------------------------------------------
 
 try:
-    from goldsmith_erp.ml.feature_engineering import FeatureEngineer  # type: ignore[import]
+    from goldsmith_erp.ml.feature_engineering import (
+        FeatureEngineer,  # type: ignore[import]
+    )
 
     _feature_engineer: Optional[Any] = FeatureEngineer()
 except Exception as exc:  # noqa: BLE001
@@ -55,7 +57,9 @@ except Exception as exc:  # noqa: BLE001
     _feature_engineer = None
 
 try:
-    from goldsmith_erp.ml.duration_model import DurationPredictor  # type: ignore[import]
+    from goldsmith_erp.ml.duration_model import (
+        DurationPredictor,  # type: ignore[import]
+    )
 
     _duration_predictor: Optional[Any] = DurationPredictor()
 except Exception as exc:  # noqa: BLE001
@@ -63,7 +67,9 @@ except Exception as exc:  # noqa: BLE001
     _duration_predictor = None
 
 try:
-    from goldsmith_erp.ml.anomaly_detection import AnomalyDetector  # type: ignore[import]
+    from goldsmith_erp.ml.anomaly_detection import (
+        AnomalyDetector,  # type: ignore[import]
+    )
 
     _anomaly_detector: Optional[Any] = AnomalyDetector()
 except Exception as exc:  # noqa: BLE001
@@ -71,7 +77,9 @@ except Exception as exc:  # noqa: BLE001
     _anomaly_detector = None
 
 try:
-    from goldsmith_erp.services.ml_data_service import MLDataService  # type: ignore[import]
+    from goldsmith_erp.services.ml_data_service import (
+        MLDataService,  # type: ignore[import]
+    )
 
     _ml_data_service: Optional[Any] = MLDataService()
 except Exception as exc:  # noqa: BLE001
@@ -83,7 +91,9 @@ except Exception as exc:  # noqa: BLE001
 # Helpers
 # ---------------------------------------------------------------------------
 
-_ML_UNAVAILABLE_DETAIL = "ML-Modul nicht verfügbar. Bitte wenden Sie sich an den Administrator."
+_ML_UNAVAILABLE_DETAIL = (
+    "ML-Modul nicht verfügbar. Bitte wenden Sie sich an den Administrator."
+)
 
 
 def _require_ml_module(module: Optional[Any], name: str) -> Any:
@@ -104,7 +114,22 @@ def _safe_float(value: Any) -> float:
         return 0.0
 
 
-def _heuristic_estimate(request: DurationPredictionRequest) -> DurationPredictionResponse:
+def _confidence_level_label(value: Any) -> str:
+    """
+    Map DurationPredictor's numeric confidence_level (0.0-1.0) onto the
+    qualitative low/medium/high label the public API contract exposes.
+    """
+    score = _safe_float(value)
+    if score >= 0.7:
+        return "high"
+    if score >= 0.4:
+        return "medium"
+    return "low"
+
+
+def _heuristic_estimate(
+    request: DurationPredictionRequest,
+) -> DurationPredictionResponse:
     """
     Rule-based duration estimate when no trained model is available.
 
@@ -169,44 +194,69 @@ def _heuristic_estimate(request: DurationPredictionRequest) -> DurationPredictio
 # ---------------------------------------------------------------------------
 
 
-async def _run_prediction(request: DurationPredictionRequest) -> DurationPredictionResponse:
+def _response_from_predictor_result(
+    result: dict[str, Any]
+) -> DurationPredictionResponse:
+    """
+    Map a ``DurationPredictor.predict()`` result dict onto the API response
+    schema.
+
+    Honesty requirement: ``predict()`` can itself fall back to its internal
+    cold-start heuristic (e.g. on an unseen-category or shape error) even
+    when ``is_ready`` is True. ``is_cold_start`` is the field that already
+    signals this on the model side — it is propagated here so the response
+    never misattributes a heuristic estimate as model-sourced.
+    """
+    is_cold_start = bool(result.get("is_cold_start", True))
+    ci_low, ci_high = result.get("confidence_interval", (0.0, 0.0))
+
+    similar_orders = [
+        SimilarOrder(
+            order_id=int(s["order_id"]),
+            actual_hours=_safe_float(s["actual_hours"]),
+            order_type=s.get("order_type"),
+            complexity_rating=s.get("complexity_rating"),
+            similarity_score=_safe_float(s["similarity_score"]),
+        )
+        for s in result.get("similar_orders", [])[:5]
+    ]
+
+    return DurationPredictionResponse(
+        estimated_hours=_safe_float(result["estimated_hours"]),
+        confidence_interval_low=_safe_float(ci_low),
+        confidence_interval_high=_safe_float(ci_high),
+        confidence_level=_confidence_level_label(result.get("confidence_level")),
+        similar_orders=similar_orders,
+        model_status="not_trained" if is_cold_start else "trained",
+        is_heuristic=is_cold_start,
+    )
+
+
+async def _run_prediction(
+    request: DurationPredictionRequest,
+) -> DurationPredictionResponse:
     """
     Core prediction logic shared by both prediction endpoints.
 
     When the model has not been trained yet, a rule-based heuristic estimate
     is returned with `model_status: "not_trained"` and `is_heuristic: true`.
     """
-    if _duration_predictor is None or not getattr(_duration_predictor, "is_ready", False):
+    if _duration_predictor is None or not getattr(
+        _duration_predictor, "is_ready", False
+    ):
         return _heuristic_estimate(request)
 
     try:
-        if _feature_engineer is not None:
-            features = _feature_engineer.extract_from_request(request.model_dump())
-        else:
-            features = request.model_dump(exclude_none=True)
+        # FeatureEngineer's extraction methods are async and operate on a
+        # persisted Order + AsyncSession (see ml/feature_engineering.py) —
+        # there is no persisted order yet for this request-only prediction,
+        # so the raw request body is used as the feature dict directly.
+        # DurationPredictor._extract_feature_vector() fills any missing
+        # keys with safe defaults (see its docstring).
+        features = request.model_dump(exclude_none=True)
 
         result = _duration_predictor.predict(features)
-
-        similar_orders = [
-            SimilarOrder(
-                order_id=int(s["order_id"]),
-                actual_hours=_safe_float(s["actual_hours"]),
-                order_type=s.get("order_type"),
-                complexity_rating=s.get("complexity_rating"),
-                similarity_score=_safe_float(s["similarity_score"]),
-            )
-            for s in result.get("similar_orders", [])[:5]
-        ]
-
-        return DurationPredictionResponse(
-            estimated_hours=_safe_float(result["estimated_hours"]),
-            confidence_interval_low=_safe_float(result["ci_low"]),
-            confidence_interval_high=_safe_float(result["ci_high"]),
-            confidence_level=result.get("confidence_level", "medium"),
-            similar_orders=similar_orders,
-            model_status="trained",
-            is_heuristic=False,
-        )
+        return _response_from_predictor_result(result)
     except Exception as exc:
         logger.error("Fehler bei Dauervorhersage: %s", exc, exc_info=True)
         # Graceful fallback to heuristic rather than a 500
@@ -246,13 +296,13 @@ async def predict_duration_for_order(
 ) -> DurationPredictionResponse:
     """Predict duration for an existing order by extracting its stored features."""
     result = await db.execute(
-        select(Order)
-        .where(Order.id == order_id)
-        .options(selectinload(Order.gemstones))
+        select(Order).where(Order.id == order_id).options(selectinload(Order.gemstones))
     )
     order = result.scalar_one_or_none()
     if order is None:
-        raise HTTPException(status_code=404, detail=f"Auftrag {order_id} nicht gefunden.")
+        raise HTTPException(
+            status_code=404, detail=f"Auftrag {order_id} nicht gefunden."
+        )
 
     gemstone_count = len(order.gemstones) if order.gemstones else 0
     primary_stone = order.gemstones[0] if order.gemstones else None
@@ -265,7 +315,11 @@ async def predict_duration_for_order(
         finish_type=order.finish_type if hasattr(order, "finish_type") else None,
         gemstone_count=gemstone_count,
         gemstone_type=primary_stone.type if primary_stone else None,
-        gemstone_carat=_safe_float(primary_stone.carat) if primary_stone and primary_stone.carat else None,
+        gemstone_carat=(
+            _safe_float(primary_stone.carat)
+            if primary_stone and primary_stone.carat
+            else None
+        ),
     )
     return await _run_prediction(prediction_request)
 
@@ -313,9 +367,8 @@ async def get_active_anomalies(
 
         # Determine expected duration
         expected_minutes: float
-        if (
-            _anomaly_detector is not None
-            and hasattr(_anomaly_detector, "expected_duration")
+        if _anomaly_detector is not None and hasattr(
+            _anomaly_detector, "expected_duration"
         ):
             try:
                 expected_minutes = _safe_float(
@@ -325,20 +378,27 @@ async def get_active_anomalies(
                     )
                 )
             except Exception as exc:  # noqa: BLE001
-                logger.debug("AnomalyDetector.expected_duration fehlgeschlagen: %s", exc)
+                logger.debug(
+                    "AnomalyDetector.expected_duration fehlgeschlagen: %s", exc
+                )
                 expected_minutes = _safe_float(
                     entry.activity.average_duration_minutes or 60.0
                 )
         else:
-            expected_minutes = _safe_float(
-                entry.activity.average_duration_minutes if entry.activity else 60.0
-            ) or 60.0
+            expected_minutes = (
+                _safe_float(
+                    entry.activity.average_duration_minutes if entry.activity else 60.0
+                )
+                or 60.0
+            )
 
         if elapsed_minutes <= expected_minutes * 1.5:
             # Not yet anomalous
             continue
 
-        anomaly_score = (elapsed_minutes - expected_minutes) / max(expected_minutes, 1.0)
+        anomaly_score = (elapsed_minutes - expected_minutes) / max(
+            expected_minutes, 1.0
+        )
         severity = "critical" if anomaly_score > 1.0 else "warning"
 
         alerts.append(
@@ -396,9 +456,12 @@ async def get_anomaly_history(
             continue
 
         elapsed = _safe_float(entry.duration_minutes)
-        expected = _safe_float(
-            entry.activity.average_duration_minutes if entry.activity else 60.0
-        ) or 60.0
+        expected = (
+            _safe_float(
+                entry.activity.average_duration_minutes if entry.activity else 60.0
+            )
+            or 60.0
+        )
 
         if elapsed <= expected * 1.5:
             continue
@@ -565,7 +628,11 @@ async def get_model_status(
         metrics=metrics,
         training_data_size=int(metadata.get("data_size", 0)),
         is_ready=is_ready,
-        message=None if is_ready else "Modell noch nicht trainiert. POST /api/v1/ml/train ausführen.",
+        message=(
+            None
+            if is_ready
+            else "Modell noch nicht trainiert. POST /api/v1/ml/train ausführen."
+        ),
     )
 
 
@@ -713,10 +780,12 @@ async def get_activity_stats(
     entries = result.scalars().all()
 
     # Group by activity_id
-    from collections import defaultdict
     import statistics
+    from collections import defaultdict
 
-    by_activity: dict[int, dict] = defaultdict(lambda: {"durations": [], "activity": None})
+    by_activity: dict[int, dict] = defaultdict(
+        lambda: {"durations": [], "activity": None}
+    )
     for entry in entries:
         aid = entry.activity_id
         by_activity[aid]["durations"].append(_safe_float(entry.duration_minutes))
@@ -774,7 +843,9 @@ async def get_activity_stats_detail(
     act_result = await db.execute(select(Activity).where(Activity.id == activity_id))
     activity = act_result.scalar_one_or_none()
     if activity is None:
-        raise HTTPException(status_code=404, detail=f"Aktivität {activity_id} nicht gefunden.")
+        raise HTTPException(
+            status_code=404, detail=f"Aktivität {activity_id} nicht gefunden."
+        )
 
     # Fetch all completed entries for this activity
     entries_result = await db.execute(
