@@ -152,6 +152,35 @@ describe('CostChangeSection', () => {
     await waitFor(() => expect(onChanged).toHaveBeenCalledTimes(1));
   });
 
+  it('surfaces the backend\'s specific error detail (not the generic text) when create is rejected', async () => {
+    mockUseAuth.mockReturnValue(manageAuth());
+    mockListCostChanges.mockResolvedValue([]);
+    mockCreateCostChange.mockRejectedValue({
+      response: { data: { detail: 'Kein Kostenvoranschlag' } },
+    });
+
+    render(<CostChangeSection orderId={8} />);
+    await waitFor(() => expect(mockListCostChanges).toHaveBeenCalledWith(8));
+
+    await userEvent.type(screen.getByLabelText(/Neuer Betrag/), '1200');
+    await userEvent.type(
+      screen.getByLabelText(/Begründung/),
+      'Zusätzlicher Steinbesatz wurde vom Kunden gewünscht.'
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Kostenänderung anlegen' }));
+
+    await waitFor(() =>
+      expect(mockShowToast).toHaveBeenCalledWith(
+        expect.stringContaining('Kein Kostenvoranschlag'),
+        'error'
+      )
+    );
+    expect(mockShowToast).not.toHaveBeenCalledWith(
+      'Kostenänderung konnte nicht angelegt werden.',
+      'error'
+    );
+  });
+
   it('"Antwort erfassen" on a sent row submits recordCostChangeResponse with the chosen status/method/evidence and fires onChanged', async () => {
     mockUseAuth.mockReturnValue(manageAuth());
     const sentChange = makeCostChange({ id: 42, status: 'sent' });

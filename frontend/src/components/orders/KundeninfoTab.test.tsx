@@ -163,7 +163,7 @@ describe('KundeninfoTab', () => {
     );
   });
 
-  it('"Erstellen & senden" shows the PDF-fallback toast when the send result is not delivered', async () => {
+  it('"Erstellen & senden" shows the PDF-fallback toast and auto-downloads the PDF when the send result is not delivered', async () => {
     mockUseAuth.mockReturnValue(manageAuth());
     mockListUpdates.mockResolvedValue([]);
     mockCreateUpdate.mockResolvedValue(makeUpdate({ id: 43, status: 'draft' }));
@@ -172,6 +172,7 @@ describe('KundeninfoTab', () => {
       delivered: false,
       method: 'pdf_manual',
     });
+    mockDownloadUpdatePdf.mockResolvedValue(new Blob(['pdf-bytes'], { type: 'application/pdf' }));
 
     render(<KundeninfoTab orderId={7} />);
     await waitFor(() => expect(mockListUpdates).toHaveBeenCalledWith(7));
@@ -183,6 +184,9 @@ describe('KundeninfoTab', () => {
     await waitFor(() =>
       expect(mockShowToast).toHaveBeenCalledWith(expect.stringContaining('PDF'), 'info')
     );
+    // Bug fix: SMTP-unconfigured sends must not feel like a no-op — the PDF
+    // for the just-sent update is fetched and downloaded automatically.
+    await waitFor(() => expect(mockDownloadUpdatePdf).toHaveBeenCalledWith(43));
   });
 
   it('"Als Entwurf speichern" calls createUpdate only — never sendUpdate', async () => {

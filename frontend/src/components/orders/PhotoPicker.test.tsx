@@ -132,13 +132,15 @@ describe('PhotoPicker', () => {
     expect(onChange).not.toHaveBeenCalled();
   });
 
-  it('renders the empty state without throwing when the load fails', async () => {
+  it('renders the empty-state guidance (not an error) without throwing when the load fails', async () => {
     mockGetForOrder.mockRejectedValue(new Error('network down'));
 
     render(<PhotoPicker orderId={1} selectedIds={[]} onChange={vi.fn()} />);
 
     expect(
-      await screen.findByText('Keine Fotos für diesen Auftrag vorhanden.')
+      await screen.findByText(
+        'Für diesen Auftrag sind noch keine Fotos hinterlegt. Fotos werden im Tab „Fotos" hochgeladen und können hier anschließend ausgewählt werden.'
+      )
     ).toBeInTheDocument();
     await waitFor(() => expect(mockLogError).toHaveBeenCalledWith('PhotoPicker.load', expect.any(Error)));
     expect(screen.queryAllByRole('checkbox')).toHaveLength(0);

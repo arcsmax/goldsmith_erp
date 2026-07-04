@@ -50,6 +50,15 @@ function sortNewestFirst(costChanges: CostChange[]): CostChange[] {
   );
 }
 
+/** Pull the backend's specific error message out of an axios error, so the
+ *  user sees the real reason (e.g. "Kein Kostenvoranschlag …", "bereits
+ *  gesendet") instead of a generic fallback that hides it. */
+function extractDetail(err: unknown): string | undefined {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const detail = (err as any)?.response?.data?.detail;
+  return typeof detail === 'string' && detail ? detail : undefined;
+}
+
 function StatusBadge({ status }: { status: CostChangeStatus }) {
   return (
     <span className={`cost-change-status-badge status-${status}`}>
@@ -332,7 +341,10 @@ export function CostChangeSection({ orderId, onChanged }: CostChangeSectionProps
         onChanged?.();
       } catch (err) {
         logError('CostChangeSection.createCostChange', err);
-        showToast('Kostenänderung konnte nicht angelegt werden.', 'error');
+        showToast(
+          extractDetail(err) ?? 'Kostenänderung konnte nicht angelegt werden.',
+          'error'
+        );
       } finally {
         setActionLoading(false);
       }
@@ -365,7 +377,10 @@ export function CostChangeSection({ orderId, onChanged }: CostChangeSectionProps
         onChanged?.();
       } catch (err) {
         logError('CostChangeSection.sendCostChange', err);
-        showToast('Kostenänderung konnte nicht gesendet werden.', 'error');
+        showToast(
+          extractDetail(err) ?? 'Kostenänderung konnte nicht gesendet werden.',
+          'error'
+        );
       } finally {
         setActionLoading(false);
       }
@@ -385,7 +400,10 @@ export function CostChangeSection({ orderId, onChanged }: CostChangeSectionProps
         onChanged?.();
       } catch (err) {
         logError('CostChangeSection.recordCostChangeResponse', err);
-        showToast('Antwort konnte nicht erfasst werden.', 'error');
+        showToast(
+          extractDetail(err) ?? 'Antwort konnte nicht erfasst werden.',
+          'error'
+        );
       } finally {
         setActionLoading(false);
       }
