@@ -11,13 +11,19 @@ IMPORTANT: As of Phase 2.3, this service uses MetalInventoryService
 for real-time inventory pricing instead of hardcoded prices.
 """
 import logging
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, cast
 from decimal import Decimal
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from goldsmith_erp.db.models import Order as OrderModel, Gemstone as GemstoneModel, CostingMethod
+from goldsmith_erp.core.config import settings
+from goldsmith_erp.db.models import (
+    Order as OrderModel,
+    Gemstone as GemstoneModel,
+    Activity as ActivityModel,
+    CostingMethod,
+)
 from goldsmith_erp.services.metal_inventory_service import MetalInventoryService
 
 logger = logging.getLogger(__name__)
@@ -289,12 +295,36 @@ class CostCalculationService:
         return total
 
     @staticmethod
-    async def _calculate_labor_cost(order: OrderModel) -> float:
-        """Calculate labor cost from hours × rate"""
+    async def _calculate_labor_cost(
+        order: OrderModel,
+        db: Optional[AsyncSession] = None,
+        activity_hours: Optional[Dict[int, float]] = None,
+    ) -> float:
+        """Calculate labor cost from hours × rate.
+
+        Two modes, kept backward-compatible for existing callers:
+
+        1. Aggregate (default): ``order.labor_hours`` × ``order.hourly_rate``,
+           falling back to the shop default (``settings.DEFAULT_HOURLY_RATE``)
+           when the order has no rate set. Unchanged behaviour.
+        2. Per-activity breakdown: pass ``activity_hours`` (``{activity_id:
+           hours}``, e.g. from a labor estimate) together with ``db`` to cost
+           each activity at its own ``Activity.hourly_rate`` — falling back
+           to the same shop default per-activity when unset.
+        """
+        if activity_hours is not None:
+            if db is None:
+                raise ValueError(
+                    "db session is required when activity_hours is provided"
+                )
+            return await CostCalculationService._calculate_labor_cost_per_activity(
+                db, activity_hours
+            )
+
         if not order.labor_hours:
             return 0.0
 
-        hourly_rate = order.hourly_rate or 75.0  # Default 75 EUR/hour
+        hourly_rate = order.hourly_rate or settings.DEFAULT_HOURLY_RATE
         labor_cost = order.labor_hours * hourly_rate
 
         logger.debug(
@@ -308,6 +338,56 @@ class CostCalculationService:
         )
 
         return labor_cost
+
+    @staticmethod
+    async def _calculate_labor_cost_per_activity(
+        db: AsyncSession,
+        activity_hours: Dict[int, float],
+    ) -> float:
+        """Sum labor cost across a per-activity ``{activity_id: hours}`` breakdown.
+
+        Each activity's own ``hourly_rate`` is used when set; activities with
+        no rate configured (NULL) — or an id not found in the DB — fall back
+        to the shop default (``settings.DEFAULT_HOURLY_RATE``). Fails loudly
+        only for programmer errors (empty/None input is a valid "no labor"
+        case and returns 0.0).
+        """
+        if not activity_hours:
+            return 0.0
+
+        result = await db.execute(
+            select(ActivityModel).where(
+                ActivityModel.id.in_(activity_hours.keys())
+            )
+        )
+        # cast(): mypy sees Column[int] at class level for `a.id` (classic
+        # declarative style, no Mapped[] annotations) — cast to the runtime
+        # int so the dict key type matches `activity_hours`'s int keys.
+        activities_by_id: Dict[int, ActivityModel] = {
+            cast(int, a.id): a for a in result.scalars().all()
+        }
+
+        total_cost = 0.0
+        for activity_id, hours in activity_hours.items():
+            activity = activities_by_id.get(activity_id)
+            rate_column = activity.hourly_rate if activity is not None else None
+            rate_decimal = cast(Optional[Decimal], rate_column)
+            hourly_rate = (
+                float(rate_decimal)
+                if rate_decimal is not None
+                else settings.DEFAULT_HOURLY_RATE
+            )
+            total_cost += hours * hourly_rate
+
+        logger.debug(
+            "Per-activity labor cost calculated",
+            extra={
+                "activity_ids": list(activity_hours.keys()),
+                "total_cost": total_cost,
+            }
+        )
+
+        return total_cost
 
     @staticmethod
     def _round_price(price: float) -> float:

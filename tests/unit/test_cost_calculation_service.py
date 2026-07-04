@@ -216,6 +216,111 @@ class TestLaborCostCalculation:
 
 
 @pytest.mark.asyncio
+class TestPerActivityLaborCost:
+    """Task 1 (V1.3 estimator) — per-activity hourly-rate labor costing.
+
+    ``_calculate_labor_cost`` gains an optional ``(db, activity_hours)`` mode
+    that costs each activity at its own ``Activity.hourly_rate``, falling
+    back to the shop default (``settings.DEFAULT_HOURLY_RATE``) per-activity
+    when unset — without disturbing the existing aggregate-hours callers
+    exercised by ``TestLaborCostCalculation`` above.
+    """
+
+    async def test_labor_cost_per_activity_with_explicit_rate(
+        self, db_session, sample_order
+    ):
+        """Activity.hourly_rate=90 over 2h => 180 (its own rate wins)."""
+        from goldsmith_erp.db.models import Activity
+
+        activity = Activity(
+            name="Fassen", category="fabrication", hourly_rate=Decimal("90.00")
+        )
+        db_session.add(activity)
+        await db_session.commit()
+        await db_session.refresh(activity)
+
+        cost = await CostCalculationService._calculate_labor_cost(
+            sample_order, db=db_session, activity_hours={activity.id: 2.0}
+        )
+
+        assert cost == pytest.approx(180.0, rel=0.001)
+
+    async def test_labor_cost_per_activity_falls_back_to_shop_default(
+        self, db_session, sample_order
+    ):
+        """Activity.hourly_rate=None falls back to settings.DEFAULT_HOURLY_RATE."""
+        from goldsmith_erp.core.config import settings
+        from goldsmith_erp.db.models import Activity
+
+        activity = Activity(
+            name="Polieren", category="fabrication", hourly_rate=None
+        )
+        db_session.add(activity)
+        await db_session.commit()
+        await db_session.refresh(activity)
+
+        cost = await CostCalculationService._calculate_labor_cost(
+            sample_order, db=db_session, activity_hours={activity.id: 3.0}
+        )
+
+        assert cost == pytest.approx(3.0 * settings.DEFAULT_HOURLY_RATE, rel=0.001)
+
+    async def test_labor_cost_mixed_per_activity_breakdown_sums_each_at_own_rate(
+        self, db_session, sample_order
+    ):
+        """A mix of rated + unrated activities each cost at their own rate."""
+        from goldsmith_erp.core.config import settings
+        from goldsmith_erp.db.models import Activity
+
+        rated = Activity(
+            name="Gravieren", category="fabrication", hourly_rate=Decimal("120.00")
+        )
+        unrated = Activity(
+            name="Verpacken", category="administration", hourly_rate=None
+        )
+        db_session.add_all([rated, unrated])
+        await db_session.commit()
+        await db_session.refresh(rated)
+        await db_session.refresh(unrated)
+
+        cost = await CostCalculationService._calculate_labor_cost(
+            sample_order,
+            db=db_session,
+            activity_hours={rated.id: 1.5, unrated.id: 2.0},
+        )
+
+        expected = (1.5 * 120.0) + (2.0 * settings.DEFAULT_HOURLY_RATE)
+        assert cost == pytest.approx(expected, rel=0.001)
+
+    async def test_labor_cost_per_activity_without_db_raises(self, sample_order):
+        """activity_hours without a db session fails loudly (programmer error)."""
+        with pytest.raises(ValueError, match="db session"):
+            await CostCalculationService._calculate_labor_cost(
+                sample_order, activity_hours={1: 2.0}
+            )
+
+    async def test_labor_cost_per_activity_empty_breakdown_returns_zero(
+        self, db_session, sample_order
+    ):
+        """An empty per-activity breakdown is a valid 'no labor' case."""
+        cost = await CostCalculationService._calculate_labor_cost(
+            sample_order, db=db_session, activity_hours={}
+        )
+
+        assert cost == 0.0
+
+    async def test_labor_cost_aggregate_path_still_works(self, sample_order):
+        """Backward compatibility: existing aggregate-hours callers (no
+        activity_hours/db args) are unaffected by the new per-activity mode."""
+        sample_order.labor_hours = 5.0
+        sample_order.hourly_rate = 75.0
+
+        cost = await CostCalculationService._calculate_labor_cost(sample_order)
+
+        assert cost == 375.00
+
+
+@pytest.mark.asyncio
 class TestFullOrderCostCalculation:
     """Test complete order cost calculation"""
 
