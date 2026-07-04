@@ -13,6 +13,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     event,
+    func,
     text,
 )
 from sqlalchemy.dialects.postgresql import JSON
@@ -3095,6 +3096,83 @@ class LabelTemplate(Base):
     )
 
     creator = relationship("User", foreign_keys=[created_by])
+
+
+# ============================================================================
+# V1.3 ESTIMATOR — ESTIMATE ACCURACY / CALIBRATION
+# ============================================================================
+
+
+class EstimateAccuracy(Base):
+    """Estimate-vs-actual record — the statistical labor estimator's learning
+    loop feedback (V1.3 Phase 1, Task 4).
+
+    Written when a completed order had a prior STORED estimate. Estimate
+    storage itself (where on `Order`/`Quote` a prior estimate lives) is
+    Task 5's job (`EstimatorService` + endpoints) — this table and
+    `EstimateAccuracyService.record()` are estimate-source-agnostic: they
+    persist whatever estimated/actual values the caller supplies. Until
+    Task 5 wires a real stored estimate, the `OrderService.update_order`
+    completion hook calls `EstimateAccuracyService.safe_record_on_completion`
+    with no values, which is a documented, tested no-op (see that method's
+    docstring and `services/estimate_accuracy_service.py`).
+
+    `estimator_version` lets calibration be sliced by estimator revision if
+    the median/P20/P80 logic changes later without conflating old and new
+    accuracy numbers.
+
+    Financial data (estimated/actual hours feed a labor cost) — ADMIN/
+    GOLDSMITH visibility only, audit-logged reads (CLAUDE.md: "All
+    financial data access MUST be audit-logged"). No API surface in this
+    task; Task 5 adds `GET /estimates/accuracy` + its `_RESOURCE_ROUTES`
+    entry in `middleware/audit_logging.py`.
+
+    FK deletion semantics: `order_id` uses `ondelete="RESTRICT"` — an
+    accuracy row is Art. 30-relevant calibration evidence tied to one
+    specific completed order, so (matching `CostChangeRequest.order_id` /
+    `Invoice.order_id`) a hard delete of the order must not silently
+    orphan or cascade away this financial record.
+    """
+
+    __tablename__ = "estimate_accuracy"
+
+    id = Column(Integer, primary_key=True, index=True)
+    # RESTRICT, not CASCADE/SET NULL — financial-retention backstop, see
+    # docstring (same rationale as CostChangeRequest.order_id).
+    order_id = Column(
+        Integer,
+        ForeignKey("orders.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
+
+    estimated_hours = Column(Float, nullable=False)
+    actual_hours = Column(Float, nullable=False)
+    estimated_total = Column(Float, nullable=False)
+    actual_total = Column(Float, nullable=False)
+
+    # Free-form tag identifying which estimator revision produced the
+    # estimate (e.g. "labor_estimator_v1") — lets calibration slice by
+    # revision once the median/tier logic changes. Not an enum: this is
+    # meant to be bumped freely as the estimator evolves, without a schema
+    # migration each time (mirrors Activity.category's free-text choice).
+    estimator_version = Column(String(50), nullable=False)
+
+    created_at = Column(
+        DateTime, server_default=func.now(), nullable=False, index=True
+    )
+
+    # One-directional — no back_populates on Order, matching the
+    # CostChangeRequest / CustomerUpdate precedent (no existing need to
+    # traverse Order -> its accuracy rows from the ORM side).
+    order = relationship("Order")
+
+    def __repr__(self) -> str:
+        return (
+            f"<EstimateAccuracy {self.id} order={self.order_id} "
+            f"estimated_hours={self.estimated_hours} "
+            f"actual_hours={self.actual_hours}>"
+        )
 
 
 # ============================================================================
