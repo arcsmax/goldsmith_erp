@@ -131,10 +131,9 @@ class FileErasureTarget:
         update (kept, unredacted) even though the original file was
         already deleted, so the admin can retry and the raw path
         stays available as the marker of an incomplete erasure.
-        Today only ``repair_photos`` sets this — ``order_photos`` has
-        the identical filesystem layout (see ``photo_service.py``)
-        but retrofitting it is out of scope for this change; noted as
-        a known gap.
+        ``repair_photos`` and ``order_photos`` both set this — they
+        have the identical filesystem layout (see ``photo_service.py``
+        for order_photos, ``repair_photo_service.py`` for repair_photos).
     """
 
     table: str
@@ -166,6 +165,12 @@ FILE_ERASURE_TARGETS: List[FileErasureTarget] = [
         link="order_id",
         # order_photos.file_path is NOT NULL — fall back to sentinel.
         path_column_nullable=False,
+        # order_photos rows have a thumbs/ sibling (see photo_service.py,
+        # same layout as repair_photos) that the declarative loop must
+        # also sweep — see FileErasureTarget.has_thumbnail docstring.
+        # Issue #24: previously missing here, so order-photo thumbnails
+        # were never erased on GDPR deletion.
+        has_thumbnail=True,
     ),
     FileErasureTarget(
         table="repair_photos",
@@ -616,8 +621,8 @@ class FileErasureService:
                         )
 
                     # Thumbnail sweep — only targets that opt in via
-                    # has_thumbnail (currently repair_photos) reach this
-                    # branch. A MISSING thumb is tolerated silently
+                    # has_thumbnail (repair_photos, order_photos) reach
+                    # this branch. A MISSING thumb is tolerated silently
                     # (generation is non-fatal at upload). A failed
                     # unlink of an EXISTING thumb is a hard failure that
                     # keeps the row un-redacted for retry, even though

@@ -1135,14 +1135,20 @@ class CustomerService:
         # on a repeat scrub (idempotency). Two separate counters (rather
         # than folding into "consultations.budget") because they are a
         # different data category and this keeps Art. 30 per-field
-        # reporting granular.
+        # reporting granular. materials_discussed uses sa.null() (not
+        # Python None): Column(JSON) defaults to none_as_null=False, so
+        # ``values(...=None)`` would persist the JSON literal 'null' —
+        # which still matches ``isnot(None)`` (a SQL-NULL check) and
+        # would re-count the same rows on every repeat scrub, breaking
+        # the idempotent-counter guarantee (occasion_date is a plain
+        # Date column, so Python None is correct there).
         materials_result = await db.execute(
             update(Consultation)
             .where(
                 Consultation.customer_id == customer_id,
                 Consultation.materials_discussed.isnot(None),
             )
-            .values(materials_discussed=None)
+            .values(materials_discussed=null())
         )
         counts["consultations.materials_discussed"] = max(
             materials_result.rowcount or 0, 0
@@ -1166,14 +1172,19 @@ class CustomerService:
         # the ORM object fetched below, matching the Consultation pattern
         # above; nothing later in this function reads customer.style_
         # profile so there is no staleness risk from bypassing the
-        # identity map.
+        # identity map. sa.null() (not Python None): Column(JSON)
+        # defaults to none_as_null=False, so ``values(...=None)`` would
+        # persist the JSON literal 'null' — which still matches
+        # ``isnot(None)`` (a SQL-NULL check) and would re-count the same
+        # rows on every repeat scrub, breaking the idempotent-counter
+        # guarantee.
         style_profile_result = await db.execute(
             update(CustomerModel)
             .where(
                 CustomerModel.id == customer_id,
                 CustomerModel.style_profile.isnot(None),
             )
-            .values(style_profile=None)
+            .values(style_profile=null())
         )
         counts["customers.style_profile"] = max(style_profile_result.rowcount or 0, 0)
 
