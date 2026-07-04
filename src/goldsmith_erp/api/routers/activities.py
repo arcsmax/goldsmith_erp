@@ -76,8 +76,18 @@ async def get_most_used_activities(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Holt die am häufigsten genutzten Aktivitäten für Quick-Actions."""
-    return await ActivityService.get_most_used_activities(db, limit=limit)
+    """Holt die am häufigsten genutzten Aktivitäten für Quick-Actions.
+
+    ``hourly_rate`` is projected out for roles other than ADMIN/GOLDSMITH —
+    it is financial data (labor pricing) per CLAUDE.md. ``ACTIVITY_VIEW`` is
+    granted to VIEWER too, same as ``list_activities``/``get_activity``, so
+    this endpoint needs the same projection.
+    """
+    activities = await ActivityService.get_most_used_activities(db, limit=limit)
+    return [
+        _project_activity(ActivityRead.model_validate(activity), current_user)
+        for activity in activities
+    ]
 
 
 @router.post("/", response_model=ActivityRead)
@@ -87,12 +97,19 @@ async def create_activity(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Erstellt eine neue Custom Activity."""
+    """Erstellt eine neue Custom Activity.
+
+    Not currently reachable by VIEWER (``ACTIVITY_CREATE`` is ADMIN/GOLDSMITH
+    only), but projected for defense-in-depth/consistency with the other
+    ``ActivityRead``-returning endpoints — the financial-data rule must not
+    depend on the permission table staying exactly as-is.
+    """
     # Set created_by to current user if not specified
     if activity_in.created_by is None:
         activity_in.created_by = current_user.id
 
-    return await ActivityService.create_activity(db, activity_in)
+    activity = await ActivityService.create_activity(db, activity_in)
+    return _project_activity(ActivityRead.model_validate(activity), current_user)
 
 
 @router.get("/{activity_id}", response_model=ActivityRead)
@@ -121,11 +138,16 @@ async def update_activity(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Aktivität aktualisieren."""
+    """Aktivität aktualisieren.
+
+    Not currently reachable by VIEWER (``ACTIVITY_EDIT`` is ADMIN-only), but
+    projected for defense-in-depth/consistency with the other
+    ``ActivityRead``-returning endpoints.
+    """
     activity = await ActivityService.update_activity(db, activity_id, activity_in)
     if not activity:
         raise HTTPException(status_code=404, detail="Activity not found")
-    return activity
+    return _project_activity(ActivityRead.model_validate(activity), current_user)
 
 
 @router.delete("/{activity_id}")

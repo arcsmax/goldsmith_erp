@@ -10,7 +10,15 @@ from goldsmith_erp.db.models import Activity as ActivityModel
 from goldsmith_erp.models.activity import ActivityCreate, ActivityUpdate
 
 # Stable cache key for the default (unfiltered, unsorted) activities list.
-_ACTIVITIES_LIST_KEY = "activities:list"
+#
+# ``:v2`` — bumped from the original "activities:list" when ``hourly_rate``
+# was added to ``_serialise`` below (Task 1 follow-up fix). The v1 payload
+# shape omitted the field entirely, so a v1 cache hit silently returned
+# hourly_rate=None to EVERY role, including ADMIN/GOLDSMITH. Changing the key
+# means any pre-existing v1 entries are simply never read again (they expire
+# on their own TTL) instead of continuing to serve stale, financially-wrong
+# data for up to ACTIVITIES_TTL seconds after deploy.
+_ACTIVITIES_LIST_KEY = "activities:list:v2"
 
 
 class ActivityService:
@@ -55,24 +63,39 @@ class ActivityService:
         # Cache only the canonical default query.
         if category is None and not sort_by_usage and skip == 0 and limit == 100:
             def _serialise(activities: List[ActivityModel]) -> str:
-                return json.dumps([
-                    {
-                        "id": a.id,
-                        "name": a.name,
-                        "category": a.category,
-                        "description": getattr(a, "description", None),
-                        "is_custom": a.is_custom,
-                        "usage_count": a.usage_count,
-                        "average_duration_minutes": a.average_duration_minutes,
-                        "last_used": (
-                            a.last_used.isoformat() if a.last_used else None
-                        ),
-                        "created_at": (
-                            a.created_at.isoformat() if a.created_at else None
-                        ),
-                    }
-                    for a in activities
-                ])
+                # NOTE: this is the raw, UNPROJECTED cache payload — it must
+                # include hourly_rate (financial data) so ADMIN/GOLDSMITH get
+                # the real value on a cache hit. Role-based projection
+                # (_project_activity in api/routers/activities.py) happens
+                # per-request AFTER get_activities() returns, for both the
+                # cache-hit and cache-miss paths — never here, or VIEWER
+                # would get a version of the list baked with someone else's
+                # projection applied.
+                return json.dumps(
+                    [
+                        {
+                            "id": a.id,
+                            "name": a.name,
+                            "category": a.category,
+                            "description": getattr(a, "description", None),
+                            "is_custom": a.is_custom,
+                            "usage_count": a.usage_count,
+                            "average_duration_minutes": a.average_duration_minutes,
+                            "last_used": (
+                                a.last_used.isoformat() if a.last_used else None
+                            ),
+                            "created_at": (
+                                a.created_at.isoformat() if a.created_at else None
+                            ),
+                            "hourly_rate": (
+                                str(a.hourly_rate)
+                                if a.hourly_rate is not None
+                                else None
+                            ),
+                        }
+                        for a in activities
+                    ]
+                )
 
             return await get_cached(  # type: ignore[return-value]
                 key=_ACTIVITIES_LIST_KEY,

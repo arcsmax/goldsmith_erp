@@ -13,13 +13,19 @@ of the response for non-financial roles (VIEWER), since
 is financial data (CLAUDE.md: pricing visible only to ADMIN/GOLDSMITH).
 """
 
+import json
 import uuid
 from decimal import Decimal
+from unittest.mock import AsyncMock, patch
 
 import pytest
 import pytest_asyncio
 
-from goldsmith_erp.api.routers.activities import get_activity, list_activities
+from goldsmith_erp.api.routers.activities import (
+    get_activity,
+    get_most_used_activities,
+    list_activities,
+)
 from goldsmith_erp.core.security import get_password_hash
 from goldsmith_erp.db.models import Activity as ActivityModel
 from goldsmith_erp.db.models import User, UserRole
@@ -221,3 +227,155 @@ class TestActivityHourlyRateProjection:
         )
 
         assert result.hourly_rate == Decimal("120.00")
+
+    async def test_most_used_activities_viewer_gets_hourly_rate_none(
+        self, db_session, viewer_user
+    ):
+        """Defect A — ``GET /activities/most-used`` is also gated only by
+        ``ACTIVITY_VIEW`` (VIEWER holds it) and returned ``ActivityRead``
+        without ever routing through ``_project_activity``."""
+        priced = await self._priced_activity(db_session)
+        # usage_count starts at 0 for every activity — bump it so this one
+        # is guaranteed to surface in the (small) most-used result set.
+        await ActivityService.increment_usage(db_session, priced.id)
+
+        results = await get_most_used_activities(
+            limit=10, db=db_session, current_user=viewer_user
+        )
+
+        assert len(results) >= 1
+        assert all(r.hourly_rate is None for r in results)
+
+    async def test_most_used_activities_admin_gets_real_hourly_rate(
+        self, db_session, admin_user
+    ):
+        priced = await self._priced_activity(db_session)
+        await ActivityService.increment_usage(db_session, priced.id)
+
+        results = await get_most_used_activities(
+            limit=10, db=db_session, current_user=admin_user
+        )
+
+        match = next(r for r in results if r.id == priced.id)
+        assert match.hourly_rate == Decimal("120.00")
+
+    async def test_most_used_activities_goldsmith_gets_real_hourly_rate(
+        self, db_session, sample_user
+    ):
+        """``sample_user`` (conftest.py) is GOLDSMITH-role."""
+        priced = await self._priced_activity(db_session)
+        await ActivityService.increment_usage(db_session, priced.id)
+
+        results = await get_most_used_activities(
+            limit=10, db=db_session, current_user=sample_user
+        )
+
+        match = next(r for r in results if r.id == priced.id)
+        assert match.hourly_rate == Decimal("120.00")
+
+
+async def _simulate_redis_cache_hit(key, ttl, fetch_fn, serialise, deserialise):
+    """Stand in for ``get_cached`` under a real Redis HIT, without needing a
+    live Redis instance.
+
+    Runs the exact same serialise → deserialise round trip ``get_cached``
+    would perform when writing to and then reading back from Redis (see
+    ``core/cache.py``): fetch once, serialise the result to the JSON string
+    that would be stored, then deserialise it, and return *that* — never the
+    original in-memory ORM objects. This is what actually exercises whether
+    the cached payload shape round-trips ``hourly_rate`` correctly, which a
+    cache-bypass mock (see test_materials_list_zero_price.py) would not
+    catch.
+    """
+    value = await fetch_fn()
+    return deserialise(serialise(value))
+
+
+@pytest.mark.asyncio
+class TestActivitiesCacheHourlyRateRoundTrip:
+    """Defect B — the Redis-backed ``activities:list`` cache serialised
+    activities WITHOUT ``hourly_rate``, so even ADMIN/GOLDSMITH got
+    ``hourly_rate: null`` back on a cache HIT (only a cache MISS, which
+    re-reads real ORM objects, ever returned the true value). Verifies the
+    fixed ``_serialise`` closure in ``ActivityService.get_activities`` round
+    -trips ``hourly_rate`` through a simulated cache hit, and that role
+    projection (applied by the router, post-cache) still filters it out for
+    VIEWER even when the data came from cache.
+    """
+
+    async def _priced_activity(self, db_session) -> ActivityModel:
+        activity_in = ActivityCreate(name="Schmelzen", category="fabrication")
+        activity = await ActivityService.create_activity(db_session, activity_in)
+        updated = await ActivityService.update_activity(
+            db_session, activity.id, ActivityUpdate(hourly_rate=Decimal("77.50"))
+        )
+        assert updated is not None
+        return updated
+
+    async def test_admin_served_from_cache_still_gets_real_hourly_rate(
+        self, db_session, admin_user
+    ):
+        priced = await self._priced_activity(db_session)
+
+        with patch(
+            "goldsmith_erp.services.activity_service.get_cached",
+            new=AsyncMock(side_effect=_simulate_redis_cache_hit),
+        ):
+            results = await list_activities(
+                category=None,
+                sort_by_usage=False,
+                skip=0,
+                limit=100,
+                db=db_session,
+                current_user=admin_user,
+            )
+
+        match = next(r for r in results if r.id == priced.id)
+        assert match.hourly_rate == Decimal("77.50")
+
+    async def test_viewer_served_from_cache_still_gets_hourly_rate_none(
+        self, db_session, viewer_user
+    ):
+        await self._priced_activity(db_session)
+
+        with patch(
+            "goldsmith_erp.services.activity_service.get_cached",
+            new=AsyncMock(side_effect=_simulate_redis_cache_hit),
+        ):
+            results = await list_activities(
+                category=None,
+                sort_by_usage=False,
+                skip=0,
+                limit=100,
+                db=db_session,
+                current_user=viewer_user,
+            )
+
+        assert len(results) >= 1
+        assert all(r.hourly_rate is None for r in results)
+
+    async def test_serialised_cache_payload_contains_hourly_rate_field(
+        self, db_session
+    ):
+        """Direct check on the wire format: the JSON actually stored in
+        Redis must contain the field at all — this is the literal bug
+        (the old ``_serialise`` dict never had a ``hourly_rate`` key, so no
+        role's projection could ever recover it from a cache hit)."""
+        priced = await self._priced_activity(db_session)
+        captured: dict = {}
+
+        async def _capture_and_hit(key, ttl, fetch_fn, serialise, deserialise):
+            value = await fetch_fn()
+            raw_json = serialise(value)
+            captured["raw"] = json.loads(raw_json)
+            return deserialise(raw_json)
+
+        with patch(
+            "goldsmith_erp.services.activity_service.get_cached",
+            new=AsyncMock(side_effect=_capture_and_hit),
+        ):
+            await ActivityService.get_activities(db_session)
+
+        entry = next(a for a in captured["raw"] if a["id"] == priced.id)
+        assert "hourly_rate" in entry
+        assert entry["hourly_rate"] == "77.50"
