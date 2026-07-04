@@ -161,6 +161,15 @@ _RESOURCE_ROUTES: dict[str, Tuple[str, str, str, bool]] = {
         "list_accessed_financial",
         True,
     ),
+    # V1.3 Phase 1 (statistical labor estimator): covers
+    # ``GET /api/v1/estimates/accuracy`` (parts[3]="accuracy", non-numeric
+    # -> list_action). ``POST /api/v1/estimates/labor`` shares this same
+    # family key (parts[2]="estimates") but, same as "cost-changes" above,
+    # this table's is_financial=True GET-only filter (see dispatch())
+    # means that POST never reaches _log_to_database via this middleware
+    # — the router writes its own CustomerAuditLog row via
+    # ``write_financial_audit_row`` instead (see api/routers/estimator.py).
+    "estimates": ("estimate", "financial_read", "list_accessed_financial", True),
 }
 
 
@@ -185,6 +194,9 @@ class AuditLoggingMiddleware(BaseHTTPMiddleware):
     * ``/api/v1/cost-changes/*``   — V1.2 §649 cost-change requests (table
       entry present but currently inert — no GET route exists under this
       root; see ``_RESOURCE_ROUTES`` comment)
+    * ``/api/v1/estimates/*``      — V1.3 statistical labor estimator;
+      ``GET /estimates/accuracy`` audited here, ``POST /estimates/labor``
+      audited by the router directly (see ``_RESOURCE_ROUTES`` comment)
 
     CLAUDE.md:
         "All financial data access MUST be audit-logged."

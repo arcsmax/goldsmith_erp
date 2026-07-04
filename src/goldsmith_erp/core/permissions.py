@@ -127,6 +127,17 @@ class Permission(str, Enum):
         "cost_change:manage"  # Create/send cost changes, record customer response
     )
 
+    # Statistical labor estimator permissions (V1.3 Phase 1 — pricing data,
+    # GOLDSMITH + ADMIN only, mirrors COST_CHANGE_*'s financial gating).
+    # A single permission covers both endpoints: unlike COST_CHANGE_MANAGE
+    # (which creates/sends a persisted CostChangeRequest), POST
+    # /estimates/labor performs no persistent mutation — it is a stateless
+    # financial computation over already-committed order/time-entry data,
+    # so a separate *_MANAGE permission would grant no additional access
+    # control today. Add ESTIMATE_MANAGE if/when Phase 3 persists an
+    # accepted estimate onto a quote (a real "manage" action to gate).
+    ESTIMATE_VIEW = "estimate:view"  # Request a labor estimate + view calibration
+
     # Scanner permissions (V1.1 QR/Barcode workflow)
     # Granted to all three roles — the service layer performs role-based
     # content projection, so VIEWER may call /scan/resolve but will never
@@ -206,6 +217,9 @@ ROLE_PERMISSIONS: dict[UserRole, List[Permission]] = {
         # Cost change requests (V1.2) — financial data, goldsmiths manage them
         Permission.COST_CHANGE_VIEW,
         Permission.COST_CHANGE_MANAGE,
+        # Statistical labor estimator (V1.3) — financial data, goldsmiths
+        # can request estimates and view calibration
+        Permission.ESTIMATE_VIEW,
     ],
     UserRole.VIEWER: [
         # View-only access
