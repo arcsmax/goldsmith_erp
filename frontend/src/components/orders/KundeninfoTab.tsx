@@ -185,14 +185,24 @@ export function KundeninfoTab({ orderId, customerName }: KundeninfoTabProps) {
   }, [isAdmin]);
 
   const handleSendResult = useCallback(
-    (result: CustomerUpdateSendResult) => {
+    async (result: CustomerUpdateSendResult) => {
       if (result.delivered) {
         showToast('Kundeninfo wurde per E-Mail versendet.', 'success');
-      } else {
-        showToast(
-          'Als PDF erstellt — bitte manuell an den Kunden übergeben.',
-          'info'
-        );
+        return;
+      }
+      showToast(
+        'Als PDF erstellt — bitte manuell an den Kunden übergeben.',
+        'info'
+      );
+      // SMTP is unconfigured, so nothing was actually sent — surface the PDF
+      // immediately instead of leaving the goldsmith to dig for the manual
+      // "PDF" history-row button (which still exists below as a fallback).
+      // A failure here must never break the send flow itself.
+      try {
+        const blob = await customerUpdatesApi.downloadUpdatePdf(result.update.id);
+        downloadBlob(blob, `kundeninfo_${result.update.id}.pdf`);
+      } catch (err) {
+        logError('KundeninfoTab.autoDownloadPdf', err);
       }
     },
     [showToast]
@@ -221,7 +231,7 @@ export function KundeninfoTab({ orderId, customerName }: KundeninfoTabProps) {
       setActionLoading(true);
       try {
         const result = await customerUpdatesApi.sendUpdate(update.id);
-        handleSendResult(result);
+        await handleSendResult(result);
         await loadHistory(orderId);
       } catch (err) {
         logError('KundeninfoTab.sendUpdate', err);
@@ -285,7 +295,7 @@ export function KundeninfoTab({ orderId, customerName }: KundeninfoTabProps) {
     try {
       const created = await customerUpdatesApi.createUpdate(orderId, buildInput());
       const result = await customerUpdatesApi.sendUpdate(created.id);
-      handleSendResult(result);
+      await handleSendResult(result);
       resetForm();
       await loadHistory(orderId);
     } catch (err) {

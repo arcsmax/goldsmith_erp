@@ -1,0 +1,90 @@
+/* Global baseline button styles — .btn / .btn-primary / .btn-secondary /
+ * .btn-sm / .btn-danger.
+ *
+ * WHY THIS FILE EXISTS: every feature stylesheet (repairs.css, materials.css,
+ * auth.css, customers.css, ...) defines its OWN `.btn-primary` etc., loaded
+ * only when that feature's component mounts. Newer shared components
+ * (KundeninfoTab, CostChangeForm, CostChangeSection) use `className="btn
+ * btn-primary"` / `"btn btn-secondary"` / `"btn-sm"` but render on pages
+ * (e.g. order-detail) that never load a feature button stylesheet — so the
+ * classes matched nothing and the buttons rendered with no background
+ * (invisible / white-on-white).
+ *
+ * This file is imported once, globally, right after `index.css` (see
+ * main.tsx) as a baseline. It intentionally uses plain (unlayered) CSS
+ * classes — like every feature stylesheet already does — rather than
+ * Tailwind's `@utility` directive (see styles/utilities.css): Tailwind v4
+ * puts `@utility` rules in its "utilities" cascade layer, and unlayered CSS
+ * (e.g. the plain `button { background-color: transparent }` reset in
+ * index.css) always wins over ANY layered rule regardless of specificity.
+ * That layering mismatch was the actual root cause of the invisible
+ * buttons; matching the plain-CSS pattern here fixes it. Feature stylesheets
+ * that load later (when their page mounts) still override these baseline
+ * rules on their own pages, so existing pages are unchanged. */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.55rem 1rem;
+  border-radius: 8px;
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: background 0.15s, border-color 0.15s, transform 0.1s;
+}
+
+.btn:active {
+  transform: translateY(1px);
+}
+
+.btn:focus-visible {
+  outline: 2px solid var(--color-border-focus);
+  outline-offset: 2px;
+}
+
+.btn:disabled,
+.btn[disabled] {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.btn-sm {
+  padding: 0.35rem 0.7rem;
+  font-size: 0.8rem;
+}
+
+.btn-primary {
+  background: var(--color-interactive-primary);
+  color: #fff;
+  border-color: var(--color-interactive-primary);
+}
+
+.btn-primary:hover:not(:disabled) {
+  background: var(--color-interactive-primary-hover);
+  border-color: var(--color-interactive-primary-hover);
+}
+
+.btn-secondary {
+  background: var(--color-surface-card);
+  color: var(--color-text-body);
+  border-color: var(--color-border-default);
+}
+
+.btn-secondary:hover:not(:disabled) {
+  background: #f8f6f0;
+  border-color: var(--color-brand-cta-400);
+}
+
+.btn-danger {
+  background: #dc2626;
+  color: #fff;
+  border-color: #dc2626;
+}
+
+.btn-danger:hover:not(:disabled) {
+  background: #b91c1c;
+  border-color: #b91c1c;
+}
