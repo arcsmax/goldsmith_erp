@@ -9,6 +9,7 @@ import {
   QuoteLineItemInput,
   ApproveQuoteInput,
   RejectQuoteInput,
+  EstimatorMetadata,
 } from '../types';
 
 export interface QuoteFilterParams {
