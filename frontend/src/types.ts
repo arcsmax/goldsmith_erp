@@ -224,6 +224,13 @@ export interface OrderType {
   alloy?: string | null;
   ring_size_mm?: number | null;
   surface_finish?: string | null;
+
+  // Classification — surfaced so the EstimatorPanel can pre-fill order_type
+  // (e.g. "bracelet") and pick the exact-match tier instead of falling
+  // through to the generic workshop tier.
+  order_type?: string | null;
+  complexity_rating?: number | null;
+  finish_type?: string | null;
   fitting_date?: string | null;
   has_scrap_gold?: boolean | null;
   special_instructions?: string | null;

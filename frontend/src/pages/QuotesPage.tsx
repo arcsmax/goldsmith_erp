@@ -1235,7 +1235,7 @@ export const QuotesPage: React.FC = () => {
             linkedOrder
               ? {
                   id: linkedOrder.id,
-                  order_type: null,
+                  order_type: linkedOrder.order_type ?? null,
                   surface_finish: linkedOrder.surface_finish ?? null,
                   alloy: linkedOrder.alloy ?? null,
                 }
