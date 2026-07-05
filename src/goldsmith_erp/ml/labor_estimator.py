@@ -106,6 +106,13 @@ class LaborEstimate:
 
 
 def _matches_exact(order: CorpusOrder, features: EstimateFeatures) -> bool:
+    # Decision #2 (2026-07-05): finish_type=None is a data gap, not a
+    # real 'unfinished' category. Both sides must have a non-None
+    # finish_type for tier 1/2 to match. Mirrors the labor_corpus_service
+    # exclusion of order_type=None. Type-only (tier 3) and workshop
+    # (tier 4) tiers are unaffected and still match.
+    if order.finish_type is None or features.finish_type is None:
+        return False
     return (
         order.order_type == features.order_type
         and order.finish_type == features.finish_type
@@ -114,6 +121,13 @@ def _matches_exact(order: CorpusOrder, features: EstimateFeatures) -> bool:
 
 
 def _matches_type_finish(order: CorpusOrder, features: EstimateFeatures) -> bool:
+    # Decision #2 (2026-07-05): finish_type=None is a data gap, not a
+    # real 'unfinished' category. Both sides must have a non-None
+    # finish_type for tier 1/2 to match. Mirrors the labor_corpus_service
+    # exclusion of order_type=None. Type-only (tier 3) and workshop
+    # (tier 4) tiers are unaffected and still match.
+    if order.finish_type is None or features.finish_type is None:
+        return False
     return (
         order.order_type == features.order_type
         and order.finish_type == features.finish_type
@@ -228,6 +242,14 @@ def _build_estimate(
     level: SimilarityLevel, matched: list[CorpusOrder]
 ) -> LaborEstimate:
     remaining, excluded_ids = _exclude_implausibly_low(matched)
+
+    # Decision #1 (2026-07-05): the ≥MIN_SAMPLE floor applies to the
+    # number SHOWN, not just to tier selection. If P10 outlier exclusion
+    # drops us below the floor, we honestly report insufficient_data
+    # rather than reporting a number from too few comparable orders.
+    # See /Users/maxbook/.claude/plans/cryptic-mixing-platypus.md §6.
+    if len(remaining) < LaborEstimator.MIN_SAMPLE:
+        return _insufficient_estimate()
 
     remaining_hours = sorted(order.actual_hours for order in remaining)
     hours_p50 = round(statistics.median(remaining_hours), ROUND_DP)
