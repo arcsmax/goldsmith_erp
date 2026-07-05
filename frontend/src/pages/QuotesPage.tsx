@@ -26,12 +26,12 @@ import '../styles/quotes.css';
 // ---------------------------------------------------------------------------
 
 const STATUS_LABELS: Record<QuoteStatus, string> = {
-  DRAFT: 'Entwurf',
-  SENT: 'Gesendet',
-  APPROVED: 'Genehmigt',
-  REJECTED: 'Abgelehnt',
-  EXPIRED: 'Abgelaufen',
-  CONVERTED: 'Umgewandelt',
+  draft: 'Entwurf',
+  sent: 'Gesendet',
+  approved: 'Genehmigt',
+  rejected: 'Abgelehnt',
+  expired: 'Abgelaufen',
+  converted: 'Umgewandelt',
 };
 
 function StatusBadge({ status }: { status: QuoteStatus }) {
@@ -51,7 +51,7 @@ function formatAmount(amount: number): string {
 }
 
 function validUntilClass(validUntilIso: string, status: QuoteStatus): string {
-  if (status === 'APPROVED' || status === 'CONVERTED' || status === 'REJECTED') return '';
+  if (status === 'approved' || status === 'converted' || status === 'rejected') return '';
   const daysLeft = Math.ceil(
     (new Date(validUntilIso).getTime() - Date.now()) / (1000 * 60 * 60 * 24)
   );
@@ -632,8 +632,8 @@ const QuoteDetailPanel: React.FC<QuoteDetailPanelProps> = ({
   onRemoveLineItem,
   isLoading,
 }) => {
-  const isDraft = quote.status === 'DRAFT';
-  const isDeletable = quote.status === 'DRAFT' || quote.status === 'REJECTED';
+  const isDraft = quote.status === 'draft';
+  const isDeletable = quote.status === 'draft' || quote.status === 'rejected';
   return (
     <div className="quote-detail-panel">
       <div className="detail-header">
@@ -650,12 +650,12 @@ const QuoteDetailPanel: React.FC<QuoteDetailPanelProps> = ({
           >
             PDF
           </button>
-          {quote.status === 'DRAFT' && (
+          {quote.status === 'draft' && (
             <button className="btn btn-primary btn-sm" onClick={onSend} disabled={isLoading}>
               Versenden
             </button>
           )}
-          {(quote.status === 'SENT' || quote.status === 'DRAFT') && (
+          {(quote.status === 'sent' || quote.status === 'draft') && (
             <>
               <button className="btn btn-approve btn-sm" onClick={onApproveClick} disabled={isLoading}>
                 Genehmigen
@@ -665,7 +665,7 @@ const QuoteDetailPanel: React.FC<QuoteDetailPanelProps> = ({
               </button>
             </>
           )}
-          {quote.status === 'APPROVED' && (
+          {quote.status === 'approved' && (
             <button className="btn btn-convert btn-sm" onClick={onConvert} disabled={isLoading}>
               In Auftrag umwandeln
             </button>
@@ -1128,12 +1128,12 @@ export const QuotesPage: React.FC = () => {
             onChange={e => setStatusFilter(e.target.value as QuoteStatus | '')}
           >
             <option value="">Alle</option>
-            <option value="DRAFT">Entwurf</option>
-            <option value="SENT">Gesendet</option>
-            <option value="APPROVED">Genehmigt</option>
-            <option value="REJECTED">Abgelehnt</option>
-            <option value="EXPIRED">Abgelaufen</option>
-            <option value="CONVERTED">Umgewandelt</option>
+            <option value="draft">Entwurf</option>
+            <option value="sent">Gesendet</option>
+            <option value="approved">Genehmigt</option>
+            <option value="rejected">Abgelehnt</option>
+            <option value="expired">Abgelaufen</option>
+            <option value="converted">Umgewandelt</option>
           </select>
         </div>
       </div>
@@ -1228,7 +1228,7 @@ export const QuotesPage: React.FC = () => {
       )}
 
       {/* Estimator — only visible for DRAFT quotes, gated to ADMIN/GOLDSMITH inside the panel */}
-      {selectedQuote?.status === 'DRAFT' && (
+      {selectedQuote?.status === 'draft' && (
         <EstimatorPanel
           quote={selectedQuote}
           order={

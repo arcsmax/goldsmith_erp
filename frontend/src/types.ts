@@ -788,7 +788,12 @@ export interface MarkPaidInput {
 
 // ==================== QUOTE TYPES ====================
 
-export type QuoteStatus = 'DRAFT' | 'SENT' | 'APPROVED' | 'REJECTED' | 'EXPIRED' | 'CONVERTED';
+/**
+ * Quote lifecycle status — MUST match the backend `QuoteStatus` enum
+ * VALUES (lowercase), not its enum NAMES. The backend serialises the enum
+ * value as the JSON string, so payloads carry `"draft"`, `"sent"`, etc.
+ */
+export type QuoteStatus = 'draft' | 'sent' | 'approved' | 'rejected' | 'expired' | 'converted';
 
 export type QuoteLineType = 'material' | 'labor' | 'gemstone' | 'other';
 

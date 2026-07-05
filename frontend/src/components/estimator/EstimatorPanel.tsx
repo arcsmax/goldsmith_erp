@@ -97,7 +97,7 @@ export function EstimatorPanel({
   if (!hasRole(["ADMIN", "GOLDSMITH"])) return null;
 
   // Quote state gate: only DRAFT quotes can be edited.
-  if (quote.status !== "DRAFT") return null;
+  if (quote.status !== "draft") return null;
 
   // No order linked → can't build a meaningful estimate request.
   if (!order) {
