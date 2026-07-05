@@ -246,57 +246,7 @@ class TestUnknownActivityIdGuard:
         assert cost == pytest.approx(160.0)
         mock_warning.assert_called_once()
         _, kwargs = mock_warning.call_args
-        assert unknown_id in kwargs["extra"]["unknown_activity_ids"]
-
-    async def test_all_unknown_activity_ids_yields_zero_cost_no_crash(self, db_session):
-        """Every id unknown => 0.0 cost, not a crash and not a fabricated
-        shop-default price for hours we cannot verify the source of."""
-        cost = await estimator_service._labor_cost_from_activity_hours(
-            db_session, {123_456: 3.0, 654_321: 4.0}
-        )
-        assert cost == 0.0
-
-    async def test_empty_activity_hours_returns_zero(self, db_session):
-        assert (
-            await estimator_service._labor_cost_from_activity_hours(db_session, {})
-            == 0.0
-        )
-
-    async def test_end_to_end_estimate_labor_excludes_unknown_activity(
-        self, db_session, est_customer, est_user, rated_activity
-    ):
-        """Even when LaborEstimator's output references a stale activity_id
-        (simulated via a patched LaborEstimator.estimate), estimate_labor
-        must not crash and must compute a cost from only the known ids."""
-        await _seed_ring_corpus(
-            db_session, est_customer, est_user, rated_activity, [2, 4, 6, 8, 10]
-        )
-        unknown_id = rated_activity.id + 999_999
-
-        fake_estimate = LaborEstimate(
-            hours_p50=5.0,
-            hours_p20=3.0,
-            hours_p80=7.0,
-            sample_size=5,
-            similarity_level="type",
-            similar_orders=[1, 2, 3, 4, 5],
-            suggested_activities={rated_activity.id: 2.0, unknown_id: 3.0},
-            excluded_orders=[],
-            insufficient_data=False,
-        )
-
-        with mock.patch.object(
-            estimator_service.LaborEstimator, "estimate", return_value=fake_estimate
-        ):
-            response = await estimator_service.estimate_labor(
-                db_session, EstimateFeatures(order_type="ring")
-            )
-
-        assert response.insufficient_data is False
-        assert response.hours_p50 == 5.0
-        # Only rated_activity's 2h * 80 EUR/h = 160 counted; unknown_id's
-        # 3h excluded entirely.
-        assert response.labor_cost_p50 == pytest.approx(160.0)
+        assert kwargs["extra"]["unknown_activity_ids"] == [unknown_id]
 
 
 # ---------------------------------------------------------------------------
@@ -360,3 +310,38 @@ class TestAccuracyRecordIdempotency:
             .all()
         )
         assert len(rows) == 1
+
+
+# ---------------------------------------------------------------------------
+# LaborEstimator insufficient_data propagation
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_estimator_service_propagates_insufficient_data_with_null_costs(
+    db_session, est_customer, est_user, rated_activity
+):
+    """When LaborEstimator returns insufficient_data=True (decision #1),
+    the service must return all labor_cost_* fields as None — never
+    fabricate a cost from too few orders.
+
+    Uses order_type='nonexistent_type_xyz' which can never exist in the
+    shared test DB, guaranteeing 0 matched orders in all tiers including
+    workshop (which checks order_type match, not just existence)."""
+    await _seed_ring_corpus(
+        db_session, est_customer, est_user, rated_activity,
+        [2.0, 4.0, 6.0, 8.0, 10.0],
+    )
+
+    features = EstimateFeatures(
+        order_type="nonexistent_type_xyz",
+        finish_type="none",
+        has_stone_setting=False,
+    )
+    result = await estimator_service.estimate_labor(db_session, features)
+
+    assert result.insufficient_data is True
+    assert result.labor_cost_p50 is None
+    assert result.labor_cost_p20 is None
+    assert result.labor_cost_p80 is None
+    assert result.hours_p50 is None

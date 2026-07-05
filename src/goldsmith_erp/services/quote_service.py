@@ -648,6 +648,7 @@ class QuoteService:
                 quantity=item.quantity,
                 unit_price=item.unit_price,
                 total=round(item.quantity * item.unit_price, 2),
+                estimator_metadata=item.estimator_metadata,
             )
             quote.line_items.append(db_line)
             await db.flush()
@@ -696,6 +697,7 @@ class QuoteService:
             db_line.quantity = item.quantity
             db_line.unit_price = item.unit_price
             db_line.total = round(item.quantity * item.unit_price, 2)
+            # estimator_metadata is immutable after creation — do NOT update it
             QuoteService._recompute_totals_from_items(quote)
             new_total = quote.total
 
