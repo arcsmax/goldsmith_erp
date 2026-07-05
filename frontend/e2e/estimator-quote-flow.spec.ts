@@ -24,6 +24,13 @@ import { test, expect, Page } from '@playwright/test';
  * only verifies that the panel is reachable from a draft quote, that
  * the linked-order pre-fill is wired through, and that the gating
  * rules (DRAFT only, role-gated, no panel for non-DRAFT) hold.
+ *
+ * The third test (fetch → accept → reload round-trip) DOES exercise the
+ * full path. It is `test.skip`ed if the corpus returns insufficient_data
+ * (no comparable orders yet) so the spec stays green during corpus
+ * calibration phases. It also depends on Task 3's order_type fix: the
+ * labor request body must carry the linked Order's order_type so the
+ * exact-tier filter matches.
  */
 
 const ADMIN_EMAIL = 'admin@goldschmiede.de';
@@ -103,5 +110,65 @@ test.describe('Estimator wiring — DRAFT quote with linked order', () => {
     await expect(
       page.locator('[data-testid="estimator-fetch-button"]')
     ).toHaveCount(0);
+  });
+
+  test('fetch → accept → reload round-trip persists a LABOR line item', async ({
+    page,
+  }) => {
+    await login(page);
+    await openQuotesPage(page);
+
+    const draftRow = page.getByRole('row', { name: /KV-2026-0001/ }).first();
+    await expect(draftRow).toBeVisible({ timeout: 5_000 });
+    await draftRow.click();
+
+    // Trigger the fetch. With order_type="bracelet" surfaced (Task 3 fix),
+    // the labor corpus should hit a real tier instead of falling through
+    // to workshop. We don't assert which tier here — we assert *that* a
+    // cost came back.
+    const fetchBtn = page.locator('[data-testid="estimator-fetch-button"]').first();
+    await expect(fetchBtn).toBeVisible({ timeout: 5_000 });
+    await fetchBtn.click();
+
+    // Wait for the EUR cost to render. Either the result panel
+    // (estimator-cost) or the insufficient-data panel shows up.
+    const cost = page.locator('[data-testid="estimator-cost"]').first();
+    const insufficient = page.locator('[data-testid="estimator-insufficient"]').first();
+    await expect(cost.or(insufficient)).toBeVisible({ timeout: 15_000 });
+
+    if (await insufficient.isVisible().catch(() => false)) {
+      test.skip(true, 'Labor corpus returned insufficient_data for KV-2026-0001 — cannot exercise accept path');
+      return;
+    }
+
+    // Override the suggested hours (the input starts prefilled with p50).
+    const override = page.locator('[data-testid="estimator-override-input"]').first();
+    await override.fill('3.5');
+
+    // Accept the estimate — this calls onPatch({addLineItem}) which
+    // POSTs to /quotes/{id}/line-items and reloads the quote state.
+    const acceptBtn = page.locator('[data-testid="estimator-accept-button"]').first();
+    await acceptBtn.click();
+
+    // Wait for the accepted confirmation panel
+    await expect(
+      page.locator('[data-testid="estimator-accepted"]').first()
+    ).toBeVisible({ timeout: 10_000 });
+
+    // Reload the page and confirm the LABOR line item survived the round-trip.
+    // The line item description starts with "Arbeitszeit (Schätzung" per
+    // handleAccept() in EstimatorPanel.tsx.
+    await page.reload();
+    await expect(
+      page.getByRole('row', { name: /KV-2026-0001/ }).first()
+    ).toBeVisible({ timeout: 10_000 });
+    await page
+      .getByRole('row', { name: /KV-2026-0001/ })
+      .first()
+      .click();
+
+    await expect(
+      page.getByText(/Arbeitszeit \(Schätzung/).first()
+    ).toBeVisible({ timeout: 10_000 });
   });
 });
