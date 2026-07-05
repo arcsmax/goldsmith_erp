@@ -808,6 +808,7 @@ export interface QuoteLineItemInput {
   description: string;
   quantity: number;
   unit_price: number;
+  estimator_metadata?: EstimatorMetadata;
 }
 
 /** Full quote including line items (used for detail view). */
@@ -873,6 +874,48 @@ export interface ApproveQuoteInput {
 
 export interface RejectQuoteInput {
   reason?: string;
+}
+
+// V1.3 Phase 3 — Labor Estimator types
+
+export type SimilarityLevel = "exact" | "type_finish" | "type" | "workshop" | "insufficient";
+
+export interface LaborEstimateRequest {
+  order_type: string;
+  finish_type?: string | null;
+  has_stone_setting?: boolean;
+  alloy?: string | null;
+  complexity_rating?: number | null;
+}
+
+export interface LaborEstimateResponse {
+  hours_p50: number | null;
+  hours_p20: number | null;
+  hours_p80: number | null;
+  labor_cost_p50: number | null;
+  labor_cost_p20: number | null;
+  labor_cost_p80: number | null;
+  sample_size: number;
+  similarity_level: SimilarityLevel;
+  similar_orders: number[];
+  insufficient_data: boolean;
+}
+
+export interface CalibrationResponse {
+  rows_loaded: number;
+  rows_considered_for_mape: number;
+  rows_excluded_zero_actual: number;
+  mape: number | null;
+  bias_by_order_type: Record<string, number>;
+}
+
+export interface EstimatorMetadata {
+  suggested_hours: number;
+  quoted_hours: number;
+  similarity_level: SimilarityLevel;
+  sample_size: number;
+  similar_orders: number[];
+  estimator_version: string;
 }
 
 // ==================== CALENDAR TYPES ====================
