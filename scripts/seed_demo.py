@@ -175,28 +175,39 @@ async def seed_users(db) -> list:
 
 async def seed_activities(db, goldsmith_user) -> list:
     """Create the 15 standard goldsmith activities."""
+    # V1.3 Phase 3: is_billable and hourly_rate per-activity.
+    # Rubric: CAD/Design=85, Saegen/Feilen/Loeten=75, Polieren=65,
+    # Steinfassen=95, Galvanisieren=70, Endkontrolle=60 all billable.
+    # Beratung/Auftragsannahme, Wartezeit/Pause, Verwaltung non-billable.
     activities_data = [
-        # Fabrication (Fertigung)
-        ("Saegen", "fabrication", "\u2702", "#FF6B6B"),
-        ("Feilen", "fabrication", "\U0001F4A0", "#4ECDC4"),
-        ("Loeten", "fabrication", "\U0001F525", "#FF8C42"),
-        ("Polieren", "fabrication", "\u2728", "#95E1D3"),
-        ("Fassen (Steine)", "fabrication", "\U0001F48E", "#A8E6CF"),
-        ("Gravieren", "fabrication", "\u270F", "#FFD3B6"),
-        ("Emaillieren", "fabrication", "\U0001F3A8", "#FFAAA5"),
-        ("Schmieden", "fabrication", "\U0001F528", "#E07A5F"),
-        ("Giessen", "fabrication", "\U0001F3ED", "#3D405B"),
-        # Administration
-        ("Kundenberatung", "administration", "\U0001F4DE", "#d97706"),
-        ("Angebot erstellen", "administration", "\U0001F4DD", "#b45309"),
-        ("Dokumentation", "administration", "\U0001F4CB", "#92400e"),
-        ("Qualitaetskontrolle", "administration", "\U0001F50D", "#006BA6"),
-        # Waiting
-        ("Warten auf Material", "waiting", "\u23F3", "#A0AEC0"),
-        ("Pause", "waiting", "\u2615", "#CBD5E0"),
+        # Fabrication (Fertigung) \u2014 Saegen/Feilen/Loeten: 75 EUR/h
+        ("Saegen", "fabrication", "\u2702", "#FF6B6B", True, 75),
+        ("Feilen", "fabrication", "\U0001F4A0", "#4ECDC4", True, 75),
+        ("Loeten", "fabrication", "\U0001F525", "#FF8C42", True, 75),
+        # Polieren: 65 EUR/h
+        ("Polieren", "fabrication", "\u2728", "#95E1D3", True, 65),
+        # Steinfassen: 95 EUR/h
+        ("Fassen (Steine)", "fabrication", "\U0001F48E", "#A8E6CF", True, 95),
+        # Gravieren \u2014 not in rubric, conservative: non-billable
+        ("Gravieren", "fabrication", "\u270F", "#FFD3B6", False, None),
+        # Emaillieren \u2014 not in rubric, conservative: non-billable
+        ("Emaillieren", "fabrication", "\U0001F3A8", "#FFAAA5", False, None),
+        # Schmieden \u2014 not in rubric, conservative: non-billable
+        ("Schmieden", "fabrication", "\U0001F528", "#E07A5F", False, None),
+        # Giessen \u2014 not in rubric, conservative: non-billable
+        ("Giessen", "fabrication", "\U0001F3ED", "#3D405B", False, None),
+        # Administration \u2014 non-billable
+        ("Kundenberatung", "administration", "\U0001F4DE", "#d97706", False, None),
+        ("Angebot erstellen", "administration", "\U0001F4DD", "#b45309", False, None),
+        ("Dokumentation", "administration", "\U0001F4CB", "#92400e", False, None),
+        # Endkontrolle: 60 EUR/h (Qualitaetskontrolle)
+        ("Qualitaetskontrolle", "administration", "\U0001F50D", "#006BA6", True, 60),
+        # Waiting \u2014 non-billable
+        ("Warten auf Material", "waiting", "\u23F3", "#A0AEC0", False, None),
+        ("Pause", "waiting", "\u2615", "#CBD5E0", False, None),
     ]
     activities = []
-    for name, category, icon, color in activities_data:
+    for name, category, icon, color, is_billable, hourly_rate in activities_data:
         a = Activity(
             name=name,
             category=category,
@@ -204,6 +215,8 @@ async def seed_activities(db, goldsmith_user) -> list:
             color=color,
             usage_count=0,
             is_custom=False,
+            is_billable=is_billable,
+            hourly_rate=hourly_rate,
             created_by=None,
             created_at=_days_ago(365),
         )
