@@ -3,6 +3,7 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { useToast, useConfirm } from '../contexts';
 import { quotesApi } from '../api/quotes';
 import { customersApi } from '../api/customers';
+import { ordersApi } from '../api/orders';
 import {
   QuoteListItem,
   Quote,
@@ -13,9 +14,11 @@ import {
   QuoteLineType,
   ApproveQuoteInput,
   Customer,
+  OrderType,
 } from '../types';
 import { logError } from '../lib/logError';
 import { SignatureCanvas } from '../components/SignatureCanvas';
+import { EstimatorPanel } from '../components/estimator/EstimatorPanel';
 import '../styles/quotes.css';
 
 // ---------------------------------------------------------------------------
@@ -808,6 +811,7 @@ export const QuotesPage: React.FC = () => {
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isApproveModalOpen, setIsApproveModalOpen] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
+  const [linkedOrder, setLinkedOrder] = useState<OrderType | null>(null);
 
   // ------------------------------------------------------------------
   // Data loading
@@ -843,6 +847,58 @@ export const QuotesPage: React.FC = () => {
   useEffect(() => {
     loadCustomers();
   }, [loadCustomers]);
+
+  // ------------------------------------------------------------------
+  // Linked order — when the selected quote references an order, fetch
+  // it so the EstimatorPanel can pre-fill order_type / surface_finish /
+  // alloy. We deliberately swallow 404 here (orphan order_id) — the
+  // estimator falls back to empty inputs.
+  // ------------------------------------------------------------------
+
+  useEffect(() => {
+    const orderId = selectedQuote?.order_id;
+    if (!orderId) {
+      setLinkedOrder(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const order = await ordersApi.getById(orderId);
+        if (!cancelled) setLinkedOrder(order);
+      } catch {
+        if (!cancelled) setLinkedOrder(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedQuote?.order_id]);
+
+  // ------------------------------------------------------------------
+  // Estimator patch — add the LABOR line item suggested by the panel
+  // ------------------------------------------------------------------
+
+  const handleEstimatorPatch = useCallback(
+    async (patch: { addLineItem: QuoteLineItemInput }): Promise<boolean> => {
+      if (!selectedQuote) return false;
+      try {
+        const updated = await quotesApi.addLineItem(selectedQuote.id, patch.addLineItem);
+        setSelectedQuote(updated);
+        await loadQuotes();
+        showToast('Schätzung wurde übernommen.', 'success');
+        return true;
+      } catch (err: any) {
+        logError('quote.estimatorPatch', err);
+        showToast(
+          err?.response?.data?.detail ?? 'Schätzung konnte nicht übernommen werden.',
+          'error'
+        );
+        return false;
+      }
+    },
+    [selectedQuote, showToast, loadQuotes]
+  );
 
   // ------------------------------------------------------------------
   // Row selection — load full quote with line items
@@ -1168,6 +1224,24 @@ export const QuotesPage: React.FC = () => {
           onSaveLineItem={handleSaveLineItem}
           onRemoveLineItem={handleRemoveLineItem}
           isLoading={actionLoading}
+        />
+      )}
+
+      {/* Estimator — only visible for DRAFT quotes, gated to ADMIN/GOLDSMITH inside the panel */}
+      {selectedQuote?.status === 'DRAFT' && (
+        <EstimatorPanel
+          quote={selectedQuote}
+          order={
+            linkedOrder
+              ? {
+                  id: linkedOrder.id,
+                  order_type: null,
+                  surface_finish: linkedOrder.surface_finish ?? null,
+                  alloy: linkedOrder.alloy ?? null,
+                }
+              : null
+          }
+          onPatch={handleEstimatorPatch}
         />
       )}
 
