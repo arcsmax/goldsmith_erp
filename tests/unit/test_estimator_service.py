@@ -160,14 +160,17 @@ class TestEstimateLaborHappyPath:
     async def test_returns_hours_and_cost_for_seeded_corpus(
         self, db_session, est_customer, est_user, rated_activity
     ):
-        """5 seeded 'ring' orders (>= MIN_SAMPLE) with 2/4/6/8/10h billable
-        entries on an 80 EUR/h activity. The 2h order falls below the
-        tier's P10 corpus-exclusion threshold (Task 3) and is dropped, so
-        the reported estimate reflects the remaining 4 orders: median
-        hours=7.0, labor cost p50 = 7.0 * 80 = 560.0, with p20 < p50 < p80
-        on both axes."""
+        """7 seeded 'ring' orders (>= MIN_SAMPLE even after P10 exclusion)
+        with 2/4/6/8/10/12/14h billable entries on an 80 EUR/h activity.
+        The 2h order falls below the tier's P10 corpus-exclusion threshold
+        (Task 3) and is dropped, so the reported estimate reflects the
+        remaining 6 orders: median hours=9.0, labor cost p50 = 9.0 * 80 = 720.0,
+        with p20 < p50 < p80 on both axes.
+
+        Note: Updated from 5 to 7 orders to account for decision #1 (MIN_SAMPLE
+        floor applies to post-exclusion count)."""
         await _seed_ring_corpus(
-            db_session, est_customer, est_user, rated_activity, [2, 4, 6, 8, 10]
+            db_session, est_customer, est_user, rated_activity, [2, 4, 6, 8, 10, 12, 14]
         )
 
         features = EstimateFeatures(
@@ -176,15 +179,15 @@ class TestEstimateLaborHappyPath:
         response = await estimator_service.estimate_labor(db_session, features)
 
         assert response.insufficient_data is False
-        assert response.sample_size == 4
-        assert response.hours_p50 == pytest.approx(7.0)
-        assert response.labor_cost_p50 == pytest.approx(560.0)
+        assert response.sample_size == 6
+        assert response.hours_p50 == pytest.approx(9.0)
+        assert response.labor_cost_p50 == pytest.approx(720.0)
         assert response.hours_p20 < response.hours_p50 < response.hours_p80
         assert (
             response.labor_cost_p20 < response.labor_cost_p50 < response.labor_cost_p80
         )
         assert response.similarity_level == "exact"
-        assert len(response.similar_orders) == 4
+        assert len(response.similar_orders) == 6
 
     async def test_insufficient_data_returns_all_none(
         self, db_session, est_customer, est_user, rated_activity
