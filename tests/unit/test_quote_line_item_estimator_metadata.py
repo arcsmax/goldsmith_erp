@@ -7,7 +7,7 @@ from goldsmith_erp.db.models import QuoteLineItem, Quote, Customer, User, QuoteL
 from goldsmith_erp.core.security import get_password_hash
 
 
-@pytest.mark.integration
+@pytest.mark.unit
 async def test_estimator_metadata_persists_as_jsonb(db_session: AsyncSession):
     """A QuoteLineItem created with estimator_metadata round-trips it intact."""
     # Setup: create a User + Customer + Quote + LineItem with estimator_metadata
@@ -74,7 +74,7 @@ async def test_estimator_metadata_persists_as_jsonb(db_session: AsyncSession):
     assert line.estimator_metadata["suggested_hours"] == 3.17
 
 
-@pytest.mark.integration
+@pytest.mark.unit
 async def test_estimator_metadata_null_for_manual_entry(db_session: AsyncSession):
     """A QuoteLineItem without estimator_metadata persists as NULL."""
     user = User(

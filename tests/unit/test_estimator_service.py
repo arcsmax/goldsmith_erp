@@ -248,6 +248,56 @@ class TestUnknownActivityIdGuard:
         _, kwargs = mock_warning.call_args
         assert kwargs["extra"]["unknown_activity_ids"] == [unknown_id]
 
+    async def test_all_unknown_activity_ids_yields_zero_cost_no_crash(self, db_session):
+        """Every id unknown => 0.0 cost, not a crash and not a fabricated
+        shop-default price for hours we cannot verify the source of."""
+        cost = await estimator_service._labor_cost_from_activity_hours(
+            db_session, {123_456: 3.0, 654_321: 4.0}
+        )
+        assert cost == 0.0
+
+    async def test_empty_activity_hours_returns_zero(self, db_session):
+        assert (
+            await estimator_service._labor_cost_from_activity_hours(db_session, {})
+            == 0.0
+        )
+
+    async def test_end_to_end_estimate_labor_excludes_unknown_activity(
+        self, db_session, est_customer, est_user, rated_activity
+    ):
+        """Even when LaborEstimator's output references a stale activity_id
+        (simulated via a patched LaborEstimator.estimate), estimate_labor
+        must not crash and must compute a cost from only the known ids."""
+        await _seed_ring_corpus(
+            db_session, est_customer, est_user, rated_activity, [2, 4, 6, 8, 10]
+        )
+        unknown_id = rated_activity.id + 999_999
+
+        fake_estimate = LaborEstimate(
+            hours_p50=5.0,
+            hours_p20=3.0,
+            hours_p80=7.0,
+            sample_size=5,
+            similarity_level="type",
+            similar_orders=[1, 2, 3, 4, 5],
+            suggested_activities={rated_activity.id: 2.0, unknown_id: 3.0},
+            excluded_orders=[],
+            insufficient_data=False,
+        )
+
+        with mock.patch.object(
+            estimator_service.LaborEstimator, "estimate", return_value=fake_estimate
+        ):
+            response = await estimator_service.estimate_labor(
+                db_session, EstimateFeatures(order_type="ring")
+            )
+
+        assert response.insufficient_data is False
+        assert response.hours_p50 == 5.0
+        # Only rated_activity's 2h * 80 EUR/h = 160 counted; unknown_id's
+        # 3h excluded entirely.
+        assert response.labor_cost_p50 == pytest.approx(160.0)
+
 
 # ---------------------------------------------------------------------------
 # EstimateAccuracy idempotency guard (Task-4 review carry-forward)
