@@ -1541,6 +1541,10 @@ class QuoteLineItem(Base):
     unit_price = Column(Float, nullable=False)  # Einzelpreis (netto)
     total = Column(Float, nullable=False)  # Gesamtpreis (quantity * unit_price)
 
+    # Snapshot of estimator inputs/outputs (V1.3 Phase 3).
+    # NULL = manual entry; non-null = estimator-sourced (immutable at API layer).
+    estimator_metadata = Column(JSON, nullable=True)
+
     # Relationships
     quote = relationship("Quote", back_populates="line_items")
 

@@ -19,12 +19,25 @@ Covers:
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta
 from unittest import mock
 
 import pytest
 
 import goldsmith_erp.services.estimate_accuracy_service as estimate_accuracy_service
-from goldsmith_erp.db.models import EstimateAccuracy, Order, OrderStatusEnum
+from goldsmith_erp.db.models import (
+    EstimateAccuracy,
+    Order,
+    OrderStatusEnum,
+    Quote,
+    QuoteLineItem,
+    TimeEntry,
+    Activity,
+    Customer,
+    User,
+    QuoteLineType,
+    UserRole,
+)
 from goldsmith_erp.services.estimate_accuracy_service import (
     UNKNOWN_ORDER_TYPE,
     CalibrationResult,
@@ -307,25 +320,178 @@ class TestSafeRecordOnCompletion:
     async def test_writes_row_when_full_values_supplied(
         self, db_session, sample_customer
     ):
-        """Forward-compatibility: once Task 5 passes real values, the same
-        wrapper must actually persist them."""
-        order = await _make_completed_order(db_session, sample_customer.id)
-
-        await safe_record_on_completion(
-            db_session,
-            order,
-            estimated_hours=6.0,
-            actual_hours=7.0,
-            estimated_total=60.0,
-            actual_total=70.0,
-            estimator_version="v1",
+        """With an estimator-sourced LABOR line (estimator_metadata set),
+        safe_record_on_completion derives values internally and writes
+        an EstimateAccuracy row on completion."""
+        # Minimal fixture setup: completed order with ACCEPTED quote,
+        # LABOR line_item with estimator_metadata, billable activity + time entry.
+        user = User(
+            email="test_accuracy_fix_user@example.com",
+            hashed_password="dummy",
+            first_name="Test",
+            last_name="User",
+            role=UserRole.GOLDSMITH,
+            is_active=True,
         )
+        db_session.add(user)
+        await db_session.flush()
+
+        completed_time = datetime.utcnow()
+        order = Order(
+            title="ORD-TEST-FIX-001",
+            customer_id=sample_customer.id,
+            status=OrderStatusEnum.COMPLETED,
+            order_type="ring",
+            completed_at=completed_time,
+        )
+        db_session.add(order)
+        await db_session.flush()
+
+        quote = Quote(
+            quote_number="KV-TEST-FIX-001",
+            order_id=order.id,
+            customer_id=sample_customer.id,
+            created_by=user.id,
+            status="ACCEPTED",
+            valid_until=datetime.utcnow() + timedelta(days=14),
+            subtotal=575.25,
+            tax_rate=19.0,
+            tax_amount=109.30,
+            total=684.55,
+        )
+        db_session.add(quote)
+        await db_session.flush()
+
+        line = QuoteLineItem(
+            quote_id=quote.id,
+            line_type=QuoteLineType.LABOR,
+            description="Arbeitszeit (Schatzung)",
+            quantity=3.17,
+            unit_price=181.5,
+            total=575.25,
+            estimator_metadata={
+                "suggested_hours": 3.17,
+                "quoted_hours": 3.17,
+                "similarity_level": "workshop",
+                "sample_size": 5,
+                "similar_orders": [42, 57, 63, 71, 88],
+                "estimator_version": "labor_estimator_v1",
+            },
+        )
+        db_session.add(line)
+        await db_session.flush()
+
+        activity = Activity(
+            name="Sagen",
+            category="fabrication",
+            icon="✂",
+            color="#FF6B6B",
+            is_billable=True,
+            hourly_rate=181.5,
+        )
+        db_session.add(activity)
+        await db_session.flush()
+
+        start = completed_time - timedelta(hours=4)
+        entry = TimeEntry(
+            id="test-entry-fix-001",
+            order_id=order.id,
+            user_id=user.id,
+            activity_id=activity.id,
+            start_time=start,
+            end_time=completed_time,
+            duration_minutes=240,
+        )
+        db_session.add(entry)
+        await db_session.commit()
+
+        await safe_record_on_completion(db_session, order)
 
         result = await calibration(db_session)
         assert result.rows_loaded == 1
 
     async def test_never_raises_when_record_fails(self, db_session, sample_customer):
-        order = await _make_completed_order(db_session, sample_customer.id)
+        """If the internal record() call raises, safe_record_on_completion
+        must catch it, log an error, and not propagate the exception."""
+        user = User(
+            email="test_accuracy_fail_user@example.com",
+            hashed_password="dummy",
+            first_name="Test",
+            last_name="User",
+            role=UserRole.GOLDSMITH,
+            is_active=True,
+        )
+        db_session.add(user)
+        await db_session.flush()
+
+        completed_time = datetime.utcnow()
+        order = Order(
+            title="ORD-TEST-FIX-002",
+            customer_id=sample_customer.id,
+            status=OrderStatusEnum.COMPLETED,
+            order_type="ring",
+            completed_at=completed_time,
+        )
+        db_session.add(order)
+        await db_session.flush()
+
+        quote = Quote(
+            quote_number="KV-TEST-FIX-002",
+            order_id=order.id,
+            customer_id=sample_customer.id,
+            created_by=user.id,
+            status="ACCEPTED",
+            valid_until=datetime.utcnow() + timedelta(days=14),
+            subtotal=575.25,
+            tax_rate=19.0,
+            tax_amount=109.30,
+            total=684.55,
+        )
+        db_session.add(quote)
+        await db_session.flush()
+
+        line = QuoteLineItem(
+            quote_id=quote.id,
+            line_type=QuoteLineType.LABOR,
+            description="Arbeitszeit (Schatzung)",
+            quantity=3.17,
+            unit_price=181.5,
+            total=575.25,
+            estimator_metadata={
+                "suggested_hours": 3.17,
+                "quoted_hours": 3.17,
+                "similarity_level": "workshop",
+                "sample_size": 5,
+                "similar_orders": [42, 57, 63, 71, 88],
+                "estimator_version": "labor_estimator_v1",
+            },
+        )
+        db_session.add(line)
+        await db_session.flush()
+
+        activity = Activity(
+            name="Sagen",
+            category="fabrication",
+            icon="✂",
+            color="#FF6B6B",
+            is_billable=True,
+            hourly_rate=181.5,
+        )
+        db_session.add(activity)
+        await db_session.flush()
+
+        start = completed_time - timedelta(hours=4)
+        entry = TimeEntry(
+            id="test-entry-fix-002",
+            order_id=order.id,
+            user_id=user.id,
+            activity_id=activity.id,
+            start_time=start,
+            end_time=completed_time,
+            duration_minutes=240,
+        )
+        db_session.add(entry)
+        await db_session.commit()
 
         async def _boom(*args, **kwargs):
             raise RuntimeError("simulated record() failure")
@@ -335,14 +501,6 @@ class TestSafeRecordOnCompletion:
                 estimate_accuracy_service.logger, "error"
             ) as error_spy:
                 # Must not raise.
-                await safe_record_on_completion(
-                    db_session,
-                    order,
-                    estimated_hours=6.0,
-                    actual_hours=7.0,
-                    estimated_total=60.0,
-                    actual_total=70.0,
-                    estimator_version="v1",
-                )
+                await safe_record_on_completion(db_session, order)
 
         assert error_spy.called
