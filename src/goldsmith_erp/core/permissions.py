@@ -116,6 +116,19 @@ class Permission(str, Enum):
     VALUATION_CREATE = "valuation:create"  # Create certificate (ADMIN + GOLDSMITH)
     VALUATION_EXPORT = "valuation:export"  # Download PDF (ADMIN only)
 
+    # Scrap gold permissions (Altgold — financial data, ADMIN + GOLDSMITH
+    # only; mirrors INVOICE_VIEW / VALUATION_VIEW). Reads expose
+    # ``total_value_eur`` and ``gold_price_per_g`` (ScrapGoldRead), which
+    # CLAUDE.md classifies as financial data with "same protections as
+    # pricing" — so VIEWER must NOT hold this. A single VIEW permission is
+    # added deliberately: the scrap-gold write routes (create / add-item /
+    # calculate / sign / photo-upload / remove-item) are gated by
+    # ORDER_EDIT, which is itself an ADMIN+GOLDSMITH-only permission (VIEWER
+    # does not hold it), so writes are not exposed to VIEWER and need no new
+    # permission today. Add SCRAP_GOLD_MANAGE only if those writes ever need
+    # to diverge from ORDER_EDIT.
+    SCRAP_GOLD_VIEW = "scrap_gold:view"
+
     # Customer update permissions (Kundeninfo — V1.2, GOLDSMITH + ADMIN only)
     CUSTOMER_UPDATE_VIEW = "customer_update:view"  # View update history/drafts
     CUSTOMER_UPDATE_SEND = "customer_update:send"  # Create + send updates
@@ -209,6 +222,9 @@ ROLE_PERMISSIONS: dict[UserRole, List[Permission]] = {
         # Valuation certificates — goldsmiths create and view Wertgutachten
         Permission.VALUATION_VIEW,
         Permission.VALUATION_CREATE,
+        # Scrap gold (Altgold) — financial data, goldsmiths view Altgold
+        # records + receipts (writes gated by ORDER_EDIT, already held)
+        Permission.SCRAP_GOLD_VIEW,
         # Scanner (V1.1) — goldsmiths are the primary scanner users
         Permission.SCAN_READ,
         # Customer updates (V1.2) — goldsmiths draft and send Kundeninfo

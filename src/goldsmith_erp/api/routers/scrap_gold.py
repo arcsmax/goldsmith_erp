@@ -24,6 +24,7 @@ from goldsmith_erp.models.scrap_gold import (
     ScrapGoldRead,
     ScrapGoldSignRequest,
 )
+from goldsmith_erp.services.customer_update_service import write_financial_audit_row
 from goldsmith_erp.services.pdf_service import PDFService
 from goldsmith_erp.services.scrap_gold_service import ScrapGoldService
 
@@ -58,14 +59,36 @@ def _detect_image_extension(header: bytes) -> Optional[str]:
 
 
 @router.get("/orders/{order_id}/scrap-gold", response_model=Optional[ScrapGoldRead])
-@require_permission(Permission.ORDER_VIEW)
+@require_permission(Permission.SCRAP_GOLD_VIEW)
 async def get_scrap_gold(
     order_id: int,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
     """Altgold-Eintrag fuer einen Auftrag abrufen."""
-    return await ScrapGoldService.get_for_order(db, order_id)
+    scrap_gold = await ScrapGoldService.get_for_order(db, order_id)
+
+    # This GET lives under ``/orders/{id}/...``, so AuditLoggingMiddleware —
+    # which keys on the FIRST path segment ("orders", not a registered
+    # financial family) — structurally cannot see it (the documented
+    # ``/orders/{id}/...`` blind spot in middleware/audit_logging.py). The
+    # response body carries ``total_value_eur`` and ``gold_price_per_g``,
+    # which CLAUDE.md classifies as financial data whose access MUST be
+    # audit-logged. Write the DB-backed CustomerAuditLog row directly here,
+    # mirroring get_order_projected_cost (customer_updates.py) and the
+    # estimator router. Safe to commit before returning: get_db's session
+    # factory uses expire_on_commit=False and items are selectinload-eager,
+    # so serialization does not re-hit the DB.
+    await write_financial_audit_row(
+        db,
+        action="financial_read",
+        entity="scrap_gold",
+        entity_id=scrap_gold.id if scrap_gold else None,
+        order_id=order_id,
+        user_id=current_user.id,
+        endpoint=f"/api/v1/orders/{order_id}/scrap-gold",
+    )
+    return scrap_gold
 
 
 @router.post("/orders/{order_id}/scrap-gold", response_model=ScrapGoldRead, status_code=201)
@@ -205,7 +228,7 @@ async def upload_item_photo(
     "/scrap-gold/{scrap_gold_id}/items/{item_id}/photo",
     response_class=FileResponse,
 )
-@require_permission(Permission.ORDER_VIEW)
+@require_permission(Permission.SCRAP_GOLD_VIEW)
 async def get_item_photo(
     scrap_gold_id: int,
     item_id: int,
@@ -272,7 +295,7 @@ async def sign_receipt(
 
 
 @router.get("/scrap-gold/alloy-calculator", response_model=AlloyCalculation)
-@require_permission(Permission.ORDER_VIEW)
+@require_permission(Permission.SCRAP_GOLD_VIEW)
 async def calculate_alloy(
     alloy: str,
     weight_g: float,
@@ -293,7 +316,7 @@ async def calculate_alloy(
 
 
 @router.get("/scrap-gold/{scrap_gold_id}/receipt.pdf")
-@require_permission(Permission.ORDER_VIEW)
+@require_permission(Permission.SCRAP_GOLD_VIEW)
 async def download_scrap_gold_receipt(
     scrap_gold_id: int,
     db: AsyncSession = Depends(get_db),
