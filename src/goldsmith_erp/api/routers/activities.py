@@ -10,6 +10,7 @@ from goldsmith_erp.db.models import User, UserRole
 from goldsmith_erp.db.session import get_db
 from goldsmith_erp.models.activity import ActivityCreate, ActivityRead, ActivityUpdate
 from goldsmith_erp.services.activity_service import ActivityService
+from goldsmith_erp.services.customer_update_service import write_financial_audit_row
 
 router = APIRouter()
 
@@ -63,6 +64,22 @@ async def list_activities(
     activities = await ActivityService.get_activities(
         db, category=category, sort_by_usage=sort_by_usage, skip=skip, limit=limit
     )
+    # Finding 2.2 / issue #39: ``hourly_rate`` is financial data (labor
+    # pricing). It is served on this response ONLY to ADMIN/GOLDSMITH (see
+    # _project_activity), so — mirroring the orders router — we audit the read
+    # only when the rate is actually exposed. Auditing every VIEWER activity
+    # read (the picker is high-frequency, hourly_rate stripped) would drown the
+    # financial_read stream with rows that exposed no financial data.
+    if _is_financial_role(current_user):
+        await write_financial_audit_row(
+            db,
+            action="list_accessed_financial",
+            entity="activity",
+            entity_id=None,
+            order_id=None,
+            user_id=current_user.id,
+            endpoint="/api/v1/activities/",
+        )
     return [
         _project_activity(ActivityRead.model_validate(activity), current_user)
         for activity in activities
@@ -84,6 +101,18 @@ async def get_most_used_activities(
     this endpoint needs the same projection.
     """
     activities = await ActivityService.get_most_used_activities(db, limit=limit)
+    # Finding 2.2 / issue #39: audit the rate-bearing read only when the rate is
+    # actually served (ADMIN/GOLDSMITH). See list_activities for the rationale.
+    if _is_financial_role(current_user):
+        await write_financial_audit_row(
+            db,
+            action="list_accessed_financial",
+            entity="activity",
+            entity_id=None,
+            order_id=None,
+            user_id=current_user.id,
+            endpoint="/api/v1/activities/most-used",
+        )
     return [
         _project_activity(ActivityRead.model_validate(activity), current_user)
         for activity in activities
@@ -127,6 +156,18 @@ async def get_activity(
     activity = await ActivityService.get_activity(db, activity_id)
     if not activity:
         raise HTTPException(status_code=404, detail="Activity not found")
+    # Finding 2.2 / issue #39: audit the rate-bearing single read only when the
+    # rate is actually served (ADMIN/GOLDSMITH). See list_activities.
+    if _is_financial_role(current_user):
+        await write_financial_audit_row(
+            db,
+            action="financial_read",
+            entity="activity",
+            entity_id=activity_id,
+            order_id=None,
+            user_id=current_user.id,
+            endpoint=f"/api/v1/activities/{activity_id}",
+        )
     return _project_activity(ActivityRead.model_validate(activity), current_user)
 
 

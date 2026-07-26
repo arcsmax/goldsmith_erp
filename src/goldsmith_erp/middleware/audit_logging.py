@@ -170,6 +170,69 @@ _RESOURCE_ROUTES: dict[str, Tuple[str, str, str, bool]] = {
     # — the router writes its own CustomerAuditLog row via
     # ``write_financial_audit_row`` instead (see api/routers/estimator.py).
     "estimates": ("estimate", "financial_read", "list_accessed_financial", True),
+    # ── Finding 2.2 / issue #39: close the "no audit coverage at all" gap ──
+    # These families previously had NO audit row on reads OR writes. They are
+    # registered here so the middleware covers them uniformly.
+    #
+    # The 4th tuple field (historically named ``is_financial``) actually only
+    # gates the NON-GET audit — see ``dispatch()``:
+    #   * ``True``  → audit GETs only; writes are audit-logged at the service
+    #                 layer instead (the invoices/valuations/scrap-gold case).
+    #   * ``False`` → audit EVERY verb (reads AND writes) via ``_method_to_action``.
+    # All five families below use ``False`` because they have NO service-layer
+    # write auditing, so the middleware is the only place their mutations get
+    # recorded (users: role changes / erasure / activation; materials/time
+    # entries: create/update/delete of financial records).
+    #
+    # VOLUME TRADEOFF (documented per finding 2.2's "without drowning the log"):
+    # materials, time-tracking and users also serve high-frequency GETs — the
+    # material picker, ``GET /time-tracking/running`` (timer polling) and
+    # ``GET /users/me`` (fired on every app load). Auditing every such read
+    # grows ``customer_audit_logs`` faster than the per-record financial
+    # families do. This is the accepted cost of CLAUDE.md's blanket rule
+    # (materials carry ``unit_price``; time entries carry ``billable_hours``).
+    # If the row volume ever becomes a problem the refinement is to special-case
+    # the few hot poll endpoints — NOT to drop the family from auditing.
+    "materials": ("material", "financial_read", "list_accessed_financial", False),
+    "time-tracking": (
+        "time_entry",
+        "financial_read",
+        "list_accessed_financial",
+        False,
+    ),
+    # users: not financial, but account/role changes are security-relevant and
+    # staff records are personal data (GDPR Art. 30). Reads use the plain
+    # ``accessed``/``list_accessed`` actions; the security-relevant events are
+    # the writes (create / update / role-change / gdpr-erase / activate). Legal
+    # basis is overridden to Art. 6(1)(f) — see ``_LEGAL_BASIS_OVERRIDES``.
+    "users": ("user", "accessed", "list_accessed", False),
+    # photos: design IP (CLAUDE.md "Design files ... access-controlled"). This
+    # entry keys on the first-segment ``/photos/{id}/file|thumbnail`` serving
+    # routes and ``DELETE /photos/{id}``. The upload + list live under
+    # ``/orders/{id}/photos`` (the documented first-segment "orders" blind
+    # spot) and are NOT reachable from this middleware — see the report.
+    "photos": ("order_photo", "accessed", "list_accessed", False),
+    # measurements: customer body data (PII). The list/create live under
+    # ``/customers/{id}/measurements`` (already audited via the "customers"
+    # entry); this entry covers the bare ``/measurements/{id}`` get/update/
+    # delete routes. Legal basis overridden to Art. 6(1)(b) contract.
+    "measurements": ("measurement", "accessed", "list_accessed", False),
+}
+
+# Legal-basis overrides for audited families that are neither customer PII
+# (Art. 6(1)(b) - contract) nor financial records (Art. 6(1)(c) - §147 AO tax
+# retention). Auditing their access is still required (GDPR Art. 30 + design-IP
+# / security monitoring under CLAUDE.md's Data Privacy Rules), but citing tax
+# retention as the legal basis for a staff-account read or a design photo would
+# be wrong. Entities NOT listed here fall through to the §147 AO default, which
+# is correct for the financial families (materials, time_entry, invoices, …).
+_LEGAL_BASIS_OVERRIDES: dict[str, str] = {
+    "user": (
+        "GDPR Article 6(1)(f) - Legitimate interest "
+        "(account administration & security monitoring)"
+    ),
+    "order_photo": "GDPR Article 6(1)(b) - Contract (order design documentation)",
+    "measurement": "GDPR Article 6(1)(b) - Contract (customer measurement records)",
 }
 
 
@@ -197,6 +260,23 @@ class AuditLoggingMiddleware(BaseHTTPMiddleware):
     * ``/api/v1/estimates/*``      — V1.3 statistical labor estimator;
       ``GET /estimates/accuracy`` audited here, ``POST /estimates/labor``
       audited by the router directly (see ``_RESOURCE_ROUTES`` comment)
+    * ``/api/v1/materials/*``      — finding 2.2; financial (``unit_price``),
+      reads AND writes audited (``is_financial=False``)
+    * ``/api/v1/time-tracking/*``  — finding 2.2; financial (``billable_hours``),
+      reads AND writes audited (see the volume-tradeoff note on the entry)
+    * ``/api/v1/users/*``          — issue #39 / finding 2.2; staff personal
+      data, reads + security-relevant writes audited (legal basis Art. 6(1)(f))
+    * ``/api/v1/photos/{id}/*``    — finding 2.2; design-IP photo serving/delete
+      routes (Art. 6(1)(b)); the ``/orders/{id}/photos`` upload+list are under
+      the "orders" first-segment blind spot and out of reach here
+    * ``/api/v1/measurements/{id}``— finding 2.2; customer body data (Art.
+      6(1)(b)); the customer-scoped list/create are already covered by
+      ``/customers/*``
+
+    NB: ``activities.hourly_rate`` and the ``orders`` financial fields are
+    audited at the SERVICE layer (role-projected — only ADMIN/GOLDSMITH receive
+    the fields, and only then is the row written), NOT via this table — see
+    ``api/routers/orders.py`` and ``api/routers/activities.py``.
 
     CLAUDE.md:
         "All financial data access MUST be audit-logged."
@@ -478,6 +558,12 @@ class AuditLoggingMiddleware(BaseHTTPMiddleware):
         if entity_type == "customer":
             legal_basis = "GDPR Article 6(1)(b) - Contract"
             purpose = f"Customer data {action} via API"
+        elif entity_type in _LEGAL_BASIS_OVERRIDES:
+            # Finding 2.2 / issue #39: staff-account, design-photo and
+            # measurement families are audited but are neither customer PII nor
+            # tax-retained financial records — cite their real legal basis.
+            legal_basis = _LEGAL_BASIS_OVERRIDES[entity_type]
+            purpose = f"{entity_type.replace('_', ' ').title()} {action} via API"
         else:
             legal_basis = "GDPR Article 6(1)(c) - Legal obligation (§147 AO)"
             purpose = f"{entity_type.replace('_', ' ').title()} {action} via API"

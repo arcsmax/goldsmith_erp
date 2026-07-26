@@ -12,6 +12,7 @@ from goldsmith_erp.db.models import User, UserRole
 from goldsmith_erp.models.order import OrderCreate, OrderRead, OrderUpdate, LocationChangeRequest, LocationHistoryRead
 from goldsmith_erp.services.order_service import OrderService
 from goldsmith_erp.services.cost_calculation_service import CostCalculationService
+from goldsmith_erp.services.customer_update_service import write_financial_audit_row
 from goldsmith_erp.services.label_service import LabelService
 from goldsmith_erp.core.config import settings
 from goldsmith_erp.core.permissions import Permission, require_permission
@@ -95,6 +96,28 @@ async def list_orders(
     ``profit_margin_percent``, ``calculated_price``). See C5 fix-plan.
     """
     orders = await OrderService.get_orders(db, skip, limit, customer_id=customer_id)
+    # Finding 2.2: the seven financial fields (price / hourly_rate / margins /
+    # calculated_price / material+labor cost) ride on OrderRead and are served
+    # to ADMIN/GOLDSMITH here. CLAUDE.md requires every financial-data access to
+    # be audit-logged. The AuditLoggingMiddleware cannot cover this: ``/orders``
+    # is deliberately NOT a registered family — a blanket "orders" entry would
+    # audit every unrelated order fetch app-wide (calendar/label/location-history
+    # serialize NO financial field, and VIEWER reads have the fields stripped),
+    # drowning the financial_read stream. So we write the row at the service
+    # layer, but ONLY when the response actually carries the fields — i.e. for
+    # financial roles. VIEWERs get them stripped (C5), so their read exposes no
+    # financial data and needs no row. Safe to commit mid-handler: get_db's
+    # session factory uses expire_on_commit=False (see scrap_gold precedent).
+    if not _financial_excludes_for_user(current_user):
+        await write_financial_audit_row(
+            db,
+            action="list_accessed_financial",
+            entity="order",
+            entity_id=None,
+            order_id=None,
+            user_id=current_user.id,
+            endpoint="/api/v1/orders/",
+        )
     return _project_orders_for_user(orders, current_user)
 
 
@@ -162,6 +185,19 @@ async def get_order(
     order = await OrderService.get_order(db, order_id)
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
+    # Finding 2.2: audit the financial-field-bearing read (see list_orders for
+    # the full rationale). Only ADMIN/GOLDSMITH receive the seven financial
+    # fields; VIEWER reads are stripped (C5) and need no financial_read row.
+    if not _financial_excludes_for_user(current_user):
+        await write_financial_audit_row(
+            db,
+            action="financial_read",
+            entity="order",
+            entity_id=order_id,
+            order_id=order_id,
+            user_id=current_user.id,
+            endpoint=f"/api/v1/orders/{order_id}",
+        )
     return _project_order_for_user(order, current_user)
 
 @router.put("/{order_id}", response_model=OrderRead)

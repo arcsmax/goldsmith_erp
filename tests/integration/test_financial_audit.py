@@ -45,7 +45,9 @@ Ref: docs/fix-plan/2026-04-23/C6-financial-audit.md
 
 from __future__ import annotations
 
+import uuid
 from datetime import datetime, timedelta
+from decimal import Decimal
 
 import pytest
 import pytest_asyncio
@@ -54,6 +56,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from goldsmith_erp.db.models import (
+    Activity,
     AlloyType,
     Consultation,
     ConsultationOccasion,
@@ -513,3 +516,247 @@ async def test_customer_audit_still_uses_customer_action(
         f"got '{row.action}' — C6 accidentally rerouted customers to "
         "financial_read?"
     )
+
+
+# ===========================================================================
+# Finding 2.2 / issue #39 — Orders (service-layer, role-projected audit)
+# ===========================================================================
+#
+# The seven financial fields (price / hourly_rate / margins / calculated_price
+# / material+labor cost) ride on OrderRead. They are served ONLY to ADMIN /
+# GOLDSMITH; VIEWER responses have them stripped (C5). The AuditLoggingMiddleware
+# cannot see ``/orders`` (a blanket "orders" family entry was rejected — it would
+# audit every unrelated fetch), so ``api/routers/orders.py`` writes the row at
+# the service layer, and ONLY when the fields are actually exposed.
+
+
+@pytest.mark.asyncio
+async def test_order_detail_read_writes_financial_audit_row(
+    authenticated_client: AsyncClient,
+    db_session: AsyncSession,
+    admin_user: User,
+    test_customer: Customer,
+):
+    """GET /api/v1/orders/{id} as ADMIN must write a financial_read row."""
+    order = await _create_order(db_session, test_customer)
+
+    resp = await authenticated_client.get(f"/api/v1/orders/{order.id}")
+    assert resp.status_code == 200, resp.text
+
+    row = await _latest_audit_row(db_session, entity="order", entity_id=order.id)
+    assert row is not None, (
+        "GET /api/v1/orders/{id} must write a CustomerAuditLog row with "
+        "entity='order' — financial fields ride on the detail response"
+    )
+    assert row.action == "financial_read", (
+        f"single-record financial read must use action='financial_read', "
+        f"got '{row.action}'"
+    )
+    assert row.user_id == admin_user.id
+    # customer_id is resolved from the order inside write_financial_audit_row.
+    assert row.customer_id == test_customer.id
+
+
+@pytest.mark.asyncio
+async def test_order_list_read_writes_financial_audit_row(
+    authenticated_client: AsyncClient,
+    db_session: AsyncSession,
+    admin_user: User,
+    test_customer: Customer,
+):
+    """GET /api/v1/orders/ as ADMIN must write a bulk financial-access row."""
+    await _create_order(db_session, test_customer)
+
+    resp = await authenticated_client.get("/api/v1/orders/")
+    assert resp.status_code == 200, resp.text
+
+    row = await _latest_audit_row(db_session, entity="order", entity_id=None)
+    assert row is not None, (
+        "GET /api/v1/orders/ must write a bulk financial-access audit row"
+    )
+    assert row.action == "list_accessed_financial"
+    assert row.user_id == admin_user.id
+
+
+@pytest.mark.asyncio
+async def test_order_detail_read_as_viewer_writes_no_financial_row(
+    client: AsyncClient,
+    db_session: AsyncSession,
+    viewer_auth_headers: dict,
+    test_customer: Customer,
+):
+    """
+    Negative test: a VIEWER order read serializes NO financial fields (C5
+    strips them), so it must NOT write a financial_read row. This pins the
+    "audit only when the fields are actually exposed" behaviour and guards the
+    financial_read stream against being drowned by non-financial VIEWER reads.
+    """
+    order = await _create_order(db_session, test_customer)
+
+    resp = await client.get(
+        f"/api/v1/orders/{order.id}", headers=viewer_auth_headers
+    )
+    assert resp.status_code == 200, resp.text
+
+    row = await _latest_audit_row(db_session, entity="order", entity_id=order.id)
+    assert row is None, (
+        "VIEWER order read exposes no financial fields — it must NOT write a "
+        f"financial_read audit row, but found action='{row.action if row else None}'"
+    )
+
+
+# ===========================================================================
+# Finding 2.2 / issue #39 — Activities (hourly_rate, service-layer audit)
+# ===========================================================================
+
+
+async def _create_activity(db_session: AsyncSession) -> Activity:
+    activity = Activity(
+        name="Polieren",
+        category="fabrication",
+        hourly_rate=Decimal("75.00"),
+        is_billable=True,
+    )
+    db_session.add(activity)
+    await db_session.commit()
+    await db_session.refresh(activity)
+    return activity
+
+
+@pytest.mark.asyncio
+async def test_activity_detail_read_writes_financial_audit_row(
+    authenticated_client: AsyncClient,
+    db_session: AsyncSession,
+    admin_user: User,
+):
+    """GET /api/v1/activities/{id} as ADMIN (rate served) writes a row."""
+    activity = await _create_activity(db_session)
+
+    resp = await authenticated_client.get(f"/api/v1/activities/{activity.id}")
+    assert resp.status_code == 200, resp.text
+
+    row = await _latest_audit_row(
+        db_session, entity="activity", entity_id=activity.id
+    )
+    assert row is not None, (
+        "GET /api/v1/activities/{id} must write an audit row when hourly_rate "
+        "is served (ADMIN/GOLDSMITH)"
+    )
+    assert row.action == "financial_read"
+    assert row.user_id == admin_user.id
+
+
+@pytest.mark.asyncio
+async def test_activity_list_read_writes_financial_audit_row(
+    authenticated_client: AsyncClient,
+    db_session: AsyncSession,
+    admin_user: User,
+):
+    """GET /api/v1/activities/ as ADMIN (rate served) writes a bulk row."""
+    await _create_activity(db_session)
+
+    resp = await authenticated_client.get("/api/v1/activities/")
+    assert resp.status_code == 200, resp.text
+
+    row = await _latest_audit_row(db_session, entity="activity", entity_id=None)
+    assert row is not None, (
+        "GET /api/v1/activities/ must write a bulk financial-access row when "
+        "hourly_rate is served"
+    )
+    assert row.action == "list_accessed_financial"
+    assert row.user_id == admin_user.id
+
+
+# ===========================================================================
+# Finding 2.2 — newly-registered middleware families (materials, time, users)
+# ===========================================================================
+
+
+@pytest.mark.asyncio
+async def test_material_create_and_read_write_audit_rows(
+    authenticated_client: AsyncClient,
+    db_session: AsyncSession,
+    admin_user: User,
+):
+    """
+    Materials carry unit_price (financial). The middleware audits BOTH the
+    write (POST -> action='created') and the read (GET -> 'financial_read').
+    """
+    body = {"name": "Testgold 750", "unit_price": 62.5, "stock": 10.0, "unit": "g"}
+    create_resp = await authenticated_client.post("/api/v1/materials/", json=body)
+    assert create_resp.status_code in (200, 201), create_resp.text
+
+    created_row = await _latest_audit_row(
+        db_session, entity="material", entity_id=None
+    )
+    assert created_row is not None, (
+        "POST /api/v1/materials/ must write a middleware audit row (writes are "
+        "audited for materials — is_financial=False)"
+    )
+    assert created_row.action == "created"
+    assert created_row.user_id == admin_user.id
+
+    material_id = create_resp.json()["id"]
+    read_resp = await authenticated_client.get(f"/api/v1/materials/{material_id}")
+    assert read_resp.status_code == 200, read_resp.text
+
+    read_row = await _latest_audit_row(
+        db_session, entity="material", entity_id=material_id
+    )
+    assert read_row is not None, (
+        "GET /api/v1/materials/{id} must write a financial_read audit row"
+    )
+    assert read_row.action == "financial_read"
+
+
+@pytest.mark.asyncio
+async def test_time_tracking_running_read_writes_audit_row(
+    authenticated_client: AsyncClient,
+    db_session: AsyncSession,
+    admin_user: User,
+):
+    """
+    GET /api/v1/time-tracking/running is a non-numeric sub-resource under the
+    registered ``time-tracking`` family — it must be audited as a bulk/aggregate
+    financial read (time entries carry billable_hours).
+    """
+    resp = await authenticated_client.get("/api/v1/time-tracking/running")
+    assert resp.status_code == 200, resp.text
+
+    row = await _latest_audit_row(db_session, entity="time_entry", entity_id=None)
+    assert row is not None, (
+        "GET /api/v1/time-tracking/running must write a time_entry audit row"
+    )
+    assert row.action == "list_accessed_financial"
+    assert row.user_id == admin_user.id
+
+
+@pytest.mark.asyncio
+async def test_user_create_writes_audit_row(
+    authenticated_client: AsyncClient,
+    db_session: AsyncSession,
+    admin_user: User,
+):
+    """
+    POST /api/v1/users/ (account creation — a security-relevant write) must
+    write a middleware audit row with entity='user', action='created'. Users
+    are audited for their writes even though they are not financial data.
+    """
+    body = {
+        "email": f"newstaff-{uuid.uuid4().hex}@integration-test.example.com",
+        "password": "Passw0rd123",
+        "first_name": "New",
+        "last_name": "Staff",
+    }
+    resp = await authenticated_client.post("/api/v1/users/", json=body)
+    assert resp.status_code in (200, 201), resp.text
+
+    row = await _latest_audit_row(db_session, entity="user", entity_id=None)
+    assert row is not None, (
+        "POST /api/v1/users/ must write a middleware audit row (account writes "
+        "are security-relevant — issue #39)"
+    )
+    assert row.action == "created"
+    assert row.user_id == admin_user.id
+    # Non-financial family → legal basis must NOT be the §147 AO financial one.
+    assert "§147 AO" not in (row.details or {}).get("legal_basis", "")
