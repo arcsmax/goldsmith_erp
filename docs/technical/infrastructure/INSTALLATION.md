@@ -88,6 +88,14 @@ cd goldsmith_erp
 
 **Fertig!** 🎉 System läuft auf http://localhost:3000
 
+> ⚠️ **Dieser Schnellstart richtet die ENTWICKLUNGS-Umgebung ein**
+> (`podman-compose.yml`, Vite-Dev-Server, `.env` aus `.env.example`, **kein
+> TLS**) — geeignet zum Ausprobieren, **nicht** für echten Betrieb mit
+> Kundendaten. Der gehärtete Produktions-Weg (`setup.sh` +
+> `podman-compose.prod.yml` mit **Caddy TLS-Proxy**, Referenz-Seed, Backups,
+> DSGVO-Löschtimer) ist in
+> **[PRODUCTION_DEPLOYMENT.md](PRODUCTION_DEPLOYMENT.md)** beschrieben.
+
 ---
 
 ## 🐧 Linux Installation (Detailliert)

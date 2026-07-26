@@ -109,6 +109,13 @@ Das Script:
 - ✅ Baut alle Container
 - ✅ Startet alle Services
 
+> ⚠️ **`setup-podman.sh` richtet die ENTWICKLUNGS-Umgebung ein**
+> (`podman-compose.yml`, Vite-Dev-Server, `.env` aus `.env.example`, **kein
+> TLS**). Für den **Produktivbetrieb** mit echten Kundendaten den gehärteten
+> Weg nutzen — `setup.sh` + `podman-compose.prod.yml` (inkl. **Caddy
+> TLS-Proxy**), Referenz-Seed, Backups und DSGVO-Löschtimer:
+> **→ [Produktions-Deployment](docs/technical/infrastructure/PRODUCTION_DEPLOYMENT.md)**.
+
 ### Mit Makefile (Alternative)
 
 ```bash

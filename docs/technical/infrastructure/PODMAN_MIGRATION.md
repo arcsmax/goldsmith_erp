@@ -62,6 +62,11 @@ Das Script installiert:
 - Erstellt .env mit sicherem SECRET_KEY
 - Startet alle Services
 
+> ⚠️ `setup-podman.sh` startet den **Dev-Stack** (`podman-compose.yml`, kein
+> TLS). Den gehärteten Produktions-Stack (`setup.sh` +
+> `podman-compose.prod.yml` mit **Caddy TLS-Proxy**, Backups, DSGVO-Löschtimer)
+> beschreibt **[PRODUCTION_DEPLOYMENT.md](PRODUCTION_DEPLOYMENT.md)**.
+
 ### Option 2: Manuelle Installation
 
 **Ubuntu/Debian 22.04+:**
