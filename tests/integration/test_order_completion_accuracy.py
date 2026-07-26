@@ -49,7 +49,7 @@ async def test_accuracy_row_written_for_estimator_sourced_labor(
     order = Order(
         title="ORD-TEST-ACC-001",
         order_type="ring",
-        status="COMPLETED",
+        status="completed",
         completed_at=completed_time,
     )
     db_session.add(order)
@@ -60,7 +60,7 @@ async def test_accuracy_row_written_for_estimator_sourced_labor(
         order_id=order.id,
         customer_id=customer.id,
         created_by=user.id,
-        status="ACCEPTED",
+        status="approved",
         valid_until=datetime.utcnow() + timedelta(days=14),
         subtotal=575.25,
         tax_rate=19.0,
@@ -159,7 +159,7 @@ async def test_no_accuracy_row_for_manual_labor_line(
     order = Order(
         title="ORD-TEST-ACC-002",
         order_type="chain",
-        status="COMPLETED",
+        status="completed",
         completed_at=completed_time,
     )
     db_session.add(order)
@@ -170,7 +170,7 @@ async def test_no_accuracy_row_for_manual_labor_line(
         order_id=order.id,
         customer_id=customer.id,
         created_by=user.id,
-        status="ACCEPTED",
+        status="approved",
         valid_until=datetime.utcnow() + timedelta(days=14),
         subtotal=360.0,
         tax_rate=19.0,
