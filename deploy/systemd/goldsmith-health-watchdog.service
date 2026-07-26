@@ -1,0 +1,47 @@
+# ============================================================================
+# goldsmith-health-watchdog.service — out-of-band /health dead-man's-switch
+#
+# Production-readiness.md 2026-07-26, finding 2.6. Curls the backend /health
+# endpoint from OUTSIDE the app and, on failure, emails an alert via the
+# import-light CLI goldsmith_erp.jobs.health_alert. Triggered by the companion
+# .timer every 5 minutes; not enabled directly.
+#
+# Unlike the retention/GDPR jobs this runs ON THE HOST (NOT inside the
+# container) — it must keep working when the backend process is dead. The alert
+# CLI needs no DB and no running backend; it only reads the SMTP config from
+# .env. There is no OnFailure= alert unit: the email itself IS the out-of-band
+# alert. The service exits nonzero on an outage so `systemctl --user status`
+# shows the failure.
+#
+# Requires `poetry` on PATH in the project root (default ALERT_CMD="poetry run").
+# For a pure-container host, set ALERT_CMD to a `podman run --rm --env-file .env
+# <backend-image>` invocation instead (see scripts/health-watchdog.sh header).
+#
+# Install as a USER unit:
+#   mkdir -p ~/.config/systemd/user
+#   cp deploy/systemd/goldsmith-health-watchdog.{service,timer} ~/.config/systemd/user/
+#   # edit WorkingDirectory below to the deployment's project root
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now goldsmith-health-watchdog.timer
+#   loginctl enable-linger "$USER"
+#
+# See docs/technical/GDPR_ERASURE_RETENTION.md §6 for the full install.
+# ============================================================================
+[Unit]
+Description=Goldsmith ERP — out-of-band /health watchdog (email dead-man's-switch)
+Documentation=file:docs/technical/GDPR_ERASURE_RETENTION.md
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+# Deployment-specific: point this at the project root (holds pyproject.toml so
+# `poetry run` resolves, and .env for the SMTP config).
+WorkingDirectory=%h/goldsmith_erp
+# Health URL + retry knobs (see scripts/health-watchdog.sh for all env vars).
+Environment=HEALTH_URL=http://localhost:8000/health
+# Optional: dedicated alert recipient (else falls back to SMTP_FROM):
+# Environment=HEALTH_ALERT_EMAIL=admin@example.com
+ExecStart=/usr/bin/env bash scripts/health-watchdog.sh
+# One tick must finish well within the 5-minute timer interval.
+TimeoutStartSec=120

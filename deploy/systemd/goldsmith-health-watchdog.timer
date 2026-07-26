@@ -1,0 +1,20 @@
+# ============================================================================
+# goldsmith-health-watchdog.timer — probes /health every 5 minutes
+#
+# Enable (as a user unit — see the .service header for the full sequence):
+#   systemctl --user enable --now goldsmith-health-watchdog.timer
+#   systemctl --user list-timers goldsmith-health-watchdog.timer   # verify
+# ============================================================================
+[Unit]
+Description=Goldsmith ERP — 5-minute schedule for the /health watchdog
+
+[Timer]
+# First run 2 min after boot, then every 5 minutes.
+OnBootSec=2min
+OnUnitActiveSec=5min
+# Small jitter so probes don't land on a fixed second.
+RandomizedDelaySec=30
+Unit=goldsmith-health-watchdog.service
+
+[Install]
+WantedBy=timers.target
