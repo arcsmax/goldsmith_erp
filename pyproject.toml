@@ -75,6 +75,300 @@ profile = "black"
 strict = true
 plugins = []
 
+# Per-module debt ledger for the CI `lint` job's strict mypy pass.
+# Currently-passing modules stay fully strict; new modules are strict by
+# default. Each block below excuses ONE module for ONLY the error codes it
+# already trips — a new code in a baselined module still fails CI. This is a
+# burndown ledger: when you touch a module, clear its errors and delete its
+# block. See docs/technical/MYPY_BURNDOWN.md.
+# --- BEGIN generated mypy baseline (scripts/gen_mypy_baseline.py) ---
+# Generated debt ledger — do not hand-edit. Regenerate with:
+#   poetry run python scripts/gen_mypy_baseline.py
+# 94 modules, 1524 suppressed errors as of last run.
+[[tool.mypy.overrides]]
+module = "goldsmith_erp.api.routers.activities"
+disable_error_code = ["assignment", "misc", "no-untyped-def"]  # 13 error(s)
+[[tool.mypy.overrides]]
+module = "goldsmith_erp.api.routers.analytics"
+disable_error_code = ["misc", "type-arg"]  # 4 error(s)
+[[tool.mypy.overrides]]
+module = "goldsmith_erp.api.routers.auth"
+disable_error_code = ["arg-type", "no-untyped-def"]  # 4 error(s)
+[[tool.mypy.overrides]]
+module = "goldsmith_erp.api.routers.calendar"
+disable_error_code = ["arg-type", "misc", "unused-ignore"]  # 10 error(s)
+[[tool.mypy.overrides]]
+module = "goldsmith_erp.api.routers.comments"
+disable_error_code = ["arg-type", "misc", "no-untyped-def"]  # 28 error(s)
+[[tool.mypy.overrides]]
+module = "goldsmith_erp.api.routers.consultations"
+disable_error_code = ["arg-type", "attr-defined", "misc", "no-untyped-def"]  # 25 error(s)
+[[tool.mypy.overrides]]
+module = "goldsmith_erp.api.routers.customer_portal"
+disable_error_code = ["arg-type", "call-overload", "no-any-return", "type-arg"]  # 9 error(s)
+[[tool.mypy.overrides]]
+module = "goldsmith_erp.api.routers.customer_updates"
+disable_error_code = ["arg-type", "misc", "no-untyped-def"]  # 29 error(s)
+[[tool.mypy.overrides]]
+module = "goldsmith_erp.api.routers.customers"
+disable_error_code = ["arg-type", "assignment", "attr-defined", "no-untyped-def", "return-value", "type-arg"]  # 24 error(s)
+[[tool.mypy.overrides]]
+module = "goldsmith_erp.api.routers.estimator"
+disable_error_code = ["arg-type", "misc", "no-untyped-def"]  # 5 error(s)
+[[tool.mypy.overrides]]
+module = "goldsmith_erp.api.routers.hallmarks"
+disable_error_code = ["arg-type", "misc", "no-untyped-def"]  # 9 error(s)
+[[tool.mypy.overrides]]
+module = "goldsmith_erp.api.routers.handoffs"
+disable_error_code = ["arg-type", "call-arg", "misc", "no-untyped-def"]  # 15 error(s)
+[[tool.mypy.overrides]]
+module = "goldsmith_erp.api.routers.health"
+disable_error_code = ["arg-type"]  # 2 error(s)
+[[tool.mypy.overrides]]
+module = "goldsmith_erp.api.routers.imports"
+disable_error_code = ["arg-type", "attr-defined"]  # 2 error(s)
+[[tool.mypy.overrides]]
+module = "goldsmith_erp.api.routers.invoices"
+disable_error_code = ["arg-type", "assignment", "misc", "no-untyped-def"]  # 23 error(s)
+[[tool.mypy.overrides]]
+module = "goldsmith_erp.api.routers.materials"
+disable_error_code = ["attr-defined", "call-arg", "misc", "no-untyped-def", "return-value"]  # 33 error(s)
+[[tool.mypy.overrides]]
+module = "goldsmith_erp.api.routers.measurements"
+disable_error_code = ["arg-type", "attr-defined", "no-untyped-def"]  # 13 error(s)
+[[tool.mypy.overrides]]
+module = "goldsmith_erp.api.routers.metal_inventory"
+disable_error_code = ["arg-type", "no-untyped-def"]  # 78 error(s)
+[[tool.mypy.overrides]]
+module = "goldsmith_erp.api.routers.metal_prices"
+disable_error_code = ["arg-type"]  # 3 error(s)
+[[tool.mypy.overrides]]
+module = "goldsmith_erp.api.routers.metal_types"
+disable_error_code = ["arg-type", "assignment", "type-arg"]  # 9 error(s)
+[[tool.mypy.overrides]]
+module = "goldsmith_erp.api.routers.ml"
+disable_error_code = ["arg-type", "assignment", "index", "misc", "no-any-return", "no-untyped-def", "type-arg", "unused-ignore"]  # 45 error(s)
+[[tool.mypy.overrides]]
+module = "goldsmith_erp.api.routers.notifications"
+disable_error_code = ["arg-type", "misc", "return-value", "type-arg", "unused-ignore"]  # 15 error(s)
+[[tool.mypy.overrides]]
+module = "goldsmith_erp.api.routers.orders"
+disable_error_code = ["arg-type", "misc", "no-untyped-def"]  # 25 error(s)
+[[tool.mypy.overrides]]
+module = "goldsmith_erp.api.routers.photos"
+disable_error_code = ["arg-type", "attr-defined", "misc", "no-untyped-def"]  # 13 error(s)
+[[tool.mypy.overrides]]
+module = "goldsmith_erp.api.routers.quotes"
+disable_error_code = ["arg-type", "assignment", "misc", "no-untyped-def"]  # 31 error(s)
+[[tool.mypy.overrides]]
+module = "goldsmith_erp.api.routers.repairs"
+disable_error_code = ["arg-type", "assignment", "attr-defined", "misc", "no-untyped-def"]  # 64 error(s)
+[[tool.mypy.overrides]]
+module = "goldsmith_erp.api.routers.scanner"
+disable_error_code = ["arg-type", "misc"]  # 8 error(s)
+[[tool.mypy.overrides]]
+module = "goldsmith_erp.api.routers.scrap_gold"
+disable_error_code = ["arg-type", "assignment", "misc", "no-untyped-def"]  # 26 error(s)
+[[tool.mypy.overrides]]
+module = "goldsmith_erp.api.routers.theme"
+disable_error_code = ["misc"]  # 1 error(s)
+[[tool.mypy.overrides]]
+module = "goldsmith_erp.api.routers.time_tracking"
+disable_error_code = ["arg-type", "assignment", "misc", "no-untyped-def"]  # 34 error(s)
+[[tool.mypy.overrides]]
+module = "goldsmith_erp.api.routers.users"
+disable_error_code = ["arg-type", "misc", "no-untyped-def"]  # 20 error(s)
+[[tool.mypy.overrides]]
+module = "goldsmith_erp.api.routers.valuations"
+disable_error_code = ["arg-type", "misc", "no-untyped-def"]  # 9 error(s)
+[[tool.mypy.overrides]]
+module = "goldsmith_erp.core.config"
+disable_error_code = ["arg-type", "no-untyped-def", "return-value"]  # 3 error(s)
+[[tool.mypy.overrides]]
+module = "goldsmith_erp.core.encryption"
+disable_error_code = ["assignment", "no-untyped-call", "no-untyped-def", "type-arg"]  # 5 error(s)
+[[tool.mypy.overrides]]
+module = "goldsmith_erp.core.logging"
+disable_error_code = ["no-untyped-call", "no-untyped-def"]  # 2 error(s)
+[[tool.mypy.overrides]]
+module = "goldsmith_erp.core.permissions"
+disable_error_code = ["call-overload", "no-untyped-def", "type-arg"]  # 14 error(s)
+[[tool.mypy.overrides]]
+module = "goldsmith_erp.core.pubsub"
+disable_error_code = ["no-untyped-def", "type-arg"]  # 2 error(s)
+[[tool.mypy.overrides]]
+module = "goldsmith_erp.core.security"
+disable_error_code = ["no-any-return", "type-arg"]  # 6 error(s)
+[[tool.mypy.overrides]]
+module = "goldsmith_erp.db.migration_helpers"
+disable_error_code = ["no-untyped-call", "no-untyped-def", "type-arg"]  # 7 error(s)
+[[tool.mypy.overrides]]
+module = "goldsmith_erp.db.models"
+disable_error_code = ["arg-type", "assignment", "misc", "no-untyped-call", "no-untyped-def", "return-value", "valid-type"]  # 159 error(s)
+[[tool.mypy.overrides]]
+module = "goldsmith_erp.db.repositories.base"
+disable_error_code = ["attr-defined", "no-any-return", "no-untyped-def"]  # 9 error(s)
+[[tool.mypy.overrides]]
+module = "goldsmith_erp.db.repositories.customer"
+disable_error_code = ["arg-type", "assignment", "no-untyped-def", "override"]  # 23 error(s)
+[[tool.mypy.overrides]]
+module = "goldsmith_erp.db.repositories.material"
+disable_error_code = ["assignment", "return-value"]  # 3 error(s)
+[[tool.mypy.overrides]]
+module = "goldsmith_erp.db.repositories.order"
+disable_error_code = ["arg-type", "assignment", "no-untyped-def", "union-attr"]  # 13 error(s)
+[[tool.mypy.overrides]]
+module = "goldsmith_erp.db.seed_data"
+disable_error_code = ["no-untyped-call", "no-untyped-def", "type-arg"]  # 8 error(s)
+[[tool.mypy.overrides]]
+module = "goldsmith_erp.db.session"
+disable_error_code = ["call-overload", "misc", "type-arg"]  # 3 error(s)
+[[tool.mypy.overrides]]
+module = "goldsmith_erp.db.types"
+disable_error_code = ["no-any-return", "no-untyped-call", "no-untyped-def", "type-arg"]  # 6 error(s)
+[[tool.mypy.overrides]]
+module = "goldsmith_erp.jobs.gdpr_cleanup"
+disable_error_code = ["attr-defined"]  # 8 error(s)
+[[tool.mypy.overrides]]
+module = "goldsmith_erp.main"
+disable_error_code = ["arg-type", "no-untyped-def"]  # 5 error(s)
+[[tool.mypy.overrides]]
+module = "goldsmith_erp.middleware.audit_logging"
+disable_error_code = ["no-any-return", "no-untyped-def", "type-arg", "unused-ignore"]  # 10 error(s)
+[[tool.mypy.overrides]]
+module = "goldsmith_erp.middleware.auth_required"
+disable_error_code = ["no-any-return", "no-untyped-def"]  # 4 error(s)
+[[tool.mypy.overrides]]
+module = "goldsmith_erp.middleware.logging"
+disable_error_code = ["no-any-return", "type-arg"]  # 2 error(s)
+[[tool.mypy.overrides]]
+module = "goldsmith_erp.middleware.rate_limiting"
+disable_error_code = ["no-any-return", "no-untyped-call", "no-untyped-def", "type-arg", "union-attr"]  # 12 error(s)
+[[tool.mypy.overrides]]
+module = "goldsmith_erp.middleware.security_headers"
+disable_error_code = ["no-any-return", "no-untyped-def"]  # 2 error(s)
+[[tool.mypy.overrides]]
+module = "goldsmith_erp.ml.anomaly_detection"
+disable_error_code = ["arg-type", "assignment", "attr-defined", "index", "type-arg"]  # 12 error(s)
+[[tool.mypy.overrides]]
+module = "goldsmith_erp.ml.feature_engineering"
+disable_error_code = ["arg-type", "assignment", "misc", "no-any-return"]  # 12 error(s)
+[[tool.mypy.overrides]]
+module = "goldsmith_erp.ml.model_registry"
+disable_error_code = ["no-any-return", "unused-ignore"]  # 4 error(s)
+[[tool.mypy.overrides]]
+module = "goldsmith_erp.models.order"
+disable_error_code = ["no-untyped-call", "no-untyped-def"]  # 2 error(s)
+[[tool.mypy.overrides]]
+module = "goldsmith_erp.models.quote"
+disable_error_code = ["type-arg"]  # 2 error(s)
+[[tool.mypy.overrides]]
+module = "goldsmith_erp.models.time_entry"
+disable_error_code = ["no-untyped-def"]  # 4 error(s)
+[[tool.mypy.overrides]]
+module = "goldsmith_erp.models.user"
+disable_error_code = ["type-arg"]  # 2 error(s)
+[[tool.mypy.overrides]]
+module = "goldsmith_erp.services.accounting_export_service"
+disable_error_code = ["arg-type", "no-untyped-def"]  # 4 error(s)
+[[tool.mypy.overrides]]
+module = "goldsmith_erp.services.activity_service"
+disable_error_code = ["operator", "return-value", "unused-ignore"]  # 4 error(s)
+[[tool.mypy.overrides]]
+module = "goldsmith_erp.services.calendar_service"
+disable_error_code = ["arg-type", "assignment", "unused-ignore"]  # 7 error(s)
+[[tool.mypy.overrides]]
+module = "goldsmith_erp.services.comment_service"
+disable_error_code = ["arg-type", "assignment", "return-value"]  # 3 error(s)
+[[tool.mypy.overrides]]
+module = "goldsmith_erp.services.comparison_service"
+disable_error_code = ["arg-type", "assignment", "call-arg", "index", "operator"]  # 67 error(s)
+[[tool.mypy.overrides]]
+module = "goldsmith_erp.services.consultation_service"
+disable_error_code = ["arg-type", "assignment", "call-arg", "comparison-overlap", "no-untyped-def"]  # 44 error(s)
+[[tool.mypy.overrides]]
+module = "goldsmith_erp.services.cost_calculation_service"
+disable_error_code = ["arg-type", "assignment", "no-any-return", "return-value"]  # 12 error(s)
+[[tool.mypy.overrides]]
+module = "goldsmith_erp.services.customer_service"
+disable_error_code = ["arg-type", "assignment", "attr-defined", "call-overload", "no-untyped-call", "no-untyped-def", "type-arg", "var-annotated"]  # 64 error(s)
+[[tool.mypy.overrides]]
+module = "goldsmith_erp.services.email_service"
+disable_error_code = ["type-arg"]  # 3 error(s)
+[[tool.mypy.overrides]]
+module = "goldsmith_erp.services.file_erasure_service"
+disable_error_code = ["arg-type", "attr-defined", "return-value", "type-arg", "var-annotated"]  # 13 error(s)
+[[tool.mypy.overrides]]
+module = "goldsmith_erp.services.hallmark_service"
+disable_error_code = ["assignment", "call-overload"]  # 10 error(s)
+[[tool.mypy.overrides]]
+module = "goldsmith_erp.services.handoff_service"
+disable_error_code = ["arg-type", "assignment", "return-value", "union-attr"]  # 32 error(s)
+[[tool.mypy.overrides]]
+module = "goldsmith_erp.services.image_validation"
+disable_error_code = ["attr-defined"]  # 1 error(s)
+[[tool.mypy.overrides]]
+module = "goldsmith_erp.services.invoice_service"
+disable_error_code = ["arg-type", "assignment", "return-value", "type-arg"]  # 17 error(s)
+[[tool.mypy.overrides]]
+module = "goldsmith_erp.services.label_service"
+disable_error_code = ["attr-defined", "unused-ignore"]  # 23 error(s)
+[[tool.mypy.overrides]]
+module = "goldsmith_erp.services.material_service"
+disable_error_code = ["return-value", "unused-ignore"]  # 3 error(s)
+[[tool.mypy.overrides]]
+module = "goldsmith_erp.services.measurement_service"
+disable_error_code = ["assignment"]  # 1 error(s)
+[[tool.mypy.overrides]]
+module = "goldsmith_erp.services.metal_inventory_service"
+disable_error_code = ["arg-type", "assignment", "operator"]  # 33 error(s)
+[[tool.mypy.overrides]]
+module = "goldsmith_erp.services.metal_price_service"
+disable_error_code = ["assignment", "type-arg"]  # 2 error(s)
+[[tool.mypy.overrides]]
+module = "goldsmith_erp.services.ml_data_service"
+disable_error_code = ["assignment", "list-item", "type-arg", "union-attr"]  # 7 error(s)
+[[tool.mypy.overrides]]
+module = "goldsmith_erp.services.no_go_service"
+disable_error_code = ["arg-type", "assignment"]  # 6 error(s)
+[[tool.mypy.overrides]]
+module = "goldsmith_erp.services.notification_service"
+disable_error_code = ["arg-type", "assignment"]  # 21 error(s)
+[[tool.mypy.overrides]]
+module = "goldsmith_erp.services.order_service"
+disable_error_code = ["arg-type", "assignment", "no-untyped-def", "operator", "return-value", "type-arg", "unused-ignore", "var-annotated"]  # 14 error(s)
+[[tool.mypy.overrides]]
+module = "goldsmith_erp.services.pdf_service"
+disable_error_code = ["arg-type", "no-any-return"]  # 50 error(s)
+[[tool.mypy.overrides]]
+module = "goldsmith_erp.services.quote_service"
+disable_error_code = ["arg-type", "assignment", "return-value", "type-arg"]  # 27 error(s)
+[[tool.mypy.overrides]]
+module = "goldsmith_erp.services.repair_service"
+disable_error_code = ["arg-type", "assignment", "call-overload", "type-arg"]  # 12 error(s)
+[[tool.mypy.overrides]]
+module = "goldsmith_erp.services.scanner_service"
+disable_error_code = ["arg-type", "call-overload", "union-attr"]  # 18 error(s)
+[[tool.mypy.overrides]]
+module = "goldsmith_erp.services.scrap_gold_service"
+disable_error_code = ["arg-type", "assignment", "no-untyped-def"]  # 7 error(s)
+[[tool.mypy.overrides]]
+module = "goldsmith_erp.services.system_health_service"
+disable_error_code = ["arg-type", "no-untyped-call", "no-untyped-def"]  # 3 error(s)
+[[tool.mypy.overrides]]
+module = "goldsmith_erp.services.system_monitor"
+disable_error_code = ["no-untyped-def"]  # 1 error(s)
+[[tool.mypy.overrides]]
+module = "goldsmith_erp.services.time_tracking_service"
+disable_error_code = ["arg-type", "assignment", "operator", "return-value", "truthy-function", "union-attr"]  # 26 error(s)
+[[tool.mypy.overrides]]
+module = "goldsmith_erp.services.user_service"
+disable_error_code = ["arg-type", "attr-defined", "return-value"]  # 11 error(s)
+[[tool.mypy.overrides]]
+module = "goldsmith_erp.services.valuation_service"
+disable_error_code = ["arg-type", "assignment"]  # 5 error(s)
+# --- END generated mypy baseline ---
+
 [tool.pylint.'MESSAGES CONTROL']
 disable = [
     "C0114",  # missing-module-docstring
