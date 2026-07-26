@@ -49,7 +49,14 @@ def test_recipient_falls_back_to_smtp_from(smtp_settings, monkeypatch):
     assert health_alert._recipient() == "from@example.com"
 
 
-def test_main_noop_when_smtp_unconfigured(smtp_settings, monkeypatch):
+# NOTE: these three exercise the CLI logic via the awaitable ``run(args)``
+# core, NOT via ``main()`` — main() calls ``asyncio.run``, which closes the
+# current event loop and poisons pytest-asyncio's session-scoped loop for
+# every async test collected after this file (broke 389 tests in the full
+# suite on 2026-07-26). main() itself is a thin parse+asyncio.run wrapper.
+
+
+async def test_run_noop_when_smtp_unconfigured(smtp_settings, monkeypatch):
     """No SMTP → exit 0 and EmailService is never invoked (no send attempt)."""
     smtp_settings(enabled=False, host=None, sender=None)
     send_spy = AsyncMock(return_value=True)
@@ -57,13 +64,14 @@ def test_main_noop_when_smtp_unconfigured(smtp_settings, monkeypatch):
         "goldsmith_erp.services.email_service.EmailService.send_email", send_spy
     )
 
-    rc = health_alert.main(["--reason", "test", "--target", "http://x/health"])
+    args = health_alert._parse_args(["--reason", "test", "--target", "http://x/health"])
+    rc = await health_alert.run(args)
 
     assert rc == 0
     send_spy.assert_not_called()
 
 
-def test_main_exits_zero_on_successful_send(smtp_settings, monkeypatch):
+async def test_run_exits_zero_on_successful_send(smtp_settings, monkeypatch):
     smtp_settings(enabled=True, host="smtp.example.com", sender="from@example.com")
     monkeypatch.delenv("HEALTH_ALERT_EMAIL", raising=False)
     send_mock = AsyncMock(return_value=True)
@@ -71,7 +79,8 @@ def test_main_exits_zero_on_successful_send(smtp_settings, monkeypatch):
         "goldsmith_erp.services.email_service.EmailService.send_email", send_mock
     )
 
-    rc = health_alert.main(["--reason", "boom", "--target", "http://x/health"])
+    args = health_alert._parse_args(["--reason", "boom", "--target", "http://x/health"])
+    rc = await health_alert.run(args)
 
     assert rc == 0
     send_mock.assert_awaited_once()
@@ -82,7 +91,7 @@ def test_main_exits_zero_on_successful_send(smtp_settings, monkeypatch):
     assert "boom" in kwargs["plain_body"]
 
 
-def test_main_exits_one_when_configured_send_fails(smtp_settings, monkeypatch):
+async def test_run_exits_one_when_configured_send_fails(smtp_settings, monkeypatch):
     smtp_settings(enabled=True, host="smtp.example.com", sender="from@example.com")
     monkeypatch.delenv("HEALTH_ALERT_EMAIL", raising=False)
     send_mock = AsyncMock(return_value=False)  # SMTP up but send rejected
@@ -90,7 +99,8 @@ def test_main_exits_one_when_configured_send_fails(smtp_settings, monkeypatch):
         "goldsmith_erp.services.email_service.EmailService.send_email", send_mock
     )
 
-    rc = health_alert.main(["--reason", "boom", "--target", "http://x/health"])
+    args = health_alert._parse_args(["--reason", "boom", "--target", "http://x/health"])
+    rc = await health_alert.run(args)
 
     assert rc == 1
     send_mock.assert_awaited_once()

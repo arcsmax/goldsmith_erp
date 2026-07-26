@@ -131,14 +131,15 @@ def _parse_args(argv: Sequence[str]) -> argparse.Namespace:
     return parser.parse_args(list(argv))
 
 
-def main(argv: Optional[Sequence[str]] = None) -> int:
-    """Entry point. Returns the process exit code (0 ok/no-op, 1 send failed)."""
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)s %(name)s %(message)s",
-    )
-    args = _parse_args(argv if argv is not None else sys.argv[1:])
+async def run(args: argparse.Namespace) -> int:
+    """Async core of the CLI. Returns the process exit code.
 
+    Kept separate from :func:`main` so tests can ``await`` it inside an
+    existing event loop — calling ``asyncio.run`` from a test poisons
+    pytest-asyncio's session-scoped loop for every async test collected
+    after it (the same trap ``jobs/gdpr_cleanup`` documents on its
+    ``_report_exit_code`` helper).
+    """
     try:
         if not _smtp_configured():
             logger.warning(
@@ -158,7 +159,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             )
             return 0
 
-        sent = asyncio.run(_send_alert(args.reason, args.target, recipient))
+        sent = await _send_alert(args.reason, args.target, recipient)
         if sent:
             logger.info("Health alert email dispatched (target=%s)", args.target)
             return 0
@@ -172,6 +173,16 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     except Exception:  # noqa: BLE001 — top-level guard: log + nonzero exit
         logger.error("Health alert crashed before completing", exc_info=True)
         return 1
+
+
+def main(argv: Optional[Sequence[str]] = None) -> int:
+    """Entry point. Returns the process exit code (0 ok/no-op, 1 send failed)."""
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(name)s %(message)s",
+    )
+    args = _parse_args(argv if argv is not None else sys.argv[1:])
+    return asyncio.run(run(args))
 
 
 if __name__ == "__main__":
