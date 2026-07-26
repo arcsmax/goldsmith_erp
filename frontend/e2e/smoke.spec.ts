@@ -44,51 +44,15 @@ test.describe('Login page structure', () => {
     await expect(page.locator('button[type="submit"]')).toBeVisible();
     await expect(page.locator('button[type="submit"]')).toHaveText('Anmelden');
   });
-
-  test('link to register page is present', async ({ page }) => {
-    const registerLink = page.getByRole('link', { name: 'Registrieren' });
-    await expect(registerLink).toBeVisible();
-  });
 });
 
-test.describe('Register page structure', () => {
-  test.beforeEach(async ({ page }) => {
-    await page.goto('/register');
-  });
-
-  test('shows Registrieren sub-heading', async ({ page }) => {
-    await expect(page.locator('h2')).toHaveText('Registrieren');
-  });
-
-  test('has all required form fields', async ({ page }) => {
-    await expect(page.locator('#email')).toBeVisible();
-    await expect(page.locator('#firstName')).toBeVisible();
-    await expect(page.locator('#lastName')).toBeVisible();
-    await expect(page.locator('#password')).toBeVisible();
-    await expect(page.locator('#confirmPassword')).toBeVisible();
-  });
-
-  test('link back to login is present', async ({ page }) => {
-    const loginLink = page.getByRole('link', { name: 'Anmelden' });
-    await expect(loginLink).toBeVisible();
-  });
-});
+// Public self-registration was removed on 2026-04-23 (fix A3): new users are
+// created by admins via the authenticated /users page, so the login screen no
+// longer renders a "Registrieren" link and there is no /register route. The
+// former "link to register page", "Register page structure", and register
+// navigation specs were deleted to match that behaviour (issue #8).
 
 test.describe('Navigation from login page', () => {
-  test('clicking Registrieren link goes to /register', async ({ page }) => {
-    await page.goto('/login');
-    await page.getByRole('link', { name: 'Registrieren' }).click();
-    await expect(page).toHaveURL(/\/register/);
-    await expect(page.locator('h2')).toHaveText('Registrieren');
-  });
-
-  test('clicking Anmelden link on register page goes to /login', async ({ page }) => {
-    await page.goto('/register');
-    await page.getByRole('link', { name: 'Anmelden' }).click();
-    await expect(page).toHaveURL(/\/login/);
-    await expect(page.locator('h2')).toHaveText('Anmelden');
-  });
-
   test('unauthenticated visit to / redirects to /login', async ({ page }) => {
     // Clear any lingering auth state
     await page.goto('/login');
