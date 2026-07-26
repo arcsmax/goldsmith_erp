@@ -1,12 +1,13 @@
 # src/goldsmith_erp/core/config.py
 
+import json
 import logging
 import secrets
 from pathlib import Path
-from typing import Any, Optional
+from typing import Annotated, Any, Optional
 
 from pydantic import Field, PostgresDsn, RedisDsn, field_validator, model_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
 class Settings(BaseSettings):
@@ -51,10 +52,46 @@ class Settings(BaseSettings):
     REDIS_DB: int = 0
     REDIS_URL: Optional[RedisDsn] = None
     # ── CORS ─────────────────────────────────────────────────────────────────────
-    BACKEND_CORS_ORIGINS: list[str] = [
+    # ``NoDecode`` disables pydantic-settings' automatic JSON pre-parse of this
+    # complex field so the validator below sees the raw environment string. That
+    # lets a comma-separated value load instead of raising ``SettingsError``
+    # before any validator runs — the exact boot crash setup.sh's
+    # comma-separated ``.env.production`` value used to trigger.
+    BACKEND_CORS_ORIGINS: Annotated[list[str], NoDecode] = [
         "http://localhost:3000",
         "http://localhost:8000",
     ]
+
+    @field_validator("BACKEND_CORS_ORIGINS", mode="before")
+    @classmethod
+    def _assemble_cors_origins(cls, value: Any) -> Any:
+        """Accept CORS origins as a JSON array *or* a comma-separated string.
+
+        ``setup.sh`` writes a JSON array into ``.env.production``, but older
+        setups and hand-edited ``.env`` files commonly use a comma-separated
+        string. Both must load; a malformed value must fail loudly rather than
+        silently drop origins (which would lock the workshop's other devices
+        out via CORS).
+        """
+        if value is None or isinstance(value, (list, tuple)):
+            return value
+        if not isinstance(value, str):
+            raise ValueError(f"Invalid BACKEND_CORS_ORIGINS value: {value!r}")
+        text = value.strip()
+        if not text:
+            return []
+        if text.startswith("["):
+            try:
+                return json.loads(text)
+            except json.JSONDecodeError:
+                # Value lost its inner quotes during .env parsing — fall back to
+                # comma-splitting the bracket contents.
+                text = text.strip("[]")
+        return [
+            origin.strip().strip('"').strip("'")
+            for origin in text.split(",")
+            if origin.strip()
+        ]
 
     @classmethod
     @field_validator("DATABASE_URL", mode="before")

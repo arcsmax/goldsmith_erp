@@ -35,6 +35,42 @@ done
 ok "Alle Abhängigkeiten gefunden."
 
 # ---------------------------------------------------------------------------
+# Detect the LAN IP early
+# ---------------------------------------------------------------------------
+# Needed *before* .env.production is written so the detected address can be
+# added to the CORS allow-list (otherwise the workshop's other devices are
+# rejected by CORS). Reused for the access-URL banner near the end.
+FRONTEND_PORT=3000
+
+detect_local_ip() {
+    python3 -c "
+import socket
+try:
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    s.connect(('8.8.8.8', 80))
+    print(s.getsockname()[0])
+    s.close()
+except Exception:
+    print('127.0.0.1')
+"
+}
+LOCAL_IP=$(detect_local_ip)
+
+# Build the CORS allow-list as a JSON array. pydantic-settings requires JSON
+# for the list[str] BACKEND_CORS_ORIGINS field — a comma-separated string
+# raises SettingsError and crashes the backend on boot. localhost + loopback
+# are always included, plus the detected LAN IP for multi-device access.
+build_cors_json() {
+    local port="$1" ip="$2"
+    local origins="\"http://localhost:${port}\",\"http://127.0.0.1:${port}\""
+    if [[ -n "$ip" && "$ip" != "127.0.0.1" && "$ip" != "localhost" ]]; then
+        origins="${origins},\"http://${ip}:${port}\""
+    fi
+    printf '[%s]' "$origins"
+}
+CORS_ORIGINS_JSON=$(build_cors_json "$FRONTEND_PORT" "$LOCAL_IP")
+
+# ---------------------------------------------------------------------------
 # Prompt helpers
 # ---------------------------------------------------------------------------
 prompt()         { read -r -p "$1 " "$2"; }
@@ -115,8 +151,10 @@ REDIS_URL=redis://redis:6379/0
 REDIS_HOST=redis
 REDIS_PORT=6379
 
-# CORS (adjust to your actual domain/IP)
-BACKEND_CORS_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
+# CORS — JSON array (pydantic-settings requires JSON for list[str]).
+# Includes the detected LAN IP so other workshop devices are not CORS-rejected.
+# Adjust to add your actual domain/IP.
+BACKEND_CORS_ORIGINS=${CORS_ORIGINS_JSON}
 
 # Backup
 BACKUP_DIR=${BACKUP_DIR}
@@ -248,16 +286,7 @@ ok "Alle Dienste laufen."
 # Detect local IP and print access URL
 # ---------------------------------------------------------------------------
 step "Zugriffs-URL ermitteln"
-LOCAL_IP=$(python3 -c "
-import socket
-try:
-    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    s.connect(('8.8.8.8', 80))
-    print(s.getsockname()[0])
-    s.close()
-except Exception:
-    print('127.0.0.1')
-")
+# LOCAL_IP was detected once near the top of the script and reused here.
 echo ""
 echo -e "${GREEN}${BOLD}╔══════════════════════════════════════════════════════╗${NC}"
 echo -e "${GREEN}${BOLD}║   Goldsmith ERP läuft!                               ║${NC}"

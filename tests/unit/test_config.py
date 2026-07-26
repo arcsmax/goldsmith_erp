@@ -85,3 +85,108 @@ class TestSecretKeyValidator:
 
         settings = Settings(SECRET_KEY=strong)
         assert settings.SECRET_KEY == strong
+
+
+# ── BACKEND_CORS_ORIGINS parsing (Tier 0 finding 0.1, 2026-07-26 review) ──────
+# setup.sh wrote comma-separated origins while the field was list[str];
+# NoDecode + before-validator now accept JSON arrays and comma-separated strings.
+
+@pytest.fixture(autouse=True)
+def _debug_env(monkeypatch):
+    """DEBUG=true so the production-only model validators (ENCRYPTION_KEY,
+    ANONYMIZATION_SALT) warn instead of raising while we exercise CORS parsing.
+    """
+    monkeypatch.setenv("DEBUG", "true")
+
+
+class TestBackendCorsOriginsFromEnv:
+    """Environment-variable path — the one that crashed in production."""
+
+    def test_json_array_string_parses(self, monkeypatch):
+        # Arrange — the form setup.sh now writes into .env.production.
+        monkeypatch.setenv(
+            "BACKEND_CORS_ORIGINS",
+            '["http://localhost:3000","http://127.0.0.1:3000",'
+            '"http://192.168.1.5:3000"]',
+        )
+
+        # Act
+        settings = Settings()
+
+        # Assert
+        assert settings.BACKEND_CORS_ORIGINS == [
+            "http://localhost:3000",
+            "http://127.0.0.1:3000",
+            "http://192.168.1.5:3000",
+        ]
+
+    def test_comma_separated_string_parses(self, monkeypatch):
+        # Arrange — the legacy form; must load instead of raising SettingsError.
+        monkeypatch.setenv(
+            "BACKEND_CORS_ORIGINS",
+            "http://localhost:3000,http://127.0.0.1:3000",
+        )
+
+        # Act
+        settings = Settings()
+
+        # Assert
+        assert settings.BACKEND_CORS_ORIGINS == [
+            "http://localhost:3000",
+            "http://127.0.0.1:3000",
+        ]
+
+    def test_comma_separated_with_whitespace_is_trimmed(self, monkeypatch):
+        monkeypatch.setenv(
+            "BACKEND_CORS_ORIGINS",
+            " http://localhost:3000 , http://example.test ",
+        )
+
+        settings = Settings()
+
+        assert settings.BACKEND_CORS_ORIGINS == [
+            "http://localhost:3000",
+            "http://example.test",
+        ]
+
+    def test_single_origin_string(self, monkeypatch):
+        monkeypatch.setenv("BACKEND_CORS_ORIGINS", "http://localhost:3000")
+
+        settings = Settings()
+
+        assert settings.BACKEND_CORS_ORIGINS == ["http://localhost:3000"]
+
+    def test_empty_string_yields_empty_list(self, monkeypatch):
+        monkeypatch.setenv("BACKEND_CORS_ORIGINS", "")
+
+        settings = Settings()
+
+        assert settings.BACKEND_CORS_ORIGINS == []
+
+    def test_default_applies_when_unset(self, monkeypatch):
+        monkeypatch.delenv("BACKEND_CORS_ORIGINS", raising=False)
+
+        settings = Settings()
+
+        assert settings.BACKEND_CORS_ORIGINS == [
+            "http://localhost:3000",
+            "http://localhost:8000",
+        ]
+
+
+class TestBackendCorsOriginsFromKwarg:
+    """Constructor path — validator must also handle direct kwargs."""
+
+    def test_real_list_passes_through(self):
+        settings = Settings(
+            BACKEND_CORS_ORIGINS=["http://a.test", "http://b.test"]
+        )
+
+        assert settings.BACKEND_CORS_ORIGINS == ["http://a.test", "http://b.test"]
+
+    def test_comma_separated_kwarg_parses(self):
+        settings = Settings(
+            BACKEND_CORS_ORIGINS="http://a.test,http://b.test"
+        )
+
+        assert settings.BACKEND_CORS_ORIGINS == ["http://a.test", "http://b.test"]
