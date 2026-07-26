@@ -17,6 +17,8 @@ Permission matrix:
 import pytest
 from httpx import AsyncClient
 
+from goldsmith_erp.ml.duration_model import _ML_DEPS_AVAILABLE
+
 ML_BASE = "/api/v1/ml"
 
 
@@ -164,6 +166,15 @@ def _build_synthetic_training_set() -> tuple[list[dict], list[float]]:
 class TestPredictDurationTrainedModel:
     """Exercises the trained-model path once DurationPredictor.is_ready is True."""
 
+    @pytest.mark.skipif(
+        not _ML_DEPS_AVAILABLE,
+        reason=(
+            "ML extras (joblib/scikit-learn/xgboost) not installed. "
+            "Training a real DurationPredictor requires `poetry install "
+            "--extras ml`; CI's default `poetry install` omits them, so this "
+            "trained-model path is skipped rather than erroring on ImportError."
+        ),
+    )
     @pytest.mark.asyncio
     async def test_predict_duration_uses_trained_model_when_ready(
         self, client: AsyncClient, goldsmith_auth_headers: dict, monkeypatch
