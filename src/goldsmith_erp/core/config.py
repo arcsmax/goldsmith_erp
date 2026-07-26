@@ -233,6 +233,30 @@ class Settings(BaseSettings):
         return self
 
     @model_validator(mode="after")
+    def _check_cookie_secure(self) -> "Settings":
+        """Fail-fast in production if the auth cookie is not marked Secure.
+
+        Mirrors ``_check_encryption_key``: raise in production (DEBUG=False),
+        allow in development (DEBUG=True). The login endpoint sets the HttpOnly
+        auth cookie with ``secure=settings.COOKIE_SECURE`` (api/routers/auth.py).
+        With COOKIE_SECURE=False the browser will send that cookie over plain
+        HTTP, so credentials and the session cookie cross the workshop LAN in
+        cleartext — exactly the exposure the Caddy TLS reverse proxy exists to
+        close. Any production deployment terminates TLS (see
+        docs/technical/infrastructure/PRODUCTION_TLS.md) and MUST therefore set
+        COOKIE_SECURE=true; setup.sh writes it into .env.production.
+        """
+        if not self.COOKIE_SECURE and not self.DEBUG:
+            raise ValueError(
+                "COOKIE_SECURE must be True in production (DEBUG=False). The auth "
+                "cookie would otherwise be sent over plain HTTP and can be sniffed "
+                "on the LAN. Terminate TLS at the Caddy reverse proxy (see "
+                "docs/technical/infrastructure/PRODUCTION_TLS.md) and set "
+                "COOKIE_SECURE=true in .env.production."
+            )
+        return self
+
+    @model_validator(mode="after")
     def _check_email_notification_config(self) -> "Settings":
         """Fail-fast in production if email notifications are enabled but SMTP
         is not fully configured.

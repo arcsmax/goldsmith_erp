@@ -1,0 +1,50 @@
+# deploy/Caddyfile — Goldsmith ERP TLS reverse proxy (LAN, no public domain)
+#
+# Caddy terminates TLS on :443 and redirects :80 → :443, then reverse-proxies
+# every request to the frontend nginx container (frontend:3000), which already
+# serves the SPA and proxies /api, /ws and /uploads to the backend.
+#
+#   browser ──HTTPS──▶ caddy:443 ──HTTP──▶ frontend:3000 (nginx)
+#                                              ├── / ............ SPA bundle
+#                                              ├── /api/ ........ backend:8000
+#                                              ├── /ws/  ........ backend:8000
+#                                              └── /uploads/ .... backend:8000
+#
+# The browser↔Caddy hop is HTTPS, which is what makes the HttpOnly auth cookie's
+# `Secure` flag (COOKIE_SECURE=true, enforced in prod by core/config.py) usable.
+# The Caddy→nginx→backend hops are plain HTTP but stay inside the compose
+# network, never on the wire.
+#
+# ── Certificates ────────────────────────────────────────────────────────────
+# There is no public domain, so Caddy signs the site certificate with its own
+# built-in CA (`tls internal`). `on_demand` provisions a locally-trusted cert
+# for whatever LAN name or IP a browser requests (e.g. https://192.168.1.50 or
+# https://goldsmith.local), so this Caddyfile needs no edit when the box's IP
+# changes. Each workshop device must trust the Caddy root CA once — see
+# docs/technical/infrastructure/PRODUCTION_TLS.md for the export path and the
+# per-device trust steps.
+#
+# SECURITY: `on_demand` here is safe ONLY because Caddy is reachable on the
+# workshop LAN alone. Never publish :443 to the public internet with on_demand
+# enabled — it would let anyone trigger unbounded certificate issuance.
+{
+	# Don't auto-create HTTP→HTTPS redirect vhosts; the explicit :80 block
+	# below owns port 80.
+	auto_https disable_redirects
+}
+
+# All HTTPS hosts (any LAN IP or hostname the workshop reaches this box on).
+https:// {
+	tls internal {
+		on_demand
+	}
+
+	encode gzip
+
+	reverse_proxy frontend:3000
+}
+
+# Plain HTTP → force HTTPS.
+:80 {
+	redir https://{host}{uri} permanent
+}

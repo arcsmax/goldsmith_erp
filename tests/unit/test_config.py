@@ -91,6 +91,7 @@ class TestSecretKeyValidator:
 # setup.sh wrote comma-separated origins while the field was list[str];
 # NoDecode + before-validator now accept JSON arrays and comma-separated strings.
 
+
 @pytest.fixture(autouse=True)
 def _debug_env(monkeypatch):
     """DEBUG=true so the production-only model validators (ENCRYPTION_KEY,
@@ -178,15 +179,72 @@ class TestBackendCorsOriginsFromKwarg:
     """Constructor path — validator must also handle direct kwargs."""
 
     def test_real_list_passes_through(self):
-        settings = Settings(
-            BACKEND_CORS_ORIGINS=["http://a.test", "http://b.test"]
-        )
+        settings = Settings(BACKEND_CORS_ORIGINS=["http://a.test", "http://b.test"])
 
         assert settings.BACKEND_CORS_ORIGINS == ["http://a.test", "http://b.test"]
 
     def test_comma_separated_kwarg_parses(self):
-        settings = Settings(
-            BACKEND_CORS_ORIGINS="http://a.test,http://b.test"
-        )
+        settings = Settings(BACKEND_CORS_ORIGINS="http://a.test,http://b.test")
 
         assert settings.BACKEND_CORS_ORIGINS == ["http://a.test", "http://b.test"]
+
+
+# ── COOKIE_SECURE production validator (Tier 1 finding 1.1, 2026-07-26 review) ─
+# Credentials + the HttpOnly auth cookie must not cross the LAN in cleartext.
+# The auth router sets the cookie with secure=settings.COOKIE_SECURE, so
+# production (DEBUG=False) must enforce COOKIE_SECURE=True — mirroring the
+# ENCRYPTION_KEY / ANONYMIZATION_SALT / SMTP fail-fast validators.
+#
+# The autouse `_debug_env` fixture above sets DEBUG=true in the environment;
+# these tests pass DEBUG explicitly as an init kwarg, which outranks env vars
+# in pydantic-settings, so the production path is exercised deterministically.
+
+
+def _prod_cookie_kwargs(**overrides) -> dict:
+    """Baseline kwargs that satisfy the ENCRYPTION_KEY / ANONYMIZATION_SALT
+    production validators (they run before the cookie check), so only the
+    COOKIE_SECURE validator under test decides pass/fail.
+
+    ENCRYPTION_KEY's validator is a truthiness check, so any non-empty value
+    is sufficient here — no real Fernet key needed.
+    """
+    kwargs: dict = dict(
+        ENCRYPTION_KEY="test-encryption-key-not-a-real-fernet-key",
+        ANONYMIZATION_SALT="a-non-empty-test-salt-value",
+    )
+    kwargs.update(overrides)
+    return kwargs
+
+
+class TestCookieSecureValidator:
+    """DEBUG=False must require COOKIE_SECURE=True; DEBUG=True stays permissive."""
+
+    def test_prod_without_cookie_secure_raises_helpful_message(self):
+        """DEBUG=False + COOKIE_SECURE=False must fail loudly at startup with a
+        message that names the field and points at the fix (TLS + set true)."""
+        with pytest.raises(ValidationError) as exc_info:
+            Settings(**_prod_cookie_kwargs(DEBUG=False, COOKIE_SECURE=False))
+
+        message = str(exc_info.value)
+        assert "COOKIE_SECURE" in message, (
+            "The production error must name COOKIE_SECURE so the operator knows "
+            "which setting to fix."
+        )
+        # Actionable: the message tells the operator what to do (set it true).
+        assert "true" in message.lower()
+
+    def test_prod_with_cookie_secure_passes(self):
+        """DEBUG=False + COOKIE_SECURE=True is the correct production config and
+        must construct without raising (other prod validators satisfied)."""
+        settings = Settings(**_prod_cookie_kwargs(DEBUG=False, COOKIE_SECURE=True))
+
+        assert settings.COOKIE_SECURE is True
+        assert settings.DEBUG is False
+
+    def test_dev_without_cookie_secure_is_allowed(self):
+        """DEBUG=True + COOKIE_SECURE=False must stay allowed — local/dev over
+        plain HTTP has no TLS to mark the cookie against."""
+        settings = Settings(DEBUG=True, COOKIE_SECURE=False)
+
+        assert settings.COOKIE_SECURE is False
+        assert settings.DEBUG is True

@@ -79,8 +79,12 @@ services:
     volumes:
       - ./uploads:/app/uploads:Z
       - ./logs:/app/logs:Z
-    ports:
-      - "0.0.0.0:8000:8000"
+    # Internal-only: reachable by the frontend nginx over the compose network,
+    # NOT published on the host. Only Caddy publishes ports (443/80). This keeps
+    # the plaintext backend off the LAN — all external traffic is TLS-terminated
+    # by Caddy → frontend nginx → backend.
+    expose:
+      - "8000"
     healthcheck:
       test:
         - "CMD"
@@ -118,9 +122,11 @@ services:
       # which runs the Vite dev server.
       dockerfile: Containerfile.prod
     container_name: goldsmith-frontend-prod
-    ports:
+    # Internal-only: Caddy reaches nginx on 3000 over the compose network; the
+    # port is NOT published on the host. Only Caddy is exposed to the LAN.
+    expose:
       # nginx listens on 3000 inside the container.
-      - "0.0.0.0:3000:3000"
+      - "3000"
     depends_on:
       backend:
         condition: service_healthy
@@ -138,8 +144,48 @@ services:
         max-size: "10m"
         max-file: "3"
 
+  caddy:
+    image: docker.io/library/caddy:2-alpine
+    container_name: goldsmith-caddy-prod
+    # The ONLY service published to the LAN. Terminates TLS on 443, redirects
+    # 80 → 443, and reverse-proxies to the frontend nginx (which serves the SPA
+    # and proxies /api, /ws, /uploads to the backend). See deploy/Caddyfile.
+    ports:
+      - "0.0.0.0:80:80"
+      - "0.0.0.0:443:443"
+    volumes:
+      # Caddyfile mounted read-only (:ro); :Z relabels it for SELinux-enforcing
+      # rootless hosts so Caddy (non-root) may read it.
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro,Z
+      # Persist Caddy's data dir so the internal CA (root.crt + key) is STABLE
+      # across restarts — otherwise every device would need to re-trust a new
+      # root CA on each redeploy. Export the CA from this volume:
+      #   podman cp goldsmith-caddy-prod:/data/caddy/pki/authorities/local/root.crt ./caddy-root.crt
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      frontend:
+        condition: service_started
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+          cpus: "0.5"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
 volumes:
   pgdata:
     driver: local
   redis_data:
+    driver: local
+  caddy_data:
+    driver: local
+  caddy_config:
     driver: local

@@ -138,6 +138,12 @@ SECRET_KEY=${SECRET_KEY}
 ENCRYPTION_KEY=${ENCRYPTION_KEY}
 ACCESS_TOKEN_EXPIRE_MINUTES=10080
 
+# Cookie security — the HttpOnly auth cookie is marked Secure so browsers only
+# send it over HTTPS. Required in production (config.py raises on DEBUG=false +
+# COOKIE_SECURE=false). TLS is terminated by the Caddy reverse proxy; see
+# docs/technical/infrastructure/PRODUCTION_TLS.md.
+COOKIE_SECURE=true
+
 # Database
 DB_PASSWORD=${DB_PASSWORD}
 POSTGRES_USER=goldsmith

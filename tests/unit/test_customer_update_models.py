@@ -264,11 +264,17 @@ def test_notification_type_enum_has_cost_alert():
 
 
 def _valid_settings_kwargs(**overrides) -> dict:
-    """Baseline kwargs that satisfy the encryption/anonymization validators
-    so only the email-notification validator under test can fail."""
+    """Baseline kwargs that satisfy the other production validators
+    (ENCRYPTION_KEY, ANONYMIZATION_SALT, COOKIE_SECURE) so only the
+    email-notification validator under test can fail.
+
+    COOKIE_SECURE=True is required alongside the DEBUG=False cases below since
+    core/config.py raises in production when the auth cookie is not marked
+    Secure (Tier 1 finding 1.1)."""
     kwargs: dict = dict(
         ENCRYPTION_KEY=Fernet.generate_key().decode(),
         ANONYMIZATION_SALT="a-non-empty-test-salt-value",
+        COOKIE_SECURE=True,
     )
     kwargs.update(overrides)
     return kwargs
