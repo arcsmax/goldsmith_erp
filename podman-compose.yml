@@ -110,7 +110,11 @@ services:
     ports:
       - "3000:3000"
     environment:
-      - VITE_API_URL=http://localhost:8000/api/v1
+      # Vite dev-proxy targets. vite.config.ts reads VITE_API_TARGET /
+      # VITE_WS_TARGET (default localhost:8080 = the frontend container itself).
+      # VITE_API_URL was read by nothing, so it is removed.
+      - VITE_API_TARGET=http://backend:8000
+      - VITE_WS_TARGET=ws://backend:8000
       - NODE_ENV=development
     depends_on:
       - backend
