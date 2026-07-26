@@ -113,14 +113,14 @@ services:
   frontend:
     build:
       context: ./frontend
-      dockerfile: Containerfile
-      args:
-        - NODE_ENV=production
+      # Multi-stage build → static bundle served by non-root nginx (also
+      # proxies /api, /ws, /uploads to the backend). NOT the dev Containerfile,
+      # which runs the Vite dev server.
+      dockerfile: Containerfile.prod
     container_name: goldsmith-frontend-prod
     ports:
+      # nginx listens on 3000 inside the container.
       - "0.0.0.0:3000:3000"
-    environment:
-      - NODE_ENV=production
     depends_on:
       backend:
         condition: service_healthy

@@ -1,0 +1,13 @@
+# Keep the build context small and, critically, keep a host-built (wrong-
+# platform) node_modules / dist out of the image. The build stages run their
+# own `yarn install` and `yarn build`; copying the host's darwin node_modules
+# over the linux one breaks native deps like esbuild.
+node_modules
+dist
+.git
+*.log
+coverage
+playwright-report
+test-results
+.env
+.env.*
