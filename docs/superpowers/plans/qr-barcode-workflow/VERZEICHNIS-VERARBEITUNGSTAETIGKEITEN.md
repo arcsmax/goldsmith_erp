@@ -4,7 +4,7 @@
 **Anschrift:** `[AUSFUELLEN — eingetragene Geschaeftsadresse]`
 **Kontakt Datenschutzanliegen:** `[AUSFUELLEN — datenschutz@yourdomain.de]`
 **DPO-Funktionstraeger:** Max Kull (Selbstbestellung zulaessig < 20 MA, BDSG §38(1); Self-Review-Konflikt siehe DPIA-LIGHT-TEMPLATE.md §8)
-**Stand:** 2026-04-17 · **Version:** 1.0 · **Naechste Pflicht-Review:** 2027-04-17 (jaehrlich) oder bei jedem Milestone-Release
+**Stand:** 2026-07-26 · **Version:** 1.1 · **Naechste Pflicht-Review:** 2027-04-17 (jaehrlich) oder bei jedem Milestone-Release
 
 **Rechtsgrundlage des Verzeichnisses:** Art. 30 Abs. 1 DSGVO. Pflicht fuer jeden Verantwortlichen, auch unterhalb der 250-MA-Schwelle, wenn die Verarbeitung nicht nur gelegentlich erfolgt oder Risiken fuer Rechte/Freiheiten Betroffener bestehen. Scan-Logs + Mitarbeiter-Zeiterfassung + Kundendatenverarbeitung erfuellen diese Kriterien. **Aufbewahrung: 6 Jahre ab Beendigung der Taetigkeit** (Analogie HGB §257 Abs. 4).
 
@@ -196,6 +196,60 @@
 
 ---
 
+## V1.2-001 — Kundeninfo & §649-BGB-Kostenfreigabe (Customer Updates)
+
+| Feld | Inhalt |
+|---|---|
+| **Lfd. Nr.** | V1.2-001 |
+| **Zweck der Verarbeitung** | Auftragsbegleitende Information des Kunden (Fortschritt, Abholung, Kostenaenderung) und rechtssichere Einholung der Kundenzustimmung bei Ueberschreitung des Kostenvoranschlags nach §649 BGB. Die Zustimmung/Ablehnung wird als Beweis (Evidence-Logging) erfasst, NICHT als Klick-/Verhaltenstracking — es gibt kein Live-Portal; die Kommunikation laeuft per E-Mail/PDF, `token` ist nur ein portal-faehiger Referenz-Handle fuer die Zukunft. |
+| **Rechtsgrundlage** | Art. 6(1)(b) DSGVO (Vertragserfuellung — Kundeninformation + §649 BGB Zustimmung zur Mehrverguetung); Art. 6(1)(c) iVm HGB §257 (kaufmaennische Aufbewahrung der Kostenfreigabe als Finanzbeleg). |
+| **Betroffene Personen** | Kunden (Empfaenger der Kundeninfo bzw. Zustimmende einer Kostenaenderung). Mittelbar: Mitarbeiter (`sent_by`/`created_by`/`recorded_by`-FK). |
+| **Datenkategorien** | `customer_updates`: `subject`, `body` (Freitext, design-IP-nah — SCRUB-Target ueber `order_id`/`repair_job_id`-Link), `photo_ids` (nur explizit ausgewaehlte OrderPhoto-UUIDs — nie Auto-Sharing), `kind`, `status`, `delivery_method`, `sent_at`, `token`. `cost_change_requests` (§649, Finanzdaten): `original_amount`, `new_amount`, `delta_percent`, `reason` (Freitext, rechtlich relevante Begruendung — SCRUB-Target), `line_items` (JSON), `response_method`, `response_evidence` (SCRUB-Target), `responded_at`, `status`. Referenz: `db/models.py:2653` (CustomerUpdate), `:2760` (CostChangeRequest). |
+| **Empfaenger** | Intern: GOLDSMITH/ADMIN (Erstellen/Senden, Erfassen der Antwort); die Finanzfelder der Kostenaenderung nur ADMIN/GOLDSMITH, Zugriff audit-geloggt. Extern: der Kunde selbst (E-Mail/PDF). Keine Drittempfaenger. |
+| **Drittland-Transfer** | Nein. Versand via lokal konfiguriertem SMTP; kein Cloud-/Portal-Dienst. |
+| **Loeschfristen** | `cost_change_requests`: `retention_class = financial_10y` (HGB §257 — die §649-Zustimmung ist Finanzbeleg; `order_id` ON DELETE RESTRICT). `customer_updates`: Skelett-Zeile bleibt fuer Art.-30-Nachweis erhalten (`order_id`/`repair_job_id` ON DELETE SET NULL); bei Art. 17 werden die Freitextinhalte (`body`, `reason`, `response_evidence`) via `scrub_customer_pii` auf `[REDACTED]` gesetzt, die Zeilen nicht geloescht. |
+| **TOMs** | RBAC (`@require_permission`), Finanzfeld-Sichtbarkeit ADMIN/GOLDSMITH + Audit-Log der Lesezugriffe, Evidence-Logging statt Tracking, DB-partieller Unique-Index „ein-lebendes-§649-Notice pro Auftrag", Pydantic-XOR-Invariante (genau ein FK-Ziel gesetzt), `token` = uuid4. |
+| **Verantwortlicher** | Max Kull |
+| **Auftragsverarbeiter** | N/A (lokaler SMTP/Podman); bei kuenftigem externem Mailversand AVV nach Art. 28 DSGVO erforderlich. |
+
+---
+
+## V1.3-001 — Statistischer Aufwandsschaetzer (Labor Estimator)
+
+| Feld | Inhalt |
+|---|---|
+| **Lfd. Nr.** | V1.3-001 |
+| **Zweck der Verarbeitung** | Statistische Schaetzung des Arbeitsaufwands (Stunden) und der Arbeitskosten fuer neue Auftraege/Kostenvoranschlaege aus dem historischen Auftrags-/Zeitbestand (Median + interne P20/P80-Spanne, gruppiert nach Taetigkeit/Tier). **Neuer Zweck auf bereits vorhandenen Daten — es werden KEINE neuen Personendaten-Kategorien erhoben.** Der Korpus wird read-only live aus bestehenden Tabellen berechnet (keine neue Tabelle, keine neue Erhebung). |
+| **Rechtsgrundlage** | Art. 6(1)(f) DSGVO (berechtigtes Interesse an belastbarer Kalkulation/Preisgenauigkeit). Die zugrunde liegenden Mitarbeiter-Zeitdaten wurden unter Art. 6(1)(b)/BDSG §26 erhoben (V1.1-001); die Weiterverwendung zur Schaetzung ist ein vereinbarer Folgezweck iSv Art. 6(4) DSGVO (Aggregat, keine Leistungskontrolle Einzelner). |
+| **Betroffene Personen** | Mittelbar Mitarbeiter (deren aggregierte Zeiteintraege in den Korpus einfliessen). Keine direkten Kunden-PII — der Schaetzer verarbeitet Dauer/Taetigkeit, nicht Kundendaten. |
+| **Datenkategorien** | Read-only-Aggregation aus `orders`, `time_entries`, `activities`, `interruptions` (abgeschlossene Auftraege → billable Netto-Dauer je Taetigkeit). Persistiert wird nur die Kalibrierung: `estimate_accuracy` (`estimated_hours`, `actual_hours`, `estimated_total`, `actual_total`, `estimator_version`, `order_id`) — Finanzdaten. Rohwerte wie `activity.hourly_rate` werden NIE an Aufrufer zurueckgegeben, nur aggregierte Kosten. Referenz: `services/labor_corpus_service.py`, `db/models.py:3114` (EstimateAccuracy). |
+| **Empfaenger** | Intern: ADMIN/GOLDSMITH (Schaetzung + Kalibrierung, `GET /estimates/...` audit-geloggt). Kein VIEWER-Zugriff auf Finanzwerte. Extern: keine. |
+| **Drittland-Transfer** | Nein. Rein statistische In-Prozess-Berechnung, kein externer ML-Dienst, kein Cloud-Transfer. |
+| **Loeschfristen** | Kein neuer Personenbezug: der Korpus ist fluechtig (live berechnet, nicht gespeichert). `estimate_accuracy` ist an einen abgeschlossenen Auftrag gebunden (`order_id` ON DELETE RESTRICT, financial-Aufbewahrung); der mittelbare MA-Bezug verschwindet mit der Anonymisierung der zugrunde liegenden `time_entries` (V1.1-005). |
+| **TOMs** | `insufficient_data` → alle Zahlenfelder `None` (keine Fabrikation aus zu wenigen Vergleichsauftraegen), stale/unbekannte `activity_id` wird ausgeschlossen statt falsch bepreist, `hourly_rate` nie in der Antwort, ADMIN/GOLDSMITH-only + Audit-Log der `estimates`-Reads (Financial-Data-Regel CLAUDE.md), Aggregat statt Individual-KPI. |
+| **Verantwortlicher** | Max Kull |
+| **Auftragsverarbeiter** | N/A. |
+
+---
+
+## V1.3-002 — Automatisierte Loeschung (Cleanup-Job + Erasure-Endpoints)
+
+| Feld | Inhalt |
+|---|---|
+| **Lfd. Nr.** | V1.3-002 |
+| **Zweck der Verarbeitung** | Automatisierte, fristgerechte Ausfuehrung von Loeschbegehren (Art. 17) nach Ablauf der 30-Tage-Grace-Period. Ergaenzt die Mechanismen aus V1.1-004/005/006 um (a) den geplanten Kunden-Cleanup-Job (`jobs.gdpr_cleanup` → `CustomerService.hard_delete_expired_customers`, systemd-Timer) und (b) die tatsaechlich verdrahteten Erasure-Endpoints, die es zuvor nicht gab: `DELETE /customers/{id}/gdpr-erase` und **neu** `POST /users/{id}/gdpr-erase` (Mitarbeiter, ruft `anonymize_user`). |
+| **Rechtsgrundlage** | Art. 6(1)(c) DSGVO iVm Art. 17. Ausnahme Art. 17(3)(b): Kunden mit aufbewahrungspflichtigen Finanzunterlagen (Rechnung/Kostenvoranschlag/Wertgutachten, §147 AO — 10 Jahre) werden **in-place anonymisiert** statt geloescht; ohne solche Unterlagen wird die Zeile hart geloescht. |
+| **Betroffene Personen** | Kunden (nach Ablauf der Grace-Period) und Mitarbeiter (Austritt oder Loeschbegehren). |
+| **Datenkategorien** | Kundenseitig: alle identifizierenden `customers`-Spalten → `[GELOESCHT]`/NULL bzw. Zeile geloescht, plus Datei-Artefakte (V1.1-006). Mitarbeiterseitig: `users`-PII → Sentinel (V1.1-005). Audit: `customer_audit_logs` (`gdpr_pii_scrub`, `gdpr_file_erasure`) + `gdpr_requests` (`erasure`, `erasure_cleanup`) bleiben erhalten. |
+| **Empfaenger** | Intern: ADMIN (loest die Endpoints aus); der Cleanup-Job laeuft unbeaufsichtigt im Backend-Container. Bei Fehlern: WARNING-Benachrichtigung an alle aktiven ADMINs (systemd `OnFailure` → `/admin/notify-gdpr-cleanup`). Extern: ggf. Aufsichtsbehoerde bei Beschwerde. |
+| **Drittland-Transfer** | Nein. |
+| **Loeschfristen** | 30-Tage-Grace (Soft-Delete `deletion_scheduled_at`), danach taeglicher Cleanup (systemd-Timer). Anonymisierte/geloeschte Kunden koennen bei einem Restore aus einem aelteren Backup fuer bis zu ~3 Monate zurueckkehren — Policy: Cleanup-Job nach jedem Restore erneut ausfuehren (siehe `GDPR_ERASURE_RETENTION.md`, Abschnitt „Backups und Loeschung"). |
+| **TOMs** | Pro-Kunde-Transaktion (ein Fehler bricht den Lauf nicht ab), Fail-Loud-Exit-Code + systemd-Alert (keine still verschluckten Fehler), Audit-Row je Schritt, Log nur mit `customer_id`-PK (nie Namen/E-Mail), Last-Admin-Guard bei Mitarbeiter-Anonymisierung, idempotent. Vollstaendige Beschreibung: `docs/technical/GDPR_ERASURE_RETENTION.md`. |
+| **Verantwortlicher** | Max Kull |
+| **Auftragsverarbeiter** | N/A. |
+
+---
+
 ## Anhang A: Daten-Inventar
 
 Der vollstaendige Feld-fuer-Feld-Nachweis, welche Spalte personenbezogene Daten enthaelt und wie sie im Art.-17-Pfad behandelt wird, ist die Datei:
@@ -234,6 +288,7 @@ Deadline fuer Nachtrag pre-V1.1-Entries: **2026-05-31** (vor V1-Ship-Day 2026-06
 | Version | Datum | Aenderung | Autor |
 |---|---|---|---|
 | 1.0 | 2026-04-17 | Initial-Erstellung fuer V1-DPO-Checkpoint. 10 V1.1-Entries + Anhaenge. | Anna Becker (DPO/TUeV) |
+| 1.1 | 2026-07-26 | V1.2/V1.3-Nachtrag (predatierte den Stand 2026-04-17): +V1.2-001 (Kundeninfo & §649-BGB-Kostenfreigabe), +V1.3-001 (statistischer Aufwandsschaetzer — neuer Zweck auf vorhandenen Daten, keine neuen Datenkategorien), +V1.3-002 (automatisierte Loeschung: Cleanup-Job + Mitarbeiter-/Kunden-Erasure-Endpoints). Querverweis auf `docs/technical/GDPR_ERASURE_RETENTION.md`. | Max Kull (Verantwortlicher) — DPO-Review Anna Becker ausstehend |
 
 **Unterschrift Verantwortlicher:**
 

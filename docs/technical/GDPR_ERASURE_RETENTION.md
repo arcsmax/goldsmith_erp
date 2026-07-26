@@ -122,6 +122,13 @@ time by `CustomerService.scrub_customer_pii`.
 `gdpr_requests` has no FK to `customers`, the completion row survives even a
 hard-delete.
 
+> **Art. 30 record of processing.** This erasure lifecycle — the customer
+> hard-delete/anonymise cleanup job and the customer/employee `gdpr-erase`
+> endpoints — is registered as a processing activity (entry **V1.3-002**) in
+> the Verarbeitungsverzeichnis:
+> [`VERZEICHNIS-VERARBEITUNGSTAETIGKEITEN.md`](../superpowers/plans/qr-barcode-workflow/VERZEICHNIS-VERARBEITUNGSTAETIGKEITEN.md)
+> (see also V1.1-004/005/006 for the underlying erasure mechanisms).
+
 ---
 
 ## 3. Installation — scheduled cleanup + alerting
