@@ -257,6 +257,32 @@ class Settings(BaseSettings):
         return self
 
     @model_validator(mode="after")
+    def _check_cors_wildcard(self) -> "Settings":
+        """Fail-fast in production if any CORS origin contains a wildcard.
+
+        Mirrors ``_check_cookie_secure``: raise in production (DEBUG=False),
+        allow in development (DEBUG=True). main.py configures ``CORSMiddleware``
+        with ``allow_credentials=True``; a ``"*"`` origin (or any entry
+        containing ``"*"``, e.g. ``https://*.example.com``) combined with
+        credentials is a credentialed-CORS hole — a single typo in
+        BACKEND_CORS_ORIGINS would let any site make authenticated cross-origin
+        requests. Every other prod-sensitive setting has a validator; this
+        closes the CORS gap. Runs after ``_assemble_cors_origins`` (a before-
+        field-validator), so it sees the parsed ``list[str]``.
+        """
+        if not self.DEBUG:
+            offending = [o for o in self.BACKEND_CORS_ORIGINS if "*" in o]
+            if offending:
+                raise ValueError(
+                    "BACKEND_CORS_ORIGINS must not contain a wildcard '*' in "
+                    f"production (DEBUG=False); offending entries: {offending}. "
+                    "Combined with allow_credentials=True this is a credentialed-"
+                    "CORS hole. List explicit origins instead (e.g. "
+                    "https://werkstatt.example)."
+                )
+        return self
+
+    @model_validator(mode="after")
     def _check_email_notification_config(self) -> "Settings":
         """Fail-fast in production if email notifications are enabled but SMTP
         is not fully configured.

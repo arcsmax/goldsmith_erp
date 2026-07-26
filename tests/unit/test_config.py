@@ -248,3 +248,67 @@ class TestCookieSecureValidator:
 
         assert settings.COOKIE_SECURE is False
         assert settings.DEBUG is True
+
+
+# ── BACKEND_CORS_ORIGINS wildcard validator (Tier 2 finding 2.9, 2026-07-26) ──
+# main.py wires CORSMiddleware with allow_credentials=True; a "*" origin (or any
+# entry containing "*") combined with credentials is a credentialed-CORS hole.
+# DEBUG=False must reject it, mirroring the COOKIE_SECURE fail-fast validator.
+# COOKIE_SECURE=True is included in the prod kwargs so the earlier cookie
+# validator passes and the CORS validator is the one that decides pass/fail.
+
+
+class TestCorsWildcardValidator:
+    """DEBUG=False must reject a CORS wildcard; DEBUG=True stays permissive."""
+
+    def test_prod_bare_wildcard_origin_raises(self):
+        """DEBUG=False + BACKEND_CORS_ORIGINS=['*'] must fail loudly, naming the
+        field so the operator knows which setting to fix."""
+        with pytest.raises(ValidationError) as exc_info:
+            Settings(
+                **_prod_cookie_kwargs(
+                    DEBUG=False,
+                    COOKIE_SECURE=True,
+                    BACKEND_CORS_ORIGINS=["*"],
+                )
+            )
+
+        message = str(exc_info.value)
+        assert "BACKEND_CORS_ORIGINS" in message
+        assert "*" in message  # names the offending wildcard
+
+    def test_prod_embedded_wildcard_origin_raises(self):
+        """A wildcard embedded in an entry (subdomain glob) is just as unsafe
+        and must also reject."""
+        with pytest.raises(ValidationError) as exc_info:
+            Settings(
+                **_prod_cookie_kwargs(
+                    DEBUG=False,
+                    COOKIE_SECURE=True,
+                    BACKEND_CORS_ORIGINS=[
+                        "https://werkstatt.example",
+                        "https://*.example.com",
+                    ],
+                )
+            )
+        assert "BACKEND_CORS_ORIGINS" in str(exc_info.value)
+
+    def test_prod_explicit_origins_pass(self):
+        """DEBUG=False with only explicit origins is the correct production
+        config and must construct without raising."""
+        settings = Settings(
+            **_prod_cookie_kwargs(
+                DEBUG=False,
+                COOKIE_SECURE=True,
+                BACKEND_CORS_ORIGINS=["https://werkstatt.example"],
+            )
+        )
+        assert settings.BACKEND_CORS_ORIGINS == ["https://werkstatt.example"]
+
+    def test_dev_wildcard_is_allowed(self):
+        """DEBUG=True + a wildcard must stay allowed — dev convenience, no TLS
+        or credentialed cross-origin exposure to protect against locally."""
+        settings = Settings(DEBUG=True, BACKEND_CORS_ORIGINS=["*"])
+
+        assert settings.BACKEND_CORS_ORIGINS == ["*"]
+        assert settings.DEBUG is True
