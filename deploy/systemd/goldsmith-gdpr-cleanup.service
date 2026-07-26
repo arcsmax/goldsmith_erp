@@ -1,0 +1,39 @@
+# ============================================================================
+# goldsmith-gdpr-cleanup.service — GDPR Art. 17 daily erasure job
+#
+# Runs the post-grace-period cleanup INSIDE the rootless-podman backend
+# container (via scripts/gdpr-cleanup.sh → podman-compose exec -T backend
+# python -m goldsmith_erp.jobs.gdpr_cleanup). Triggered by the companion
+# .timer; not enabled directly.
+#
+# Install as a USER unit so it shares the operator's rootless podman socket:
+#   mkdir -p ~/.config/systemd/user
+#   cp deploy/systemd/goldsmith-gdpr-cleanup.{service,timer} \
+#      deploy/systemd/goldsmith-gdpr-cleanup-alert.service ~/.config/systemd/user/
+#   # edit WorkingDirectory below to the deployment's project root
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now goldsmith-gdpr-cleanup.timer
+#   loginctl enable-linger "$USER"   # so the timer runs while logged out
+#
+# See docs/technical/GDPR_ERASURE_RETENTION.md for the full policy + install.
+# ============================================================================
+[Unit]
+Description=Goldsmith ERP — GDPR Art. 17 daily customer erasure/anonymisation
+Documentation=file:docs/technical/GDPR_ERASURE_RETENTION.md
+# On a nonzero exit (any per-customer failure or an unreachable backend) fire
+# the alert unit, which notifies admins via the in-app notification path.
+OnFailure=goldsmith-gdpr-cleanup-alert.service
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+# Deployment-specific: point this at the directory that holds
+# podman-compose.yml (so the wrapper's compose lookup resolves). Override the
+# compose file/command via the COMPOSE_FILE / COMPOSE_CMD environment vars if
+# the deployment uses podman-compose.prod.yml.
+WorkingDirectory=%h/goldsmith_erp
+Environment=COMPOSE_FILE=podman-compose.yml
+ExecStart=/usr/bin/env bash scripts/gdpr-cleanup.sh
+# Don't hang a scheduled slot forever if podman/db wedges.
+TimeoutStartSec=1800

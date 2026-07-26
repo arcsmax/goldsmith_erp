@@ -1,6 +1,7 @@
 """
 Health check endpoints for monitoring and observability.
 """
+
 import asyncio
 import logging
 import os
@@ -38,6 +39,7 @@ logger = logging.getLogger(__name__)
 # Public health endpoints (no auth)
 # ---------------------------------------------------------------------------
 
+
 @router.get("/health", tags=["health"])
 async def basic_health_check(db: AsyncSession = Depends(get_db)) -> JSONResponse:
     """
@@ -62,7 +64,7 @@ async def detailed_health_check(db: AsyncSession = Depends(get_db)) -> JSONRespo
     health_status: Dict[str, Any] = {
         "status": "healthy",
         "timestamp": datetime.utcnow().isoformat(),
-        "checks": {}
+        "checks": {},
     }
 
     overall_healthy = True
@@ -71,14 +73,14 @@ async def detailed_health_check(db: AsyncSession = Depends(get_db)) -> JSONRespo
         await db.execute(text("SELECT 1"))
         health_status["checks"]["database"] = {
             "status": "healthy",
-            "message": "Database connection successful"
+            "message": "Database connection successful",
         }
         logger.debug("Health check: Database OK")
     except Exception as e:
         overall_healthy = False
         health_status["checks"]["database"] = {
             "status": "unhealthy",
-            "message": f"Database connection failed: {str(e)}"
+            "message": f"Database connection failed: {str(e)}",
         }
         logger.error("Health check: Database failed", exc_info=True)
 
@@ -87,19 +89,21 @@ async def detailed_health_check(db: AsyncSession = Depends(get_db)) -> JSONRespo
             await redis.ping()
         health_status["checks"]["redis"] = {
             "status": "healthy",
-            "message": "Redis connection successful"
+            "message": "Redis connection successful",
         }
         logger.debug("Health check: Redis OK")
     except Exception as e:
         overall_healthy = False
         health_status["checks"]["redis"] = {
             "status": "unhealthy",
-            "message": f"Redis connection failed: {str(e)}"
+            "message": f"Redis connection failed: {str(e)}",
         }
         logger.error("Health check: Redis failed", exc_info=True)
 
     health_status["status"] = "healthy" if overall_healthy else "unhealthy"
-    status_code = status.HTTP_200_OK if overall_healthy else status.HTTP_503_SERVICE_UNAVAILABLE
+    status_code = (
+        status.HTTP_200_OK if overall_healthy else status.HTTP_503_SERVICE_UNAVAILABLE
+    )
 
     return JSONResponse(status_code=status_code, content=health_status)
 
@@ -107,10 +111,7 @@ async def detailed_health_check(db: AsyncSession = Depends(get_db)) -> JSONRespo
 @router.get("/health/liveness", tags=["health"])
 async def liveness_check() -> Dict[str, str]:
     """Kubernetes liveness probe."""
-    return {
-        "status": "alive",
-        "timestamp": datetime.utcnow().isoformat()
-    }
+    return {"status": "alive", "timestamp": datetime.utcnow().isoformat()}
 
 
 @router.get("/health/readiness", tags=["health"])
@@ -143,8 +144,8 @@ async def readiness_check(db: AsyncSession = Depends(get_db)) -> JSONResponse:
         content={
             "status": "ready" if ready else "not ready",
             "timestamp": datetime.utcnow().isoformat(),
-            "checks": checks
-        }
+            "checks": checks,
+        },
     )
 
 
@@ -176,8 +177,8 @@ async def startup_check(db: AsyncSession = Depends(get_db)) -> JSONResponse:
         content={
             "status": "started" if started else "not started",
             "timestamp": datetime.utcnow().isoformat(),
-            "checks": checks
-        }
+            "checks": checks,
+        },
     )
 
 
@@ -195,6 +196,7 @@ async def version_info() -> Dict[str, Any]:
 # ---------------------------------------------------------------------------
 # Admin-only endpoints
 # ---------------------------------------------------------------------------
+
 
 @router.get(
     f"{settings.API_V1_STR}/admin/system-info",
@@ -353,5 +355,84 @@ async def notify_backup(
     logger.info(
         "Backup notification sent",
         extra={"backup_status": backup_status, "notifications_created": created},
+    )
+    return {"status": "ok", "notifications_created": created}
+
+
+@router.post(
+    f"{settings.API_V1_STR}/admin/notify-gdpr-cleanup",
+    tags=["admin"],
+    summary="Receive GDPR cleanup failure notification (internal, no auth)",
+    status_code=status.HTTP_200_OK,
+)
+async def notify_gdpr_cleanup(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> Dict[str, Any]:
+    """
+    Internal endpoint called by the GDPR-cleanup systemd ``OnFailure=`` unit
+    when the daily Art. 17 cleanup job (``jobs.gdpr_cleanup``) exits nonzero.
+    No user auth — restricted to localhost callers only (mirrors
+    ``notify_backup``). Raises a WARNING-severity SYSTEM notification for
+    every active ADMIN so the DPO/operator sees that an erasure run failed
+    and needs follow-up (a stuck erasure is a compliance risk, not just an
+    ops blip).
+
+    Expected JSON body (all optional)::
+
+        {"unit": str, "message": str}
+
+    The body carries NO customer PII — only the failing systemd unit name.
+    Per-customer failure detail (PK ids only) lives in the job's own logs.
+    """
+    client_host = request.client.host if request.client else "unknown"
+    if client_host not in ("127.0.0.1", "::1", "localhost"):
+        logger.warning(
+            "notify-gdpr-cleanup called from non-localhost",
+            extra={"client_host": client_host},
+        )
+        return {"status": "ignored", "reason": "not localhost"}
+
+    try:
+        body: Dict[str, Any] = await request.json()
+    except Exception:
+        body = {}
+
+    unit = str(body.get("unit", "goldsmith-gdpr-cleanup.service"))
+    message = str(body.get("message", ""))
+
+    title = "GDPR-Löschlauf fehlgeschlagen"
+    text_body = (
+        f"Der geplante GDPR Art. 17 Löschlauf ({unit}) ist fehlgeschlagen. "
+        f"Bitte die Job-Logs prüfen und den Lauf erneut anstoßen. {message}"
+    ).strip()
+
+    admins_stmt = sa_select(User).where(
+        and_(User.is_active.is_(True), User.role == UserRole.ADMIN)
+    )
+    admins_result = await db.execute(admins_stmt)
+    admins = admins_result.scalars().all()
+
+    created = 0
+    for admin in admins:
+        try:
+            await NotificationService.create_notification(
+                db=db,
+                user_id=admin.id,
+                title=title,
+                message=text_body,
+                notification_type=NotificationTypeEnum.SYSTEM,
+                severity=NotificationSeverityEnum.WARNING,
+            )
+            created += 1
+        except Exception as exc:
+            logger.error(
+                "Failed to create GDPR-cleanup notification",
+                extra={"user_id": admin.id, "error": str(exc)},
+            )
+
+    logger.warning(
+        "GDPR cleanup failure notification sent",
+        extra={"unit": unit, "notifications_created": created},
     )
     return {"status": "ok", "notifications_created": created}

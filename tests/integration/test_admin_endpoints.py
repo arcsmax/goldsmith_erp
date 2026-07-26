@@ -12,6 +12,7 @@ endpoints are at /health, not /api/v1/health.
 Admin endpoints bake settings.API_V1_STR into the path directly, so they live
 at /api/v1/admin/... despite the router being mounted at root level.
 """
+
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -20,16 +21,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from goldsmith_erp.db.models import User, UserRole
 
-
 TRIGGER_BACKUP_URL = "/api/v1/admin/trigger-backup"
 SYSTEM_INFO_URL = "/api/v1/admin/system-info"
 HEALTH_URL = "/health"
 NOTIFY_BACKUP_URL = "/api/v1/admin/notify-backup"
+NOTIFY_GDPR_CLEANUP_URL = "/api/v1/admin/notify-gdpr-cleanup"
 
 
 # ---------------------------------------------------------------------------
 # POST /api/v1/admin/trigger-backup
 # ---------------------------------------------------------------------------
+
 
 class TestTriggerBackup:
 
@@ -94,12 +96,11 @@ class TestTriggerBackup:
 # GET /api/v1/admin/system-info
 # ---------------------------------------------------------------------------
 
+
 class TestSystemInfo:
 
     @pytest.mark.asyncio
-    async def test_system_info_unauthenticated_returns_401(
-        self, client: AsyncClient
-    ):
+    async def test_system_info_unauthenticated_returns_401(self, client: AsyncClient):
         response = await client.get(SYSTEM_INFO_URL)
         assert response.status_code == 401
 
@@ -162,6 +163,7 @@ class TestSystemInfo:
 # GET /health
 # ---------------------------------------------------------------------------
 
+
 class TestHealthEndpoint:
 
     @pytest.mark.asyncio
@@ -172,9 +174,7 @@ class TestHealthEndpoint:
         assert response.status_code in (200, 503)
 
     @pytest.mark.asyncio
-    async def test_health_returns_component_level_status(
-        self, client: AsyncClient
-    ):
+    async def test_health_returns_component_level_status(self, client: AsyncClient):
         response = await client.get(HEALTH_URL)
         data = response.json()
 
@@ -210,9 +210,7 @@ class TestHealthEndpoint:
         assert isinstance(db_component["latency_ms"], (int, float))
 
     @pytest.mark.asyncio
-    async def test_health_disk_component_has_usage_fields(
-        self, client: AsyncClient
-    ):
+    async def test_health_disk_component_has_usage_fields(self, client: AsyncClient):
         response = await client.get(HEALTH_URL)
         disk = response.json()["components"]["disk"]
 
@@ -223,9 +221,7 @@ class TestHealthEndpoint:
         assert "used_percent" in disk
 
     @pytest.mark.asyncio
-    async def test_health_returns_503_when_unhealthy(
-        self, client: AsyncClient
-    ):
+    async def test_health_returns_503_when_unhealthy(self, client: AsyncClient):
         """
         When the database component is down, the overall status is 'unhealthy'
         and the HTTP response code must be 503.
@@ -237,7 +233,12 @@ class TestHealthEndpoint:
             "components": {
                 "database": {"status": "down", "latency_ms": 0.0},
                 "redis": {"status": "down", "latency_ms": 0.0, "used_memory_mb": 0.0},
-                "disk": {"status": "ok", "free_gb": 10.0, "total_gb": 100.0, "used_percent": 10.0},
+                "disk": {
+                    "status": "ok",
+                    "free_gb": 10.0,
+                    "total_gb": 100.0,
+                    "used_percent": 10.0,
+                },
             },
             "version": "test",
             "uptime_seconds": 1.0,
@@ -259,6 +260,7 @@ class TestHealthEndpoint:
 # POST /api/v1/admin/notify-backup
 # ---------------------------------------------------------------------------
 
+
 class TestNotifyBackup:
     """
     The notify-backup endpoint is designed to be called by backup.sh over
@@ -273,9 +275,7 @@ class TestNotifyBackup:
     """
 
     @pytest.mark.asyncio
-    async def test_notify_backup_without_token_returns_401(
-        self, client: AsyncClient
-    ):
+    async def test_notify_backup_without_token_returns_401(self, client: AsyncClient):
         """
         The auth middleware blocks unauthenticated callers before the localhost
         check inside the handler fires.  This is the actual runtime behaviour.
@@ -351,5 +351,58 @@ class TestNotifyBackup:
             headers={**admin_auth_headers, "content-type": "application/json"},
         )
         # Endpoint catches JSON parse errors and treats them as empty body
+        assert response.status_code == 200
+        assert response.json()["status"] == "ok"
+
+
+# ---------------------------------------------------------------------------
+# POST /api/v1/admin/notify-gdpr-cleanup
+# ---------------------------------------------------------------------------
+
+
+class TestNotifyGdprCleanup:
+    """OnFailure alert endpoint for the GDPR cleanup job.
+
+    Mirrors ``TestNotifyBackup``: localhost-only, no user auth in production
+    (called by the systemd alert unit), verified here via an admin token so
+    the request clears the global AuthRequiredMiddleware.
+    """
+
+    @pytest.mark.asyncio
+    async def test_notify_gdpr_cleanup_without_token_returns_401(
+        self, client: AsyncClient
+    ):
+        response = await client.post(
+            NOTIFY_GDPR_CLEANUP_URL,
+            json={"unit": "goldsmith-gdpr-cleanup.service", "message": "boom"},
+        )
+        assert response.status_code == 401
+
+    @pytest.mark.asyncio
+    async def test_notify_gdpr_cleanup_creates_warning_for_admins(
+        self, client: AsyncClient, admin_user: User, admin_auth_headers: dict
+    ):
+        response = await client.post(
+            NOTIFY_GDPR_CLEANUP_URL,
+            json={
+                "unit": "goldsmith-gdpr-cleanup.service",
+                "message": "Scheduled Art. 17 cleanup exited nonzero.",
+            },
+            headers=admin_auth_headers,
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "ok"
+        assert data["notifications_created"] >= 1
+
+    @pytest.mark.asyncio
+    async def test_notify_gdpr_cleanup_empty_body_does_not_crash(
+        self, client: AsyncClient, admin_auth_headers: dict
+    ):
+        response = await client.post(
+            NOTIFY_GDPR_CLEANUP_URL,
+            content=b"not-json",
+            headers={**admin_auth_headers, "content-type": "application/json"},
+        )
         assert response.status_code == 200
         assert response.json()["status"] == "ok"

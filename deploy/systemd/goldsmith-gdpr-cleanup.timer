@@ -1,0 +1,22 @@
+# ============================================================================
+# goldsmith-gdpr-cleanup.timer — schedules the GDPR Art. 17 cleanup daily
+#
+# Enable (as a user unit — see the .service header for the full sequence):
+#   systemctl --user enable --now goldsmith-gdpr-cleanup.timer
+#   systemctl --user list-timers goldsmith-gdpr-cleanup.timer   # verify
+# ============================================================================
+[Unit]
+Description=Goldsmith ERP — daily schedule for the GDPR Art. 17 cleanup job
+Documentation=file:docs/technical/GDPR_ERASURE_RETENTION.md
+
+[Timer]
+# Every day at 02:30 local time.
+OnCalendar=*-*-* 02:30:00
+# If the machine was off at 02:30, run as soon as it is back up.
+Persistent=true
+# Spread load / avoid every host hitting the DB at the same second.
+RandomizedDelaySec=300
+Unit=goldsmith-gdpr-cleanup.service
+
+[Install]
+WantedBy=timers.target

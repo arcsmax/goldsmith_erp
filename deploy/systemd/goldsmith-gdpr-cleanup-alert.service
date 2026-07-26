@@ -1,0 +1,28 @@
+# ============================================================================
+# goldsmith-gdpr-cleanup-alert.service — OnFailure alert for the cleanup job
+#
+# Triggered ONLY via OnFailure= from goldsmith-gdpr-cleanup.service. POSTs to
+# the internal, localhost-only notify endpoint, which raises a WARNING SYSTEM
+# notification for every active ADMIN (same pattern backup.sh uses for
+# /admin/notify-backup). A stuck erasure is a compliance risk, so operators
+# must see it in-app, not just in a log file.
+#
+# The endpoint is localhost-restricted and takes no PII — only the failing
+# unit name. Adjust the port to the backend's PUBLISHED host port if it is
+# not 8000 (backup.sh assumes 8000 as well).
+# ============================================================================
+[Unit]
+Description=Goldsmith ERP — notify admins that the GDPR cleanup job failed
+Documentation=file:docs/technical/GDPR_ERASURE_RETENTION.md
+
+[Service]
+Type=oneshot
+# --fail so a non-2xx response makes the alert unit itself fail visibly in
+# `systemctl --user status`; the alert is best-effort (|| true) so a briefly
+# unreachable backend does not crash-loop the unit.
+ExecStart=/usr/bin/env bash -c '\
+  curl --silent --show-error --fail --max-time 10 --retry 2 \
+    -X POST "http://localhost:8000/api/v1/admin/notify-gdpr-cleanup" \
+    -H "Content-Type: application/json" \
+    -d "{\"unit\":\"goldsmith-gdpr-cleanup.service\",\"message\":\"Scheduled Art. 17 cleanup exited nonzero — check the job logs.\"}" \
+  || echo "WARN: could not reach admin notify endpoint (non-fatal)"'

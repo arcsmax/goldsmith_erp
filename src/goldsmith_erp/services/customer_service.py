@@ -2,8 +2,9 @@
 
 import logging
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from sqlalchemy import and_, delete, desc, func, null, or_, select, update
@@ -62,6 +63,15 @@ REDACTION_TOKEN = "[REDACTED]"
 # opaque to regex. For GDPR Art. 17 we replace the ENTIRE field with this
 # sentinel. Idempotent because the sentinel contains no PII tokens.
 SIGNATURE_REDACTION_TOKEN = "[REDACTED_SIGNATURE]"
+
+# Sentinel written to the customer row's NOT NULL identifying columns
+# (first_name / last_name) when the row is ANONYMISED in place rather than
+# hard-deleted — i.e. when retained financial records (§147 AO) block the
+# delete (see ``CustomerService.anonymize_customer``). Mirrors the workforce
+# sentinel in ``services.user_service`` (``SENTINEL_FIRST_NAME``): a non-PII
+# marker that satisfies the NOT NULL constraint and signals to any human
+# reading the row that the identity was erased under Art. 17.
+ANONYMIZED_CUSTOMER_NAME = "[GELÖSCHT]"
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -413,6 +423,59 @@ def _decrypt_pii(customer: CustomerModel) -> None:
                 # leave the stored value as-is.
                 continue
             raise
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# GDPR Art. 17 — post-grace-period cleanup report
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+@dataclass
+class CustomerCleanupReport:
+    """Outcome of a ``hard_delete_expired_customers`` sweep.
+
+    Each expired customer lands in exactly one of three buckets:
+
+    - ``hard_deleted``  — no retained financial records, the row was
+      permanently removed (CASCADE / SET NULL FKs handle the children).
+    - ``anonymized``    — retained financial records (§147 AO) blocked the
+      delete, so the row was anonymised in place (identifying columns
+      overwritten, row kept so the RESTRICT FKs keep resolving).
+    - ``failures``      — the customer could not be processed. Recorded as
+      ``(customer_id, error)`` tuples; the customer's own transaction was
+      rolled back and the sweep continued (per-customer isolation).
+
+    ``customer_id`` primary keys are NOT PII (mirrors the existing GDPR
+    code's logging convention: PKs are safe to log, names/emails are not),
+    so they are retained here for the operator to action.
+    """
+
+    scanned: int = 0
+    hard_deleted: List[int] = field(default_factory=list)
+    anonymized: List[int] = field(default_factory=list)
+    failures: List[Tuple[int, str]] = field(default_factory=list)
+
+    @property
+    def succeeded(self) -> int:
+        """Number of customers processed cleanly (deleted or anonymised)."""
+        return len(self.hard_deleted) + len(self.anonymized)
+
+    @property
+    def has_failures(self) -> bool:
+        """True when at least one customer failed — the CLI exits nonzero."""
+        return bool(self.failures)
+
+    def as_dict(self) -> Dict[str, Any]:
+        """JSON-serialisable summary (PK ids only — no PII)."""
+        return {
+            "scanned": self.scanned,
+            "succeeded": self.succeeded,
+            "hard_deleted": list(self.hard_deleted),
+            "anonymized": list(self.anonymized),
+            "failed": [
+                {"customer_id": cid, "error": err} for cid, err in self.failures
+            ],
+        }
 
 
 class CustomerService:
@@ -1475,3 +1538,319 @@ class CustomerService:
                 ),
             )
             db.add(gdpr_request)
+
+    # ─────────────────────────────────────────────────────────────────────
+    # GDPR Art. 17 — post-grace-period hard-delete / anonymisation
+    #
+    # The ``/gdpr-erase`` endpoint DEACTIVATES a customer, scrubs free-text
+    # PII, erases files, and sets ``deletion_scheduled_at = now + 30 days``.
+    # It does NOT remove the customer row. The methods below execute the
+    # ACTUAL erasure once that grace period elapses — the half of the Art. 17
+    # loop that ``scripts/gdpr-cleanup.sh`` was supposed to drive but never
+    # did (finding 1.3, production-readiness.md 2026-07-26).
+    #
+    # §147 AO (Abgabenordnung) mandates a 10-year retention for invoices and
+    # the trade records around them (quotes, valuation certificates). That
+    # statutory duty is a lawful ground under GDPR Art. 17(3)(b) to REFUSE
+    # erasure of those specific records. The schema encodes it: their
+    # ``customer_id`` FK is ``ON DELETE RESTRICT`` + ``NOT NULL``, so the
+    # customer row physically cannot be deleted while any exist. Rather than
+    # FK-fail (the old behaviour), we anonymise the customer in place — the
+    # financial record is retained with a scrubbed, non-identifying owner.
+    # ─────────────────────────────────────────────────────────────────────
+
+    @staticmethod
+    async def has_retained_financial_records(
+        db: AsyncSession, customer_id: int
+    ) -> bool:
+        """Return True if the customer has ≥1 §147-AO-retained record.
+
+        Checks the three tables whose ``customer_id`` FK is
+        ``ON DELETE RESTRICT`` + ``NOT NULL`` — invoices, quotes, and
+        valuation certificates. Any hit means the customer row cannot be
+        hard-deleted and must instead be anonymised in place.
+
+        The decision is made by an EXPLICIT existence query — NOT by
+        catching a DB ``IntegrityError`` — so it behaves identically on
+        PostgreSQL (FKs enforced) and on the SQLite test backend (FKs not
+        enforced). ``security > correctness`` (CLAUDE.md): we never rely on
+        the database refusing the delete.
+        """
+        for model in (Invoice, Quote, ValuationCertificate):
+            existing = await db.execute(
+                select(model.id).filter(model.customer_id == customer_id).limit(1)
+            )
+            if existing.first() is not None:
+                return True
+        return False
+
+    @staticmethod
+    async def anonymize_customer(
+        db: AsyncSession,
+        customer_id: int,
+        *,
+        performed_by: Optional[int] = None,
+    ) -> bool:
+        """Overwrite a customer row's identifying columns in place, keep the row.
+
+        Mirrors ``UserService.anonymize_user`` for the customer side: the
+        row's ``id`` survives so that ``ON DELETE RESTRICT`` FKs from retained
+        financial records (invoices / quotes / valuation certificates) keep
+        resolving, while every identifying / personal column is replaced with
+        a non-PII sentinel or nulled. Used by
+        ``hard_delete_expired_customers`` when the customer has records that
+        §147 AO forbids deleting.
+
+        Idempotent: a second call re-writes the same sentinel values and
+        recomputes the same ``email_hash`` — no drift, no new PII.
+
+        Transaction: the caller owns the boundary. This method only
+        ``flush()``es (never commits), matching ``scrub_customer_pii`` and
+        ``FileErasureService`` so the whole per-customer erasure commits (or
+        rolls back) atomically.
+
+        Returns:
+            True when a row was anonymised, False when ``customer_id`` did
+            not resolve (caller decides how to treat the miss).
+        """
+        result = await db.execute(
+            select(CustomerModel).filter(CustomerModel.id == customer_id)
+        )
+        customer = result.scalar_one_or_none()
+        if customer is None:
+            return False
+
+        now = datetime.utcnow()
+        # Per-customer synthetic address — unique so the NOT NULL + UNIQUE
+        # ``email_hash`` blind index never collides between anonymised rows.
+        # Same shape UserService.anonymize_user uses for the workforce side.
+        anon_email = f"deleted_{customer_id}@anonymized.local"
+
+        # Identifying PII (NOT NULL columns → sentinel; nullable → NULL).
+        customer.first_name = ANONYMIZED_CUSTOMER_NAME
+        customer.last_name = ANONYMIZED_CUSTOMER_NAME
+        customer.company_name = None
+        customer.email = anon_email
+        # Bulk-safe: recompute the blind index explicitly rather than relying
+        # on the ORM before_update event (which only fires on ORM flush and
+        # only when email_hash is empty).
+        customer.email_hash = hmac_blind_index(anon_email)
+        customer.phone = None
+        customer.mobile = None
+        customer.street = None
+        customer.city = None
+        customer.postal_code = None
+        # Health-adjacent PII (allergies) + personal data (birthday).
+        customer.allergies = None
+        customer.birthday = None
+        # Free-text / preference surfaces on the row itself. ``notes`` was
+        # already token-scrubbed at request time; null it wholesale now.
+        customer.notes = None
+        customer.tags = []
+        customer.preferences = {}
+        customer.style_profile = None
+        customer.ring_size = None
+        customer.chain_length_cm = None
+        customer.bracelet_length_cm = None
+        # Erasure state: the schedule is now discharged.
+        customer.is_active = False
+        customer.is_deleted = True
+        customer.deleted_at = now
+        customer.deletion_scheduled_at = None
+        customer.deleted_by = performed_by
+        customer.deletion_reason = (
+            "GDPR Art. 17 erasure executed; customer anonymised in place "
+            "because retained financial records (§147 AO) block hard-delete."
+        )
+        customer.updated_at = now
+
+        await db.flush()
+
+        logger.info(
+            "Customer anonymised (GDPR Art. 17 — §147 AO retention path)",
+            extra={
+                "audit": True,
+                "action": "gdpr_customer_anonymized",
+                "customer_id": customer_id,
+                "user_id": performed_by,
+            },
+        )
+        return True
+
+    @staticmethod
+    async def hard_delete_expired_customers(
+        db: AsyncSession,
+        *,
+        now: Optional[datetime] = None,
+        storage_root: Optional[Path] = None,
+        performed_by: Optional[int] = None,
+    ) -> CustomerCleanupReport:
+        """Execute Art. 17 erasure for every customer past the 30-day grace.
+
+        This is the back half of the erasure loop (finding 1.3). For each
+        customer whose ``deletion_scheduled_at`` has elapsed:
+
+          1. **Re-run ``FileErasureService``** (idempotent) so any file that
+             appeared after the erasure request — and the order-photo
+             THUMBNAILS closed by issue #24 — is swept before the row is
+             touched. A per-file failure does NOT raise; it is surfaced via
+             the result and does not, on its own, fail the customer.
+          2. **Choose the disposition**:
+             - retained financial records (§147 AO) →
+               ``anonymize_customer`` (keep the row, scrub identity);
+             - otherwise → hard-delete the row (CASCADE / SET NULL FKs clean
+               up the children).
+          3. **Write a ``GDPRRequest`` completion row** (Art. 30 audit) with
+             the disposition. ``gdpr_requests`` has no FK to ``customers``,
+             so the row survives a hard-delete.
+
+        **Per-customer isolation / fail-loud (task 2):** each customer runs
+        in its OWN transaction. A failure is logged with structured context
+        (customer PK only — never PII), the transaction is rolled back, the
+        customer is recorded in ``report.failures``, and the sweep CONTINUES.
+        The caller (``jobs.gdpr_cleanup``) exits nonzero when
+        ``report.has_failures`` so a scheduled run never silently drops an
+        erasure the way the old inline script did.
+
+        Args:
+            db: Async session (caller-owned engine; this method drives its
+                own commits/rollbacks per customer).
+            now: Override the "current time" (tests). Defaults to
+                ``datetime.utcnow()``.
+            storage_root: Explicit ``FileErasureService`` root (tests). When
+                omitted, the service is built from
+                ``settings.FILE_STORAGE_ROOT``.
+            performed_by: Optional admin/system user id recorded in audit
+                rows. ``None`` denotes the unattended scheduled job.
+
+        Returns:
+            CustomerCleanupReport summarising the sweep.
+        """
+        # Local import keeps customer_service free of an import-time
+        # dependency on the file-erasure settings stack (parity with
+        # FileErasureService.build_default_service).
+        from goldsmith_erp.services.file_erasure_service import (
+            FileErasureService,
+            build_default_service,
+        )
+
+        now = now or datetime.utcnow()
+
+        # Fetch only the PK ids up front so we never hold ORM objects across
+        # the per-customer commits below (avoids expired-attribute reloads).
+        id_result = await db.execute(
+            select(CustomerModel.id).filter(
+                CustomerModel.deletion_scheduled_at.isnot(None),
+                CustomerModel.deletion_scheduled_at <= now,
+            )
+        )
+        expired_ids: List[int] = list(id_result.scalars().all())
+
+        report = CustomerCleanupReport(scanned=len(expired_ids))
+        if not expired_ids:
+            logger.info(
+                "GDPR cleanup: no customers past the grace period",
+                extra={"audit": True, "action": "gdpr_cleanup_empty"},
+            )
+            return report
+
+        file_service = (
+            FileErasureService(storage_root)
+            if storage_root is not None
+            else build_default_service()
+        )
+
+        for customer_id in expired_ids:
+            try:
+                # 1. Idempotent file sweep (incl. #24 thumbnails). Inside this
+                #    customer's transaction so it commits/rolls back together
+                #    with the row disposition below.
+                await file_service.erase_customer_files(
+                    db, customer_id, performed_by=performed_by
+                )
+
+                # 2. Disposition — §147 AO retention decides.
+                has_financial = await CustomerService.has_retained_financial_records(
+                    db, customer_id
+                )
+                if has_financial:
+                    await CustomerService.anonymize_customer(
+                        db, customer_id, performed_by=performed_by
+                    )
+                    disposition = "anonymized"
+                    note = (
+                        "Financial records retained under §147 AO; customer "
+                        "row anonymised in place (identity scrubbed, FKs kept)."
+                    )
+                else:
+                    await db.execute(
+                        delete(CustomerModel).where(CustomerModel.id == customer_id)
+                    )
+                    disposition = "hard_deleted"
+                    note = (
+                        "No §147-AO-retained financial records; customer row "
+                        "hard-deleted (child rows removed via CASCADE / "
+                        "SET NULL)."
+                    )
+
+                # 3. Art. 30 completion row. No FK on gdpr_requests.customer_id
+                #    → safe to write even for the hard-deleted id.
+                db.add(
+                    GDPRRequest(
+                        customer_id=customer_id,
+                        request_type="erasure_cleanup",
+                        status="completed",
+                        requested_at=now,
+                        completed_at=datetime.utcnow(),
+                        requested_by=performed_by,
+                        notes=(
+                            f"Art. 17 grace-period cleanup — "
+                            f"disposition={disposition}. {note}"
+                        ),
+                    )
+                )
+
+                await db.commit()
+
+                if has_financial:
+                    report.anonymized.append(customer_id)
+                else:
+                    report.hard_deleted.append(customer_id)
+
+                logger.info(
+                    "GDPR cleanup executed for customer",
+                    extra={
+                        "audit": True,
+                        "action": "gdpr_cleanup_customer",
+                        "customer_id": customer_id,
+                        "disposition": disposition,
+                    },
+                )
+            except Exception as exc:  # noqa: BLE001 — isolate, log, continue
+                # Fail loudly but do not abort the whole sweep: one bad
+                # customer must not block erasure of the others.
+                await db.rollback()
+                report.failures.append((customer_id, f"{type(exc).__name__}: {exc}"))
+                logger.error(
+                    "GDPR cleanup FAILED for customer — rolled back, continuing",
+                    extra={
+                        "audit": True,
+                        "action": "gdpr_cleanup_customer_failed",
+                        "customer_id": customer_id,
+                        "error_type": type(exc).__name__,
+                    },
+                    exc_info=True,
+                )
+
+        logger.info(
+            "GDPR cleanup sweep complete",
+            extra={
+                "audit": True,
+                "action": "gdpr_cleanup_complete",
+                "scanned": report.scanned,
+                "hard_deleted": len(report.hard_deleted),
+                "anonymized": len(report.anonymized),
+                "failed": len(report.failures),
+            },
+        )
+        return report
