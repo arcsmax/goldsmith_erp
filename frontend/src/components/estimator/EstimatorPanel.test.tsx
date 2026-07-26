@@ -37,7 +37,7 @@ import { estimatesApi } from "../../api/estimates";
 const mockQuote = {
   id: 1,
   quote_number: "Q-001",
-  status: "DRAFT",
+  status: "draft",
   order_id: 10,
   customer_id: 5,
   created_by: 1,

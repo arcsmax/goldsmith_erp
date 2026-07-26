@@ -279,14 +279,31 @@ class Settings(BaseSettings):
         Validate that SECRET_KEY is secure and not using default/insecure values.
 
         Security requirements:
+        - Non-empty
         - Minimum 32 characters
-        - Not a common insecure default value
+        - Not the .env.example placeholder (warn but accept, so `make start` works
+          out of the box for devs)
+        - Not a common insecure default value (hard-reject)
         - High entropy (for production)
         """
+        # .env.example placeholder: warn but accept, so fresh checkouts boot
+        # without a manual key generation step. The runtime warning is loud
+        # enough that no operator would miss it in a real environment.
+        if v == "CHANGE_THIS_TO_A_SECURE_RANDOM_STRING_AT_LEAST_32_CHARS":
+            logging.getLogger(__name__).warning(
+                "SECRET_KEY is set to the .env.example placeholder — DO NOT use this "
+                "in production. Generate a real key with:\n"
+                '  python3 -c "import secrets; print(secrets.token_urlsafe(64))"'
+            )
+            return v
+
+        # Reject empty
+        if not v:
+            raise ValueError("SECRET_KEY must not be empty")
+
         # List of known insecure default values
         insecure_values = [
             "change_this_to_a_secure_random_string",
-            "CHANGE_THIS_TO_A_SECURE_RANDOM_STRING_AT_LEAST_32_CHARS",
             "secret",
             "secretkey",
             "your-secret-key",

@@ -3,6 +3,7 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { useToast, useConfirm } from '../contexts';
 import { quotesApi } from '../api/quotes';
 import { customersApi } from '../api/customers';
+import { ordersApi } from '../api/orders';
 import {
   QuoteListItem,
   Quote,
@@ -13,6 +14,7 @@ import {
   QuoteLineType,
   ApproveQuoteInput,
   Customer,
+  OrderType,
 } from '../types';
 import { logError } from '../lib/logError';
 import { SignatureCanvas } from '../components/SignatureCanvas';
@@ -24,12 +26,12 @@ import '../styles/quotes.css';
 // ---------------------------------------------------------------------------
 
 const STATUS_LABELS: Record<QuoteStatus, string> = {
-  DRAFT: 'Entwurf',
-  SENT: 'Gesendet',
-  APPROVED: 'Genehmigt',
-  REJECTED: 'Abgelehnt',
-  EXPIRED: 'Abgelaufen',
-  CONVERTED: 'Umgewandelt',
+  draft: 'Entwurf',
+  sent: 'Gesendet',
+  approved: 'Genehmigt',
+  rejected: 'Abgelehnt',
+  expired: 'Abgelaufen',
+  converted: 'Umgewandelt',
 };
 
 function StatusBadge({ status }: { status: QuoteStatus }) {
@@ -49,7 +51,7 @@ function formatAmount(amount: number): string {
 }
 
 function validUntilClass(validUntilIso: string, status: QuoteStatus): string {
-  if (status === 'APPROVED' || status === 'CONVERTED' || status === 'REJECTED') return '';
+  if (status === 'approved' || status === 'converted' || status === 'rejected') return '';
   const daysLeft = Math.ceil(
     (new Date(validUntilIso).getTime() - Date.now()) / (1000 * 60 * 60 * 24)
   );
@@ -630,8 +632,8 @@ const QuoteDetailPanel: React.FC<QuoteDetailPanelProps> = ({
   onRemoveLineItem,
   isLoading,
 }) => {
-  const isDraft = quote.status === 'DRAFT';
-  const isDeletable = quote.status === 'DRAFT' || quote.status === 'REJECTED';
+  const isDraft = quote.status === 'draft';
+  const isDeletable = quote.status === 'draft' || quote.status === 'rejected';
   return (
     <div className="quote-detail-panel">
       <div className="detail-header">
@@ -648,12 +650,12 @@ const QuoteDetailPanel: React.FC<QuoteDetailPanelProps> = ({
           >
             PDF
           </button>
-          {quote.status === 'DRAFT' && (
+          {quote.status === 'draft' && (
             <button className="btn btn-primary btn-sm" onClick={onSend} disabled={isLoading}>
               Versenden
             </button>
           )}
-          {(quote.status === 'SENT' || quote.status === 'DRAFT') && (
+          {(quote.status === 'sent' || quote.status === 'draft') && (
             <>
               <button className="btn btn-approve btn-sm" onClick={onApproveClick} disabled={isLoading}>
                 Genehmigen
@@ -663,7 +665,7 @@ const QuoteDetailPanel: React.FC<QuoteDetailPanelProps> = ({
               </button>
             </>
           )}
-          {quote.status === 'APPROVED' && (
+          {quote.status === 'approved' && (
             <button className="btn btn-convert btn-sm" onClick={onConvert} disabled={isLoading}>
               In Auftrag umwandeln
             </button>
@@ -821,6 +823,7 @@ export const QuotesPage: React.FC = () => {
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isApproveModalOpen, setIsApproveModalOpen] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
+  const [linkedOrder, setLinkedOrder] = useState<OrderType | null>(null);
 
   // ------------------------------------------------------------------
   // Data loading
@@ -856,6 +859,58 @@ export const QuotesPage: React.FC = () => {
   useEffect(() => {
     loadCustomers();
   }, [loadCustomers]);
+
+  // ------------------------------------------------------------------
+  // Linked order — when the selected quote references an order, fetch
+  // it so the EstimatorPanel can pre-fill order_type / surface_finish /
+  // alloy. We deliberately swallow 404 here (orphan order_id) — the
+  // estimator falls back to empty inputs.
+  // ------------------------------------------------------------------
+
+  useEffect(() => {
+    const orderId = selectedQuote?.order_id;
+    if (!orderId) {
+      setLinkedOrder(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const order = await ordersApi.getById(orderId);
+        if (!cancelled) setLinkedOrder(order);
+      } catch {
+        if (!cancelled) setLinkedOrder(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedQuote?.order_id]);
+
+  // ------------------------------------------------------------------
+  // Estimator patch — add the LABOR line item suggested by the panel
+  // ------------------------------------------------------------------
+
+  const handleEstimatorPatch = useCallback(
+    async (patch: { addLineItem: QuoteLineItemInput }): Promise<boolean> => {
+      if (!selectedQuote) return false;
+      try {
+        const updated = await quotesApi.addLineItem(selectedQuote.id, patch.addLineItem);
+        setSelectedQuote(updated);
+        await loadQuotes();
+        showToast('Schätzung wurde übernommen.', 'success');
+        return true;
+      } catch (err: any) {
+        logError('quote.estimatorPatch', err);
+        showToast(
+          err?.response?.data?.detail ?? 'Schätzung konnte nicht übernommen werden.',
+          'error'
+        );
+        return false;
+      }
+    },
+    [selectedQuote, showToast, loadQuotes]
+  );
 
   // ------------------------------------------------------------------
   // Row selection — load full quote with line items
@@ -1085,12 +1140,12 @@ export const QuotesPage: React.FC = () => {
             onChange={e => setStatusFilter(e.target.value as QuoteStatus | '')}
           >
             <option value="">Alle</option>
-            <option value="DRAFT">Entwurf</option>
-            <option value="SENT">Gesendet</option>
-            <option value="APPROVED">Genehmigt</option>
-            <option value="REJECTED">Abgelehnt</option>
-            <option value="EXPIRED">Abgelaufen</option>
-            <option value="CONVERTED">Umgewandelt</option>
+            <option value="draft">Entwurf</option>
+            <option value="sent">Gesendet</option>
+            <option value="approved">Genehmigt</option>
+            <option value="rejected">Abgelehnt</option>
+            <option value="expired">Abgelaufen</option>
+            <option value="converted">Umgewandelt</option>
           </select>
         </div>
       </div>
@@ -1181,6 +1236,24 @@ export const QuotesPage: React.FC = () => {
           onSaveLineItem={handleSaveLineItem}
           onRemoveLineItem={handleRemoveLineItem}
           isLoading={actionLoading}
+        />
+      )}
+
+      {/* Estimator — only visible for DRAFT quotes, gated to ADMIN/GOLDSMITH inside the panel */}
+      {selectedQuote?.status === 'draft' && (
+        <EstimatorPanel
+          quote={selectedQuote}
+          order={
+            linkedOrder
+              ? {
+                  id: linkedOrder.id,
+                  order_type: linkedOrder.order_type ?? null,
+                  surface_finish: linkedOrder.surface_finish ?? null,
+                  alloy: linkedOrder.alloy ?? null,
+                }
+              : null
+          }
+          onPatch={handleEstimatorPatch}
         />
       )}
 
