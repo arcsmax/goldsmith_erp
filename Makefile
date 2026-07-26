@@ -1,7 +1,7 @@
 # Makefile for Goldsmith ERP with Podman
 # Makes development easier with simple commands
 
-.PHONY: help install start stop restart logs clean build test test-integration-pg lint format seed-demo validate-compose
+.PHONY: help install start stop restart logs clean build test test-integration-pg lint format seed-demo seed-production validate-compose
 
 # Default target
 .DEFAULT_GOAL := help
@@ -121,6 +121,11 @@ seed-demo: ## Load demo data for showcasing all features
 	@echo "$(GREEN)Loading comprehensive demo data...$(NC)"
 	@cd src && poetry run python ../scripts/seed_demo.py
 	@echo "$(GREEN)✓ Demo data loaded$(NC)"
+
+seed-production: ## Seed ONLY reference data (activities + materials) — safe for prod, idempotent
+	@echo "$(GREEN)Seeding reference data (activities + materials)...$(NC)"
+	@$(PROD_COMPOSE) exec backend poetry run python -m goldsmith_erp.db.reference_seed
+	@echo "$(GREEN)✓ Reference data seeded (no users, no customers, no demo data)$(NC)"
 
 # Testing
 test: ## Run tests

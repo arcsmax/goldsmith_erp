@@ -69,8 +69,13 @@ services:
       context: .
       dockerfile: Containerfile
     container_name: goldsmith-backend-prod
+    # Boot sequence: migrate → seed reference data (idempotent, gated by
+    # SEED_REFERENCE_DATA=true default) → serve. The reference seed only ever
+    # creates the 15 standard activities + standard materials catalogue — never
+    # users, customers or demo data — so it is safe to run on every boot.
     command: >
       bash -c "cd /app && poetry run alembic upgrade head &&
+               poetry run python -m goldsmith_erp.db.reference_seed &&
                cd /app/src && poetry run uvicorn goldsmith_erp.main:app
                --host 0.0.0.0 --port 8000
                --workers 2
