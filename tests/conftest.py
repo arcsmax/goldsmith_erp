@@ -7,7 +7,9 @@ Uses an in-memory async SQLite database so unit tests run without PostgreSQL.
 
 import asyncio
 import os
+import time as _time
 import uuid
+from contextlib import asynccontextmanager as _asynccontextmanager
 from datetime import datetime, timedelta
 from typing import AsyncGenerator
 
@@ -155,6 +157,69 @@ def reset_rate_limiters():
     auth_limiter.reset()
     yield
     auth_limiter.reset()
+
+
+# ---------------------------------------------------------------------------
+# Fake Redis for token-revocation tests (finding 2.1)
+# ---------------------------------------------------------------------------
+# fakeredis is not a project dependency, so we hand-roll a minimal in-memory
+# async client covering exactly the calls token_revocation.py makes
+# (set/get/exists/close) with the pool's decode_responses=True semantics
+# (str values, int from exists). TTLs are honoured against wall-clock time.
+
+
+class _FakeAsyncRedis:
+    """Minimal async Redis stand-in with TTL support (decode_responses=True)."""
+
+    def __init__(self) -> None:
+        self._data: dict[str, tuple[str, float | None]] = {}
+
+    def _expired(self, key: str) -> bool:
+        item = self._data.get(key)
+        if item is None:
+            return True
+        _, expiry = item
+        if expiry is not None and expiry <= _time.time():
+            self._data.pop(key, None)
+            return True
+        return False
+
+    async def set(self, key, value, ex=None):  # noqa: ANN001
+        expiry = _time.time() + ex if ex else None
+        self._data[key] = (str(value), expiry)
+        return True
+
+    async def get(self, key):  # noqa: ANN001
+        if self._expired(key):
+            return None
+        return self._data[key][0]
+
+    async def exists(self, *keys):  # noqa: ANN002
+        return sum(0 if self._expired(k) else 1 for k in keys)
+
+    async def close(self):
+        return None
+
+
+@pytest.fixture
+def fake_redis(monkeypatch):
+    """Patch token_revocation.get_redis_client to a shared in-memory fake.
+
+    Both the write paths (blocklist_jti / invalidate_user_tokens) and the read
+    path (is_token_revoked) resolve get_redis_client from the token_revocation
+    module namespace, so patching there gives every call the same store — which
+    is what lets an integration test observe a logout blocklisting a token.
+    """
+    fake = _FakeAsyncRedis()
+
+    @_asynccontextmanager
+    async def _factory():
+        yield fake
+
+    monkeypatch.setattr(
+        "goldsmith_erp.core.token_revocation.get_redis_client", _factory
+    )
+    return fake
 
 
 @pytest_asyncio.fixture
