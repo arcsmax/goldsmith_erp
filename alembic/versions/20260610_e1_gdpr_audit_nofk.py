@@ -27,7 +27,7 @@ from goldsmith_erp.db.migration_helpers import (
 
 # revision identifiers, used by Alembic.
 revision: str = "20260610_e1_gdpr_audit_nofk"
-down_revision: Union[str, None] = "20260527_d1_activity_billable"
+down_revision: Union[str, None] = "20260705_v13t5_quote_line_item_estimator_metadata"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
