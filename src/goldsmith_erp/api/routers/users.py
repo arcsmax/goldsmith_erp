@@ -1,13 +1,22 @@
 # src/goldsmith_erp/api/routers/users.py
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Body, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
-from typing import List
+from typing import List, Optional
 
 from goldsmith_erp.api.deps import get_current_user
 from goldsmith_erp.db.session import get_db
 from goldsmith_erp.db.models import User as UserModel
-from goldsmith_erp.models.user import UserCreate, User, UserUpdate
+from goldsmith_erp.models.user import (
+    LastAdminError,
+    SentinelMissing,
+    User,
+    UserCreate,
+    UserErasureRequest,
+    UserErasureResponse,
+    UserNotFound,
+    UserUpdate,
+)
 from goldsmith_erp.services.user_service import UserService
 from goldsmith_erp.core.permissions import Permission, require_permission
 
@@ -251,6 +260,100 @@ async def deactivate_user(
         )
 
     return result
+
+
+@router.post("/{user_id}/gdpr-erase", response_model=UserErasureResponse)
+@require_permission(Permission.USER_DELETE)
+async def gdpr_erase_user(
+    user_id: int,
+    payload: Optional[UserErasureRequest] = Body(default=None),
+    db: AsyncSession = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user),
+):
+    """
+    **GDPR Art. 17 (Recht auf Löschung)** — Mitarbeiter-Konto anonymisieren.
+
+    - **Admin-Berechtigung erforderlich** (`USER_DELETE`)
+    - Ruft :meth:`UserService.anonymize_user` auf: überschreibt alle PII auf
+      der ``users``-Zeile mit Sentinel-Werten, schreibt jede FK-Referenz auf
+      den globalen Sentinel-User um und scrubbt die denormalisierte
+      ``customer_audit_logs.user_email``-Kopie — alles in einer Transaktion.
+    - Die Zeile wird **nicht** hart gelöscht: ``id`` und ``role`` bleiben
+      erhalten, damit ``ON DELETE RESTRICT``-FKs weiter auflösen. §147 AO /
+      §257 HGB Aufbewahrungspflichten bleiben dadurch gewahrt.
+    - **Idempotent**: ein zweiter Aufruf gibt ``already_anonymized=True``
+      zurück (kein Fehler).
+
+    **Guard rails:**
+    - Der Sentinel-User selbst kann nicht anonymisiert werden → 409.
+    - Der **letzte aktive ADMIN** kann nicht anonymisiert werden → 409. Da
+      dieser Endpunkt ADMIN-only ist, deckt genau diese Regel auch den
+      Selbst-Löschungs-Fall ab: ein Admin darf sich selbst löschen, solange
+      mindestens ein weiterer aktiver Admin existiert; ist er der letzte,
+      schützt der Last-Admin-Guard den Workshop vor der Aussperrung.
+    - Unbekannte ``user_id`` → 404.
+
+    **Response** trägt ausschließlich nicht-re-identifizierbare Daten
+    (ids, HMAC-Token, Zähler) — keine E-Mail, kein Name.
+
+    **Use Case**: Ein ausgeschiedener Mitarbeiter verlangt Löschung seiner
+    personenbezogenen Daten (GDPR Art. 17); Finanz-/Auftragshistorie bleibt
+    pseudonymisiert erhalten.
+    """
+    reason = (
+        payload.reason.strip()
+        if payload is not None and payload.reason and payload.reason.strip()
+        else "GDPR Art. 17 erasure (admin-initiated)"
+    )
+
+    try:
+        result = await UserService.anonymize_user(
+            db,
+            user_id,
+            reason=reason,
+            requested_by=current_user.id,
+        )
+    except UserNotFound:
+        # 404 — no PII in the message.
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found",
+        )
+    except LastAdminError:
+        # 409 — target is the last active ADMIN or the GDPR sentinel. Covers
+        # the self-erasure guard rail (an admin cannot erase themselves out
+        # of the last admin seat). No PII in the message.
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "Cannot erase the last active administrator or the GDPR "
+                "sentinel user."
+            ),
+        )
+    except SentinelMissing:
+        # Bootstrap failure — the sentinel row could not be resolved/created.
+        # A genuine server-side condition, surfaced without leaking detail.
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="GDPR erasure unavailable: sentinel user could not be resolved.",
+        )
+
+    detail = (
+        "User was already anonymised (idempotent no-op)."
+        if result.already_anonymized
+        else "User anonymised under GDPR Art. 17."
+    )
+
+    return UserErasureResponse(
+        user_id=result.user_id,
+        sentinel_user_id=result.sentinel_user_id,
+        tracking_hmac=result.tracking_hmac,
+        gdpr_request_id=result.gdpr_request_id,
+        already_anonymized=result.already_anonymized,
+        fk_updates=result.fk_updates,
+        audit_email_scrubs=result.audit_email_scrubs,
+        detail=detail,
+    )
 
 
 @router.post("/{user_id}/activate", response_model=User)
