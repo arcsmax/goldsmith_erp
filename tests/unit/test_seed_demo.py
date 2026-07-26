@@ -28,6 +28,7 @@ from pathlib import Path
 
 import pytest
 
+from goldsmith_erp.db import _seed_helpers
 from goldsmith_erp.db._seed_helpers import (
     FIBONACCI_DAYS,
     days_ago,
@@ -66,9 +67,14 @@ def test_days_ago_zero_is_close_to_now() -> None:
     bounds — the test still confirms the function returns a *recent*
     datetime, not some ancient constant.
     """
-    now = datetime.utcnow()
-    actual = days_ago(0)
-    assert now - timedelta(minutes=5) <= actual <= now + timedelta(seconds=5)
+    # Deterministic contract: days_ago(0) IS the module's frozen NOW — no
+    # wall-clock comparison can race, no matter how long the suite runs
+    # before this test executes (a 5-minute window failed in CI once the
+    # full suite grew past ~7 minutes).
+    assert days_ago(0) == _seed_helpers.NOW
+    # Recency sanity only — catches an ancient hardcoded constant, with a
+    # window no realistic suite duration can outgrow.
+    assert datetime.utcnow() - _seed_helpers.NOW < timedelta(hours=24)
 
 
 @pytest.mark.unit
