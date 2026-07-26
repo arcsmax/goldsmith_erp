@@ -8,7 +8,7 @@
 // the typeof-string guard now does it deliberately). A genuine string
 // detail (e.g. a 409 duplicate-customer message) still passes through.
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 const mockCreate = vi.fn();
@@ -37,7 +37,17 @@ beforeEach(() => {
 
 async function openModalAndFillRequiredFields() {
   await userEvent.click(screen.getByRole('button', { name: '+ Neue Kundin' }));
-  await userEvent.type(screen.getByLabelText(/Vorname/), 'Anna');
+  // CustomerFormModal auto-focuses its first field via a 30 ms setTimeout
+  // (focus effect). That one-shot timer is still pending right after the modal
+  // opens; if we start typing before it fires, it lands mid-sequence, steals
+  // focus back to Vorname, and misroutes the remaining keystrokes — the E-Mail
+  // field ends up empty, Zod rejects it, so handleCreateCustomer never runs and
+  // the error message under test never renders (the ~1/3 flake, issue #31).
+  // Wait for the auto-focus to settle before typing so keystrokes can't be
+  // misrouted — a deterministic sync on the real race, not an arbitrary delay.
+  const vorname = await screen.findByLabelText(/Vorname/);
+  await waitFor(() => expect(vorname).toHaveFocus());
+  await userEvent.type(vorname, 'Anna');
   await userEvent.type(screen.getByLabelText(/Nachname/), 'Muster');
   await userEvent.type(screen.getByLabelText(/E-Mail/), 'anna@example.com');
 }
