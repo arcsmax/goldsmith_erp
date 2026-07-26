@@ -40,6 +40,14 @@ class AnonymizationResult:
     already_anonymized: bool = False
     """True on an idempotent re-call (no FK updates, no exception)."""
 
+    audit_email_scrubs: int = 0
+    """Count of `customer_audit_logs.user_email` rows overwritten with the
+    HMAC sentinel. The audit table keeps a *denormalized plaintext copy* of
+    the acting user's e-mail that the FK-rewrite loop does not touch (that
+    loop only rewrites the `user_id` FK); this counter records how many such
+    plaintext copies were scrubbed to `deleted_user_{hmac}` in the same
+    transaction. Zero on an idempotent re-call."""
+
 
 class UserNotFound(Exception):
     """Raised when `anonymize_user` receives an id that does not exist."""
@@ -171,3 +179,63 @@ class UserInDB(User):
     """Internes Schema mit Hash-Passwort."""
 
     hashed_password: str
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# GDPR Art. 17 — user-erasure API request / response schemas
+# ─────────────────────────────────────────────────────────────────────────────
+# Used by ``POST /api/v1/users/{id}/gdpr-erase`` (ADMIN-only). The response
+# carries only non-PII summary data (ids, HMAC token, counts) so it is safe
+# to return over the wire and to log. See the endpoint docstring and
+# ``UserService.anonymize_user`` for the underlying contract.
+
+
+class UserErasureRequest(BaseModel):
+    """Optional request body for a GDPR erasure.
+
+    ``reason`` is free-text non-PII rationale stored verbatim in
+    ``gdpr_requests.notes`` (alongside the HMAC tracking token). It is
+    bounded to keep the audit note readable; callers SHOULD NOT put customer
+    or employee PII here. The body as a whole is optional — an empty POST
+    falls back to a standard admin-initiated reason.
+    """
+
+    reason: Optional[str] = Field(
+        default=None,
+        max_length=500,
+        description="Non-PII rationale for the erasure (stored in the audit note).",
+    )
+
+
+class UserErasureResponse(BaseModel):
+    """Result of a GDPR erasure — non-PII summary only.
+
+    Mirrors :class:`AnonymizationResult`, minus anything re-identifiable:
+    the target's e-mail/name are never returned (they no longer exist after
+    the call), only the stable ``user_id`` and the audit-correlation token.
+    """
+
+    user_id: int = Field(..., description="Id of the anonymised user (preserved).")
+    sentinel_user_id: int = Field(
+        ..., description="Id of the sentinel row that now owns the rewritten FKs."
+    )
+    tracking_hmac: str = Field(
+        ..., description="16-char HMAC(salt, user_id) audit-correlation token."
+    )
+    gdpr_request_id: int = Field(
+        ..., description="Primary key of the recorded gdpr_requests audit row."
+    )
+    already_anonymized: bool = Field(
+        ..., description="True if the user was already anonymised (idempotent no-op)."
+    )
+    fk_updates: dict = Field(
+        default_factory=dict,
+        description="Per-table count of FK references rewritten to the sentinel.",
+    )
+    audit_email_scrubs: int = Field(
+        default=0,
+        description="Count of customer_audit_logs.user_email plaintext copies scrubbed.",
+    )
+    detail: str = Field(
+        ..., description="Human-readable summary of the outcome (no PII)."
+    )

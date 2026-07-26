@@ -5,7 +5,7 @@ Tests cover:
 - User creation with password hashing
 - User retrieval (by ID, email, listing)
 - User updates (including password changes)
-- User deletion (soft and hard delete)
+- User deletion (soft delete; GDPR anonymisation covered in test_user_anonymization.py)
 - User activation/deactivation
 - Password security validation
 - Name validation
@@ -312,25 +312,11 @@ class TestUserDeletion:
         assert result["success"] is False
         assert "not found" in result["message"].lower()
 
-    async def test_hard_delete_user(self, db_session, sample_user):
-        """Test hard delete (permanent removal)"""
-        user_id = sample_user.id
-
-        result = await UserService.hard_delete_user(db_session, user_id)
-
-        assert result["success"] is True
-        assert "permanently deleted" in result["message"].lower()
-
-        # User should not exist
-        user = await UserService.get_user_by_id(db_session, user_id)
-        assert user is None
-
-    async def test_hard_delete_non_existent_user(self, db_session):
-        """Test hard deleting non-existent user"""
-        result = await UserService.hard_delete_user(db_session, 99999)
-
-        assert result["success"] is False
-        assert "not found" in result["message"].lower()
+    # NOTE: tests for ``hard_delete_user`` were removed on 2026-07-26 together
+    # with the method itself (production-readiness finding 1.4). GDPR Art. 17
+    # for employees is served by ``anonymize_user`` — see
+    # tests/unit/test_user_anonymization.py and
+    # tests/integration/test_user_gdpr_erasure.py.
 
     async def test_activate_deactivated_user(self, db_session, inactive_user):
         """Test activating a deactivated user"""

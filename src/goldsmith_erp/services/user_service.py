@@ -6,14 +6,14 @@ import logging
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from sqlalchemy import delete, text, update
+from sqlalchemy import text, update
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
 from goldsmith_erp.core.config import settings
 from goldsmith_erp.core.security import get_password_hash
-from goldsmith_erp.db.models import GDPRRequest
+from goldsmith_erp.db.models import CustomerAuditLog, GDPRRequest
 from goldsmith_erp.db.models import User as UserModel
 from goldsmith_erp.db.models import UserRole
 from goldsmith_erp.models.user import (
@@ -290,29 +290,14 @@ class UserService:
 
         return {"success": True, "message": f"User {user_id} deactivated successfully"}
 
-    @staticmethod
-    async def hard_delete_user(db: AsyncSession, user_id: int) -> Dict[str, Any]:
-        """
-        Löscht einen Benutzer permanent aus der Datenbank.
-        ACHTUNG: Diese Operation kann nicht rückgängig gemacht werden!
-
-        Args:
-            db: Datenbank-Session
-            user_id: ID des zu löschenden Benutzers
-
-        Returns:
-            Dict mit Erfolgs-Status
-        """
-        # Prüfen ob Benutzer existiert
-        user = await UserService.get_user_by_id(db, user_id)
-        if not user:
-            return {"success": False, "message": "User not found"}
-
-        # Hard delete: Benutzer permanent löschen
-        await db.execute(delete(UserModel).where(UserModel.id == user_id))
-        await db.commit()
-
-        return {"success": True, "message": f"User {user_id} permanently deleted"}
+    # NOTE: A raw ``hard_delete_user`` (unconditional ``DELETE FROM users``)
+    # was removed on 2026-07-26 (production-readiness finding 1.4). It had no
+    # router or service caller — only its own unit tests — and a true hard
+    # delete would violate the ON DELETE RESTRICT foreign keys that reference
+    # ``users(id)`` (see ``ANONYMIZABLE_FK_TARGETS``), leaving the operation
+    # to fail on any user with real history. GDPR Art. 17 for employees is
+    # served by :meth:`anonymize_user` (sentinel FK rewrite + PII overwrite),
+    # which is the only supported erasure path.
 
     # ─────────────────────────────────────────────────────────────────
     # GDPR Art. 17 — user anonymisation (Slice 0)
@@ -420,6 +405,11 @@ class UserService:
         if target is None:
             raise UserNotFound(f"User {user_id} not found")
 
+        # Capture the plaintext login e-mail before it is overwritten — the
+        # customer_audit_logs scrub (step 5a) matches on it to catch rows
+        # whose user_id FK was NULL/mismatched.
+        original_email = target.email
+
         # ── 2. Resolve the sentinel first — also guards against the
         #        self-anonymise-sentinel case: if the caller hands us the
         #        sentinel's own id, we bail out before touching FKs.
@@ -469,9 +459,35 @@ class UserService:
 
         tracking_hmac = _compute_tracking_hmac(target.id)
         fk_updates: Dict[str, int] = {}
+        audit_email_scrubs = 0
+        # Same "deleted_user_{hash}" sentinel CLAUDE.md mandates for erased
+        # audit logs — reuses the HMAC token so the scrubbed value stays
+        # correlatable but non-re-identifiable.
+        sentinel_audit_email = f"deleted_user_{tracking_hmac}"
 
         # ── 5. Transactional rewrite of all FKs + PII overwrite. ────
         try:
+            # 5a. Scrub the denormalized plaintext e-mail copy the
+            # customer_audit_logs table keeps for the acting user. The FK
+            # loop below rewrites customer_audit_logs.user_id -> sentinel
+            # but never touches the plaintext user_email column, so that
+            # copy would otherwise survive anonymisation (finding 1.4). We
+            # MUST run this BEFORE the FK rewrite so the user_id match still
+            # resolves to target.id; we also match the captured original
+            # e-mail to catch rows whose user_id was NULL or mismatched.
+            # Only rows that actually carry an e-mail are touched (rows with
+            # user_email IS NULL have no plaintext PII to scrub).
+            scrub_res = await db.execute(
+                update(CustomerAuditLog)
+                .where(
+                    (CustomerAuditLog.user_id == target.id)
+                    | (CustomerAuditLog.user_email == original_email)
+                )
+                .where(CustomerAuditLog.user_email.isnot(None))
+                .values(user_email=sentinel_audit_email)
+            )
+            audit_email_scrubs = max(scrub_res.rowcount or 0, 0)
+
             # Rewrite every registered FK column to the sentinel id.
             # Raw `text()` UPDATEs are used because the registry is by
             # table/column name, not mapped classes; this also keeps
@@ -527,6 +543,40 @@ class UserService:
             )
             db.add(gdpr_request)
 
+            # Record a CustomerAuditLog "gdpr_erased" row so the erasure
+            # surfaces in the same audit table as every other regulated
+            # resource access. AuditLoggingMiddleware cannot capture this
+            # POST (/users is not a registered audited family, and its
+            # financial GET-only gate would skip a POST anyway), so the row
+            # is written here in-transaction — the same pattern as
+            # customer_update_service.write_financial_audit_row, but atomic
+            # with the erasure and citing Art. 17 rather than §147 AO. No
+            # PII: the actor is referenced by id, the subject by the HMAC
+            # token, user_email stays NULL.
+            erasure_audit = CustomerAuditLog(
+                customer_id=None,
+                action="gdpr_erased",
+                entity="user",
+                entity_id=target.id,
+                user_id=effective_requested_by,
+                user_email=None,
+                user_role=None,
+                timestamp=now,
+                ip_address=None,
+                user_agent=None,
+                details={
+                    "endpoint": "POST /api/v1/users/{id}/gdpr-erase",
+                    "http_method": "POST",
+                    "legal_basis": "GDPR Article 17 - Right to erasure",
+                    "purpose": "User (workforce) anonymisation via API",
+                    "tracking_hmac": tracking_hmac,
+                    "fk_tables_rewritten": len(fk_updates),
+                    "audit_email_scrubs": audit_email_scrubs,
+                    "self_erasure": requested_by == target.id,
+                },
+            )
+            db.add(erasure_audit)
+
             await db.commit()
             await db.refresh(gdpr_request)
         except SQLAlchemyError:
@@ -554,6 +604,7 @@ class UserService:
                 "requested_by": requested_by,
                 "self_erasure": requested_by == target.id,
                 "fk_updates": fk_updates,
+                "audit_email_scrubs": audit_email_scrubs,
                 "gdpr_request_id": gdpr_request.id,
             },
         )
@@ -565,6 +616,7 @@ class UserService:
             tracking_hmac=tracking_hmac,
             gdpr_request_id=gdpr_request.id,
             already_anonymized=False,
+            audit_email_scrubs=audit_email_scrubs,
         )
 
     @staticmethod
