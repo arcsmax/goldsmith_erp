@@ -114,11 +114,14 @@ async def seeded_ring_corpus(
     goldsmith_user: User,
     rated_activity: Activity,
 ):
-    """5 completed 'ring'/'high_polish'/stone-setting orders with billable
-    time entries of 2/4/6/8/10 hours -- enough to clear MIN_SAMPLE=5 at
-    the most specific ("exact") similarity tier."""
+    """6 completed 'ring'/'high_polish'/stone-setting orders with billable
+    time entries of 2/4/6/8/10/12 hours. All 6 clear MIN_SAMPLE=5 at the
+    most specific ("exact") tier; the P10 corpus-exclusion then drops the
+    2h outlier, leaving 5 orders -- which still meets the MIN_SAMPLE floor
+    that Decision #1 (PR #44) applies to the post-exclusion count, so the
+    estimate stays confident (see test_goldsmith_gets_200_with_p50)."""
     orders = []
-    for hours in (2, 4, 6, 8, 10):
+    for hours in (2, 4, 6, 8, 10, 12):
         order = _make_order(test_customer.id)
         db_session.add(order)
         await db_session.commit()
@@ -162,10 +165,14 @@ class TestPostLaborEstimate:
         body = resp.json()
         assert body["insufficient_data"] is False
         # The 2h order falls below the tier's P10 corpus-exclusion
-        # threshold (Task 3) and is dropped, leaving 4 orders: median=7.0.
-        assert body["hours_p50"] == pytest.approx(7.0)
-        assert body["labor_cost_p50"] == pytest.approx(560.0)
-        assert body["sample_size"] == 4
+        # threshold (Task 3) and is dropped, leaving 5 orders
+        # (4/6/8/10/12): median=8.0. Post-exclusion the sample is still 5,
+        # which meets the MIN_SAMPLE=5 floor that Decision #1 (PR #44)
+        # applies to the count SHOWN — so this stays a confident estimate,
+        # not insufficient_data.
+        assert body["hours_p50"] == pytest.approx(8.0)
+        assert body["labor_cost_p50"] == pytest.approx(640.0)
+        assert body["sample_size"] == 5
         # Raw hourly_rate must never be exposed on this response.
         assert "hourly_rate" not in body
 
