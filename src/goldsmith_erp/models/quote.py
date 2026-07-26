@@ -43,6 +43,10 @@ class QuoteLineItemCreate(BaseModel):
     unit_price: float = Field(
         ..., ge=0, description="Net unit price in EUR (Einzelpreis netto)"
     )
+    estimator_metadata: dict | None = Field(
+        default=None,
+        description="Snapshot of estimator inputs/outputs. Set on create; immutable on update.",
+    )
 
     @model_validator(mode="after")
     def validate_amounts(self) -> "QuoteLineItemCreate":
@@ -63,6 +67,10 @@ class QuoteLineItemResponse(BaseModel):
     quantity: float
     unit_price: float
     total: float
+    estimator_metadata: dict | None = Field(
+        default=None,
+        description="Snapshot of estimator inputs/outputs. Set on create; immutable on update.",
+    )
 
     model_config = ConfigDict(from_attributes=True)
 

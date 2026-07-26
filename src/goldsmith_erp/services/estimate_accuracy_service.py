@@ -200,40 +200,73 @@ async def calibration(
 async def safe_record_on_completion(
     db: AsyncSession,
     order: OrderModel,
-    *,
-    estimated_hours: Optional[float] = None,
-    actual_hours: Optional[float] = None,
-    estimated_total: Optional[float] = None,
-    actual_total: Optional[float] = None,
-    estimator_version: Optional[str] = None,
 ) -> None:
     """Defensive, fire-and-forget hook for order completion.
 
-    Wired into `OrderService.update_order`, called AFTER that method's
-    `transactional()` block has already committed the status change (same
-    post-commit placement as `CostWatchService.safe_check` in
-    `TimeTrackingService.stop_time_entry`) — a failure in here must never
-    unwind or appear to unwind an already-committed order completion, and
-    never raises, mirroring that precedent exactly.
+    Looks up the order's accepted quote(s), finds the LABOR line item
+    with `estimator_metadata` set, and records an EstimateAccuracy row
+    capturing suggested_hours (from metadata) vs actual billable hours
+    (from TimeEntry sum). If no estimator-sourced labor line exists,
+    this is a no-op (no trust signal to capture).
 
-    NO-OP whenever any estimate value is `None`, which is EVERY call site
-    today: `Order` has no stored-estimate column yet (V1.3 Task 5 —
-    `EstimatorService` — owns adding that storage and looking up a prior
-    estimate). Wiring this hook now, ahead of Task 5, means Task 5 only
-    has to change its call site to pass real values through; no new hook
-    or call site is needed later. `estimated_hours`/`actual_hours`/
-    `estimated_total`/`actual_total`/`estimator_version` are ALL required
-    together — a partial estimate is not meaningful to record.
+    Wired into `OrderService.update_order`, called AFTER that method's
+    `transactional()` block has already committed the status change
+    (same post-commit placement as `CostWatchService.safe_check`).
     """
-    if (
-        estimated_hours is None
-        or actual_hours is None
-        or estimated_total is None
-        or actual_total is None
-        or estimator_version is None
-    ):
-        return
     try:
+        # Find the order's quote(s) and the estimator-sourced LABOR line.
+        # Order is already loaded by the caller; we only need the quotes
+        # + their line items + the billable time entries.
+        from goldsmith_erp.db.models import Quote, QuoteLineItem, TimeEntry, Activity
+
+        line_item_q = (
+            select(QuoteLineItem)
+            .join(Quote, QuoteLineItem.quote_id == Quote.id)
+            .where(
+                Quote.order_id == order.id,
+                QuoteLineItem.line_type == "labor",
+                QuoteLineItem.estimator_metadata.is_not(None),
+            )
+        )
+        line_item = (await db.execute(line_item_q)).scalar_one_or_none()
+        if line_item is None:
+            logger.info(
+                "EstimateAccuracyService: order %s has no estimator-sourced "
+                "LABOR line — skipping accuracy record",
+                order.id,
+                extra={"order_id": order.id},
+            )
+            return
+
+        metadata = line_item.estimator_metadata
+        estimated_hours = float(metadata["suggested_hours"])
+
+        # Sum actual billable hours for this order (duration_minutes -> hours)
+        actual_hours_q = (
+            select(TimeEntry.duration_minutes)
+            .join(Activity, TimeEntry.activity_id == Activity.id)
+            .where(
+                TimeEntry.order_id == order.id,
+                Activity.is_billable == True,  # noqa: E712
+            )
+        )
+        actual_hours_rows = (await db.execute(actual_hours_q)).all()
+        actual_hours = float(sum(float(r[0] or 0) for r in actual_hours_rows)) / 60.0
+
+        # estimated_total and actual_total are server-side cost recomputations
+        # over the activities. For Phase 3, use the line item's total
+        # (which already encodes the goldsmith's override at accept time)
+        # and the actual line item total derived from the per-unit server cost.
+        estimated_total = float(line_item.total or 0)
+        # Compute actual_total from actual_hours * per-hour rate.
+        # For Phase 3, approximate as actual_hours * (line_item.total / line_item.quantity).
+        # A more accurate recomputation can come in a later phase.
+        if line_item.quantity and line_item.quantity > 0:
+            per_hour = float(line_item.total) / float(line_item.quantity)
+            actual_total = actual_hours * per_hour
+        else:
+            actual_total = 0.0
+
         await record(
             db,
             order,
@@ -241,15 +274,11 @@ async def safe_record_on_completion(
             actual_hours=actual_hours,
             estimated_total=estimated_total,
             actual_total=actual_total,
-            estimator_version=estimator_version,
+            estimator_version=str(metadata.get("estimator_version", "unknown")),
         )
     except Exception:
-        # record() already rolls back internally (transactional()) on
-        # failure — this is a belt-and-suspenders outer guard, identical
-        # in spirit to CostWatchService.safe_check, so a bug in record()
-        # itself can never propagate into OrderService.update_order.
         logger.error(
-            "EstimateAccuracyService.safe_record_on_completion failed " "unexpectedly",
+            "EstimateAccuracyService.safe_record_on_completion failed unexpectedly",
             extra={"order_id": order.id},
             exc_info=True,
         )
