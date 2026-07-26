@@ -62,7 +62,26 @@ def _candidate_db_url() -> str | None:
     return None
 
 
-_PG_URL = _candidate_db_url()
+def _sync_driver_url(url: str) -> str:
+    """Coerce a possibly-async SQLAlchemy URL to a plain sync psycopg2 URL.
+
+    The maintenance connection below uses a *synchronous* ``create_engine``
+    (and alembic, which is also synchronous). If the candidate URL carries
+    an async driver — as the ``test-integration-pg`` CI job's
+    ``DATABASE_URL`` does (``postgresql+asyncpg://…``, since that job does
+    not set the sync ``MIGRATION_TEST_DATABASE_URL``) — a sync
+    ``create_engine`` raises ``MissingGreenlet`` the moment it connects.
+    Strip any ``+driver`` suffix so the scheme is plain ``postgresql://``
+    (psycopg2). The ``test-backend`` job already passes a sync URL, which
+    this leaves unchanged.
+    """
+    parsed = urlparse(url)
+    scheme = parsed.scheme.split("+", 1)[0] if "+" in parsed.scheme else parsed.scheme
+    return urlunparse(parsed._replace(scheme=scheme))
+
+
+_RAW_PG_URL = _candidate_db_url()
+_PG_URL = _sync_driver_url(_RAW_PG_URL) if _RAW_PG_URL else None
 
 pytestmark = pytest.mark.skipif(
     not _PG_URL,
