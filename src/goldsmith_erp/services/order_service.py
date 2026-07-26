@@ -580,8 +580,15 @@ class OrderService:
                     "message": "Auftrag kann nicht geloescht werden: aktive Rechnung vorhanden",
                 }
         except Exception:
-            # Invoice model may not exist in all deployments — skip the check
-            pass
+            # Invoice model may not exist in all deployments — skip the check,
+            # but say so: a transient DB error here silently waives the
+            # active-invoice guard on order deletion.
+            logger.warning(
+                "Active-invoice guard skipped for order %s — invoice check "
+                "failed; deletion proceeds unguarded",
+                order_id,
+                exc_info=True,
+            )
 
         async with transactional(db):
             await db.execute(

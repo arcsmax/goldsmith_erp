@@ -505,7 +505,7 @@ async def _write_pending_gdpr_request(
         try:
             await db.rollback()
         except Exception:  # noqa: BLE001
-            pass
+            logger.debug("Rollback after failed audit write also failed", exc_info=True)
         logger.error(
             "Failed to write PENDING gdpr_requests row — request proceeds "
             "without Art. 30 entry",

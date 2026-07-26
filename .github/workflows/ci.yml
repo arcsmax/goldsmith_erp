@@ -35,7 +35,7 @@ jobs:
         run: poetry run isort --check-only goldsmith_erp/
       - name: Security scan (bandit)
         working-directory: ./src
-        run: poetry run bandit -r goldsmith_erp/ -c pyproject.toml
+        run: poetry run bandit -r goldsmith_erp/ -c ../pyproject.toml
       - name: Type checking (mypy)
         working-directory: ./src
         run: poetry run mypy goldsmith_erp/ --ignore-missing-imports

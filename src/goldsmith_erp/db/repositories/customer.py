@@ -19,6 +19,7 @@ Author: Claude AI
 Date: 2025-11-06
 """
 
+import logging
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
@@ -29,6 +30,8 @@ from sqlalchemy.orm import selectinload
 from goldsmith_erp.core.encryption import get_encryption_service
 from goldsmith_erp.db.models import Customer, CustomerAuditLog, GDPRRequest, Order
 from goldsmith_erp.db.repositories.base import BaseRepository
+
+logger = logging.getLogger(__name__)
 
 
 class CustomerRepository(BaseRepository[Customer]):
@@ -651,18 +654,33 @@ class CustomerRepository(BaseRepository[Customer]):
             try:
                 customer.phone = self.encryption.decrypt(customer.phone)
             except Exception:
-                pass  # Keep encrypted value if decryption fails
+                # Keep the encrypted value rather than failing the whole read,
+                # but surface the corruption — a silent pass here masks a wrong
+                # ENCRYPTION_KEY or corrupt ciphertext (CLAUDE.md: fail loudly).
+                logger.warning(
+                    "PII decrypt failed for customer %s field=phone — serving "
+                    "ciphertext; check ENCRYPTION_KEY / data integrity",
+                    customer.id,
+                )
 
         if customer.address_line1:
             try:
                 customer.address_line1 = self.encryption.decrypt(customer.address_line1)
             except Exception:
-                pass
+                logger.warning(
+                    "PII decrypt failed for customer %s field=address_line1 — "
+                    "serving ciphertext; check ENCRYPTION_KEY / data integrity",
+                    customer.id,
+                )
 
         if customer.address_line2:
             try:
                 customer.address_line2 = self.encryption.decrypt(customer.address_line2)
             except Exception:
-                pass
+                logger.warning(
+                    "PII decrypt failed for customer %s field=address_line2 — "
+                    "serving ciphertext; check ENCRYPTION_KEY / data integrity",
+                    customer.id,
+                )
 
         return customer

@@ -394,9 +394,13 @@ filterwarnings = [
 
 [tool.bandit]
 # B101: assert used in test-like code (calendar_service health checks)
+# B104: HOST="0.0.0.0" in core/config.py — deliberate for the rootless-podman
+#       container (uvicorn must bind all interfaces inside the pod; exposure
+#       is controlled by compose port publishing + the Caddy TLS proxy).
+#       Accepted in the 2026-04 and 2026-07 security reviews.
 # B105: hardcoded passwords in seed_data.py (development-only sample data)
 # B603/B607: subprocess calls in backup endpoint (intentional, admin-only)
-skips = ["B101", "B105", "B603", "B607"]
+skips = ["B101", "B104", "B105", "B603", "B607"]
 
 [build-system]
 requires = ["poetry-core>=1.4.0"]
