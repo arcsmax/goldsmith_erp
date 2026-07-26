@@ -41,6 +41,7 @@ Entities created (in dependency order):
 """
 
 import asyncio
+import logging
 import os
 import sys
 import uuid
@@ -55,21 +56,32 @@ sys.path.insert(0, str(_src_dir))
 from sqlalchemy import select  # noqa: E402
 
 from goldsmith_erp.core.security import get_password_hash  # noqa: E402
+from goldsmith_erp.db import _seed_helpers  # noqa: E402
 from goldsmith_erp.db.models import (  # noqa: E402
     Activity,
     AlloyType,
     CalendarEvent,
     CalendarEventType,
+    Consultation,
+    ConsultationOccasion,
+    ConsultationPhoto,
+    ConsultationPhotoKind,
+    ConsultationStatus,
+    CostChangeRequest,
+    CostChangeStatus,
     CostingMethod,
     Customer,
     CustomerMeasurement,
+    CustomerUpdate,
+    CustomerUpdateKind,
+    CustomerUpdateStatus,
     FingerPosition,
     Gemstone,
+    HallmarkStatus,
+    HallmarkType,
     HandoffStatusEnum,
     HandoffTypeEnum,
     HandSide,
-    HallmarkStatus,
-    HallmarkType,
     Interruption,
     Invoice,
     InvoiceLineItem,
@@ -86,25 +98,35 @@ from goldsmith_erp.db.models import (  # noqa: E402
     NotificationTypeEnum,
     Order,
     OrderComment,
-    OrderHandoff,
     OrderHallmark,
+    OrderHandoff,
+    OrderPhoto,
     OrderStatusEnum,
     Quote,
     QuoteLineItem,
     QuoteLineType,
     QuoteStatus,
+    RepairItemType,
     RepairJob,
     RepairJobStatus,
-    RepairItemType,
+    RepairPhoto,
+    RepairPhotoPhase,
     ScrapGold,
     ScrapGoldItem,
     ScrapGoldStatus,
     TimeEntry,
+    UpdateDeliveryMethod,
     User,
     UserRole,
     ValuationCertificate,
 )
+from goldsmith_erp.db.reference_seed import (  # noqa: E402
+    seed_reference_activities,
+    seed_reference_materials,
+)
 from goldsmith_erp.db.session import AsyncSessionLocal, engine  # noqa: E402
+
+logger = logging.getLogger("seed_demo")
 
 # ── Sentinel email used for idempotency check ─────────────────────────────
 SENTINEL_EMAIL = "demo-goldschmied@werkstatt.de"
@@ -174,56 +196,28 @@ async def seed_users(db) -> list:
 
 
 async def seed_activities(db, goldsmith_user) -> list:
-    """Create the 15 standard goldsmith activities."""
-    # V1.3 Phase 3: is_billable and hourly_rate per-activity.
-    # Rubric: CAD/Design=85, Saegen/Feilen/Loeten=75, Polieren=65,
-    # Steinfassen=95, Galvanisieren=70, Endkontrolle=60 all billable.
-    # Beratung/Auftragsannahme, Wartezeit/Pause, Verwaltung non-billable.
-    activities_data = [
-        # Fabrication (Fertigung) \u2014 Saegen/Feilen/Loeten: 75 EUR/h
-        ("Saegen", "fabrication", "\u2702", "#FF6B6B", True, 75),
-        ("Feilen", "fabrication", "\U0001F4A0", "#4ECDC4", True, 75),
-        ("Loeten", "fabrication", "\U0001F525", "#FF8C42", True, 75),
-        # Polieren: 65 EUR/h
-        ("Polieren", "fabrication", "\u2728", "#95E1D3", True, 65),
-        # Steinfassen: 95 EUR/h
-        ("Fassen (Steine)", "fabrication", "\U0001F48E", "#A8E6CF", True, 95),
-        # Gravieren \u2014 not in rubric, conservative: non-billable
-        ("Gravieren", "fabrication", "\u270F", "#FFD3B6", False, None),
-        # Emaillieren \u2014 not in rubric, conservative: non-billable
-        ("Emaillieren", "fabrication", "\U0001F3A8", "#FFAAA5", False, None),
-        # Schmieden \u2014 not in rubric, conservative: non-billable
-        ("Schmieden", "fabrication", "\U0001F528", "#E07A5F", False, None),
-        # Giessen \u2014 not in rubric, conservative: non-billable
-        ("Giessen", "fabrication", "\U0001F3ED", "#3D405B", False, None),
-        # Administration \u2014 non-billable
-        ("Kundenberatung", "administration", "\U0001F4DE", "#d97706", False, None),
-        ("Angebot erstellen", "administration", "\U0001F4DD", "#b45309", False, None),
-        ("Dokumentation", "administration", "\U0001F4CB", "#92400e", False, None),
-        # Endkontrolle: 60 EUR/h (Qualitaetskontrolle)
-        ("Qualitaetskontrolle", "administration", "\U0001F50D", "#006BA6", True, 60),
-        # Waiting \u2014 non-billable
-        ("Warten auf Material", "waiting", "\u23F3", "#A0AEC0", False, None),
-        ("Pause", "waiting", "\u2615", "#CBD5E0", False, None),
-    ]
-    activities = []
-    for name, category, icon, color, is_billable, hourly_rate in activities_data:
-        a = Activity(
-            name=name,
-            category=category,
-            icon=icon,
-            color=color,
-            usage_count=0,
-            is_custom=False,
-            is_billable=is_billable,
-            hourly_rate=hourly_rate,
-            created_by=None,
-            created_at=_days_ago(365),
-        )
-        db.add(a)
-        activities.append(a)
-    await db.flush()
-    print(f"  Aktivitaeten: {len(activities)} erstellt")
+    """Ensure the 15 standard activities exist, then return them.
+
+    Composition: the canonical activity list (names, categories, V1.3
+    ``is_billable`` / ``hourly_rate`` rubric) lives in the production
+    reference seed (``db/reference_seed.py``). The demo layer delegates to it
+    \u2014 idempotent upsert-or-skip \u2014 rather than re-declaring the list, so the
+    two paths can never drift. Returns the full non-custom activity set for
+    downstream ``act_map`` lookups in ``seed_time_entries``.
+    """
+    created, skipped = await seed_reference_activities(db)
+    activities = list(
+        (await db.execute(select(Activity).where(Activity.is_custom.is_(False))))
+        .scalars()
+        .all()
+    )
+    logger.info(
+        "Aktivitaeten: %d neu, %d vorhanden (%d gesamt) \u2014 Referenz-Seed",
+        created,
+        skipped,
+        len(activities),
+    )
+    print(f"  Aktivitaeten: {len(activities)} verfuegbar (Referenz-Seed)")
     return activities
 
 
@@ -232,137 +226,198 @@ async def seed_customers(db) -> list:
     customers_data = [
         # 1 - Stammkundin, birthday in 2 weeks
         dict(
-            first_name="Maria", last_name="Schneider",
-            email="maria.schneider@example.de", phone="+49 711 1234567",
+            first_name="Maria",
+            last_name="Schneider",
+            email="maria.schneider@example.de",
+            phone="+49 711 1234567",
             mobile="+49 170 1234567",
-            street="Koenigstrasse 42", city="Stuttgart", postal_code="70173",
-            customer_type="private", source="walk-in",
+            street="Koenigstrasse 42",
+            city="Stuttgart",
+            postal_code="70173",
+            customer_type="private",
+            source="walk-in",
             notes="Stammkundin seit 2019. Bevorzugt Gelbgold.",
             tags=["Stammkunde", "VIP"],
-            ring_size=54.0, chain_length_cm=45.0,
+            ring_size=54.0,
+            chain_length_cm=45.0,
             allergies=None,
             preferences={"bevorzugt": "Gelbgold", "style": "klassisch"},
             birthday=_days_from_now(14).replace(year=1978),
         ),
         # 2 - Thomas Weber (wedding couple - groom)
         dict(
-            first_name="Thomas", last_name="Weber",
-            email="thomas.weber@example.de", phone="+49 711 9876543",
+            first_name="Thomas",
+            last_name="Weber",
+            email="thomas.weber@example.de",
+            phone="+49 711 9876543",
             mobile="+49 171 9876543",
-            street="Schillerplatz 8", city="Stuttgart", postal_code="70173",
-            customer_type="private", source="referral",
+            street="Schillerplatz 8",
+            city="Stuttgart",
+            postal_code="70173",
+            customer_type="private",
+            source="referral",
             notes="Hochzeitspaar Weber. Trauung geplant August 2026.",
             tags=["Hochzeit"],
-            ring_size=66.0, chain_length_cm=None,
+            ring_size=66.0,
+            chain_length_cm=None,
             allergies=None,
             preferences={"bevorzugt": "Gelbgold 750", "style": "schlicht"},
             birthday=datetime(1991, 5, 15),
         ),
         # 3 - Anna Weber (wedding couple - bride)
         dict(
-            first_name="Anna", last_name="Weber",
-            email="anna.weber@example.de", phone="+49 711 9876544",
+            first_name="Anna",
+            last_name="Weber",
+            email="anna.weber@example.de",
+            phone="+49 711 9876544",
             mobile="+49 172 9876544",
-            street="Schillerplatz 8", city="Stuttgart", postal_code="70173",
-            customer_type="private", source="referral",
+            street="Schillerplatz 8",
+            city="Stuttgart",
+            postal_code="70173",
+            customer_type="private",
+            source="referral",
             notes="Verlobungsring bereits geliefert. Eheringe in Arbeit.",
             tags=["Hochzeit"],
-            ring_size=54.0, chain_length_cm=42.0,
+            ring_size=54.0,
+            chain_length_cm=42.0,
             allergies=None,
             preferences={"bevorzugt": "Gelbgold 750", "style": "schlicht-elegant"},
             birthday=datetime(1993, 9, 22),
         ),
         # 4 - Business customer: Juwelier Hoffmann
         dict(
-            first_name="Elisabeth", last_name="Hoffmann",
+            first_name="Elisabeth",
+            last_name="Hoffmann",
             company_name="Juwelier Hoffmann GmbH",
-            email="e.hoffmann@juwelier-hoffmann.de", phone="+49 721 5551234",
-            street="Kaiserstrasse 15", city="Karlsruhe", postal_code="76131",
-            customer_type="business", source="website",
+            email="e.hoffmann@juwelier-hoffmann.de",
+            phone="+49 721 5551234",
+            street="Kaiserstrasse 15",
+            city="Karlsruhe",
+            postal_code="76131",
+            customer_type="business",
+            source="website",
             notes="Geschaeftskunde. Bestellt regelmaessig Reparaturen und Sonderanfertigungen.",
             tags=["Geschaeftskunde", "Reparaturen"],
-            ring_size=None, chain_length_cm=None,
+            ring_size=None,
+            chain_length_cm=None,
             allergies=None,
             preferences={"geschaeftsart": "Juwelier", "rabatt_vereinbart": "10%"},
             birthday=datetime(1970, 3, 8),
         ),
         # 5 - Nickel allergy customer
         dict(
-            first_name="Stefan", last_name="Braun",
-            email="stefan.braun@example.de", phone="+49 711 4445566",
+            first_name="Stefan",
+            last_name="Braun",
+            email="stefan.braun@example.de",
+            phone="+49 711 4445566",
             mobile="+49 173 4445566",
-            street="Marienstrasse 23", city="Stuttgart", postal_code="70178",
-            customer_type="private", source="referral",
+            street="Marienstrasse 23",
+            city="Stuttgart",
+            postal_code="70178",
+            customer_type="private",
+            source="referral",
             notes="Nickel-Allergie! Nur Platin, Palladium oder hochlegiertes Gold (750+).",
             tags=["Allergie"],
-            ring_size=62.0, chain_length_cm=50.0,
+            ring_size=62.0,
+            chain_length_cm=50.0,
             allergies="Nickel",
             preferences={"bevorzugt": "Platin 950", "style": "modern"},
             birthday=datetime(1985, 11, 30),
         ),
         # 6 - Repeat customer, elderly
         dict(
-            first_name="Helga", last_name="Zimmermann",
-            email="helga.zimmermann@example.de", phone="+49 711 7778899",
-            street="Rosenbergstrasse 5", city="Stuttgart", postal_code="70176",
-            customer_type="private", source="walk-in",
+            first_name="Helga",
+            last_name="Zimmermann",
+            email="helga.zimmermann@example.de",
+            phone="+49 711 7778899",
+            street="Rosenbergstrasse 5",
+            city="Stuttgart",
+            postal_code="70176",
+            customer_type="private",
+            source="walk-in",
             notes="Langjahrige Kundin. Hat mehrere Erbstuecke umarbeiten lassen.",
             tags=["Stammkunde"],
-            ring_size=56.0, chain_length_cm=40.0, bracelet_length_cm=18.0,
+            ring_size=56.0,
+            chain_length_cm=40.0,
+            bracelet_length_cm=18.0,
             allergies=None,
             preferences={"bevorzugt": "Gelbgold", "style": "traditionell"},
             birthday=datetime(1952, 7, 19),
         ),
         # 7 - Young customer, modern taste
         dict(
-            first_name="Lena", last_name="Fischer",
-            email="lena.fischer@example.de", mobile="+49 176 1112233",
-            street="Tuebinger Strasse 17", city="Stuttgart", postal_code="70178",
-            customer_type="private", source="instagram",
+            first_name="Lena",
+            last_name="Fischer",
+            email="lena.fischer@example.de",
+            mobile="+49 176 1112233",
+            street="Tuebinger Strasse 17",
+            city="Stuttgart",
+            postal_code="70178",
+            customer_type="private",
+            source="instagram",
             notes="Entdeckt ueber Instagram. Mag minimalistische Designs.",
             tags=["Social Media"],
-            ring_size=52.0, chain_length_cm=45.0,
+            ring_size=52.0,
+            chain_length_cm=45.0,
             allergies=None,
             preferences={"bevorzugt": "Weissgold 750", "style": "minimalistisch"},
             birthday=datetime(1998, 2, 14),
         ),
         # 8 - Business customer: Zahnarztpraxis (dental crowns etc.)
         dict(
-            first_name="Dr. Michael", last_name="Bauer",
+            first_name="Dr. Michael",
+            last_name="Bauer",
             company_name="Zahnarztpraxis Dr. Bauer",
-            email="praxis@dr-bauer.de", phone="+49 711 3334455",
-            street="Friedrichstrasse 88", city="Stuttgart", postal_code="70174",
-            customer_type="business", source="referral",
+            email="praxis@dr-bauer.de",
+            phone="+49 711 3334455",
+            street="Friedrichstrasse 88",
+            city="Stuttgart",
+            postal_code="70174",
+            customer_type="business",
+            source="referral",
             notes="Bestellt gelegentlich Goldlegierungen fuer Dentalarbeiten.",
             tags=["Geschaeftskunde", "Dental"],
-            ring_size=None, chain_length_cm=None,
+            ring_size=None,
+            chain_length_cm=None,
             allergies=None,
             preferences={"geschaeftsart": "Dental"},
             birthday=None,
         ),
         # 9 - Customer with Altgold
         dict(
-            first_name="Claudia", last_name="Richter",
-            email="claudia.richter@example.de", phone="+49 711 6667788",
+            first_name="Claudia",
+            last_name="Richter",
+            email="claudia.richter@example.de",
+            phone="+49 711 6667788",
             mobile="+49 174 6667788",
-            street="Heusteigstrasse 31", city="Stuttgart", postal_code="70180",
-            customer_type="private", source="walk-in",
+            street="Heusteigstrasse 31",
+            city="Stuttgart",
+            postal_code="70180",
+            customer_type="private",
+            source="walk-in",
             notes="Bringt Altgold (alte Brosche der Grossmutter) zur Umarbeitung.",
             tags=[],
-            ring_size=55.0, chain_length_cm=None,
+            ring_size=55.0,
+            chain_length_cm=None,
             allergies=None,
             preferences={"bevorzugt": "Rotgold", "style": "vintage"},
             birthday=datetime(1980, 4, 25),
         ),
         # 10 - Occasional customer
         dict(
-            first_name="Klaus", last_name="Mueller",
-            email="klaus.mueller@example.de", mobile="+49 175 9990011",
-            street="Hauptstaetter Strasse 60", city="Stuttgart", postal_code="70178",
-            customer_type="private", source="website",
+            first_name="Klaus",
+            last_name="Mueller",
+            email="klaus.mueller@example.de",
+            mobile="+49 175 9990011",
+            street="Hauptstaetter Strasse 60",
+            city="Stuttgart",
+            postal_code="70178",
+            customer_type="private",
+            source="website",
             notes="Sucht Geschenk fuer Ehefrau (Hochzeitstag).",
             tags=[],
-            ring_size=None, chain_length_cm=None,
+            ring_size=None,
+            chain_length_cm=None,
             allergies=None,
             preferences={},
             birthday=datetime(1975, 12, 1),
@@ -370,7 +425,9 @@ async def seed_customers(db) -> list:
     ]
     customers = []
     for data in customers_data:
-        c = Customer(**data, country="Deutschland", is_active=True, created_at=_days_ago(120))
+        c = Customer(
+            **data, country="Deutschland", is_active=True, created_at=_days_ago(120)
+        )
         db.add(c)
         customers.append(c)
     await db.flush()
@@ -388,105 +445,137 @@ async def seed_measurements(db, customers, goldsmith_user) -> list:
     measurements = [
         # Maria Schneider - left ring finger
         CustomerMeasurement(
-            customer_id=customers[0].id, measured_by=goldsmith_user.id,
+            customer_id=customers[0].id,
+            measured_by=goldsmith_user.id,
             measurement_type=MeasurementType.RING_SIZE,
-            value=54.0, unit="mm",
-            hand=HandSide.LEFT, finger=FingerPosition.RING,
+            value=54.0,
+            unit="mm",
+            hand=HandSide.LEFT,
+            finger=FingerPosition.RING,
             notes="Standardmass, guter Sitz.",
             measured_at=_days_ago(90),
         ),
         # Maria Schneider - chain length
         CustomerMeasurement(
-            customer_id=customers[0].id, measured_by=goldsmith_user.id,
+            customer_id=customers[0].id,
+            measured_by=goldsmith_user.id,
             measurement_type=MeasurementType.CHAIN_LENGTH,
-            value=45.0, unit="cm",
+            value=45.0,
+            unit="cm",
             notes="Bevorzugte Laenge fuer Anhaengerketten.",
             measured_at=_days_ago(90),
         ),
         # Thomas Weber - left ring finger
         CustomerMeasurement(
-            customer_id=customers[1].id, measured_by=goldsmith_user.id,
+            customer_id=customers[1].id,
+            measured_by=goldsmith_user.id,
             measurement_type=MeasurementType.RING_SIZE,
-            value=66.0, unit="mm",
-            hand=HandSide.LEFT, finger=FingerPosition.RING,
+            value=66.0,
+            unit="mm",
+            hand=HandSide.LEFT,
+            finger=FingerPosition.RING,
             notes="Knoechel etwas breiter, Weitungsring empfohlen.",
             measured_at=_days_ago(30),
         ),
         # Anna Weber - left ring finger
         CustomerMeasurement(
-            customer_id=customers[2].id, measured_by=goldsmith_user.id,
+            customer_id=customers[2].id,
+            measured_by=goldsmith_user.id,
             measurement_type=MeasurementType.RING_SIZE,
-            value=54.0, unit="mm",
-            hand=HandSide.LEFT, finger=FingerPosition.RING,
+            value=54.0,
+            unit="mm",
+            hand=HandSide.LEFT,
+            finger=FingerPosition.RING,
             notes="Schlanker Finger, guter Sitz bei 54mm.",
             measured_at=_days_ago(30),
         ),
         # Anna Weber - right ring finger (for engagement ring)
         CustomerMeasurement(
-            customer_id=customers[2].id, measured_by=goldsmith_user.id,
+            customer_id=customers[2].id,
+            measured_by=goldsmith_user.id,
             measurement_type=MeasurementType.RING_SIZE,
-            value=53.5, unit="mm",
-            hand=HandSide.RIGHT, finger=FingerPosition.RING,
+            value=53.5,
+            unit="mm",
+            hand=HandSide.RIGHT,
+            finger=FingerPosition.RING,
             notes="Rechts etwas schmaler als links.",
             measured_at=_days_ago(60),
         ),
         # Stefan Braun - left ring finger
         CustomerMeasurement(
-            customer_id=customers[4].id, measured_by=goldsmith_user.id,
+            customer_id=customers[4].id,
+            measured_by=goldsmith_user.id,
             measurement_type=MeasurementType.RING_SIZE,
-            value=62.0, unit="mm",
-            hand=HandSide.LEFT, finger=FingerPosition.RING,
+            value=62.0,
+            unit="mm",
+            hand=HandSide.LEFT,
+            finger=FingerPosition.RING,
             notes="Nickel-Allergie beachten! Nur Platin/Palladium.",
             measured_at=_days_ago(60),
         ),
         # Stefan Braun - wrist circumference
         CustomerMeasurement(
-            customer_id=customers[4].id, measured_by=goldsmith_user.id,
+            customer_id=customers[4].id,
+            measured_by=goldsmith_user.id,
             measurement_type=MeasurementType.WRIST_CIRCUMFERENCE,
-            value=19.5, unit="cm",
+            value=19.5,
+            unit="cm",
             notes="Fuer geplantes Armband.",
             measured_at=_days_ago(60),
         ),
         # Helga Zimmermann - left ring finger
         CustomerMeasurement(
-            customer_id=customers[5].id, measured_by=goldsmith_user.id,
+            customer_id=customers[5].id,
+            measured_by=goldsmith_user.id,
             measurement_type=MeasurementType.RING_SIZE,
-            value=56.0, unit="mm",
-            hand=HandSide.LEFT, finger=FingerPosition.RING,
+            value=56.0,
+            unit="mm",
+            hand=HandSide.LEFT,
+            finger=FingerPosition.RING,
             notes="Finger etwas geschwollen bei Waerme, 56mm als Kompromiss.",
             measured_at=_days_ago(180),
         ),
         # Helga Zimmermann - wrist
         CustomerMeasurement(
-            customer_id=customers[5].id, measured_by=goldsmith_user.id,
+            customer_id=customers[5].id,
+            measured_by=goldsmith_user.id,
             measurement_type=MeasurementType.WRIST_CIRCUMFERENCE,
-            value=16.5, unit="cm",
+            value=16.5,
+            unit="cm",
             notes="Schmales Handgelenk, Armband 18cm mit Verlaengerung.",
             measured_at=_days_ago(180),
         ),
         # Helga Zimmermann - chain length
         CustomerMeasurement(
-            customer_id=customers[5].id, measured_by=goldsmith_user.id,
+            customer_id=customers[5].id,
+            measured_by=goldsmith_user.id,
             measurement_type=MeasurementType.CHAIN_LENGTH,
-            value=40.0, unit="cm",
+            value=40.0,
+            unit="cm",
             notes="Kurze Kette, enganliegend bevorzugt.",
             measured_at=_days_ago(180),
         ),
         # Lena Fischer - left ring finger
         CustomerMeasurement(
-            customer_id=customers[6].id, measured_by=goldsmith_user.id,
+            customer_id=customers[6].id,
+            measured_by=goldsmith_user.id,
             measurement_type=MeasurementType.RING_SIZE,
-            value=52.0, unit="mm",
-            hand=HandSide.LEFT, finger=FingerPosition.RING,
+            value=52.0,
+            unit="mm",
+            hand=HandSide.LEFT,
+            finger=FingerPosition.RING,
             notes="Sehr schlanke Finger.",
             measured_at=_days_ago(45),
         ),
         # Claudia Richter - left ring finger
         CustomerMeasurement(
-            customer_id=customers[8].id, measured_by=goldsmith_user.id,
+            customer_id=customers[8].id,
+            measured_by=goldsmith_user.id,
             measurement_type=MeasurementType.RING_SIZE,
-            value=55.0, unit="mm",
-            hand=HandSide.LEFT, finger=FingerPosition.RING,
+            value=55.0,
+            unit="mm",
+            hand=HandSide.LEFT,
+            finger=FingerPosition.RING,
             measured_at=_days_ago(20),
         ),
     ]
@@ -498,150 +587,95 @@ async def seed_measurements(db, customers, goldsmith_user) -> list:
 
 
 async def seed_materials(db) -> list:
-    """Create 17 materials: metals, gemstones, consumables."""
-    materials_data = [
-        # --- Metals ---
-        dict(
-            name="Gold 750 (18K) Barren",
-            description="Gelbgold 750/000, 10g Barren, C.HAFNER",
-            unit_price=62.50, stock=50.0, unit="g",
-            image_url="/images/materials/gold_750_bar.jpg",
-            supplier="C.HAFNER GmbH + Co. KG",
-            webshop_url="https://www.c-hafner.de/edelmetalle/goldbarren",
-            min_stock=20.0,
-        ),
-        dict(
-            name="Gold 585 (14K) Draht 1.5mm",
-            description="Gelbgold 585/000, Runddraht 1.5mm, fuer Ringschienen",
-            unit_price=47.50, stock=30.0, unit="g",
-            image_url="/images/materials/gold_585_wire.jpg",
-            supplier="Heimerle + Meule GmbH",
-            webshop_url="https://www.heimerle-meule.com",
-            min_stock=15.0,
-        ),
-        dict(
-            name="Silber 925 Draht 1.0mm",
-            description="Sterlingsilber 925/000, Runddraht 1.0mm",
-            unit_price=1.20, stock=200.0, unit="g",
-            image_url="/images/materials/silver_925_wire.jpg",
-            supplier="C.HAFNER GmbH + Co. KG",
-            webshop_url="https://www.c-hafner.de",
-            min_stock=50.0,
-        ),
-        dict(
-            name="Silber 925 Blech 0.8mm",
-            description="Sterlingsilber 925/000, Blech 0.8mm Staerke",
-            unit_price=1.15, stock=150.0, unit="g",
-            supplier="Heimerle + Meule GmbH",
-            min_stock=40.0,
-        ),
-        dict(
-            name="Platin 950 Draht 1.2mm",
-            description="Platin 950/000, Runddraht 1.2mm fuer Ringschienen",
-            unit_price=38.00, stock=15.0, unit="g",
-            image_url="/images/materials/platin_950_wire.jpg",
-            supplier="Heraeus Deutschland GmbH & Co. KG",
-            webshop_url="https://www.heraeus.com",
-            min_stock=5.0,
-        ),
-        dict(
-            name="Weissgold 750 Legierung",
-            description="Weissgold 750/000, Palladium-Legierung, nickelfrei",
-            unit_price=68.00, stock=25.0, unit="g",
-            supplier="C.HAFNER GmbH + Co. KG",
-            min_stock=10.0,
-        ),
-        dict(
-            name="Rotgold 750 Blech 1.0mm",
-            description="Rotgold 750/000, Kupfer-betonte Legierung, Blech 1.0mm",
-            unit_price=63.00, stock=20.0, unit="g",
-            supplier="Heimerle + Meule GmbH",
-            min_stock=10.0,
-        ),
-        # --- Gemstones ---
+    """Compose the materials catalogue: reference stock + demo-only extras.
+
+    Composition: the standard alloys + core consumables come from the
+    production reference seed (``db/reference_seed.py``, stock 0). The demo
+    layers on gemstones and specialty items *with* stock so the inventory
+    screens have something to show. Demo extras are idempotent (skip-by-name)
+    and routed through ``_seed_helpers.filter_model_fields`` so an ORM column
+    added between releases never breaks an older seed run.
+    """
+    ref_created, ref_skipped = await seed_reference_materials(db)
+
+    demo_extras = [
+        # --- Gemstones (demo inventory with stock) ---
         dict(
             name="Brillant 0.50ct VS1/G",
             description="Diamant, Brillantschliff, 0.50ct, VS1, Farbe G, GIA-Zertifikat",
-            unit_price=2850.00, stock=3.0, unit="Stueck",
-            image_url="/images/materials/brillant_050.jpg",
+            unit_price=2850.00,
+            stock=3.0,
+            unit="Stueck",
             supplier="Schachter Diamonds",
-            webshop_url="https://www.schachter.com",
             min_stock=1.0,
         ),
         dict(
             name="Brillant 0.10ct VS2/H (Melee)",
             description="Diamant, Brillantschliff, 0.10ct, VS2, Farbe H, Melee-Ware",
-            unit_price=180.00, stock=20.0, unit="Stueck",
+            unit_price=180.00,
+            stock=20.0,
+            unit="Stueck",
             supplier="Schachter Diamonds",
             min_stock=5.0,
         ),
         dict(
             name="Rubin oval 0.75ct",
             description="Rubin, ovaler Schliff, 0.75ct, rot, Birma-Qualitaet",
-            unit_price=1200.00, stock=2.0, unit="Stueck",
+            unit_price=1200.00,
+            stock=2.0,
+            unit="Stueck",
             supplier="Kata-Stein GmbH",
             min_stock=1.0,
         ),
         dict(
             name="Saphir rund 0.60ct",
             description="Saphir, runder Schliff, 0.60ct, koenigsblau, Sri Lanka",
-            unit_price=950.00, stock=2.0, unit="Stueck",
+            unit_price=950.00,
+            stock=2.0,
+            unit="Stueck",
             supplier="Kata-Stein GmbH",
             min_stock=1.0,
         ),
-        # --- Consumables ---
-        dict(
-            name="Saegeblaetter Gr. 3/0",
-            description="Goldschmiedesaegeblaetter Groesse 3/0, 144 Stueck/Packung",
-            unit_price=8.50, stock=288.0, unit="Stueck",
-            image_url="/images/materials/saw_blades.jpg",
-            supplier="Fischer Pforzheim",
-            webshop_url="https://www.fischer-pforzheim.de",
-            min_stock=72.0,
-        ),
-        dict(
-            name="Polierpaste Rot (Eisenoxid)",
-            description="Eisenoxid-Polierpaste fuer Hochglanzpolitur, 250g Dose",
-            unit_price=12.00, stock=3.0, unit="Stueck",
-            supplier="Pforzheimer Werkzeughandel",
-            min_stock=1.0,
-        ),
-        dict(
-            name="Hartlot 750 (Goldlot)",
-            description="Hartlot fuer Gold 750, Schmelzbereich 780-800 Grad C",
-            unit_price=95.00, stock=5.0, unit="g",
-            supplier="C.HAFNER GmbH + Co. KG",
-            min_stock=2.0,
-        ),
-        dict(
-            name="Rhodium-Bad Loesung",
-            description="Rhodinierungs-Loesung fuer Weissgold-Oberflaeche, 100ml",
-            unit_price=185.00, stock=2.0, unit="Stueck",
-            supplier="Wieland Dental + Technik",
-            min_stock=1.0,
-        ),
+        # --- Specialty consumables / tools (demo inventory with stock) ---
         dict(
             name="Feilen-Set Goldschmied (6-tlg)",
-            description="Nadelfeilen-Set, 6 Stueck, diverse Schnitte (flach, rund, halbrund, dreieckig, messer, vierkant)",
-            unit_price=42.00, stock=4.0, unit="Stueck",
+            description="Nadelfeilen-Set, 6 Stueck, diverse Schnitte",
+            unit_price=42.00,
+            stock=4.0,
+            unit="Stueck",
             supplier="Fischer Pforzheim",
             min_stock=2.0,
         ),
         dict(
             name="Gusswachs Blau (Injektionswachs)",
             description="Injektionswachs fuer Wachsausschmelzverfahren, 500g Block",
-            unit_price=28.00, stock=3.0, unit="Stueck",
+            unit_price=28.00,
+            stock=3.0,
+            unit="Stueck",
             supplier="Hoben International",
             min_stock=1.0,
         ),
     ]
-    materials = []
-    for data in materials_data:
-        m = Material(**data)
-        db.add(m)
-        materials.append(m)
+    extras_created = 0
+    for data in demo_extras:
+        exists = await db.scalar(
+            select(Material.id).where(Material.name == data["name"])
+        )
+        if exists is not None:
+            continue
+        db.add(Material(**_seed_helpers.filter_model_fields(Material, data)))
+        extras_created += 1
+
     await db.flush()
-    print(f"  Materialien: {len(materials)} erstellt")
+    materials = list((await db.execute(select(Material))).scalars().all())
+    logger.info(
+        "Materialien: %d Referenz (neu %d), %d Demo-Extras neu, %d gesamt",
+        ref_created + ref_skipped,
+        ref_created,
+        extras_created,
+        len(materials),
+    )
+    print(f"  Materialien: {len(materials)} verfuegbar (Referenz + Demo)")
     return materials
 
 
@@ -652,8 +686,10 @@ async def seed_metal_purchases(db) -> list:
         dict(
             date_purchased=_days_ago(90),
             metal_type="gold_18k",
-            weight_g=50.0, remaining_weight_g=32.5,
-            price_total=3125.00, price_per_gram=62.50,
+            weight_g=50.0,
+            remaining_weight_g=32.5,
+            price_total=3125.00,
+            price_per_gram=62.50,
             supplier="C.HAFNER GmbH + Co. KG",
             invoice_number="CH-2026-04521",
             lot_number="AU750-2026-001",
@@ -662,8 +698,10 @@ async def seed_metal_purchases(db) -> list:
         dict(
             date_purchased=_days_ago(30),
             metal_type="gold_18k",
-            weight_g=30.0, remaining_weight_g=28.0,
-            price_total=1920.00, price_per_gram=64.00,
+            weight_g=30.0,
+            remaining_weight_g=28.0,
+            price_total=1920.00,
+            price_per_gram=64.00,
             supplier="C.HAFNER GmbH + Co. KG",
             invoice_number="CH-2026-06183",
             lot_number="AU750-2026-002",
@@ -673,8 +711,10 @@ async def seed_metal_purchases(db) -> list:
         dict(
             date_purchased=_days_ago(60),
             metal_type="gold_14k",
-            weight_g=40.0, remaining_weight_g=35.0,
-            price_total=1900.00, price_per_gram=47.50,
+            weight_g=40.0,
+            remaining_weight_g=35.0,
+            price_total=1900.00,
+            price_per_gram=47.50,
             supplier="Heimerle + Meule GmbH",
             invoice_number="HM-2026-09244",
             lot_number="AU585-2026-001",
@@ -684,8 +724,10 @@ async def seed_metal_purchases(db) -> list:
         dict(
             date_purchased=_days_ago(120),
             metal_type="silver_925",
-            weight_g=500.0, remaining_weight_g=320.0,
-            price_total=600.00, price_per_gram=1.20,
+            weight_g=500.0,
+            remaining_weight_g=320.0,
+            price_total=600.00,
+            price_per_gram=1.20,
             supplier="C.HAFNER GmbH + Co. KG",
             invoice_number="CH-2026-02109",
             lot_number="AG925-2026-001",
@@ -694,8 +736,10 @@ async def seed_metal_purchases(db) -> list:
         dict(
             date_purchased=_days_ago(20),
             metal_type="silver_925",
-            weight_g=200.0, remaining_weight_g=195.0,
-            price_total=240.00, price_per_gram=1.20,
+            weight_g=200.0,
+            remaining_weight_g=195.0,
+            price_total=240.00,
+            price_per_gram=1.20,
             supplier="Heimerle + Meule GmbH",
             invoice_number="HM-2026-10551",
             lot_number="AG925-2026-002",
@@ -704,8 +748,10 @@ async def seed_metal_purchases(db) -> list:
         dict(
             date_purchased=_days_ago(45),
             metal_type="platinum_950",
-            weight_g=20.0, remaining_weight_g=14.0,
-            price_total=760.00, price_per_gram=38.00,
+            weight_g=20.0,
+            remaining_weight_g=14.0,
+            price_total=760.00,
+            price_per_gram=38.00,
             supplier="Heraeus Deutschland GmbH & Co. KG",
             invoice_number="HE-2026-07890",
             lot_number="PT950-2026-001",
@@ -715,8 +761,10 @@ async def seed_metal_purchases(db) -> list:
         dict(
             date_purchased=_days_ago(50),
             metal_type="white_gold_18k",
-            weight_g=25.0, remaining_weight_g=18.0,
-            price_total=1700.00, price_per_gram=68.00,
+            weight_g=25.0,
+            remaining_weight_g=18.0,
+            price_total=1700.00,
+            price_per_gram=68.00,
             supplier="C.HAFNER GmbH + Co. KG",
             invoice_number="CH-2026-05712",
             lot_number="WG750-2026-001",
@@ -726,8 +774,10 @@ async def seed_metal_purchases(db) -> list:
         dict(
             date_purchased=_days_ago(40),
             metal_type="rose_gold_18k",
-            weight_g=20.0, remaining_weight_g=16.0,
-            price_total=1260.00, price_per_gram=63.00,
+            weight_g=20.0,
+            remaining_weight_g=16.0,
+            price_total=1260.00,
+            price_per_gram=63.00,
             supplier="Heimerle + Meule GmbH",
             invoice_number="HM-2026-09988",
             lot_number="RG750-2026-001",
@@ -1217,9 +1267,15 @@ async def seed_gemstones(db, orders) -> list:
         # Order 0 - Verlobungsring: 1x Brillant 0.50ct
         dict(
             order_id=orders[0].id,
-            type="diamond", carat=0.50, quality="VS1", color="G",
-            cut="Excellent", shape="Round Brilliant",
-            cost=2850.00, quantity=1, total_cost=2850.00,
+            type="diamond",
+            carat=0.50,
+            quality="VS1",
+            color="G",
+            cut="Excellent",
+            shape="Round Brilliant",
+            cost=2850.00,
+            quantity=1,
+            total_cost=2850.00,
             setting_type="Krappenfassung (6-fach)",
             certificate_number="GIA-2026-78451234",
             certificate_authority="GIA",
@@ -1228,63 +1284,105 @@ async def seed_gemstones(db, orders) -> list:
         # Order 1 - Eheringe: 3x Melee Brillant 0.03ct
         dict(
             order_id=orders[1].id,
-            type="diamond", carat=0.03, quality="VS2", color="H",
-            cut="Very Good", shape="Round Brilliant",
-            cost=45.00, quantity=3, total_cost=135.00,
+            type="diamond",
+            carat=0.03,
+            quality="VS2",
+            color="H",
+            cut="Very Good",
+            shape="Round Brilliant",
+            cost=45.00,
+            quantity=3,
+            total_cost=135.00,
             setting_type="Kanalfassung",
             notes="Melee-Brillanten fuer Damen-Ehering, in Kanalfassung.",
         ),
         # Order 3 - Altgold-Umarbeitung: Rubin aus Brosche
         dict(
             order_id=orders[3].id,
-            type="ruby", carat=0.75, quality=None, color="deep red",
-            cut="Good", shape="Oval",
-            cost=0.00, quantity=1, total_cost=0.00,  # Customer's own stone
+            type="ruby",
+            carat=0.75,
+            quality=None,
+            color="deep red",
+            cut="Good",
+            shape="Oval",
+            cost=0.00,
+            quantity=1,
+            total_cost=0.00,  # Customer's own stone
             setting_type="Zargenfassung",
             notes="Rubin aus alter Familienbrosche uebernommen. Fassung pruefen!",
         ),
         # Order 6 - Ohrstecker: 2x Brillant 0.10ct
         dict(
             order_id=orders[6].id,
-            type="diamond", carat=0.10, quality="VS2", color="H",
-            cut="Very Good", shape="Round Brilliant",
-            cost=180.00, quantity=2, total_cost=360.00,
+            type="diamond",
+            carat=0.10,
+            quality="VS2",
+            color="H",
+            cut="Very Good",
+            shape="Round Brilliant",
+            cost=180.00,
+            quantity=2,
+            total_cost=360.00,
             setting_type="Krappenfassung (4-fach)",
             notes="Paar Ohrstecker, optisch identische Steine.",
         ),
         # Order 12 - Saphir-Anhaenger: Saphir 0.60ct
         dict(
             order_id=orders[12].id,
-            type="sapphire", carat=0.60, quality=None, color="royal blue",
-            cut="Very Good", shape="Oval",
-            cost=950.00, quantity=1, total_cost=950.00,
+            type="sapphire",
+            carat=0.60,
+            quality=None,
+            color="royal blue",
+            cut="Very Good",
+            shape="Oval",
+            cost=950.00,
+            quantity=1,
+            total_cost=950.00,
             setting_type="Zargenfassung",
             notes="Koenigsblauer Sri-Lanka Saphir.",
         ),
         # Order 13 - Brosche Art-Deco: 4x Melee Brillant
         dict(
             order_id=orders[13].id,
-            type="diamond", carat=0.02, quality="SI1", color="I",
-            cut="Good", shape="Round Brilliant",
-            cost=35.00, quantity=4, total_cost=140.00,
+            type="diamond",
+            carat=0.02,
+            quality="SI1",
+            color="I",
+            cut="Good",
+            shape="Round Brilliant",
+            cost=35.00,
+            quantity=4,
+            total_cost=140.00,
             setting_type="Pavee-Fassung",
             notes="Melee-Brillanten fuer Art-Deco Muster.",
         ),
         # Order 13 - Brosche Art-Deco: Onyx Einlagen
         dict(
             order_id=orders[13].id,
-            type="onyx", carat=None, quality=None, color="black",
-            cut=None, shape="Custom (geometrisch)",
-            cost=25.00, quantity=3, total_cost=75.00,
+            type="onyx",
+            carat=None,
+            quality=None,
+            color="black",
+            cut=None,
+            shape="Custom (geometrisch)",
+            cost=25.00,
+            quantity=3,
+            total_cost=75.00,
             setting_type="Einlage (eingeklebt)",
             notes="Schwarzer Onyx, passgenau zugeschliffen fuer geometrisches Art-Deco Muster.",
         ),
         # Order 10 - Perlenring: Suesswasserperle
         dict(
             order_id=orders[10].id,
-            type="pearl", carat=None, quality="AAA", color="creme-weiss",
-            cut=None, shape="Rund (8mm)",
-            cost=0.00, quantity=1, total_cost=0.00,  # Customer's own pearl
+            type="pearl",
+            carat=None,
+            quality="AAA",
+            color="creme-weiss",
+            cut=None,
+            shape="Rund (8mm)",
+            cost=0.00,
+            quantity=1,
+            total_cost=0.00,  # Customer's own pearl
             setting_type="Zargenfassung",
             notes="Kundenperle aus altem Ring. 8mm Suesswasserperle, unbeschaedigt.",
         ),
@@ -1304,51 +1402,83 @@ async def seed_material_usage(db, orders, metal_purchases) -> list:
     usage_data = [
         # Order 0 (Verlobungsring) -> Gold 18K batch 1
         dict(
-            order_id=orders[0].id, metal_purchase_id=metal_purchases[0].id,
-            weight_used_g=5.9, cost_at_time=368.75, price_per_gram_at_time=62.50,
-            costing_method="fifo", used_at=_days_ago(10),
+            order_id=orders[0].id,
+            metal_purchase_id=metal_purchases[0].id,
+            weight_used_g=5.9,
+            cost_at_time=368.75,
+            price_per_gram_at_time=62.50,
+            costing_method="fifo",
+            used_at=_days_ago(10),
         ),
         # Order 1 (Eheringe) -> Gold 18K batch 1
         dict(
-            order_id=orders[1].id, metal_purchase_id=metal_purchases[0].id,
-            weight_used_g=14.8, cost_at_time=925.00, price_per_gram_at_time=62.50,
-            costing_method="fifo", used_at=_days_ago(12),
+            order_id=orders[1].id,
+            metal_purchase_id=metal_purchases[0].id,
+            weight_used_g=14.8,
+            cost_at_time=925.00,
+            price_per_gram_at_time=62.50,
+            costing_method="fifo",
+            used_at=_days_ago(12),
         ),
         # Order 2 (Kette Reparatur) -> Silver 925 batch 1
         dict(
-            order_id=orders[2].id, metal_purchase_id=metal_purchases[3].id,
-            weight_used_g=1.5, cost_at_time=1.80, price_per_gram_at_time=1.20,
-            costing_method="fifo", used_at=_days_ago(8),
+            order_id=orders[2].id,
+            metal_purchase_id=metal_purchases[3].id,
+            weight_used_g=1.5,
+            cost_at_time=1.80,
+            price_per_gram_at_time=1.20,
+            costing_method="fifo",
+            used_at=_days_ago(8),
         ),
         # Order 4 (Platinring) -> Platinum batch
         dict(
-            order_id=orders[4].id, metal_purchase_id=metal_purchases[5].id,
-            weight_used_g=8.5, cost_at_time=323.00, price_per_gram_at_time=38.00,
-            costing_method="specific", used_at=_days_ago(5),
+            order_id=orders[4].id,
+            metal_purchase_id=metal_purchases[5].id,
+            weight_used_g=8.5,
+            cost_at_time=323.00,
+            price_per_gram_at_time=38.00,
+            costing_method="specific",
+            used_at=_days_ago(5),
         ),
         # Order 5 (Silberanhaenger) -> Silver 925 batch 1
         dict(
-            order_id=orders[5].id, metal_purchase_id=metal_purchases[3].id,
-            weight_used_g=9.0, cost_at_time=10.80, price_per_gram_at_time=1.20,
-            costing_method="fifo", used_at=_days_ago(20),
+            order_id=orders[5].id,
+            metal_purchase_id=metal_purchases[3].id,
+            weight_used_g=9.0,
+            cost_at_time=10.80,
+            price_per_gram_at_time=1.20,
+            costing_method="fifo",
+            used_at=_days_ago(20),
         ),
         # Order 6 (Ohrstecker) -> White Gold batch
         dict(
-            order_id=orders[6].id, metal_purchase_id=metal_purchases[6].id,
-            weight_used_g=3.2, cost_at_time=217.60, price_per_gram_at_time=68.00,
-            costing_method="fifo", used_at=_days_ago(25),
+            order_id=orders[6].id,
+            metal_purchase_id=metal_purchases[6].id,
+            weight_used_g=3.2,
+            cost_at_time=217.60,
+            price_per_gram_at_time=68.00,
+            costing_method="fifo",
+            used_at=_days_ago(25),
         ),
         # Order 10 (Perlenring) -> Gold 18K batch 1
         dict(
-            order_id=orders[10].id, metal_purchase_id=metal_purchases[0].id,
-            weight_used_g=5.5, cost_at_time=343.75, price_per_gram_at_time=62.50,
-            costing_method="fifo", used_at=_days_ago(10),
+            order_id=orders[10].id,
+            metal_purchase_id=metal_purchases[0].id,
+            weight_used_g=5.5,
+            cost_at_time=343.75,
+            price_per_gram_at_time=62.50,
+            costing_method="fifo",
+            used_at=_days_ago(10),
         ),
         # Order 14 (Charm-Armband) -> Silver 925 batch 1
         dict(
-            order_id=orders[14].id, metal_purchase_id=metal_purchases[3].id,
-            weight_used_g=30.0, cost_at_time=36.00, price_per_gram_at_time=1.20,
-            costing_method="fifo", used_at=_days_ago(18),
+            order_id=orders[14].id,
+            metal_purchase_id=metal_purchases[3].id,
+            weight_used_g=30.0,
+            cost_at_time=36.00,
+            price_per_gram_at_time=1.20,
+            costing_method="fifo",
+            used_at=_days_ago(18),
         ),
     ]
     records = []
@@ -1372,205 +1502,301 @@ async def seed_time_entries(db, orders, users, activities) -> list:
     entries_data = [
         # ── Order 0: Verlobungsring (IN_PROGRESS) ──
         dict(
-            order_id=orders[0].id, user_id=goldsmith.id,
+            order_id=orders[0].id,
+            user_id=goldsmith.id,
             activity_id=act_map["Kundenberatung"].id,
-            start_time=_days_ago(14).replace(hour=9), end_time=_days_ago(14).replace(hour=10),
-            duration_minutes=60, location="Laden",
-            complexity_rating=3, quality_rating=5,
+            start_time=_days_ago(14).replace(hour=9),
+            end_time=_days_ago(14).replace(hour=10),
+            duration_minutes=60,
+            location="Laden",
+            complexity_rating=3,
+            quality_rating=5,
             notes="Erstgespraech mit Thomas Weber. Entwurfsskizze angefertigt.",
         ),
         dict(
-            order_id=orders[0].id, user_id=goldsmith.id,
+            order_id=orders[0].id,
+            user_id=goldsmith.id,
             activity_id=act_map["Giessen"].id,
-            start_time=_days_ago(10).replace(hour=8), end_time=_days_ago(10).replace(hour=11),
-            duration_minutes=180, location="Werkbank 1",
-            complexity_rating=5, quality_rating=4,
+            start_time=_days_ago(10).replace(hour=8),
+            end_time=_days_ago(10).replace(hour=11),
+            duration_minutes=180,
+            location="Werkbank 1",
+            complexity_rating=5,
+            quality_rating=4,
             notes="Wachsmodell erstellt und gegossen. Guss sauber, minimale Lunker.",
         ),
         dict(
-            order_id=orders[0].id, user_id=goldsmith.id,
+            order_id=orders[0].id,
+            user_id=goldsmith.id,
             activity_id=act_map["Feilen"].id,
-            start_time=_days_ago(9).replace(hour=9), end_time=_days_ago(9).replace(hour=12),
-            duration_minutes=180, location="Werkbank 1",
-            complexity_rating=4, quality_rating=4,
+            start_time=_days_ago(9).replace(hour=9),
+            end_time=_days_ago(9).replace(hour=12),
+            duration_minutes=180,
+            location="Werkbank 1",
+            complexity_rating=4,
+            quality_rating=4,
             notes="Rohling ausgefeilt und Ringform herausgearbeitet.",
         ),
         dict(
-            order_id=orders[0].id, user_id=goldsmith.id,
+            order_id=orders[0].id,
+            user_id=goldsmith.id,
             activity_id=act_map["Loeten"].id,
-            start_time=_days_ago(8).replace(hour=10), end_time=_days_ago(8).replace(hour=11),
-            duration_minutes=60, location="Werkbank 1",
-            complexity_rating=4, quality_rating=5,
+            start_time=_days_ago(8).replace(hour=10),
+            end_time=_days_ago(8).replace(hour=11),
+            duration_minutes=60,
+            location="Werkbank 1",
+            complexity_rating=4,
+            quality_rating=5,
             notes="Krappen angeloetet, saubere Loetstellen.",
         ),
         # ── Order 1: Eheringe (IN_PROGRESS) ──
         dict(
-            order_id=orders[1].id, user_id=goldsmith.id,
+            order_id=orders[1].id,
+            user_id=goldsmith.id,
             activity_id=act_map["Schmieden"].id,
-            start_time=_days_ago(12).replace(hour=8), end_time=_days_ago(12).replace(hour=12),
-            duration_minutes=240, location="Werkbank 1",
-            complexity_rating=3, quality_rating=4,
+            start_time=_days_ago(12).replace(hour=8),
+            end_time=_days_ago(12).replace(hour=12),
+            duration_minutes=240,
+            location="Werkbank 1",
+            complexity_rating=3,
+            quality_rating=4,
             notes="Beide Ringschienen geschmiedet und auf Groesse gebracht.",
         ),
         dict(
-            order_id=orders[1].id, user_id=goldsmith.id,
+            order_id=orders[1].id,
+            user_id=goldsmith.id,
             activity_id=act_map["Feilen"].id,
-            start_time=_days_ago(11).replace(hour=9), end_time=_days_ago(11).replace(hour=12, minute=30),
-            duration_minutes=210, location="Werkbank 1",
-            complexity_rating=3, quality_rating=4,
+            start_time=_days_ago(11).replace(hour=9),
+            end_time=_days_ago(11).replace(hour=12, minute=30),
+            duration_minutes=210,
+            location="Werkbank 1",
+            complexity_rating=3,
+            quality_rating=4,
             notes="Ringe ausgefeilt, Profil geformt. Damenring Kanal fuer Steine vorbereitet.",
         ),
         # ── Order 2: Kette Reparatur (COMPLETED) ──
         dict(
-            order_id=orders[2].id, user_id=goldsmith.id,
+            order_id=orders[2].id,
+            user_id=goldsmith.id,
             activity_id=act_map["Loeten"].id,
-            start_time=_days_ago(7).replace(hour=14), end_time=_days_ago(7).replace(hour=14, minute=25),
-            duration_minutes=25, location="Werkbank 2",
-            complexity_rating=1, quality_rating=5,
+            start_time=_days_ago(7).replace(hour=14),
+            end_time=_days_ago(7).replace(hour=14, minute=25),
+            duration_minutes=25,
+            location="Werkbank 2",
+            complexity_rating=1,
+            quality_rating=5,
             notes="Neuen Karabiner angeloetet. Einfache Reparatur.",
         ),
         # ── Order 3: Altgold-Umarbeitung (IN_PROGRESS) ──
         dict(
-            order_id=orders[3].id, user_id=goldsmith.id,
+            order_id=orders[3].id,
+            user_id=goldsmith.id,
             activity_id=act_map["Qualitaetskontrolle"].id,
-            start_time=_days_ago(9).replace(hour=8), end_time=_days_ago(9).replace(hour=8, minute=30),
-            duration_minutes=30, location="Werkbank 2",
-            complexity_rating=2, quality_rating=4,
+            start_time=_days_ago(9).replace(hour=8),
+            end_time=_days_ago(9).replace(hour=8, minute=30),
+            duration_minutes=30,
+            location="Werkbank 2",
+            complexity_rating=2,
+            quality_rating=4,
             notes="Altgold geprueft. Brosche 585er bestaetigt (Saeurentest). Rubin intakt.",
         ),
         dict(
-            order_id=orders[3].id, user_id=goldsmith.id,
+            order_id=orders[3].id,
+            user_id=goldsmith.id,
             activity_id=act_map["Giessen"].id,
-            start_time=_days_ago(6).replace(hour=8), end_time=_days_ago(6).replace(hour=10, minute=30),
-            duration_minutes=150, location="Werkbank 2",
-            complexity_rating=4, quality_rating=4,
+            start_time=_days_ago(6).replace(hour=8),
+            end_time=_days_ago(6).replace(hour=10, minute=30),
+            duration_minutes=150,
+            location="Werkbank 2",
+            complexity_rating=4,
+            quality_rating=4,
             notes="Wachsmodell fuer neuen Ring erstellt und gegossen. Rotgold 750.",
         ),
         # ── Order 4: Platinring (IN_PROGRESS) ──
         dict(
-            order_id=orders[4].id, user_id=goldsmith.id,
+            order_id=orders[4].id,
+            user_id=goldsmith.id,
             activity_id=act_map["Schmieden"].id,
-            start_time=_days_ago(5).replace(hour=8), end_time=_days_ago(5).replace(hour=11),
-            duration_minutes=180, location="Werkbank 1",
-            complexity_rating=3, quality_rating=5,
+            start_time=_days_ago(5).replace(hour=8),
+            end_time=_days_ago(5).replace(hour=11),
+            duration_minutes=180,
+            location="Werkbank 1",
+            complexity_rating=3,
+            quality_rating=5,
             notes="Platin geschmiedet. Haerteres Material als Gold, mehr Kraftaufwand.",
         ),
         # ── Order 5: Silberanhaenger (DELIVERED) ──
         dict(
-            order_id=orders[5].id, user_id=goldsmith.id,
+            order_id=orders[5].id,
+            user_id=goldsmith.id,
             activity_id=act_map["Saegen"].id,
-            start_time=_days_ago(22).replace(hour=9), end_time=_days_ago(22).replace(hour=10, minute=30),
-            duration_minutes=90, location="Werkbank 2",
-            complexity_rating=3, quality_rating=4,
+            start_time=_days_ago(22).replace(hour=9),
+            end_time=_days_ago(22).replace(hour=10, minute=30),
+            duration_minutes=90,
+            location="Werkbank 2",
+            complexity_rating=3,
+            quality_rating=4,
             notes="Fischform aus Silberblech ausgesaegt.",
         ),
         dict(
-            order_id=orders[5].id, user_id=goldsmith.id,
+            order_id=orders[5].id,
+            user_id=goldsmith.id,
             activity_id=act_map["Feilen"].id,
-            start_time=_days_ago(21).replace(hour=9), end_time=_days_ago(21).replace(hour=10),
-            duration_minutes=60, location="Werkbank 2",
-            complexity_rating=3, quality_rating=5,
+            start_time=_days_ago(21).replace(hour=9),
+            end_time=_days_ago(21).replace(hour=10),
+            duration_minutes=60,
+            location="Werkbank 2",
+            complexity_rating=3,
+            quality_rating=5,
             notes="Kanten gefeilt und Flossen detailliert.",
         ),
         dict(
-            order_id=orders[5].id, user_id=goldsmith.id,
+            order_id=orders[5].id,
+            user_id=goldsmith.id,
             activity_id=act_map["Polieren"].id,
-            start_time=_days_ago(20).replace(hour=14), end_time=_days_ago(20).replace(hour=14, minute=40),
-            duration_minutes=40, location="Polierbereich",
-            complexity_rating=2, quality_rating=5,
+            start_time=_days_ago(20).replace(hour=14),
+            end_time=_days_ago(20).replace(hour=14, minute=40),
+            duration_minutes=40,
+            location="Polierbereich",
+            complexity_rating=2,
+            quality_rating=5,
             notes="Details poliert, Koerper matt belassen.",
         ),
         # ── Order 6: Ohrstecker (DELIVERED) ──
         dict(
-            order_id=orders[6].id, user_id=goldsmith.id,
+            order_id=orders[6].id,
+            user_id=goldsmith.id,
             activity_id=act_map["Fassen (Steine)"].id,
-            start_time=_days_ago(24).replace(hour=10), end_time=_days_ago(24).replace(hour=12),
-            duration_minutes=120, location="Werkbank 1",
-            complexity_rating=3, quality_rating=5,
+            start_time=_days_ago(24).replace(hour=10),
+            end_time=_days_ago(24).replace(hour=12),
+            duration_minutes=120,
+            location="Werkbank 1",
+            complexity_rating=3,
+            quality_rating=5,
             notes="Brillanten in Krappenfassung gesetzt. Symmetrie beider Stecker kontrolliert.",
         ),
         dict(
-            order_id=orders[6].id, user_id=goldsmith.id,
+            order_id=orders[6].id,
+            user_id=goldsmith.id,
             activity_id=act_map["Polieren"].id,
-            start_time=_days_ago(23).replace(hour=14), end_time=_days_ago(23).replace(hour=14, minute=45),
-            duration_minutes=45, location="Polierbereich",
-            complexity_rating=2, quality_rating=5,
+            start_time=_days_ago(23).replace(hour=14),
+            end_time=_days_ago(23).replace(hour=14, minute=45),
+            duration_minutes=45,
+            location="Polierbereich",
+            complexity_rating=2,
+            quality_rating=5,
             notes="Rhodiniert und hochglanzpoliert.",
         ),
         # ── Order 7: Gravur Auffrischung (COMPLETED) ──
         dict(
-            order_id=orders[7].id, user_id=goldsmith.id,
+            order_id=orders[7].id,
+            user_id=goldsmith.id,
             activity_id=act_map["Gravieren"].id,
-            start_time=_days_ago(10).replace(hour=15), end_time=_days_ago(10).replace(hour=15, minute=30),
-            duration_minutes=30, location="Werkbank 1",
-            complexity_rating=1, quality_rating=5,
+            start_time=_days_ago(10).replace(hour=15),
+            end_time=_days_ago(10).replace(hour=15, minute=30),
+            duration_minutes=30,
+            location="Werkbank 1",
+            complexity_rating=1,
+            quality_rating=5,
             notes="Gravur 'H+R 1975' nachgestochen.",
         ),
         dict(
-            order_id=orders[7].id, user_id=goldsmith.id,
+            order_id=orders[7].id,
+            user_id=goldsmith.id,
             activity_id=act_map["Polieren"].id,
-            start_time=_days_ago(10).replace(hour=15, minute=30), end_time=_days_ago(10).replace(hour=15, minute=50),
-            duration_minutes=20, location="Polierbereich",
-            complexity_rating=1, quality_rating=5,
+            start_time=_days_ago(10).replace(hour=15, minute=30),
+            end_time=_days_ago(10).replace(hour=15, minute=50),
+            duration_minutes=20,
+            location="Polierbereich",
+            complexity_rating=1,
+            quality_rating=5,
             notes="Ring poliert, wie neu.",
         ),
         # ── Order 10: Perlenring (COMPLETED) ──
         dict(
-            order_id=orders[10].id, user_id=goldsmith.id,
+            order_id=orders[10].id,
+            user_id=goldsmith.id,
             activity_id=act_map["Loeten"].id,
-            start_time=_days_ago(8).replace(hour=8), end_time=_days_ago(8).replace(hour=9, minute=30),
-            duration_minutes=90, location="Werkbank 1",
-            complexity_rating=3, quality_rating=4,
+            start_time=_days_ago(8).replace(hour=8),
+            end_time=_days_ago(8).replace(hour=9, minute=30),
+            duration_minutes=90,
+            location="Werkbank 1",
+            complexity_rating=3,
+            quality_rating=4,
             notes="Neue Zargenfassung fuer Perle angeloetet. Vorsicht: Perle waermeempfindlich!",
         ),
         dict(
-            order_id=orders[10].id, user_id=goldsmith.id,
+            order_id=orders[10].id,
+            user_id=goldsmith.id,
             activity_id=act_map["Fassen (Steine)"].id,
-            start_time=_days_ago(7).replace(hour=9), end_time=_days_ago(7).replace(hour=10, minute=30),
-            duration_minutes=90, location="Werkbank 1",
-            complexity_rating=3, quality_rating=5,
+            start_time=_days_ago(7).replace(hour=9),
+            end_time=_days_ago(7).replace(hour=10, minute=30),
+            duration_minutes=90,
+            location="Werkbank 1",
+            complexity_rating=3,
+            quality_rating=5,
             notes="Perle in neue Zargen eingesetzt. Sitzt fest, kein Spiel.",
         ),
         dict(
-            order_id=orders[10].id, user_id=goldsmith.id,
+            order_id=orders[10].id,
+            user_id=goldsmith.id,
             activity_id=act_map["Polieren"].id,
-            start_time=_days_ago(6).replace(hour=14), end_time=_days_ago(6).replace(hour=14, minute=30),
-            duration_minutes=30, location="Polierbereich",
-            complexity_rating=2, quality_rating=5,
+            start_time=_days_ago(6).replace(hour=14),
+            end_time=_days_ago(6).replace(hour=14, minute=30),
+            duration_minutes=30,
+            location="Polierbereich",
+            complexity_rating=2,
+            quality_rating=5,
             notes="Hochglanzpolitur. Perle abgeklebt.",
         ),
         # ── Order 13: Brosche Art-Deco (IN_PROGRESS) ──
         dict(
-            order_id=orders[13].id, user_id=goldsmith.id,
+            order_id=orders[13].id,
+            user_id=goldsmith.id,
             activity_id=act_map["Kundenberatung"].id,
-            start_time=_days_ago(7).replace(hour=10), end_time=_days_ago(7).replace(hour=11, minute=30),
-            duration_minutes=90, location="Laden",
-            complexity_rating=4, quality_rating=5,
+            start_time=_days_ago(7).replace(hour=10),
+            end_time=_days_ago(7).replace(hour=11, minute=30),
+            duration_minutes=90,
+            location="Laden",
+            complexity_rating=4,
+            quality_rating=5,
             notes="Ausfuehrliche Beratung mit Fr. Hoffmann. Kundenzeichnung besprochen und angepasst.",
         ),
         dict(
-            order_id=orders[13].id, user_id=goldsmith.id,
+            order_id=orders[13].id,
+            user_id=goldsmith.id,
             activity_id=act_map["Saegen"].id,
-            start_time=_days_ago(4).replace(hour=8), end_time=_days_ago(4).replace(hour=12),
-            duration_minutes=240, location="Werkbank 1",
-            complexity_rating=5, quality_rating=4,
+            start_time=_days_ago(4).replace(hour=8),
+            end_time=_days_ago(4).replace(hour=12),
+            duration_minutes=240,
+            location="Werkbank 1",
+            complexity_rating=5,
+            quality_rating=4,
             notes="Geometrische Grundform ausgesaegt. Sehr detailreiche Arbeit.",
         ),
         # ── Order 14: Charm-Armband (DELIVERED) ──
         dict(
-            order_id=orders[14].id, user_id=goldsmith.id,
+            order_id=orders[14].id,
+            user_id=goldsmith.id,
             activity_id=act_map["Saegen"].id,
-            start_time=_days_ago(18).replace(hour=8), end_time=_days_ago(18).replace(hour=11),
-            duration_minutes=180, location="Werkbank 2",
-            complexity_rating=3, quality_rating=4,
+            start_time=_days_ago(18).replace(hour=8),
+            end_time=_days_ago(18).replace(hour=11),
+            duration_minutes=180,
+            location="Werkbank 2",
+            complexity_rating=3,
+            quality_rating=4,
             notes="5 Charm-Formen ausgesaegt: Stern, Herz, Anker, Schluessel, Kleeblatt.",
         ),
         dict(
-            order_id=orders[14].id, user_id=goldsmith.id,
+            order_id=orders[14].id,
+            user_id=goldsmith.id,
             activity_id=act_map["Polieren"].id,
-            start_time=_days_ago(15).replace(hour=14), end_time=_days_ago(15).replace(hour=15),
-            duration_minutes=60, location="Polierbereich",
-            complexity_rating=2, quality_rating=5,
+            start_time=_days_ago(15).replace(hour=14),
+            end_time=_days_ago(15).replace(hour=15),
+            duration_minutes=60,
+            location="Polierbereich",
+            complexity_rating=2,
+            quality_rating=5,
             notes="Charms poliert, Armband-Glieder matt belassen.",
         ),
     ]
@@ -1820,36 +2046,104 @@ async def seed_quotes(db, orders, customers, users) -> list:
     # Line items for quotes
     line_items_data = [
         # Quote 0 (Armband DRAFT)
-        dict(quote_id=quotes[0].id, line_type=QuoteLineType.MATERIAL,
-             description="Silber 925, ca. 25g", quantity=25.0, unit_price=1.20, total=30.00),
-        dict(quote_id=quotes[0].id, line_type=QuoteLineType.LABOR,
-             description="Fertigung Gliederarmband, ca. 6h", quantity=6.0, unit_price=75.00, total=450.00),
+        dict(
+            quote_id=quotes[0].id,
+            line_type=QuoteLineType.MATERIAL,
+            description="Silber 925, ca. 25g",
+            quantity=25.0,
+            unit_price=1.20,
+            total=30.00,
+        ),
+        dict(
+            quote_id=quotes[0].id,
+            line_type=QuoteLineType.LABOR,
+            description="Fertigung Gliederarmband, ca. 6h",
+            quantity=6.0,
+            unit_price=75.00,
+            total=450.00,
+        ),
         # Quote 1 (Saphir-Anhaenger SENT)
-        dict(quote_id=quotes[1].id, line_type=QuoteLineType.MATERIAL,
-             description="Weissgold 750, ca. 4g", quantity=4.0, unit_price=68.00, total=272.00),
-        dict(quote_id=quotes[1].id, line_type=QuoteLineType.GEMSTONE,
-             description="Saphir oval 0.60ct, koenigsblau", quantity=1.0, unit_price=950.00, total=950.00),
-        dict(quote_id=quotes[1].id, line_type=QuoteLineType.LABOR,
-             description="Fertigung Anhaenger mit Fassung, ca. 6h", quantity=6.0, unit_price=85.00, total=510.00),
+        dict(
+            quote_id=quotes[1].id,
+            line_type=QuoteLineType.MATERIAL,
+            description="Weissgold 750, ca. 4g",
+            quantity=4.0,
+            unit_price=68.00,
+            total=272.00,
+        ),
+        dict(
+            quote_id=quotes[1].id,
+            line_type=QuoteLineType.GEMSTONE,
+            description="Saphir oval 0.60ct, koenigsblau",
+            quantity=1.0,
+            unit_price=950.00,
+            total=950.00,
+        ),
+        dict(
+            quote_id=quotes[1].id,
+            line_type=QuoteLineType.LABOR,
+            description="Fertigung Anhaenger mit Fassung, ca. 6h",
+            quantity=6.0,
+            unit_price=85.00,
+            total=510.00,
+        ),
         # Quote 2 (Verlobungsring APPROVED)
-        dict(quote_id=quotes[2].id, line_type=QuoteLineType.MATERIAL,
-             description="Gelbgold 750, ca. 5.5g (+ 8% Verschnitt)", quantity=5.9, unit_price=62.50, total=368.75),
-        dict(quote_id=quotes[2].id, line_type=QuoteLineType.GEMSTONE,
-             description="Brillant 0.50ct, VS1/G, GIA-Zertifikat", quantity=1.0, unit_price=2850.00, total=2850.00),
-        dict(quote_id=quotes[2].id, line_type=QuoteLineType.LABOR,
-             description="Fertigung Solitaerring inkl. Krappenfassung, ca. 12h", quantity=12.0, unit_price=85.00, total=1020.00),
+        dict(
+            quote_id=quotes[2].id,
+            line_type=QuoteLineType.MATERIAL,
+            description="Gelbgold 750, ca. 5.5g (+ 8% Verschnitt)",
+            quantity=5.9,
+            unit_price=62.50,
+            total=368.75,
+        ),
+        dict(
+            quote_id=quotes[2].id,
+            line_type=QuoteLineType.GEMSTONE,
+            description="Brillant 0.50ct, VS1/G, GIA-Zertifikat",
+            quantity=1.0,
+            unit_price=2850.00,
+            total=2850.00,
+        ),
+        dict(
+            quote_id=quotes[2].id,
+            line_type=QuoteLineType.LABOR,
+            description="Fertigung Solitaerring inkl. Krappenfassung, ca. 12h",
+            quantity=12.0,
+            unit_price=85.00,
+            total=1020.00,
+        ),
         # Quote 3 (Eheringe CONVERTED)
-        dict(quote_id=quotes[3].id, line_type=QuoteLineType.MATERIAL,
-             description="Gelbgold 750, Paar ca. 14g (+ 6% Verschnitt)", quantity=14.8, unit_price=62.50, total=925.00),
-        dict(quote_id=quotes[3].id, line_type=QuoteLineType.GEMSTONE,
-             description="3x Brillant 0.03ct, VS2/H (Melee, Kanalfassung)", quantity=3.0, unit_price=45.00, total=135.00),
-        dict(quote_id=quotes[3].id, line_type=QuoteLineType.LABOR,
-             description="Fertigung Ehering-Paar inkl. Gravur, ca. 16h", quantity=16.0, unit_price=85.00, total=1360.00),
+        dict(
+            quote_id=quotes[3].id,
+            line_type=QuoteLineType.MATERIAL,
+            description="Gelbgold 750, Paar ca. 14g (+ 6% Verschnitt)",
+            quantity=14.8,
+            unit_price=62.50,
+            total=925.00,
+        ),
+        dict(
+            quote_id=quotes[3].id,
+            line_type=QuoteLineType.GEMSTONE,
+            description="3x Brillant 0.03ct, VS2/H (Melee, Kanalfassung)",
+            quantity=3.0,
+            unit_price=45.00,
+            total=135.00,
+        ),
+        dict(
+            quote_id=quotes[3].id,
+            line_type=QuoteLineType.LABOR,
+            description="Fertigung Ehering-Paar inkl. Gravur, ca. 16h",
+            quantity=16.0,
+            unit_price=85.00,
+            total=1360.00,
+        ),
     ]
     for data in line_items_data:
         db.add(QuoteLineItem(**data))
     await db.flush()
-    print(f"  Kostenvoranschlaege: {len(quotes)} erstellt (+ {len(line_items_data)} Positionen)")
+    print(
+        f"  Kostenvoranschlaege: {len(quotes)} erstellt (+ {len(line_items_data)} Positionen)"
+    )
     return quotes
 
 
@@ -1938,27 +2232,81 @@ async def seed_invoices(db, orders, customers, users) -> list:
     # Line items
     line_items = [
         # Invoice 0 (Kette Reparatur DRAFT)
-        dict(invoice_id=invoices[0].id, line_type=InvoiceLineType.MATERIAL,
-             description="Silber 925 Karabinerverschluss", quantity=1.0, unit_price=2.50, total=2.50),
-        dict(invoice_id=invoices[0].id, line_type=InvoiceLineType.LABOR,
-             description="Reparatur Verschluss (Loeten), 0.5h", quantity=0.5, unit_price=75.00, total=37.50),
+        dict(
+            invoice_id=invoices[0].id,
+            line_type=InvoiceLineType.MATERIAL,
+            description="Silber 925 Karabinerverschluss",
+            quantity=1.0,
+            unit_price=2.50,
+            total=2.50,
+        ),
+        dict(
+            invoice_id=invoices[0].id,
+            line_type=InvoiceLineType.LABOR,
+            description="Reparatur Verschluss (Loeten), 0.5h",
+            quantity=0.5,
+            unit_price=75.00,
+            total=37.50,
+        ),
         # Invoice 1 (Silberanhaenger SENT)
-        dict(invoice_id=invoices[1].id, line_type=InvoiceLineType.MATERIAL,
-             description="Silber 925, 8g", quantity=8.0, unit_price=1.20, total=9.60),
-        dict(invoice_id=invoices[1].id, line_type=InvoiceLineType.LABOR,
-             description="Fertigung Anhaenger Fisch, 3.2h", quantity=3.2, unit_price=75.00, total=240.00),
+        dict(
+            invoice_id=invoices[1].id,
+            line_type=InvoiceLineType.MATERIAL,
+            description="Silber 925, 8g",
+            quantity=8.0,
+            unit_price=1.20,
+            total=9.60,
+        ),
+        dict(
+            invoice_id=invoices[1].id,
+            line_type=InvoiceLineType.LABOR,
+            description="Fertigung Anhaenger Fisch, 3.2h",
+            quantity=3.2,
+            unit_price=75.00,
+            total=240.00,
+        ),
         # Invoice 2 (Ohrstecker PAID)
-        dict(invoice_id=invoices[2].id, line_type=InvoiceLineType.MATERIAL,
-             description="Weissgold 750, 3.0g", quantity=3.0, unit_price=68.00, total=204.00),
-        dict(invoice_id=invoices[2].id, line_type=InvoiceLineType.GEMSTONE,
-             description="2x Brillant 0.10ct VS2/H", quantity=2.0, unit_price=180.00, total=360.00),
-        dict(invoice_id=invoices[2].id, line_type=InvoiceLineType.LABOR,
-             description="Fertigung Ohrstecker inkl. Fassung, 3.8h", quantity=3.8, unit_price=85.00, total=323.00),
+        dict(
+            invoice_id=invoices[2].id,
+            line_type=InvoiceLineType.MATERIAL,
+            description="Weissgold 750, 3.0g",
+            quantity=3.0,
+            unit_price=68.00,
+            total=204.00,
+        ),
+        dict(
+            invoice_id=invoices[2].id,
+            line_type=InvoiceLineType.GEMSTONE,
+            description="2x Brillant 0.10ct VS2/H",
+            quantity=2.0,
+            unit_price=180.00,
+            total=360.00,
+        ),
+        dict(
+            invoice_id=invoices[2].id,
+            line_type=InvoiceLineType.LABOR,
+            description="Fertigung Ohrstecker inkl. Fassung, 3.8h",
+            quantity=3.8,
+            unit_price=85.00,
+            total=323.00,
+        ),
         # Invoice 3 (Charm-Armband PAID)
-        dict(invoice_id=invoices[3].id, line_type=InvoiceLineType.MATERIAL,
-             description="Silber 925, 28g", quantity=28.0, unit_price=1.20, total=33.60),
-        dict(invoice_id=invoices[3].id, line_type=InvoiceLineType.LABOR,
-             description="Fertigung 5 Charms + Armband, 5.5h", quantity=5.5, unit_price=75.00, total=412.50),
+        dict(
+            invoice_id=invoices[3].id,
+            line_type=InvoiceLineType.MATERIAL,
+            description="Silber 925, 28g",
+            quantity=28.0,
+            unit_price=1.20,
+            total=33.60,
+        ),
+        dict(
+            invoice_id=invoices[3].id,
+            line_type=InvoiceLineType.LABOR,
+            description="Fertigung 5 Charms + Armband, 5.5h",
+            quantity=5.5,
+            unit_price=75.00,
+            total=412.50,
+        ),
     ]
     for data in line_items:
         db.add(InvoiceLineItem(**data))
@@ -2038,7 +2386,9 @@ async def seed_scrap_gold(db, orders, customers, users) -> list:
 
     # 2 - RECEIVED (just documented, mixed alloys)
     sg3 = ScrapGold(
-        order_id=orders[11].id,  # Manschettenknuepfe (link to an order even though not yet used)
+        order_id=orders[
+            11
+        ].id,  # Manschettenknuepfe (link to an order even though not yet used)
         customer_id=customers[7].id,  # Dr. Bauer
         created_by=goldsmith.id,
         status=ScrapGoldStatus.RECEIVED,
@@ -2321,40 +2671,70 @@ async def seed_comments(db, orders, users) -> list:
 
     comments_data = [
         # Verlobungsring
-        dict(order_id=orders[0].id, user_id=viewer.id,
-             text="Kunde Thomas Weber hat angerufen. Mochte wissen, ob der Ring rechtzeitig fertig wird. Habe ihm versichert, dass wir im Zeitplan sind.",
-             created_at=_days_ago(7)),
-        dict(order_id=orders[0].id, user_id=goldsmith.id,
-             text="Guss gut gelungen. Krappen werden morgen angeloetet. Brillant liegt bereit. Schaffe es bis Deadline.",
-             created_at=_days_ago(6)),
+        dict(
+            order_id=orders[0].id,
+            user_id=viewer.id,
+            text="Kunde Thomas Weber hat angerufen. Mochte wissen, ob der Ring rechtzeitig fertig wird. Habe ihm versichert, dass wir im Zeitplan sind.",
+            created_at=_days_ago(7),
+        ),
+        dict(
+            order_id=orders[0].id,
+            user_id=goldsmith.id,
+            text="Guss gut gelungen. Krappen werden morgen angeloetet. Brillant liegt bereit. Schaffe es bis Deadline.",
+            created_at=_days_ago(6),
+        ),
         # Eheringe
-        dict(order_id=orders[1].id, user_id=goldsmith.id,
-             text="Beide Ringschienen geschmiedet. Herrenring auf 66mm, Damenring auf 54mm. Kanalfassung fuer Brillanten wird naechste Woche vorbereitet.",
-             created_at=_days_ago(10)),
-        dict(order_id=orders[1].id, user_id=admin.id,
-             text="Anprobetermin mit Weber-Paar auf den 12. gelegt. Ringe muessen bis dahin mindestens anprobefertig sein!",
-             created_at=_days_ago(5)),
+        dict(
+            order_id=orders[1].id,
+            user_id=goldsmith.id,
+            text="Beide Ringschienen geschmiedet. Herrenring auf 66mm, Damenring auf 54mm. Kanalfassung fuer Brillanten wird naechste Woche vorbereitet.",
+            created_at=_days_ago(10),
+        ),
+        dict(
+            order_id=orders[1].id,
+            user_id=admin.id,
+            text="Anprobetermin mit Weber-Paar auf den 12. gelegt. Ringe muessen bis dahin mindestens anprobefertig sein!",
+            created_at=_days_ago(5),
+        ),
         # Altgold-Umarbeitung
-        dict(order_id=orders[3].id, user_id=goldsmith.id,
-             text="Altgold-Brosche zerlegt. Rubin unbeschaedigt. Feingoldgehalt per Saeurentest bestaetigt: 585er. 8.5g brutto = 4.97g Feingold.",
-             created_at=_days_ago(8)),
-        dict(order_id=orders[3].id, user_id=viewer.id,
-             text="Frau Richter hat nach dem Fortschritt gefragt. Bitte kurzes Update, wenn der Ring gegossen ist.",
-             created_at=_days_ago(4)),
+        dict(
+            order_id=orders[3].id,
+            user_id=goldsmith.id,
+            text="Altgold-Brosche zerlegt. Rubin unbeschaedigt. Feingoldgehalt per Saeurentest bestaetigt: 585er. 8.5g brutto = 4.97g Feingold.",
+            created_at=_days_ago(8),
+        ),
+        dict(
+            order_id=orders[3].id,
+            user_id=viewer.id,
+            text="Frau Richter hat nach dem Fortschritt gefragt. Bitte kurzes Update, wenn der Ring gegossen ist.",
+            created_at=_days_ago(4),
+        ),
         # Rush order
-        dict(order_id=orders[8].id, user_id=viewer.id,
-             text="EILAUFTRAG! Herr Mueller braucht die Kette bis Freitag (Hochzeitstag). Zuschlag fuer Eilbearbeitung vereinbart (95 EUR/h statt 75 EUR/h).",
-             created_at=_days_ago(1)),
-        dict(order_id=orders[8].id, user_id=goldsmith.id,
-             text="Schaffe ich, wenn Material heute reinkommt. Brauche 18g Gold 750 aus Bestand.",
-             created_at=_hours_ago(5)),
+        dict(
+            order_id=orders[8].id,
+            user_id=viewer.id,
+            text="EILAUFTRAG! Herr Mueller braucht die Kette bis Freitag (Hochzeitstag). Zuschlag fuer Eilbearbeitung vereinbart (95 EUR/h statt 75 EUR/h).",
+            created_at=_days_ago(1),
+        ),
+        dict(
+            order_id=orders[8].id,
+            user_id=goldsmith.id,
+            text="Schaffe ich, wenn Material heute reinkommt. Brauche 18g Gold 750 aus Bestand.",
+            created_at=_hours_ago(5),
+        ),
         # Brosche Art-Deco
-        dict(order_id=orders[13].id, user_id=viewer.id,
-             text="Fr. Hoffmann (Juwelier Hoffmann) hat die Entwurfsskizze freigegeben. 10% Geschaeftskundenrabatt beruecksichtigen!",
-             created_at=_days_ago(6)),
-        dict(order_id=orders[13].id, user_id=goldsmith.id,
-             text="Geometrische Grundform ausgesaegt. Sehr anspruchsvolle Arbeit. Onyx-Einlagen werden naechste Woche zugeschliffen.",
-             created_at=_days_ago(3)),
+        dict(
+            order_id=orders[13].id,
+            user_id=viewer.id,
+            text="Fr. Hoffmann (Juwelier Hoffmann) hat die Entwurfsskizze freigegeben. 10% Geschaeftskundenrabatt beruecksichtigen!",
+            created_at=_days_ago(6),
+        ),
+        dict(
+            order_id=orders[13].id,
+            user_id=goldsmith.id,
+            text="Geometrische Grundform ausgesaegt. Sehr anspruchsvolle Arbeit. Onyx-Einlagen werden naechste Woche zugeschliffen.",
+            created_at=_days_ago(3),
+        ),
     ]
     comments = []
     for data in comments_data:
@@ -2583,6 +2963,312 @@ async def seed_location_history(db, orders, users) -> list:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
+# V1.1 / V1.2 DEMO ENTITIES
+#
+# Consultations, consultation/order/repair photos, customer updates and
+# §649-BGB cost-change requests. Each function is idempotent (skips when its
+# table already has rows) and routes payloads through
+# ``_seed_helpers.filter_model_fields`` so a column added to the ORM between
+# releases does not break an older seed run. These are the demo-only V1.1/V1.2
+# layers that sit on top of the reference + V1.0 demo data.
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+async def seed_consultations(db, customers, orders, quotes, users) -> list:
+    """Create V1.1 consultations (Beratungsgespraeche) across a few customers."""
+    if not customers or not users:
+        return []
+    if await db.scalar(select(Consultation.id).limit(1)) is not None:
+        logger.info("Beratungen bereits vorhanden — uebersprungen")
+        return list((await db.execute(select(Consultation))).scalars().all())
+
+    goldsmith = users[0]
+    first_quote_id = quotes[0].id if quotes else None
+    first_order_id = orders[0].id if orders else None
+
+    specs = [
+        dict(
+            customer_id=customers[0].id,
+            conducted_by=goldsmith.id,
+            occasion=ConsultationOccasion.ANNIVERSARY,
+            status=ConsultationStatus.COMPLETED,
+            budget_min=800.0,
+            budget_max=1500.0,
+            wishes="Gelbgold-Anhaenger mit kleinem Brillant, klassisch.",
+            occasion_date=_days_from_now(60).date(),
+            notes="Kundin bevorzugt Gelbgold, mag keine kalten Toene.",
+        ),
+        dict(
+            customer_id=customers[1].id,
+            conducted_by=goldsmith.id,
+            occasion=ConsultationOccasion.WEDDING,
+            status=ConsultationStatus.CONVERTED,
+            budget_min=1800.0,
+            budget_max=2800.0,
+            wishes="Trauringe Gelbgold 750, schlicht, Damenring mit Brillanten.",
+            occasion_date=_days_from_now(120).date(),
+            converted_quote_id=first_quote_id,
+            converted_order_id=first_order_id,
+        ),
+        dict(
+            customer_id=customers[4].id,
+            conducted_by=goldsmith.id,
+            occasion=ConsultationOccasion.SELF,
+            status=ConsultationStatus.DRAFT,
+            budget_min=500.0,
+            budget_max=900.0,
+            wishes="Modernes Platin-Stueck, nickelfrei (Allergie).",
+            source_material=None,
+            notes="Nickel-Allergie beachten.",
+        ),
+        dict(
+            customer_id=customers[8].id,
+            conducted_by=goldsmith.id,
+            occasion=ConsultationOccasion.REDESIGN,
+            status=ConsultationStatus.COMPLETED,
+            wishes="Alte Brosche der Grossmutter in Anhaenger umarbeiten.",
+            source_material="Altgold-Brosche, ca. 12g Gelbgold 585.",
+        ),
+        dict(
+            customer_id=customers[6].id,
+            conducted_by=goldsmith.id,
+            occasion=ConsultationOccasion.BIRTHDAY,
+            status=ConsultationStatus.ARCHIVED,
+            wishes="Minimalistischer Ring, Weissgold.",
+        ),
+    ]
+    consultations = []
+    for spec in specs:
+        payload = _seed_helpers.filter_model_fields(
+            Consultation, {**spec, "created_at": _days_ago(40)}
+        )
+        c = Consultation(**payload)
+        db.add(c)
+        consultations.append(c)
+    await db.flush()
+    logger.info("Beratungen: %d erstellt", len(consultations))
+    print(f"  Beratungen: {len(consultations)} erstellt")
+    return consultations
+
+
+async def seed_consultation_photos(db, consultations, users) -> list:
+    """Attach a sketch/reference photo to each consultation."""
+    if not consultations or not users:
+        return []
+    if await db.scalar(select(ConsultationPhoto.id).limit(1)) is not None:
+        logger.info("Beratungsfotos bereits vorhanden — uebersprungen")
+        return []
+
+    goldsmith = users[0]
+    kinds = [
+        ConsultationPhotoKind.SKETCH,
+        ConsultationPhotoKind.REFERENCE,
+        ConsultationPhotoKind.EXISTING_PIECE,
+    ]
+    photos = []
+    for idx, consultation in enumerate(consultations):
+        payload = _seed_helpers.filter_model_fields(
+            ConsultationPhoto,
+            dict(
+                id=_uuid(),
+                consultation_id=consultation.id,
+                file_path=f"/uploads/consultations/demo_sketch_{idx + 1}.jpg",
+                taken_by=goldsmith.id,
+                kind=kinds[idx % len(kinds)],
+                notes="Demo-Skizze aus dem Beratungsgespraech.",
+                timestamp=_days_ago(38 - idx),
+            ),
+        )
+        p = ConsultationPhoto(**payload)
+        db.add(p)
+        photos.append(p)
+    await db.flush()
+    logger.info("Beratungsfotos: %d erstellt", len(photos))
+    print(f"  Beratungsfotos: {len(photos)} erstellt")
+    return photos
+
+
+async def seed_order_photos(db, orders, time_entries, users) -> list:
+    """Create order documentation photos for the first few orders."""
+    if not orders or not users:
+        return []
+    if await db.scalar(select(OrderPhoto.id).limit(1)) is not None:
+        logger.info("Auftragsfotos bereits vorhanden — uebersprungen")
+        return []
+
+    goldsmith = users[0]
+    te_for_order = {}
+    for te in time_entries or []:
+        te_for_order.setdefault(te.order_id, te.id)
+
+    photos = []
+    for idx, order in enumerate(orders[:6]):
+        payload = _seed_helpers.filter_model_fields(
+            OrderPhoto,
+            dict(
+                id=_uuid(),
+                order_id=order.id,
+                file_path=f"/uploads/orders/demo_order_{order.id}_{idx + 1}.jpg",
+                taken_by=goldsmith.id,
+                notes="Demo-Fortschrittsfoto.",
+                time_entry_id=te_for_order.get(order.id),
+                timestamp=_days_ago(15 - idx),
+            ),
+        )
+        p = OrderPhoto(**payload)
+        db.add(p)
+        photos.append(p)
+    await db.flush()
+    logger.info("Auftragsfotos: %d erstellt", len(photos))
+    print(f"  Auftragsfotos: {len(photos)} erstellt")
+    return photos
+
+
+async def seed_repair_photos(db, repairs, users) -> list:
+    """Create intake / completed photos for the first few repair jobs."""
+    if not repairs or not users:
+        return []
+    if await db.scalar(select(RepairPhoto.id).limit(1)) is not None:
+        logger.info("Reparaturfotos bereits vorhanden — uebersprungen")
+        return []
+
+    goldsmith = users[0]
+    photos = []
+    for idx, repair in enumerate(repairs[:4]):
+        for phase in (RepairPhotoPhase.INTAKE, RepairPhotoPhase.COMPLETED):
+            payload = _seed_helpers.filter_model_fields(
+                RepairPhoto,
+                dict(
+                    repair_job_id=repair.id,
+                    phase=phase,
+                    file_path=(
+                        f"/uploads/repairs/demo_repair_{repair.id}_"
+                        f"{phase.value}.jpg"
+                    ),
+                    taken_by=goldsmith.id,
+                    notes=f"Demo-Foto ({phase.value}).",
+                    timestamp=_days_ago(20 - idx),
+                ),
+            )
+            p = RepairPhoto(**payload)
+            db.add(p)
+            photos.append(p)
+    await db.flush()
+    logger.info("Reparaturfotos: %d erstellt", len(photos))
+    print(f"  Reparaturfotos: {len(photos)} erstellt")
+    return photos
+
+
+async def seed_customer_updates(db, orders, repairs, users) -> list:
+    """Create V1.2 customer-facing updates (Kundeninfos) for orders + repairs."""
+    if not users or (not orders and not repairs):
+        return []
+    if await db.scalar(select(CustomerUpdate.id).limit(1)) is not None:
+        logger.info("Kundeninfos bereits vorhanden — uebersprungen")
+        return []
+
+    sender = users[0]
+    updates: list[dict] = []
+    for order in orders[:3]:
+        updates.append(
+            dict(
+                order_id=order.id,
+                kind=CustomerUpdateKind.PROGRESS,
+                subject="Ihr Auftrag ist in Arbeit",
+                body=(
+                    "Wir haben mit der Fertigung begonnen und melden uns, "
+                    "sobald der naechste Meilenstein erreicht ist."
+                ),
+                sent_by=sender.id,
+                status=CustomerUpdateStatus.SENT,
+                delivery_method=UpdateDeliveryMethod.EMAIL,
+                sent_at=_days_ago(5),
+            )
+        )
+    if len(repairs) > 3:
+        updates.append(
+            dict(
+                repair_job_id=repairs[3].id,
+                kind=CustomerUpdateKind.READY_FOR_PICKUP,
+                subject="Ihre Reparatur ist abholbereit",
+                body="Ihr Schmuckstueck ist fertig und kann abgeholt werden.",
+                sent_by=sender.id,
+                status=CustomerUpdateStatus.DRAFT,
+            )
+        )
+
+    created = []
+    for spec in updates:
+        payload = _seed_helpers.filter_model_fields(
+            CustomerUpdate, {**spec, "created_at": _days_ago(6)}
+        )
+        u = CustomerUpdate(**payload)
+        db.add(u)
+        created.append(u)
+    await db.flush()
+    logger.info("Kundeninfos: %d erstellt", len(created))
+    print(f"  Kundeninfos: {len(created)} erstellt")
+    return created
+
+
+async def seed_cost_change_requests(db, orders, users) -> list:
+    """Create V1.2 §649-BGB cost-change requests (Kostenaenderungen)."""
+    if not orders or not users:
+        return []
+    if await db.scalar(select(CostChangeRequest.id).limit(1)) is not None:
+        logger.info("Kostenaenderungen bereits vorhanden — uebersprungen")
+        return []
+
+    creator = users[0]
+    # Only one 'sent' per order (DB partial-unique index): use approved/draft
+    # on distinct orders to stay clear of that invariant.
+    specs = []
+    if len(orders) > 4:
+        base = float(orders[4].price or 1500.0)
+        specs.append(
+            dict(
+                order_id=orders[4].id,
+                created_by=creator.id,
+                original_amount=base,
+                new_amount=round(base * 1.15, 2),
+                delta_percent=15.0,
+                reason=(
+                    "Zusaetzlicher Materialaufwand (schwerere Ringschiene) "
+                    "nach Ruecksprache mit der Kundin."
+                ),
+                status=CostChangeStatus.APPROVED,
+                responded_at=_days_ago(2),
+            )
+        )
+    if len(orders) > 2:
+        base = float(orders[2].price or 1200.0)
+        specs.append(
+            dict(
+                order_id=orders[2].id,
+                created_by=creator.id,
+                original_amount=base,
+                new_amount=round(base * 1.08, 2),
+                delta_percent=8.0,
+                reason="Aufpreis fuer hochwertigeren Stein (Kundenwunsch).",
+                status=CostChangeStatus.DRAFT,
+            )
+        )
+
+    created = []
+    for spec in specs:
+        payload = _seed_helpers.filter_model_fields(
+            CostChangeRequest, {**spec, "created_at": _days_ago(3)}
+        )
+        r = CostChangeRequest(**payload)
+        db.add(r)
+        created.append(r)
+    await db.flush()
+    logger.info("Kostenaenderungen: %d erstellt", len(created))
+    print(f"  Kostenaenderungen: {len(created)} erstellt")
+    return created
+
+
+# ═══════════════════════════════════════════════════════════════════════════
 # MAIN ENTRY POINT
 # ═══════════════════════════════════════════════════════════════════════════
 
@@ -2591,9 +3277,7 @@ async def seed():
     """Main seeding function — creates all demo data in dependency order."""
     async with AsyncSessionLocal() as db:
         # ── Idempotency check ──────────────────────────────────────────
-        result = await db.execute(
-            select(User).where(User.email == SENTINEL_EMAIL)
-        )
+        result = await db.execute(select(User).where(User.email == SENTINEL_EMAIL))
         if result.scalar_one_or_none():
             print("Demo-Daten sind bereits vorhanden. Seeding uebersprungen.")
             print(f"  (Sentinel-Email: {SENTINEL_EMAIL})")
@@ -2645,6 +3329,16 @@ async def seed():
         hallmarks = await seed_hallmarks(db, orders, users)
         valuations = await seed_valuation_certificates(db, orders, customers, users)
         location_history = await seed_location_history(db, orders, users)
+
+        # ── Phase 11: V1.1 Consultations & photos ─────────────────────
+        consultations = await seed_consultations(db, customers, orders, quotes, users)
+        consultation_photos = await seed_consultation_photos(db, consultations, users)
+        order_photos = await seed_order_photos(db, orders, time_entries, users)
+        repair_photos = await seed_repair_photos(db, repairs, users)
+
+        # ── Phase 12: V1.2 Customer updates & cost-change requests ────
+        customer_updates = await seed_customer_updates(db, orders, repairs, users)
+        cost_change_requests = await seed_cost_change_requests(db, orders, users)
 
         # ── Commit everything ─────────────────────────────────────────
         await db.commit()
