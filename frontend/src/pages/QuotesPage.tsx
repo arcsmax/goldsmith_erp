@@ -16,6 +16,7 @@ import {
 } from '../types';
 import { logError } from '../lib/logError';
 import { SignatureCanvas } from '../components/SignatureCanvas';
+import { EstimatorPanel } from '../components/estimator/EstimatorPanel';
 import '../styles/quotes.css';
 
 // ---------------------------------------------------------------------------
@@ -722,6 +723,18 @@ const QuoteDetailPanel: React.FC<QuoteDetailPanelProps> = ({
             onAdd={onAddLineItem}
             onSave={onSaveLineItem}
             onRemove={onRemoveLineItem}
+          />
+          <EstimatorPanel
+            quote={quote}
+            order={null}
+            onPatch={async ({ addLineItem }) => {
+              try {
+                await onAddLineItem(addLineItem);
+                return true;
+              } catch {
+                return false;
+              }
+            }}
           />
           <div className="quote-totals">
             <div className="totals-row">
