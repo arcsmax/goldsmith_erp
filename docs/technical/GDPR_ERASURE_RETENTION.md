@@ -250,3 +250,135 @@ processing and the legal-obligation carve-out that already governs the §147 AO
 financial records) and serve only disaster recovery — they are not used for any
 other processing. Once a dump rotates out under `apply_retention`, it is deleted
 (`rm -f`), which removes the residual copy for good.
+---
+
+## 5. Per-entity retention sweep (`retention_class`) — finding 2.3
+
+The customer-level erasure above disposes of *customers*. A separate weekly
+job — `python -m goldsmith_erp.jobs.retention_sweep` — enforces the per-row
+statutory retention buckets tagged by the `retention_class` column on the
+operational + financial tables (added by the Slice-2 / QR-barcode migrations;
+the repository methods that were meant to drive this were deleted in the
+pre-V1.1 hotfix and never rebuilt).
+
+### Retention-class map
+
+| Table            | `retention_class`     | Anchor column | Period                    | Legal basis                              | Action                        |
+| ---------------- | --------------------- | ------------- | ------------------------- | ---------------------------------------- | ----------------------------- |
+| `scan_logs`      | `standard_24m`        | `scanned_at`  | 24 months (rolling)       | Operational log — Datenminimierung Art. 5(1)(e) DSGVO | **Delete** after the window   |
+| `time_entries`   | `financial_10y`       | `created_at`  | 10 years (year-end anchor)| HGB §257 / §147 AO                        | **Delete** after the period   |
+| `material_usage` | `financial_10y`       | `used_at`     | 10 years (year-end anchor)| HGB §257 / §147 AO                        | **Delete** after the period   |
+| `orders`         | `indefinite_business` | —             | indefinite                | Core business record                     | **Excluded** — never expires  |
+| `orders`         | `hallmark_10y`        | —             | ≥10 years (floor)         | Feingehaltsgesetz / DIN 8238 evidence    | **Excluded + flagged** (see below) |
+
+**Anchor rationale.** For the financial tables the retention clock is
+*year-end-anchored*: §147 AO / HGB §257 retention runs to the end of the
+calendar year in which the record arose, so the cutoff is `1 Jan of
+(year(now) − 10)`. A row is therefore never a candidate until it is fully past
+its statutory 10-year window — conservative by construction, so a euro-relevant
+row is **never** deleted early. `created_at` (time_entries) / `used_at`
+(material_usage) are the always-present record-creation / consumption
+timestamps. `scan_logs` uses a plain 24-month rolling window on `scanned_at`
+(the scan event time) — an operational log with no statutory floor.
+
+**Why `orders` is excluded (flagged, not guessed).** `indefinite_business`
+(the column default) means nothing ever expires. `hallmark_10y` is a retention
+*floor* ("must survive ≥10 years"), not a delete-at-10-years trigger; the order
+may still be an indefinite business record afterwards. Deleting an order also
+cascades to `material_usage` / `gemstones` / `comments`, touches customer PII +
+design-IP, and overlaps the customer-level erasure path — and its 10-year
+anchor is itself ambiguous (`created_at` vs `completed_at` vs
+`punzierung_verified_at`). This needs an explicit **Anna + Henrik** policy
+decision before it is swept.
+
+> **Open policy question (flagged for Anna + Henrik).** For `financial_10y`
+> the sweep hard-deletes once the statutory period has fully lapsed (GDPR
+> data-minimisation once the retention obligation ends). If the workshop would
+> rather *anonymise-in-place* these rows instead (mirroring the customer
+> policy in §1), that is a one-line change to the rule's action — raise it
+> before enabling execution.
+
+### Safety model
+
+- **DRY-RUN is the default.** Without `--execute` the job only counts + logs
+  candidate PKs (PK ids only — never PII) per table and deletes nothing. The
+  systemd unit ships in dry-run mode.
+- **`--execute` (or `RETENTION_EXECUTE=1`)** performs the deletions, each rule
+  in its own transaction. A per-table failure is logged with PK ids and makes
+  the job exit nonzero (fail-loud) while other tables still process — the
+  `OnFailure=` alert unit then notifies admins in-app.
+
+### Installation — scheduled sweep + alerting
+
+```bash
+# 1. Copy the units into the user systemd dir.
+mkdir -p ~/.config/systemd/user
+cp deploy/systemd/goldsmith-retention-sweep.service \
+   deploy/systemd/goldsmith-retention-sweep.timer \
+   deploy/systemd/goldsmith-retention-sweep-alert.service \
+   ~/.config/systemd/user/
+
+# 2. Edit WorkingDirectory in goldsmith-retention-sweep.service to the project
+#    root. LEAVE IT IN DRY-RUN until you have reviewed the candidate logs and
+#    have an Anna+Henrik sign-off; then uncomment Environment=RETENTION_EXECUTE=1.
+
+# 3. Reload + enable the weekly timer (Sundays 03:30).
+systemctl --user daemon-reload
+systemctl --user enable --now goldsmith-retention-sweep.timer
+loginctl enable-linger "$USER"
+
+# Run once on demand to review the dry-run candidate counts:
+systemctl --user start goldsmith-retention-sweep.service
+#   …or directly:  scripts/retention-sweep.sh          # dry-run
+#                  RETENTION_EXECUTE=1 scripts/retention-sweep.sh   # execute
+```
+
+The alert unit reuses the same localhost-only `/admin/notify-gdpr-cleanup`
+endpoint as the Art. 17 cleanup (the retention sweep is a sibling of it); the
+`unit` field identifies the source unambiguously and the body carries no PII.
+
+---
+
+## 6. Out-of-band health alerting (email dead-man's-switch) — finding 2.6
+
+In-app health notifications are useless when the backend itself is down. An
+external watchdog — `scripts/health-watchdog.sh`, driven by a 5-minute systemd
+timer **on the host** (not in the container) — curls `/health` with retries and,
+on failure, sends an email via the import-light CLI
+`python -m goldsmith_erp.jobs.health_alert`.
+
+Key properties:
+
+- The alert CLI **needs no DB and no running backend** — it only reads the
+  SMTP config from `.env` (`SMTP_*`, `EMAIL_NOTIFICATIONS_ENABLED`) and reuses
+  `EmailService`. It runs via `poetry run` on the host or via
+  `podman run --rm --env-file .env <backend-image>` (set `ALERT_CMD`).
+- **No duplicate SMTP creds in the shell** — the recipient is
+  `HEALTH_ALERT_EMAIL` (env), falling back to `SMTP_FROM`.
+- **If SMTP is unconfigured the CLI logs and exits 0** (documented no-op — a
+  workshop may not have SMTP yet). It exits nonzero only when SMTP *is*
+  configured but the send fails.
+- The watchdog exits nonzero on an outage so `systemctl --user status
+  goldsmith-health-watchdog` surfaces it; the email is the out-of-band alert
+  (no separate `OnFailure=` unit).
+
+### Installation
+
+```bash
+mkdir -p ~/.config/systemd/user
+cp deploy/systemd/goldsmith-health-watchdog.service \
+   deploy/systemd/goldsmith-health-watchdog.timer \
+   ~/.config/systemd/user/
+# Edit WorkingDirectory (project root, holds pyproject.toml + .env) and, if
+# desired, Environment=HEALTH_ALERT_EMAIL=... in the .service.
+systemctl --user daemon-reload
+systemctl --user enable --now goldsmith-health-watchdog.timer
+loginctl enable-linger "$USER"
+systemctl --user list-timers goldsmith-health-watchdog.timer   # verify
+
+# Test the alert path directly (no-op if SMTP unset):
+poetry run python -m goldsmith_erp.jobs.health_alert --reason "manual test"
+```
+
+Nothing is wired into podman-compose — host-level systemd is the right place,
+consistent with the backup and GDPR timers.
