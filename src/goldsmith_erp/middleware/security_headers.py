@@ -25,6 +25,12 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["X-XSS-Protection"] = "0"
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
-        response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+        # camera=(self): the product's own QR scanner (frontend
+        # QrCameraScanner.tsx) needs getUserMedia. camera=() would block it once
+        # frontend and backend share an origin behind the Caddy+nginx proxy.
+        # microphone/geolocation stay fully disabled — nothing in the app uses them.
+        response.headers["Permissions-Policy"] = (
+            "camera=(self), microphone=(), geolocation=()"
+        )
 
         return response
