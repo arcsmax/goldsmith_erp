@@ -1,0 +1,47 @@
+# ============================================================================
+# goldsmith-retention-sweep.service — weekly per-entity retention_class sweep
+#
+# Production-readiness.md 2026-07-26, finding 2.3. Sibling of the daily GDPR
+# Art. 17 cleanup: this enforces the statutory retention buckets tagged on
+# scan_logs / time_entries / material_usage. Runs INSIDE the rootless-podman
+# backend container (via scripts/retention-sweep.sh → podman-compose exec -T
+# backend python -m goldsmith_erp.jobs.retention_sweep). Triggered by the
+# companion .timer; not enabled directly.
+#
+# SHIPS IN DRY-RUN MODE. The sweep only counts + logs candidate rows and
+# deletes nothing until an operator, after reviewing the dry-run logs AND
+# obtaining an Anna+Henrik sign-off, sets RETENTION_EXECUTE=1 below.
+#
+# Install as a USER unit so it shares the operator's rootless podman socket:
+#   mkdir -p ~/.config/systemd/user
+#   cp deploy/systemd/goldsmith-retention-sweep.{service,timer} \
+#      deploy/systemd/goldsmith-retention-sweep-alert.service ~/.config/systemd/user/
+#   # edit WorkingDirectory below to the deployment's project root
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now goldsmith-retention-sweep.timer
+#   loginctl enable-linger "$USER"   # so the timer runs while logged out
+#
+# See docs/technical/GDPR_ERASURE_RETENTION.md §5 for the full policy + install.
+# ============================================================================
+[Unit]
+Description=Goldsmith ERP — weekly retention_class sweep (scan_logs / time_entries / material_usage)
+Documentation=file:docs/technical/GDPR_ERASURE_RETENTION.md
+# On a nonzero exit (any per-table failure or an unreachable backend) fire the
+# alert unit, which notifies admins via the in-app notification path.
+OnFailure=goldsmith-retention-sweep-alert.service
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+# Deployment-specific: point this at the directory that holds
+# podman-compose.yml. Override the compose file/command via COMPOSE_FILE /
+# COMPOSE_CMD if the deployment uses podman-compose.prod.yml.
+WorkingDirectory=%h/goldsmith_erp
+Environment=COMPOSE_FILE=podman-compose.yml
+# DRY-RUN by default (safe). To enable actual deletion after review + sign-off,
+# uncomment the next line:
+# Environment=RETENTION_EXECUTE=1
+ExecStart=/usr/bin/env bash scripts/retention-sweep.sh
+# Don't hang a scheduled slot forever if podman/db wedges.
+TimeoutStartSec=1800

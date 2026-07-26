@@ -1,0 +1,31 @@
+# ============================================================================
+# goldsmith-retention-sweep-alert.service — OnFailure alert for the sweep job
+#
+# Triggered ONLY via OnFailure= from goldsmith-retention-sweep.service. POSTs to
+# the internal, localhost-only notify endpoint, which raises a WARNING SYSTEM
+# notification for every active ADMIN. A stuck retention sweep is a compliance
+# risk (statutory rows not being disposed on time), so operators must see it
+# in-app, not just in a log file.
+#
+# NOTE: it reuses the EXISTING /admin/notify-gdpr-cleanup endpoint (the generic
+# "a scheduled retention/erasure job failed" notifier — the retention sweep is
+# a sibling of the Art. 17 cleanup). The `unit` field makes the source
+# unambiguous; a clarifying `message` names the sweep explicitly. The endpoint
+# is localhost-restricted and takes no PII — only the failing unit name. Adjust
+# the port to the backend's PUBLISHED host port if it is not 8000.
+# ============================================================================
+[Unit]
+Description=Goldsmith ERP — notify admins that the retention sweep job failed
+Documentation=file:docs/technical/GDPR_ERASURE_RETENTION.md
+
+[Service]
+Type=oneshot
+# --fail so a non-2xx response makes the alert unit itself fail visibly in
+# `systemctl --user status`; the alert is best-effort (|| echo) so a briefly
+# unreachable backend does not crash-loop the unit.
+ExecStart=/usr/bin/env bash -c '\
+  curl --silent --show-error --fail --max-time 10 --retry 2 \
+    -X POST "http://localhost:8000/api/v1/admin/notify-gdpr-cleanup" \
+    -H "Content-Type: application/json" \
+    -d "{\"unit\":\"goldsmith-retention-sweep.service\",\"message\":\"Der wöchentliche retention_class-Sweep (scan_logs/time_entries/material_usage) ist fehlgeschlagen — Job-Logs prüfen.\"}" \
+  || echo "WARN: could not reach admin notify endpoint (non-fatal)"'

@@ -1,0 +1,22 @@
+# ============================================================================
+# goldsmith-retention-sweep.timer — schedules the retention sweep weekly
+#
+# Enable (as a user unit — see the .service header for the full sequence):
+#   systemctl --user enable --now goldsmith-retention-sweep.timer
+#   systemctl --user list-timers goldsmith-retention-sweep.timer   # verify
+# ============================================================================
+[Unit]
+Description=Goldsmith ERP — weekly schedule for the retention_class sweep job
+Documentation=file:docs/technical/GDPR_ERASURE_RETENTION.md
+
+[Timer]
+# Every Sunday at 03:30 local time (after the daily GDPR cleanup at 02:30).
+OnCalendar=Sun *-*-* 03:30:00
+# If the machine was off at the scheduled time, run as soon as it is back up.
+Persistent=true
+# Spread load / avoid hammering the DB at the same second.
+RandomizedDelaySec=600
+Unit=goldsmith-retention-sweep.service
+
+[Install]
+WantedBy=timers.target
