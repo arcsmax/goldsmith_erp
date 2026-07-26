@@ -5,7 +5,7 @@ Provides Pydantic models for validating path parameters, query parameters,
 and other inputs to prevent SQL injection, DoS attacks, and invalid data.
 """
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, ValidationInfo, field_validator
 from typing import Optional
 import uuid as uuid_lib
 
@@ -131,7 +131,9 @@ class DateRangeParams(BaseModel):
 
     @field_validator("end_date")
     @classmethod
-    def validate_date_range(cls, v: Optional[str], info) -> Optional[str]:
+    def validate_date_range(
+        cls, v: Optional[str], info: ValidationInfo
+    ) -> Optional[str]:
         """Ensure end_date is after start_date."""
         if v and info.data.get("start_date"):
             if v < info.data["start_date"]:

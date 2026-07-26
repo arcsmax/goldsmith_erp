@@ -62,7 +62,9 @@ class ConsultationCreate(ConsultationBase):
 class ConsultationUpdate(ConsultationBase):
     """PATCH-Autosave: alle Felder optional; nur gesetzte Felder werden übernommen."""
 
-    occasion: Optional[ConsultationOccasion] = None
+    # PATCH schema intentionally widens the required base field to Optional so
+    # unset fields are ignored; mypy flags the variance but it is safe here.
+    occasion: Optional[ConsultationOccasion] = None  # type: ignore[assignment]
     status: Optional[ConsultationStatus] = None
 
 

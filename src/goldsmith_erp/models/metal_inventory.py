@@ -5,7 +5,7 @@ Provides type-safe validation for metal purchase tracking, inventory management,
 and material usage calculations.
 """
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, ValidationInfo, field_validator
 from typing import Optional, List
 from datetime import datetime
 from enum import Enum
@@ -210,7 +210,9 @@ class MaterialUsageCreate(MaterialUsageBase):
 
     @field_validator('metal_purchase_id')
     @classmethod
-    def validate_specific_purchase(cls, v: Optional[int], info) -> Optional[int]:
+    def validate_specific_purchase(
+        cls, v: Optional[int], info: ValidationInfo
+    ) -> Optional[int]:
         """If SPECIFIC costing method, metal_purchase_id is required"""
         costing_method = info.data.get('costing_method')
         if costing_method == CostingMethod.SPECIFIC and v is None:
@@ -219,7 +221,9 @@ class MaterialUsageCreate(MaterialUsageBase):
 
     @field_validator('override_reason_category')
     @classmethod
-    def _require_override_payload(cls, v, info):
+    def _require_override_payload(
+        cls, v: Optional[OverrideReasonCategoryEnum], info: ValidationInfo
+    ) -> Optional[OverrideReasonCategoryEnum]:
         """Require both reason + category when alloy_override is True.
 
         The field_validator runs after alloy_override is parsed; use

@@ -302,7 +302,7 @@ async def _fab_tap_latency(
     def _pct(p: float) -> float:
         # Nearest-rank percentile; good enough for small samples.
         idx = max(0, min(len(deltas_ms) - 1, int(round(p * (len(deltas_ms) - 1)))))
-        return round(deltas_ms[idx], 1)
+        return float(round(deltas_ms[idx], 1))
 
     return _pct(0.5), _pct(0.95)
 

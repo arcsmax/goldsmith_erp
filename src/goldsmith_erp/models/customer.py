@@ -43,7 +43,7 @@ class CustomerBase(BaseModel):
     allergies: Optional[str] = Field(
         None, max_length=500, description="e.g. Nickel, Kupfer"
     )
-    preferences: Optional[dict] = Field(
+    preferences: Optional[dict[str, Any]] = Field(
         default_factory=dict, description="Key-value preferences"
     )
     birthday: Optional[datetime] = None
@@ -154,7 +154,7 @@ class CustomerUpdate(BaseModel):
     chain_length_cm: Optional[float] = Field(None, ge=25, le=150)
     bracelet_length_cm: Optional[float] = Field(None, ge=8, le=35)
     allergies: Optional[str] = Field(None, max_length=500)
-    preferences: Optional[dict] = None
+    preferences: Optional[dict[str, Any]] = None
     birthday: Optional[datetime] = None
 
     @field_validator("first_name", "last_name")

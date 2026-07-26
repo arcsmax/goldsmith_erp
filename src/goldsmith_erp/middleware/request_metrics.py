@@ -16,7 +16,7 @@ import time
 from collections import deque
 from typing import Any, Deque, Dict, List, Tuple
 
-from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.requests import Request
 from starlette.responses import Response
 
@@ -126,7 +126,9 @@ class RequestMetricsMiddleware(BaseHTTPMiddleware):
     request passing through the application.
     """
 
-    async def dispatch(self, request: Request, call_next) -> Response:
+    async def dispatch(
+        self, request: Request, call_next: RequestResponseEndpoint
+    ) -> Response:
         start = time.monotonic()
         try:
             response: Response = await call_next(request)

@@ -38,6 +38,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Iterator
 from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -141,7 +142,7 @@ def _value_depth(value: Any) -> int:
     return 0
 
 
-def _walk_strings(value: Any):
+def _walk_strings(value: Any) -> Iterator[str]:
     """Yield every string leaf in an arbitrarily-nested JSON value."""
     if isinstance(value, str):
         yield value

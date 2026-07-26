@@ -52,7 +52,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Optional
+from typing import Any, Optional
 from uuid import UUID
 
 from fastapi import Header, HTTPException, status
@@ -204,7 +204,7 @@ async def check_and_store_idempotency(
     db: AsyncSession,
     key: Optional[UUID],
     user_id: int,
-) -> Optional[dict]:
+) -> Optional[dict[str, Any]]:
     """V1.1 stub — always returns None.
 
     In V1.1.5 this will:

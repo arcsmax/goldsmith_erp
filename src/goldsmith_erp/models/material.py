@@ -2,7 +2,7 @@
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from datetime import datetime
-from typing import Optional
+from typing import Any, Optional
 
 
 class MaterialBase(BaseModel):
@@ -167,7 +167,7 @@ class MaterialWithStock(MaterialRead):
     stock_value: Optional[float] = None  # stock * unit_price
 
     @classmethod
-    def from_material(cls, material):
+    def from_material(cls, material: Any) -> "MaterialWithStock":
         """Erstellt MaterialWithStock aus Material-Model."""
         return cls(
             id=material.id,

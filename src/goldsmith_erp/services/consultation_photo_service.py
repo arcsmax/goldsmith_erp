@@ -23,7 +23,7 @@ Security notes:
 import logging
 import uuid
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, cast
 
 from fastapi import UploadFile
 from sqlalchemy import select
@@ -263,7 +263,9 @@ class ConsultationPhotoService:
         values raise an ID-only ValueError (→ 404 at the router; the raw path
         is logged server-side but never echoed to the client).
         """
-        resolved = resolve_within_root(photo.file_path, _storage_root())
+        # cast(): mypy sees Column[str] at the class level; the ORM instance
+        # attribute is a plain str at runtime. cast() is a no-op annotation.
+        resolved = resolve_within_root(cast(str, photo.file_path), _storage_root())
         if resolved is None:
             logger.error(
                 "Consultation photo path escapes storage root — refused",
