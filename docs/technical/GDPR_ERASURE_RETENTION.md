@@ -173,10 +173,73 @@ Notes:
 
 ---
 
-## 4. Backup interaction (see production-readiness.md 2.5)
+## 4. Backups und Löschung (backups vs. erasure) — production-readiness.md 2.5
 
-Tiered DB dumps (7d/4w/3m) mean an erased/anonymised customer can **resurface
-on restore** for up to ~3 months. After **any** restore that predates an
-erasure, re-run the cleanup job (`scripts/gdpr-cleanup.sh`) to re-apply the
-erasure to the restored rows. Keeping backup retention within the grace window
-is the cleaner long-term fix; that is tracked separately.
+### 4.1 The conflict
+
+`scripts/backup.sh` keeps a **tiered** set of dumps (see `apply_retention`):
+
+- **7 daily** dumps,
+- **4 weekly** dumps (each Sunday), and
+- **3 monthly** dumps (each 1st of month).
+
+The oldest monthly dump can therefore be **up to ~3 months old**. A database
+restore replays whatever was in the dump at the time it was taken — so a
+customer who was erased or anonymised (§ 1–2 above) **after** that dump was
+written will **resurface** in the restored database, personal data and all.
+The 30-day erasure grace window is shorter than the ~3-month backup horizon,
+so this window of exposure is real and expected — not a bug in the backup
+rotation.
+
+### 4.2 Policy: re-run the erasure job after every restore
+
+**After _any_ restore that predates an erasure, re-run the cleanup job.** It is
+idempotent (per-customer transactions; already-anonymised rows are handled by
+the same disposition logic) and re-applies both the hard-delete and the
+in-place anonymisation to the restored rows:
+
+```bash
+# From the project root, against the running (prod) stack:
+COMPOSE_FILE=podman-compose.prod.yml scripts/gdpr-cleanup.sh
+#   …or via the installed user unit (§3):
+systemctl --user start goldsmith-gdpr-cleanup.service
+```
+
+`scripts/restore.sh` **prints this reminder automatically** as the last thing
+it does, pointing back to this section — so an operator following the restore
+runbook cannot miss it. The reminder is advisory (an `echo`): it does not run
+the job for you, because a restore is often followed by manual verification
+before the stack is considered live.
+
+> **Why not scrub the dumps directly?** Rewriting historical `.sql.gz` dumps in
+> place would (a) break the integrity check (`gzip -t`) that `backup.sh` relies
+> on, (b) risk corrupting the one artifact you restore from in a disaster, and
+> (c) still miss any off-site copy already synced by `backup-sync.sh`. Re-applying
+> erasure *after* restore is the robust, auditable path — every re-run writes the
+> same `customer_audit_logs` / `gdpr_requests` rows as the original erasure.
+
+### 4.3 Retention window vs. the 30-day grace window
+
+The backup retention (~3 months) deliberately **exceeds** the 30-day erasure
+grace window. That is an operational disaster-recovery requirement (a fault or
+ransomware event discovered weeks later must still be recoverable), not an
+oversight. The mismatch is reconciled by policy, not by shortening retention:
+the re-run in § 4.2 guarantees that an erasure is re-applied to any older state
+that a restore brings back. Shortening backup retention to ≤ 30 days would
+weaken disaster recovery and is **not** the chosen trade-off.
+
+### 4.4 Legal basis for keeping the backups themselves — Art. 17(3)
+
+Retaining the backup **files** during their normal rotation window is lawful.
+Art. 17 does not require a controller to hunt an erased record out of every
+historical backup the moment the request lands; the established position of the
+German supervisory authorities is that erasure of backups is discharged on the
+**normal backup cycle** — a record erased from the live system is removed from
+backups as those backups age out and are overwritten (here: within the 7d/4w/3m
+rotation), provided the backups are not restored into production in the interim
+without re-applying the erasure (which § 4.2 enforces). During the retention
+window the dumps are held under **Art. 17(3)(b)** (data integrity / security of
+processing and the legal-obligation carve-out that already governs the §147 AO
+financial records) and serve only disaster recovery — they are not used for any
+other processing. Once a dump rotates out under `apply_retention`, it is deleted
+(`rm -f`), which removes the residual copy for good.

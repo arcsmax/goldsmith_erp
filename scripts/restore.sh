@@ -132,5 +132,22 @@ echo "  Datenbank '${POSTGRES_DB}' wurde aus"
 echo "  '$(basename "${BACKUP_FILE}")' wiederhergestellt."
 echo "══════════════════════════════════════════════════════════════"
 echo ""
+# ── DSGVO-Hinweis: Backups können bereits gelöschte Kunden zurückbringen ──────
+# Getierte Dumps (7 Tage / 4 Wochen / 3 Monate) reichen bis zu ~3 Monate zurück.
+# Ein Restore kann daher Kunden wieder einspielen, deren Löschung (Art. 17)
+# nach dem Backup-Zeitpunkt erfolgt ist. Siehe docs/technical/GDPR_ERASURE_RETENTION.md,
+# Abschnitt "Backups und Löschung".
+echo "  DSGVO-HINWEIS: Dieser Restore kann bereits gelöschte oder"
+echo "  anonymisierte Kunden wieder eingespielt haben."
+echo "  Bitte den Löschjob erneut ausführen, damit die Löschung auf"
+echo "  die wiederhergestellten Daten erneut angewendet wird:"
+echo ""
+echo "      scripts/gdpr-cleanup.sh"
+echo "      # oder: systemctl --user start goldsmith-gdpr-cleanup.service"
+echo ""
+echo "  Details: docs/technical/GDPR_ERASURE_RETENTION.md"
+echo "           (Abschnitt \"Backups und Löschung\")"
+echo "══════════════════════════════════════════════════════════════"
+echo ""
 
 exit 0
