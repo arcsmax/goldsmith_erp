@@ -1,7 +1,8 @@
+import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-from jose import jwt, JWTError
+from jose import JWTError, jwt
 from passlib.context import CryptContext
 
 from goldsmith_erp.core.config import settings
@@ -29,17 +30,33 @@ def get_password_hash(password: str) -> str:
 
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
-    """Generiert ein JWT-Token mit optionaler Ablaufzeit."""
+    """Generiert ein JWT-Token mit optionaler Ablaufzeit.
+
+    Every token carries a unique ``jti`` (uuid4) so it can be individually
+    blocklisted on logout, and an ``iat`` (issued-at) timestamp so a per-user
+    "invalid-before" mark can revoke every outstanding token on password change
+    without enumerating each jti (see core/token_revocation.py, finding 2.1).
+    """
     to_encode = data.copy()
 
+    now = datetime.now(timezone.utc)
     if expires_delta:
-        expire = datetime.now(timezone.utc) + expires_delta
+        expire = now + expires_delta
     else:
-        expire = datetime.now(timezone.utc) + timedelta(
-            minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES
-        )
+        expire = now + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
 
-    to_encode.update({"exp": expire})
+    to_encode.update(
+        {
+            "exp": expire,
+            # Sub-second iat (RFC 7519 NumericDate permits fractional seconds).
+            # The per-user invalid-before mark compares iat against a wall-clock
+            # cutoff; second-resolution iat could not distinguish a token issued
+            # just before a password change from the fresh one issued just after
+            # it in the same second, so we keep full precision here.
+            "iat": now.timestamp(),
+            "jti": uuid.uuid4().hex,
+        }
+    )
     encoded_jwt = jwt.encode(to_encode, settings.SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
 

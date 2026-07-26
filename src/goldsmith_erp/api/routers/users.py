@@ -1,12 +1,15 @@
 # src/goldsmith_erp/api/routers/users.py
 
-from fastapi import APIRouter, Body, Depends, HTTPException, status
-from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List, Optional
 
+from fastapi import APIRouter, Body, Depends, HTTPException, status
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from goldsmith_erp.api.deps import get_current_user
-from goldsmith_erp.db.session import get_db
+from goldsmith_erp.core.permissions import Permission, require_permission
+from goldsmith_erp.core.token_revocation import invalidate_user_tokens
 from goldsmith_erp.db.models import User as UserModel
+from goldsmith_erp.db.session import get_db
 from goldsmith_erp.models.user import (
     LastAdminError,
     SentinelMissing,
@@ -18,7 +21,6 @@ from goldsmith_erp.models.user import (
     UserUpdate,
 )
 from goldsmith_erp.services.user_service import UserService
-from goldsmith_erp.core.permissions import Permission, require_permission
 
 router = APIRouter()
 
@@ -29,6 +31,7 @@ router = APIRouter()
 # POST /users/. The legacy /register path is preserved for back-compat
 # with existing admin tooling; both routes are guarded by the same
 # permission and perform the same work.
+
 
 @router.post(
     "/register",
@@ -60,8 +63,7 @@ async def register_user(
     existing_user = await UserService.get_user_by_email(db, user_in.email)
     if existing_user:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Email already registered"
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Email already registered"
         )
 
     # Benutzer erstellen
@@ -71,10 +73,9 @@ async def register_user(
 
 # ==================== AUTHENTICATED ENDPOINTS ====================
 
+
 @router.get("/me", response_model=User)
-async def get_current_user_profile(
-    current_user: UserModel = Depends(get_current_user)
-):
+async def get_current_user_profile(current_user: UserModel = Depends(get_current_user)):
     """
     Eigenes Benutzer-Profil abrufen.
 
@@ -90,7 +91,7 @@ async def get_current_user_profile(
 async def update_current_user_profile(
     user_in: UserUpdate,
     current_user: UserModel = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
 ):
     """
     Eigenes Benutzer-Profil aktualisieren.
@@ -106,29 +107,34 @@ async def update_current_user_profile(
         existing_user = await UserService.get_user_by_email(db, user_in.email)
         if existing_user:
             raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Email already in use"
+                status_code=status.HTTP_400_BAD_REQUEST, detail="Email already in use"
             )
 
     # Profil aktualisieren
     updated_user = await UserService.update_user(db, current_user.id, user_in)
     if not updated_user:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found"
+            status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
         )
+
+    # Password change revokes all outstanding tokens for this user (finding 2.1):
+    # set the per-user invalid-before mark so every token issued before now is
+    # rejected by the auth dependency. Avoids tracking individual jtis.
+    if user_in.password is not None:
+        await invalidate_user_tokens(str(current_user.id))
 
     return updated_user
 
 
 # ==================== ADMIN-ONLY ENDPOINTS ====================
 
+
 @router.post("/", response_model=User, status_code=status.HTTP_201_CREATED)
 @require_permission(Permission.USER_CREATE)
 async def create_user_by_admin(
     user_in: UserCreate,
     db: AsyncSession = Depends(get_db),
-    current_user: UserModel = Depends(get_current_user)
+    current_user: UserModel = Depends(get_current_user),
 ):
     """
     **Admin-Registration**: Goldschmied (Admin) trägt einen neuen Benutzer ein.
@@ -143,8 +149,7 @@ async def create_user_by_admin(
     existing_user = await UserService.get_user_by_email(db, user_in.email)
     if existing_user:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Email already registered"
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Email already registered"
         )
 
     # Benutzer erstellen
@@ -158,7 +163,7 @@ async def list_all_users(
     skip: int = 0,
     limit: int = 100,
     db: AsyncSession = Depends(get_db),
-    current_user: UserModel = Depends(get_current_user)
+    current_user: UserModel = Depends(get_current_user),
 ):
     """
     Alle Benutzer auflisten.
@@ -177,7 +182,7 @@ async def list_all_users(
 async def get_user_by_id(
     user_id: int,
     db: AsyncSession = Depends(get_db),
-    current_user: UserModel = Depends(get_current_user)
+    current_user: UserModel = Depends(get_current_user),
 ):
     """
     Benutzer über ID abrufen.
@@ -190,8 +195,7 @@ async def get_user_by_id(
     user = await UserService.get_user_by_id(db, user_id)
     if not user:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found"
+            status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
         )
     return user
 
@@ -202,7 +206,7 @@ async def update_user_by_admin(
     user_id: int,
     user_in: UserUpdate,
     db: AsyncSession = Depends(get_db),
-    current_user: UserModel = Depends(get_current_user)
+    current_user: UserModel = Depends(get_current_user),
 ):
     """
     Benutzer durch Admin aktualisieren.
@@ -221,16 +225,20 @@ async def update_user_by_admin(
             if existing_user:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="Email already in use"
+                    detail="Email already in use",
                 )
 
     # Benutzer aktualisieren
     updated_user = await UserService.update_user(db, user_id, user_in)
     if not updated_user:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found"
+            status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
         )
+
+    # Admin password reset revokes the target user's outstanding tokens
+    # (finding 2.1) — see the self-service handler above for the mechanism.
+    if user_in.password is not None:
+        await invalidate_user_tokens(str(user_id))
 
     return updated_user
 
@@ -240,7 +248,7 @@ async def update_user_by_admin(
 async def deactivate_user(
     user_id: int,
     db: AsyncSession = Depends(get_db),
-    current_user: UserModel = Depends(get_current_user)
+    current_user: UserModel = Depends(get_current_user),
 ):
     """
     Benutzer deaktivieren (Soft Delete).
@@ -255,8 +263,7 @@ async def deactivate_user(
     result = await UserService.delete_user(db, user_id)
     if not result["success"]:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=result["message"]
+            status_code=status.HTTP_404_NOT_FOUND, detail=result["message"]
         )
 
     return result
@@ -361,7 +368,7 @@ async def gdpr_erase_user(
 async def activate_user(
     user_id: int,
     db: AsyncSession = Depends(get_db),
-    current_user: UserModel = Depends(get_current_user)
+    current_user: UserModel = Depends(get_current_user),
 ):
     """
     Benutzer reaktivieren.
@@ -375,8 +382,7 @@ async def activate_user(
     user = await UserService.activate_user(db, user_id)
     if not user:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found"
+            status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
         )
 
     return user

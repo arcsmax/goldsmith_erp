@@ -31,7 +31,21 @@ class Settings(BaseSettings):
         default_factory=lambda: secrets.token_urlsafe(32),
         description="JWT secret key - MUST be set in production via SECRET_KEY env variable",
     )
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 8  # 8 days
+    # Short-lived access tokens (finding 2.1). The frontend axios interceptor
+    # transparently exchanges an expired token for a fresh one via /refresh
+    # (within REFRESH_GRACE_SECONDS), so the sliding session stays invisible to
+    # the user while a stolen/leaked token is valid for at most ~30 min.
+    # Overridable via the ACCESS_TOKEN_EXPIRE_MINUTES env var.
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 30  # 30 minutes
+
+    # Token-revocation availability tradeoff (finding 2.1). The auth dependency
+    # checks a Redis jti-blocklist / per-user invalid-before mark on every
+    # request. If Redis is unreachable it FAILS OPEN by default (accepts the
+    # token, logs a structured warning) — the right call for a single-workshop
+    # LAN where an internal Redis blip must not lock everyone out. Set
+    # AUTH_REVOCATION_FAIL_CLOSED=true to reject instead (higher security,
+    # lower availability).
+    AUTH_REVOCATION_FAIL_CLOSED: bool = False
 
     # ── Server ─────────────────────────────────────────────────────────────────
     HOST: str = "0.0.0.0"

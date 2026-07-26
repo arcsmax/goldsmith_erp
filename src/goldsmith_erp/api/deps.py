@@ -1,22 +1,26 @@
+from typing import Optional
+
 from fastapi import Cookie, Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer
-from jose import jwt, JWTError
+from jose import JWTError, jwt
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from typing import Optional
 
 from goldsmith_erp.core.config import settings
 from goldsmith_erp.core.security import ALGORITHM
-from goldsmith_erp.db.session import get_db
+from goldsmith_erp.core.token_revocation import is_token_revoked
 from goldsmith_erp.db.models import User, UserRole
+from goldsmith_erp.db.session import get_db
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl=f"{settings.API_V1_STR}/login/access-token", auto_error=False)
+oauth2_scheme = OAuth2PasswordBearer(
+    tokenUrl=f"{settings.API_V1_STR}/login/access-token", auto_error=False
+)
 
 
 async def get_token_from_cookie_or_header(
     request: Request,
     access_token: Optional[str] = Cookie(None),
-    authorization: Optional[str] = Depends(oauth2_scheme)
+    authorization: Optional[str] = Depends(oauth2_scheme),
 ) -> str:
     """
     Extract JWT token from HttpOnly cookie or Authorization header.
@@ -43,9 +47,10 @@ async def get_token_from_cookie_or_header(
         headers={"WWW-Authenticate": "Bearer"},
     )
 
+
 async def get_current_user(
     db: AsyncSession = Depends(get_db),
-    token: str = Depends(get_token_from_cookie_or_header)
+    token: str = Depends(get_token_from_cookie_or_header),
 ) -> User:
     """
     Returns the current user based on JWT token from cookie or header.
@@ -71,6 +76,12 @@ async def get_current_user(
     except JWTError:
         raise credentials_exception
 
+    # Revocation check (finding 2.1): reject tokens blocklisted at logout or
+    # issued before the user's password-change invalid-before mark. Fails open
+    # if Redis is down unless AUTH_REVOCATION_FAIL_CLOSED is set.
+    if await is_token_revoked(payload):
+        raise credentials_exception
+
     result = await db.execute(select(User).filter(User.id == user_id))
     user = result.scalar_one_or_none()
 
@@ -83,7 +94,7 @@ async def get_current_user(
 
 
 async def get_current_admin_user(
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
 ) -> User:
     """
     Dependency that ensures the current user has admin role.
@@ -94,6 +105,6 @@ async def get_current_admin_user(
     if current_user.role != UserRole.ADMIN:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Not enough permissions. Admin role required."
+            detail="Not enough permissions. Admin role required.",
         )
     return current_user
