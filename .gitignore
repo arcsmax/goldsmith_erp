@@ -408,6 +408,7 @@ frontend/.vite/
 .env
 .env.local
 .env.*.local
+.env.production
 
 # Python virtual environments
 venv/
