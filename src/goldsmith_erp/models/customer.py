@@ -267,11 +267,26 @@ class CustomerOrderExport(BaseModel):
     in ``models/order.py`` for the rest of the process. Verified
     empirically — do not reintroduce a ``from goldsmith_erp.db.models
     import ...`` at this module's top level.
+
+    Design-IP exclusion (CLAUDE.md, binding; finding 2.11): this model
+    deliberately declares NO ``description`` field. An order description is
+    the design brief for a custom piece — CLAUDE.md marks "Design
+    descriptions in orders" as business-confidential and restricts design
+    IP to GOLDSMITH/ADMIN access, out of Art. 15 exports without explicit
+    consent. ``extra="forbid"`` makes that a STRUCTURAL guarantee rather
+    than a convention: if a future change to the export endpoint ever adds
+    ``description`` (or any other undeclared key) back onto an order dict,
+    response validation fails loudly (500) instead of silently leaking the
+    design brief into an Art. 15 export — exactly as
+    ``ConsultationExportItem`` protects the consultation design fields. See
+    ``design_data_excluded`` on ``CustomerGdprExport`` and the export
+    endpoint docstring for the full rationale.
     """
+
+    model_config = ConfigDict(extra="forbid")
 
     id: int
     status: str
-    description: Optional[str] = None
     price: Optional[float] = None
     created_at: Optional[str] = None
     deadline: Optional[str] = None

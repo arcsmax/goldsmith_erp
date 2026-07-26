@@ -16,6 +16,7 @@ Business logic:
   - Erasure sets deletion_scheduled_at to now + 30 days and deactivates is_active
   - Duplicate erasure request returns 409
 """
+
 from datetime import date, datetime, timedelta
 
 import pytest
@@ -53,6 +54,19 @@ def _erase_url(customer_id: int) -> str:
 # ---------------------------------------------------------------------------
 
 
+# Sentinel values used to prove design-IP fields never leak into the export
+# (see test_export_never_leaks_consultation_design_ip and
+# test_export_never_leaks_order_description below).
+_SENTINEL_WISHES = "SENTINEL_WISHES_MUST_NOT_LEAK"
+_SENTINEL_NOTES = "SENTINEL_NOTES_MUST_NOT_LEAK"
+_SENTINEL_SOURCE_MATERIAL = "SENTINEL_SOURCE_MATERIAL_MUST_NOT_LEAK"
+_SENTINEL_MATERIALS_DISCUSSED = "SENTINEL_MATERIALS_DISCUSSED_MUST_NOT_LEAK"
+# order.description is the design brief for a custom piece — design IP
+# (CLAUDE.md: "Design descriptions in orders are business-confidential"),
+# excluded from the Art. 15 export exactly like the consultation fields.
+_SENTINEL_ORDER_DESCRIPTION = "SENTINEL_ORDER_DESIGN_BRIEF_MUST_NOT_LEAK"
+
+
 @pytest.fixture
 async def customer_with_order(
     db_session: AsyncSession, test_customer: Customer
@@ -60,10 +74,14 @@ async def customer_with_order(
     """
     Attach an order to the integration-test customer so that export tests
     can verify the 'orders' key contains data.
+
+    ``description`` carries a distinctive sentinel so export tests can assert
+    the design brief never appears anywhere in the serialized response — see
+    CLAUDE.md "Design IP" data-privacy rule and finding 2.11.
     """
     order = Order(
         title="Trauringe",
-        description="Paar Trauringe 750er Gelbgold",
+        description=_SENTINEL_ORDER_DESCRIPTION,
         customer_id=test_customer.id,
         status=OrderStatusEnum.IN_PROGRESS,
         price=1200.00,
@@ -72,14 +90,6 @@ async def customer_with_order(
     await db_session.commit()
     await db_session.refresh(test_customer)
     return test_customer
-
-
-# Sentinel values used to prove design-IP fields never leak into the export
-# (see test_export_never_leaks_consultation_design_ip below).
-_SENTINEL_WISHES = "SENTINEL_WISHES_MUST_NOT_LEAK"
-_SENTINEL_NOTES = "SENTINEL_NOTES_MUST_NOT_LEAK"
-_SENTINEL_SOURCE_MATERIAL = "SENTINEL_SOURCE_MATERIAL_MUST_NOT_LEAK"
-_SENTINEL_MATERIALS_DISCUSSED = "SENTINEL_MATERIALS_DISCUSSED_MUST_NOT_LEAK"
 
 
 @pytest.fixture
@@ -200,11 +210,16 @@ class TestGdprExport:
 
         assert len(body["orders"]) >= 1
         order = body["orders"][0]
-        # Verify order data shape
+        # Non-IP order fields survive the export.
         assert "id" in order
         assert "status" in order
+        assert "price" in order
+        assert order["price"] == 1200.00
         assert "created_at" in order
         assert "deadline" in order
+        # Design-IP exclusion (finding 2.11): the design brief
+        # (order.description) must NOT be present in the export.
+        assert "description" not in order
 
     @pytest.mark.asyncio
     async def test_export_measurements_list_is_present(
@@ -315,6 +330,30 @@ class TestGdprExport:
         assert _SENTINEL_NOTES not in body_text
         assert _SENTINEL_SOURCE_MATERIAL not in body_text
         assert _SENTINEL_MATERIALS_DISCUSSED not in body_text
+
+    @pytest.mark.asyncio
+    async def test_export_never_leaks_order_description(
+        self,
+        client: AsyncClient,
+        customer_with_order: Customer,
+        admin_auth_headers: dict,
+    ):
+        """Design-IP rule (CLAUDE.md, binding; finding 2.11): the order
+        description (the design brief for a custom piece) must NEVER appear
+        anywhere in the GDPR export, even though the order row has it
+        populated — mirrors the consultation design-IP exclusion."""
+        response = await client.get(
+            _export_url(customer_with_order.id),
+            headers=admin_auth_headers,
+        )
+        body = response.json()
+
+        # The design brief must not appear as a key on any exported order...
+        assert body["orders"]
+        for order in body["orders"]:
+            assert "description" not in order
+        # ...nor anywhere else in the serialized payload.
+        assert _SENTINEL_ORDER_DESCRIPTION not in str(body)
 
     @pytest.mark.asyncio
     async def test_export_is_forbidden_for_goldsmith(

@@ -268,13 +268,15 @@ async def gdpr_export_customer(
     object.  Access is restricted to ADMIN role (CUSTOMER_DELETE
     permission) because the export contains raw PII.
 
-    Design-IP exclusion (V1.1, issue #14): consultation ``wishes``,
-    ``notes``, ``source_material``, ``materials_discussed``, and
-    consultation photos (sketches/reference images) are the GOLDSMITH's
-    design work product, not the data subject's personal data — CLAUDE.md
-    "Design IP" rule restricts them to GOLDSMITH/ADMIN access and excludes
-    them from data exports without explicit consent. They are deliberately
-    left out of the ``consultations`` list below; the ``design_data_excluded``
+    Design-IP exclusion (V1.1, issue #14; finding 2.11): consultation
+    ``wishes``, ``notes``, ``source_material``, ``materials_discussed``,
+    consultation photos (sketches/reference images), AND ``order.description``
+    (the design brief for a custom piece) are the GOLDSMITH's design work
+    product, not the data subject's personal data — CLAUDE.md "Design IP"
+    rule ("Design descriptions in orders are business-confidential")
+    restricts them to GOLDSMITH/ADMIN access and excludes them from data
+    exports without explicit consent. They are deliberately left out of the
+    ``orders`` and ``consultations`` lists below; the ``design_data_excluded``
     flag documents that omission for anyone auditing a DPO response.
 
     Permissions: Requires CUSTOMER_DELETE permission (Admin only).
@@ -329,14 +331,19 @@ async def gdpr_export_customer(
         },
     )
 
-    # Serialize all data — omit relationship proxy objects and SQLAlchemy state
+    # Serialize all data — omit relationship proxy objects and SQLAlchemy state.
+    # ``order.description`` is EXPLICITLY EXCLUDED — design-IP rule (CLAUDE.md,
+    # binding; finding 2.11): the order description is the design brief for a
+    # custom piece and is business-confidential, not the data subject's
+    # personal data. Do NOT add it here without updating both the docstring
+    # above and the "design_data_excluded" flag on the returned payload —
+    # ``CustomerOrderExport`` (extra="forbid") will reject it structurally.
     orders_data = []
     for order in customer.orders:
         orders_data.append(
             {
                 "id": order.id,
                 "status": order.status.value if order.status else None,
-                "description": order.description,
                 "price": float(order.price) if order.price is not None else None,
                 "created_at": (
                     order.created_at.isoformat() if order.created_at else None
@@ -434,8 +441,9 @@ async def gdpr_export_customer(
         "style_profile": customer.style_profile or {},
         "consultations": consultations_data,
         # Machine-readable companion to the docstring's design-IP note —
-        # keep true whenever consultations are exported without wishes/
-        # notes/source_material/materials_discussed/photos.
+        # keep true whenever orders are exported without ``description`` and
+        # consultations without wishes/notes/source_material/
+        # materials_discussed/photos.
         "design_data_excluded": True,
     }
 
