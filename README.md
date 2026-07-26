@@ -218,6 +218,7 @@ Die API-Dokumentation wird automatisch von FastAPI generiert:
 
 ### Weitere Dokumentation
 
+- **[PRODUCTION_TLS.md](docs/technical/infrastructure/PRODUCTION_TLS.md)** - Produktions-TLS (Caddy Reverse Proxy, Root-CA-Trust, COOKIE_SECURE)
 - **[PODMAN_MIGRATION.md](PODMAN_MIGRATION.md)** - Podman Migration & Best Practices
 - **[ARCHITECTURE_REVIEW.md](ARCHITECTURE_REVIEW.md)** - Architecture Analysis & Improvements
 - **[INSTALLATION.md](INSTALLATION.md)** - Detaillierte Installationsanleitung
