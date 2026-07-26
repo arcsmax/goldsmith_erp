@@ -266,21 +266,8 @@ update: ## Pull latest images, rebuild, and restart production services
 backup-now: ## Create a compressed, verified database backup via scripts/backup.sh
 	@bash scripts/backup.sh
 
-restore: ## Restore database from backup (usage: make restore FILE=path/to/backup.sql)
-	@if [ -z "$(FILE)" ]; then \
-		echo "$(YELLOW)Verwendung: make restore FILE=pfad/zum/backup.sql$(NC)"; \
-		exit 1; \
-	fi
-	@echo "$(YELLOW)Datenbank wiederherstellen aus: $(FILE)$(NC)"
-	@read -p "Sicher? Alle aktuellen Daten werden überschrieben. [j/N] " -n 1 -r; \
-	echo; \
-	if [[ $$REPLY =~ ^[Jj]$$ ]]; then \
-		$(PROD_COMPOSE) exec -T db psql \
-			-U $${POSTGRES_USER:-goldsmith} $${POSTGRES_DB:-goldsmith} < $(FILE); \
-		echo "$(GREEN)✓ Wiederherstellung abgeschlossen$(NC)"; \
-	else \
-		echo "$(YELLOW)Wiederherstellung abgebrochen$(NC)"; \
-	fi
+restore: ## Restore database from a compressed backup (usage: make restore FILE=pfad/zum/backup.sql.gz)
+	@bash scripts/restore.sh $(FILE)
 
 install-service: ## Install Goldsmith ERP as a systemd user service (auto-start on boot)
 	@echo "$(GREEN)Systemd-Dienst installieren…$(NC)"
