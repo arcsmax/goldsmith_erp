@@ -23,6 +23,7 @@ All Order status transitions MUST flow through
 scan flow's ``OrderService.advance_status``) so that the Punzierungs
 guard fires uniformly.
 """
+
 from __future__ import annotations
 
 from goldsmith_erp.db.repositories.order import OrderRepository

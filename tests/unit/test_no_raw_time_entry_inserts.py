@@ -116,22 +116,15 @@ def test_no_raw_time_entry_inserts_outside_allowlist():
         "  3. Add to the _ALLOWLIST in this test with a PR-level "
         "justification.\n\n"
         "Offenders:\n"
-        + "\n".join(
-            f"  {fname}:{lineno}: {line}"
-            for fname, lineno, line in violations
-        )
+        + "\n".join(f"  {fname}:{lineno}: {line}" for fname, lineno, line in violations)
     )
 
 
 def test_allowlisted_files_actually_exist():
     """Catch stale allowlist entries on file rename / delete."""
-    missing = [
-        rel for rel in _ALLOWLIST
-        if not (_PROJECT_ROOT / rel).exists()
-    ]
+    missing = [rel for rel in _ALLOWLIST if not (_PROJECT_ROOT / rel).exists()]
     assert not missing, (
-        f"Allowlist entries that no longer exist — update the test: "
-        f"{missing}"
+        f"Allowlist entries that no longer exist — update the test: " f"{missing}"
     )
 
 

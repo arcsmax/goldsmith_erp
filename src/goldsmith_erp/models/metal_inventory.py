@@ -5,14 +5,16 @@ Provides type-safe validation for metal purchase tracking, inventory management,
 and material usage calculations.
 """
 
-from pydantic import BaseModel, Field, ValidationInfo, field_validator
-from typing import Optional, List
 from datetime import datetime
 from enum import Enum
+from typing import List, Optional
+
+from pydantic import BaseModel, Field, ValidationInfo, field_validator
 
 
 class MetalType(str, Enum):
     """Standard metal types used in goldsmith workshop"""
+
     GOLD_24K = "gold_24k"
     GOLD_22K = "gold_22k"
     GOLD_18K = "gold_18k"
@@ -32,10 +34,11 @@ class MetalType(str, Enum):
 
 class CostingMethod(str, Enum):
     """Inventory costing method for material consumption"""
-    FIFO = "fifo"              # First In, First Out
-    LIFO = "lifo"              # Last In, First Out
-    AVERAGE = "average"        # Weighted Average Cost
-    SPECIFIC = "specific"      # Specific Identification (manual selection)
+
+    FIFO = "fifo"  # First In, First Out
+    LIFO = "lifo"  # Last In, First Out
+    AVERAGE = "average"  # Weighted Average Cost
+    SPECIFIC = "specific"  # Specific Identification (manual selection)
 
 
 # ============================================================================
@@ -45,6 +48,7 @@ class CostingMethod(str, Enum):
 
 class MetalPurchaseBase(BaseModel):
     """Base schema for metal purchase"""
+
     metal_type: MetalType
     weight_g: float = Field(..., gt=0, description="Weight in grams (must be positive)")
     price_total: float = Field(..., gt=0, description="Total purchase price in EUR")
@@ -53,7 +57,7 @@ class MetalPurchaseBase(BaseModel):
     notes: Optional[str] = None
     lot_number: Optional[str] = Field(None, max_length=100)
 
-    @field_validator('weight_g')
+    @field_validator("weight_g")
     @classmethod
     def validate_weight(cls, v: float) -> float:
         if v <= 0:
@@ -62,7 +66,7 @@ class MetalPurchaseBase(BaseModel):
             raise ValueError("Weight exceeds maximum allowed (10000g)")
         return round(v, 2)  # Round to 2 decimal places
 
-    @field_validator('price_total')
+    @field_validator("price_total")
     @classmethod
     def validate_price(cls, v: float) -> float:
         if v <= 0:
@@ -74,6 +78,7 @@ class MetalPurchaseBase(BaseModel):
 
 class MetalPurchaseCreate(MetalPurchaseBase):
     """Schema for creating a new metal purchase"""
+
     date_purchased: Optional[datetime] = Field(default_factory=datetime.utcnow)
 
     model_config = {
@@ -86,7 +91,7 @@ class MetalPurchaseCreate(MetalPurchaseBase):
                     "supplier": "Metalor Technologies",
                     "invoice_number": "INV-2025-001",
                     "notes": "18K Gold 750, certified batch",
-                    "lot_number": "LOT-18K-2025-001"
+                    "lot_number": "LOT-18K-2025-001",
                 }
             ]
         }
@@ -95,6 +100,7 @@ class MetalPurchaseCreate(MetalPurchaseBase):
 
 class MetalPurchaseUpdate(BaseModel):
     """Schema for updating a metal purchase (limited fields)"""
+
     supplier: Optional[str] = Field(None, max_length=200)
     invoice_number: Optional[str] = Field(None, max_length=100)
     notes: Optional[str] = None
@@ -103,6 +109,7 @@ class MetalPurchaseUpdate(BaseModel):
 
 class MetalPurchaseRead(MetalPurchaseBase):
     """Schema for reading metal purchase data"""
+
     id: int
     date_purchased: datetime
     remaining_weight_g: float
@@ -121,6 +128,7 @@ class MetalPurchaseRead(MetalPurchaseBase):
 
 class MetalPurchaseListItem(BaseModel):
     """Simplified schema for listing metal purchases"""
+
     id: int
     metal_type: MetalType
     date_purchased: datetime
@@ -143,11 +151,12 @@ class MetalPurchaseListItem(BaseModel):
 
 class MaterialUsageBase(BaseModel):
     """Base schema for material usage"""
+
     order_id: int = Field(..., gt=0)
     weight_used_g: float = Field(..., gt=0, description="Weight consumed in grams")
     notes: Optional[str] = None
 
-    @field_validator('weight_used_g')
+    @field_validator("weight_used_g")
     @classmethod
     def validate_weight_used(cls, v: float) -> float:
         if v <= 0:
@@ -186,8 +195,11 @@ class MaterialUsageCreate(MaterialUsageBase):
     are REQUIRED; the server persists all three to MaterialUsage for
     the 10-year financial audit trail (HGB §257).
     """
+
     costing_method: CostingMethod = Field(default=CostingMethod.FIFO)
-    metal_purchase_id: Optional[int] = Field(None, description="Required if costing_method=SPECIFIC")
+    metal_purchase_id: Optional[int] = Field(
+        None, description="Required if costing_method=SPECIFIC"
+    )
 
     # A2.3 / R10 — alloy override + audit-trail fields.
     alloy_override: bool = Field(
@@ -208,18 +220,20 @@ class MaterialUsageCreate(MaterialUsageBase):
         description="Structured audit facet — paired with override_reason.",
     )
 
-    @field_validator('metal_purchase_id')
+    @field_validator("metal_purchase_id")
     @classmethod
     def validate_specific_purchase(
         cls, v: Optional[int], info: ValidationInfo
     ) -> Optional[int]:
         """If SPECIFIC costing method, metal_purchase_id is required"""
-        costing_method = info.data.get('costing_method')
+        costing_method = info.data.get("costing_method")
         if costing_method == CostingMethod.SPECIFIC and v is None:
-            raise ValueError("metal_purchase_id is required when using SPECIFIC costing method")
+            raise ValueError(
+                "metal_purchase_id is required when using SPECIFIC costing method"
+            )
         return v
 
-    @field_validator('override_reason_category')
+    @field_validator("override_reason_category")
     @classmethod
     def _require_override_payload(
         cls, v: Optional[OverrideReasonCategoryEnum], info: ValidationInfo
@@ -229,17 +243,15 @@ class MaterialUsageCreate(MaterialUsageBase):
         The field_validator runs after alloy_override is parsed; use
         ``info.data`` to look up the sibling values.
         """
-        alloy_override = info.data.get('alloy_override', False)
-        override_reason = info.data.get('override_reason')
+        alloy_override = info.data.get("alloy_override", False)
+        override_reason = info.data.get("override_reason")
         if alloy_override:
             if v is None:
                 raise ValueError(
                     "override_reason_category is required when alloy_override=True"
                 )
             if not override_reason:
-                raise ValueError(
-                    "override_reason is required when alloy_override=True"
-                )
+                raise ValueError("override_reason is required when alloy_override=True")
         else:
             # If no override requested, reject stray reason/category to
             # keep the audit trail clean.
@@ -257,14 +269,14 @@ class MaterialUsageCreate(MaterialUsageBase):
                     "order_id": 123,
                     "weight_used_g": 25.5,
                     "costing_method": "fifo",
-                    "notes": "Ring fabrication - 18K gold"
+                    "notes": "Ring fabrication - 18K gold",
                 },
                 {
                     "order_id": 124,
                     "weight_used_g": 30.0,
                     "costing_method": "specific",
                     "metal_purchase_id": 5,
-                    "notes": "Specific batch requested by customer"
+                    "notes": "Specific batch requested by customer",
                 },
                 {
                     "order_id": 125,
@@ -274,8 +286,8 @@ class MaterialUsageCreate(MaterialUsageBase):
                     "alloy_override": True,
                     "override_reason": "Kleiner Rest, Kunde akzeptiert Abweichung schriftlich.",
                     "override_reason_category": "kleinteil",
-                    "notes": "Rest aus Schmelzerei"
-                }
+                    "notes": "Rest aus Schmelzerei",
+                },
             ]
         }
     }
@@ -283,6 +295,7 @@ class MaterialUsageCreate(MaterialUsageBase):
 
 class MaterialUsageRead(MaterialUsageBase):
     """Schema for reading material usage data"""
+
     id: int
     metal_purchase_id: int
     cost_at_time: float
@@ -304,12 +317,22 @@ class MaterialUsageRead(MaterialUsageBase):
 
 class InventoryAdjustmentBase(BaseModel):
     """Base schema for inventory adjustment"""
-    metal_purchase_id: int = Field(..., gt=0)
-    adjustment_type: str = Field(..., pattern="^(loss|theft|reclamation|correction|return)$")
-    weight_change_g: float = Field(..., description="Positive for additions, negative for reductions")
-    reason: str = Field(..., min_length=10, max_length=1000, description="Detailed reason for adjustment")
 
-    @field_validator('weight_change_g')
+    metal_purchase_id: int = Field(..., gt=0)
+    adjustment_type: str = Field(
+        ..., pattern="^(loss|theft|reclamation|correction|return)$"
+    )
+    weight_change_g: float = Field(
+        ..., description="Positive for additions, negative for reductions"
+    )
+    reason: str = Field(
+        ...,
+        min_length=10,
+        max_length=1000,
+        description="Detailed reason for adjustment",
+    )
+
+    @field_validator("weight_change_g")
     @classmethod
     def validate_weight_change(cls, v: float) -> float:
         if v == 0:
@@ -321,11 +344,13 @@ class InventoryAdjustmentBase(BaseModel):
 
 class InventoryAdjustmentCreate(InventoryAdjustmentBase):
     """Schema for creating inventory adjustment"""
+
     pass
 
 
 class InventoryAdjustmentRead(InventoryAdjustmentBase):
     """Schema for reading inventory adjustment"""
+
     id: int
     adjusted_by_user_id: int
     adjusted_at: datetime
@@ -340,6 +365,7 @@ class InventoryAdjustmentRead(InventoryAdjustmentBase):
 
 class MetalInventorySummary(BaseModel):
     """Summary of metal inventory by type"""
+
     metal_type: MetalType
     total_weight_g: float
     total_value: float
@@ -351,6 +377,7 @@ class MetalInventorySummary(BaseModel):
 
 class InventoryStatistics(BaseModel):
     """Overall inventory statistics"""
+
     total_value: float
     total_weight_g: float
     metal_types: List[MetalInventorySummary]
@@ -365,6 +392,7 @@ class InventoryStatistics(BaseModel):
 
 class MetalAllocation(BaseModel):
     """Represents allocation of metal from specific purchase for order"""
+
     metal_purchase_id: int
     metal_type: MetalType
     weight_allocated_g: float
@@ -375,6 +403,7 @@ class MetalAllocation(BaseModel):
 
 class OrderMaterialAllocation(BaseModel):
     """Complete material allocation plan for an order"""
+
     order_id: int
     required_weight_g: float
     allocations: List[MetalAllocation]

@@ -101,9 +101,7 @@ class HallmarkService:
         The new record always starts in PENDING status.
         """
         # Verify order exists
-        order_result = await db.execute(
-            select(Order).where(Order.id == order_id)
-        )
+        order_result = await db.execute(select(Order).where(Order.id == order_id))
         order = order_result.scalar_one_or_none()
         if order is None:
             raise ValueError(f"Order {order_id} not found")

@@ -20,13 +20,9 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from goldsmith_erp.db.models import (
-    Activity,
-    Order as OrderModel,
-    OrderStatusEnum,
-    TimeEntry,
-    User,
-)
+from goldsmith_erp.db.models import Activity
+from goldsmith_erp.db.models import Order as OrderModel
+from goldsmith_erp.db.models import OrderStatusEnum, TimeEntry, User
 from goldsmith_erp.models.comparison import (
     SIGNIFICANT_DEVIATION_THRESHOLD,
     ActivityBreakdown,
@@ -81,9 +77,7 @@ def _accuracy_score(metrics: List[ComparisonMetric]) -> Optional[float]:
     Returns None when no deviation data is available.
     """
     deviations = [
-        abs(m.deviation_percent)
-        for m in metrics
-        if m.deviation_percent is not None
+        abs(m.deviation_percent) for m in metrics if m.deviation_percent is not None
     ]
     if not deviations:
         return None
@@ -155,9 +149,7 @@ async def _build_activity_breakdown(
         if not activity:
             continue
 
-        actual_minutes = sum(
-            (e.duration_minutes or 0) for e in entries
-        )
+        actual_minutes = sum((e.duration_minutes or 0) for e in entries)
 
         # Soll: activity average_duration_minutes (if set) multiplied by entry count
         # Rationale: each time entry represents one work session for this activity.
@@ -174,7 +166,9 @@ async def _build_activity_breakdown(
                 deviation_percent = round(
                     (deviation_minutes / abs(estimated_minutes)) * 100.0, 2
                 )
-                is_significant = abs(deviation_percent) >= SIGNIFICANT_DEVIATION_THRESHOLD
+                is_significant = (
+                    abs(deviation_percent) >= SIGNIFICANT_DEVIATION_THRESHOLD
+                )
 
         breakdowns.append(
             ActivityBreakdown(
@@ -183,7 +177,11 @@ async def _build_activity_breakdown(
                 activity_category=activity.category,
                 actual_minutes=actual_minutes,
                 estimated_minutes=estimated_minutes,
-                deviation_minutes=round(deviation_minutes, 2) if deviation_minutes is not None else None,
+                deviation_minutes=(
+                    round(deviation_minutes, 2)
+                    if deviation_minutes is not None
+                    else None
+                ),
                 deviation_percent=deviation_percent,
                 is_significant=is_significant,
                 entry_count=len(entries),
@@ -260,7 +258,9 @@ class ComparisonService:
             # Fall back to manual override when no usage records exist
             actual_material_cost = order.material_cost_override
 
-        cost_metric = _calc_deviation(order.material_cost_calculated, actual_material_cost)
+        cost_metric = _calc_deviation(
+            order.material_cost_calculated, actual_material_cost
+        )
 
         # -- Total price comparison --
         # Soll: calculated_price (what the system computed from costs + margin)
@@ -287,7 +287,9 @@ class ComparisonService:
             order_id=order.id,
             order_title=order.title,
             order_type=order.order_type,
-            status=order.status.value if hasattr(order.status, "value") else order.status,
+            status=(
+                order.status.value if hasattr(order.status, "value") else order.status
+            ),
             completed_at=order.completed_at,
             hours=hours_metric,
             material_weight=weight_metric,
@@ -362,13 +364,17 @@ class ComparisonService:
             # Actual material cost
             actual_material_cost: Optional[float] = None
             if order.material_usage_records:
-                actual_material_cost = sum(r.cost_at_time for r in order.material_usage_records)
+                actual_material_cost = sum(
+                    r.cost_at_time for r in order.material_usage_records
+                )
             elif order.material_cost_override is not None:
                 actual_material_cost = order.material_cost_override
 
             h_metric = _calc_deviation(order.labor_hours, order.actual_hours)
             m_metric = _calc_deviation(order.estimated_weight_g, order.actual_weight_g)
-            c_metric = _calc_deviation(order.material_cost_calculated, actual_material_cost)
+            c_metric = _calc_deviation(
+                order.material_cost_calculated, actual_material_cost
+            )
 
             if h_metric.deviation_percent is not None:
                 hours_devs.append(h_metric.deviation_percent)
@@ -489,7 +495,9 @@ class ComparisonService:
                 for o in bucket_orders
             ]
             b_material = [
-                _calc_deviation(o.estimated_weight_g, o.actual_weight_g).deviation_percent
+                _calc_deviation(
+                    o.estimated_weight_g, o.actual_weight_g
+                ).deviation_percent
                 for o in bucket_orders
             ]
 
@@ -516,9 +524,15 @@ class ComparisonService:
                     period_label=bucket_key,
                     period_start=period_start,
                     order_count=len(bucket_orders),
-                    avg_hours_deviation_percent=_avg([v for v in b_hours if v is not None]),
-                    avg_material_deviation_percent=_avg([v for v in b_material if v is not None]),
-                    avg_cost_deviation_percent=_avg([v for v in b_cost_devs if v is not None]),
+                    avg_hours_deviation_percent=_avg(
+                        [v for v in b_hours if v is not None]
+                    ),
+                    avg_material_deviation_percent=_avg(
+                        [v for v in b_material if v is not None]
+                    ),
+                    avg_cost_deviation_percent=_avg(
+                        [v for v in b_cost_devs if v is not None]
+                    ),
                 )
             )
 
@@ -558,21 +572,21 @@ class ComparisonService:
         Financial data — callers must audit-log access.
         """
         # Resolve user display name
-        user_result = await db.execute(
-            select(User).where(User.id == user_id)
-        )
+        user_result = await db.execute(select(User).where(User.id == user_id))
         user: Optional[User] = user_result.scalar_one_or_none()
         if not user:
             return None
 
         # Display name: first name + last name initial (privacy-conscious)
-        user_name = f"{user.first_name} {user.last_name[0]}." if user.last_name else user.first_name
+        user_name = (
+            f"{user.first_name} {user.last_name[0]}."
+            if user.last_name
+            else user.first_name
+        )
 
         # Find all orders with time entries by this user that are completed
         te_result = await db.execute(
-            select(TimeEntry.order_id)
-            .where(TimeEntry.user_id == user_id)
-            .distinct()
+            select(TimeEntry.order_id).where(TimeEntry.user_id == user_id).distinct()
         )
         order_ids = [row[0] for row in te_result.fetchall()]
 
@@ -638,10 +652,20 @@ class ComparisonService:
         hours_vs_ws: Optional[float] = None
         material_vs_ws: Optional[float] = None
         if workshop_stats:
-            if user_hours_avg is not None and workshop_stats.avg_hours_deviation_percent is not None:
-                hours_vs_ws = round(user_hours_avg - workshop_stats.avg_hours_deviation_percent, 2)
-            if user_material_avg is not None and workshop_stats.avg_material_deviation_percent is not None:
-                material_vs_ws = round(user_material_avg - workshop_stats.avg_material_deviation_percent, 2)
+            if (
+                user_hours_avg is not None
+                and workshop_stats.avg_hours_deviation_percent is not None
+            ):
+                hours_vs_ws = round(
+                    user_hours_avg - workshop_stats.avg_hours_deviation_percent, 2
+                )
+            if (
+                user_material_avg is not None
+                and workshop_stats.avg_material_deviation_percent is not None
+            ):
+                material_vs_ws = round(
+                    user_material_avg - workshop_stats.avg_material_deviation_percent, 2
+                )
 
         # Build order type breakdowns
         def _build_user_type_devs(order_type: str) -> OrderTypeDeviation:

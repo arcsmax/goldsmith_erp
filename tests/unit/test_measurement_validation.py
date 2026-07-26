@@ -12,6 +12,7 @@ red-then-green cycle: the wrist `10.0 cm` user-reported case below
 fails against the original `12.0–28.0` bound and is the immediate
 trigger for this widening.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -20,10 +21,10 @@ from pydantic import ValidationError
 from goldsmith_erp.db.models import FingerPosition, HandSide, MeasurementType
 from goldsmith_erp.models.measurement import MeasurementCreate
 
-
 # ---------------------------------------------------------------------------
 # Wrist (the immediate user complaint — was 12.0–28.0)
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.parametrize("value_cm", [8.0, 10.0, 12.0, 18.0, 28.0, 32.0, 35.0])
 def test_wrist_circumference_accepts_wide_range(value_cm: float) -> None:
@@ -51,6 +52,7 @@ def test_wrist_circumference_rejects_implausible(value_cm: float) -> None:
 # Neck (was 25.0–60.0)
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.parametrize("value_cm", [20.0, 25.0, 40.0, 60.0, 70.0])
 def test_neck_circumference_accepts_wide_range(value_cm: float) -> None:
     m = MeasurementCreate(
@@ -74,6 +76,7 @@ def test_neck_circumference_rejects_implausible(value_cm: float) -> None:
 # ---------------------------------------------------------------------------
 # Ankle (was 18.0–40.0)
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.parametrize("value_cm", [14.0, 18.0, 25.0, 40.0, 50.0])
 def test_ankle_circumference_accepts_wide_range(value_cm: float) -> None:
@@ -99,6 +102,7 @@ def test_ankle_circumference_rejects_implausible(value_cm: float) -> None:
 # Chain length (was 30.0–120.0)
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.parametrize("value_cm", [25.0, 30.0, 60.0, 120.0, 150.0])
 def test_chain_length_accepts_wide_range(value_cm: float) -> None:
     m = MeasurementCreate(
@@ -122,6 +126,7 @@ def test_chain_length_rejects_implausible(value_cm: float) -> None:
 # ---------------------------------------------------------------------------
 # Ring size (EU inner circumference in mm; was 38.0–80.0)
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.parametrize("value_mm", [30.0, 38.0, 54.0, 80.0, 90.0])
 def test_ring_size_accepts_wide_range(value_mm: float) -> None:
@@ -151,6 +156,7 @@ def test_ring_size_rejects_implausible(value_mm: float) -> None:
 # Finger circumference (was 38.0–80.0; same bounds as ring_size)
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.parametrize("value_mm", [30.0, 38.0, 65.0, 90.0])
 def test_finger_circumference_accepts_wide_range(value_mm: float) -> None:
     m = MeasurementCreate(
@@ -178,6 +184,7 @@ def test_finger_circumference_rejects_implausible(value_mm: float) -> None:
 # ---------------------------------------------------------------------------
 # Regression of the user-reported case
 # ---------------------------------------------------------------------------
+
 
 def test_user_reported_wrist_10cm_now_accepted() -> None:
     """Direct repro of the bug-report payload."""

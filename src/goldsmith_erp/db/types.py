@@ -71,14 +71,14 @@ class EncryptedString(TypeDecorator):
     # Column-level opt-in for "this might hold legacy plaintext". Default
     # True keeps mid-migration tables readable; set False on new-only
     # columns to make a bad read fail loudly instead.
-    def __init__(self, *args: Any, tolerate_plaintext: bool = True, **kwargs: Any) -> None:
+    def __init__(
+        self, *args: Any, tolerate_plaintext: bool = True, **kwargs: Any
+    ) -> None:
         super().__init__(*args, **kwargs)
         self._tolerate_plaintext = tolerate_plaintext
 
     # ── Encrypt on write ──────────────────────────────────────────────
-    def process_bind_param(
-        self, value: Optional[str], dialect: Any
-    ) -> Optional[str]:
+    def process_bind_param(self, value: Optional[str], dialect: Any) -> Optional[str]:
         """Encrypt ``value`` for persistence. ``None``/``""`` pass through.
 
         If ``ENCRYPTION_KEY`` is unset (dev-only fallback), the value is
@@ -104,9 +104,7 @@ class EncryptedString(TypeDecorator):
         return enc.encrypt(value)
 
     # ── Decrypt on read ───────────────────────────────────────────────
-    def process_result_value(
-        self, value: Optional[str], dialect: Any
-    ) -> Optional[str]:
+    def process_result_value(self, value: Optional[str], dialect: Any) -> Optional[str]:
         """Decrypt ``value`` after loading from the DB. Legacy plaintext
         passes through unchanged when ``tolerate_plaintext`` is True.
         """
@@ -147,11 +145,11 @@ def _get_encryption_service_or_none():
     logging → …). Safe to call from bind/result hooks at runtime.
     """
     from goldsmith_erp.core.config import settings  # noqa: PLC0415
+
     if not settings.ENCRYPTION_KEY:
         return None
-    from goldsmith_erp.core.encryption import (  # noqa: PLC0415
-        get_encryption_service,
-    )
+    from goldsmith_erp.core.encryption import get_encryption_service  # noqa: PLC0415
+
     return get_encryption_service()
 
 

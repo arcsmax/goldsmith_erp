@@ -13,16 +13,12 @@ Permission matrix:
   - VIEWER            — no access (no VALUATION_VIEW), all returns 403
   - No auth           — 401
 """
+
 import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from goldsmith_erp.db.models import (
-    Customer,
-    Order,
-    OrderStatusEnum,
-    User,
-)
+from goldsmith_erp.db.models import Customer, Order, OrderStatusEnum, User
 
 API_BASE = "/api/v1"
 VALUATIONS_URL = f"{API_BASE}/valuations"
@@ -43,6 +39,7 @@ def _from_order_url(order_id: int) -> str:
 # ---------------------------------------------------------------------------
 # Payload helpers
 # ---------------------------------------------------------------------------
+
 
 def _create_payload(order_id: int, customer_id: int) -> dict:
     return {
@@ -71,6 +68,7 @@ def _from_order_payload() -> dict:
 # DB fixture: order for valuation tests
 # ---------------------------------------------------------------------------
 
+
 async def _create_order(db_session: AsyncSession, customer: Customer) -> Order:
     """Insert a minimal order for valuation tests."""
     order = Order(
@@ -92,6 +90,7 @@ async def _create_order(db_session: AsyncSession, customer: Customer) -> Order:
 # Helper: create a valuation certificate and return its ID
 # ---------------------------------------------------------------------------
 
+
 async def _create_valuation(
     client: AsyncClient,
     headers: dict,
@@ -110,6 +109,7 @@ async def _create_valuation(
 # ===========================================================================
 # POST /api/v1/valuations — create certificate
 # ===========================================================================
+
 
 class TestCreateValuation:
 
@@ -247,6 +247,7 @@ class TestCreateValuation:
 # POST /api/v1/orders/{order_id}/valuations — create from order
 # ===========================================================================
 
+
 class TestCreateValuationFromOrder:
 
     @pytest.mark.asyncio
@@ -321,6 +322,7 @@ class TestCreateValuationFromOrder:
 # GET /api/v1/valuations — list
 # ===========================================================================
 
+
 class TestListValuations:
 
     @pytest.mark.asyncio
@@ -368,6 +370,7 @@ class TestListValuations:
 # ===========================================================================
 # GET /api/v1/valuations/{id}/pdf — download PDF
 # ===========================================================================
+
 
 class TestValuationPdf:
 

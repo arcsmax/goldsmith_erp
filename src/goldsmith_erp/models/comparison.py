@@ -6,10 +6,10 @@ Financial data — access restricted to ADMIN and GOLDSMITH roles.
 All access must be audit-logged per CLAUDE.md data privacy rules.
 """
 
-from pydantic import BaseModel, ConfigDict, Field
 from datetime import datetime
 from typing import List, Optional
 
+from pydantic import BaseModel, ConfigDict, Field
 
 SIGNIFICANT_DEVIATION_THRESHOLD = 20.0  # Abweichung > 20% wird als signifikant markiert
 
@@ -25,19 +25,20 @@ class ComparisonMetric(BaseModel):
     is_significant     = True when |deviation_percent| > 20%
     """
 
-    soll: Optional[float] = Field(None, description="Planned / estimated value (Sollwert)")
+    soll: Optional[float] = Field(
+        None, description="Planned / estimated value (Sollwert)"
+    )
     ist: Optional[float] = Field(None, description="Actual recorded value (Istwert)")
     deviation_percent: Optional[float] = Field(
         None,
-        description="Relative Abweichung in Prozent — positiv = Mehraufwand, negativ = Einsparung"
+        description="Relative Abweichung in Prozent — positiv = Mehraufwand, negativ = Einsparung",
     )
     deviation_abs: Optional[float] = Field(
-        None,
-        description="Absolute Abweichung in der nativen Einheit der Metrik"
+        None, description="Absolute Abweichung in der nativen Einheit der Metrik"
     )
     is_significant: bool = Field(
         False,
-        description=f"True wenn |Abweichung| > {SIGNIFICANT_DEVIATION_THRESHOLD}%"
+        description=f"True wenn |Abweichung| > {SIGNIFICANT_DEVIATION_THRESHOLD}%",
     )
 
 
@@ -52,24 +53,28 @@ class ActivityBreakdown(BaseModel):
 
     activity_id: int
     activity_name: str
-    activity_category: str = Field(description="fabrication, administration, waiting, …")
+    activity_category: str = Field(
+        description="fabrication, administration, waiting, …"
+    )
 
     # Time in minutes
-    actual_minutes: float = Field(description="Summe der duration_minutes aus TimeEntry-Eintraegen")
+    actual_minutes: float = Field(
+        description="Summe der duration_minutes aus TimeEntry-Eintraegen"
+    )
     estimated_minutes: Optional[float] = Field(
         None,
-        description="Sollwert aus Activity.average_duration_minutes (wenn vorhanden)"
+        description="Sollwert aus Activity.average_duration_minutes (wenn vorhanden)",
     )
     deviation_minutes: Optional[float] = Field(
-        None,
-        description="actual_minutes - estimated_minutes"
+        None, description="actual_minutes - estimated_minutes"
     )
     deviation_percent: Optional[float] = Field(
-        None,
-        description="Relative Abweichung in Prozent"
+        None, description="Relative Abweichung in Prozent"
     )
     is_significant: bool = False
-    entry_count: int = Field(description="Anzahl der TimeEntry-Eintraege fuer diese Aktivitaet")
+    entry_count: int = Field(
+        description="Anzahl der TimeEntry-Eintraege fuer diese Aktivitaet"
+    )
 
 
 class OrderComparison(BaseModel):
@@ -87,7 +92,9 @@ class OrderComparison(BaseModel):
     completed_at: Optional[datetime] = None
 
     # Core Soll/Ist metrics
-    hours: ComparisonMetric = Field(description="Arbeitszeit: labor_hours (Soll) vs actual_hours (Ist)")
+    hours: ComparisonMetric = Field(
+        description="Arbeitszeit: labor_hours (Soll) vs actual_hours (Ist)"
+    )
     material_weight: ComparisonMetric = Field(
         description="Materialgewicht in Gramm: estimated_weight_g vs actual_weight_g"
     )
@@ -100,8 +107,7 @@ class OrderComparison(BaseModel):
 
     # Activity-level time breakdown
     activity_breakdown: List[ActivityBreakdown] = Field(
-        default_factory=list,
-        description="Zeitaufschluesselung nach Aktivitaetstyp"
+        default_factory=list, description="Zeitaufschluesselung nach Aktivitaetstyp"
     )
 
     # Summary score
@@ -112,13 +118,13 @@ class OrderComparison(BaseModel):
         description=(
             "Genauigkeitsscore 0-100: 100 = perfekte Schaetzung, "
             "niedrigerer Wert = groessere mittlere Abweichung"
-        )
+        ),
     )
 
     # Flag: at least one metric exceeds the significance threshold
     has_significant_deviation: bool = Field(
         False,
-        description=f"True wenn mindestens eine Metrik > {SIGNIFICANT_DEVIATION_THRESHOLD}% Abweichung hat"
+        description=f"True wenn mindestens eine Metrik > {SIGNIFICANT_DEVIATION_THRESHOLD}% Abweichung hat",
     )
 
     model_config = ConfigDict(from_attributes=True)
@@ -200,31 +206,30 @@ class WorkshopStats(BaseModel):
     # Breakdown by order type (Auftragstyp)
     most_underestimated_order_types: List[OrderTypeDeviation] = Field(
         default_factory=list,
-        description="Auftragstypen, bei denen der Aufwand am haeufigsten unterschaetzt wird"
+        description="Auftragstypen, bei denen der Aufwand am haeufigsten unterschaetzt wird",
     )
     most_overestimated_order_types: List[OrderTypeDeviation] = Field(
         default_factory=list,
-        description="Auftragstypen, bei denen der Aufwand am haeufigsten ueberschaetzt wird"
+        description="Auftragstypen, bei denen der Aufwand am haeufigsten ueberschaetzt wird",
     )
 
     # Breakdown by activity type (Aktivitaetstyp)
     most_underestimated_activities: List[ActivityDeviation] = Field(
         default_factory=list,
-        description="Aktivitaeten, die systematisch laenger dauern als geschaetzt"
+        description="Aktivitaeten, die systematisch laenger dauern als geschaetzt",
     )
     most_overestimated_activities: List[ActivityDeviation] = Field(
         default_factory=list,
-        description="Aktivitaeten, die systematisch kuerzer dauern als geschaetzt"
+        description="Aktivitaeten, die systematisch kuerzer dauern als geschaetzt",
     )
 
     # Accuracy trend over the period (improving / worsening)
     trend: List[TrendPoint] = Field(
-        default_factory=list,
-        description="Zeitlicher Verlauf der Schaetzgenauigkeit"
+        default_factory=list, description="Zeitlicher Verlauf der Schaetzgenauigkeit"
     )
     trend_direction: Optional[str] = Field(
         None,
-        description="'improving', 'worsening', 'stable', oder None wenn zu wenig Daten"
+        description="'improving', 'worsening', 'stable', oder None wenn zu wenig Daten",
     )
 
     model_config = ConfigDict(from_attributes=True)
@@ -257,27 +262,26 @@ class UserAccuracy(BaseModel):
     # Comparison to workshop average (positive = worse than average)
     hours_vs_workshop_avg: Optional[float] = Field(
         None,
-        description="Differenz zur Werkstatt-Durchschnittsabweichung in Prozentpunkten"
+        description="Differenz zur Werkstatt-Durchschnittsabweichung in Prozentpunkten",
     )
     material_vs_workshop_avg: Optional[float] = Field(
         None,
-        description="Differenz zur Werkstatt-Durchschnittsabweichung in Prozentpunkten"
+        description="Differenz zur Werkstatt-Durchschnittsabweichung in Prozentpunkten",
     )
 
     # Best and worst order types for this goldsmith
     best_order_types: List[OrderTypeDeviation] = Field(
-        default_factory=list,
-        description="Auftragstypen mit der genauesten Schaetzung"
+        default_factory=list, description="Auftragstypen mit der genauesten Schaetzung"
     )
     worst_order_types: List[OrderTypeDeviation] = Field(
         default_factory=list,
-        description="Auftragstypen mit der ungenauesten Schaetzung"
+        description="Auftragstypen mit der ungenauesten Schaetzung",
     )
 
     # Trend
     improvement_trend: Optional[str] = Field(
         None,
-        description="'improving', 'worsening', 'stable', oder None wenn zu wenig Daten"
+        description="'improving', 'worsening', 'stable', oder None wenn zu wenig Daten",
     )
 
     model_config = ConfigDict(from_attributes=True)

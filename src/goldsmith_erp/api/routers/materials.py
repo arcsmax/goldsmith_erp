@@ -4,22 +4,32 @@ import itertools
 import logging
 import uuid
 from pathlib import Path
+from typing import Any, Dict, List
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from fastapi.responses import FileResponse
+from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from typing import Any, Dict, List
-from pydantic import BaseModel
 
 from goldsmith_erp.api.deps import get_current_user
 from goldsmith_erp.core.config import settings
-from goldsmith_erp.db.session import get_db
-from goldsmith_erp.db.models import Material as MaterialModel, User as UserModel
-from goldsmith_erp.models.material import MaterialCreate, MaterialRead, MaterialUpdate, MaterialWithStock
-from goldsmith_erp.services.material_service import MaterialService
-from goldsmith_erp.services.photo_service import _detect_image_type, _MAX_MAGIC_BYTES, PhotoValidationError
 from goldsmith_erp.core.permissions import Permission, require_permission
+from goldsmith_erp.db.models import Material as MaterialModel
+from goldsmith_erp.db.models import User as UserModel
+from goldsmith_erp.db.session import get_db
+from goldsmith_erp.models.material import (
+    MaterialCreate,
+    MaterialRead,
+    MaterialUpdate,
+    MaterialWithStock,
+)
+from goldsmith_erp.services.material_service import MaterialService
+from goldsmith_erp.services.photo_service import (
+    _MAX_MAGIC_BYTES,
+    PhotoValidationError,
+    _detect_image_type,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -31,19 +41,23 @@ router = APIRouter()
 
 # ==================== PYDANTIC SCHEMAS ====================
 
+
 class StockAdjustment(BaseModel):
     """Schema für Bestandsanpassungen."""
+
     quantity: float
     operation: str = "add"  # "add" oder "subtract"
 
 
 class StockValueResponse(BaseModel):
     """Response für Gesamtbestandswert."""
+
     total_value: float
     currency: str = "EUR"
 
 
 # ==================== MATERIAL CRUD ENDPOINTS ====================
+
 
 @router.get("/", response_model=List[MaterialRead])
 @require_permission(Permission.MATERIAL_VIEW)
@@ -51,7 +65,7 @@ async def list_materials(
     skip: int = 0,
     limit: int = 100,
     db: AsyncSession = Depends(get_db),
-    current_user: UserModel = Depends(get_current_user)
+    current_user: UserModel = Depends(get_current_user),
 ):
     """
     Alle Materialien auflisten.
@@ -71,7 +85,7 @@ async def list_materials(
 async def create_material(
     material_in: MaterialCreate,
     db: AsyncSession = Depends(get_db),
-    current_user: UserModel = Depends(get_current_user)
+    current_user: UserModel = Depends(get_current_user),
 ):
     """
     Neues Material anlegen.
@@ -87,7 +101,7 @@ async def create_material(
     if existing_material:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Material with name '{material_in.name}' already exists"
+            detail=f"Material with name '{material_in.name}' already exists",
         )
 
     # Material erstellen
@@ -148,7 +162,7 @@ async def get_purchase_list(
 async def get_material(
     material_id: int,
     db: AsyncSession = Depends(get_db),
-    current_user: UserModel = Depends(get_current_user)
+    current_user: UserModel = Depends(get_current_user),
 ):
     """
     Material über ID abrufen.
@@ -161,8 +175,7 @@ async def get_material(
     material = await MaterialService.get_material_by_id(db, material_id)
     if not material:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Material not found"
+            status_code=status.HTTP_404_NOT_FOUND, detail="Material not found"
         )
     return material
 
@@ -173,7 +186,7 @@ async def update_material(
     material_id: int,
     material_in: MaterialUpdate,
     db: AsyncSession = Depends(get_db),
-    current_user: UserModel = Depends(get_current_user)
+    current_user: UserModel = Depends(get_current_user),
 ):
     """
     Material aktualisieren.
@@ -188,19 +201,22 @@ async def update_material(
     if material_in.name:
         material = await MaterialService.get_material_by_id(db, material_id)
         if material and material_in.name != material.name:
-            existing_material = await MaterialService.get_material_by_name(db, material_in.name)
+            existing_material = await MaterialService.get_material_by_name(
+                db, material_in.name
+            )
             if existing_material:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"Material with name '{material_in.name}' already exists"
+                    detail=f"Material with name '{material_in.name}' already exists",
                 )
 
     # Material aktualisieren
-    updated_material = await MaterialService.update_material(db, material_id, material_in)
+    updated_material = await MaterialService.update_material(
+        db, material_id, material_in
+    )
     if not updated_material:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Material not found"
+            status_code=status.HTTP_404_NOT_FOUND, detail="Material not found"
         )
 
     return updated_material
@@ -211,7 +227,7 @@ async def update_material(
 async def delete_material(
     material_id: int,
     db: AsyncSession = Depends(get_db),
-    current_user: UserModel = Depends(get_current_user)
+    current_user: UserModel = Depends(get_current_user),
 ):
     """
     Material löschen.
@@ -225,8 +241,7 @@ async def delete_material(
     result = await MaterialService.delete_material(db, material_id)
     if not result["success"]:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=result["message"]
+            status_code=status.HTTP_404_NOT_FOUND, detail=result["message"]
         )
 
     return result
@@ -234,13 +249,14 @@ async def delete_material(
 
 # ==================== STOCK MANAGEMENT ENDPOINTS ====================
 
+
 @router.post("/{material_id}/adjust-stock", response_model=MaterialRead)
 @require_permission(Permission.MATERIAL_ADJUST_STOCK)
 async def adjust_material_stock(
     material_id: int,
     adjustment: StockAdjustment,
     db: AsyncSession = Depends(get_db),
-    current_user: UserModel = Depends(get_current_user)
+    current_user: UserModel = Depends(get_current_user),
 ):
     """
     Bestand eines Materials anpassen.
@@ -255,22 +271,15 @@ async def adjust_material_stock(
     """
     try:
         material = await MaterialService.adjust_stock(
-            db,
-            material_id,
-            adjustment.quantity,
-            adjustment.operation
+            db, material_id, adjustment.quantity, adjustment.operation
         )
         if not material:
             raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Material not found"
+                status_code=status.HTTP_404_NOT_FOUND, detail="Material not found"
             )
         return material
     except ValueError as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e)
-        )
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
 
 @router.get("/low-stock/alert", response_model=List[MaterialWithStock])
@@ -278,7 +287,7 @@ async def adjust_material_stock(
 async def get_low_stock_materials(
     threshold: float = 10.0,
     db: AsyncSession = Depends(get_db),
-    current_user: UserModel = Depends(get_current_user)
+    current_user: UserModel = Depends(get_current_user),
 ):
     """
     Materialien mit niedrigem Bestand anzeigen.
@@ -293,9 +302,7 @@ async def get_low_stock_materials(
     materials = await MaterialService.get_low_stock_materials(db, threshold)
 
     # Konvertiere zu MaterialWithStock mit Wertberechnung
-    materials_with_value = [
-        MaterialWithStock.from_material(m) for m in materials
-    ]
+    materials_with_value = [MaterialWithStock.from_material(m) for m in materials]
 
     return materials_with_value
 
@@ -349,7 +356,11 @@ async def upload_material_image(
         )
 
     # Persist to filesystem — random UUID filename, no user input in path
-    storage_dir = Path(settings.PHOTO_STORAGE_PATH).resolve().parent / "materials" / str(material_id)
+    storage_dir = (
+        Path(settings.PHOTO_STORAGE_PATH).resolve().parent
+        / "materials"
+        / str(material_id)
+    )
     storage_dir.mkdir(parents=True, exist_ok=True)
 
     filename = f"{uuid.uuid4()}.{ext}"
@@ -372,6 +383,7 @@ async def upload_material_image(
     image_url = f"/api/v1/materials/{material_id}/image"
 
     from goldsmith_erp.models.material import MaterialUpdate as _MaterialUpdate
+
     updated = await MaterialService.update_material(
         db, material_id, _MaterialUpdate(image_url=image_url)
     )
@@ -417,7 +429,8 @@ async def get_material_image(
     if material_dir.is_dir():
         # Pick the first image file in the directory (there should be exactly one)
         image_files = [
-            f for f in material_dir.iterdir()
+            f
+            for f in material_dir.iterdir()
             if f.is_file() and f.suffix.lower() in (".jpg", ".jpeg", ".png", ".webp")
         ]
         if image_files:
@@ -432,7 +445,7 @@ async def get_material_image(
 @require_permission(Permission.MATERIAL_VIEW)
 async def get_total_stock_value(
     db: AsyncSession = Depends(get_db),
-    current_user: UserModel = Depends(get_current_user)
+    current_user: UserModel = Depends(get_current_user),
 ):
     """
     Gesamtwert aller Materialien im Lager berechnen.

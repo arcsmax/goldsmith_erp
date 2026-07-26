@@ -45,7 +45,6 @@ from goldsmith_erp.db.models import (
     User,
 )
 
-
 # ---------------------------------------------------------------------------
 # Middleware session patch — identical rationale to test_financial_audit.py:
 # AuditLoggingMiddleware opens its own AsyncSessionLocal(); bind it to the

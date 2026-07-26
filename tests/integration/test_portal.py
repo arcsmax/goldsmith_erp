@@ -13,10 +13,12 @@ Key properties:
     endpoint returns 404 (token not found).
   - Rate-limited at 10 req/min per IP via slowapi.
 """
+
+from unittest.mock import AsyncMock, patch
+
 import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
-from unittest.mock import AsyncMock, patch
 
 from goldsmith_erp.db.models import (
     Customer,
@@ -40,6 +42,7 @@ def _lookup_payload(reference: str, email: str) -> dict:
 # Fixtures: create an order and a repair with a known email for lookup tests
 # ---------------------------------------------------------------------------
 
+
 async def _create_order_with_customer(
     db_session: AsyncSession,
     email: str | None = None,
@@ -47,6 +50,7 @@ async def _create_order_with_customer(
     """Create a customer + order directly in the DB for portal lookup tests."""
     if email is None:
         import uuid
+
         email = f"portal_{uuid.uuid4().hex[:8]}@example.com"
 
     customer = Customer(
@@ -80,6 +84,7 @@ async def _create_repair_with_customer(
     """Create a customer + repair directly in the DB for portal lookup tests."""
     if email is None:
         import uuid
+
         email = f"portal_repair_{uuid.uuid4().hex[:8]}@example.com"
 
     customer = Customer(
@@ -111,6 +116,7 @@ async def _create_repair_with_customer(
 # ===========================================================================
 # POST /api/v1/portal/lookup — public lookup
 # ===========================================================================
+
 
 class TestPortalLookup:
 
@@ -283,6 +289,7 @@ class TestPortalLookup:
 # ===========================================================================
 # GET /api/v1/portal/status/{token} — token-based lookup
 # ===========================================================================
+
 
 class TestPortalTokenLookup:
 

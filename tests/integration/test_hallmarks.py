@@ -19,14 +19,15 @@ Permission matrix:
   - VIEWER            — read-only (HALLMARK_VIEW), write returns 403
   - No auth           — 401
 """
+
 import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from goldsmith_erp.db.models import (
     Customer,
-    HallmarkType,
     HallmarkStatus,
+    HallmarkType,
     Order,
     OrderStatusEnum,
     User,
@@ -51,6 +52,7 @@ def _status_url(order_id: int, hallmark_id: int) -> str:
 # Payload helpers
 # ---------------------------------------------------------------------------
 
+
 def _create_payload(
     hallmark_type: str = HallmarkType.FINENESS_MARK.value,
     assay_office: str | None = "Pforzheim",
@@ -73,6 +75,7 @@ def _status_payload(new_status: str, certificate_number: str | None = None) -> d
 # DB fixture: order for hallmark tests
 # ---------------------------------------------------------------------------
 
+
 async def _create_order(db_session: AsyncSession, customer: Customer) -> Order:
     """Insert a minimal order into the DB for hallmark tests."""
     order = Order(
@@ -92,6 +95,7 @@ async def _create_order(db_session: AsyncSession, customer: Customer) -> Order:
 # Helper: create a hallmark and return its ID
 # ---------------------------------------------------------------------------
 
+
 async def _create_hallmark(
     client: AsyncClient,
     headers: dict,
@@ -110,6 +114,7 @@ async def _create_hallmark(
 # ===========================================================================
 # POST /api/v1/orders/{order_id}/hallmarks — create
 # ===========================================================================
+
 
 class TestCreateHallmark:
 
@@ -233,6 +238,7 @@ class TestCreateHallmark:
 # GET /api/v1/orders/{order_id}/hallmarks — list
 # ===========================================================================
 
+
 class TestListHallmarks:
 
     @pytest.mark.asyncio
@@ -281,6 +287,7 @@ class TestListHallmarks:
 # POST .../status — status transitions
 # ===========================================================================
 
+
 class TestHallmarkStatusTransitions:
 
     async def _advance_to(
@@ -299,7 +306,11 @@ class TestHallmarkStatusTransitions:
         transitions = {
             "submitted": [("submitted", None)],
             "approved": [("submitted", None), ("approved", "CERT-001")],
-            "stamped": [("submitted", None), ("approved", "CERT-002"), ("stamped", None)],
+            "stamped": [
+                ("submitted", None),
+                ("approved", "CERT-002"),
+                ("stamped", None),
+            ],
         }
 
         for step_status, cert in transitions.get(target_status, []):

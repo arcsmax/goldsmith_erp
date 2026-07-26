@@ -14,12 +14,12 @@ Permission matrix tested:
   - VIEWER   — view only
   - No auth  — 401
 """
+
 import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from goldsmith_erp.db.models import Customer, Order, OrderStatusEnum, User, UserRole
-
 
 ORDERS_URL = "/api/v1/orders/"
 
@@ -31,6 +31,7 @@ def _order_url(order_id: int) -> str:
 # ---------------------------------------------------------------------------
 # Payload helpers
 # ---------------------------------------------------------------------------
+
 
 def _create_payload(customer_id: int, title: str = "Test Order") -> dict:
     return {
@@ -45,12 +46,11 @@ def _create_payload(customer_id: int, title: str = "Test Order") -> dict:
 # GET /api/v1/orders/ — list orders
 # ---------------------------------------------------------------------------
 
+
 class TestListOrders:
 
     @pytest.mark.asyncio
-    async def test_list_orders_unauthenticated_returns_401(
-        self, client: AsyncClient
-    ):
+    async def test_list_orders_unauthenticated_returns_401(self, client: AsyncClient):
         """Unauthenticated request is blocked by deny-by-default middleware."""
         response = await client.get(ORDERS_URL)
         assert response.status_code == 401
@@ -90,7 +90,9 @@ class TestListOrders:
     ):
         """An order created via POST appears in the GET list."""
         payload = _create_payload(test_customer.id, title="Listed Order")
-        post_resp = await client.post(ORDERS_URL, json=payload, headers=admin_auth_headers)
+        post_resp = await client.post(
+            ORDERS_URL, json=payload, headers=admin_auth_headers
+        )
         assert post_resp.status_code == 200
 
         get_resp = await client.get(ORDERS_URL, headers=admin_auth_headers)
@@ -120,6 +122,7 @@ class TestListOrders:
 # POST /api/v1/orders/ — create order
 # ---------------------------------------------------------------------------
 
+
 class TestCreateOrder:
 
     @pytest.mark.asyncio
@@ -131,7 +134,9 @@ class TestCreateOrder:
     ):
         """ADMIN can create an order; response contains expected fields."""
         payload = _create_payload(test_customer.id, title="Admin Created Order")
-        response = await client.post(ORDERS_URL, json=payload, headers=admin_auth_headers)
+        response = await client.post(
+            ORDERS_URL, json=payload, headers=admin_auth_headers
+        )
 
         assert response.status_code == 200
         body = response.json()
@@ -234,6 +239,7 @@ class TestCreateOrder:
 # GET /api/v1/orders/{id} — get single order
 # ---------------------------------------------------------------------------
 
+
 class TestGetOrder:
 
     @pytest.mark.asyncio
@@ -311,6 +317,7 @@ class TestGetOrder:
 # PUT /api/v1/orders/{id} — update order
 # ---------------------------------------------------------------------------
 
+
 class TestUpdateOrder:
 
     @pytest.mark.asyncio
@@ -327,7 +334,10 @@ class TestUpdateOrder:
         )
         order_id = post_resp.json()["id"]
 
-        update_payload = {"title": "Updated Title", "description": "Updated description text"}
+        update_payload = {
+            "title": "Updated Title",
+            "description": "Updated description text",
+        }
         put_resp = await client.put(
             _order_url(order_id),
             json=update_payload,
@@ -374,7 +384,10 @@ class TestUpdateOrder:
         )
         order_id = post_resp.json()["id"]
 
-        update_payload = {"title": "Goldsmith Edited", "description": "Goldsmith updated this order"}
+        update_payload = {
+            "title": "Goldsmith Edited",
+            "description": "Goldsmith updated this order",
+        }
         put_resp = await client.put(
             _order_url(order_id),
             json=update_payload,
@@ -424,6 +437,7 @@ class TestUpdateOrder:
 # ---------------------------------------------------------------------------
 # DELETE /api/v1/orders/{id} — delete order
 # ---------------------------------------------------------------------------
+
 
 class TestDeleteOrder:
 
@@ -477,7 +491,5 @@ class TestDeleteOrder:
         admin_auth_headers: dict,
     ):
         """Deleting a non-existent order returns 404."""
-        response = await client.delete(
-            _order_url(999999), headers=admin_auth_headers
-        )
+        response = await client.delete(_order_url(999999), headers=admin_auth_headers)
         assert response.status_code == 404

@@ -29,13 +29,7 @@ import re
 from datetime import datetime
 from typing import Any, Dict, List, Literal, Optional
 
-from pydantic import (
-    UUID4,
-    BaseModel,
-    ConfigDict,
-    Field,
-    field_validator,
-)
+from pydantic import UUID4, BaseModel, ConfigDict, Field, field_validator
 
 from goldsmith_erp.models._base import StrictRequestBase
 

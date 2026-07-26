@@ -7,6 +7,7 @@ Runs an async loop every 5 minutes that:
 2. Creates notifications for ADMIN users on state transitions or threshold breaches.
 3. Deduplicates: the same notification category is not created more than once per hour.
 """
+
 from __future__ import annotations
 
 import asyncio

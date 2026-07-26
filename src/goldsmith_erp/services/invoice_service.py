@@ -13,30 +13,27 @@ All service methods are async and accept AsyncSession as first parameter.
 """
 
 import logging
-from datetime import datetime, date
+from datetime import date, datetime
 from typing import List, Optional
 
+from sqlalchemy import extract, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from sqlalchemy import func, extract
 from sqlalchemy.orm import selectinload
 
-from goldsmith_erp.db.models import (
-    Invoice as InvoiceModel,
-    InvoiceLineItem as InvoiceLineItemModel,
-    InvoiceStatus,
-    InvoiceLineType,
-    Order as OrderModel,
-    Customer as CustomerModel,
-    User as UserModel,
-    ScrapGold as ScrapGoldModel,
-    ScrapGoldStatus,
-)
+from goldsmith_erp.db.models import Customer as CustomerModel
+from goldsmith_erp.db.models import Invoice as InvoiceModel
+from goldsmith_erp.db.models import InvoiceLineItem as InvoiceLineItemModel
+from goldsmith_erp.db.models import InvoiceLineType, InvoiceStatus
+from goldsmith_erp.db.models import Order as OrderModel
+from goldsmith_erp.db.models import ScrapGold as ScrapGoldModel
+from goldsmith_erp.db.models import ScrapGoldStatus
+from goldsmith_erp.db.models import User as UserModel
 from goldsmith_erp.db.transaction import transactional
 from goldsmith_erp.models.invoice import (
     InvoiceCreate,
-    InvoiceUpdate,
     InvoiceLineItemCreate,
+    InvoiceUpdate,
     MarkPaidRequest,
 )
 
@@ -155,7 +152,11 @@ class InvoiceService:
         # --- Material cost ---
         material_cost = order.material_cost_override or order.material_cost_calculated
         if material_cost and material_cost > 0:
-            metal_desc = f"Material: {order.metal_type.value}" if order.metal_type else "Material"
+            metal_desc = (
+                f"Material: {order.metal_type.value}"
+                if order.metal_type
+                else "Material"
+            )
             if order.actual_weight_g:
                 metal_desc += f", {order.actual_weight_g:.2f}g"
             elif order.estimated_weight_g:
@@ -283,7 +284,9 @@ class InvoiceService:
     # -------------------------------------------------------------------------
 
     @staticmethod
-    async def _get_order_with_relations(db: AsyncSession, order_id: int) -> Optional[OrderModel]:
+    async def _get_order_with_relations(
+        db: AsyncSession, order_id: int
+    ) -> Optional[OrderModel]:
         """Load order with all relationships needed for invoice generation."""
         result = await db.execute(
             select(OrderModel)
@@ -318,16 +321,21 @@ class InvoiceService:
         order = await InvoiceService._get_order_with_relations(db, invoice_in.order_id)
         if not order:
             from fastapi import HTTPException
-            raise HTTPException(status_code=404, detail=f"Auftrag {invoice_in.order_id} nicht gefunden")
+
+            raise HTTPException(
+                status_code=404, detail=f"Auftrag {invoice_in.order_id} nicht gefunden"
+            )
 
         # Guard: only invoice completed/delivered orders
         from goldsmith_erp.db.models import OrderStatusEnum
+
         if order.status not in (OrderStatusEnum.COMPLETED, OrderStatusEnum.DELIVERED):
             from fastapi import HTTPException
+
             raise HTTPException(
                 status_code=422,
                 detail=f"Rechnung kann nur fuer abgeschlossene Auftraege erstellt werden. "
-                       f"Aktueller Status: {order.status.value}",
+                f"Aktueller Status: {order.status.value}",
             )
 
         # Guard: no duplicate invoices per order
@@ -339,6 +347,7 @@ class InvoiceService:
         )
         if existing.scalar_one_or_none():
             from fastapi import HTTPException
+
             raise HTTPException(
                 status_code=409,
                 detail=f"Fuer Auftrag {invoice_in.order_id} existiert bereits eine aktive Rechnung",
@@ -349,7 +358,9 @@ class InvoiceService:
 
         # Scrap gold credit (Gutschrift Altgold) — must be queried before the
         # transaction opens so we can decide whether to append the credit item.
-        scrap_gold = await InvoiceService._get_scrap_gold_credit(db, invoice_in.order_id)
+        scrap_gold = await InvoiceService._get_scrap_gold_credit(
+            db, invoice_in.order_id
+        )
         if scrap_gold is not None:
             auto_items.append(InvoiceService._build_scrap_gold_line_item(scrap_gold))
             logger.info(
@@ -411,7 +422,11 @@ class InvoiceService:
             action="created",
             invoice_id=db_invoice.id,
             user_id=current_user.id,
-            user_role=current_user.role.value if hasattr(current_user.role, "value") else str(current_user.role),
+            user_role=(
+                current_user.role.value
+                if hasattr(current_user.role, "value")
+                else str(current_user.role)
+            ),
             extra={"invoice_number": invoice_number, "total": totals["total"]},
         )
 
@@ -440,7 +455,11 @@ class InvoiceService:
                 action="viewed",
                 invoice_id=invoice_id,
                 user_id=current_user.id,
-                user_role=current_user.role.value if hasattr(current_user.role, "value") else str(current_user.role),
+                user_role=(
+                    current_user.role.value
+                    if hasattr(current_user.role, "value")
+                    else str(current_user.role)
+                ),
             )
 
         return invoice
@@ -478,7 +497,11 @@ class InvoiceService:
             base_query = base_query.where(InvoiceModel.issue_date <= date_to)
             count_query = count_query.where(InvoiceModel.issue_date <= date_to)
 
-        base_query = base_query.order_by(InvoiceModel.issue_date.desc()).offset(skip).limit(limit)
+        base_query = (
+            base_query.order_by(InvoiceModel.issue_date.desc())
+            .offset(skip)
+            .limit(limit)
+        )
 
         items_result = await db.execute(base_query)
         count_result = await db.execute(count_query)
@@ -489,8 +512,15 @@ class InvoiceService:
             action="listed",
             invoice_id=None,
             user_id=current_user.id,
-            user_role=current_user.role.value if hasattr(current_user.role, "value") else str(current_user.role),
-            extra={"filters": {"status": status, "customer_id": customer_id}, "result_count": len(items)},
+            user_role=(
+                current_user.role.value
+                if hasattr(current_user.role, "value")
+                else str(current_user.role)
+            ),
+            extra={
+                "filters": {"status": status, "customer_id": customer_id},
+                "result_count": len(items),
+            },
         )
 
         return list(items), total
@@ -517,6 +547,7 @@ class InvoiceService:
 
         if invoice.status == InvoiceStatus.CANCELLED:
             from fastapi import HTTPException
+
             raise HTTPException(
                 status_code=422,
                 detail="Stornierte Rechnungen koennen nicht bearbeitet werden",
@@ -534,7 +565,11 @@ class InvoiceService:
             action="updated",
             invoice_id=invoice_id,
             user_id=current_user.id,
-            user_role=current_user.role.value if hasattr(current_user.role, "value") else str(current_user.role),
+            user_role=(
+                current_user.role.value
+                if hasattr(current_user.role, "value")
+                else str(current_user.role)
+            ),
             extra={"updated_fields": list(update_data.keys())},
         )
 
@@ -560,13 +595,18 @@ class InvoiceService:
         if not invoice:
             return None
 
-        allowed_transitions = {InvoiceStatus.DRAFT, InvoiceStatus.SENT, InvoiceStatus.OVERDUE}
+        allowed_transitions = {
+            InvoiceStatus.DRAFT,
+            InvoiceStatus.SENT,
+            InvoiceStatus.OVERDUE,
+        }
         if invoice.status not in allowed_transitions:
             from fastapi import HTTPException
+
             raise HTTPException(
                 status_code=422,
                 detail=f"Rechnung mit Status '{invoice.status.value}' kann nicht als bezahlt markiert werden. "
-                       f"Erlaubt: {', '.join(s.value for s in allowed_transitions)}",
+                f"Erlaubt: {', '.join(s.value for s in allowed_transitions)}",
             )
 
         paid_at = request.paid_date or datetime.utcnow()
@@ -581,8 +621,15 @@ class InvoiceService:
             action="marked_paid",
             invoice_id=invoice_id,
             user_id=current_user.id,
-            user_role=current_user.role.value if hasattr(current_user.role, "value") else str(current_user.role),
-            extra={"paid_date": paid_at.isoformat(), "payment_method": request.payment_method},
+            user_role=(
+                current_user.role.value
+                if hasattr(current_user.role, "value")
+                else str(current_user.role)
+            ),
+            extra={
+                "paid_date": paid_at.isoformat(),
+                "payment_method": request.payment_method,
+            },
         )
 
         return await InvoiceService.get_invoice(db, invoice_id, current_user)
@@ -608,15 +655,19 @@ class InvoiceService:
 
         if invoice.status == InvoiceStatus.PAID:
             from fastapi import HTTPException
+
             raise HTTPException(
                 status_code=422,
                 detail="Bezahlte Rechnungen koennen nicht storniert werden. "
-                       "Bitte kontaktieren Sie den Administrator fuer eine Storno-Gutschrift.",
+                "Bitte kontaktieren Sie den Administrator fuer eine Storno-Gutschrift.",
             )
 
         if invoice.status == InvoiceStatus.CANCELLED:
             from fastapi import HTTPException
-            raise HTTPException(status_code=422, detail="Rechnung ist bereits storniert")
+
+            raise HTTPException(
+                status_code=422, detail="Rechnung ist bereits storniert"
+            )
 
         async with transactional(db):
             invoice.status = InvoiceStatus.CANCELLED
@@ -625,7 +676,11 @@ class InvoiceService:
             action="cancelled",
             invoice_id=invoice_id,
             user_id=current_user.id,
-            user_role=current_user.role.value if hasattr(current_user.role, "value") else str(current_user.role),
+            user_role=(
+                current_user.role.value
+                if hasattr(current_user.role, "value")
+                else str(current_user.role)
+            ),
         )
 
         return await InvoiceService.get_invoice(db, invoice_id, current_user)

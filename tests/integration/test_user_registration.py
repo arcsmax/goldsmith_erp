@@ -21,6 +21,7 @@ TDD note: tests 1 + 5 MUST fail against HEAD pre-fix (the endpoint returns
 ``PUBLIC_PATHS`` and adding ``@require_permission(Permission.USER_CREATE)``
 to ``register_user``, all tests pass.
 """
+
 import pytest
 from httpx import AsyncClient
 
@@ -45,12 +46,14 @@ class TestUserRegistrationLockdown:
     async def test_unauthenticated_cannot_register(self, client: AsyncClient):
         """Anonymous POST → 401 (no longer a public endpoint)."""
         resp = await client.post(REGISTER_PATH, json=_VALID_PAYLOAD)
-        assert resp.status_code == 401, (
-            f"Expected 401 (auth required), got {resp.status_code}: {resp.text}"
-        )
+        assert (
+            resp.status_code == 401
+        ), f"Expected 401 (auth required), got {resp.status_code}: {resp.text}"
 
     async def test_unauthenticated_duplicate_email_returns_401_not_400(
-        self, client: AsyncClient, admin_user: User,
+        self,
+        client: AsyncClient,
+        admin_user: User,
     ):
         """Fatal pre-fix bug: duplicate email returned 400 to unauthenticated
         callers, confirming the account exists. Post-fix it must be 401 — the
@@ -78,9 +81,9 @@ class TestUserRegistrationLockdown:
             json=_VALID_PAYLOAD,
             headers=goldsmith_auth_headers,
         )
-        assert resp.status_code == 403, (
-            f"Expected 403 (permission denied), got {resp.status_code}: {resp.text}"
-        )
+        assert (
+            resp.status_code == 403
+        ), f"Expected 403 (permission denied), got {resp.status_code}: {resp.text}"
 
     async def test_admin_can_register(
         self,
@@ -93,9 +96,9 @@ class TestUserRegistrationLockdown:
             json=_VALID_PAYLOAD,
             headers=admin_auth_headers,
         )
-        assert resp.status_code == 201, (
-            f"Expected 201 (created), got {resp.status_code}: {resp.text}"
-        )
+        assert (
+            resp.status_code == 201
+        ), f"Expected 201 (created), got {resp.status_code}: {resp.text}"
         body = resp.json()
         assert body["email"] == _VALID_PAYLOAD["email"]
         assert body["first_name"] == _VALID_PAYLOAD["first_name"]
@@ -124,9 +127,7 @@ class TestUserRegistrationLockdown:
             f"{resp.status_code}: {resp.text}"
         )
 
-    async def test_register_endpoint_not_in_openapi_schema(
-        self, client: AsyncClient
-    ):
+    async def test_register_endpoint_not_in_openapi_schema(self, client: AsyncClient):
         """R2: the endpoint is ADMIN-only; it should not appear in the public
         OpenAPI schema since Swagger UI is publicly accessible at /docs.
 

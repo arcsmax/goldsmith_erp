@@ -11,6 +11,7 @@ Responsibilities:
 All methods are static async, accepting AsyncSession as first parameter per
 project conventions.  All queries use selectinload() to prevent N+1 queries.
 """
+
 from __future__ import annotations
 
 import logging
@@ -20,12 +21,10 @@ from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from goldsmith_erp.db.models import (
-    Interruption as InterruptionModel,
-    Order as OrderModel,
-    OrderStatusEnum,
-    TimeEntry as TimeEntryModel,
-)
+from goldsmith_erp.db.models import Interruption as InterruptionModel
+from goldsmith_erp.db.models import Order as OrderModel
+from goldsmith_erp.db.models import OrderStatusEnum
+from goldsmith_erp.db.models import TimeEntry as TimeEntryModel
 from goldsmith_erp.models.ml_data import (
     DataQualityReport,
     FieldCompleteness,
@@ -114,7 +113,9 @@ class MLDataService:
                 )
             )
         )
-        qualifying_orders: list[OrderModel] = list(qualifying_orders_result.scalars().all())
+        qualifying_orders: list[OrderModel] = list(
+            qualifying_orders_result.scalars().all()
+        )
         n_qualifying = len(qualifying_orders)
 
         # --- 4. Per-field completeness ---
@@ -124,8 +125,7 @@ class MLDataService:
 
         for field_name, display_name, is_required in _ORDER_ML_FIELDS:
             filled = sum(
-                1 for o in qualifying_orders
-                if getattr(o, field_name, None) is not None
+                1 for o in qualifying_orders if getattr(o, field_name, None) is not None
             )
             pct = (filled / n_qualifying * 100.0) if n_qualifying else 0.0
             field_completeness_list.append(
@@ -175,7 +175,11 @@ class MLDataService:
         def _pct(part: int, total: int) -> float:
             return round(part / total * 100.0, 1) if total else 0.0
 
-        avg_entries = round(total_entries / orders_with_entries, 2) if orders_with_entries else 0.0
+        avg_entries = (
+            round(total_entries / orders_with_entries, 2)
+            if orders_with_entries
+            else 0.0
+        )
 
         # --- 6. Composite readiness score ---
         #
@@ -197,11 +201,15 @@ class MLDataService:
             total_entries * 2 if total_entries else 1,
         )
 
-        quantity_pts = min(fully_complete_count / MINIMUM_ORDERS_FOR_TRAINING, 1.0) * 40.0
+        quantity_pts = (
+            min(fully_complete_count / MINIMUM_ORDERS_FOR_TRAINING, 1.0) * 40.0
+        )
         completeness_pts = avg_required_completeness * 0.40
         te_quality_pts = te_quality_score * 0.20
 
-        data_readiness_score = round(quantity_pts + completeness_pts + te_quality_pts, 1)
+        data_readiness_score = round(
+            quantity_pts + completeness_pts + te_quality_pts, 1
+        )
 
         # --- 7. Readiness verdict and actionable message ---
         ready = (
@@ -230,7 +238,9 @@ class MLDataService:
             orders_with_all_features=fully_complete_count,
             time_entries_count=total_entries,
             avg_entries_per_order=avg_entries,
-            entries_with_complexity_rating_pct=_pct(entries_with_complexity, total_entries),
+            entries_with_complexity_rating_pct=_pct(
+                entries_with_complexity, total_entries
+            ),
             entries_with_quality_rating_pct=_pct(entries_with_quality, total_entries),
             entries_with_activity_pct=_pct(entries_with_activity, total_entries),
             field_completeness=field_completeness_list,
@@ -269,9 +279,7 @@ class MLDataService:
                     OrderModel.status.in_(
                         [OrderStatusEnum.COMPLETED, OrderStatusEnum.DELIVERED]
                     ),
-                    OrderModel.id.in_(
-                        select(entry_counts_subq.c.order_id)
-                    ),
+                    OrderModel.id.in_(select(entry_counts_subq.c.order_id)),
                 )
             )
             .options(
@@ -323,10 +331,12 @@ class MLDataService:
 
         # Sum interruption durations across all time entries for this order
         interruption_result = await db.execute(
-            select(func.sum(InterruptionModel.duration_minutes)).join(
+            select(func.sum(InterruptionModel.duration_minutes))
+            .join(
                 TimeEntryModel,
                 InterruptionModel.time_entry_id == TimeEntryModel.id,
-            ).where(TimeEntryModel.order_id == order_id)
+            )
+            .where(TimeEntryModel.order_id == order_id)
         )
         total_interruption_minutes: int = interruption_result.scalar() or 0
 
@@ -371,7 +381,11 @@ class MLDataService:
         """
         required_checks: list[tuple[str, bool]] = [
             ("activity_id", time_entry.activity_id is not None),
-            ("duration_minutes", time_entry.duration_minutes is not None and time_entry.duration_minutes > 0),
+            (
+                "duration_minutes",
+                time_entry.duration_minutes is not None
+                and time_entry.duration_minutes > 0,
+            ),
             ("end_time", time_entry.end_time is not None),
             ("complexity_rating", time_entry.complexity_rating is not None),
             ("quality_rating", time_entry.quality_rating is not None),
@@ -429,5 +443,3 @@ class MLDataService:
             f"({data_readiness_score:.0f}/100). Ermuetigen Sie die Goldschmiede, Komplexit\u00e4ts- "
             "und Qualit\u00e4tsbewertung bei jeder Zeiterfassung einzutragen."
         )
-
-

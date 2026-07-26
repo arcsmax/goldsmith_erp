@@ -28,6 +28,7 @@ the coverage to:
   * OrderService.update_order
   * OrderService.advance_status
 """
+
 from __future__ import annotations
 
 import uuid
@@ -59,7 +60,6 @@ from goldsmith_erp.models.order import OrderUpdate
 from goldsmith_erp.services.metal_inventory_service import MetalInventoryService
 from goldsmith_erp.services.order_service import OrderService
 from goldsmith_erp.services.time_tracking_service import TimeTrackingService
-
 
 # --------------------------------------------------------------------------- #
 # Helpers
@@ -206,7 +206,8 @@ class TestPatchActivityPubsubFailure:
         notifications = await _user_notifications(db_session, user.id)
         assert len(notifications) >= 1
         system_notifs = [
-            n for n in notifications
+            n
+            for n in notifications
             if n.notification_type == NotificationTypeEnum.SYSTEM
         ]
         assert len(system_notifs) >= 1
@@ -252,8 +253,7 @@ class TestLogInterruptionPubsubFailure:
         # Notification written.
         notifications = await _user_notifications(db_session, user.id)
         assert any(
-            n.notification_type == NotificationTypeEnum.SYSTEM
-            for n in notifications
+            n.notification_type == NotificationTypeEnum.SYSTEM for n in notifications
         )
 
 
@@ -300,7 +300,8 @@ class TestConsumeMaterialPubsubFailure:
         # Notification written for the user.
         notifications = await _user_notifications(db_session, user.id)
         system_notifs = [
-            n for n in notifications
+            n
+            for n in notifications
             if n.notification_type == NotificationTypeEnum.SYSTEM
         ]
         assert len(system_notifs) >= 1
@@ -367,13 +368,12 @@ class TestUpdateOrderPubsubFailure:
         # Notification row written.
         notifications = await _user_notifications(db_session, user.id)
         system_notifs = [
-            n for n in notifications
+            n
+            for n in notifications
             if n.notification_type == NotificationTypeEnum.SYSTEM
         ]
         assert len(system_notifs) >= 1
-        assert any(
-            "Auftragsaenderung" in n.title for n in system_notifs
-        )
+        assert any("Auftragsaenderung" in n.title for n in system_notifs)
 
     async def test_update_order_user_id_none_does_not_raise(
         self, db_session, sample_customer
@@ -428,8 +428,7 @@ class TestAdvanceStatusPubsubFailure:
 
         notifications = await _user_notifications(db_session, user.id)
         assert any(
-            n.notification_type == NotificationTypeEnum.SYSTEM
-            for n in notifications
+            n.notification_type == NotificationTypeEnum.SYSTEM for n in notifications
         )
 
 

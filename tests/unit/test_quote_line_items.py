@@ -18,6 +18,7 @@ Covers:
   the same change on a non-DRAFT quote leaves totals untouched (recompute
   gated on the pre-update status, matching the line-item edit gate).
 """
+
 import pytest
 
 from goldsmith_erp.db.models import Customer, QuoteLineType, QuoteStatus, User

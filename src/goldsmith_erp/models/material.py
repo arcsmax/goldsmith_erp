@@ -1,22 +1,22 @@
 # src/goldsmith_erp/models/material.py
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
 from datetime import datetime
 from typing import Any, Optional
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class MaterialBase(BaseModel):
     """Basis-Schema für Materials mit Input Validation."""
+
     name: str = Field(
         ...,
         min_length=1,
         max_length=200,
-        description="Material name (1-200 characters)"
+        description="Material name (1-200 characters)",
     )
     description: Optional[str] = Field(
-        None,
-        max_length=1000,
-        description="Material description (max 1000 characters)"
+        None, max_length=1000, description="Material description (max 1000 characters)"
     )
     unit_price: float = Field(
         ...,
@@ -27,39 +27,25 @@ class MaterialBase(BaseModel):
             "are rejected."
         ),
     )
-    stock: float = Field(
-        ...,
-        ge=0,
-        description="Stock quantity (must be non-negative)"
-    )
+    stock: float = Field(..., ge=0, description="Stock quantity (must be non-negative)")
     unit: str = Field(
         ...,
         min_length=1,
         max_length=20,
-        description="Unit of measurement (e.g., 'g', 'kg', 'Stück', 'ct')"
+        description="Unit of measurement (e.g., 'g', 'kg', 'Stück', 'ct')",
     )
     image_url: Optional[str] = Field(
-        None,
-        max_length=500,
-        description="URL of the material image"
+        None, max_length=500, description="URL of the material image"
     )
-    supplier: Optional[str] = Field(
-        None,
-        max_length=200,
-        description="Supplier name"
-    )
+    supplier: Optional[str] = Field(None, max_length=200, description="Supplier name")
     webshop_url: Optional[str] = Field(
-        None,
-        max_length=500,
-        description="Supplier webshop URL for reordering"
+        None, max_length=500, description="Supplier webshop URL for reordering"
     )
     min_stock: float = Field(
-        default=10.0,
-        ge=0,
-        description="Minimum stock threshold for low-stock alerts"
+        default=10.0, ge=0, description="Minimum stock threshold for low-stock alerts"
     )
 
-    @field_validator('unit_price')
+    @field_validator("unit_price")
     @classmethod
     def validate_unit_price(cls, v: float) -> float:
         """Validate unit price is reasonable."""
@@ -67,7 +53,7 @@ class MaterialBase(BaseModel):
             raise ValueError("Unit price exceeds maximum allowed value (100,000)")
         return v
 
-    @field_validator('stock')
+    @field_validator("stock")
     @classmethod
     def validate_stock(cls, v: float) -> float:
         """Validate stock quantity is reasonable."""
@@ -78,21 +64,18 @@ class MaterialBase(BaseModel):
 
 class MaterialCreate(MaterialBase):
     """Schema für Material-Erstellung mit Validation."""
+
     pass
 
 
 class MaterialUpdate(BaseModel):
     """Schema für Material-Updates mit Input Validation."""
+
     name: Optional[str] = Field(
-        None,
-        min_length=1,
-        max_length=200,
-        description="Material name"
+        None, min_length=1, max_length=200, description="Material name"
     )
     description: Optional[str] = Field(
-        None,
-        max_length=1000,
-        description="Material description"
+        None, max_length=1000, description="Material description"
     )
     unit_price: Optional[float] = Field(
         None,
@@ -104,38 +87,23 @@ class MaterialUpdate(BaseModel):
         ),
     )
     stock: Optional[float] = Field(
-        None,
-        ge=0,
-        description="Stock quantity (must be non-negative)"
+        None, ge=0, description="Stock quantity (must be non-negative)"
     )
     unit: Optional[str] = Field(
-        None,
-        min_length=1,
-        max_length=20,
-        description="Unit of measurement"
+        None, min_length=1, max_length=20, description="Unit of measurement"
     )
     image_url: Optional[str] = Field(
-        None,
-        max_length=500,
-        description="URL of the material image"
+        None, max_length=500, description="URL of the material image"
     )
-    supplier: Optional[str] = Field(
-        None,
-        max_length=200,
-        description="Supplier name"
-    )
+    supplier: Optional[str] = Field(None, max_length=200, description="Supplier name")
     webshop_url: Optional[str] = Field(
-        None,
-        max_length=500,
-        description="Supplier webshop URL for reordering"
+        None, max_length=500, description="Supplier webshop URL for reordering"
     )
     min_stock: Optional[float] = Field(
-        None,
-        ge=0,
-        description="Minimum stock threshold for low-stock alerts"
+        None, ge=0, description="Minimum stock threshold for low-stock alerts"
     )
 
-    @field_validator('unit_price')
+    @field_validator("unit_price")
     @classmethod
     def validate_unit_price(cls, v: Optional[float]) -> Optional[float]:
         """Validate unit price is reasonable."""
@@ -143,7 +111,7 @@ class MaterialUpdate(BaseModel):
             raise ValueError("Unit price exceeds maximum allowed value (100,000)")
         return v
 
-    @field_validator('stock')
+    @field_validator("stock")
     @classmethod
     def validate_stock(cls, v: Optional[float]) -> Optional[float]:
         """Validate stock quantity is reasonable."""
@@ -154,6 +122,7 @@ class MaterialUpdate(BaseModel):
 
 class MaterialRead(MaterialBase):
     """Schema für Material-Anzeige."""
+
     id: int
 
     model_config = ConfigDict(from_attributes=True)
@@ -164,6 +133,7 @@ class MaterialWithStock(MaterialRead):
     Erweitertes Material-Schema mit zusätzlichen Stock-Informationen.
     Nützlich für Bestandsberichte.
     """
+
     stock_value: Optional[float] = None  # stock * unit_price
 
     @classmethod
@@ -180,5 +150,5 @@ class MaterialWithStock(MaterialRead):
             supplier=material.supplier,
             webshop_url=material.webshop_url,
             min_stock=material.min_stock,
-            stock_value=material.stock * material.unit_price
+            stock_value=material.stock * material.unit_price,
         )

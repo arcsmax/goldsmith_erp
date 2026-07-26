@@ -47,8 +47,14 @@ def _corpus_order(
 
 
 # Alias for consistency with task brief - same as _corpus_order
-def _fake_corpus_order(*, order_id: int, actual_hours: float, order_type: str,
-                       finish_type: str | None, has_stone_setting: bool) -> CorpusOrder:
+def _fake_corpus_order(
+    *,
+    order_id: int,
+    actual_hours: float,
+    order_type: str,
+    finish_type: str | None,
+    has_stone_setting: bool,
+) -> CorpusOrder:
     """Alias for _corpus_order for test consistency."""
     return _corpus_order(
         order_id=order_id,
@@ -337,19 +343,32 @@ def test_post_p10_exclusion_under_min_sample_flips_to_insufficient():
     with all numeric fields None — never a number from too few orders.
     """
     from goldsmith_erp.ml.labor_estimator import (
-        LaborEstimator, EstimateFeatures, _build_estimate,
+        EstimateFeatures,
+        LaborEstimator,
+        _build_estimate,
     )
+
     # Tier with ≥5 matches, but P10 exclusion drops to 4
     matched = [
-        _fake_corpus_order(order_id=i, actual_hours=h, order_type="ring",
-                           finish_type="polish", has_stone_setting=False)
+        _fake_corpus_order(
+            order_id=i,
+            actual_hours=h,
+            order_type="ring",
+            finish_type="polish",
+            has_stone_setting=False,
+        )
         for i, h in enumerate([1.0, 2.0, 2.0, 3.0, 3.0, 10.0, 10.0, 5.0])
     ]
     # The 1.0 outlier will be P10-excluded → 7 remain (well above 5).
     # To force the "4 remain" case, craft a tighter distribution:
     matched = [
-        _fake_corpus_order(order_id=i, actual_hours=h, order_type="ring",
-                           finish_type="polish", has_stone_setting=False)
+        _fake_corpus_order(
+            order_id=i,
+            actual_hours=h,
+            order_type="ring",
+            finish_type="polish",
+            has_stone_setting=False,
+        )
         for i, h in enumerate([0.5, 0.5, 0.5, 1.0, 5.0, 5.0, 5.0, 5.0, 5.0, 5.0])
     ]
     result = _build_estimate("exact", matched)
@@ -373,17 +392,21 @@ def test_estimate_returns_insufficient_when_post_exclusion_under_min():
     exclusion drops it to 4. Result MUST be insufficient_data=True
     with all numerics None (decision #1).
     """
-    from goldsmith_erp.ml.labor_estimator import (
-        LaborEstimator, EstimateFeatures,
-    )
+    from goldsmith_erp.ml.labor_estimator import EstimateFeatures, LaborEstimator
+
     # 5 orders, all 'ring'. With [0.1, 1.0, 5.0, 5.0, 5.0], P10=0.46
     # (interpolated), which excludes the 0.1 outlier, leaving 4 — below MIN_SAMPLE=5.
     # Per decision #2, finish_type=None is a data gap, so exact/type_finish
     # tiers don't match. Only type and workshop tiers apply. Both have 5 matches,
     # so a tier is selected. Then P10 exclusion drops to 4 → insufficient_data MUST be True.
     corpus = [
-        _fake_corpus_order(order_id=i, actual_hours=h, order_type="ring",
-                           finish_type=None, has_stone_setting=False)
+        _fake_corpus_order(
+            order_id=i,
+            actual_hours=h,
+            order_type="ring",
+            finish_type=None,
+            has_stone_setting=False,
+        )
         for i, h in enumerate([0.1, 1.0, 5.0, 5.0, 5.0])
     ]
     features = EstimateFeatures(order_type="ring")
@@ -403,17 +426,25 @@ def test_finish_type_none_excluded_from_top_two_tiers():
     to have a non-None finish_type that matches.
     """
     from goldsmith_erp.ml.labor_estimator import (
-        _matches_exact, _matches_type_finish, EstimateFeatures,
+        EstimateFeatures,
+        _matches_exact,
+        _matches_type_finish,
     )
+
     # Corpus order with finish_type=None (the data-gap case)
     order = _fake_corpus_order(
-        order_id=1, actual_hours=2.0, order_type="ring",
-        finish_type=None, has_stone_setting=False,
+        order_id=1,
+        actual_hours=2.0,
+        order_type="ring",
+        finish_type=None,
+        has_stone_setting=False,
     )
     # Even when the FEATURES request finish_type=None, the top tiers
     # should NOT match (we want to fall through to type/workshop).
     features_none = EstimateFeatures(
-        order_type="ring", finish_type=None, has_stone_setting=False,
+        order_type="ring",
+        finish_type=None,
+        has_stone_setting=False,
     )
     assert _matches_exact(order, features_none) is False
     assert _matches_type_finish(order, features_none) is False
@@ -421,8 +452,11 @@ def test_finish_type_none_excluded_from_top_two_tiers():
     # And a corpus order with finish_type="polish" must NOT match a
     # request for finish_type=None either (gap vs. real mismatch).
     order_polish = _fake_corpus_order(
-        order_id=2, actual_hours=2.0, order_type="ring",
-        finish_type="polish", has_stone_setting=False,
+        order_id=2,
+        actual_hours=2.0,
+        order_type="ring",
+        finish_type="polish",
+        has_stone_setting=False,
     )
     assert _matches_exact(order_polish, features_none) is False
     assert _matches_type_finish(order_polish, features_none) is False

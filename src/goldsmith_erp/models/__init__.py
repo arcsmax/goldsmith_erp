@@ -1,58 +1,17 @@
 # src/goldsmith_erp/models/__init__.py
 """Pydantic Schemas für API Validation"""
 
-# User Schemas
-from .user import (
-    UserBase,
-    UserCreate,
-    UserUpdate,
-    User,
-    UserInDB,
-)
-
-# Order Schemas
-from .order import (
-    MaterialBase,
-    OrderBase,
-    OrderCreate,
-    OrderUpdate,
-    OrderRead,
-)
-
-# Material Schemas
-from .material import (
-    MaterialBase as MaterialBaseSchema,
-    MaterialCreate,
-    MaterialUpdate,
-    MaterialRead as Material,
-)
-
 # Activity Schemas
 from .activity import (
     ActivityBase,
     ActivityCreate,
-    ActivityUpdate,
     ActivityRead,
+    ActivityUpdate,
     ActivityWithStats,
 )
 
-# TimeEntry Schemas
-from .time_entry import (
-    TimeEntryBase,
-    TimeEntryStart,
-    TimeEntryStop,
-    TimeEntryCreate,
-    TimeEntryUpdate,
-    TimeEntryRead,
-    TimeEntryWithDetails,
-)
-
 # Interruption Schemas
-from .interruption import (
-    InterruptionBase,
-    InterruptionCreate,
-    InterruptionRead,
-)
+from .interruption import InterruptionBase, InterruptionCreate, InterruptionRead
 
 # LocationHistory Schemas
 from .location_history import (
@@ -60,6 +19,18 @@ from .location_history import (
     LocationHistoryCreate,
     LocationHistoryRead,
 )
+
+# Material Schemas
+from .material import MaterialBase as MaterialBaseSchema
+from .material import MaterialCreate
+from .material import MaterialRead as Material
+from .material import MaterialUpdate
+
+# Order Schemas
+from .order import MaterialBase, OrderBase, OrderCreate, OrderRead, OrderUpdate
+
+# OrderComment Schemas
+from .order_comment import OrderCommentCreate, OrderCommentRead, OrderCommentUpdate
 
 # OrderPhoto Schemas
 from .order_photo import (
@@ -69,12 +40,19 @@ from .order_photo import (
     OrderPhotoUpload,
 )
 
-# OrderComment Schemas
-from .order_comment import (
-    OrderCommentCreate,
-    OrderCommentUpdate,
-    OrderCommentRead,
+# TimeEntry Schemas
+from .time_entry import (
+    TimeEntryBase,
+    TimeEntryCreate,
+    TimeEntryRead,
+    TimeEntryStart,
+    TimeEntryStop,
+    TimeEntryUpdate,
+    TimeEntryWithDetails,
 )
+
+# User Schemas
+from .user import User, UserBase, UserCreate, UserInDB, UserUpdate
 
 __all__ = [
     # User

@@ -382,7 +382,10 @@ async def test_estimator_service_propagates_insufficient_data_with_null_costs(
     shared test DB, guaranteeing 0 matched orders in all tiers including
     workshop (which checks order_type match, not just existence)."""
     await _seed_ring_corpus(
-        db_session, est_customer, est_user, rated_activity,
+        db_session,
+        est_customer,
+        est_user,
+        rated_activity,
         [2.0, 4.0, 6.0, 8.0, 10.0],
     )
 

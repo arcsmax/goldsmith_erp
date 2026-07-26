@@ -43,7 +43,6 @@ from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-
 # --------------------------------------------------------------------------- #
 # Whitelist
 # --------------------------------------------------------------------------- #
@@ -242,9 +241,7 @@ class TimeEntryMetadata(BaseModel):
         pattern=_CLIENT_VERSION_PATTERN,
         description="Semver of the frontend that wrote the entry.",
     )
-    interrupted_by: Optional[
-        Literal["system", "user", "activity_switch"]
-    ] = Field(
+    interrupted_by: Optional[Literal["system", "user", "activity_switch"]] = Field(
         default=None,
         description="Reason a running timer was ended.",
     )

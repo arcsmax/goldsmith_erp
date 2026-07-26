@@ -35,9 +35,7 @@ def _erase_url(customer_id: int) -> str:
     return f"/api/v1/customers/{customer_id}/gdpr-erase"
 
 
-async def _all_gdpr_rows(
-    db: AsyncSession, customer_id: int
-) -> list[GDPRRequest]:
+async def _all_gdpr_rows(db: AsyncSession, customer_id: int) -> list[GDPRRequest]:
     result = await db.execute(
         select(GDPRRequest)
         .filter(GDPRRequest.customer_id == customer_id)
@@ -95,9 +93,7 @@ class TestH10NotFoundPath:
         assert response.status_code == 404
 
         rows = await _all_gdpr_rows(db_session, nonexistent_id)
-        assert len(rows) == 1, (
-            "404 path must still leave an Art. 30 trail"
-        )
+        assert len(rows) == 1, "404 path must still leave an Art. 30 trail"
         row = rows[0]
         assert row.status == "FAILED"
         assert "customer_not_found" in (row.notes or "")
@@ -156,11 +152,7 @@ class TestH10PartialFilePath:
     ):
         import uuid as _uuid
 
-        from goldsmith_erp.db.models import (
-            Order,
-            OrderPhoto,
-            OrderStatusEnum,
-        )
+        from goldsmith_erp.db.models import Order, OrderPhoto, OrderStatusEnum
 
         monkeypatch.setattr(
             "goldsmith_erp.core.config.settings.FILE_STORAGE_ROOT",
@@ -227,8 +219,7 @@ class TestH10UnexpectedExceptionPath:
         customer_id = int(test_customer.id)
 
         with patch(
-            "goldsmith_erp.api.routers.customers."
-            "CustomerService.scrub_customer_pii",
+            "goldsmith_erp.api.routers.customers." "CustomerService.scrub_customer_pii",
             side_effect=RuntimeError("simulated scrub failure"),
         ):
             response = await client.delete(
@@ -237,9 +228,9 @@ class TestH10UnexpectedExceptionPath:
         assert response.status_code == 500
 
         rows = await _all_gdpr_rows(db_session, customer_id)
-        assert len(rows) == 1, (
-            "Unexpected-exception path must still leave an Art. 30 trail"
-        )
+        assert (
+            len(rows) == 1
+        ), "Unexpected-exception path must still leave an Art. 30 trail"
         row = rows[0]
         assert row.status == "FAILED"
         assert "scrub_or_file_erasure_exception" in (row.notes or "")
@@ -258,12 +249,8 @@ class TestH10AuditRowCount:
     ):
         """404 (nonexistent) → 1 FAILED row; 200 (existing) → 1 completed
         row. Separately visible queries."""
-        await client.delete(
-            _erase_url(9_999_998), headers=admin_auth_headers
-        )
-        await client.delete(
-            _erase_url(test_customer.id), headers=admin_auth_headers
-        )
+        await client.delete(_erase_url(9_999_998), headers=admin_auth_headers)
+        await client.delete(_erase_url(test_customer.id), headers=admin_auth_headers)
 
         not_found_rows = await _all_gdpr_rows(db_session, 9_999_998)
         success_rows = await _all_gdpr_rows(db_session, test_customer.id)

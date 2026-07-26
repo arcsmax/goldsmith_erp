@@ -17,10 +17,7 @@ import pytest
 from cryptography.fernet import Fernet
 
 from goldsmith_erp.core import encryption as encryption_mod
-from goldsmith_erp.core.encryption import (
-    EncryptionError,
-    check_encryption_configured,
-)
+from goldsmith_erp.core.encryption import EncryptionError, check_encryption_configured
 
 
 @pytest.fixture(autouse=True)
@@ -55,9 +52,7 @@ class TestCheckEncryptionConfigured:
     def test_succeeds_with_valid_key(self, monkeypatch):
         """A freshly generated Fernet key must satisfy the check."""
         valid_key = Fernet.generate_key().decode()
-        monkeypatch.setattr(
-            encryption_mod.settings, "ENCRYPTION_KEY", valid_key
-        )
+        monkeypatch.setattr(encryption_mod.settings, "ENCRYPTION_KEY", valid_key)
         # Should not raise.
         check_encryption_configured()
 
@@ -68,9 +63,7 @@ class TestEncryptPiiFailsLoud:
     occurs, the exception propagates so callers / middleware can decide
     how to respond (503, audit log, etc.)."""
 
-    def test_encrypt_pii_propagates_service_initialisation_error(
-        self, monkeypatch
-    ):
+    def test_encrypt_pii_propagates_service_initialisation_error(self, monkeypatch):
         """If the encryption service is configured but construction raises,
         `_encrypt_pii` must raise EncryptionError — not silently fall back
         to storing plaintext."""
@@ -94,9 +87,7 @@ class TestEncryptPiiFailsLoud:
         from goldsmith_erp.services import customer_service
 
         valid_key = Fernet.generate_key().decode()
-        monkeypatch.setattr(
-            encryption_mod.settings, "ENCRYPTION_KEY", valid_key
-        )
+        monkeypatch.setattr(encryption_mod.settings, "ENCRYPTION_KEY", valid_key)
         encryption_mod._encryption_service = None
 
         # Install a broken encrypt() on the singleton after first access.

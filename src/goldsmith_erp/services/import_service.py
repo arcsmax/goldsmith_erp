@@ -13,6 +13,7 @@ Expected CSV columns (order-independent, header row required):
     first_name, last_name, email, phone, street, city, postal_code,
     customer_type, birthday, ring_size, notes
 """
+
 from __future__ import annotations
 
 import csv
@@ -162,9 +163,7 @@ async def import_customers_csv(
         )
 
     # Pre-load existing emails for duplicate detection (single query) ---------
-    existing_emails_result = await db.execute(
-        select(CustomerModel.email)
-    )
+    existing_emails_result = await db.execute(select(CustomerModel.email))
     existing_emails: set[str] = {
         row[0].lower() for row in existing_emails_result.fetchall() if row[0]
     }
@@ -194,7 +193,9 @@ async def import_customers_csv(
             continue
         if not email or "@" not in email:
             result.errors.append(
-                ImportRowError(row_number, "email", "Ungültige oder fehlende E-Mail-Adresse.")
+                ImportRowError(
+                    row_number, "email", "Ungültige oder fehlende E-Mail-Adresse."
+                )
             )
             continue
 
@@ -202,7 +203,11 @@ async def import_customers_csv(
         if email in existing_emails or email in seen_in_batch:
             logger.debug(
                 "CSV import: skipping duplicate email",
-                extra={"email": _anonymise_email(email), "row": row_number, "user_id": user_id},
+                extra={
+                    "email": _anonymise_email(email),
+                    "row": row_number,
+                    "user_id": user_id,
+                },
             )
             result.skipped_count += 1
             seen_in_batch.add(email)
@@ -237,7 +242,11 @@ async def import_customers_csv(
 
         logger.debug(
             "CSV import: customer queued",
-            extra={"email": _anonymise_email(email), "row": row_number, "user_id": user_id},
+            extra={
+                "email": _anonymise_email(email),
+                "row": row_number,
+                "user_id": user_id,
+            },
         )
 
     logger.info(

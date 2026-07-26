@@ -10,6 +10,7 @@ Endpoints:
   DELETE /api/v1/calendar/events/{id}     — delete a stored event
   GET    /api/v1/calendar/deadlines       — virtual events from order deadlines
 """
+
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status

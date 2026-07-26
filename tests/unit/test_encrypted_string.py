@@ -24,7 +24,6 @@ import os
 import pytest
 from cryptography.fernet import Fernet
 
-
 # ---------------------------------------------------------------------------
 # Environment priming — done BEFORE we import the modules under test so the
 # singleton cipher sees a valid key on first construction.

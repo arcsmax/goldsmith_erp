@@ -4,27 +4,32 @@ Metal Inventory API Router
 Endpoints for managing metal purchases, inventory tracking, and material usage.
 """
 
-from datetime import datetime
-
-from fastapi import APIRouter, Depends, HTTPException, status, Query
-from sqlalchemy.ext.asyncio import AsyncSession
-from typing import List, Optional
 import logging
+from datetime import datetime
+from typing import List, Optional
+
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from goldsmith_erp.db.session import get_db
-from ...db.models import User, MetalType, CostingMethod
-from ...models.metal_inventory import (
-    MetalPurchaseCreate, MetalPurchaseUpdate, MetalPurchaseRead, MetalPurchaseListItem,
-    MaterialUsageCreate, MaterialUsageRead,
-    InventoryStatistics,
-    OrderMaterialAllocation
-)
-from ...models.inventory_forecast import InventoryForecastResponse, MetalForecastItem
-from ...services.metal_inventory_service import MetalInventoryService
-from ...ml.inventory_forecast import InventoryForecaster
+
 from ...api.deps import get_current_user
 from ...core.permissions import Permission
 from ...core.permissions import require_permission_dep as require_permission
+from ...db.models import CostingMethod, MetalType, User
+from ...ml.inventory_forecast import InventoryForecaster
+from ...models.inventory_forecast import InventoryForecastResponse, MetalForecastItem
+from ...models.metal_inventory import (
+    InventoryStatistics,
+    MaterialUsageCreate,
+    MaterialUsageRead,
+    MetalPurchaseCreate,
+    MetalPurchaseListItem,
+    MetalPurchaseRead,
+    MetalPurchaseUpdate,
+    OrderMaterialAllocation,
+)
+from ...services.metal_inventory_service import MetalInventoryService
 
 router = APIRouter(prefix="/metal-inventory", tags=["metal-inventory"])
 logger = logging.getLogger(__name__)
@@ -35,11 +40,13 @@ logger = logging.getLogger(__name__)
 # ============================================================================
 
 
-@router.post("/purchases", response_model=MetalPurchaseRead, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/purchases", response_model=MetalPurchaseRead, status_code=status.HTTP_201_CREATED
+)
 async def create_metal_purchase(
     purchase: MetalPurchaseCreate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_permission(Permission.MATERIAL_CREATE))
+    current_user: User = Depends(require_permission(Permission.MATERIAL_CREATE)),
 ):
     """
     Record a new metal purchase.
@@ -82,14 +89,11 @@ async def create_metal_purchase(
             used_weight_g=db_purchase.used_weight_g,
             usage_percentage=db_purchase.usage_percentage,
             is_depleted=db_purchase.is_depleted,
-            remaining_value=db_purchase.remaining_value
+            remaining_value=db_purchase.remaining_value,
         )
     except Exception as e:
         logger.error(f"Failed to create metal purchase: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e)
-        )
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
 
 @router.get("/purchases", response_model=List[MetalPurchaseListItem])
@@ -99,7 +103,7 @@ async def list_metal_purchases(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=500),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_permission(Permission.MATERIAL_VIEW))
+    current_user: User = Depends(require_permission(Permission.MATERIAL_VIEW)),
 ):
     """
     List metal purchases with optional filtering.
@@ -119,7 +123,7 @@ async def list_metal_purchases(
             metal_type=metal_type,
             include_depleted=include_depleted,
             skip=skip,
-            limit=limit
+            limit=limit,
         )
 
         return [
@@ -134,7 +138,7 @@ async def list_metal_purchases(
                 supplier=p.supplier,
                 invoice_number=p.invoice_number,
                 lot_number=p.lot_number,
-                is_depleted=p.is_depleted
+                is_depleted=p.is_depleted,
             )
             for p in purchases
         ]
@@ -142,7 +146,7 @@ async def list_metal_purchases(
         logger.error(f"Failed to list metal purchases: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to retrieve metal purchases"
+            detail="Failed to retrieve metal purchases",
         )
 
 
@@ -150,7 +154,7 @@ async def list_metal_purchases(
 async def get_metal_purchase(
     purchase_id: int,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_permission(Permission.MATERIAL_VIEW))
+    current_user: User = Depends(require_permission(Permission.MATERIAL_VIEW)),
 ):
     """
     Get detailed information about a specific metal purchase.
@@ -162,7 +166,7 @@ async def get_metal_purchase(
     if not purchase:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Metal purchase {purchase_id} not found"
+            detail=f"Metal purchase {purchase_id} not found",
         )
 
     return MetalPurchaseRead(
@@ -182,7 +186,7 @@ async def get_metal_purchase(
         used_weight_g=purchase.used_weight_g,
         usage_percentage=purchase.usage_percentage,
         is_depleted=purchase.is_depleted,
-        remaining_value=purchase.remaining_value
+        remaining_value=purchase.remaining_value,
     )
 
 
@@ -191,7 +195,7 @@ async def update_metal_purchase(
     purchase_id: int,
     update: MetalPurchaseUpdate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_permission(Permission.MATERIAL_EDIT))
+    current_user: User = Depends(require_permission(Permission.MATERIAL_EDIT)),
 ):
     """
     Update metal purchase metadata.
@@ -206,7 +210,7 @@ async def update_metal_purchase(
     if not purchase:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Metal purchase {purchase_id} not found"
+            detail=f"Metal purchase {purchase_id} not found",
         )
 
     return MetalPurchaseRead(
@@ -226,7 +230,7 @@ async def update_metal_purchase(
         used_weight_g=purchase.used_weight_g,
         usage_percentage=purchase.usage_percentage,
         is_depleted=purchase.is_depleted,
-        remaining_value=purchase.remaining_value
+        remaining_value=purchase.remaining_value,
     )
 
 
@@ -235,12 +239,14 @@ async def update_metal_purchase(
 # ============================================================================
 
 
-@router.post("/usage", response_model=MaterialUsageRead, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/usage", response_model=MaterialUsageRead, status_code=status.HTTP_201_CREATED
+)
 async def consume_material(
     usage: MaterialUsageCreate,
     metal_type: MetalType = Query(..., description="Type of metal to consume"),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_permission(Permission.ORDER_EDIT))
+    current_user: User = Depends(require_permission(Permission.ORDER_EDIT)),
 ):
     """
     Consume metal from inventory for an order.
@@ -307,7 +313,7 @@ async def consume_material(
             used_at=usage_record.used_at,
             created_at=usage_record.created_at,
             notes=usage_record.notes,
-            metal_type=metal_type
+            metal_type=metal_type,
         )
     except HTTPException:
         # AlloyMismatchError already carries the right status+detail;
@@ -316,15 +322,12 @@ async def consume_material(
         raise
     except ValueError as e:
         logger.warning(f"Failed to consume material: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e)
-        )
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     except Exception as e:
         logger.error(f"Failed to consume material: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to consume material"
+            detail="Failed to consume material",
         )
 
 
@@ -335,7 +338,7 @@ async def get_usage_history(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=500),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_permission(Permission.ORDER_VIEW))
+    current_user: User = Depends(require_permission(Permission.ORDER_VIEW)),
 ):
     """
     Get material usage history with optional filtering.
@@ -346,11 +349,7 @@ async def get_usage_history(
     """
     try:
         usage_records = await MetalInventoryService.get_usage_history(
-            db,
-            order_id=order_id,
-            metal_type=metal_type,
-            skip=skip,
-            limit=limit
+            db, order_id=order_id, metal_type=metal_type, skip=skip, limit=limit
         )
 
         return [
@@ -365,7 +364,7 @@ async def get_usage_history(
                 used_at=u.used_at,
                 created_at=u.created_at,
                 notes=u.notes,
-                metal_type=u.metal_purchase.metal_type if u.metal_purchase else None
+                metal_type=u.metal_purchase.metal_type if u.metal_purchase else None,
             )
             for u in usage_records
         ]
@@ -373,7 +372,7 @@ async def get_usage_history(
         logger.error(f"Failed to get usage history: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to retrieve usage history"
+            detail="Failed to retrieve usage history",
         )
 
 
@@ -385,7 +384,7 @@ async def get_usage_history(
 @router.get("/statistics", response_model=InventoryStatistics)
 async def get_inventory_statistics(
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_permission(Permission.MATERIAL_VIEW))
+    current_user: User = Depends(require_permission(Permission.MATERIAL_VIEW)),
 ):
     """
     Get comprehensive inventory statistics.
@@ -425,7 +424,7 @@ async def get_inventory_statistics(
         logger.error(f"Failed to get inventory statistics: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to retrieve inventory statistics"
+            detail="Failed to retrieve inventory statistics",
         )
 
 
@@ -438,10 +437,14 @@ async def get_inventory_statistics(
 async def preview_material_allocation(
     metal_type: MetalType = Query(..., description="Type of metal needed"),
     required_weight_g: float = Query(..., gt=0, description="Weight needed in grams"),
-    costing_method: CostingMethod = Query(CostingMethod.FIFO, description="Costing method"),
-    specific_purchase_id: Optional[int] = Query(None, description="For SPECIFIC method"),
+    costing_method: CostingMethod = Query(
+        CostingMethod.FIFO, description="Costing method"
+    ),
+    specific_purchase_id: Optional[int] = Query(
+        None, description="For SPECIFIC method"
+    ),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_permission(Permission.ORDER_VIEW))
+    current_user: User = Depends(require_permission(Permission.ORDER_VIEW)),
 ):
     """
     Preview material allocation without consuming inventory.
@@ -466,20 +469,17 @@ async def preview_material_allocation(
             metal_type=metal_type,
             required_weight_g=required_weight_g,
             costing_method=costing_method,
-            specific_purchase_id=specific_purchase_id
+            specific_purchase_id=specific_purchase_id,
         )
         return allocation
     except ValueError as e:
         logger.warning(f"Failed to preview allocation: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e)
-        )
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     except Exception as e:
         logger.error(f"Failed to preview allocation: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to preview allocation"
+            detail="Failed to preview allocation",
         )
 
 

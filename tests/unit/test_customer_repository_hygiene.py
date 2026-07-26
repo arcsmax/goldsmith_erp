@@ -24,9 +24,7 @@ def test_customer_repository_module_imports_cleanly():
     """The module must import without raising AttributeError on missing cols."""
     import importlib
 
-    module = importlib.import_module(
-        "goldsmith_erp.db.repositories.customer"
-    )
+    module = importlib.import_module("goldsmith_erp.db.repositories.customer")
 
     assert hasattr(module, "CustomerRepository")
 

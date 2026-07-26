@@ -335,6 +335,4 @@ def test_all_h9_fk_targets_are_in_anonymizable_registry():
     }
     registry_set = set(ANONYMIZABLE_FK_TARGETS)
     missing = h9_targets - registry_set
-    assert not missing, (
-        f"H9 FK targets missing from ANONYMIZABLE_FK_TARGETS: {missing}"
-    )
+    assert not missing, f"H9 FK targets missing from ANONYMIZABLE_FK_TARGETS: {missing}"

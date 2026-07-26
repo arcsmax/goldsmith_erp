@@ -25,6 +25,7 @@ literal-segment position, not just declaration order — but they are declared
 after the consultation CRUD routes to keep the file's reading order aligned
 with the resource hierarchy.
 """
+
 import logging
 from typing import List, Optional
 

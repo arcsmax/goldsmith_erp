@@ -40,7 +40,6 @@ from goldsmith_erp.models.time_entry_metadata import (
 )
 from goldsmith_erp.services.time_tracking_service import TimeTrackingService
 
-
 # --------------------------------------------------------------------------- #
 # Layer A — Pydantic schema
 # --------------------------------------------------------------------------- #
@@ -138,15 +137,11 @@ class TestPIIValueRejection:
     def test_long_alphabetic_run_rejected(self):
         # 21 consecutive letters — one past the 20-char threshold.
         with pytest.raises(ValidationError, match="more than 20"):
-            TimeEntryMetadata.model_validate(
-                {"recovery_reason": "A" * 21}
-            )
+            TimeEntryMetadata.model_validate({"recovery_reason": "A" * 21})
 
     def test_long_alphabetic_run_just_under_threshold_accepted(self):
         # 20 consecutive letters — exactly at the threshold, legal.
-        m = TimeEntryMetadata.model_validate(
-            {"recovery_reason": "A" * 20}
-        )
+        m = TimeEntryMetadata.model_validate({"recovery_reason": "A" * 20})
         assert m.recovery_reason == "A" * 20
 
     def test_alphabetic_run_with_space_not_rejected(self):
@@ -162,14 +157,10 @@ class TestPIIValueRejection:
         # Make sure the long-alpha guard doesn't also fire: use digits.
         long_digits = "1" * 201
         with pytest.raises(ValidationError):
-            TimeEntryMetadata.model_validate(
-                {"recovery_reason": long_digits}
-            )
+            TimeEntryMetadata.model_validate({"recovery_reason": long_digits})
 
     def test_value_exactly_200_chars_accepted(self):
-        m = TimeEntryMetadata.model_validate(
-            {"recovery_reason": "1" * 200}
-        )
+        m = TimeEntryMetadata.model_validate({"recovery_reason": "1" * 200})
         assert m.recovery_reason == "1" * 200
 
 
@@ -186,9 +177,7 @@ class TestTypeAndLiteralEnforcement:
 
     def test_invalid_client_version_format(self):
         with pytest.raises(ValidationError):
-            TimeEntryMetadata.model_validate(
-                {"client_version": "not-a-version"}
-            )
+            TimeEntryMetadata.model_validate({"client_version": "not-a-version"})
 
     def test_invalid_interrupted_by(self):
         with pytest.raises(ValidationError):
@@ -225,9 +214,7 @@ class TestStructuralLimits:
         via manual inflation. The per-value cap (200) will fire first
         for a single overlong value, so test the size guard via the
         helper directly."""
-        from goldsmith_erp.models.time_entry_metadata import (
-            _MAX_SERIALIZED_BYTES,
-        )
+        from goldsmith_erp.models.time_entry_metadata import _MAX_SERIALIZED_BYTES
 
         # Sanity: the ceiling is the documented 4 KiB.
         assert _MAX_SERIALIZED_BYTES == 4 * 1024
@@ -241,15 +228,13 @@ class TestBoundary:
         # `None` is not the supported entrypoint, but the shim in
         # `models/time_entry.py` (_validate_metadata_whitelist) accepts
         # it. Test that shim directly.
-        from goldsmith_erp.models.time_entry import (
-            _validate_metadata_whitelist,
-        )
+        from goldsmith_erp.models.time_entry import _validate_metadata_whitelist
+
         assert _validate_metadata_whitelist(None) is None
 
     def test_empty_dict_via_shim(self):
-        from goldsmith_erp.models.time_entry import (
-            _validate_metadata_whitelist,
-        )
+        from goldsmith_erp.models.time_entry import _validate_metadata_whitelist
+
         assert _validate_metadata_whitelist({}) == {}
 
 

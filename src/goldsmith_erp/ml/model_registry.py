@@ -9,6 +9,7 @@ works without a live database connection during background training jobs.
 All file operations fail loudly — callers (background training tasks)
 must handle errors explicitly.
 """
+
 from __future__ import annotations
 
 import json
@@ -160,8 +161,7 @@ class ModelRegistry:
 
         self._save_registry(registry)
         logger.info(
-            "Registered model '%s' version %s "
-            "(n=%d, RMSE=%.2f, R²=%.3f)",
+            "Registered model '%s' version %s " "(n=%d, RMSE=%.2f, R²=%.3f)",
             model_name,
             version,
             training_data_size,

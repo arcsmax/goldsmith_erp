@@ -13,6 +13,7 @@ Route overview:
   GET    /api/v1/handoffs/pending                   — my pending handoffs
   GET    /api/v1/orders/{order_id}/handoffs         — order's handoff history
 """
+
 from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -36,6 +37,7 @@ router = APIRouter()
 # ---------------------------------------------------------------------------
 # Create handoff — attached to the orders router via main.py prefix wiring
 # ---------------------------------------------------------------------------
+
 
 @router.post(
     "/orders/{order_id}/handoff",
@@ -66,12 +68,15 @@ async def create_handoff(
             notes=handoff_in.notes,
         )
     except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc))
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+        )
 
 
 # ---------------------------------------------------------------------------
 # Handoff history for an order — also uses the orders prefix
 # ---------------------------------------------------------------------------
+
 
 @router.get(
     "/orders/{order_id}/handoffs",
@@ -97,6 +102,7 @@ async def get_order_handoffs(
 # Pending handoffs for the current user
 # ---------------------------------------------------------------------------
 
+
 @router.get(
     "/handoffs/pending",
     response_model=List[HandoffRead],
@@ -119,6 +125,7 @@ async def get_pending_handoffs(
 # ---------------------------------------------------------------------------
 # Accept / decline
 # ---------------------------------------------------------------------------
+
 
 @router.put(
     "/handoffs/{handoff_id}/accept",
@@ -150,7 +157,9 @@ async def accept_handoff(
             response_notes=accept_in.response_notes,
         )
     except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc))
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+        )
 
 
 @router.put(
@@ -183,4 +192,6 @@ async def decline_handoff(
             response_notes=decline_in.response_notes,
         )
     except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc))
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+        )

@@ -1,6 +1,9 @@
 """Factory for Order model test data."""
-import factory
+
 from datetime import datetime, timedelta
+
+import factory
+
 from goldsmith_erp.db.models import Order, OrderStatusEnum
 
 

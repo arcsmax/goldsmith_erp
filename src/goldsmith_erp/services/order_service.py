@@ -1,21 +1,23 @@
-from fastapi import HTTPException
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.future import select
-from sqlalchemy import update, delete
-from sqlalchemy.orm import selectinload
-from typing import List, Optional, Dict, Any
-from datetime import datetime
 import json
 import logging
+from datetime import datetime
+from typing import Any, Dict, List, Optional
 
-from goldsmith_erp.db.models import Order as OrderModel, Material, Customer, OrderStatusEnum, LocationHistory, TimeEntry
-from goldsmith_erp.models.order import OrderCreate, OrderUpdate
+from fastapi import HTTPException
+from sqlalchemy import delete, update
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.future import select
+from sqlalchemy.orm import selectinload
 
 # Import the module (not the function) so the unit-test conftest monkeypatch on
 # goldsmith_erp.core.pubsub.publish_event actually intercepts our calls (see
 # services/consultation_service.py for the pattern this follows).
 from goldsmith_erp.core import pubsub
+from goldsmith_erp.db.models import Customer, LocationHistory, Material
+from goldsmith_erp.db.models import Order as OrderModel
+from goldsmith_erp.db.models import OrderStatusEnum, TimeEntry
 from goldsmith_erp.db.transaction import transactional
+from goldsmith_erp.models.order import OrderCreate, OrderUpdate
 
 logger = logging.getLogger(__name__)
 
@@ -146,7 +148,9 @@ class OrderService:
                 selectinload(OrderModel.customer),
                 selectinload(OrderModel.gemstones),  # FIXED: Added gemstones
             )
-            .where(OrderModel.is_deleted == False)  # noqa: E712 — SQLAlchemy requires == not is
+            .where(
+                OrderModel.is_deleted == False
+            )  # noqa: E712 — SQLAlchemy requires == not is
             .order_by(OrderModel.created_at.desc())
         )
         if customer_id is not None:
@@ -168,10 +172,12 @@ class OrderService:
                 selectinload(OrderModel.customer),
                 selectinload(OrderModel.gemstones),  # FIXED: Added gemstones
             )
-            .filter(OrderModel.id == order_id, OrderModel.is_deleted == False)  # noqa: E712
+            .filter(
+                OrderModel.id == order_id, OrderModel.is_deleted == False
+            )  # noqa: E712
         )
         return result.scalar_one_or_none()
-    
+
     @staticmethod
     async def create_order(db: AsyncSession, order_in: OrderCreate) -> OrderModel:
         """
@@ -190,8 +196,7 @@ class OrderService:
             # Materialien verknüpfen, falls angegeben
             if order_in.materials:
                 material_results = await db.execute(
-                    select(Material)
-                    .filter(Material.id.in_(order_in.materials))
+                    select(Material).filter(Material.id.in_(order_in.materials))
                 )
                 materials = material_results.scalars().all()
 
@@ -216,27 +221,45 @@ class OrderService:
         try:
             await pubsub.publish_event(
                 "order_updates",
-                json.dumps({
-                    "action": "create",
-                    "source": "manual",  # A5.4 — non-scan creation
-                    "order_id": db_order.id,
-                    "status": db_order.status.value if hasattr(db_order.status, "value") else db_order.status,
-                    "data": {
-                        "id": db_order.id,
-                        "customer_id": db_order.customer_id,
-                        "title": db_order.title if hasattr(db_order, "title") else None,
-                        "created_at": db_order.created_at.isoformat() if hasattr(db_order, "created_at") else None,
-                        "status": db_order.status.value if hasattr(db_order.status, "value") else db_order.status,
-                        "price": str(db_order.price) if db_order.price else None,
+                json.dumps(
+                    {
+                        "action": "create",
+                        "source": "manual",  # A5.4 — non-scan creation
+                        "order_id": db_order.id,
+                        "status": (
+                            db_order.status.value
+                            if hasattr(db_order.status, "value")
+                            else db_order.status
+                        ),
+                        "data": {
+                            "id": db_order.id,
+                            "customer_id": db_order.customer_id,
+                            "title": (
+                                db_order.title if hasattr(db_order, "title") else None
+                            ),
+                            "created_at": (
+                                db_order.created_at.isoformat()
+                                if hasattr(db_order, "created_at")
+                                else None
+                            ),
+                            "status": (
+                                db_order.status.value
+                                if hasattr(db_order.status, "value")
+                                else db_order.status
+                            ),
+                            "price": str(db_order.price) if db_order.price else None,
+                        },
                     }
-                })
+                ),
             )
         except Exception as e:
             # Log but don't fail the request if event publishing fails
-            logger.error(f"Failed to publish order creation event: {str(e)}", exc_info=True)
+            logger.error(
+                f"Failed to publish order creation event: {str(e)}", exc_info=True
+            )
 
         return db_order
-    
+
     @staticmethod
     async def advance_status(
         db: AsyncSession,
@@ -324,8 +347,10 @@ class OrderService:
         if (
             pending_marks is not None
             and len(pending_marks) > 0
-            and (order.punzierung_verified_marks is None
-                 or len(order.punzierung_verified_marks) == 0)
+            and (
+                order.punzierung_verified_marks is None
+                or len(order.punzierung_verified_marks) == 0
+            )
         ):
             update_data["retention_class"] = "hallmark_10y"
             # Auto-populate verification timestamp if the caller left it
@@ -343,6 +368,7 @@ class OrderService:
             # (the update may itself supply the missing fields)
             class _MergedOrder:
                 """Lightweight proxy that overlays update_data onto the current order."""
+
                 def __getattr__(self, name: str):
                     if name in update_data:
                         return update_data[name]
@@ -377,7 +403,10 @@ class OrderService:
             # Auto-calculate actual_hours from time entries inside the same transaction.
             # Import here to avoid circular dependency at module level.
             if is_completing:
-                from goldsmith_erp.services.ml_data_service import MLDataService  # noqa: PLC0415
+                from goldsmith_erp.services.ml_data_service import (  # noqa: PLC0415
+                    MLDataService,
+                )
+
                 await MLDataService.auto_calculate_actual_hours(db, order_id)
 
         # Aktualisiertes Objekt holen after transaction commits
@@ -406,6 +435,7 @@ class OrderService:
             from goldsmith_erp.services.estimate_accuracy_service import (  # noqa: PLC0415
                 safe_record_on_completion,
             )
+
             await safe_record_on_completion(db, updated_order)
 
         return updated_order
@@ -458,12 +488,12 @@ class OrderService:
             return
 
         try:
-            from goldsmith_erp.services.notification_service import (  # noqa: PLC0415
-                NotificationService,
-            )
             from goldsmith_erp.db.models import (  # noqa: PLC0415
                 NotificationSeverityEnum,
                 NotificationTypeEnum,
+            )
+            from goldsmith_erp.services.notification_service import (  # noqa: PLC0415
+                NotificationService,
             )
 
             await NotificationService.create_notification(
@@ -481,10 +511,14 @@ class OrderService:
         except Exception as notify_exc:
             logger.error(
                 "Failed to write order pubsub-failure notification",
-                extra={"user_id": user_id, "order_id": order.id, "error": str(notify_exc)},
+                extra={
+                    "user_id": user_id,
+                    "order_id": order.id,
+                    "error": str(notify_exc),
+                },
                 exc_info=True,
             )
-    
+
     @staticmethod
     async def delete_order(db: AsyncSession, order_id: int) -> Dict[str, Any]:
         """
@@ -530,6 +564,7 @@ class OrderService:
         # Block if non-cancelled invoices exist (import inline to avoid circular deps)
         try:
             from goldsmith_erp.db.models import Invoice, InvoiceStatus  # noqa: PLC0415
+
             invoice_result = await db.execute(
                 select(Invoice)
                 .where(
@@ -559,14 +594,18 @@ class OrderService:
         try:
             await pubsub.publish_event(
                 "order_updates",
-                json.dumps({
-                    "action": "delete",
-                    "order_id": order_id,
-                    "message": f"Auftrag {order_id} wurde geloescht",
-                })
+                json.dumps(
+                    {
+                        "action": "delete",
+                        "order_id": order_id,
+                        "message": f"Auftrag {order_id} wurde geloescht",
+                    }
+                ),
             )
         except Exception as e:
-            logger.error(f"Failed to publish order deletion event: {str(e)}", exc_info=True)
+            logger.error(
+                f"Failed to publish order deletion event: {str(e)}", exc_info=True
+            )
 
         return {"success": True}
 
@@ -607,12 +646,14 @@ class OrderService:
         try:
             await pubsub.publish_event(
                 "order_updates",
-                json.dumps({
-                    "action": "location_change",
-                    "order_id": order_id,
-                    "location": location,
-                    "changed_by": user_id,
-                })
+                json.dumps(
+                    {
+                        "action": "location_change",
+                        "order_id": order_id,
+                        "location": location,
+                        "changed_by": user_id,
+                    }
+                ),
             )
         except Exception as e:
             logger.error(
@@ -637,9 +678,7 @@ class OrderService:
 
     @staticmethod
     async def get_orders_with_deadlines(
-        db: AsyncSession,
-        start: Optional[str] = None,
-        end: Optional[str] = None
+        db: AsyncSession, start: Optional[str] = None, end: Optional[str] = None
     ) -> List[OrderModel]:
         """Get orders with deadlines for calendar view."""
         query = (

@@ -8,29 +8,30 @@ Tests cover:
 - create_invoice_from_order(): duplicate invoice guard (409)
 - Status transitions: DRAFT->SENT->PAID and PAID cannot be cancelled
 """
-import pytest
+
 from datetime import datetime, timedelta
 
-from goldsmith_erp.services.invoice_service import InvoiceService
+import pytest
+
+from goldsmith_erp.core.security import get_password_hash
+from goldsmith_erp.db.models import Customer
+from goldsmith_erp.db.models import Invoice as InvoiceModel
+from goldsmith_erp.db.models import (
+    InvoiceLineType,
+    InvoiceStatus,
+    MetalType,
+    Order,
+    OrderStatusEnum,
+    User,
+    UserRole,
+)
 from goldsmith_erp.models.invoice import (
     InvoiceCreate,
     InvoiceLineItemCreate,
     InvoiceUpdate,
     MarkPaidRequest,
 )
-from goldsmith_erp.db.models import (
-    Invoice as InvoiceModel,
-    InvoiceStatus,
-    InvoiceLineType,
-    Order,
-    OrderStatusEnum,
-    Customer,
-    User,
-    UserRole,
-    MetalType,
-)
-from goldsmith_erp.core.security import get_password_hash
-
+from goldsmith_erp.services.invoice_service import InvoiceService
 
 # ---------------------------------------------------------------------------
 # Helpers / local fixtures
@@ -135,8 +136,8 @@ class TestGenerateInvoiceNumber:
         parts = number.split("-")
         assert len(parts) == 3, f"Expected 3 parts, got {parts}"
         assert parts[0] == "RE"
-        assert len(parts[1]) == 4 and parts[1].isdigit()   # YYYY
-        assert len(parts[2]) == 4 and parts[2].isdigit()   # NNNN
+        assert len(parts[1]) == 4 and parts[1].isdigit()  # YYYY
+        assert len(parts[2]) == 4 and parts[2].isdigit()  # NNNN
 
     async def test_second_number_increments(self, db_session):
         """After one invoice exists, the next number increments by 1."""
@@ -203,8 +204,8 @@ class TestCalculateTotals:
     def test_multiple_items_summed_correctly(self):
         """Multiple line items: subtotals are added before tax is applied."""
         items = [
-            self._make_item(2.0, 50.0),   # 100 EUR
-            self._make_item(1.0, 75.0),   # 75 EUR
+            self._make_item(2.0, 50.0),  # 100 EUR
+            self._make_item(1.0, 75.0),  # 75 EUR
         ]
         result = InvoiceService.calculate_totals(items, tax_rate=19.0)
 
@@ -223,7 +224,7 @@ class TestCalculateTotals:
 
     def test_fractional_quantities_and_prices(self):
         """Labor hours (fractional quantity) compute correctly."""
-        items = [self._make_item(2.5, 75.0)]   # 187.50 EUR
+        items = [self._make_item(2.5, 75.0)]  # 187.50 EUR
         result = InvoiceService.calculate_totals(items, tax_rate=19.0)
 
         assert result["subtotal"] == 187.5
@@ -244,15 +245,15 @@ class TestCalculateTotals:
     def test_standard_goldsmith_invoice(self):
         """Realistic scenario: material + labor + gemstone with 19% MwSt."""
         items = [
-            self._make_item(1.0, 450.0),   # Gold material
-            self._make_item(3.5, 75.0),    # 3.5h labor @ 75 EUR
-            self._make_item(1.0, 120.0),   # Diamond
+            self._make_item(1.0, 450.0),  # Gold material
+            self._make_item(3.5, 75.0),  # 3.5h labor @ 75 EUR
+            self._make_item(1.0, 120.0),  # Diamond
         ]
         # subtotal = 450 + 262.5 + 120 = 832.5
         result = InvoiceService.calculate_totals(items, tax_rate=19.0)
 
         assert result["subtotal"] == 832.5
-        assert result["tax_amount"] == round(832.5 * 0.19, 2)   # 158.175 -> 158.18
+        assert result["tax_amount"] == round(832.5 * 0.19, 2)  # 158.175 -> 158.18
         assert result["total"] == round(832.5 + result["tax_amount"], 2)
 
 
@@ -269,14 +270,18 @@ class TestCreateInvoiceOrderStatusGuard:
         """COMPLETED order must successfully create an invoice."""
         user = await _make_user(db_session)
         customer = await _make_customer(db_session)
-        order = await _make_order(db_session, customer, status=OrderStatusEnum.COMPLETED)
+        order = await _make_order(
+            db_session, customer, status=OrderStatusEnum.COMPLETED
+        )
 
         invoice_in = InvoiceCreate(
             order_id=order.id,
             due_date=_future_due_date(),
             tax_rate=19.0,
         )
-        invoice = await InvoiceService.create_invoice_from_order(db_session, invoice_in, user)
+        invoice = await InvoiceService.create_invoice_from_order(
+            db_session, invoice_in, user
+        )
 
         assert invoice is not None
         assert invoice.order_id == order.id
@@ -286,21 +291,28 @@ class TestCreateInvoiceOrderStatusGuard:
         """DELIVERED order must successfully create an invoice."""
         user = await _make_user(db_session)
         customer = await _make_customer(db_session)
-        order = await _make_order(db_session, customer, status=OrderStatusEnum.DELIVERED)
+        order = await _make_order(
+            db_session, customer, status=OrderStatusEnum.DELIVERED
+        )
 
         invoice_in = InvoiceCreate(
             order_id=order.id,
             due_date=_future_due_date(),
             tax_rate=19.0,
         )
-        invoice = await InvoiceService.create_invoice_from_order(db_session, invoice_in, user)
+        invoice = await InvoiceService.create_invoice_from_order(
+            db_session, invoice_in, user
+        )
 
         assert invoice is not None
 
-    @pytest.mark.parametrize("bad_status", [
-        OrderStatusEnum.NEW,
-        OrderStatusEnum.IN_PROGRESS,
-    ])
+    @pytest.mark.parametrize(
+        "bad_status",
+        [
+            OrderStatusEnum.NEW,
+            OrderStatusEnum.IN_PROGRESS,
+        ],
+    )
     async def test_non_completed_order_raises_422(self, db_session, bad_status):
         """Orders not in COMPLETED/DELIVERED state must be rejected with 422."""
         from fastapi import HTTPException
@@ -352,7 +364,9 @@ class TestDuplicateInvoiceGuard:
 
         user = await _make_user(db_session)
         customer = await _make_customer(db_session)
-        order = await _make_order(db_session, customer, status=OrderStatusEnum.COMPLETED)
+        order = await _make_order(
+            db_session, customer, status=OrderStatusEnum.COMPLETED
+        )
 
         # First invoice — must succeed
         invoice_in = InvoiceCreate(
@@ -372,7 +386,9 @@ class TestDuplicateInvoiceGuard:
         """After an invoice is CANCELLED a new invoice may be created for the order."""
         user = await _make_user(db_session)
         customer = await _make_customer(db_session)
-        order = await _make_order(db_session, customer, status=OrderStatusEnum.COMPLETED)
+        order = await _make_order(
+            db_session, customer, status=OrderStatusEnum.COMPLETED
+        )
 
         # Create and then cancel the first invoice via the service helpers
         existing = await _make_invoice(db_session, order, user)
@@ -385,7 +401,9 @@ class TestDuplicateInvoiceGuard:
             due_date=_future_due_date(),
             tax_rate=19.0,
         )
-        new_invoice = await InvoiceService.create_invoice_from_order(db_session, invoice_in, user)
+        new_invoice = await InvoiceService.create_invoice_from_order(
+            db_session, invoice_in, user
+        )
 
         assert new_invoice is not None
         assert new_invoice.status == InvoiceStatus.DRAFT
@@ -405,14 +423,18 @@ class TestInvoiceNumberOnCreate:
         year = datetime.utcnow().year
         user = await _make_user(db_session)
         customer = await _make_customer(db_session)
-        order = await _make_order(db_session, customer, status=OrderStatusEnum.COMPLETED)
+        order = await _make_order(
+            db_session, customer, status=OrderStatusEnum.COMPLETED
+        )
 
         invoice_in = InvoiceCreate(
             order_id=order.id,
             due_date=_future_due_date(),
             tax_rate=19.0,
         )
-        invoice = await InvoiceService.create_invoice_from_order(db_session, invoice_in, user)
+        invoice = await InvoiceService.create_invoice_from_order(
+            db_session, invoice_in, user
+        )
 
         assert invoice.invoice_number.startswith(f"RE-{year}-")
         seq = invoice.invoice_number.split("-")[-1]
@@ -438,7 +460,9 @@ class TestStatusTransitions:
         assert invoice.status == InvoiceStatus.DRAFT
 
         update = InvoiceUpdate(status=InvoiceStatus.SENT)
-        updated = await InvoiceService.update_invoice(db_session, invoice.id, update, user)
+        updated = await InvoiceService.update_invoice(
+            db_session, invoice.id, update, user
+        )
 
         assert updated is not None
         assert updated.status == InvoiceStatus.SENT

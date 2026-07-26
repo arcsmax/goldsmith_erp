@@ -1,4 +1,5 @@
 """Service for Order Comments (Digitale Post-its)."""
+
 import logging
 from typing import List, Optional
 
@@ -7,13 +8,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy.orm import selectinload
 
-from goldsmith_erp.db.models import (
-    NotificationSeverityEnum,
-    NotificationTypeEnum,
-    OrderComment as CommentModel,
-    User as UserModel,
-    UserRole,
-)
+from goldsmith_erp.db.models import NotificationSeverityEnum, NotificationTypeEnum
+from goldsmith_erp.db.models import OrderComment as CommentModel
+from goldsmith_erp.db.models import User as UserModel
+from goldsmith_erp.db.models import UserRole
 from goldsmith_erp.models.order_comment import OrderCommentCreate, OrderCommentUpdate
 
 logger = logging.getLogger(__name__)
@@ -22,10 +20,7 @@ logger = logging.getLogger(__name__)
 class CommentService:
     @staticmethod
     async def get_comments_for_order(
-        db: AsyncSession,
-        order_id: int,
-        skip: int = 0,
-        limit: int = 50
+        db: AsyncSession, order_id: int, skip: int = 0, limit: int = 50
     ) -> List[CommentModel]:
         result = await db.execute(
             select(CommentModel)
@@ -39,16 +34,9 @@ class CommentService:
 
     @staticmethod
     async def create_comment(
-        db: AsyncSession,
-        order_id: int,
-        user_id: int,
-        comment_in: OrderCommentCreate
+        db: AsyncSession, order_id: int, user_id: int, comment_in: OrderCommentCreate
     ) -> CommentModel:
-        comment = CommentModel(
-            order_id=order_id,
-            user_id=user_id,
-            text=comment_in.text
-        )
+        comment = CommentModel(order_id=order_id, user_id=user_id, text=comment_in.text)
         db.add(comment)
         await db.commit()
         await db.refresh(comment)
@@ -65,7 +53,9 @@ class CommentService:
             )
             author = author_result.scalar_one_or_none()
             if author and (author.first_name or author.last_name):
-                author_name = f"{author.first_name or ''} {author.last_name or ''}".strip()
+                author_name = (
+                    f"{author.first_name or ''} {author.last_name or ''}".strip()
+                )
             else:
                 author_name = f"Benutzer #{user_id}"
 
@@ -105,7 +95,11 @@ class CommentService:
             # already committed.  Log the full traceback for debugging.
             logger.exception(
                 "Failed to fire comment notifications",
-                extra={"order_id": order_id, "user_id": user_id, "comment_id": comment.id},
+                extra={
+                    "order_id": order_id,
+                    "user_id": user_id,
+                    "comment_id": comment.id,
+                },
             )
 
         return comment
@@ -116,13 +110,13 @@ class CommentService:
         comment_id: int,
         order_id: int,
         user_id: int,
-        comment_in: OrderCommentUpdate
+        comment_in: OrderCommentUpdate,
     ) -> Optional[CommentModel]:
         result = await db.execute(
             select(CommentModel).where(
                 CommentModel.id == comment_id,
                 CommentModel.order_id == order_id,
-                CommentModel.user_id == user_id
+                CommentModel.user_id == user_id,
             )
         )
         comment = result.scalar_one_or_none()
@@ -140,11 +134,10 @@ class CommentService:
         comment_id: int,
         order_id: int,
         user_id: int,
-        is_admin: bool = False
+        is_admin: bool = False,
     ) -> bool:
         query = select(CommentModel).where(
-            CommentModel.id == comment_id,
-            CommentModel.order_id == order_id
+            CommentModel.id == comment_id, CommentModel.order_id == order_id
         )
         if not is_admin:
             query = query.where(CommentModel.user_id == user_id)

@@ -18,8 +18,6 @@ from datetime import datetime
 from pathlib import Path
 
 import pytest
-from alembic.migration import MigrationContext
-from alembic.operations import Operations
 from sqlalchemy import (
     Column,
     DateTime,
@@ -32,6 +30,8 @@ from sqlalchemy import (
     text,
 )
 
+from alembic.migration import MigrationContext
+from alembic.operations import Operations
 
 MIGRATION_PATH = (
     Path(__file__).resolve().parents[2]
@@ -154,9 +154,7 @@ def test_admin_edits_are_preserved_on_reseed(migrated_engine):
                 "AND name = 'Standard Auftragsetikett'"
             )
         )
-        conn.execute(
-            text(
-                """
+        conn.execute(text("""
                 INSERT INTO label_templates (
                     entity_type, name, width_mm, height_mm, fields,
                     is_default, is_system_default, created_by,
@@ -166,9 +164,7 @@ def test_admin_edits_are_preserved_on_reseed(migrated_engine):
                     '{"lines": [{"field": "admin_edit"}]}',
                     0, 0, NULL, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
                 )
-                """
-            )
-        )
+                """))
 
     # Step 2 — re-seed. The INSERT OR IGNORE / ON CONFLICT DO NOTHING
     # must skip the existing row.
@@ -177,8 +173,7 @@ def test_admin_edits_are_preserved_on_reseed(migrated_engine):
         with Operations.context(ctx):
             for tpl in module._SEED_TEMPLATES:
                 conn.execute(
-                    text(
-                        """
+                    text("""
                         INSERT OR IGNORE INTO label_templates (
                             entity_type, name, width_mm, height_mm,
                             fields, is_default, is_system_default,
@@ -188,8 +183,7 @@ def test_admin_edits_are_preserved_on_reseed(migrated_engine):
                             :fields, 0, 1,
                             NULL, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
                         )
-                        """
-                    ),
+                        """),
                     {
                         "entity_type": tpl["entity_type"],
                         "name": tpl["name"],

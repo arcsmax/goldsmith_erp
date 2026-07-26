@@ -1,7 +1,9 @@
 """Base repository with common database operations."""
-from typing import Generic, TypeVar, Type, Optional, List, Dict, Any
+
+from typing import Any, Dict, Generic, List, Optional, Type, TypeVar
+
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, update, delete, func
 from sqlalchemy.orm import DeclarativeMeta
 
 ModelType = TypeVar("ModelType", bound=DeclarativeMeta)

@@ -11,26 +11,30 @@ Tests cover:
 - Interruptions
 - Error handling and edge cases
 """
-import pytest
-from datetime import datetime, timedelta
-import uuid
 
-from goldsmith_erp.services.time_tracking_service import TimeTrackingService
+import uuid
+from datetime import datetime, timedelta
+
+import pytest
+
+from goldsmith_erp.db.models import TimeEntry as TimeEntryModel
+from goldsmith_erp.models.interruption import InterruptionCreate
 from goldsmith_erp.models.time_entry import (
     TimeEntryCreate,
-    TimeEntryUpdate,
     TimeEntryStart,
     TimeEntryStop,
+    TimeEntryUpdate,
 )
-from goldsmith_erp.models.interruption import InterruptionCreate
-from goldsmith_erp.db.models import TimeEntry as TimeEntryModel
+from goldsmith_erp.services.time_tracking_service import TimeTrackingService
 
 
 @pytest.mark.asyncio
 class TestTimeEntryCreation:
     """Test time entry creation (manual entries)"""
 
-    async def test_create_time_entry_success(self, db_session, sample_order, sample_activity, sample_user):
+    async def test_create_time_entry_success(
+        self, db_session, sample_order, sample_activity, sample_user
+    ):
         """Test creating a manual time entry with all fields"""
         start_time = datetime.utcnow() - timedelta(hours=2)
         end_time = datetime.utcnow()
@@ -45,7 +49,7 @@ class TestTimeEntryCreation:
             notes="Setting stones on wedding ring",
             complexity_rating=3,
             quality_rating=5,
-            rework_required=False
+            rework_required=False,
         )
 
         entry = await TimeTrackingService.create_time_entry(db_session, entry_data)
@@ -61,7 +65,9 @@ class TestTimeEntryCreation:
         assert entry.quality_rating == 5
         assert entry.rework_required is False
 
-    async def test_create_time_entry_minimal_fields(self, db_session, sample_order, sample_activity, sample_user):
+    async def test_create_time_entry_minimal_fields(
+        self, db_session, sample_order, sample_activity, sample_user
+    ):
         """Test creating time entry with only required fields"""
         start_time = datetime.utcnow()
 
@@ -69,7 +75,7 @@ class TestTimeEntryCreation:
             order_id=sample_order.id,
             user_id=sample_user.id,
             activity_id=sample_activity.id,
-            start_time=start_time
+            start_time=start_time,
         )
 
         entry = await TimeTrackingService.create_time_entry(db_session, entry_data)
@@ -81,7 +87,9 @@ class TestTimeEntryCreation:
         assert entry.location is None
         assert entry.notes is None
 
-    async def test_create_time_entry_without_end_time(self, db_session, sample_order, sample_activity, sample_user):
+    async def test_create_time_entry_without_end_time(
+        self, db_session, sample_order, sample_activity, sample_user
+    ):
         """Test creating an active time entry (no end time)"""
         start_time = datetime.utcnow()
 
@@ -90,7 +98,7 @@ class TestTimeEntryCreation:
             user_id=sample_user.id,
             activity_id=sample_activity.id,
             start_time=start_time,
-            location="Werkbank 2"
+            location="Werkbank 2",
         )
 
         entry = await TimeTrackingService.create_time_entry(db_session, entry_data)
@@ -99,7 +107,9 @@ class TestTimeEntryCreation:
         assert entry.end_time is None
         assert entry.duration_minutes is None
 
-    async def test_create_time_entry_calculates_duration(self, db_session, sample_order, sample_activity, sample_user):
+    async def test_create_time_entry_calculates_duration(
+        self, db_session, sample_order, sample_activity, sample_user
+    ):
         """Test that duration is auto-calculated from start and end times"""
         start_time = datetime.utcnow() - timedelta(hours=3, minutes=30)
         end_time = datetime.utcnow()
@@ -109,7 +119,7 @@ class TestTimeEntryCreation:
             user_id=sample_user.id,
             activity_id=sample_activity.id,
             start_time=start_time,
-            end_time=end_time
+            end_time=end_time,
         )
 
         entry = await TimeTrackingService.create_time_entry(db_session, entry_data)
@@ -123,7 +133,9 @@ class TestTimeEntryRetrieval:
 
     async def test_get_time_entry_by_id_success(self, db_session, sample_time_entry):
         """Test retrieving a time entry by ID"""
-        entry = await TimeTrackingService.get_time_entry(db_session, sample_time_entry.id)
+        entry = await TimeTrackingService.get_time_entry(
+            db_session, sample_time_entry.id
+        )
 
         assert entry is not None
         assert entry.id == sample_time_entry.id
@@ -137,21 +149,23 @@ class TestTimeEntryRetrieval:
 
         assert entry is None
 
-    async def test_get_time_entries_for_order(self, db_session, sample_order, sample_time_entry):
+    async def test_get_time_entries_for_order(
+        self, db_session, sample_order, sample_time_entry
+    ):
         """Test retrieving all time entries for an order"""
         entries = await TimeTrackingService.get_time_entries_for_order(
-            db_session,
-            sample_order.id
+            db_session, sample_order.id
         )
 
         assert len(entries) >= 1
         assert all(e.order_id == sample_order.id for e in entries)
 
-    async def test_get_time_entries_for_user(self, db_session, sample_user, sample_time_entry):
+    async def test_get_time_entries_for_user(
+        self, db_session, sample_user, sample_time_entry
+    ):
         """Test retrieving all time entries for a user"""
         entries = await TimeTrackingService.get_time_entries_for_user(
-            db_session,
-            sample_user.id
+            db_session, sample_user.id
         )
 
         assert len(entries) >= 1
@@ -165,10 +179,7 @@ class TestTimeEntryRetrieval:
         end_date = datetime.utcnow() + timedelta(days=1)
 
         entries = await TimeTrackingService.get_time_entries_for_user(
-            db_session,
-            sample_user.id,
-            start_date=start_date,
-            end_date=end_date
+            db_session, sample_user.id, start_date=start_date, end_date=end_date
         )
 
         assert len(entries) >= 1
@@ -187,24 +198,18 @@ class TestTimeEntryRetrieval:
                 user_id=sample_user.id,
                 activity_id=sample_activity.id,
                 start_time=datetime.utcnow() - timedelta(hours=i),
-                end_time=datetime.utcnow() - timedelta(hours=i-1)
+                end_time=datetime.utcnow() - timedelta(hours=i - 1),
             )
             await TimeTrackingService.create_time_entry(db_session, entry_data)
 
         # Get first page
         page1 = await TimeTrackingService.get_time_entries_for_order(
-            db_session,
-            sample_order.id,
-            skip=0,
-            limit=3
+            db_session, sample_order.id, skip=0, limit=3
         )
 
         # Get second page
         page2 = await TimeTrackingService.get_time_entries_for_order(
-            db_session,
-            sample_order.id,
-            skip=3,
-            limit=3
+            db_session, sample_order.id, skip=3, limit=3
         )
 
         assert len(page1) == 3
@@ -221,13 +226,11 @@ class TestTimeEntryUpdates:
             notes="Updated notes for the session",
             complexity_rating=4,
             quality_rating=4,
-            location="Werkbank 3"
+            location="Werkbank 3",
         )
 
         updated_entry = await TimeTrackingService.update_time_entry(
-            db_session,
-            sample_time_entry.id,
-            update_data
+            db_session, sample_time_entry.id, update_data
         )
 
         assert updated_entry is not None
@@ -242,14 +245,10 @@ class TestTimeEntryUpdates:
         """Test that updating end_time recalculates duration"""
         new_end_time = active_time_entry.start_time + timedelta(hours=2)
 
-        update_data = TimeEntryUpdate(
-            end_time=new_end_time
-        )
+        update_data = TimeEntryUpdate(end_time=new_end_time)
 
         updated_entry = await TimeTrackingService.update_time_entry(
-            db_session,
-            active_time_entry.id,
-            update_data
+            db_session, active_time_entry.id, update_data
         )
 
         assert updated_entry.end_time is not None
@@ -259,14 +258,10 @@ class TestTimeEntryUpdates:
         """Test updating only a single field"""
         original_notes = sample_time_entry.notes
 
-        update_data = TimeEntryUpdate(
-            complexity_rating=5
-        )
+        update_data = TimeEntryUpdate(complexity_rating=5)
 
         updated_entry = await TimeTrackingService.update_time_entry(
-            db_session,
-            sample_time_entry.id,
-            update_data
+            db_session, sample_time_entry.id, update_data
         )
 
         assert updated_entry.complexity_rating == 5
@@ -278,9 +273,7 @@ class TestTimeEntryUpdates:
         update_data = TimeEntryUpdate(notes="This won't work")
 
         result = await TimeTrackingService.update_time_entry(
-            db_session,
-            fake_id,
-            update_data
+            db_session, fake_id, update_data
         )
 
         assert result is None
@@ -316,13 +309,15 @@ class TestTimeEntryDeletion:
 class TestActiveTimeTracking:
     """Test start/stop time tracking functionality"""
 
-    async def test_start_time_entry_success(self, db_session, sample_order, sample_activity, sample_user):
+    async def test_start_time_entry_success(
+        self, db_session, sample_order, sample_activity, sample_user
+    ):
         """Test starting a new time entry"""
         entry_start = TimeEntryStart(
             order_id=sample_order.id,
             user_id=sample_user.id,
             activity_id=sample_activity.id,
-            location="Werkbank 1"
+            location="Werkbank 1",
         )
 
         entry = await TimeTrackingService.start_time_entry(db_session, entry_start)
@@ -341,7 +336,7 @@ class TestActiveTimeTracking:
         entry_start = TimeEntryStart(
             order_id=sample_order.id,
             user_id=sample_user.id,  # Same user as active_time_entry
-            activity_id=sample_activity.id
+            activity_id=sample_activity.id,
         )
 
         with pytest.raises(ValueError, match="laufende Zeiterfassung"):
@@ -353,13 +348,11 @@ class TestActiveTimeTracking:
             notes="Completed stone setting",
             complexity_rating=3,
             quality_rating=5,
-            rework_required=False
+            rework_required=False,
         )
 
         stopped_entry = await TimeTrackingService.stop_time_entry(
-            db_session,
-            active_time_entry.id,
-            stop_data
+            db_session, active_time_entry.id, stop_data
         )
 
         assert stopped_entry is not None
@@ -375,16 +368,13 @@ class TestActiveTimeTracking:
 
         with pytest.raises(ValueError, match="bereits gestoppt"):
             await TimeTrackingService.stop_time_entry(
-                db_session,
-                sample_time_entry.id,  # Already has end_time
-                stop_data
+                db_session, sample_time_entry.id, stop_data  # Already has end_time
             )
 
     async def test_get_running_entry(self, db_session, active_time_entry, sample_user):
         """Test getting the currently running entry for a user"""
         running_entry = await TimeTrackingService.get_running_entry(
-            db_session,
-            sample_user.id
+            db_session, sample_user.id
         )
 
         assert running_entry is not None
@@ -394,8 +384,7 @@ class TestActiveTimeTracking:
     async def test_get_running_entry_none_active(self, db_session, sample_user):
         """Test getting running entry when none exists returns None"""
         running_entry = await TimeTrackingService.get_running_entry(
-            db_session,
-            sample_user.id
+            db_session, sample_user.id
         )
 
         # sample_user has no active entries (only completed ones from sample_time_entry)
@@ -421,13 +410,12 @@ class TestOrderTotalTime:
                 user_id=sample_user.id,
                 activity_id=sample_activity.id,
                 start_time=datetime.utcnow() - timedelta(hours=2),
-                end_time=datetime.utcnow() - timedelta(hours=1)
+                end_time=datetime.utcnow() - timedelta(hours=1),
             )
             await TimeTrackingService.create_time_entry(db_session, entry_data)
 
         total_time = await TimeTrackingService.get_total_time_for_order(
-            db_session,
-            sample_order.id
+            db_session, sample_order.id
         )
 
         assert total_time["order_id"] == sample_order.id
@@ -445,7 +433,7 @@ class TestOrderTotalTime:
             user_id=sample_user.id,
             activity_id=sample_activity.id,
             start_time=datetime.utcnow() - timedelta(hours=2),
-            end_time=datetime.utcnow()
+            end_time=datetime.utcnow(),
         )
         await TimeTrackingService.create_time_entry(db_session, entry_data)
 
@@ -454,13 +442,12 @@ class TestOrderTotalTime:
             order_id=sample_order.id,
             user_id=sample_user.id,
             activity_id=sample_activity.id,
-            start_time=datetime.utcnow() - timedelta(minutes=30)
+            start_time=datetime.utcnow() - timedelta(minutes=30),
         )
         await TimeTrackingService.create_time_entry(db_session, active_data)
 
         total_time = await TimeTrackingService.get_total_time_for_order(
-            db_session,
-            sample_order.id
+            db_session, sample_order.id
         )
 
         # Should only count the completed entry
@@ -476,12 +463,11 @@ class TestInterruptions:
         interruption_data = InterruptionCreate(
             time_entry_id=active_time_entry.id,
             reason="customer_call",
-            duration_minutes=15
+            duration_minutes=15,
         )
 
         interruption = await TimeTrackingService.add_interruption(
-            db_session,
-            interruption_data
+            db_session, interruption_data
         )
 
         assert interruption.id is not None
@@ -494,9 +480,7 @@ class TestInterruptions:
         fake_id = str(uuid.uuid4())
 
         interruption_data = InterruptionCreate(
-            time_entry_id=fake_id,
-            reason="test",
-            duration_minutes=10
+            time_entry_id=fake_id, reason="test", duration_minutes=10
         )
 
         with pytest.raises(ValueError, match="not found"):
@@ -519,7 +503,7 @@ class TestEdgeCases:
             user_id=sample_user.id,
             activity_id=sample_activity.id,
             start_time=start_time,
-            end_time=end_time
+            end_time=end_time,
         )
 
         entry = await TimeTrackingService.create_time_entry(db_session, entry_data)
@@ -539,7 +523,7 @@ class TestEdgeCases:
             user_id=sample_user.id,
             activity_id=sample_activity.id,
             start_time=start_time,
-            end_time=end_time
+            end_time=end_time,
         )
 
         entry = await TimeTrackingService.create_time_entry(db_session, entry_data)

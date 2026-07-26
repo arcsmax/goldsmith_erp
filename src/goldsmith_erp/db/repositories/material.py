@@ -1,7 +1,9 @@
 """Material repository for database operations."""
-from typing import List, Optional, Dict, Any
+
+from typing import Any, Dict, List, Optional
+
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, or_
 
 from goldsmith_erp.db.models import Material
 from goldsmith_erp.db.repositories.base import BaseRepository
@@ -14,10 +16,7 @@ class MaterialRepository(BaseRepository[Material]):
         super().__init__(Material, session)
 
     async def get_by_type(
-        self,
-        material_type: str,
-        skip: int = 0,
-        limit: int = 100
+        self, material_type: str, skip: int = 0, limit: int = 100
     ) -> List[Material]:
         """
         Get materials by type.
@@ -39,10 +38,7 @@ class MaterialRepository(BaseRepository[Material]):
         )
         return list(result.scalars().all())
 
-    async def get_low_stock(
-        self,
-        threshold_factor: float = 1.0
-    ) -> List[Material]:
+    async def get_low_stock(self, threshold_factor: float = 1.0) -> List[Material]:
         """
         Get materials with low stock (below min_stock threshold).
 
@@ -60,10 +56,7 @@ class MaterialRepository(BaseRepository[Material]):
         return list(result.scalars().all())
 
     async def search(
-        self,
-        query: str,
-        skip: int = 0,
-        limit: int = 100
+        self, query: str, skip: int = 0, limit: int = 100
     ) -> List[Material]:
         """
         Search materials by name or description.
@@ -82,7 +75,7 @@ class MaterialRepository(BaseRepository[Material]):
             .where(
                 or_(
                     Material.name.ilike(search_term),
-                    Material.description.ilike(search_term)
+                    Material.description.ilike(search_term),
                 )
             )
             .order_by(Material.name)
@@ -92,10 +85,7 @@ class MaterialRepository(BaseRepository[Material]):
         return list(result.scalars().all())
 
     async def adjust_stock(
-        self,
-        id: int,
-        quantity: float,
-        operation: str = "add"
+        self, id: int, quantity: float, operation: str = "add"
     ) -> Optional[Material]:
         """
         Adjust material stock.
@@ -132,11 +122,7 @@ class MaterialRepository(BaseRepository[Material]):
         await self.session.refresh(material)
         return material
 
-    async def set_stock(
-        self,
-        id: int,
-        quantity: float
-    ) -> Optional[Material]:
+    async def set_stock(self, id: int, quantity: float) -> Optional[Material]:
         """
         Set material stock to a specific value.
 
@@ -162,10 +148,7 @@ class MaterialRepository(BaseRepository[Material]):
         await self.session.refresh(material)
         return material
 
-    async def get_total_value(
-        self,
-        filters: Optional[Dict[str, Any]] = None
-    ) -> float:
+    async def get_total_value(self, filters: Optional[Dict[str, Any]] = None) -> float:
         """
         Calculate total value of materials in stock.
 
@@ -190,10 +173,7 @@ class MaterialRepository(BaseRepository[Material]):
         return total_value
 
     async def get_by_properties(
-        self,
-        properties_filters: Dict[str, Any],
-        skip: int = 0,
-        limit: int = 100
+        self, properties_filters: Dict[str, Any], skip: int = 0, limit: int = 100
     ) -> List[Material]:
         """
         Search materials by metadata fields (JSONB).
@@ -211,9 +191,7 @@ class MaterialRepository(BaseRepository[Material]):
 
         # Apply JSONB filters
         for key, value in properties_filters.items():
-            query = query.where(
-                Material.properties[key].astext == str(value)
-            )
+            query = query.where(Material.properties[key].astext == str(value))
 
         query = query.offset(skip).limit(limit)
         result = await self.session.execute(query)

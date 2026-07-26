@@ -17,6 +17,7 @@ assertions will still fail if the field appears in a VIEWER response
 Ref: docs/fix-plan/2026-04-23/C5-viewer-financial-projection.md
 Ref: docs/review/2026-04-23/FIX-PLAN.md group C
 """
+
 from __future__ import annotations
 
 from datetime import datetime, timedelta
@@ -28,16 +29,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from goldsmith_erp.db.models import Customer, Order, OrderStatusEnum
 
-
-FINANCIAL_FIELDS: frozenset[str] = frozenset({
-    "price",
-    "material_cost_calculated",
-    "material_cost_override",
-    "labor_cost",
-    "hourly_rate",
-    "profit_margin_percent",
-    "calculated_price",
-})
+FINANCIAL_FIELDS: frozenset[str] = frozenset(
+    {
+        "price",
+        "material_cost_calculated",
+        "material_cost_override",
+        "labor_cost",
+        "hourly_rate",
+        "profit_margin_percent",
+        "calculated_price",
+    }
+)
 
 ORDERS_URL = "/api/v1/orders/"
 
@@ -54,7 +56,8 @@ def _order_url(order_id: int) -> str:
 
 @pytest_asyncio.fixture
 async def financial_order(
-    db_session: AsyncSession, test_customer: Customer,
+    db_session: AsyncSession,
+    test_customer: Customer,
 ) -> Order:
     """Create an order with every financial field populated.
 
@@ -124,7 +127,8 @@ class TestViewerFinancialProjection:
         financial_order: Order,
     ):
         resp = await client.get(
-            _order_url(financial_order.id), headers=viewer_auth_headers,
+            _order_url(financial_order.id),
+            headers=viewer_auth_headers,
         )
         assert resp.status_code == 200, resp.text
         body = resp.json()
@@ -148,15 +152,24 @@ class TestViewerFinancialProjection:
         exclude-set removes more than intended.
         """
         resp = await client.get(
-            _order_url(financial_order.id), headers=viewer_auth_headers,
+            _order_url(financial_order.id),
+            headers=viewer_auth_headers,
         )
         assert resp.status_code == 200, resp.text
         body = resp.json()
 
         # These fields must survive the projection. They are the core
         # identifying + status fields a VIEWER legitimately needs.
-        must_keep = {"id", "title", "description", "status", "customer_id",
-                     "deadline", "created_at", "updated_at"}
+        must_keep = {
+            "id",
+            "title",
+            "description",
+            "status",
+            "customer_id",
+            "deadline",
+            "created_at",
+            "updated_at",
+        }
         missing = must_keep - set(body.keys())
         assert not missing, (
             f"VIEWER projection over-stripped: missing {sorted(missing)}. "
@@ -200,15 +213,16 @@ class TestGoldsmithFinancialProjection:
         financial_order: Order,
     ):
         resp = await client.get(
-            _order_url(financial_order.id), headers=goldsmith_auth_headers,
+            _order_url(financial_order.id),
+            headers=goldsmith_auth_headers,
         )
         assert resp.status_code == 200, resp.text
         body = resp.json()
 
         missing = FINANCIAL_FIELDS - set(body.keys())
-        assert not missing, (
-            f"GOLDSMITH DETAIL is missing financial fields: {sorted(missing)}."
-        )
+        assert (
+            not missing
+        ), f"GOLDSMITH DETAIL is missing financial fields: {sorted(missing)}."
 
         # Values must be present (non-null) — fixture populated all seven.
         assert body["price"] == pytest.approx(1234.56)
@@ -239,9 +253,9 @@ class TestAdminFinancialProjection:
         body = matching[0]
 
         missing = FINANCIAL_FIELDS - set(body.keys())
-        assert not missing, (
-            f"ADMIN LIST is missing financial fields: {sorted(missing)}."
-        )
+        assert (
+            not missing
+        ), f"ADMIN LIST is missing financial fields: {sorted(missing)}."
 
     @pytest.mark.asyncio
     async def test_admin_detail_sees_all_financial_fields(
@@ -251,15 +265,16 @@ class TestAdminFinancialProjection:
         financial_order: Order,
     ):
         resp = await client.get(
-            _order_url(financial_order.id), headers=admin_auth_headers,
+            _order_url(financial_order.id),
+            headers=admin_auth_headers,
         )
         assert resp.status_code == 200, resp.text
         body = resp.json()
 
         missing = FINANCIAL_FIELDS - set(body.keys())
-        assert not missing, (
-            f"ADMIN DETAIL is missing financial fields: {sorted(missing)}."
-        )
+        assert (
+            not missing
+        ), f"ADMIN DETAIL is missing financial fields: {sorted(missing)}."
 
         assert body["price"] == pytest.approx(1234.56)
         assert body["calculated_price"] == pytest.approx(1800.00)

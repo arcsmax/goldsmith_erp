@@ -30,7 +30,6 @@ from goldsmith_erp.db.models import (
     ValuationCertificate,
 )
 
-
 # ---------------------------------------------------------------------------
 # Fixtures — bind a tmp_path to FILE_STORAGE_ROOT for each test
 # ---------------------------------------------------------------------------

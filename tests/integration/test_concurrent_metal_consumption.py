@@ -35,6 +35,7 @@ requests ask for more than is left" — is covered by
 TestConsumeMaterialConcurrency::test_rechecks_under_lock_prevent_negative_stock``.
 This file adds the TRUE concurrency dimension.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -58,7 +59,6 @@ from goldsmith_erp.db.models import (
 from goldsmith_erp.models.metal_inventory import CostingMethod, MaterialUsageCreate
 from goldsmith_erp.services.metal_inventory_service import MetalInventoryService
 from tests.integration.conftest import test_engine as _test_engine
-
 
 # --------------------------------------------------------------------------- #
 # Gatekeeper — PostgreSQL only
@@ -228,13 +228,11 @@ class TestConcurrentConsumption:
             )
             reloaded = result.scalar_one()
             assert reloaded.remaining_weight_g == pytest.approx(2.0, abs=0.01)
-            assert reloaded.remaining_weight_g >= 0.0, (
-                "Stock went negative — FOR UPDATE lock did not serialise"
-            )
+            assert (
+                reloaded.remaining_weight_g >= 0.0
+            ), "Stock went negative — FOR UPDATE lock did not serialise"
 
-    async def test_two_parallel_consumes_that_both_fit_both_succeed(
-        self, db_session
-    ):
+    async def test_two_parallel_consumes_that_both_fit_both_succeed(self, db_session):
         """Setup: 10g bar. Two tasks each consume 3g.
 
         Expected: both succeed (remaining=4g). This confirms the lock

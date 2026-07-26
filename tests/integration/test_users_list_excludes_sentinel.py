@@ -20,6 +20,7 @@ Post-fix expectation:
 Validators stay strict — the bug is "list contains data that should never
 reach the response model", not "the validator is too tight".
 """
+
 from datetime import datetime
 
 import pytest
@@ -95,12 +96,12 @@ class TestUsersListExcludesSentinel:
         emails = {user["email"] for user in payload}
         ids = {user["id"] for user in payload}
 
-        assert SENTINEL_EMAIL not in emails, (
-            f"Sentinel email leaked into response: {payload}"
-        )
-        assert sentinel.id not in ids, (
-            f"Sentinel user id {sentinel.id} leaked into response: {payload}"
-        )
+        assert (
+            SENTINEL_EMAIL not in emails
+        ), f"Sentinel email leaked into response: {payload}"
+        assert (
+            sentinel.id not in ids
+        ), f"Sentinel user id {sentinel.id} leaked into response: {payload}"
 
     async def test_real_users_still_listed_with_sentinel_present(
         self,

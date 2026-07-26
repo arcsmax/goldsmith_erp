@@ -5,6 +5,7 @@ All measurement data is customer PII.  Log only anonymized IDs — never names,
 finger positions, or raw measurement values in log messages at INFO or above.
 Audit logging for financial/sensitive access is handled at the router layer.
 """
+
 import logging
 from datetime import datetime
 from typing import List, Optional
@@ -13,13 +14,9 @@ from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from goldsmith_erp.db.models import (
-    Customer as CustomerModel,
-    CustomerMeasurement as MeasurementModel,
-    FingerPosition,
-    HandSide,
-    MeasurementType,
-)
+from goldsmith_erp.db.models import Customer as CustomerModel
+from goldsmith_erp.db.models import CustomerMeasurement as MeasurementModel
+from goldsmith_erp.db.models import FingerPosition, HandSide, MeasurementType
 from goldsmith_erp.db.transaction import transactional
 from goldsmith_erp.models.measurement import MeasurementCreate, MeasurementUpdate
 
@@ -51,9 +48,7 @@ class MeasurementService:
             .filter(MeasurementModel.customer_id == customer_id)
         )
         if measurement_type is not None:
-            query = query.filter(
-                MeasurementModel.measurement_type == measurement_type
-            )
+            query = query.filter(MeasurementModel.measurement_type == measurement_type)
         query = query.order_by(MeasurementModel.measured_at.desc())
 
         result = await db.execute(query)
@@ -189,9 +184,7 @@ class MeasurementService:
         return db_measurement
 
     @staticmethod
-    async def delete_measurement(
-        db: AsyncSession, measurement_id: int
-    ) -> bool:
+    async def delete_measurement(db: AsyncSession, measurement_id: int) -> bool:
         """
         Hard-delete a single measurement record.
 

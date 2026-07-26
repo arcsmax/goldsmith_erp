@@ -24,6 +24,7 @@ class AlertSeverity(str, Enum):
     MEDIUM — 2x   – 3x   expected duration: goldsmith should check in
     HIGH   — > 3x         expected duration: something is clearly wrong
     """
+
     LOW = "LOW"
     MEDIUM = "MEDIUM"
     HIGH = "HIGH"
@@ -45,6 +46,7 @@ class AnomalyResult(BaseModel):
     Contains enough information to build a full AnomalyAlert without an
     additional database round-trip.
     """
+
     is_anomaly: bool
     severity: Optional[AlertSeverity] = None
 
@@ -67,6 +69,7 @@ class AnomalyAlert(BaseModel):
     Created after check_anomaly() returns is_anomaly=True and enriched with
     order/user context before publishing.
     """
+
     alert_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     time_entry_id: str
     order_id: int

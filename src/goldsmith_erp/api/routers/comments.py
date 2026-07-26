@@ -1,14 +1,20 @@
 """API Router for Order Comments (Digitale Post-its)."""
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.ext.asyncio import AsyncSession
+
 from typing import List
 
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from goldsmith_erp.api.deps import get_current_user
-from goldsmith_erp.db.session import get_db
-from goldsmith_erp.db.models import User, UserRole
-from goldsmith_erp.models.order_comment import OrderCommentCreate, OrderCommentUpdate, OrderCommentRead
-from goldsmith_erp.services.comment_service import CommentService
 from goldsmith_erp.core.permissions import Permission, require_permission
+from goldsmith_erp.db.models import User, UserRole
+from goldsmith_erp.db.session import get_db
+from goldsmith_erp.models.order_comment import (
+    OrderCommentCreate,
+    OrderCommentRead,
+    OrderCommentUpdate,
+)
+from goldsmith_erp.services.comment_service import CommentService
 
 router = APIRouter()
 
@@ -20,7 +26,7 @@ async def list_comments(
     skip: int = 0,
     limit: int = 50,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
 ):
     """Alle Kommentare fuer einen Auftrag."""
     comments = await CommentService.get_comments_for_order(db, order_id, skip, limit)
@@ -41,16 +47,20 @@ async def list_comments(
     return result
 
 
-@router.post("/orders/{order_id}/comments", response_model=OrderCommentRead, status_code=201)
+@router.post(
+    "/orders/{order_id}/comments", response_model=OrderCommentRead, status_code=201
+)
 @require_permission(Permission.ORDER_VIEW)
 async def create_comment(
     order_id: int,
     comment_in: OrderCommentCreate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
 ):
     """Neuen Kommentar zu einem Auftrag hinzufuegen."""
-    comment = await CommentService.create_comment(db, order_id, current_user.id, comment_in)
+    comment = await CommentService.create_comment(
+        db, order_id, current_user.id, comment_in
+    )
     return OrderCommentRead(
         id=comment.id,
         order_id=comment.order_id,
@@ -69,12 +79,16 @@ async def update_comment(
     comment_id: int,
     comment_in: OrderCommentUpdate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
 ):
     """Eigenen Kommentar bearbeiten."""
-    comment = await CommentService.update_comment(db, comment_id, order_id, current_user.id, comment_in)
+    comment = await CommentService.update_comment(
+        db, comment_id, order_id, current_user.id, comment_in
+    )
     if not comment:
-        raise HTTPException(status_code=404, detail="Kommentar nicht gefunden oder keine Berechtigung")
+        raise HTTPException(
+            status_code=404, detail="Kommentar nicht gefunden oder keine Berechtigung"
+        )
     return OrderCommentRead(
         id=comment.id,
         order_id=comment.order_id,
@@ -92,10 +106,14 @@ async def delete_comment(
     order_id: int,
     comment_id: int,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
 ):
     """Kommentar loeschen (eigene oder als Admin alle)."""
     is_admin = current_user.role == UserRole.ADMIN
-    deleted = await CommentService.delete_comment(db, comment_id, order_id, current_user.id, is_admin)
+    deleted = await CommentService.delete_comment(
+        db, comment_id, order_id, current_user.id, is_admin
+    )
     if not deleted:
-        raise HTTPException(status_code=404, detail="Kommentar nicht gefunden oder keine Berechtigung")
+        raise HTTPException(
+            status_code=404, detail="Kommentar nicht gefunden oder keine Berechtigung"
+        )

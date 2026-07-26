@@ -23,6 +23,7 @@ Covers:
 
 aiosmtplib is mocked at the same boundary as test_customer_update_service.py.
 """
+
 from datetime import datetime, timedelta
 
 import pytest

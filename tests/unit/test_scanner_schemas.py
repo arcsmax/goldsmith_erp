@@ -40,7 +40,6 @@ from goldsmith_erp.models.scanner import (
     ScanLogCreate,
 )
 
-
 # --------------------------------------------------------------------------- #
 # ScanContext — B1 strict whitelist
 # --------------------------------------------------------------------------- #
@@ -157,27 +156,33 @@ class TestResolveRequest:
     def test_rejects_unknown_toplevel_key(self):
         """Top-level extra key — StrictRequestBase forbids."""
         with pytest.raises(ValidationError):
-            ResolveRequest.model_validate({
-                "raw_payload": "ORDER:1",
-                "bogus": "x",
-            })
+            ResolveRequest.model_validate(
+                {
+                    "raw_payload": "ORDER:1",
+                    "bogus": "x",
+                }
+            )
 
     def test_rejects_user_id_in_body(self):
         """user_id in body is audit metadata — 422 per StrictRequestBase."""
         with pytest.raises(ValidationError) as exc:
-            ResolveRequest.model_validate({
-                "raw_payload": "ORDER:1",
-                "user_id": 7,
-            })
+            ResolveRequest.model_validate(
+                {
+                    "raw_payload": "ORDER:1",
+                    "user_id": 7,
+                }
+            )
         assert "user_id" in str(exc.value)
 
     def test_nested_context_unknown_key_rejected(self):
         """B1 nested validation still fires — critical for Anna's block."""
         with pytest.raises(ValidationError) as exc:
-            ResolveRequest.model_validate({
-                "raw_payload": "ORDER:1",
-                "context": {"customer_id": 9},
-            })
+            ResolveRequest.model_validate(
+                {
+                    "raw_payload": "ORDER:1",
+                    "context": {"customer_id": 9},
+                }
+            )
         assert "customer_id" in str(exc.value)
 
 
@@ -227,37 +232,45 @@ class TestScanLogCreate:
 
     def test_nested_context_unknown_key_rejected(self):
         with pytest.raises(ValidationError) as exc:
-            ScanLogCreate.model_validate({
-                "raw_payload": "ORDER:1",
-                "context": {"customer_id": 9},
-            })
+            ScanLogCreate.model_validate(
+                {
+                    "raw_payload": "ORDER:1",
+                    "context": {"customer_id": 9},
+                }
+            )
         assert "customer_id" in str(exc.value)
 
     def test_user_id_in_body_rejected(self):
         """StrictRequestBase rejects payload-level user_id."""
         with pytest.raises(ValidationError) as exc:
-            ScanLogCreate.model_validate({
-                "raw_payload": "ORDER:1",
-                "user_id": 99,
-            })
+            ScanLogCreate.model_validate(
+                {
+                    "raw_payload": "ORDER:1",
+                    "user_id": 99,
+                }
+            )
         assert "user_id" in str(exc.value)
 
     def test_created_by_in_body_rejected(self):
         """``*_by`` suffix rejected by StrictRequestBase too."""
         with pytest.raises(ValidationError) as exc:
-            ScanLogCreate.model_validate({
-                "raw_payload": "ORDER:1",
-                "created_by": 7,
-            })
+            ScanLogCreate.model_validate(
+                {
+                    "raw_payload": "ORDER:1",
+                    "created_by": 7,
+                }
+            )
         assert "created_by" in str(exc.value)
 
     def test_retention_class_in_body_rejected(self):
         """Server-controlled field rejected (Slice 2 StrictRequestBase)."""
         with pytest.raises(ValidationError):
-            ScanLogCreate.model_validate({
-                "raw_payload": "ORDER:1",
-                "retention_class": "financial_10y",
-            })
+            ScanLogCreate.model_validate(
+                {
+                    "raw_payload": "ORDER:1",
+                    "retention_class": "financial_10y",
+                }
+            )
 
     def test_control_chars_stripped_on_raw_payload(self):
         log = ScanLogCreate(raw_payload="ORDER:1\r\n")
@@ -275,9 +288,7 @@ class TestScanLogCreate:
 
 class TestScanLogBatchCreate:
     def test_valid_batch(self):
-        events = [
-            ScanLogCreate(raw_payload=f"ORDER:{i}") for i in range(1, 6)
-        ]
+        events = [ScanLogCreate(raw_payload=f"ORDER:{i}") for i in range(1, 6)]
         batch = ScanLogBatchCreate(events=events)
         assert len(batch.events) == 5
 
@@ -288,9 +299,7 @@ class TestScanLogBatchCreate:
 
     def test_too_many_events_rejected(self):
         """101 events > max_length=100 → 422."""
-        events = [
-            ScanLogCreate(raw_payload=f"ORDER:{i}") for i in range(101)
-        ]
+        events = [ScanLogCreate(raw_payload=f"ORDER:{i}") for i in range(101)]
         with pytest.raises(ValidationError):
             ScanLogBatchCreate(events=events)
 
@@ -304,13 +313,15 @@ class TestResolveResponseHygiene:
     def test_extra_field_rejected(self):
         """extra='forbid' on the response prevents developer drift."""
         with pytest.raises(ValidationError):
-            ResolveResponse.model_validate({
-                "resolved": True,
-                "resolution_path": "prefix",
-                "entity_type": "order",
-                "entity_id": 1,
-                "leaked_field": "oops",
-            })
+            ResolveResponse.model_validate(
+                {
+                    "resolved": True,
+                    "resolution_path": "prefix",
+                    "entity_type": "order",
+                    "entity_id": 1,
+                    "leaked_field": "oops",
+                }
+            )
 
     def test_resolution_path_literal_bounds(self):
         """Only the 4 documented resolution paths are accepted."""
@@ -323,12 +334,14 @@ class TestResolveResponseHygiene:
 class TestActionItemHygiene:
     def test_extra_field_rejected(self):
         with pytest.raises(ValidationError):
-            ActionItem.model_validate({
-                "id": "x",
-                "label": "y",
-                "icon": "z",
-                "mystery": True,
-            })
+            ActionItem.model_validate(
+                {
+                    "id": "x",
+                    "label": "y",
+                    "icon": "z",
+                    "mystery": True,
+                }
+            )
 
     def test_label_length_bounded(self):
         """Long labels break tablet-portrait layouts — hard cap at 100."""

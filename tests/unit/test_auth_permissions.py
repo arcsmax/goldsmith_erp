@@ -8,22 +8,18 @@ Tests cover:
 - Token validation edge cases
 - User activation status
 """
-import pytest
-from datetime import timedelta
-from jose import jwt, JWTError
-from fastapi import HTTPException
 
-from goldsmith_erp.api.deps import (
-    get_current_user,
-    get_current_admin_user,
-)
-from goldsmith_erp.core.permissions import (
-    Permission,
-    has_permission,
-    require_permission_dep as require_permission,
-)
-from goldsmith_erp.core.security import create_access_token, ALGORITHM
+from datetime import timedelta
+
+import pytest
+from fastapi import HTTPException
+from jose import JWTError, jwt
+
+from goldsmith_erp.api.deps import get_current_admin_user, get_current_user
 from goldsmith_erp.core.config import settings
+from goldsmith_erp.core.permissions import Permission, has_permission
+from goldsmith_erp.core.permissions import require_permission_dep as require_permission
+from goldsmith_erp.core.security import ALGORITHM, create_access_token
 from goldsmith_erp.db.models import User, UserRole
 
 
@@ -35,8 +31,7 @@ class TestGetCurrentUser:
         """Test extracting user from valid JWT token"""
         # Create valid token
         token = create_access_token(
-            data={"sub": str(sample_user.id)},
-            expires_delta=timedelta(hours=1)
+            data={"sub": str(sample_user.id)}, expires_delta=timedelta(hours=1)
         )
 
         # Extract user (pass db and token as keyword args)
@@ -60,8 +55,7 @@ class TestGetCurrentUser:
         """Test that expired token raises HTTPException"""
         # Create expired token (expired 1 hour ago)
         token = create_access_token(
-            data={"sub": str(sample_user.id)},
-            expires_delta=timedelta(hours=-1)
+            data={"sub": str(sample_user.id)}, expires_delta=timedelta(hours=-1)
         )
 
         with pytest.raises(HTTPException) as exc_info:
@@ -74,7 +68,7 @@ class TestGetCurrentUser:
         # Create token with non-existent user ID
         token = create_access_token(
             data={"sub": "999999"},  # User doesn't exist
-            expires_delta=timedelta(hours=1)
+            expires_delta=timedelta(hours=1),
         )
 
         with pytest.raises(HTTPException) as exc_info:
@@ -86,8 +80,7 @@ class TestGetCurrentUser:
         """Test that inactive user cannot authenticate"""
         # Create token for inactive user
         token = create_access_token(
-            data={"sub": str(inactive_user.id)},
-            expires_delta=timedelta(hours=1)
+            data={"sub": str(inactive_user.id)}, expires_delta=timedelta(hours=1)
         )
 
         with pytest.raises(HTTPException) as exc_info:
@@ -126,8 +119,7 @@ class TestGetCurrentAdminUser:
         await db_session.commit()
 
         token = create_access_token(
-            data={"sub": str(inactive_user.id)},
-            expires_delta=timedelta(hours=1)
+            data={"sub": str(inactive_user.id)}, expires_delta=timedelta(hours=1)
         )
 
         # Should fail at get_current_user level (inactive check)
@@ -210,7 +202,7 @@ class TestTokenEdgeCases:
         # Create token without 'sub' claim
         token = create_access_token(
             data={"email": "test@example.com"},  # No 'sub'!
-            expires_delta=timedelta(hours=1)
+            expires_delta=timedelta(hours=1),
         )
 
         with pytest.raises(HTTPException) as exc_info:
@@ -224,7 +216,7 @@ class TestTokenEdgeCases:
         wrong_token = jwt.encode(
             {"sub": str(sample_user.id), "exp": 9999999999},
             "wrong-secret-key",
-            algorithm=ALGORITHM
+            algorithm=ALGORITHM,
         )
 
         with pytest.raises(HTTPException) as exc_info:
@@ -236,8 +228,7 @@ class TestTokenEdgeCases:
         """Test that token with invalid user_id format raises HTTPException"""
         # Create token with non-numeric user ID
         token = create_access_token(
-            data={"sub": "not-a-number"},
-            expires_delta=timedelta(hours=1)
+            data={"sub": "not-a-number"}, expires_delta=timedelta(hours=1)
         )
 
         with pytest.raises(HTTPException) as exc_info:
@@ -253,8 +244,7 @@ class TestUserActivation:
     async def test_active_user_can_authenticate(self, db_session, sample_user):
         """Test that active user can authenticate"""
         token = create_access_token(
-            data={"sub": str(sample_user.id)},
-            expires_delta=timedelta(hours=1)
+            data={"sub": str(sample_user.id)}, expires_delta=timedelta(hours=1)
         )
 
         user = await get_current_user(db=db_session, token=token)
@@ -270,8 +260,7 @@ class TestUserActivation:
         await db_session.commit()
 
         token = create_access_token(
-            data={"sub": str(sample_user.id)},
-            expires_delta=timedelta(hours=1)
+            data={"sub": str(sample_user.id)}, expires_delta=timedelta(hours=1)
         )
 
         with pytest.raises(HTTPException) as exc_info:
@@ -288,8 +277,7 @@ class TestUserActivation:
         await db_session.commit()
 
         token = create_access_token(
-            data={"sub": str(inactive_user.id)},
-            expires_delta=timedelta(hours=1)
+            data={"sub": str(inactive_user.id)}, expires_delta=timedelta(hours=1)
         )
 
         user = await get_current_user(db=db_session, token=token)

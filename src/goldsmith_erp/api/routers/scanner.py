@@ -61,10 +61,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from goldsmith_erp.api.deps import get_current_user
-from goldsmith_erp.core.idempotency import (
-    IdempotencyContext,
-    get_idempotency_context,
-)
+from goldsmith_erp.core.idempotency import IdempotencyContext, get_idempotency_context
 from goldsmith_erp.core.permissions import Permission, require_permission
 from goldsmith_erp.db.models import User
 from goldsmith_erp.db.session import get_db
@@ -88,9 +85,7 @@ router = APIRouter()
 # Matches the service-layer ``_allowed_search_types`` allow-list. The router
 # pre-validates the client input against this set so malformed type tokens
 # produce a clean 400 rather than silently being filtered out.
-_SEARCH_ENTITY_TYPES = frozenset(
-    {"order", "repair", "metal_purchase", "material"}
-)
+_SEARCH_ENTITY_TYPES = frozenset({"order", "repair", "metal_purchase", "material"})
 
 
 # --------------------------------------------------------------------------- #

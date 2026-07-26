@@ -1,15 +1,17 @@
 """Unit tests for core security module."""
-import pytest
+
 from datetime import timedelta
+
+import pytest
 from jose import jwt
 
-from goldsmith_erp.core.security import (
-    verify_password,
-    get_password_hash,
-    create_access_token,
-    ALGORITHM,
-)
 from goldsmith_erp.core.config import settings
+from goldsmith_erp.core.security import (
+    ALGORITHM,
+    create_access_token,
+    get_password_hash,
+    verify_password,
+)
 
 
 class TestPasswordHashing:
@@ -63,7 +65,11 @@ class TestJWTTokens:
     def test_invalid_secret_key_fails_verification(self):
         token = create_access_token(data={"sub": "1"})
         with pytest.raises(Exception):
-            jwt.decode(token, "wrong-secret-key-that-is-long-enough-32chars!", algorithms=[ALGORITHM])
+            jwt.decode(
+                token,
+                "wrong-secret-key-that-is-long-enough-32chars!",
+                algorithms=[ALGORITHM],
+            )
 
     def test_token_with_extra_data(self):
         token = create_access_token(data={"sub": "1", "role": "admin"})

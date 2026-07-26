@@ -10,20 +10,20 @@ Calculates order costs based on:
 IMPORTANT: As of Phase 2.3, this service uses MetalInventoryService
 for real-time inventory pricing instead of hardcoded prices.
 """
+
 import logging
-from typing import Dict, Any, Optional, cast
 from decimal import Decimal
-from sqlalchemy import select, func
+from typing import Any, Dict, Optional, cast
+
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from goldsmith_erp.core.config import settings
-from goldsmith_erp.db.models import (
-    Order as OrderModel,
-    Gemstone as GemstoneModel,
-    Activity as ActivityModel,
-    CostingMethod,
-)
+from goldsmith_erp.db.models import Activity as ActivityModel
+from goldsmith_erp.db.models import CostingMethod
+from goldsmith_erp.db.models import Gemstone as GemstoneModel
+from goldsmith_erp.db.models import Order as OrderModel
 from goldsmith_erp.services.metal_inventory_service import MetalInventoryService
 
 logger = logging.getLogger(__name__)
@@ -31,6 +31,7 @@ logger = logging.getLogger(__name__)
 
 class PriceBreakdown:
     """Data class for price breakdown"""
+
     def __init__(
         self,
         material_cost: float = 0.0,
@@ -54,16 +55,16 @@ class PriceBreakdown:
     def to_dict(self) -> Dict[str, float]:
         """Convert to dictionary"""
         return {
-            'material_cost': self.material_cost,
-            'gemstone_cost': self.gemstone_cost,
-            'labor_cost': self.labor_cost,
-            'subtotal': self.subtotal,
-            'margin_amount': self.margin_amount,
-            'margin_percent': 0.0,  # Will be filled by service
-            'subtotal_with_margin': self.subtotal_with_margin,
-            'vat_amount': self.vat_amount,
-            'vat_percent': 0.0,  # Will be filled by service
-            'final_price': self.final_price,
+            "material_cost": self.material_cost,
+            "gemstone_cost": self.gemstone_cost,
+            "labor_cost": self.labor_cost,
+            "subtotal": self.subtotal,
+            "margin_amount": self.margin_amount,
+            "margin_percent": 0.0,  # Will be filled by service
+            "subtotal_with_margin": self.subtotal_with_margin,
+            "vat_amount": self.vat_amount,
+            "vat_percent": 0.0,  # Will be filled by service
+            "final_price": self.final_price,
         }
 
 
@@ -82,10 +83,7 @@ class CostCalculationService:
     """
 
     @staticmethod
-    async def calculate_order_cost(
-        db: AsyncSession,
-        order_id: int
-    ) -> PriceBreakdown:
+    async def calculate_order_cost(db: AsyncSession, order_id: int) -> PriceBreakdown:
         """
         Calculate complete cost breakdown for an order.
 
@@ -114,9 +112,7 @@ class CostCalculationService:
             raise ValueError(f"Order {order_id} not found")
 
         # 1. Material Cost (from inventory)
-        material_cost = await CostCalculationService._calculate_material_cost(
-            db, order
-        )
+        material_cost = await CostCalculationService._calculate_material_cost(db, order)
 
         # 2. Gemstone Cost
         gemstone_cost = await CostCalculationService._calculate_gemstone_cost(order)
@@ -128,7 +124,11 @@ class CostCalculationService:
         subtotal = material_cost + gemstone_cost + labor_cost
 
         # 5. Apply profit margin — use explicit None check, 0.0 is valid (no margin)
-        margin_percent = order.profit_margin_percent if order.profit_margin_percent is not None else 40.0
+        margin_percent = (
+            order.profit_margin_percent
+            if order.profit_margin_percent is not None
+            else 40.0
+        )
         margin_amount = subtotal * (margin_percent / 100.0)
         subtotal_with_margin = subtotal + margin_amount
 
@@ -153,8 +153,8 @@ class CostCalculationService:
 
         # Add percentages to dict
         result_dict = breakdown.to_dict()
-        result_dict['margin_percent'] = margin_percent
-        result_dict['vat_percent'] = vat_percent
+        result_dict["margin_percent"] = margin_percent
+        result_dict["vat_percent"] = vat_percent
 
         logger.info(
             "Cost calculation completed",
@@ -164,16 +164,13 @@ class CostCalculationService:
                 "gemstone_cost": gemstone_cost,
                 "labor_cost": labor_cost,
                 "final_price": final_price,
-            }
+            },
         )
 
         return breakdown
 
     @staticmethod
-    async def _calculate_material_cost(
-        db: AsyncSession,
-        order: OrderModel
-    ) -> float:
+    async def _calculate_material_cost(db: AsyncSession, order: OrderModel) -> float:
         """
         Calculate material cost from real metal inventory.
 
@@ -198,8 +195,8 @@ class CostCalculationService:
                 "Using manual material cost override",
                 extra={
                     "order_id": order.id,
-                    "override_cost": order.material_cost_override
-                }
+                    "override_cost": order.material_cost_override,
+                },
             )
             return order.material_cost_override
 
@@ -207,7 +204,7 @@ class CostCalculationService:
         if not order.metal_type:
             logger.warning(
                 "Order has no metal_type specified - cannot calculate material cost from inventory",
-                extra={"order_id": order.id}
+                extra={"order_id": order.id},
             )
             return 0.0
 
@@ -217,13 +214,15 @@ class CostCalculationService:
         if not weight_g or weight_g <= 0:
             logger.warning(
                 "No weight specified for order - cannot calculate material cost",
-                extra={"order_id": order.id}
+                extra={"order_id": order.id},
             )
             return 0.0
 
         # Apply scrap percentage (material loss during work).
         # Use explicit None check — 0.0 is a valid scrap percentage (no waste).
-        scrap_percent = order.scrap_percentage if order.scrap_percentage is not None else 5.0
+        scrap_percent = (
+            order.scrap_percentage if order.scrap_percentage is not None else 5.0
+        )
         effective_weight = weight_g * (1 + scrap_percent / 100.0)
 
         # Get allocation from MetalInventoryService
@@ -236,7 +235,7 @@ class CostCalculationService:
                 metal_type=order.metal_type,
                 required_weight_g=effective_weight,
                 costing_method=costing_method,
-                specific_purchase_id=order.specific_metal_purchase_id
+                specific_purchase_id=order.specific_metal_purchase_id,
             )
 
             material_cost = allocation.total_cost
@@ -251,8 +250,8 @@ class CostCalculationService:
                     "effective_weight": round(effective_weight, 2),
                     "costing_method": costing_method.value,
                     "material_cost": round(material_cost, 2),
-                    "batches_used": len(allocation.allocations)
-                }
+                    "batches_used": len(allocation.allocations),
+                },
             )
 
             return material_cost
@@ -265,8 +264,8 @@ class CostCalculationService:
                     "order_id": order.id,
                     "metal_type": order.metal_type.value,
                     "required_weight": round(effective_weight, 2),
-                    "error": str(e)
-                }
+                    "error": str(e),
+                },
             )
             # Re-raise with more context
             raise ValueError(
@@ -279,9 +278,7 @@ class CostCalculationService:
         if not order.gemstones:
             return 0.0
 
-        total = sum(
-            (gem.cost * gem.quantity) for gem in order.gemstones
-        )
+        total = sum((gem.cost * gem.quantity) for gem in order.gemstones)
 
         logger.debug(
             "Gemstone cost calculated",
@@ -289,7 +286,7 @@ class CostCalculationService:
                 "order_id": order.id,
                 "gemstone_count": len(order.gemstones),
                 "total_cost": total,
-            }
+            },
         )
 
         return total
@@ -334,7 +331,7 @@ class CostCalculationService:
                 "labor_hours": order.labor_hours,
                 "hourly_rate": hourly_rate,
                 "labor_cost": labor_cost,
-            }
+            },
         )
 
         return labor_cost
@@ -356,9 +353,7 @@ class CostCalculationService:
             return 0.0
 
         result = await db.execute(
-            select(ActivityModel).where(
-                ActivityModel.id.in_(activity_hours.keys())
-            )
+            select(ActivityModel).where(ActivityModel.id.in_(activity_hours.keys()))
         )
         # cast(): mypy sees Column[int] at class level for `a.id` (classic
         # declarative style, no Mapped[] annotations) — cast to the runtime
@@ -384,7 +379,7 @@ class CostCalculationService:
             extra={
                 "activity_ids": list(activity_hours.keys()),
                 "total_cost": total_cost,
-            }
+            },
         )
 
         return total_cost
@@ -413,7 +408,7 @@ class CostCalculationService:
     async def update_order_calculated_price(
         db: AsyncSession,
         order_id: int,
-        price_breakdown: Optional[PriceBreakdown] = None
+        price_breakdown: Optional[PriceBreakdown] = None,
     ) -> OrderModel:
         """
         Update order with calculated costs and price.
@@ -426,9 +421,7 @@ class CostCalculationService:
             )
 
         # Fetch order
-        result = await db.execute(
-            select(OrderModel).filter(OrderModel.id == order_id)
-        )
+        result = await db.execute(select(OrderModel).filter(OrderModel.id == order_id))
         order = result.scalar_one()
 
         # Update calculated fields
@@ -449,7 +442,7 @@ class CostCalculationService:
                 "order_id": order_id,
                 "calculated_price": price_breakdown.final_price,
                 "final_price": order.price,
-            }
+            },
         )
 
         return order

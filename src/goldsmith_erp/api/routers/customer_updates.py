@@ -26,6 +26,7 @@ details, IDs-only — never user free-text):
   Invalid*StateError / NoQuoteAvailableError -> 409
   *ValidationError (photo ownership, missing template content) -> 422
 """
+
 import io
 import logging
 

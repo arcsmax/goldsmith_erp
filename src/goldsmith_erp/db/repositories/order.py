@@ -15,17 +15,18 @@ Date: 2025-11-06
 """
 
 from datetime import datetime, timedelta
-from typing import List, Optional, Dict, Any
+from typing import Any, Dict, List, Optional
+
+from sqlalchemy import and_, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, or_, and_, func, update
-from sqlalchemy.orm import selectinload, joinedload
+from sqlalchemy.orm import joinedload, selectinload
 
 from goldsmith_erp.db.models import (
+    Customer,
+    Material,
     Order,
     OrderItem,
     OrderStatusHistory,
-    Customer,
-    Material,
     User,
 )
 from goldsmith_erp.db.repositories.base import BaseRepository
@@ -107,7 +108,9 @@ class OrderRepository(BaseRepository[Order]):
             .where(Order.id == id)
             .options(
                 selectinload(Order.order_items).selectinload(OrderItem.material),
-                selectinload(Order.status_history).selectinload(OrderStatusHistory.user),
+                selectinload(Order.status_history).selectinload(
+                    OrderStatusHistory.user
+                ),
                 selectinload(Order.customer),
                 selectinload(Order.assigned_user),
             )
@@ -342,11 +345,7 @@ class OrderRepository(BaseRepository[Order]):
 
         return order
 
-    async def update_order(
-        self,
-        order_id: int,
-        **updates
-    ) -> Optional[Order]:
+    async def update_order(self, order_id: int, **updates) -> Optional[Order]:
         """
         Update an order.
 
@@ -449,9 +448,7 @@ class OrderRepository(BaseRepository[Order]):
         return order_item
 
     async def update_order_item(
-        self,
-        order_item_id: int,
-        **updates
+        self, order_item_id: int, **updates
     ) -> Optional[OrderItem]:
         """
         Update an order item.
@@ -696,8 +693,7 @@ class OrderRepository(BaseRepository[Order]):
 
         # Get count of orders this month
         result = await self.session.execute(
-            select(func.count(Order.id))
-            .where(Order.order_number.like(f"{prefix}%"))
+            select(func.count(Order.id)).where(Order.order_number.like(f"{prefix}%"))
         )
         count = result.scalar_one()
 
@@ -741,7 +737,9 @@ class OrderRepository(BaseRepository[Order]):
 
         # Calculate average margin
         if delivered_orders > 0:
-            average_margin = (total_profit / total_revenue * 100) if total_revenue > 0 else 0.0
+            average_margin = (
+                (total_profit / total_revenue * 100) if total_revenue > 0 else 0.0
+            )
         else:
             average_margin = 0.0
 

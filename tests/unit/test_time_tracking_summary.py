@@ -1,9 +1,11 @@
 """Unit tests for TimeTrackingService.get_summary aggregation."""
 
-import pytest
 from datetime import datetime, timedelta
 
-from goldsmith_erp.db.models import Activity, TimeEntry as TimeEntryModel
+import pytest
+
+from goldsmith_erp.db.models import Activity
+from goldsmith_erp.db.models import TimeEntry as TimeEntryModel
 from goldsmith_erp.services.time_tracking_service import TimeTrackingService
 
 

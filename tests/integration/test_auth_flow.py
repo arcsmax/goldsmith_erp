@@ -9,13 +9,13 @@ Tests:
 - Protected endpoint with valid token returns 200
 - POST /api/v1/logout — clears access_token cookie
 """
+
 import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from goldsmith_erp.core.security import get_password_hash
 from goldsmith_erp.db.models import User, UserRole
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -26,7 +26,9 @@ LOGOUT_URL = "/api/v1/logout"
 PROTECTED_URL = "/api/v1/orders/"
 
 
-async def _create_user(db: AsyncSession, email: str, password: str, role: UserRole = UserRole.VIEWER) -> User:
+async def _create_user(
+    db: AsyncSession, email: str, password: str, role: UserRole = UserRole.VIEWER
+) -> User:
     """Create a user directly in the test DB."""
     user = User(
         email=email,
@@ -45,6 +47,7 @@ async def _create_user(db: AsyncSession, email: str, password: str, role: UserRo
 # ---------------------------------------------------------------------------
 # Login tests
 # ---------------------------------------------------------------------------
+
 
 class TestLoginEndpoint:
 
@@ -119,6 +122,7 @@ class TestLoginEndpoint:
 # Protected endpoint access tests
 # ---------------------------------------------------------------------------
 
+
 class TestProtectedEndpointAccess:
 
     @pytest.mark.asyncio
@@ -181,12 +185,11 @@ class TestProtectedEndpointAccess:
 # Logout tests
 # ---------------------------------------------------------------------------
 
+
 class TestLogout:
 
     @pytest.mark.asyncio
-    async def test_logout_clears_cookie(
-        self, authenticated_client: AsyncClient
-    ):
+    async def test_logout_clears_cookie(self, authenticated_client: AsyncClient):
         """POST /logout returns 200 and instructs the client to clear the cookie."""
         response = await authenticated_client.post(LOGOUT_URL)
         assert response.status_code == 200

@@ -5,9 +5,10 @@ Provides Pydantic models for validating path parameters, query parameters,
 and other inputs to prevent SQL injection, DoS attacks, and invalid data.
 """
 
-from pydantic import BaseModel, Field, ValidationInfo, field_validator
-from typing import Optional
 import uuid as uuid_lib
+from typing import Optional
+
+from pydantic import BaseModel, Field, ValidationInfo, field_validator
 
 
 class OrderIdParam(BaseModel):
@@ -18,7 +19,7 @@ class OrderIdParam(BaseModel):
         gt=0,
         le=2147483647,  # Max PostgreSQL integer
         description="Order ID must be a positive integer",
-        examples=[123, 456]
+        examples=[123, 456],
     )
 
 
@@ -30,7 +31,7 @@ class UserIdParam(BaseModel):
         gt=0,
         le=2147483647,
         description="User ID must be a positive integer",
-        examples=[1, 5]
+        examples=[1, 5],
     )
 
 
@@ -42,7 +43,7 @@ class MaterialIdParam(BaseModel):
         gt=0,
         le=2147483647,
         description="Material ID must be a positive integer",
-        examples=[42, 100]
+        examples=[42, 100],
     )
 
 
@@ -54,7 +55,7 @@ class ActivityIdParam(BaseModel):
         gt=0,
         le=2147483647,
         description="Activity ID must be a positive integer",
-        examples=[10, 25]
+        examples=[10, 25],
     )
 
 
@@ -66,7 +67,7 @@ class CustomerIdParam(BaseModel):
         gt=0,
         le=2147483647,
         description="Customer ID must be a positive integer",
-        examples=[7, 99]
+        examples=[7, 99],
     )
 
 
@@ -78,7 +79,7 @@ class UUIDParam(BaseModel):
         min_length=36,
         max_length=36,
         description="Valid UUID v4 string",
-        examples=["550e8400-e29b-41d4-a716-446655440000"]
+        examples=["550e8400-e29b-41d4-a716-446655440000"],
     )
 
     @field_validator("id")
@@ -100,7 +101,7 @@ class PaginationParams(BaseModel):
         ge=0,
         le=10000,  # Maximum offset to prevent DoS
         description="Number of records to skip (offset)",
-        examples=[0, 10, 50]
+        examples=[0, 10, 50],
     )
 
     limit: int = Field(
@@ -108,7 +109,7 @@ class PaginationParams(BaseModel):
         ge=1,
         le=100,  # Maximum 100 items per page to prevent DoS
         description="Maximum number of records to return (page size)",
-        examples=[10, 50, 100]
+        examples=[10, 50, 100],
     )
 
 
@@ -119,14 +120,14 @@ class DateRangeParams(BaseModel):
         None,
         pattern=r"^\d{4}-\d{2}-\d{2}$",
         description="Start date in YYYY-MM-DD format",
-        examples=["2025-01-01", "2025-11-15"]
+        examples=["2025-01-01", "2025-11-15"],
     )
 
     end_date: Optional[str] = Field(
         None,
         pattern=r"^\d{4}-\d{2}-\d{2}$",
         description="End date in YYYY-MM-DD format",
-        examples=["2025-12-31", "2025-11-30"]
+        examples=["2025-12-31", "2025-11-30"],
     )
 
     @field_validator("end_date")
@@ -149,7 +150,7 @@ class SearchParams(BaseModel):
         min_length=1,
         max_length=200,  # Prevent extremely long search queries
         description="Search query string",
-        examples=["gold ring", "customer name"]
+        examples=["gold ring", "customer name"],
     )
 
     @field_validator("query")
@@ -177,11 +178,12 @@ class RatingParam(BaseModel):
         ge=1,
         le=5,
         description="Rating from 1 (worst) to 5 (best)",
-        examples=[1, 3, 5]
+        examples=[1, 3, 5],
     )
 
 
 # Pre-built query dependencies for common use cases
+
 
 def validate_order_id(order_id: int) -> int:
     """

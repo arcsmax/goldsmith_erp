@@ -10,17 +10,19 @@ Tests cover:
 - Rate limiting
 - Security best practices
 """
-import pytest
-from datetime import datetime, timedelta
-from jose import jwt, JWTError
 
+from datetime import datetime, timedelta
+
+import pytest
+from jose import JWTError, jwt
+
+from goldsmith_erp.core.config import settings
 from goldsmith_erp.core.security import (
+    ALGORITHM,
+    create_access_token,
     get_password_hash,
     verify_password,
-    create_access_token,
-    ALGORITHM
 )
-from goldsmith_erp.core.config import settings
 
 
 @pytest.mark.asyncio
@@ -150,10 +152,7 @@ class TestJWTTokenCreation:
     def test_token_custom_expiration(self):
         """Test custom token expiration"""
         custom_expiry = timedelta(minutes=30)
-        token = create_access_token(
-            data={"sub": "123"},
-            expires_delta=custom_expiry
-        )
+        token = create_access_token(data={"sub": "123"}, expires_delta=custom_expiry)
 
         payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[ALGORITHM])
         exp_timestamp = payload["exp"]
@@ -211,8 +210,7 @@ class TestTokenValidation:
         """Test that expired token raises JWTError"""
         # Create token that expired 1 hour ago
         token = create_access_token(
-            data={"sub": "123"},
-            expires_delta=timedelta(hours=-1)  # Already expired!
+            data={"sub": "123"}, expires_delta=timedelta(hours=-1)  # Already expired!
         )
 
         with pytest.raises(JWTError):
@@ -233,14 +231,16 @@ class TestTokenValidation:
 class TestAuthenticationLogin:
     """Test login authentication flow"""
 
-    async def test_login_with_valid_credentials(self, client, sample_user, sample_user_password):
+    async def test_login_with_valid_credentials(
+        self, client, sample_user, sample_user_password
+    ):
         """Test login with correct email and password"""
         response = await client.post(
             f"{settings.API_V1_STR}/login/access-token",
             data={
                 "username": sample_user.email,  # OAuth2 uses 'username' field
-                "password": sample_user_password
-            }
+                "password": sample_user_password,
+            },
         )
 
         assert response.status_code == 200
@@ -253,14 +253,13 @@ class TestAuthenticationLogin:
         payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[ALGORITHM])
         assert payload["sub"] == str(sample_user.id)
 
-    async def test_login_sets_httponly_cookie(self, client, sample_user, sample_user_password):
+    async def test_login_sets_httponly_cookie(
+        self, client, sample_user, sample_user_password
+    ):
         """Test that login sets HttpOnly cookie with correct security flags"""
         response = await client.post(
             f"{settings.API_V1_STR}/login/access-token",
-            data={
-                "username": sample_user.email,
-                "password": sample_user_password
-            }
+            data={"username": sample_user.email, "password": sample_user_password},
         )
 
         assert response.status_code == 200
@@ -274,16 +273,15 @@ class TestAuthenticationLogin:
         )
         assert access_token_cookie is not None, "access_token cookie not set"
         assert "httponly" in access_token_cookie.lower(), "Cookie missing HttpOnly flag"
-        assert "samesite=strict" in access_token_cookie.lower(), "Cookie missing SameSite=Strict"
+        assert (
+            "samesite=strict" in access_token_cookie.lower()
+        ), "Cookie missing SameSite=Strict"
 
     async def test_login_with_invalid_email(self, client):
         """Test login with non-existent email returns 401"""
         response = await client.post(
             f"{settings.API_V1_STR}/login/access-token",
-            data={
-                "username": "nonexistent@example.com",
-                "password": "SomePassword123"
-            }
+            data={"username": "nonexistent@example.com", "password": "SomePassword123"},
         )
 
         assert response.status_code == 401
@@ -293,23 +291,19 @@ class TestAuthenticationLogin:
         """Test login with wrong password returns 401"""
         response = await client.post(
             f"{settings.API_V1_STR}/login/access-token",
-            data={
-                "username": sample_user.email,
-                "password": "WrongPassword123"
-            }
+            data={"username": sample_user.email, "password": "WrongPassword123"},
         )
 
         assert response.status_code == 401
         assert "Incorrect email or password" in response.json()["detail"]
 
-    async def test_login_with_inactive_user(self, client, inactive_user, sample_user_password):
+    async def test_login_with_inactive_user(
+        self, client, inactive_user, sample_user_password
+    ):
         """Test that inactive users cannot login"""
         response = await client.post(
             f"{settings.API_V1_STR}/login/access-token",
-            data={
-                "username": inactive_user.email,
-                "password": sample_user_password
-            }
+            data={"username": inactive_user.email, "password": sample_user_password},
         )
 
         # Inactive user check happens after password verification

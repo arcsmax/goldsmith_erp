@@ -6,12 +6,13 @@ All endpoints require ADMIN role.  GOLDSMITH role intentionally excluded:
 bulk imports can overwrite existing data and bypass the normal per-record
 validation flow, so only administrators should perform them.
 """
+
 from __future__ import annotations
 
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, status
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from fastapi.responses import Response
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -92,7 +93,9 @@ def _serialize_result(result: ImportResult) -> ImportResultOut:
     ),
 )
 async def import_customers(
-    file: UploadFile = File(..., description="CSV-Datei (UTF-8, Komma-getrennt, max. 5 MB)"),
+    file: UploadFile = File(
+        ..., description="CSV-Datei (UTF-8, Komma-getrennt, max. 5 MB)"
+    ),
     db: AsyncSession = Depends(get_db),
     current_user: UserModel = Depends(get_current_admin_user),
 ) -> ImportResultOut:

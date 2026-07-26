@@ -22,6 +22,7 @@ No existing dedicated test file mocked `aiosmtplib.send` or exercised
 `create_thumbnail` directly prior to this (verified by grep across tests/) —
 so this file also establishes that guard rather than merely extending one.
 """
+
 import io
 
 import pytest

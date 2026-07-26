@@ -5,6 +5,7 @@ Pydantic response schemas for the inventory forecasting endpoint.
 Only weight/date/confidence fields are exposed — material cost figures
 are intentionally excluded per CLAUDE.md financial data rules.
 """
+
 from __future__ import annotations
 
 from datetime import date

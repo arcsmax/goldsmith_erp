@@ -15,13 +15,22 @@ DEVELOPMENT ONLY — do not run in production.
 
 import os
 from datetime import datetime, timedelta
+
 from sqlalchemy.orm import Session
-from .models import (
-    Activity, User, UserRole, Customer, Material, Order, OrderStatusEnum,
-    MetalPurchase, MetalType,
-)
+
 from goldsmith_erp.core.security import get_password_hash
 
+from .models import (
+    Activity,
+    Customer,
+    Material,
+    MetalPurchase,
+    MetalType,
+    Order,
+    OrderStatusEnum,
+    User,
+    UserRole,
+)
 
 # ============================================================================
 # STANDARD ACTIVITIES (15 across 3 categories)
@@ -33,17 +42,57 @@ STANDARD_ACTIVITIES = [
     {"name": "Feilen", "category": "fabrication", "icon": "⚒️", "color": "#4ECDC4"},
     {"name": "Löten", "category": "fabrication", "icon": "🔥", "color": "#FF8C42"},
     {"name": "Polieren", "category": "fabrication", "icon": "✨", "color": "#95E1D3"},
-    {"name": "Fassen (Steine)", "category": "fabrication", "icon": "💎", "color": "#A8E6CF"},
+    {
+        "name": "Fassen (Steine)",
+        "category": "fabrication",
+        "icon": "💎",
+        "color": "#A8E6CF",
+    },
     {"name": "Gravieren", "category": "fabrication", "icon": "✍️", "color": "#FFD3B6"},
-    {"name": "Emaillieren", "category": "fabrication", "icon": "🎨", "color": "#FFAAA5"},
+    {
+        "name": "Emaillieren",
+        "category": "fabrication",
+        "icon": "🎨",
+        "color": "#FFAAA5",
+    },
     # Administration — 4
-    {"name": "Kundenberatung", "category": "administration", "icon": "👥", "color": "#667EEA"},
-    {"name": "Angebot erstellen", "category": "administration", "icon": "📝", "color": "#764BA2"},
-    {"name": "Dokumentation", "category": "administration", "icon": "📋", "color": "#5C6AC4"},
-    {"name": "Qualitätskontrolle", "category": "administration", "icon": "🔍", "color": "#006BA6"},
+    {
+        "name": "Kundenberatung",
+        "category": "administration",
+        "icon": "👥",
+        "color": "#667EEA",
+    },
+    {
+        "name": "Angebot erstellen",
+        "category": "administration",
+        "icon": "📝",
+        "color": "#764BA2",
+    },
+    {
+        "name": "Dokumentation",
+        "category": "administration",
+        "icon": "📋",
+        "color": "#5C6AC4",
+    },
+    {
+        "name": "Qualitätskontrolle",
+        "category": "administration",
+        "icon": "🔍",
+        "color": "#006BA6",
+    },
     # Waiting — 4
-    {"name": "Warten auf Material", "category": "waiting", "icon": "⏳", "color": "#A0AEC0"},
-    {"name": "Warten auf Kundenfeedback", "category": "waiting", "icon": "💬", "color": "#718096"},
+    {
+        "name": "Warten auf Material",
+        "category": "waiting",
+        "icon": "⏳",
+        "color": "#A0AEC0",
+    },
+    {
+        "name": "Warten auf Kundenfeedback",
+        "category": "waiting",
+        "icon": "💬",
+        "color": "#718096",
+    },
     {"name": "Pause", "category": "waiting", "icon": "☕", "color": "#CBD5E0"},
     {"name": "Unterbrechung", "category": "waiting", "icon": "⚠️", "color": "#E2E8F0"},
 ]
@@ -225,6 +274,7 @@ SAMPLE_MATERIALS = [
 # ORDERS (3 sample orders in different statuses)
 # ============================================================================
 
+
 def _build_sample_orders(customer_ids: dict, user_id: int) -> list:
     """Build sample orders referencing created customer IDs."""
     now = datetime.utcnow()
@@ -232,7 +282,7 @@ def _build_sample_orders(customer_ids: dict, user_id: int) -> list:
         {
             "title": "Verlobungsring Solitär",
             "description": "Solitär-Verlobungsring in Weißgold 750 mit 0.5ct Brillant. "
-                           "Ringweite 54, klassisches 6-Krappen-Design.",
+            "Ringweite 54, klassisches 6-Krappen-Design.",
             "status": OrderStatusEnum.IN_PROGRESS,
             "customer_id": customer_ids.get("Schmidt", 1),
             "price": 3200.00,
@@ -252,7 +302,7 @@ def _build_sample_orders(customer_ids: dict, user_id: int) -> list:
         {
             "title": "Trauringe Classic Paar",
             "description": "Klassische Trauringe in Gelbgold 750, Breite 5mm, "
-                           "Damenring mit 3 Brillanten à 0.03ct.",
+            "Damenring mit 3 Brillanten à 0.03ct.",
             "status": OrderStatusEnum.NEW,
             "customer_id": customer_ids.get("Gruber", 1),
             "price": 2800.00,
@@ -271,7 +321,7 @@ def _build_sample_orders(customer_ids: dict, user_id: int) -> list:
         {
             "title": "Erbstück Umarbeitung",
             "description": "Alte Brosche (Gelbgold) in modernen Anhänger umarbeiten. "
-                           "Steine übernehmen, neues Design nach Kundenskizze.",
+            "Steine übernehmen, neues Design nach Kundenskizze.",
             "status": OrderStatusEnum.CONFIRMED,
             "customer_id": customer_ids.get("Bergmann", 1),
             "price": 1500.00,
@@ -294,6 +344,7 @@ def _build_sample_orders(customer_ids: dict, user_id: int) -> list:
 # ============================================================================
 # METAL PURCHASES (2 sample inventory batches)
 # ============================================================================
+
 
 def _build_metal_purchases() -> list:
     now = datetime.utcnow()
@@ -324,6 +375,7 @@ def _build_metal_purchases() -> list:
 # ============================================================================
 # SEED FUNCTIONS
 # ============================================================================
+
 
 def seed_users(db: Session) -> dict:
     """Create standard users. Returns dict of name→id for reference."""
@@ -363,10 +415,14 @@ def seed_activities(db: Session) -> None:
     skipped = 0
 
     for data in STANDARD_ACTIVITIES:
-        existing = db.query(Activity).filter(
-            Activity.name == data["name"],
-            Activity.category == data["category"],
-        ).first()
+        existing = (
+            db.query(Activity)
+            .filter(
+                Activity.name == data["name"],
+                Activity.category == data["category"],
+            )
+            .first()
+        )
         if existing:
             skipped += 1
             continue
@@ -490,11 +546,13 @@ def seed_metal_purchases(db: Session) -> None:
 # MAIN
 # ============================================================================
 
+
 def main():
     """Standalone execution for seed data."""
+    import os
+
     from sqlalchemy import create_engine
     from sqlalchemy.orm import sessionmaker
-    import os
 
     # No hardcoded fallback: the standalone seeder requires DATABASE_URL to be
     # set explicitly, so credentials never live in source.

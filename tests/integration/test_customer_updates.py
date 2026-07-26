@@ -23,6 +23,7 @@ guards, VIEWER 403 matrix, projected-cost endpoint.
 aiosmtplib mocked at the same boundary as the unit tests
 (``email_service_module.aiosmtplib.send``).
 """
+
 from datetime import datetime, timedelta
 
 import pytest

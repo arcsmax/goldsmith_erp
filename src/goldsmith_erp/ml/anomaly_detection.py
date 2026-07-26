@@ -49,12 +49,10 @@ from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from goldsmith_erp.db.models import (
-    Activity as ActivityModel,
-    TimeEntry as TimeEntryModel,
-    Order as OrderModel,
-    User as UserModel,
-)
+from goldsmith_erp.db.models import Activity as ActivityModel
+from goldsmith_erp.db.models import Order as OrderModel
+from goldsmith_erp.db.models import TimeEntry as TimeEntryModel
+from goldsmith_erp.db.models import User as UserModel
 from goldsmith_erp.ml.anomaly_alerts import (
     AlertSeverity,
     AnomalyResult,
@@ -164,7 +162,9 @@ class ActivityBaseline:
         self._iso_scaler = None
 
         if not durations:
-            default = CATEGORY_DEFAULT_DURATIONS.get(category, CATEGORY_DEFAULT_DURATIONS["default"])
+            default = CATEGORY_DEFAULT_DURATIONS.get(
+                category, CATEGORY_DEFAULT_DURATIONS["default"]
+            )
             self.mean = default
             self.median = default
             self.std = default * 0.3  # assume 30% CV as prior
@@ -250,9 +250,7 @@ class AnomalyDetector:
         # Fall back to statistical thresholds (Tier 1)
         return self._check_statistical(baseline, duration_minutes)
 
-    async def get_activity_statistics(
-        self, db: AsyncSession, activity_id: int
-    ) -> dict:
+    async def get_activity_statistics(self, db: AsyncSession, activity_id: int) -> dict:
         """
         Return statistical summary for an activity.
 
@@ -319,7 +317,11 @@ class AnomalyDetector:
                 if entry.user
                 else f"User #{entry.user_id}"
             )
-            activity_name = entry.activity.name if entry.activity else f"Activity #{entry.activity_id}"
+            activity_name = (
+                entry.activity.name
+                if entry.activity
+                else f"Activity #{entry.activity_id}"
+            )
 
             alerts.append(
                 {
@@ -486,7 +488,11 @@ class AnomalyDetector:
         )
         entries: list[TimeEntryModel] = entries_result.scalars().all()
 
-        durations = [float(e.duration_minutes) for e in entries if e.duration_minutes and e.duration_minutes > 0]
+        durations = [
+            float(e.duration_minutes)
+            for e in entries
+            if e.duration_minutes and e.duration_minutes > 0
+        ]
 
         baseline = ActivityBaseline(
             activity_id=activity.id,
@@ -528,10 +534,19 @@ class AnomalyDetector:
             for e in entries:
                 if not e.duration_minutes or e.duration_minutes <= 0:
                     continue
-                complexity = e.complexity_rating if e.complexity_rating is not None else 3
+                complexity = (
+                    e.complexity_rating if e.complexity_rating is not None else 3
+                )
                 hour = e.start_time.hour if e.start_time else 9
                 dow = e.start_time.weekday() if e.start_time else 0
-                rows.append([float(e.duration_minutes), float(complexity), float(hour), float(dow)])
+                rows.append(
+                    [
+                        float(e.duration_minutes),
+                        float(complexity),
+                        float(hour),
+                        float(dow),
+                    ]
+                )
 
             if len(rows) < _ISOLATION_FOREST_MIN_ENTRIES:
                 return

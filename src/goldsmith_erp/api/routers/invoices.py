@@ -42,12 +42,12 @@ from goldsmith_erp.models.invoice import (
     InvoiceUpdate,
     MarkPaidRequest,
 )
-from goldsmith_erp.services.invoice_service import InvoiceService
-from goldsmith_erp.services.pdf_service import PDFService
 from goldsmith_erp.services.accounting_export_service import (
     export_datev_csv,
     export_lexoffice_csv,
 )
+from goldsmith_erp.services.invoice_service import InvoiceService
+from goldsmith_erp.services.pdf_service import PDFService
 
 logger = logging.getLogger(__name__)
 
@@ -86,10 +86,12 @@ async def list_invoices(
         default=None, ge=1, description="Filter by customer ID"
     ),
     date_from: Optional[datetime] = Query(
-        default=None, description="Filter invoices issued on or after this date (ISO 8601)"
+        default=None,
+        description="Filter invoices issued on or after this date (ISO 8601)",
     ),
     date_to: Optional[datetime] = Query(
-        default=None, description="Filter invoices issued on or before this date (ISO 8601)"
+        default=None,
+        description="Filter invoices issued on or before this date (ISO 8601)",
     ),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -183,9 +185,7 @@ async def export_invoices_datev(
     if not invoice_ids:
         csv_content = export_datev_csv([])
     else:
-        result = await db.execute(
-            select(Invoice).where(Invoice.id.in_(invoice_ids))
-        )
+        result = await db.execute(select(Invoice).where(Invoice.id.in_(invoice_ids)))
         orm_invoices = result.scalars().all()
         csv_content = export_datev_csv(list(orm_invoices))
 
@@ -259,9 +259,7 @@ async def export_invoices_lexoffice(
     if not invoice_ids:
         csv_content = export_lexoffice_csv([])
     else:
-        result = await db.execute(
-            select(Invoice).where(Invoice.id.in_(invoice_ids))
-        )
+        result = await db.execute(select(Invoice).where(Invoice.id.in_(invoice_ids)))
         orm_invoices = result.scalars().all()
         csv_content = export_lexoffice_csv(list(orm_invoices))
 
@@ -311,7 +309,9 @@ async def update_invoice(
     To mark as paid use the dedicated mark-paid endpoint.
     Cancelled invoices cannot be updated.
     """
-    invoice = await InvoiceService.update_invoice(db, invoice_id, invoice_in, current_user)
+    invoice = await InvoiceService.update_invoice(
+        db, invoice_id, invoice_in, current_user
+    )
     if not invoice:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

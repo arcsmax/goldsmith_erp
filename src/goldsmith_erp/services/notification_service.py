@@ -11,6 +11,7 @@ Responsibilities:
 - Deduplicate: do NOT create a deadline warning if an unread one already
   exists for the same order on the same day.
 """
+
 from __future__ import annotations
 
 import json
@@ -18,7 +19,7 @@ import logging
 from datetime import datetime, timedelta
 from typing import List, Optional
 
-from sqlalchemy import and_, select, func
+from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -241,18 +242,24 @@ class NotificationService:
         today_end = today_start + timedelta(days=1)
 
         # Load all active orders with deadlines in the next 4 days
-        stmt = select(Order).where(
-            and_(
-                Order.deadline.isnot(None),
-                Order.deadline >= now,
-                Order.deadline <= now + timedelta(days=4),
-                Order.status.notin_([
-                    OrderStatusEnum.COMPLETED,
-                    OrderStatusEnum.DELIVERED,
-                ]),
-                Order.is_deleted.is_(False),
+        stmt = (
+            select(Order)
+            .where(
+                and_(
+                    Order.deadline.isnot(None),
+                    Order.deadline >= now,
+                    Order.deadline <= now + timedelta(days=4),
+                    Order.status.notin_(
+                        [
+                            OrderStatusEnum.COMPLETED,
+                            OrderStatusEnum.DELIVERED,
+                        ]
+                    ),
+                    Order.is_deleted.is_(False),
+                )
             )
-        ).options(selectinload(Order.customer))
+            .options(selectinload(Order.customer))
+        )
 
         result = await db.execute(stmt)
         orders = result.scalars().all()
@@ -285,7 +292,7 @@ class NotificationService:
 
             title = f"Deadline in {days_label}: Auftrag #{order.id}"
             message = (
-                f"Auftrag #{order.id} \"{order.title}\" hat die Deadline in "
+                f'Auftrag #{order.id} "{order.title}" hat die Deadline in '
                 f"{days_label}. Status: {order.status.value}."
             )
 
@@ -295,7 +302,8 @@ class NotificationService:
                     and_(
                         Notification.user_id == user.id,
                         Notification.related_order_id == order.id,
-                        Notification.notification_type == NotificationTypeEnum.DEADLINE_WARNING,
+                        Notification.notification_type
+                        == NotificationTypeEnum.DEADLINE_WARNING,
                         Notification.is_read.is_(False),
                         Notification.created_at >= today_start,
                         Notification.created_at < today_end,
@@ -319,7 +327,10 @@ class NotificationService:
 
         logger.info(
             "Deadline warning scan complete",
-            extra={"orders_checked": len(orders), "notifications_created": created_count},
+            extra={
+                "orders_checked": len(orders),
+                "notifications_created": created_count,
+            },
         )
         return created_count
 
@@ -352,7 +363,7 @@ class NotificationService:
         for material in low_stock_materials:
             title = f"Mindestbestand unterschritten: {material.name}"
             message = (
-                f"Material \"{material.name}\" hat nur noch {material.stock} {material.unit} "
+                f'Material "{material.name}" hat nur noch {material.stock} {material.unit} '
                 f"auf Lager (Mindestbestand: {material.min_stock} {material.unit})."
             )
 
@@ -361,7 +372,8 @@ class NotificationService:
                 existing_stmt = select(Notification).where(
                     and_(
                         Notification.user_id == user.id,
-                        Notification.notification_type == NotificationTypeEnum.LOW_STOCK,
+                        Notification.notification_type
+                        == NotificationTypeEnum.LOW_STOCK,
                         Notification.is_read.is_(False),
                         Notification.created_at >= today_start,
                         Notification.created_at < today_end,
@@ -432,7 +444,8 @@ class NotificationService:
 
         # Apply business-rule filter in Python to avoid complex OR SQL
         orders = [
-            o for o in all_completed
+            o
+            for o in all_completed
             if (
                 # Condition a: deadline approaching within 2 days
                 (o.deadline is not None and o.deadline <= deadline_window)
@@ -471,7 +484,7 @@ class NotificationService:
 
             title = f"Auftrag #{order.id} abholbereit"
             message = (
-                f"Auftrag #{order.id} \"{order.title}\" fuer {customer_name} "
+                f'Auftrag #{order.id} "{order.title}" fuer {customer_name} '
                 f"ist fertig und wartet auf Abholung."
             )
             if days_waiting > 3:
@@ -482,7 +495,8 @@ class NotificationService:
                     and_(
                         Notification.user_id == user.id,
                         Notification.related_order_id == order.id,
-                        Notification.notification_type == NotificationTypeEnum.PICKUP_READY,
+                        Notification.notification_type
+                        == NotificationTypeEnum.PICKUP_READY,
                         Notification.is_read.is_(False),
                         Notification.created_at >= today_start,
                         Notification.created_at < today_end,
@@ -554,7 +568,7 @@ class NotificationService:
         for order in orders:
             title = f"Anprobe erforderlich: Auftrag #{order.id}"
             message = (
-                f"Anprobe fuer Auftrag #{order.id} \"{order.title}\" "
+                f'Anprobe fuer Auftrag #{order.id} "{order.title}" '
                 f"-- Termin mit Kunden vereinbaren."
             )
 
@@ -563,7 +577,8 @@ class NotificationService:
                     and_(
                         Notification.user_id == user.id,
                         Notification.related_order_id == order.id,
-                        Notification.notification_type == NotificationTypeEnum.FITTING_REMINDER,
+                        Notification.notification_type
+                        == NotificationTypeEnum.FITTING_REMINDER,
                         Notification.is_read.is_(False),
                         Notification.created_at >= today_start,
                         Notification.created_at < today_end,
@@ -587,7 +602,10 @@ class NotificationService:
 
         logger.info(
             "Fitting reminder scan complete",
-            extra={"orders_checked": len(orders), "notifications_created": created_count},
+            extra={
+                "orders_checked": len(orders),
+                "notifications_created": created_count,
+            },
         )
         return created_count
 

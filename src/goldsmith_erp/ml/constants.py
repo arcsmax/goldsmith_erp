@@ -46,8 +46,8 @@ NUMERIC_FEATURES: list[str] = [
 # ── One-hot expanded prefixes (used by encoders.py) ──────────────────────────
 # After expansion the column names follow the pattern  <prefix>_<value>.
 ONE_HOT_PREFIXES: dict[str, str] = {
-    "order_type":  "order_type",
-    "metal_type":  "metal_type",
+    "order_type": "order_type",
+    "metal_type": "metal_type",
     "finish_type": "finish_type",
 }
 
@@ -77,28 +77,28 @@ DOMAIN_FEATURE_IMPORTANCE: list[str] = [
 # ── Seasonal factors by month (1 = normal load, >1 = busier) ─────────────────
 # Based on German goldsmith seasonal demand patterns.
 SEASONAL_FACTORS: dict[int, float] = {
-    1:  0.85,   # January  — quiet after Christmas
-    2:  0.90,   # February — Valentine's spike mid-month
-    3:  0.95,
-    4:  1.00,
-    5:  1.05,   # Mother's Day
-    6:  1.10,   # Wedding season starts
-    7:  1.15,   # Wedding season peak
-    8:  1.10,   # Wedding season tail
-    9:  1.00,
+    1: 0.85,  # January  — quiet after Christmas
+    2: 0.90,  # February — Valentine's spike mid-month
+    3: 0.95,
+    4: 1.00,
+    5: 1.05,  # Mother's Day
+    6: 1.10,  # Wedding season starts
+    7: 1.15,  # Wedding season peak
+    8: 1.10,  # Wedding season tail
+    9: 1.00,
     10: 1.00,
-    11: 1.20,   # Christmas pre-season
-    12: 1.35,   # Christmas peak
+    11: 1.20,  # Christmas pre-season
+    12: 1.35,  # Christmas peak
 }
 
 # ── Inferred order types from title/description keywords ─────────────────────
 ORDER_TYPE_KEYWORDS: dict[str, list[str]] = {
-    "ring":     ["ring", "reif", "solitär", "verlobung", "ehering", "bandring"],
-    "chain":    ["kette", "chain", "collier"],
-    "pendant":  ["anhänger", "pendant", "medaillon"],
+    "ring": ["ring", "reif", "solitär", "verlobung", "ehering", "bandring"],
+    "chain": ["kette", "chain", "collier"],
+    "pendant": ["anhänger", "pendant", "medaillon"],
     "earrings": ["ohrring", "ohrstecker", "ohrhänger", "creole"],
     "bracelet": ["armband", "armreif", "bracelet"],
-    "brooch":   ["brosche", "brooch", "anstecker"],
-    "repair":   ["reparatur", "repair", "umarbeitung", "restauration", "löten"],
-    "custom":   ["sonderanfertigung", "entwurf", "custom", "individuell", "neu"],
+    "brooch": ["brosche", "brooch", "anstecker"],
+    "repair": ["reparatur", "repair", "umarbeitung", "restauration", "löten"],
+    "custom": ["sonderanfertigung", "entwurf", "custom", "individuell", "neu"],
 }

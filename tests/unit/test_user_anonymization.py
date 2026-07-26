@@ -40,11 +40,7 @@ from goldsmith_erp.db.models import (
     User,
     UserRole,
 )
-from goldsmith_erp.models.user import (
-    AnonymizationResult,
-    LastAdminError,
-    UserNotFound,
-)
+from goldsmith_erp.models.user import AnonymizationResult, LastAdminError, UserNotFound
 from goldsmith_erp.services.user_service import (
     ANONYMIZABLE_FK_TARGETS,
     SENTINEL_EMAIL,
@@ -52,7 +48,6 @@ from goldsmith_erp.services.user_service import (
     UserService,
     _compute_tracking_hmac,
 )
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Helpers / fixtures

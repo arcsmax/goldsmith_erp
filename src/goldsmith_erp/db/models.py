@@ -3166,9 +3166,7 @@ class EstimateAccuracy(Base):
     # migration each time (mirrors Activity.category's free-text choice).
     estimator_version = Column(String(50), nullable=False)
 
-    created_at = Column(
-        DateTime, server_default=func.now(), nullable=False, index=True
-    )
+    created_at = Column(DateTime, server_default=func.now(), nullable=False, index=True)
 
     # One-directional — no back_populates on Order, matching the
     # CostChangeRequest / CustomerUpdate precedent (no existing need to

@@ -34,10 +34,7 @@ from goldsmith_erp.db.models import (
     OrderStatusEnum,
     TimeEntry,
 )
-from goldsmith_erp.ml.constants import (
-    ORDER_TYPE_KEYWORDS,
-    SEASONAL_FACTORS,
-)
+from goldsmith_erp.ml.constants import ORDER_TYPE_KEYWORDS, SEASONAL_FACTORS
 from goldsmith_erp.ml.encoders import (
     encode_finish_type,
     encode_metal_type,
@@ -100,20 +97,14 @@ def _detect_finish_type(description: str | None) -> str:
 def _has_engraving(title: str | None, description: str | None) -> bool:
     """Return True when title or description mentions engraving."""
     text = " ".join(filter(None, [title, description])).lower()
-    return bool(
-        re.search(r"gravur|engraving|engrav|graviert|personali", text)
-    )
+    return bool(re.search(r"gravur|engraving|engrav|graviert|personali", text))
 
 
 def _dominant_setting_type(gemstones: list[Gemstone]) -> str | None:
     """Return the most common setting_type across a list of Gemstone rows."""
     if not gemstones:
         return None
-    types = [
-        g.setting_type.strip().lower()
-        for g in gemstones
-        if g.setting_type
-    ]
+    types = [g.setting_type.strip().lower() for g in gemstones if g.setting_type]
     if not types:
         return None
     return Counter(types).most_common(1)[0][0]
@@ -181,18 +172,15 @@ class FeatureEngineer:
         dominant_setting = _dominant_setting_type(order.gemstones)
 
         # ── Gemstone aggregates ───────────────────────────────────────────────
-        stone_count: int = sum(
-            (g.quantity or 1) for g in order.gemstones
-        )
+        stone_count: int = sum((g.quantity or 1) for g in order.gemstones)
         stone_total_carat: float = sum(
-            (g.carat or 0.0) * (g.quantity or 1)
-            for g in order.gemstones
+            (g.carat or 0.0) * (g.quantity or 1) for g in order.gemstones
         )
 
         # ── Temporal features from created_at ────────────────────────────────
         created_at: datetime = order.created_at or datetime.now(timezone.utc)
-        weekday_name = created_at.strftime("%A").lower()   # monday … sunday
-        month_name   = created_at.strftime("%B").lower()   # january … december
+        weekday_name = created_at.strftime("%A").lower()  # monday … sunday
+        month_name = created_at.strftime("%B").lower()  # january … december
 
         # ── Deadline distance ─────────────────────────────────────────────────
         if order.deadline and order.created_at:
@@ -234,18 +222,18 @@ class FeatureEngineer:
         features: dict[str, Any] = {
             "order_id": order.id,
             # Raw categoricals (kept alongside one-hot for interpretability)
-            "order_type":          order_type,
-            "metal_type":          metal_type_value,
-            "finish_type":         finish_type,
-            "setting_type":        dominant_setting,
+            "order_type": order_type,
+            "metal_type": metal_type_value,
+            "finish_type": finish_type,
+            "setting_type": dominant_setting,
             "order_created_weekday": weekday_name,
             "order_created_month": month_name,
             # Numerics
-            "complexity_rating":        _safe_float(order.labor_hours),  # best proxy available
-            "metal_weight_grams":       _safe_float(order.estimated_weight_g),
-            "stone_count":              float(stone_count),
-            "stone_total_carat":        float(stone_total_carat),
-            "deadline_in_days":         deadline_in_days,
+            "complexity_rating": _safe_float(order.labor_hours),  # best proxy available
+            "metal_weight_grams": _safe_float(order.estimated_weight_g),
+            "stone_count": float(stone_count),
+            "stone_total_carat": float(stone_total_carat),
+            "deadline_in_days": deadline_in_days,
             "total_interruption_minutes": float(total_interruption_minutes),
             # Booleans
             "has_engraving": _has_engraving(order.title, order.description),
@@ -287,9 +275,7 @@ class FeatureEngineer:
         """
         # Count total past orders for this customer
         count_result = await db.execute(
-            select(func.count(Order.id)).where(
-                Order.customer_id == customer_id
-            )
+            select(func.count(Order.id)).where(Order.customer_id == customer_id)
         )
         previous_orders_count: int = count_result.scalar_one() or 0
 
@@ -297,10 +283,12 @@ class FeatureEngineer:
         completed_result = await db.execute(
             select(Order.labor_hours).where(
                 Order.customer_id == customer_id,
-                Order.status.in_([
-                    OrderStatusEnum.COMPLETED,
-                    OrderStatusEnum.DELIVERED,
-                ]),
+                Order.status.in_(
+                    [
+                        OrderStatusEnum.COMPLETED,
+                        OrderStatusEnum.DELIVERED,
+                    ]
+                ),
                 Order.labor_hours.isnot(None),
             )
         )
@@ -312,9 +300,9 @@ class FeatureEngineer:
             avg_completion_hours = MISSING_NUMERIC
 
         return {
-            "customer_previous_orders":    float(previous_orders_count),
+            "customer_previous_orders": float(previous_orders_count),
             "customer_avg_completion_hours": avg_completion_hours,
-            "customer_is_repeat":          previous_orders_count > 1,
+            "customer_is_repeat": previous_orders_count > 1,
         }
 
     # ── Historical / contextual features ─────────────────────────────────────
@@ -353,10 +341,12 @@ class FeatureEngineer:
         similar_rows = await db.execute(
             select(Order.labor_hours).where(
                 Order.id != order.id,
-                Order.status.in_([
-                    OrderStatusEnum.COMPLETED,
-                    OrderStatusEnum.DELIVERED,
-                ]),
+                Order.status.in_(
+                    [
+                        OrderStatusEnum.COMPLETED,
+                        OrderStatusEnum.DELIVERED,
+                    ]
+                ),
                 Order.metal_type == order.metal_type,
                 Order.labor_hours.isnot(None),
             )
@@ -428,8 +418,8 @@ class FeatureEngineer:
 
         return {
             "similar_orders_avg_hours": similar_orders_avg_hours,
-            "user_avg_speed_ratio":     user_avg_speed_ratio,
-            "seasonal_factor":          seasonal_factor,
+            "user_avg_speed_ratio": user_avg_speed_ratio,
+            "seasonal_factor": seasonal_factor,
         }
 
     # ── Combined feature vector ───────────────────────────────────────────────
@@ -458,9 +448,9 @@ class FeatureEngineer:
         -------
         Flat dict of all features, keyed by the names in constants.py.
         """
-        order_feats    = await self.extract_order_features(db, order)
+        order_feats = await self.extract_order_features(db, order)
         customer_feats = await self.extract_customer_features(db, order.customer_id)
-        history_feats  = await self.extract_historical_features(db, order)
+        history_feats = await self.extract_historical_features(db, order)
 
         return {
             **order_feats,
@@ -500,10 +490,12 @@ class FeatureEngineer:
         completed_result = await db.execute(
             select(Order)
             .where(
-                Order.status.in_([
-                    OrderStatusEnum.COMPLETED,
-                    OrderStatusEnum.DELIVERED,
-                ])
+                Order.status.in_(
+                    [
+                        OrderStatusEnum.COMPLETED,
+                        OrderStatusEnum.DELIVERED,
+                    ]
+                )
             )
             .options(
                 selectinload(Order.gemstones),
@@ -531,7 +523,8 @@ class FeatureEngineer:
 
             if time_entries:
                 total_minutes: float = sum(
-                    te.duration_minutes for te in time_entries
+                    te.duration_minutes
+                    for te in time_entries
                     if te.duration_minutes is not None
                 )
                 actual_hours: float = total_minutes / 60.0

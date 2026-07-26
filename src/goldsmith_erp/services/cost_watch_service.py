@@ -75,6 +75,7 @@ Dedup decision (documented per plan Task 3):
     ``created_at``-range (today) bound — this alert is scoped by read state
     only, not by day, per the plan.
 """
+
 from __future__ import annotations
 
 import logging

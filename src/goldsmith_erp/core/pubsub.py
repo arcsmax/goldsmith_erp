@@ -14,12 +14,14 @@ logger = logging.getLogger(__name__)
 
 # Create a shared Redis pool from URL in settings
 # Build Redis URL if not provided
-redis_url = str(settings.REDIS_URL) if settings.REDIS_URL else f"redis://{settings.REDIS_HOST}:{settings.REDIS_PORT}/{settings.REDIS_DB}"
-
-_redis_pool = redis.ConnectionPool.from_url(
-    redis_url,
-    decode_responses=True
+redis_url = (
+    str(settings.REDIS_URL)
+    if settings.REDIS_URL
+    else f"redis://{settings.REDIS_HOST}:{settings.REDIS_PORT}/{settings.REDIS_DB}"
 )
+
+_redis_pool = redis.ConnectionPool.from_url(redis_url, decode_responses=True)
+
 
 @asynccontextmanager
 async def get_redis_client():
@@ -51,7 +53,7 @@ async def publish_event(channel: str, message: str) -> None:
                 return
         except Exception as e:
             if attempt < 2:
-                await asyncio.sleep(0.5 * (2 ** attempt))
+                await asyncio.sleep(0.5 * (2**attempt))
                 logger.warning(f"Redis publish retry {attempt + 1}/3: {e}")
             else:
                 logger.error(f"Redis publish failed after 3 attempts: {e}")
@@ -75,9 +77,7 @@ async def _subscribe(channel: str) -> AsyncIterator[dict]:
             await pubsub.close()
 
 
-async def subscribe_and_forward(
-    ws: WebSocket, channel: str
-) -> None:
+async def subscribe_and_forward(ws: WebSocket, channel: str) -> None:
     """
     Subscribe to Redis channel and forward each message to WebSocket.
     Cleans up on disconnect or error.
@@ -96,7 +96,7 @@ async def subscribe_and_forward(
         logger.error(
             "Redis subscription error",
             extra={"channel": channel, "error": str(exc)},
-            exc_info=True
+            exc_info=True,
         )
     finally:
         logger.debug("Unsubscribed from Redis channel", extra={"channel": channel})

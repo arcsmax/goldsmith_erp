@@ -35,8 +35,6 @@ from pathlib import Path
 
 import pytest
 import pytest_asyncio
-from alembic.migration import MigrationContext
-from alembic.operations import Operations
 from sqlalchemy import (
     Column,
     DateTime,
@@ -55,10 +53,12 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
 
+from alembic.migration import MigrationContext
+from alembic.operations import Operations
 from goldsmith_erp.core.security import get_password_hash
 from goldsmith_erp.db.models import (
-    Base,
     BarcodeAlias,
+    Base,
     LabelTemplate,
     ScanLog,
     User,
@@ -70,7 +70,6 @@ from goldsmith_erp.services.user_service import (
     SENTINEL_FIRST_NAME,
     UserService,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers — load the migration module via a file-path import so we can call
@@ -266,8 +265,7 @@ def test_seed_is_idempotent(sqlite_engine):
 
                     for tpl in module._SEED_TEMPLATES:
                         conn.execute(
-                            text(
-                                """
+                            text("""
                                 INSERT OR IGNORE INTO label_templates (
                                     entity_type, name, width_mm, height_mm,
                                     fields, is_default, is_system_default,
@@ -277,8 +275,7 @@ def test_seed_is_idempotent(sqlite_engine):
                                     :fields, 0, 1,
                                     NULL, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
                                 )
-                                """
-                            ),
+                                """),
                             {
                                 "entity_type": tpl["entity_type"],
                                 "name": tpl["name"],
@@ -290,9 +287,7 @@ def test_seed_is_idempotent(sqlite_engine):
             conn.commit()
 
     with sqlite_engine.connect() as conn:
-        count = conn.execute(
-            text("SELECT COUNT(*) FROM label_templates")
-        ).scalar_one()
+        count = conn.execute(text("SELECT COUNT(*) FROM label_templates")).scalar_one()
     assert count == 7
 
 
@@ -317,14 +312,12 @@ def test_downgrade_drops_all_three_tables(migrated_engine):
 
 def _insert_user(conn, user_id: int, email: str) -> int:
     conn.execute(
-        text(
-            """
+        text("""
             INSERT INTO users (id, email, hashed_password, first_name,
                                last_name, role, is_active, created_at)
             VALUES (:id, :email, '!', 'Test', 'User', 'goldsmith', 1,
                     CURRENT_TIMESTAMP)
-            """
-        ),
+            """),
         {"id": user_id, "email": email},
     )
     return user_id
@@ -335,16 +328,14 @@ def test_fk_restrict_blocks_user_hard_delete_from_scan_logs(migrated_engine):
     with engine.begin() as conn:
         uid = _insert_user(conn, 101, "scan@example.com")
         conn.execute(
-            text(
-                """
+            text("""
                 INSERT INTO scan_logs (
                     id, scanned_at, user_id, raw_payload,
                     retention_class, offline_queued
                 ) VALUES (
                     :id, :scanned_at, :user_id, 'ORDER:1', 'standard_24m', 0
                 )
-                """
-            ),
+                """),
             {
                 "id": str(uuid.uuid4()),
                 "scanned_at": datetime.utcnow(),
@@ -354,9 +345,7 @@ def test_fk_restrict_blocks_user_hard_delete_from_scan_logs(migrated_engine):
 
     with pytest.raises(IntegrityError):
         with engine.begin() as conn:
-            conn.execute(
-                text("DELETE FROM users WHERE id = :id"), {"id": 101}
-            )
+            conn.execute(text("DELETE FROM users WHERE id = :id"), {"id": 101})
 
 
 def test_fk_restrict_blocks_user_hard_delete_from_barcode_aliases(migrated_engine):
@@ -364,24 +353,20 @@ def test_fk_restrict_blocks_user_hard_delete_from_barcode_aliases(migrated_engin
     with engine.begin() as conn:
         uid = _insert_user(conn, 102, "alias@example.com")
         conn.execute(
-            text(
-                """
+            text("""
                 INSERT INTO barcode_aliases (
                     external_code, entity_type, entity_id, created_by,
                     scan_count, created_at
                 ) VALUES (
                     'SUP:ABC', 'metal', 1, :created_by, 0, CURRENT_TIMESTAMP
                 )
-                """
-            ),
+                """),
             {"created_by": uid},
         )
 
     with pytest.raises(IntegrityError):
         with engine.begin() as conn:
-            conn.execute(
-                text("DELETE FROM users WHERE id = :id"), {"id": 102}
-            )
+            conn.execute(text("DELETE FROM users WHERE id = :id"), {"id": 102})
 
 
 def test_fk_restrict_blocks_user_hard_delete_from_label_templates(migrated_engine):
@@ -389,8 +374,7 @@ def test_fk_restrict_blocks_user_hard_delete_from_label_templates(migrated_engin
     with engine.begin() as conn:
         uid = _insert_user(conn, 103, "tpl@example.com")
         conn.execute(
-            text(
-                """
+            text("""
                 INSERT INTO label_templates (
                     entity_type, name, width_mm, height_mm, fields,
                     is_default, is_system_default, created_by,
@@ -399,16 +383,13 @@ def test_fk_restrict_blocks_user_hard_delete_from_label_templates(migrated_engin
                     'order', 'Custom Test Template', 89, 36, '{}',
                     0, 0, :created_by, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
                 )
-                """
-            ),
+                """),
             {"created_by": uid},
         )
 
     with pytest.raises(IntegrityError):
         with engine.begin() as conn:
-            conn.execute(
-                text("DELETE FROM users WHERE id = :id"), {"id": 103}
-            )
+            conn.execute(text("DELETE FROM users WHERE id = :id"), {"id": 103})
 
 
 # ---------------------------------------------------------------------------
@@ -532,8 +513,7 @@ async def test_anonymize_user_rewrites_slice_1_fks(
     alias_fk = (
         await db_session.execute(
             text(
-                "SELECT created_by FROM barcode_aliases "
-                "WHERE external_code = :code"
+                "SELECT created_by FROM barcode_aliases " "WHERE external_code = :code"
             ),
             {"code": alias.external_code},
         )

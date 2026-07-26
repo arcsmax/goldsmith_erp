@@ -73,7 +73,7 @@ STANDARD_ACTIVITIES: tuple[dict[str, Any], ...] = (
     {
         "name": "Feilen",
         "category": "fabrication",
-        "icon": "\U0001F4A0",
+        "icon": "\U0001f4a0",
         "color": "#4ECDC4",
         "is_billable": True,
         "hourly_rate": 75,
@@ -81,7 +81,7 @@ STANDARD_ACTIVITIES: tuple[dict[str, Any], ...] = (
     {
         "name": "Loeten",
         "category": "fabrication",
-        "icon": "\U0001F525",
+        "icon": "\U0001f525",
         "color": "#FF8C42",
         "is_billable": True,
         "hourly_rate": 75,
@@ -97,7 +97,7 @@ STANDARD_ACTIVITIES: tuple[dict[str, Any], ...] = (
     {
         "name": "Fassen (Steine)",
         "category": "fabrication",
-        "icon": "\U0001F48E",
+        "icon": "\U0001f48e",
         "color": "#A8E6CF",
         "is_billable": True,
         "hourly_rate": 95,
@@ -113,7 +113,7 @@ STANDARD_ACTIVITIES: tuple[dict[str, Any], ...] = (
     {
         "name": "Emaillieren",
         "category": "fabrication",
-        "icon": "\U0001F3A8",
+        "icon": "\U0001f3a8",
         "color": "#FFAAA5",
         "is_billable": False,
         "hourly_rate": None,
@@ -121,7 +121,7 @@ STANDARD_ACTIVITIES: tuple[dict[str, Any], ...] = (
     {
         "name": "Schmieden",
         "category": "fabrication",
-        "icon": "\U0001F528",
+        "icon": "\U0001f528",
         "color": "#E07A5F",
         "is_billable": False,
         "hourly_rate": None,
@@ -129,7 +129,7 @@ STANDARD_ACTIVITIES: tuple[dict[str, Any], ...] = (
     {
         "name": "Giessen",
         "category": "fabrication",
-        "icon": "\U0001F3ED",
+        "icon": "\U0001f3ed",
         "color": "#3D405B",
         "is_billable": False,
         "hourly_rate": None,
@@ -138,7 +138,7 @@ STANDARD_ACTIVITIES: tuple[dict[str, Any], ...] = (
     {
         "name": "Kundenberatung",
         "category": "administration",
-        "icon": "\U0001F4DE",
+        "icon": "\U0001f4de",
         "color": "#d97706",
         "is_billable": False,
         "hourly_rate": None,
@@ -146,7 +146,7 @@ STANDARD_ACTIVITIES: tuple[dict[str, Any], ...] = (
     {
         "name": "Angebot erstellen",
         "category": "administration",
-        "icon": "\U0001F4DD",
+        "icon": "\U0001f4dd",
         "color": "#b45309",
         "is_billable": False,
         "hourly_rate": None,
@@ -154,7 +154,7 @@ STANDARD_ACTIVITIES: tuple[dict[str, Any], ...] = (
     {
         "name": "Dokumentation",
         "category": "administration",
-        "icon": "\U0001F4CB",
+        "icon": "\U0001f4cb",
         "color": "#92400e",
         "is_billable": False,
         "hourly_rate": None,
@@ -162,7 +162,7 @@ STANDARD_ACTIVITIES: tuple[dict[str, Any], ...] = (
     {
         "name": "Qualitaetskontrolle",
         "category": "administration",
-        "icon": "\U0001F50D",
+        "icon": "\U0001f50d",
         "color": "#006BA6",
         "is_billable": True,
         "hourly_rate": 60,

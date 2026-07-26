@@ -5,6 +5,7 @@ Body measurements are PII — treat them like any other customer personal data:
 encrypted at rest (via EncryptedString where applicable), never logged in
 plaintext, exportable on GDPR Art. 15 request, erasable on Art. 17 request.
 """
+
 from __future__ import annotations
 
 from datetime import datetime
@@ -13,7 +14,6 @@ from typing import Optional
 from pydantic import BaseModel, Field, model_validator
 
 from goldsmith_erp.db.models import FingerPosition, HandSide, MeasurementType
-
 
 # ---------------------------------------------------------------------------
 # Validation helpers
@@ -93,7 +93,7 @@ class MeasurementBase(BaseModel):
         None,
         max_length=1000,
         description=(
-            'Free-text goldsmith annotation, e.g. '
+            "Free-text goldsmith annotation, e.g. "
             '"Knöchel etwas breiter, Weitungsring empfohlen"'
         ),
     )
@@ -137,9 +137,7 @@ class MeasurementBase(BaseModel):
                     "finger_circumference measurement requires 'hand' (LEFT or RIGHT)"
                 )
             if self.finger is None:
-                raise ValueError(
-                    "finger_circumference measurement requires 'finger'"
-                )
+                raise ValueError("finger_circumference measurement requires 'finger'")
             if not (_FINGER_CIRC_MIN <= v <= _FINGER_CIRC_MAX):
                 raise ValueError(
                     f"finger_circumference must be {_FINGER_CIRC_MIN}–{_FINGER_CIRC_MAX} mm. "

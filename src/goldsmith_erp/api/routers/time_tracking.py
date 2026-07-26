@@ -1,33 +1,35 @@
 # src/goldsmith_erp/api/routers/time_tracking.py
+from datetime import datetime
+from typing import List, Optional
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from typing import List, Optional
-from datetime import datetime
 
 from goldsmith_erp.api.deps import get_current_user
-from goldsmith_erp.core.idempotency import (
-    IdempotencyContext,
-    get_idempotency_context,
+from goldsmith_erp.core.idempotency import IdempotencyContext, get_idempotency_context
+from goldsmith_erp.core.permissions import (
+    Permission,
+    check_ownership_or_permission,
+    require_permission,
 )
-from goldsmith_erp.db.session import get_db
 from goldsmith_erp.db.models import User
-from goldsmith_erp.models.time_entry import (
-    TimeEntryCreate,
-    TimeEntryRead,
-    TimeEntryUpdate,
-    TimeEntryStart,
-    TimeEntryStop,
-    TimeEntryWithDetails,
-    TimeSummaryStats,
-)
+from goldsmith_erp.db.session import get_db
 from goldsmith_erp.models.interruption import InterruptionCreate, InterruptionRead
 from goldsmith_erp.models.scanner import (
     LogInterruptionRequest,
     PatchActivityRequest,
     SwitchTimerRequest,
 )
+from goldsmith_erp.models.time_entry import (
+    TimeEntryCreate,
+    TimeEntryRead,
+    TimeEntryStart,
+    TimeEntryStop,
+    TimeEntryUpdate,
+    TimeEntryWithDetails,
+    TimeSummaryStats,
+)
 from goldsmith_erp.services.time_tracking_service import TimeTrackingService
-from goldsmith_erp.core.permissions import Permission, require_permission, check_ownership_or_permission
 
 router = APIRouter()
 
@@ -99,7 +101,9 @@ async def get_time_entries_for_order(
     current_user: User = Depends(get_current_user),
 ):
     """Holt alle Zeiterfassungen für einen bestimmten Auftrag."""
-    return await TimeTrackingService.get_time_entries_for_order(db, order_id, skip, limit)
+    return await TimeTrackingService.get_time_entries_for_order(
+        db, order_id, skip, limit
+    )
 
 
 @router.get("/order/{order_id}/total")
@@ -127,10 +131,12 @@ async def get_time_entries_for_user(
     """Holt alle Zeiterfassungen für einen User, optional gefiltert nach Datum."""
     # Decorator gates access for users lacking TIME_VIEW_OWN.
     # Below, preserve the ownership/TIME_VIEW_ALL ladder for cross-user lookups.
-    if not check_ownership_or_permission(user_id, current_user, Permission.TIME_VIEW_ALL):
+    if not check_ownership_or_permission(
+        user_id, current_user, Permission.TIME_VIEW_ALL
+    ):
         raise HTTPException(
             status_code=403,
-            detail="Permission denied: You can only view your own time entries or need TIME_VIEW_ALL permission"
+            detail="Permission denied: You can only view your own time entries or need TIME_VIEW_ALL permission",
         )
 
     return await TimeTrackingService.get_time_entries_for_user(

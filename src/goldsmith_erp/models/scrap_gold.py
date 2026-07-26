@@ -1,8 +1,9 @@
 """Pydantic schemas for Scrap Gold (Altgold) module."""
-from pydantic import BaseModel, Field
-from datetime import datetime
-from typing import Optional, List
 
+from datetime import datetime
+from typing import List, Optional
+
+from pydantic import BaseModel, Field
 
 # Alloy fine content ratios
 ALLOY_RATIOS = {
@@ -42,7 +43,9 @@ class ScrapGoldItemRead(BaseModel):
 class ScrapGoldCreate(BaseModel):
     order_id: int
     customer_id: int
-    gold_price_per_g: Optional[float] = Field(None, gt=0, description="Gold price per gram in EUR")
+    gold_price_per_g: Optional[float] = Field(
+        None, gt=0, description="Gold price per gram in EUR"
+    )
     price_source: str = Field("fixed_rate", description="daily_rate or fixed_rate")
     notes: Optional[str] = None
 
@@ -75,11 +78,14 @@ class ScrapGoldRead(BaseModel):
 
 
 class ScrapGoldSignRequest(BaseModel):
-    signature_data: str = Field(..., min_length=10, description="Base64 encoded signature image")
+    signature_data: str = Field(
+        ..., min_length=10, description="Base64 encoded signature image"
+    )
 
 
 class AlloyCalculation(BaseModel):
     """Response for alloy calculation."""
+
     alloy: str
     weight_g: float
     fine_content_g: float

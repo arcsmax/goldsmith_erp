@@ -17,6 +17,7 @@ in-process ``settings`` object. This is acceptable for a single-process
 deployment; in a multi-process setup the container would need restarting
 after environment changes, which is a known trade-off documented in ADR.
 """
+
 from __future__ import annotations
 
 import logging
@@ -63,7 +64,9 @@ class EmailConfigUpdate(BaseModel):
     smtp_password: Optional[str] = Field(
         None, description="SMTP authentication password (write-only)"
     )
-    smtp_from: Optional[str] = Field(None, description="Sender address shown to recipients")
+    smtp_from: Optional[str] = Field(
+        None, description="Sender address shown to recipients"
+    )
     email_notifications_enabled: Optional[bool] = Field(
         None, description="Master switch for all outgoing customer emails"
     )

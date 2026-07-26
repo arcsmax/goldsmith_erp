@@ -10,19 +10,19 @@ Tests cover:
 - Refresh for an inactive user returns 403
 - decode_token_allowing_grace_window unit-level edge cases
 """
-import pytest
+
 from datetime import datetime, timedelta, timezone
 
-from jose import jwt, JWTError
+import pytest
+from jose import JWTError, jwt
 
+from goldsmith_erp.core.config import settings
 from goldsmith_erp.core.security import (
-    create_access_token,
-    decode_token_allowing_grace_window,
     ALGORITHM,
     REFRESH_GRACE_SECONDS,
+    create_access_token,
+    decode_token_allowing_grace_window,
 )
-from goldsmith_erp.core.config import settings
-
 
 # ---------------------------------------------------------------------------
 # Helper: manufacture tokens with arbitrary exp offsets
@@ -106,7 +106,9 @@ class TestDecodeTokenAllowingGraceWindow:
     def test_token_signed_with_wrong_key_raises_jwt_error(self):
         """Token signed with a different secret must raise JWTError."""
         payload = {"sub": "10", "exp": datetime.now(timezone.utc) + timedelta(hours=1)}
-        wrong_key_token = jwt.encode(payload, "completely-wrong-secret", algorithm=ALGORITHM)
+        wrong_key_token = jwt.encode(
+            payload, "completely-wrong-secret", algorithm=ALGORITHM
+        )
 
         with pytest.raises(JWTError):
             decode_token_allowing_grace_window(wrong_key_token)
@@ -114,7 +116,9 @@ class TestDecodeTokenAllowingGraceWindow:
     def test_token_without_exp_claim_raises_jwt_error(self):
         """A token lacking the 'exp' claim must be rejected."""
         # jose does not add exp unless told to; encode raw payload without it
-        no_exp_token = jwt.encode({"sub": "3"}, settings.SECRET_KEY, algorithm=ALGORITHM)
+        no_exp_token = jwt.encode(
+            {"sub": "3"}, settings.SECRET_KEY, algorithm=ALGORITHM
+        )
 
         with pytest.raises(JWTError, match="no expiry"):
             decode_token_allowing_grace_window(no_exp_token)
@@ -190,7 +194,9 @@ class TestRefreshEndpoint:
         )
         assert access_token_cookie is not None, "access_token cookie not set"
         assert "httponly" in access_token_cookie.lower(), "Cookie missing HttpOnly flag"
-        assert "samesite=strict" in access_token_cookie.lower(), "Cookie missing SameSite=Strict"
+        assert (
+            "samesite=strict" in access_token_cookie.lower()
+        ), "Cookie missing SameSite=Strict"
 
     async def test_refresh_within_grace_window_succeeds(self, client, sample_user):
         """Token expired 1 minute ago (inside 5-min grace) must refresh successfully."""
@@ -262,9 +268,7 @@ class TestRefreshEndpoint:
 
         assert response.status_code == 401
 
-    async def test_refresh_with_inactive_user_returns_403(
-        self, client, inactive_user
-    ):
+    async def test_refresh_with_inactive_user_returns_403(self, client, inactive_user):
         """Valid token for a deactivated user account must return 403."""
         token = _valid_token(user_id=inactive_user.id)
 

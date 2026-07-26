@@ -1,18 +1,21 @@
 """Service for Scrap Gold (Altgold) management."""
+
+import logging
+from datetime import datetime
+from typing import List, Optional
+
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy.orm import selectinload
-from typing import List, Optional
-from datetime import datetime
-import logging
 
-from goldsmith_erp.db.models import (
-    ScrapGold as ScrapGoldModel,
-    ScrapGoldItem as ScrapGoldItemModel,
-    ScrapGoldStatus,
-)
+from goldsmith_erp.db.models import ScrapGold as ScrapGoldModel
+from goldsmith_erp.db.models import ScrapGoldItem as ScrapGoldItemModel
+from goldsmith_erp.db.models import ScrapGoldStatus
 from goldsmith_erp.models.scrap_gold import (
-    ScrapGoldCreate, ScrapGoldUpdate, ScrapGoldItemCreate, ALLOY_RATIOS
+    ALLOY_RATIOS,
+    ScrapGoldCreate,
+    ScrapGoldItemCreate,
+    ScrapGoldUpdate,
 )
 
 logger = logging.getLogger(__name__)
@@ -27,7 +30,9 @@ class ScrapGoldService:
         return round(weight_g * ratio, 3)
 
     @staticmethod
-    async def get_for_order(db: AsyncSession, order_id: int) -> Optional[ScrapGoldModel]:
+    async def get_for_order(
+        db: AsyncSession, order_id: int
+    ) -> Optional[ScrapGoldModel]:
         """Get scrap gold record for an order, with items."""
         result = await db.execute(
             select(ScrapGoldModel)
@@ -37,7 +42,9 @@ class ScrapGoldService:
         return result.scalar_one_or_none()
 
     @staticmethod
-    async def get_by_id(db: AsyncSession, scrap_gold_id: int) -> Optional[ScrapGoldModel]:
+    async def get_by_id(
+        db: AsyncSession, scrap_gold_id: int
+    ) -> Optional[ScrapGoldModel]:
         """Get scrap gold by ID with items."""
         result = await db.execute(
             select(ScrapGoldModel)
@@ -48,9 +55,7 @@ class ScrapGoldService:
 
     @staticmethod
     async def create(
-        db: AsyncSession,
-        user_id: int,
-        data: ScrapGoldCreate
+        db: AsyncSession, user_id: int, data: ScrapGoldCreate
     ) -> ScrapGoldModel:
         """Create a new scrap gold record for an order."""
         scrap_gold = ScrapGoldModel(
@@ -68,9 +73,7 @@ class ScrapGoldService:
 
     @staticmethod
     async def add_item(
-        db: AsyncSession,
-        scrap_gold_id: int,
-        item_data: ScrapGoldItemCreate
+        db: AsyncSession, scrap_gold_id: int, item_data: ScrapGoldItemCreate
     ) -> ScrapGoldItemModel:
         """Add an item to a scrap gold record and recalculate totals."""
         fine_content = ScrapGoldService.calculate_fine_content(
@@ -93,16 +96,12 @@ class ScrapGoldService:
         return item
 
     @staticmethod
-    async def remove_item(
-        db: AsyncSession,
-        scrap_gold_id: int,
-        item_id: int
-    ) -> bool:
+    async def remove_item(db: AsyncSession, scrap_gold_id: int, item_id: int) -> bool:
         """Remove an item and recalculate totals."""
         result = await db.execute(
             select(ScrapGoldItemModel).where(
                 ScrapGoldItemModel.id == item_id,
-                ScrapGoldItemModel.scrap_gold_id == scrap_gold_id
+                ScrapGoldItemModel.scrap_gold_id == scrap_gold_id,
             )
         )
         item = result.scalar_one_or_none()
@@ -115,9 +114,7 @@ class ScrapGoldService:
 
     @staticmethod
     async def calculate_and_update(
-        db: AsyncSession,
-        scrap_gold_id: int,
-        gold_price_per_g: Optional[float] = None
+        db: AsyncSession, scrap_gold_id: int, gold_price_per_g: Optional[float] = None
     ) -> Optional[ScrapGoldModel]:
         """Recalculate totals and optionally update gold price."""
         scrap_gold = await ScrapGoldService.get_by_id(db, scrap_gold_id)
@@ -136,9 +133,7 @@ class ScrapGoldService:
 
     @staticmethod
     async def sign(
-        db: AsyncSession,
-        scrap_gold_id: int,
-        signature_data: str
+        db: AsyncSession, scrap_gold_id: int, signature_data: str
     ) -> Optional[ScrapGoldModel]:
         """Record customer's digital signature on scrap gold receipt."""
         scrap_gold = await ScrapGoldService.get_by_id(db, scrap_gold_id)
@@ -157,8 +152,9 @@ class ScrapGoldService:
     async def _recalculate_totals(db: AsyncSession, scrap_gold_id: int):
         """Recalculate total fine gold and value for a scrap gold record."""
         result = await db.execute(
-            select(ScrapGoldItemModel)
-            .where(ScrapGoldItemModel.scrap_gold_id == scrap_gold_id)
+            select(ScrapGoldItemModel).where(
+                ScrapGoldItemModel.scrap_gold_id == scrap_gold_id
+            )
         )
         items = result.scalars().all()
 

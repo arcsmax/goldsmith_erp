@@ -195,7 +195,7 @@ def _heuristic_estimate(
 
 
 def _response_from_predictor_result(
-    result: dict[str, Any]
+    result: dict[str, Any],
 ) -> DurationPredictionResponse:
     """
     Map a ``DurationPredictor.predict()`` result dict onto the API response

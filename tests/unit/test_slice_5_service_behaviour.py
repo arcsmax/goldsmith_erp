@@ -34,6 +34,7 @@ Coverage:
   * pubsub failure injection
       - switch_timer: mutation commits, notification written, no raise
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -61,33 +62,28 @@ from goldsmith_erp.db.models import (
     User,
     UserRole,
 )
-from goldsmith_erp.models.metal_inventory import (
-    CostingMethod,
-    MaterialUsageCreate,
-)
+from goldsmith_erp.models.metal_inventory import CostingMethod, MaterialUsageCreate
 from goldsmith_erp.models.order import OrderUpdate
 from goldsmith_erp.services.metal_inventory_service import (
     AlloyMismatchError,
     MetalInventoryService,
 )
-from goldsmith_erp.services.order_service import (
-    OrderService,
-    PunzierungRequiredError,
-)
+from goldsmith_erp.services.order_service import OrderService, PunzierungRequiredError
 from goldsmith_erp.services.time_tracking_service import (
-    CrossUserTimerError,
     STALE_TIMER_THRESHOLD,
-    TimeTrackingService,
+    CrossUserTimerError,
     TimerPossiblyStaleError,
+    TimeTrackingService,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
 
-async def _create_user(db_session: AsyncSession, role: UserRole = UserRole.GOLDSMITH) -> User:
+async def _create_user(
+    db_session: AsyncSession, role: UserRole = UserRole.GOLDSMITH
+) -> User:
     user = User(
         email=f"slice5_{uuid.uuid4().hex[:8]}@example.com",
         hashed_password="x" * 40,  # any non-null value; not used
@@ -181,7 +177,9 @@ class TestSwitchTimerScope:
         user_b = await _create_user(db_session)
         order_1 = await _create_order(db_session, sample_customer.id)
         order_2 = await _create_order(db_session, sample_customer.id)
-        entry_b = await _start_running_entry(db_session, user_b, order_1, sample_activity)
+        entry_b = await _start_running_entry(
+            db_session, user_b, order_1, sample_activity
+        )
 
         with pytest.raises(CrossUserTimerError) as excinfo:
             await TimeTrackingService.switch_timer(
@@ -680,7 +678,10 @@ class TestConsumeMaterialConcurrency:
 class TestPunzierungGuard:
     async def test_complete_without_alloy_succeeds(self, db_session, sample_customer):
         order = await _create_order(
-            db_session, sample_customer.id, alloy=None, status=OrderStatusEnum.QUALITY_CHECK
+            db_session,
+            sample_customer.id,
+            alloy=None,
+            status=OrderStatusEnum.QUALITY_CHECK,
         )
         updated = await OrderService.advance_status(
             db_session, order.id, OrderStatusEnum.COMPLETED, user_id=1
@@ -692,7 +693,10 @@ class TestPunzierungGuard:
         self, db_session, sample_customer
     ):
         order = await _create_order(
-            db_session, sample_customer.id, alloy="750", status=OrderStatusEnum.QUALITY_CHECK
+            db_session,
+            sample_customer.id,
+            alloy="750",
+            status=OrderStatusEnum.QUALITY_CHECK,
         )
         with pytest.raises(PunzierungRequiredError) as excinfo:
             await OrderService.advance_status(
@@ -706,7 +710,10 @@ class TestPunzierungGuard:
         self, db_session, sample_customer
     ):
         order = await _create_order(
-            db_session, sample_customer.id, alloy="750", status=OrderStatusEnum.QUALITY_CHECK
+            db_session,
+            sample_customer.id,
+            alloy="750",
+            status=OrderStatusEnum.QUALITY_CHECK,
         )
         updated = await OrderService.advance_status(
             db_session,
@@ -726,7 +733,10 @@ class TestPunzierungGuard:
         self, db_session, sample_customer
     ):
         order = await _create_order(
-            db_session, sample_customer.id, alloy="585", status=OrderStatusEnum.QUALITY_CHECK
+            db_session,
+            sample_customer.id,
+            alloy="585",
+            status=OrderStatusEnum.QUALITY_CHECK,
         )
         # First: record marks without advancing status.
         await OrderService.update_order(
@@ -741,12 +751,13 @@ class TestPunzierungGuard:
         )
         assert updated.status == OrderStatusEnum.COMPLETED
 
-    async def test_admin_put_path_same_guard_fires(
-        self, db_session, sample_customer
-    ):
+    async def test_admin_put_path_same_guard_fires(self, db_session, sample_customer):
         """Direct update_order (admin PUT) must hit the same guard."""
         order = await _create_order(
-            db_session, sample_customer.id, alloy="750", status=OrderStatusEnum.QUALITY_CHECK
+            db_session,
+            sample_customer.id,
+            alloy="750",
+            status=OrderStatusEnum.QUALITY_CHECK,
         )
         with pytest.raises(PunzierungRequiredError):
             await OrderService.update_order(
@@ -774,7 +785,10 @@ class TestPubsubFailureNotification:
         order_1 = await _create_order(db_session, sample_customer.id)
         order_2 = await _create_order(db_session, sample_customer.id)
         entry = await _start_running_entry(
-            db_session, user, order_1, sample_activity,
+            db_session,
+            user,
+            order_1,
+            sample_activity,
             start_time=datetime.utcnow() - timedelta(minutes=2),
         )
 

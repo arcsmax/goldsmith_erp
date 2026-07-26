@@ -15,8 +15,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from goldsmith_erp.api.deps import get_current_user
 from goldsmith_erp.core.permissions import Permission, require_permission
-from goldsmith_erp.db.session import get_db
 from goldsmith_erp.db.models import User
+from goldsmith_erp.db.session import get_db
 from goldsmith_erp.models.comparison import OrderComparison, UserAccuracy, WorkshopStats
 from goldsmith_erp.services.comparison_service import ComparisonService
 
@@ -41,8 +41,10 @@ def _audit_log_financial_access(
         extra={
             "audit": True,
             "endpoint": endpoint,
-            "user_id": user.id,          # Never log email or name here
-            "user_role": user.role.value if hasattr(user.role, "value") else str(user.role),
+            "user_id": user.id,  # Never log email or name here
+            "user_role": (
+                user.role.value if hasattr(user.role, "value") else str(user.role)
+            ),
             "context": context,
             "timestamp": datetime.utcnow().isoformat(),
         },
@@ -121,8 +123,7 @@ async def get_workshop_stats(
     date_to: Optional[datetime] = Query(
         None,
         description=(
-            "Enddatum des Auswertungszeitraums (ISO 8601). "
-            "Standard: jetzt."
+            "Enddatum des Auswertungszeitraums (ISO 8601). " "Standard: jetzt."
         ),
         alias="to",
     ),
@@ -155,7 +156,9 @@ async def get_workshop_stats(
         },
     )
 
-    return await ComparisonService.get_workshop_statistics(db, effective_from, effective_to)
+    return await ComparisonService.get_workshop_statistics(
+        db, effective_from, effective_to
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -201,10 +204,7 @@ async def get_goldsmith_accuracy(
     from goldsmith_erp.db.models import UserRole
 
     # Goldsmiths may only query their own accuracy
-    if (
-        current_user.role != UserRole.ADMIN
-        and current_user.id != user_id
-    ):
+    if current_user.role != UserRole.ADMIN and current_user.id != user_id:
         raise HTTPException(
             status_code=403,
             detail="Goldschmiede duerfen nur ihre eigene Genauigkeit abrufen.",

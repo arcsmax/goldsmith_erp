@@ -15,6 +15,7 @@ Post-fix expectation:
       a material with ``unit_price == 0``.
     * Negative prices are still rejected (data-integrity floor).
 """
+
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -98,9 +99,7 @@ class TestMaterialsListZeroPrice:
         payload = resp.json()
 
         names = {m["name"] for m in payload}
-        assert tool.name in names, (
-            f"Zero-price tool not in response: {payload}"
-        )
+        assert tool.name in names, f"Zero-price tool not in response: {payload}"
 
         # Find the tool entry and assert its unit_price is exactly 0.0.
         tool_entry = next(m for m in payload if m["name"] == tool.name)

@@ -12,6 +12,7 @@ Route structure:
     PUT    /api/v1/measurements/{id}
     DELETE /api/v1/measurements/{id}
 """
+
 import logging
 from typing import List, Optional
 
@@ -74,6 +75,7 @@ async def list_customer_measurements(
 
     # Parse optional filter
     from goldsmith_erp.db.models import MeasurementType
+
     m_type = None
     if measurement_type:
         try:
@@ -164,9 +166,11 @@ async def add_customer_measurement(
         return measurement
     except ValueError as exc:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND
-            if "not found" in str(exc).lower()
-            else status.HTTP_400_BAD_REQUEST,
+            status_code=(
+                status.HTTP_404_NOT_FOUND
+                if "not found" in str(exc).lower()
+                else status.HTTP_400_BAD_REQUEST
+            ),
             detail=str(exc),
         )
     except Exception:
@@ -188,7 +192,9 @@ async def add_customer_measurement(
 async def get_ring_size(
     customer_id: int,
     hand: HandSide = Query(..., description="LEFT or RIGHT"),
-    finger: FingerPosition = Query(..., description="thumb, index, middle, ring, pinky"),
+    finger: FingerPosition = Query(
+        ..., description="thumb, index, middle, ring, pinky"
+    ),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_permission(Permission.CUSTOMER_VIEW)),
 ):

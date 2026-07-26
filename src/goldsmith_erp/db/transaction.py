@@ -1,6 +1,7 @@
 """
 Transaction management utilities for ACID guarantees.
 """
+
 import logging
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
@@ -46,7 +47,7 @@ async def transactional(db: AsyncSession) -> AsyncGenerator[AsyncSession, None]:
         logger.error(
             "Transaction rolled back due to error",
             extra={"error": str(e), "error_type": type(e).__name__},
-            exc_info=True
+            exc_info=True,
         )
         raise
     finally:
@@ -69,8 +70,6 @@ async def commit_or_rollback(db: AsyncSession) -> None:
     except Exception as e:
         await db.rollback()
         logger.error(
-            "Manual commit failed, rolled back",
-            extra={"error": str(e)},
-            exc_info=True
+            "Manual commit failed, rolled back", extra={"error": str(e)}, exc_info=True
         )
         raise

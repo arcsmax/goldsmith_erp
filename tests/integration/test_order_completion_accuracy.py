@@ -1,15 +1,22 @@
-import pytest
 from datetime import datetime, timedelta
+
+import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from goldsmith_erp.db.models import (
-    EstimateAccuracy, Order, Quote, QuoteLineItem, TimeEntry,
-    Activity, Customer, User, QuoteLineType, UserRole,
+    Activity,
+    Customer,
+    EstimateAccuracy,
+    Order,
+    Quote,
+    QuoteLineItem,
+    QuoteLineType,
+    TimeEntry,
+    User,
+    UserRole,
 )
-from goldsmith_erp.services.estimate_accuracy_service import (
-    safe_record_on_completion,
-)
+from goldsmith_erp.services.estimate_accuracy_service import safe_record_on_completion
 
 
 @pytest.mark.integration
@@ -117,9 +124,15 @@ async def test_accuracy_row_written_for_estimator_sourced_labor(
     await safe_record_on_completion(db_session, order)
 
     # Assert: an EstimateAccuracy row exists
-    rows = (await db_session.execute(
-        select(EstimateAccuracy).where(EstimateAccuracy.order_id == order.id)
-    )).scalars().all()
+    rows = (
+        (
+            await db_session.execute(
+                select(EstimateAccuracy).where(EstimateAccuracy.order_id == order.id)
+            )
+        )
+        .scalars()
+        .all()
+    )
     assert len(rows) == 1
     assert rows[0].estimated_hours == 3.17
     assert rows[0].actual_hours == 4.0
@@ -194,7 +207,13 @@ async def test_no_accuracy_row_for_manual_labor_line(
 
     await safe_record_on_completion(db_session, order)
 
-    rows = (await db_session.execute(
-        select(EstimateAccuracy).where(EstimateAccuracy.order_id == order.id)
-    )).scalars().all()
+    rows = (
+        (
+            await db_session.execute(
+                select(EstimateAccuracy).where(EstimateAccuracy.order_id == order.id)
+            )
+        )
+        .scalars()
+        .all()
+    )
     assert len(rows) == 0

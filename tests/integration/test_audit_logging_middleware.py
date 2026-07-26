@@ -19,6 +19,7 @@ production code path identical and keeps the test self-contained.
 
 Ref: docs/fix-plan/2026-04-23/A1-audit-middleware.md
 """
+
 import logging
 
 import pytest
@@ -26,7 +27,6 @@ from httpx import AsyncClient
 from sqlalchemy import select
 
 from goldsmith_erp.db.models import CustomerAuditLog
-
 
 # ---------------------------------------------------------------------------
 # Fixture: point the middleware's AsyncSessionLocal at the test DB factory
@@ -76,12 +76,10 @@ async def test_customer_get_produces_audit_row(
     admin_user,
 ):
     # Act
-    resp = await authenticated_client.get(
-        f"/api/v1/customers/{test_customer.id}"
-    )
-    assert resp.status_code == 200, (
-        f"expected 200 OK, got {resp.status_code}: {resp.text}"
-    )
+    resp = await authenticated_client.get(f"/api/v1/customers/{test_customer.id}")
+    assert (
+        resp.status_code == 200
+    ), f"expected 200 OK, got {resp.status_code}: {resp.text}"
 
     # Assert — the audit middleware wrote a row for this customer access.
     result = await db_session.execute(
@@ -139,9 +137,7 @@ async def test_audit_write_failure_does_not_fail_user_request(
 
     caplog.set_level(logging.ERROR, logger="goldsmith_erp.middleware.audit_logging")
 
-    resp = await authenticated_client.get(
-        f"/api/v1/customers/{test_customer.id}"
-    )
+    resp = await authenticated_client.get(f"/api/v1/customers/{test_customer.id}")
 
     assert resp.status_code == 200, (
         "user request must not fail (500) when audit write fails — "
@@ -182,9 +178,9 @@ async def test_list_customers_produces_audit_row(
     _ = test_customer
 
     resp = await authenticated_client.get("/api/v1/customers/")
-    assert resp.status_code == 200, (
-        f"expected 200 OK from list endpoint, got {resp.status_code}: {resp.text}"
-    )
+    assert (
+        resp.status_code == 200
+    ), f"expected 200 OK from list endpoint, got {resp.status_code}: {resp.text}"
 
     result = await db_session.execute(
         select(CustomerAuditLog)
@@ -203,9 +199,9 @@ async def test_list_customers_produces_audit_row(
         f"list-audit row must record the authenticated user "
         f"(expected user_id={admin_user.id}, got {row.user_id})"
     )
-    assert row.entity_id is None, (
-        "list endpoint targets no single customer; entity_id must be None"
-    )
+    assert (
+        row.entity_id is None
+    ), "list endpoint targets no single customer; entity_id must be None"
     assert row.action == "list_accessed", (
         "list-endpoint audit rows must use 'list_accessed' to distinguish "
         "them from single-record 'accessed' rows"
@@ -229,9 +225,7 @@ async def test_single_customer_get_uses_accessed_action(
     with `action="accessed"` and `entity_id=<customer.id>` (NOT
     "list_accessed").
     """
-    resp = await authenticated_client.get(
-        f"/api/v1/customers/{test_customer.id}"
-    )
+    resp = await authenticated_client.get(f"/api/v1/customers/{test_customer.id}")
     assert resp.status_code == 200
 
     result = await db_session.execute(
@@ -242,9 +236,7 @@ async def test_single_customer_get_uses_accessed_action(
     )
     row = result.scalar_one_or_none()
 
-    assert row is not None, (
-        "single-record GET must still produce an audit row"
-    )
+    assert row is not None, "single-record GET must still produce an audit row"
     assert row.action == "accessed", (
         f"single-record GET must use 'accessed' action, got '{row.action}' "
         "— did the R1 fix accidentally reroute single reads to list_accessed?"

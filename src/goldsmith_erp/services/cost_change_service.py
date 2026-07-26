@@ -46,6 +46,7 @@ to serialize concurrent sends against the SENT sibling they both intend
 to supersede (effective on Postgres/production; SQLite silently ignores
 the clause, relying instead on its own whole-database write lock).
 """
+
 from __future__ import annotations
 
 import logging

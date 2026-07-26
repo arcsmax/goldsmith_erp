@@ -29,6 +29,7 @@ Entity coverage
 Related tests that each cover a facet — this file closes the
 cross-entity gap.
 """
+
 from __future__ import annotations
 
 import uuid
@@ -55,7 +56,6 @@ from goldsmith_erp.services.scanner_service import (
     ORDER_FIELDS_VIEWER,
     REPAIR_FIELDS_VIEWER,
 )
-
 
 RESOLVE_URL = "/api/v1/scan/resolve"
 
@@ -337,6 +337,5 @@ class TestViewerAllowListCrossEntitySweep:
         assert not drift, (
             "VIEWER allow-list drift detected — a new ORM column leaked "
             "past the scanner projection. Update "
-            "*_FIELDS_BY_ROLE[VIEWER] in scanner_service.py. Drift: "
-            + "; ".join(drift)
+            "*_FIELDS_BY_ROLE[VIEWER] in scanner_service.py. Drift: " + "; ".join(drift)
         )

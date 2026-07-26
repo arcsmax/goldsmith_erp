@@ -11,6 +11,7 @@ Notification strategy:
   - On accept  → notify from_user  ("Uebergabe wurde bestaetigt von Maria")
   - On decline → notify from_user  ("Uebergabe abgelehnt: <Begruendung>")
 """
+
 from __future__ import annotations
 
 import json
@@ -91,7 +92,9 @@ async def _send_notification(
     Imported lazily to avoid a circular dependency between handoff_service
     and notification_service.
     """
-    from goldsmith_erp.services.notification_service import NotificationService  # noqa: PLC0415
+    from goldsmith_erp.services.notification_service import (  # noqa: PLC0415
+        NotificationService,
+    )
 
     try:
         await NotificationService.create_notification(
@@ -179,7 +182,9 @@ class HandoffService:
 
         # --- Notify recipient ---
         sender_name = (
-            f"{sender.first_name} {sender.last_name}" if sender else f"Benutzer #{from_user_id}"
+            f"{sender.first_name} {sender.last_name}"
+            if sender
+            else f"Benutzer #{from_user_id}"
         )
         type_label = _HANDOFF_TYPE_LABELS.get(handoff_type, handoff_type.value)
         await _send_notification(
@@ -249,7 +254,9 @@ class HandoffService:
             raise ValueError(f"Uebergabe #{handoff_id} nicht gefunden.")
 
         if handoff.to_user_id != user_id:
-            raise ValueError("Nur der vorgesehene Empfaenger kann diese Uebergabe bestaetigen.")
+            raise ValueError(
+                "Nur der vorgesehene Empfaenger kann diese Uebergabe bestaetigen."
+            )
 
         if handoff.status != HandoffStatusEnum.PENDING:
             raise ValueError(
@@ -339,7 +346,9 @@ class HandoffService:
             raise ValueError(f"Uebergabe #{handoff_id} nicht gefunden.")
 
         if handoff.to_user_id != user_id:
-            raise ValueError("Nur der vorgesehene Empfaenger kann diese Uebergabe ablehnen.")
+            raise ValueError(
+                "Nur der vorgesehene Empfaenger kann diese Uebergabe ablehnen."
+            )
 
         if handoff.status != HandoffStatusEnum.PENDING:
             raise ValueError(
@@ -452,8 +461,6 @@ class HandoffService:
         return list(result.scalars().all())
 
     @staticmethod
-    async def get_handoff(
-        db: AsyncSession, handoff_id: int
-    ) -> Optional[OrderHandoff]:
+    async def get_handoff(db: AsyncSession, handoff_id: int) -> Optional[OrderHandoff]:
         """Fetch a single handoff by ID (with relationships)."""
         return await _load_handoff_with_relations(db, handoff_id)

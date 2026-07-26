@@ -25,7 +25,7 @@ import csv
 import io
 import logging
 from datetime import datetime
-from typing import List, Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, List, Optional
 
 if TYPE_CHECKING:
     # Imported only for type hints — avoids circular imports at runtime.
@@ -126,7 +126,9 @@ def export_datev_csv(invoices: "List[Invoice]") -> str:
     )
 
     def _write(buf: io.StringIO) -> None:
-        writer = csv.writer(buf, delimiter=";", quoting=csv.QUOTE_MINIMAL, lineterminator="\r\n")
+        writer = csv.writer(
+            buf, delimiter=";", quoting=csv.QUOTE_MINIMAL, lineterminator="\r\n"
+        )
 
         # -- DATEV metadata header (mandatory, line 1) -----------------------
         # Format: "EXTF";<version>;<category>;<format-name>;<format-version>;
@@ -138,57 +140,61 @@ def export_datev_csv(invoices: "List[Invoice]") -> str:
         # All optional fields are left empty so the DATEV import wizard prompts the user
         # to confirm account mappings interactively.
         header_meta = [
-            "EXTF",          # Fixed identifier — marks an external file
+            "EXTF",  # Fixed identifier — marks an external file
             DATEV_FORMAT_VERSION,
-            "21",            # Category 21 = Buchungsstapel
+            "21",  # Category 21 = Buchungsstapel
             "Buchungsstapel",
-            "7",             # Format version 7
+            "7",  # Format version 7
             _DATEV_CREATED_DATE,
-            "",              # Import date (filled by DATEV on import)
-            "RE",            # Source abbreviation ("Rechnung")
-            "",              # Reserved
-            "",              # Creator ID
-            "",              # Reserved
-            "",              # Client number (Mandantennummer)
-            "",              # Consultant number (Beraternummer)
-            "",              # Start of fiscal year (YYYYMMDD)
-            "",              # End of fiscal year (YYYYMMDD)
-            "4",             # Account length (Kontonummernlänge)
-            "",              # Date from (YYYYMMDD)
-            "",              # Date to (YYYYMMDD)
+            "",  # Import date (filled by DATEV on import)
+            "RE",  # Source abbreviation ("Rechnung")
+            "",  # Reserved
+            "",  # Creator ID
+            "",  # Reserved
+            "",  # Client number (Mandantennummer)
+            "",  # Consultant number (Beraternummer)
+            "",  # Start of fiscal year (YYYYMMDD)
+            "",  # End of fiscal year (YYYYMMDD)
+            "4",  # Account length (Kontonummernlänge)
+            "",  # Date from (YYYYMMDD)
+            "",  # Date to (YYYYMMDD)
             "Goldsmith ERP Export",  # Description
-            "",              # Dictation abbreviation
-            "",              # Reserved
-            "03",            # SKR chart (03 = SKR03)
-            "",              # Lock flag
-            "",              # Reserved
-            "",              # Reserved
+            "",  # Dictation abbreviation
+            "",  # Reserved
+            "03",  # SKR chart (03 = SKR03)
+            "",  # Lock flag
+            "",  # Reserved
+            "",  # Reserved
         ]
         writer.writerow(header_meta)
 
         # -- Column header row (mandatory, line 2) ---------------------------
-        writer.writerow([
-            "Umsatz (ohne Soll/Haben-Kz)",
-            "Soll/Haben-Kennzeichen",
-            "Konto",
-            "Gegenkonto (ohne BU-Schlüssel)",
-            "Belegdatum",
-            "Belegfeld1",
-            "Buchungstext",
-        ])
+        writer.writerow(
+            [
+                "Umsatz (ohne Soll/Haben-Kz)",
+                "Soll/Haben-Kennzeichen",
+                "Konto",
+                "Gegenkonto (ohne BU-Schlüssel)",
+                "Belegdatum",
+                "Belegfeld1",
+                "Buchungstext",
+            ]
+        )
 
         # -- Data rows -------------------------------------------------------
         for inv in invoices:
             booking_text = f"Rechnung {inv.invoice_number}"[:60]
-            writer.writerow([
-                _format_amount_datev(inv.total),
-                "H",                              # Haben = credit on revenue account
-                DATEV_REVENUE_ACCOUNT,            # 8400 Erlöse
-                DATEV_RECEIVABLES_ACCOUNT,        # 1400 Forderungen
-                _format_date_datev(inv.issue_date),
-                inv.invoice_number[:12],          # Belegfeld1 max 12 chars
-                booking_text,
-            ])
+            writer.writerow(
+                [
+                    _format_amount_datev(inv.total),
+                    "H",  # Haben = credit on revenue account
+                    DATEV_REVENUE_ACCOUNT,  # 8400 Erlöse
+                    DATEV_RECEIVABLES_ACCOUNT,  # 1400 Forderungen
+                    _format_date_datev(inv.issue_date),
+                    inv.invoice_number[:12],  # Belegfeld1 max 12 chars
+                    booking_text,
+                ]
+            )
 
     return _csv_string(_write)
 
@@ -215,30 +221,40 @@ def export_lexoffice_csv(invoices: "List[Invoice]") -> str:
     """
     logger.info(
         "Generating Lexoffice export",
-        extra={"audit": True, "action": "export_lexoffice", "invoice_count": len(invoices)},
+        extra={
+            "audit": True,
+            "action": "export_lexoffice",
+            "invoice_count": len(invoices),
+        },
     )
 
     def _write(buf: io.StringIO) -> None:
-        writer = csv.writer(buf, delimiter=",", quoting=csv.QUOTE_ALL, lineterminator="\r\n")
+        writer = csv.writer(
+            buf, delimiter=",", quoting=csv.QUOTE_ALL, lineterminator="\r\n"
+        )
 
-        writer.writerow([
-            "Datum",
-            "Belegnummer",
-            "Beschreibung",
-            "Netto",
-            "MwSt-Satz (%)",
-            "Brutto",
-        ])
+        writer.writerow(
+            [
+                "Datum",
+                "Belegnummer",
+                "Beschreibung",
+                "Netto",
+                "MwSt-Satz (%)",
+                "Brutto",
+            ]
+        )
 
         for inv in invoices:
             description = f"Rechnung {inv.invoice_number}"
-            writer.writerow([
-                _format_date_lexoffice(inv.issue_date),
-                inv.invoice_number,
-                description,
-                f"{inv.subtotal:.2f}",
-                str(int(inv.tax_rate)),
-                f"{inv.total:.2f}",
-            ])
+            writer.writerow(
+                [
+                    _format_date_lexoffice(inv.issue_date),
+                    inv.invoice_number,
+                    description,
+                    f"{inv.subtotal:.2f}",
+                    str(int(inv.tax_rate)),
+                    f"{inv.total:.2f}",
+                ]
+            )
 
     return _csv_string(_write)

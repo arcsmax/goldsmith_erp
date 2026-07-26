@@ -35,6 +35,7 @@ Design notes
   here can never break order completion. It is a documented NO-OP today —
   see its docstring.
 """
+
 from __future__ import annotations
 
 import logging
@@ -217,7 +218,7 @@ async def safe_record_on_completion(
         # Find the order's quote(s) and the estimator-sourced LABOR line.
         # Order is already loaded by the caller; we only need the quotes
         # + their line items + the billable time entries.
-        from goldsmith_erp.db.models import Quote, QuoteLineItem, TimeEntry, Activity
+        from goldsmith_erp.db.models import Activity, Quote, QuoteLineItem, TimeEntry
 
         line_item_q = (
             select(QuoteLineItem)

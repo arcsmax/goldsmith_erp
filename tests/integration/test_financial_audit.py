@@ -73,7 +73,6 @@ from goldsmith_erp.db.models import (
     ValuationCertificate,
 )
 
-
 # ---------------------------------------------------------------------------
 # Fixture: redirect the middleware's AsyncSessionLocal at the test DB factory
 # ---------------------------------------------------------------------------
@@ -84,6 +83,7 @@ from goldsmith_erp.db.models import (
 # tests that factory is bound to production Postgres which we don't run
 # here.  Patch it to the conftest's SQLite-backed session factory for the
 # duration of each test.
+
 
 @pytest.fixture(autouse=True)
 def _patch_middleware_session(monkeypatch, db_session):
@@ -317,17 +317,15 @@ async def test_valuation_get_writes_audit_row(
     test_valuation: ValuationCertificate,
 ):
     """GET /api/v1/valuations/{id} must produce an audit row."""
-    resp = await authenticated_client.get(
-        f"/api/v1/valuations/{test_valuation.id}"
-    )
+    resp = await authenticated_client.get(f"/api/v1/valuations/{test_valuation.id}")
     assert resp.status_code in (200, 404), resp.text
 
     row = await _latest_audit_row(
         db_session, entity="valuation", entity_id=test_valuation.id
     )
-    assert row is not None, (
-        "GET /api/v1/valuations/{id} must write a CustomerAuditLog row"
-    )
+    assert (
+        row is not None
+    ), "GET /api/v1/valuations/{id} must write a CustomerAuditLog row"
     assert row.action == "financial_read"
     assert row.user_id == admin_user.id
 
@@ -346,9 +344,9 @@ async def test_valuation_list_writes_audit_row(
     assert resp.status_code in (200, 404, 307), resp.text
 
     row = await _latest_audit_row(db_session, entity="valuation", entity_id=None)
-    assert row is not None, (
-        "GET /api/v1/valuations must write an audit row for bulk access"
-    )
+    assert (
+        row is not None
+    ), "GET /api/v1/valuations must write an audit row for bulk access"
     assert row.action == "list_accessed_financial"
     assert row.user_id == admin_user.id
 
@@ -571,9 +569,9 @@ async def test_order_list_read_writes_financial_audit_row(
     assert resp.status_code == 200, resp.text
 
     row = await _latest_audit_row(db_session, entity="order", entity_id=None)
-    assert row is not None, (
-        "GET /api/v1/orders/ must write a bulk financial-access audit row"
-    )
+    assert (
+        row is not None
+    ), "GET /api/v1/orders/ must write a bulk financial-access audit row"
     assert row.action == "list_accessed_financial"
     assert row.user_id == admin_user.id
 
@@ -593,9 +591,7 @@ async def test_order_detail_read_as_viewer_writes_no_financial_row(
     """
     order = await _create_order(db_session, test_customer)
 
-    resp = await client.get(
-        f"/api/v1/orders/{order.id}", headers=viewer_auth_headers
-    )
+    resp = await client.get(f"/api/v1/orders/{order.id}", headers=viewer_auth_headers)
     assert resp.status_code == 200, resp.text
 
     row = await _latest_audit_row(db_session, entity="order", entity_id=order.id)
@@ -635,9 +631,7 @@ async def test_activity_detail_read_writes_financial_audit_row(
     resp = await authenticated_client.get(f"/api/v1/activities/{activity.id}")
     assert resp.status_code == 200, resp.text
 
-    row = await _latest_audit_row(
-        db_session, entity="activity", entity_id=activity.id
-    )
+    row = await _latest_audit_row(db_session, entity="activity", entity_id=activity.id)
     assert row is not None, (
         "GET /api/v1/activities/{id} must write an audit row when hourly_rate "
         "is served (ADMIN/GOLDSMITH)"
@@ -686,9 +680,7 @@ async def test_material_create_and_read_write_audit_rows(
     create_resp = await authenticated_client.post("/api/v1/materials/", json=body)
     assert create_resp.status_code in (200, 201), create_resp.text
 
-    created_row = await _latest_audit_row(
-        db_session, entity="material", entity_id=None
-    )
+    created_row = await _latest_audit_row(db_session, entity="material", entity_id=None)
     assert created_row is not None, (
         "POST /api/v1/materials/ must write a middleware audit row (writes are "
         "audited for materials — is_financial=False)"
@@ -703,9 +695,9 @@ async def test_material_create_and_read_write_audit_rows(
     read_row = await _latest_audit_row(
         db_session, entity="material", entity_id=material_id
     )
-    assert read_row is not None, (
-        "GET /api/v1/materials/{id} must write a financial_read audit row"
-    )
+    assert (
+        read_row is not None
+    ), "GET /api/v1/materials/{id} must write a financial_read audit row"
     assert read_row.action == "financial_read"
 
 
@@ -724,9 +716,9 @@ async def test_time_tracking_running_read_writes_audit_row(
     assert resp.status_code == 200, resp.text
 
     row = await _latest_audit_row(db_session, entity="time_entry", entity_id=None)
-    assert row is not None, (
-        "GET /api/v1/time-tracking/running must write a time_entry audit row"
-    )
+    assert (
+        row is not None
+    ), "GET /api/v1/time-tracking/running must write a time_entry audit row"
     assert row.action == "list_accessed_financial"
     assert row.user_id == admin_user.id
 

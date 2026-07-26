@@ -14,6 +14,7 @@ Permission matrix:
   ML_VIEW_STATS — ADMIN, GOLDSMITH, VIEWER
   ML_TRAIN     — ADMIN only
 """
+
 import pytest
 from httpx import AsyncClient
 
@@ -25,6 +26,7 @@ ML_BASE = "/api/v1/ml"
 # ---------------------------------------------------------------------------
 # POST /api/v1/ml/predict/duration
 # ---------------------------------------------------------------------------
+
 
 class TestPredictDuration:
     """No trained model is present in integration tests — heuristic always fires."""
@@ -128,6 +130,7 @@ class TestPredictDuration:
 # getattr(model, "is_ready", False) was permanently False and every
 # prediction silently fell back to the heuristic, even once trained.
 # ---------------------------------------------------------------------------
+
 
 def _build_synthetic_training_set() -> tuple[list[dict], list[float]]:
     """
@@ -252,6 +255,7 @@ class TestPredictDurationTrainedModel:
 # GET /api/v1/ml/predict/order/{order_id}
 # ---------------------------------------------------------------------------
 
+
 class TestPredictDurationForOrder:
 
     @pytest.mark.asyncio
@@ -266,9 +270,7 @@ class TestPredictDurationForOrder:
         assert "99999" in response.json()["detail"]
 
     @pytest.mark.asyncio
-    async def test_predict_order_unauthenticated_returns_401(
-        self, client: AsyncClient
-    ):
+    async def test_predict_order_unauthenticated_returns_401(self, client: AsyncClient):
         response = await client.get(f"{ML_BASE}/predict/order/1")
         assert response.status_code == 401
 
@@ -276,6 +278,7 @@ class TestPredictDurationForOrder:
 # ---------------------------------------------------------------------------
 # POST /api/v1/ml/train
 # ---------------------------------------------------------------------------
+
 
 class TestTrainModel:
     """ML_TRAIN permission is ADMIN-only."""
@@ -302,9 +305,7 @@ class TestTrainModel:
         assert response.status_code == 403
 
     @pytest.mark.asyncio
-    async def test_train_unauthenticated_returns_401(
-        self, client: AsyncClient
-    ):
+    async def test_train_unauthenticated_returns_401(self, client: AsyncClient):
         response = await client.post(f"{ML_BASE}/train")
         assert response.status_code == 401
 
@@ -334,12 +335,11 @@ class TestTrainModel:
 # GET /api/v1/ml/status
 # ---------------------------------------------------------------------------
 
+
 class TestModelStatus:
 
     @pytest.mark.asyncio
-    async def test_model_status_unauthenticated_returns_401(
-        self, client: AsyncClient
-    ):
+    async def test_model_status_unauthenticated_returns_401(self, client: AsyncClient):
         response = await client.get(f"{ML_BASE}/status")
         assert response.status_code == 401
 
@@ -387,12 +387,11 @@ class TestModelStatus:
 # GET /api/v1/ml/data-quality
 # ---------------------------------------------------------------------------
 
+
 class TestDataQuality:
 
     @pytest.mark.asyncio
-    async def test_data_quality_unauthenticated_returns_401(
-        self, client: AsyncClient
-    ):
+    async def test_data_quality_unauthenticated_returns_401(self, client: AsyncClient):
         response = await client.get(f"{ML_BASE}/data-quality")
         assert response.status_code == 401
 
@@ -456,6 +455,7 @@ class TestDataQuality:
 # ---------------------------------------------------------------------------
 # GET /api/v1/ml/activity-stats
 # ---------------------------------------------------------------------------
+
 
 class TestActivityStats:
 

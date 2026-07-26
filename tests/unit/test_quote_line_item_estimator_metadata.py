@@ -1,10 +1,18 @@
-import pytest
 from datetime import datetime, timedelta
+
+import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from goldsmith_erp.db.models import QuoteLineItem, Quote, Customer, User, QuoteLineType, UserRole
 from goldsmith_erp.core.security import get_password_hash
+from goldsmith_erp.db.models import (
+    Customer,
+    Quote,
+    QuoteLineItem,
+    QuoteLineType,
+    User,
+    UserRole,
+)
 
 
 @pytest.mark.unit

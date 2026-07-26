@@ -11,10 +11,10 @@ Three schema families:
 
 from __future__ import annotations
 
-from pydantic import BaseModel, Field, field_validator
-from typing import Optional
 from datetime import datetime
+from typing import Optional
 
+from pydantic import BaseModel, Field, field_validator
 
 # ---------------------------------------------------------------------------
 # CRUD schemas
@@ -30,7 +30,7 @@ class CustomMetalTypeCreate(BaseModel):
         max_length=50,
         pattern=r"^[a-z0-9_]+$",
         description="Unique machine-readable code, e.g. 'rose_gold_9k'. "
-                    "Lowercase letters, digits, and underscores only.",
+        "Lowercase letters, digits, and underscores only.",
     )
     display_name: str = Field(
         ...,
@@ -116,7 +116,9 @@ class MetalTypeOption(BaseModel):
     that `id` is set — it is None for built-in types.
     """
 
-    code: str = Field(..., description="Unique code (matches MetalType enum value for built-ins)")
+    code: str = Field(
+        ..., description="Unique code (matches MetalType enum value for built-ins)"
+    )
     display_name: str
     fine_content_ratio: float
     base_metal: str

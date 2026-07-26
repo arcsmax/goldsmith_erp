@@ -5,6 +5,7 @@ Pydantic schemas for the notification system.
 Notification — persisted per-user in-app alert.
 NotificationPreference — per-user opt-in/advance-days configuration.
 """
+
 from __future__ import annotations
 
 from datetime import datetime
@@ -14,7 +15,6 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from goldsmith_erp.db.models import NotificationSeverityEnum, NotificationTypeEnum
 
-
 # ---------------------------------------------------------------------------
 # Notification schemas
 # ---------------------------------------------------------------------------
@@ -22,6 +22,7 @@ from goldsmith_erp.db.models import NotificationSeverityEnum, NotificationTypeEn
 
 class NotificationBase(BaseModel):
     """Fields shared across notification schemas."""
+
     title: str = Field(..., min_length=1, max_length=200)
     message: str = Field(..., min_length=1)
     notification_type: NotificationTypeEnum
@@ -32,11 +33,13 @@ class NotificationBase(BaseModel):
 
 class NotificationCreate(NotificationBase):
     """Schema for creating a notification (internal service use)."""
+
     user_id: int = Field(..., gt=0, description="Recipient user ID")
 
 
 class NotificationRead(NotificationBase):
     """Schema returned to the API consumer."""
+
     model_config = ConfigDict(from_attributes=True)
 
     id: int
@@ -48,6 +51,7 @@ class NotificationRead(NotificationBase):
 
 class UnreadCountResponse(BaseModel):
     """Response schema for the unread-count badge endpoint."""
+
     unread_count: int
 
 
@@ -68,6 +72,7 @@ class NotificationPreferenceCreate(NotificationPreferenceBase):
 
 class NotificationPreferenceUpdate(BaseModel):
     """Partial update — all fields optional."""
+
     enabled: Optional[bool] = None
     advance_days: Optional[int] = Field(None, ge=1, le=30)
 

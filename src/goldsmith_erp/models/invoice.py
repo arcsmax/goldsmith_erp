@@ -12,12 +12,12 @@ German invoice terminology:
   Rechnungsposition  = Line item
 """
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from datetime import datetime
-from typing import Optional, List
+from typing import List, Optional
 
-from goldsmith_erp.db.models import InvoiceStatus, InvoiceLineType
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from goldsmith_erp.db.models import InvoiceLineType, InvoiceStatus
 
 # ============================================================================
 # LINE ITEM SCHEMAS
@@ -82,9 +82,7 @@ class InvoiceCreate(BaseModel):
     """
 
     order_id: int = Field(..., gt=0, description="Order ID to generate invoice from")
-    due_date: datetime = Field(
-        ..., description="Payment due date (Faelligkeitsdatum)"
-    )
+    due_date: datetime = Field(..., description="Payment due date (Faelligkeitsdatum)")
     tax_rate: float = Field(
         default=19.0,
         ge=0,

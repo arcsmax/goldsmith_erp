@@ -204,7 +204,9 @@ async def create_valuation(
             goldsmith_qualification=body.goldsmith_qualification,
         )
     except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc))
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+        )
 
     logger.info(
         "Valuation certificate created via API",
@@ -247,7 +249,9 @@ async def create_valuation_from_order(
             goldsmith_qualification=body.goldsmith_qualification,
         )
     except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc))
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+        )
 
     logger.info(
         "Valuation certificate auto-created from order",
@@ -329,12 +333,14 @@ async def download_valuation_pdf(
         name=(
             f"{getattr(customer, 'first_name', '')} "
             f"{getattr(customer, 'last_name', '')}"
-        ).strip() or "Kunde",
+        ).strip()
+        or "Kunde",
         address=getattr(customer, "street", None),
         city=(
             f"{getattr(customer, 'postal_code', '') or ''} "
             f"{getattr(customer, 'city', '') or ''}"
-        ).strip() or None,
+        ).strip()
+        or None,
     )
 
     pdf_bytes = PDFService.render_valuation_certificate_pdf(

@@ -1,9 +1,10 @@
 import json
+from datetime import datetime
+from typing import Any, Dict, List, Optional
+
+from sqlalchemy import delete, func, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from sqlalchemy import update, delete, func
-from typing import List, Optional, Dict, Any
-from datetime import datetime
 
 from goldsmith_erp.core.cache import ACTIVITIES_TTL, get_cached, invalidate
 from goldsmith_erp.db.models import Activity as ActivityModel
@@ -28,7 +29,7 @@ class ActivityService:
         category: Optional[str] = None,
         sort_by_usage: bool = False,
         skip: int = 0,
-        limit: int = 100
+        limit: int = 100,
     ) -> List[ActivityModel]:
         """
         Holt alle Aktivitäten mit optionaler Filterung und Sortierung.
@@ -45,6 +46,7 @@ class ActivityService:
             skip: Pagination offset
             limit: Max results
         """
+
         async def _fetch() -> List[ActivityModel]:
             query = select(ActivityModel)
 
@@ -62,6 +64,7 @@ class ActivityService:
 
         # Cache only the canonical default query.
         if category is None and not sort_by_usage and skip == 0 and limit == 100:
+
             def _serialise(activities: List[ActivityModel]) -> str:
                 # NOTE: this is the raw, UNPROJECTED cache payload — it must
                 # include hourly_rate (financial data) so ADMIN/GOLDSMITH get
@@ -108,7 +111,9 @@ class ActivityService:
         return await _fetch()
 
     @staticmethod
-    async def get_activity(db: AsyncSession, activity_id: int) -> Optional[ActivityModel]:
+    async def get_activity(
+        db: AsyncSession, activity_id: int
+    ) -> Optional[ActivityModel]:
         """Holt eine einzelne Aktivität über ihre ID."""
         result = await db.execute(
             select(ActivityModel).filter(ActivityModel.id == activity_id)
@@ -116,13 +121,13 @@ class ActivityService:
         return result.scalar_one_or_none()
 
     @staticmethod
-    async def create_activity(db: AsyncSession, activity_in: ActivityCreate) -> ActivityModel:
+    async def create_activity(
+        db: AsyncSession, activity_in: ActivityCreate
+    ) -> ActivityModel:
         """Erstellt eine neue Aktivität (Custom Activity)."""
         activity_data = activity_in.model_dump()
         db_activity = ActivityModel(
-            **activity_data,
-            usage_count=0,
-            created_at=datetime.utcnow()
+            **activity_data, usage_count=0, created_at=datetime.utcnow()
         )
 
         db.add(db_activity)
@@ -173,16 +178,16 @@ class ActivityService:
         if not activity.is_custom:
             return {"success": False, "message": "Cannot delete standard activity"}
 
-        await db.execute(
-            delete(ActivityModel).where(ActivityModel.id == activity_id)
-        )
+        await db.execute(delete(ActivityModel).where(ActivityModel.id == activity_id))
         await db.commit()
         await invalidate(_ACTIVITIES_LIST_KEY)
 
         return {"success": True}
 
     @staticmethod
-    async def increment_usage(db: AsyncSession, activity_id: int) -> Optional[ActivityModel]:
+    async def increment_usage(
+        db: AsyncSession, activity_id: int
+    ) -> Optional[ActivityModel]:
         """
         Erhöht den usage_count und aktualisiert last_used.
         Wird automatisch beim Erstellen eines TimeEntry aufgerufen.
@@ -195,8 +200,7 @@ class ActivityService:
             update(ActivityModel)
             .where(ActivityModel.id == activity_id)
             .values(
-                usage_count=ActivityModel.usage_count + 1,
-                last_used=datetime.utcnow()
+                usage_count=ActivityModel.usage_count + 1, last_used=datetime.utcnow()
             )
         )
         await db.commit()
@@ -223,7 +227,9 @@ class ActivityService:
         else:
             # Weighted average (neuere Einträge gewichten stärker)
             weight = min(activity.usage_count, 10)  # Max 10 für Stabilität
-            new_avg = (activity.average_duration_minutes * weight + new_duration) / (weight + 1)
+            new_avg = (activity.average_duration_minutes * weight + new_duration) / (
+                weight + 1
+            )
 
         await db.execute(
             update(ActivityModel)

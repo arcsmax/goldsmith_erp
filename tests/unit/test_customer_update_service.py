@@ -20,6 +20,7 @@ Covers:
 aiosmtplib is mocked at the boundary test_email_customer_update.py
 established: ``email_service_module.aiosmtplib.send``.
 """
+
 import io
 import uuid
 

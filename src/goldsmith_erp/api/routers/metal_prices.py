@@ -75,8 +75,8 @@ async def list_metal_prices(
     price_list: list[MetalPriceResponse] = []
     for metal_type in MetalType:
         try:
-            price, source, updated_at = await MetalPriceService.get_price_for_metal_type(
-                metal_type, db
+            price, source, updated_at = (
+                await MetalPriceService.get_price_for_metal_type(metal_type, db)
             )
             price_list.append(
                 MetalPriceResponse(
@@ -169,7 +169,7 @@ async def get_metal_price_history(
         tail = series[-n:] if len(series) >= n else series
         return round(sum(tail) / len(tail), 4) if tail else 0.0
 
-    avg_7d = _simple_avg(prices, 7 * 4)   # ~4 refreshes/hour * 24h * 7d
+    avg_7d = _simple_avg(prices, 7 * 4)  # ~4 refreshes/hour * 24h * 7d
     avg_30d = _simple_avg(prices, 30 * 4 * 24)
     current_price = prices[-1] if prices else 0.0
 
@@ -297,8 +297,8 @@ async def refresh_metal_prices(
     price_list: list[MetalPriceResponse] = []
     for metal_type in MetalType:
         try:
-            price, source, updated_at = await MetalPriceService.get_price_for_metal_type(
-                metal_type, db
+            price, source, updated_at = (
+                await MetalPriceService.get_price_for_metal_type(metal_type, db)
             )
             price_list.append(
                 MetalPriceResponse(

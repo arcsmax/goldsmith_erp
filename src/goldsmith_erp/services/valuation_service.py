@@ -21,12 +21,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from goldsmith_erp.db.models import (
-    Customer,
-    Gemstone,
-    Order,
-    ValuationCertificate,
-)
+from goldsmith_erp.db.models import Customer, Gemstone, Order, ValuationCertificate
 
 logger = logging.getLogger(__name__)
 

@@ -13,6 +13,7 @@ Routes:
   POST /api/v1/notifications/check-deadlines   — trigger deadline scan (ADMIN)
   POST /api/v1/notifications/check-low-stock   — trigger stock scan (ADMIN)
 """
+
 from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -22,10 +23,7 @@ from goldsmith_erp.api.deps import get_current_user
 from goldsmith_erp.core.permissions import Permission, require_permission
 from goldsmith_erp.db.models import User
 from goldsmith_erp.db.session import get_db
-from goldsmith_erp.models.notification import (
-    NotificationRead,
-    UnreadCountResponse,
-)
+from goldsmith_erp.models.notification import NotificationRead, UnreadCountResponse
 from goldsmith_erp.services.notification_service import NotificationService
 
 router = APIRouter()
@@ -34,8 +32,12 @@ router = APIRouter()
 @router.get("/", response_model=List[NotificationRead])
 @require_permission(Permission.NOTIFICATION_VIEW)
 async def list_notifications(
-    unread_only: bool = Query(False, description="When true, return only unread notifications"),
-    limit: int = Query(50, ge=1, le=200, description="Maximum number of notifications to return"),
+    unread_only: bool = Query(
+        False, description="When true, return only unread notifications"
+    ),
+    limit: int = Query(
+        50, ge=1, le=200, description="Maximum number of notifications to return"
+    ),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> List[NotificationRead]:

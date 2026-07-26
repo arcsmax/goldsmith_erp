@@ -6,6 +6,7 @@ CalendarEvent — manually created events stored in the calendar_events table.
 CalendarDeadlineEvent — virtual event synthesised on-the-fly from Order.deadline;
     it is never persisted to calendar_events.
 """
+
 from __future__ import annotations
 
 from datetime import datetime

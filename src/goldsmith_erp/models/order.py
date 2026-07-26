@@ -1,10 +1,17 @@
 # src/goldsmith_erp/models/order.py
-from pydantic import BaseModel, ConfigDict, Field, field_validator
 from datetime import datetime
-from typing import Optional, List, TYPE_CHECKING
 from decimal import Decimal
+from typing import TYPE_CHECKING, List, Optional
 
-from goldsmith_erp.db.models import OrderStatusEnum, MetalType, CostingMethod, OrderTypeEnum, FinishTypeEnum
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+from goldsmith_erp.db.models import (
+    CostingMethod,
+    FinishTypeEnum,
+    MetalType,
+    OrderStatusEnum,
+    OrderTypeEnum,
+)
 
 # Use TYPE_CHECKING to avoid circular import issues
 if TYPE_CHECKING:
@@ -13,34 +20,33 @@ if TYPE_CHECKING:
 
 class MaterialBase(BaseModel):
     """Material schema for order display."""
+
     id: int = Field(..., gt=0, description="Material ID (must be positive)")
     name: str = Field(..., min_length=1, max_length=200, description="Material name")
-    unit_price: float = Field(..., ge=0, description="Unit price (must be non-negative)")
+    unit_price: float = Field(
+        ..., ge=0, description="Unit price (must be non-negative)"
+    )
 
     model_config = ConfigDict(from_attributes=True)
 
 
 class OrderBase(BaseModel):
     """Basis-Schema für Orders mit Input Validation."""
+
     title: str = Field(
-        ...,
-        min_length=1,
-        max_length=200,
-        description="Order title (1-200 characters)"
+        ..., min_length=1, max_length=200, description="Order title (1-200 characters)"
     )
     description: str = Field(
         ...,
         min_length=1,
         max_length=2000,
-        description="Order description (1-2000 characters)"
+        description="Order description (1-2000 characters)",
     )
     price: Optional[float] = Field(
-        None,
-        ge=0,
-        description="Order price (must be non-negative)"
+        None, ge=0, description="Order price (must be non-negative)"
     )
 
-    @field_validator('title', 'description')
+    @field_validator("title", "description")
     @classmethod
     def sanitize_text(cls, v: str) -> str:
         """Sanitize text fields to prevent injection attacks."""
@@ -51,8 +57,15 @@ class OrderBase(BaseModel):
             raise ValueError("Field cannot be empty or only whitespace")
         # Prevent SQL injection by blocking dangerous SQL keywords
         dangerous_patterns = [
-            'DROP TABLE', 'DELETE FROM', 'INSERT INTO', 'UPDATE ',
-            'TRUNCATE', 'ALTER TABLE', 'CREATE TABLE', '--', ';--'
+            "DROP TABLE",
+            "DELETE FROM",
+            "INSERT INTO",
+            "UPDATE ",
+            "TRUNCATE",
+            "ALTER TABLE",
+            "CREATE TABLE",
+            "--",
+            ";--",
         ]
         v_upper = v.upper()
         for pattern in dangerous_patterns:
@@ -62,7 +75,7 @@ class OrderBase(BaseModel):
                 )
         return v
 
-    @field_validator('price')
+    @field_validator("price")
     @classmethod
     def validate_price(cls, v: Optional[float]) -> Optional[float]:
         """Validate price is reasonable."""
@@ -76,46 +89,85 @@ class OrderBase(BaseModel):
 
 class OrderCreate(OrderBase):
     """Schema für Order-Erstellung mit Validation."""
+
     customer_id: int = Field(..., gt=0, description="Customer ID (must be positive)")
-    deadline: Optional[datetime] = Field(None, description="Order deadline for calendar")
+    deadline: Optional[datetime] = Field(
+        None, description="Order deadline for calendar"
+    )
     materials: Optional[List[int]] = Field(
         None,
         description="List of material IDs",
-        max_length=100  # Prevent abuse with huge lists
+        max_length=100,  # Prevent abuse with huge lists
     )
 
     # Weight & Material (optional at creation)
-    estimated_weight_g: Optional[float] = Field(None, ge=0, description="Estimated metal weight in grams")
-    scrap_percentage: Optional[float] = Field(5.0, ge=0, le=50, description="Material loss percentage")
+    estimated_weight_g: Optional[float] = Field(
+        None, ge=0, description="Estimated metal weight in grams"
+    )
+    scrap_percentage: Optional[float] = Field(
+        5.0, ge=0, le=50, description="Material loss percentage"
+    )
 
     # Metal Inventory Integration (optional at creation)
-    metal_type: Optional[MetalType] = Field(None, description="Type of metal to use (e.g., gold_18k, silver_925)")
-    costing_method: Optional[CostingMethod] = Field(CostingMethod.FIFO, description="Costing method (FIFO/LIFO/AVERAGE/SPECIFIC)")
-    specific_metal_purchase_id: Optional[int] = Field(None, gt=0, description="Specific metal batch ID (required if costing_method=SPECIFIC)")
+    metal_type: Optional[MetalType] = Field(
+        None, description="Type of metal to use (e.g., gold_18k, silver_925)"
+    )
+    costing_method: Optional[CostingMethod] = Field(
+        CostingMethod.FIFO, description="Costing method (FIFO/LIFO/AVERAGE/SPECIFIC)"
+    )
+    specific_metal_purchase_id: Optional[int] = Field(
+        None,
+        gt=0,
+        description="Specific metal batch ID (required if costing_method=SPECIFIC)",
+    )
 
     # Cost Calculation (optional at creation)
-    material_cost_override: Optional[float] = Field(None, ge=0, description="Manual material cost override")
+    material_cost_override: Optional[float] = Field(
+        None, ge=0, description="Manual material cost override"
+    )
     labor_hours: Optional[float] = Field(None, ge=0, description="Estimated work hours")
     hourly_rate: Optional[float] = Field(75.00, ge=0, description="Labor rate per hour")
 
     # Pricing (optional at creation)
-    profit_margin_percent: Optional[float] = Field(40.0, ge=0, le=100, description="Profit margin percentage")
-    vat_rate: Optional[float] = Field(19.0, ge=0, le=100, description="VAT rate percentage")
+    profit_margin_percent: Optional[float] = Field(
+        40.0, ge=0, le=100, description="Profit margin percentage"
+    )
+    vat_rate: Optional[float] = Field(
+        19.0, ge=0, le=100, description="VAT rate percentage"
+    )
 
     # ML feature fields (optional at creation — can be filled during intake)
-    order_type: Optional[OrderTypeEnum] = Field(None, description="Type of jewelry piece (ring, chain, etc.)")
-    finish_type: Optional[FinishTypeEnum] = Field(None, description="Surface finish type")
-    complexity_rating: Optional[int] = Field(None, ge=1, le=5, description="Complexity 1-5 stars")
+    order_type: Optional[OrderTypeEnum] = Field(
+        None, description="Type of jewelry piece (ring, chain, etc.)"
+    )
+    finish_type: Optional[FinishTypeEnum] = Field(
+        None, description="Surface finish type"
+    )
+    complexity_rating: Optional[int] = Field(
+        None, ge=1, le=5, description="Complexity 1-5 stars"
+    )
 
     # Goldsmith Intake Fields (Pflichtfelder for order confirmation)
-    alloy: Optional[str] = Field(None, max_length=20, description="Legierung: 333, 375, 585, 750, 900, 999, Ag925, Ag800, Pt950")
-    ring_size_mm: Optional[float] = Field(None, ge=30.0, le=100.0, description="Ringmass in mm (innerer Umfang)")
-    surface_finish: Optional[str] = Field(None, max_length=50, description="Oberflaechenbearbeitung: Hochglanz, Matt, Gebuerstet, etc.")
+    alloy: Optional[str] = Field(
+        None,
+        max_length=20,
+        description="Legierung: 333, 375, 585, 750, 900, 999, Ag925, Ag800, Pt950",
+    )
+    ring_size_mm: Optional[float] = Field(
+        None, ge=30.0, le=100.0, description="Ringmass in mm (innerer Umfang)"
+    )
+    surface_finish: Optional[str] = Field(
+        None,
+        max_length=50,
+        description="Oberflaechenbearbeitung: Hochglanz, Matt, Gebuerstet, etc.",
+    )
     fitting_date: Optional[datetime] = Field(None, description="Anprobe-Datum")
     has_scrap_gold: Optional[bool] = Field(False, description="Altgold vorhanden?")
-    special_instructions: Optional[str] = Field(None, max_length=2000, description="Sonderwuensche des Kunden")
+    special_instructions: Optional[str] = Field(
+        None, max_length=2000, description="Sonderwuensche des Kunden"
+    )
 
-    @field_validator('deadline')
+    @field_validator("deadline")
     @classmethod
     def validate_deadline(cls, v: Optional[datetime]) -> Optional[datetime]:
         """Validate deadline is in the future."""
@@ -126,7 +178,7 @@ class OrderCreate(OrderBase):
                 raise ValueError("Deadline cannot be more than 10 years in the future")
         return v
 
-    @field_validator('materials')
+    @field_validator("materials")
     @classmethod
     def validate_materials(cls, v: Optional[List[int]]) -> Optional[List[int]]:
         """Validate material IDs."""
@@ -134,7 +186,9 @@ class OrderCreate(OrderBase):
             # Check all IDs are positive
             for material_id in v:
                 if material_id <= 0:
-                    raise ValueError(f"Invalid material ID: {material_id}. Must be positive.")
+                    raise ValueError(
+                        f"Invalid material ID: {material_id}. Must be positive."
+                    )
             # Check for duplicates
             if len(v) != len(set(v)):
                 raise ValueError("Duplicate material IDs not allowed")
@@ -143,33 +197,22 @@ class OrderCreate(OrderBase):
 
 class OrderUpdate(BaseModel):
     """Schema für Order-Updates mit Validation."""
+
     title: Optional[str] = Field(
-        None,
-        min_length=1,
-        max_length=200,
-        description="New order title"
+        None, min_length=1, max_length=200, description="New order title"
     )
     description: Optional[str] = Field(
-        None,
-        min_length=1,
-        max_length=2000,
-        description="New order description"
+        None, min_length=1, max_length=2000, description="New order description"
     )
-    price: Optional[float] = Field(
-        None,
-        ge=0,
-        description="New order price"
-    )
+    price: Optional[float] = Field(None, ge=0, description="New order price")
     status: Optional[OrderStatusEnum] = Field(
-        None,
-        description="Order status (new, in_progress, completed, delivered)"
+        None, description="Order status (new, in_progress, completed, delivered)"
     )
-    deadline: Optional[datetime] = Field(None, description="Order deadline for calendar")
+    deadline: Optional[datetime] = Field(
+        None, description="Order deadline for calendar"
+    )
     current_location: Optional[str] = Field(
-        None,
-        min_length=1,
-        max_length=50,
-        description="Current storage location"
+        None, min_length=1, max_length=50, description="Current storage location"
     )
 
     # Weight & Material
@@ -180,7 +223,9 @@ class OrderUpdate(BaseModel):
     # Metal Inventory Integration
     metal_type: Optional[MetalType] = Field(None, description="Type of metal to use")
     costing_method: Optional[CostingMethod] = Field(None, description="Costing method")
-    specific_metal_purchase_id: Optional[int] = Field(None, gt=0, description="Specific metal batch ID")
+    specific_metal_purchase_id: Optional[int] = Field(
+        None, gt=0, description="Specific metal batch ID"
+    )
 
     # Cost Calculation
     material_cost_override: Optional[float] = Field(None, ge=0)
@@ -192,17 +237,33 @@ class OrderUpdate(BaseModel):
     vat_rate: Optional[float] = Field(None, ge=0, le=100)
 
     # ML feature fields (updatable at any point during order lifecycle)
-    order_type: Optional[OrderTypeEnum] = Field(None, description="Type of jewelry piece")
-    finish_type: Optional[FinishTypeEnum] = Field(None, description="Surface finish type")
-    complexity_rating: Optional[int] = Field(None, ge=1, le=5, description="Complexity 1-5 stars")
+    order_type: Optional[OrderTypeEnum] = Field(
+        None, description="Type of jewelry piece"
+    )
+    finish_type: Optional[FinishTypeEnum] = Field(
+        None, description="Surface finish type"
+    )
+    complexity_rating: Optional[int] = Field(
+        None, ge=1, le=5, description="Complexity 1-5 stars"
+    )
 
     # Goldsmith Intake Fields
-    alloy: Optional[str] = Field(None, max_length=20, description="Legierung: 333, 375, 585, 750, 900, 999, Ag925, Ag800, Pt950")
-    ring_size_mm: Optional[float] = Field(None, ge=30.0, le=100.0, description="Ringmass in mm (innerer Umfang)")
-    surface_finish: Optional[str] = Field(None, max_length=50, description="Oberflaechenbearbeitung")
+    alloy: Optional[str] = Field(
+        None,
+        max_length=20,
+        description="Legierung: 333, 375, 585, 750, 900, 999, Ag925, Ag800, Pt950",
+    )
+    ring_size_mm: Optional[float] = Field(
+        None, ge=30.0, le=100.0, description="Ringmass in mm (innerer Umfang)"
+    )
+    surface_finish: Optional[str] = Field(
+        None, max_length=50, description="Oberflaechenbearbeitung"
+    )
     fitting_date: Optional[datetime] = Field(None, description="Anprobe-Datum")
     has_scrap_gold: Optional[bool] = Field(None, description="Altgold vorhanden?")
-    special_instructions: Optional[str] = Field(None, max_length=2000, description="Sonderwuensche des Kunden")
+    special_instructions: Optional[str] = Field(
+        None, max_length=2000, description="Sonderwuensche des Kunden"
+    )
 
     # ── Slice 5 / A3.2 — Punzierungs-Check verification fields ──────────
     # Maria trimmed the dedicated /orders/{id}/punzierung-verify endpoint
@@ -226,7 +287,7 @@ class OrderUpdate(BaseModel):
         min_length=1,
     )
 
-    @field_validator('punzierung_verified_marks')
+    @field_validator("punzierung_verified_marks")
     @classmethod
     def _validate_punzierung_marks(cls, v: Optional[List[str]]) -> Optional[List[str]]:
         """Enforce the A3.2 allowed-mark vocabulary."""
@@ -244,8 +305,7 @@ class OrderUpdate(BaseModel):
         unknown = [m for m in v if m not in allowed]
         if unknown:
             raise ValueError(
-                f"Unknown punzierung marks: {unknown}. Allowed: "
-                f"{sorted(allowed)}"
+                f"Unknown punzierung marks: {unknown}. Allowed: " f"{sorted(allowed)}"
             )
         # Dedupe while preserving order so the audit trail matches the
         # goldsmith's selection order.
@@ -257,7 +317,7 @@ class OrderUpdate(BaseModel):
                 deduped.append(m)
         return deduped
 
-    @field_validator('title', 'description', 'current_location')
+    @field_validator("title", "description", "current_location")
     @classmethod
     def sanitize_text(cls, v: Optional[str]) -> Optional[str]:
         """Sanitize text fields to prevent injection attacks."""
@@ -268,8 +328,15 @@ class OrderUpdate(BaseModel):
             raise ValueError("Field cannot be empty or only whitespace")
         # Prevent SQL injection
         dangerous_patterns = [
-            'DROP TABLE', 'DELETE FROM', 'INSERT INTO', 'UPDATE ',
-            'TRUNCATE', 'ALTER TABLE', 'CREATE TABLE', '--', ';--'
+            "DROP TABLE",
+            "DELETE FROM",
+            "INSERT INTO",
+            "UPDATE ",
+            "TRUNCATE",
+            "ALTER TABLE",
+            "CREATE TABLE",
+            "--",
+            ";--",
         ]
         v_upper = v.upper()
         for pattern in dangerous_patterns:
@@ -279,7 +346,7 @@ class OrderUpdate(BaseModel):
                 )
         return v
 
-    @field_validator('price')
+    @field_validator("price")
     @classmethod
     def validate_price(cls, v: Optional[float]) -> Optional[float]:
         """Validate price is reasonable."""
@@ -293,10 +360,13 @@ class OrderUpdate(BaseModel):
 
 class OrderRead(OrderBase):
     """Schema für Order-Anzeige."""
+
     id: int
     status: OrderStatusEnum
     customer_id: int
-    customer: Optional["CustomerRead"] = None  # Optional - populated when explicitly requested
+    customer: Optional["CustomerRead"] = (
+        None  # Optional - populated when explicitly requested
+    )
     deadline: Optional[datetime] = None
     current_location: Optional[str] = None
 
@@ -346,14 +416,15 @@ class OrderRead(OrderBase):
 
 class LocationChangeRequest(BaseModel):
     """Schema for changing an order's current location."""
+
     location: str = Field(
         ...,
         min_length=1,
         max_length=50,
-        description="Target workshop location (e.g. Werkbank 1, Tresor)"
+        description="Target workshop location (e.g. Werkbank 1, Tresor)",
     )
 
-    @field_validator('location')
+    @field_validator("location")
     @classmethod
     def validate_location(cls, v: str) -> str:
         v = v.strip()
@@ -364,6 +435,7 @@ class LocationChangeRequest(BaseModel):
 
 class LocationHistoryRead(BaseModel):
     """Schema for a single location history entry."""
+
     id: int
     order_id: int
     location: str
@@ -379,6 +451,7 @@ def _resolve_forward_refs():
     """Resolve forward references in OrderRead model."""
     try:
         from goldsmith_erp.models.customer import CustomerRead
+
         OrderRead.model_rebuild()
     except ImportError:
         # If customer module isn't available yet, that's okay

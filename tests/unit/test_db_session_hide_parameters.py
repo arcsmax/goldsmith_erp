@@ -13,6 +13,7 @@ IntegrityError (a CustomerUpdate NOT NULL violation) against the actual
 test engine and asserts a sentinel value bound in the same failing INSERT
 statement never appears in the exception's string representation.
 """
+
 import pytest
 from sqlalchemy.exc import IntegrityError
 

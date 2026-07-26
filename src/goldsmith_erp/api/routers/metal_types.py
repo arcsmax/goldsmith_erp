@@ -17,19 +17,14 @@ import logging
 from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select, func
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from goldsmith_erp.api.deps import get_current_user
 from goldsmith_erp.core.permissions import Permission
 from goldsmith_erp.core.permissions import require_permission_dep as require_permission
-from goldsmith_erp.db.models import (
-    CustomMetalType as CustomMetalTypeModel,
-    MaterialUsage,
-    MetalPurchase,
-    MetalType,
-    User,
-)
+from goldsmith_erp.db.models import CustomMetalType as CustomMetalTypeModel
+from goldsmith_erp.db.models import MaterialUsage, MetalPurchase, MetalType, User
 from goldsmith_erp.db.session import get_db
 from goldsmith_erp.models.metal_type import (
     CustomMetalTypeCreate,
@@ -216,7 +211,9 @@ async def list_all_metal_types(
     return all_options
 
 
-@router.post("", response_model=CustomMetalTypeRead, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "", response_model=CustomMetalTypeRead, status_code=status.HTTP_201_CREATED
+)
 async def create_custom_metal_type(
     payload: CustomMetalTypeCreate,
     db: AsyncSession = Depends(get_db),
@@ -303,7 +300,11 @@ async def update_custom_metal_type(
 
     logger.info(
         "custom_metal_type_updated",
-        extra={"id": metal_type_id, "fields": list(update_data.keys()), "updated_by": current_user.id},
+        extra={
+            "id": metal_type_id,
+            "fields": list(update_data.keys()),
+            "updated_by": current_user.id,
+        },
     )
     return CustomMetalTypeRead.model_validate(row)
 
@@ -353,5 +354,9 @@ async def deactivate_custom_metal_type(
 
     logger.info(
         "custom_metal_type_deactivated",
-        extra={"id": metal_type_id, "code": row.code, "deactivated_by": current_user.id},
+        extra={
+            "id": metal_type_id,
+            "code": row.code,
+            "deactivated_by": current_user.id,
+        },
     )

@@ -1,21 +1,28 @@
 # src/goldsmith_erp/api/routers/orders.py
+from datetime import datetime
+from typing import Any, Dict, List, Optional
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import HTMLResponse, JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from typing import Any, Dict, List, Optional
-from datetime import datetime
 
 from goldsmith_erp.api.deps import get_current_user
-from goldsmith_erp.db.session import get_db
+from goldsmith_erp.core.config import settings
+from goldsmith_erp.core.permissions import Permission, require_permission
 from goldsmith_erp.db.models import User, UserRole
-from goldsmith_erp.models.order import OrderCreate, OrderRead, OrderUpdate, LocationChangeRequest, LocationHistoryRead
-from goldsmith_erp.services.order_service import OrderService
+from goldsmith_erp.db.session import get_db
+from goldsmith_erp.models.order import (
+    LocationChangeRequest,
+    LocationHistoryRead,
+    OrderCreate,
+    OrderRead,
+    OrderUpdate,
+)
 from goldsmith_erp.services.cost_calculation_service import CostCalculationService
 from goldsmith_erp.services.customer_update_service import write_financial_audit_row
 from goldsmith_erp.services.label_service import LabelService
-from goldsmith_erp.core.config import settings
-from goldsmith_erp.core.permissions import Permission, require_permission
+from goldsmith_erp.services.order_service import OrderService
 
 router = APIRouter()
 
@@ -34,15 +41,17 @@ router = APIRouter()
 # ``tests/integration/test_order_viewer_projection.py`` pins the exact behavior.
 #
 # Ref: docs/fix-plan/2026-04-23/C5-viewer-financial-projection.md
-_FINANCIAL_FIELDS: frozenset[str] = frozenset({
-    "price",
-    "material_cost_calculated",
-    "material_cost_override",
-    "labor_cost",
-    "hourly_rate",
-    "profit_margin_percent",
-    "calculated_price",
-})
+_FINANCIAL_FIELDS: frozenset[str] = frozenset(
+    {
+        "price",
+        "material_cost_calculated",
+        "material_cost_override",
+        "labor_cost",
+        "hourly_rate",
+        "profit_margin_percent",
+        "calculated_price",
+    }
+)
 
 
 def _financial_excludes_for_user(user: User) -> set[str]:
@@ -68,10 +77,9 @@ def _project_order_for_user(order, user: User) -> JSONResponse:
 def _project_orders_for_user(orders, user: User) -> JSONResponse:
     """Serialize a list of ORM Orders into a role-aware JSON response."""
     excludes = _financial_excludes_for_user(user)
-    data = [
-        OrderRead.model_validate(o).model_dump(exclude=excludes) for o in orders
-    ]
+    data = [OrderRead.model_validate(o).model_dump(exclude=excludes) for o in orders]
     return JSONResponse(content=jsonable_encoder(data))
+
 
 @router.get(
     "/",
@@ -87,7 +95,7 @@ async def list_orders(
     limit: int = 100,
     customer_id: Optional[int] = Query(None, description="Filter by customer ID"),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
 ):
     """Liste aller Aufträge.
 
@@ -127,13 +135,15 @@ async def get_calendar_deadlines(
     start: Optional[str] = Query(None, description="Start date (ISO format)"),
     end: Optional[str] = Query(None, description="End date (ISO format)"),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
 ):
     """Auftraege mit Deadlines fuer Kalender-Ansicht mit Ampel-Status."""
     try:
         orders = await OrderService.get_orders_with_deadlines(db, start, end)
     except ValueError:
-        raise HTTPException(status_code=422, detail="Ungültiges Datumsformat. ISO-Format erwartet.")
+        raise HTTPException(
+            status_code=422, detail="Ungültiges Datumsformat. ISO-Format erwartet."
+        )
     now = datetime.utcnow()
     result = []
     for order in orders:
@@ -149,15 +159,25 @@ async def get_calendar_deadlines(
         else:
             traffic_light = "green"
 
-        result.append({
-            "id": order.id,
-            "title": order.title,
-            "status": order.status.value if hasattr(order.status, 'value') else order.status,
-            "deadline": order.deadline.isoformat(),
-            "customer_name": f"{order.customer.first_name} {order.customer.last_name}" if order.customer else None,
-            "traffic_light": traffic_light,
-            "days_until_deadline": days_until,
-        })
+        result.append(
+            {
+                "id": order.id,
+                "title": order.title,
+                "status": (
+                    order.status.value
+                    if hasattr(order.status, "value")
+                    else order.status
+                ),
+                "deadline": order.deadline.isoformat(),
+                "customer_name": (
+                    f"{order.customer.first_name} {order.customer.last_name}"
+                    if order.customer
+                    else None
+                ),
+                "traffic_light": traffic_light,
+                "days_until_deadline": days_until,
+            }
+        )
     return result
 
 
@@ -166,17 +186,18 @@ async def get_calendar_deadlines(
 async def create_order(
     order_in: OrderCreate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
 ):
     """Neuen Auftrag erstellen."""
     return await OrderService.create_order(db, order_in)
+
 
 @router.get("/{order_id}", response_model=OrderRead)
 @require_permission(Permission.ORDER_VIEW)
 async def get_order(
     order_id: int,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
 ):
     """Einzelnen Auftrag abrufen.
 
@@ -200,13 +221,14 @@ async def get_order(
         )
     return _project_order_for_user(order, current_user)
 
+
 @router.put("/{order_id}", response_model=OrderRead)
 @require_permission(Permission.ORDER_EDIT)
 async def update_order(
     order_id: int,
     order_in: OrderUpdate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
 ):
     """Auftrag aktualisieren."""
     order = await OrderService.get_order(db, order_id)
@@ -229,7 +251,7 @@ async def patch_order(
     order_id: int,
     order_in: OrderUpdate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
 ):
     """Auftrag (teil-)aktualisieren.
 
@@ -253,13 +275,14 @@ async def patch_order(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
 
+
 @router.post("/{order_id}/location", response_model=OrderRead)
 @require_permission(Permission.ORDER_EDIT)
 async def change_order_location(
     order_id: int,
     location_in: LocationChangeRequest,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
 ):
     """Lagerort eines Auftrags ändern und Verlaufseintrag anlegen."""
     order = await OrderService.change_location(
@@ -275,7 +298,7 @@ async def change_order_location(
 async def get_order_location_history(
     order_id: int,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
 ):
     """Lagerort-Verlauf eines Auftrags abrufen."""
     order = await OrderService.get_order(db, order_id)
@@ -289,7 +312,7 @@ async def get_order_location_history(
 async def calculate_order_cost(
     order_id: int,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
 ) -> Dict[str, Any]:
     """Vorkalkulation: Kosten fuer einen Auftrag berechnen und gespeicherte Felder aktualisieren."""
     order = await OrderService.get_order(db, order_id)
@@ -297,7 +320,9 @@ async def calculate_order_cost(
         raise HTTPException(status_code=404, detail="Order not found")
     try:
         breakdown = await CostCalculationService.calculate_order_cost(db, order_id)
-        await CostCalculationService.update_order_calculated_price(db, order_id, breakdown)
+        await CostCalculationService.update_order_calculated_price(
+            db, order_id, breakdown
+        )
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     result = breakdown.to_dict()
@@ -342,7 +367,7 @@ async def get_order_label(
 async def delete_order(
     order_id: int,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
 ):
     """Auftrag löschen."""
     order = await OrderService.get_order(db, order_id)

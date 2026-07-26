@@ -48,6 +48,7 @@ Design notes
   inside a frozen dataclass (Task 2) — this module never mutates it. Any
   aggregation builds fresh lists/dicts.
 """
+
 from __future__ import annotations
 
 import statistics

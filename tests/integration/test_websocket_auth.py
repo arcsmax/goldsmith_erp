@@ -15,6 +15,7 @@ For testing we pass the token as a query parameter.
 subscribe_and_forward is patched to a no-op coroutine so tests do not require
 a running Redis instance.
 """
+
 import asyncio
 from datetime import timedelta
 from unittest.mock import patch
@@ -26,10 +27,10 @@ from goldsmith_erp.core.security import create_access_token
 from goldsmith_erp.db.session import get_db
 from goldsmith_erp.main import app
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _make_token(user_id: int) -> str:
     """Create a valid JWT for the given user_id."""
@@ -47,17 +48,20 @@ def _noop_subscribe_and_forward():
     to connect to Redis.  The coroutine just sleeps indefinitely — the
     caller (the WS endpoint) cancels it when the connection closes.
     """
+
     async def _noop(ws, channel):
         try:
             await asyncio.sleep(3600)
         except asyncio.CancelledError:
             pass
+
     return _noop
 
 
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture()
 def ws_client(db_session):
@@ -70,12 +74,15 @@ def ws_client(db_session):
     from tests.integration.conftest import _override_get_db_factory
 
     app.dependency_overrides[get_db] = _override_get_db_factory(db_session)
-    with patch(
-        "goldsmith_erp.core.pubsub.subscribe_and_forward",
-        new=_noop_subscribe_and_forward(),
-    ), patch(
-        "goldsmith_erp.main.subscribe_and_forward",
-        new=_noop_subscribe_and_forward(),
+    with (
+        patch(
+            "goldsmith_erp.core.pubsub.subscribe_and_forward",
+            new=_noop_subscribe_and_forward(),
+        ),
+        patch(
+            "goldsmith_erp.main.subscribe_and_forward",
+            new=_noop_subscribe_and_forward(),
+        ),
     ):
         yield TestClient(app, raise_server_exceptions=False)
     app.dependency_overrides.clear()

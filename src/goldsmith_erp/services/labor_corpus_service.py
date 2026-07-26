@@ -52,6 +52,7 @@ Design notes
   number of queries (the main SELECT plus one batched SELECT per
   ``selectinload`` level) — no N+1.
 """
+
 from __future__ import annotations
 
 import logging

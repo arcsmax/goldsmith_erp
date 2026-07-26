@@ -4,6 +4,7 @@ Note: CustomerRepository and OrderRepository depend on models (CustomerAuditLog,
 GDPRRequest, OrderItem, OrderStatusHistory) that will be added in a future
 migration. They are imported lazily to avoid breaking the rest of the app.
 """
+
 from goldsmith_erp.db.repositories.base import BaseRepository
 from goldsmith_erp.db.repositories.material import MaterialRepository
 

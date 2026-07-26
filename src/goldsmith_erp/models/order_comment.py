@@ -1,7 +1,9 @@
 """Pydantic schemas for Order Comments (Digitale Post-its)."""
-from pydantic import BaseModel, Field
+
 from datetime import datetime
 from typing import Optional
+
+from pydantic import BaseModel, Field
 
 
 class OrderCommentBase(BaseModel):

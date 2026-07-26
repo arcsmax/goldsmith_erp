@@ -10,6 +10,7 @@ Design contract:
 - PII: recipient addresses are logged only at DEBUG level and anonymised in
   INFO/ERROR entries (first char + domain) to comply with GDPR logging rules.
 """
+
 from __future__ import annotations
 
 import logging

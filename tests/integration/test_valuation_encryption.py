@@ -33,7 +33,6 @@ from decimal import Decimal
 import pytest
 from cryptography.fernet import Fernet
 
-
 # ---------------------------------------------------------------------------
 # Env priming — must happen before the goldsmith_erp imports pick up
 # settings.ENCRYPTION_KEY via `from core.config import settings`.

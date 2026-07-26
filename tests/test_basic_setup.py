@@ -6,13 +6,13 @@ Date: 2025-11-06
 """
 
 import pytest
-from sqlalchemy.ext.asyncio import AsyncSession
 from httpx import AsyncClient
-
+from sqlalchemy.ext.asyncio import AsyncSession
 
 # ═══════════════════════════════════════════════════════════════════════════
 # Infrastructure Tests
 # ═══════════════════════════════════════════════════════════════════════════
+
 
 @pytest.mark.asyncio
 async def test_database_session(db_session: AsyncSession):
@@ -41,9 +41,10 @@ async def test_health_endpoint(client: AsyncClient):
 # Encryption Tests
 # ═══════════════════════════════════════════════════════════════════════════
 
+
 def test_encryption_service_import():
     """Test that encryption service can be imported."""
-    from goldsmith_erp.core.encryption import get_encryption_service, EncryptionService
+    from goldsmith_erp.core.encryption import EncryptionService, get_encryption_service
 
     assert get_encryption_service is not None
     assert EncryptionService is not None
@@ -81,6 +82,7 @@ def test_encryption_decrypt():
 # Model Import Tests
 # ═══════════════════════════════════════════════════════════════════════════
 
+
 def test_customer_model_import():
     """Test that Customer model can be imported."""
     from goldsmith_erp.db.models import Customer
@@ -103,6 +105,7 @@ def test_customer_audit_log_model_import():
 # Repository Tests
 # ═══════════════════════════════════════════════════════════════════════════
 
+
 def test_customer_repository_import():
     """Test that CustomerRepository can be imported."""
     from goldsmith_erp.db.repositories.customer import CustomerRepository
@@ -113,6 +116,7 @@ def test_customer_repository_import():
 # ═══════════════════════════════════════════════════════════════════════════
 # Service Tests
 # ═══════════════════════════════════════════════════════════════════════════
+
 
 def test_customer_service_import():
     """Test that CustomerService can be imported."""

@@ -2,6 +2,7 @@
 Security headers middleware.
 Adds CSP, X-Content-Type-Options, X-Frame-Options, and other security headers.
 """
+
 from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
 

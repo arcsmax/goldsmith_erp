@@ -20,19 +20,15 @@ Date: 2025-11-06
 """
 
 from datetime import datetime
-from typing import List, Optional, Dict, Any
+from typing import Any, Dict, List, Optional
+
+from sqlalchemy import and_, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, or_, and_, func, update
 from sqlalchemy.orm import selectinload
 
-from goldsmith_erp.db.models import (
-    Customer,
-    CustomerAuditLog,
-    GDPRRequest,
-    Order,
-)
-from goldsmith_erp.db.repositories.base import BaseRepository
 from goldsmith_erp.core.encryption import get_encryption_service
+from goldsmith_erp.db.models import Customer, CustomerAuditLog, GDPRRequest, Order
+from goldsmith_erp.db.repositories.base import BaseRepository
 
 
 class CustomerRepository(BaseRepository[Customer]):
@@ -614,7 +610,7 @@ class CustomerRepository(BaseRepository[Customer]):
         # Get current user info (would come from request context in real app)
         user_id = self.current_user_id or 1
         user_email = None  # Would fetch from User model
-        user_role = None   # Would fetch from User model
+        user_role = None  # Would fetch from User model
 
         audit_log = CustomerAuditLog(
             customer_id=customer_id,

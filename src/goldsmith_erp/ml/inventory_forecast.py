@@ -21,6 +21,7 @@ The forecaster degrades gracefully:
 Financial data rules (CLAUDE.md): material cost figures are accessed but
 NOT returned in API responses; only weight-based rates and dates are exposed.
 """
+
 from __future__ import annotations
 
 import logging
@@ -169,9 +170,7 @@ class InventoryForecaster:
             weeks_until = None
         else:
             weeks_until = remaining_g / weekly_rate
-            depletion_date = (
-                datetime.utcnow() + timedelta(weeks=weeks_until)
-            ).date()
+            depletion_date = (datetime.utcnow() + timedelta(weeks=weeks_until)).date()
 
         logger.info(
             "Inventory depletion forecast computed",
@@ -189,7 +188,9 @@ class InventoryForecaster:
             weekly_consumption_g=round(weekly_rate, 3),
             remaining_stock_g=round(remaining_g, 3),
             depletion_date=depletion_date,
-            weeks_until_depletion=round(weeks_until, 2) if weeks_until is not None else None,
+            weeks_until_depletion=(
+                round(weeks_until, 2) if weeks_until is not None else None
+            ),
             confidence=confidence,
             confidence_note=confidence_note,
         )

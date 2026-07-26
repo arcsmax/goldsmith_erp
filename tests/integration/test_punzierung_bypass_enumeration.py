@@ -41,6 +41,7 @@ Control cases
 This test file is the living contract for R8 mitigation. If a new
 status-write path is introduced, add it here.
 """
+
 from __future__ import annotations
 
 import uuid
@@ -55,11 +56,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from goldsmith_erp.db.models import Customer, Order, OrderStatusEnum, User
 from goldsmith_erp.models.order import OrderUpdate
-from goldsmith_erp.services.order_service import (
-    OrderService,
-    PunzierungRequiredError,
-)
-
+from goldsmith_erp.services.order_service import OrderService, PunzierungRequiredError
 
 # --------------------------------------------------------------------------- #
 # Fixtures

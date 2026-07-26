@@ -33,6 +33,7 @@ from datetime import datetime
 import pytest
 import pytest_asyncio
 
+from goldsmith_erp.core.security import get_password_hash
 from goldsmith_erp.db.models import (
     Activity,
     Material,
@@ -46,14 +47,12 @@ from goldsmith_erp.db.models import (
     User,
     UserRole,
 )
-from goldsmith_erp.core.security import get_password_hash
 from goldsmith_erp.models.scanner import ScanContext, ScanLogCreate
 from goldsmith_erp.services.scanner_service import (
     METAL_FIELDS_BY_ROLE,
     ORDER_FIELDS_BY_ROLE,
     ScannerService,
 )
-
 
 # --------------------------------------------------------------------------- #
 # Fixtures — users per role
@@ -116,9 +115,7 @@ async def sample_repair(db_session, sample_customer) -> RepairJob:
 
 class TestResolvePipeline:
     @pytest.mark.asyncio
-    async def test_unknown_prefix_routes_to_unknown(
-        self, db_session, sample_user
-    ):
+    async def test_unknown_prefix_routes_to_unknown(self, db_session, sample_user):
         """``FOO:bar`` — prefix not in KNOWN_PREFIXES_V1_1."""
         resp = await ScannerService.resolve_payload(
             db_session,
@@ -149,9 +146,7 @@ class TestResolvePipeline:
         assert resp.resolution_path == "numeric_fallback"
 
     @pytest.mark.asyncio
-    async def test_mixed_numeric_is_unknown(
-        self, db_session, sample_user
-    ):
+    async def test_mixed_numeric_is_unknown(self, db_session, sample_user):
         """``"42a"`` — not pure-numeric → unknown, NOT ORDER."""
         resp = await ScannerService.resolve_payload(
             db_session,
@@ -163,9 +158,7 @@ class TestResolvePipeline:
         assert resp.resolution_path == "unknown"
 
     @pytest.mark.asyncio
-    async def test_order_prefix_resolves(
-        self, db_session, sample_user, sample_order
-    ):
+    async def test_order_prefix_resolves(self, db_session, sample_user, sample_order):
         resp = await ScannerService.resolve_payload(
             db_session,
             f"ORDER:{sample_order.id}",
@@ -178,9 +171,7 @@ class TestResolvePipeline:
         assert resp.entity_id == sample_order.id
 
     @pytest.mark.asyncio
-    async def test_missing_order_marked_unresolved(
-        self, db_session, sample_user
-    ):
+    async def test_missing_order_marked_unresolved(self, db_session, sample_user):
         resp = await ScannerService.resolve_payload(
             db_session,
             "ORDER:99999",
@@ -192,9 +183,7 @@ class TestResolvePipeline:
         assert resp.entity_id == 99999
 
     @pytest.mark.asyncio
-    async def test_activity_shortcut_toast_only(
-        self, db_session, sample_user
-    ):
+    async def test_activity_shortcut_toast_only(self, db_session, sample_user):
         resp = await ScannerService.resolve_payload(
             db_session,
             "ACTIVITY:hartloeten",
@@ -207,9 +196,7 @@ class TestResolvePipeline:
         assert resp.actions == []
 
     @pytest.mark.asyncio
-    async def test_interrupt_shortcut_toast_only(
-        self, db_session, sample_user
-    ):
+    async def test_interrupt_shortcut_toast_only(self, db_session, sample_user):
         resp = await ScannerService.resolve_payload(
             db_session,
             "INTERRUPT:telefon",
@@ -221,9 +208,7 @@ class TestResolvePipeline:
         assert resp.actions == []
 
     @pytest.mark.asyncio
-    async def test_malformed_order_id_is_unknown(
-        self, db_session, sample_user
-    ):
+    async def test_malformed_order_id_is_unknown(self, db_session, sample_user):
         """``ORDER:abc`` — prefix matched but id malformed → unknown."""
         resp = await ScannerService.resolve_payload(
             db_session,
@@ -258,9 +243,7 @@ class TestRoleProjections:
         )
         assert resp.resolved is True
         assert resp.entity is not None
-        assert set(resp.entity.keys()) == ORDER_FIELDS_BY_ROLE[
-            UserRole.VIEWER
-        ]
+        assert set(resp.entity.keys()) == ORDER_FIELDS_BY_ROLE[UserRole.VIEWER]
 
     @pytest.mark.asyncio
     async def test_order_projection_goldsmith_exact_keys(
@@ -273,9 +256,7 @@ class TestRoleProjections:
             ScanContext(),
             sample_user,
         )
-        assert set(resp.entity.keys()) == ORDER_FIELDS_BY_ROLE[
-            UserRole.GOLDSMITH
-        ]
+        assert set(resp.entity.keys()) == ORDER_FIELDS_BY_ROLE[UserRole.GOLDSMITH]
 
     @pytest.mark.asyncio
     async def test_order_projection_admin_exact_keys(
@@ -288,9 +269,7 @@ class TestRoleProjections:
             ScanContext(),
             admin_user,
         )
-        assert set(resp.entity.keys()) == ORDER_FIELDS_BY_ROLE[
-            UserRole.ADMIN
-        ]
+        assert set(resp.entity.keys()) == ORDER_FIELDS_BY_ROLE[UserRole.ADMIN]
 
     @pytest.mark.asyncio
     async def test_metal_projection_viewer_is_empty(
@@ -310,9 +289,7 @@ class TestRoleProjections:
         )
         assert resp.resolved is True
         assert resp.entity == {}
-        assert set(resp.entity.keys()) == METAL_FIELDS_BY_ROLE[
-            UserRole.VIEWER
-        ]
+        assert set(resp.entity.keys()) == METAL_FIELDS_BY_ROLE[UserRole.VIEWER]
 
     @pytest.mark.asyncio
     async def test_metal_projection_goldsmith_exact_keys(
@@ -324,9 +301,7 @@ class TestRoleProjections:
             ScanContext(),
             sample_user,
         )
-        assert set(resp.entity.keys()) == METAL_FIELDS_BY_ROLE[
-            UserRole.GOLDSMITH
-        ]
+        assert set(resp.entity.keys()) == METAL_FIELDS_BY_ROLE[UserRole.GOLDSMITH]
 
     @pytest.mark.asyncio
     async def test_metal_projection_admin_exact_keys(
@@ -338,9 +313,7 @@ class TestRoleProjections:
             ScanContext(),
             admin_user,
         )
-        assert set(resp.entity.keys()) == METAL_FIELDS_BY_ROLE[
-            UserRole.ADMIN
-        ]
+        assert set(resp.entity.keys()) == METAL_FIELDS_BY_ROLE[UserRole.ADMIN]
 
 
 # --------------------------------------------------------------------------- #
@@ -502,16 +475,11 @@ class TestH13EmptyProjectionGuard:
     """
 
     def test_is_empty_projection_helper_identifies_metal_viewer(self):
-        from goldsmith_erp.services.scanner_service import (
-            _is_empty_projection,
-        )
+        from goldsmith_erp.services.scanner_service import _is_empty_projection
 
         assert _is_empty_projection("metal_purchase", UserRole.VIEWER) is True
         # GOLDSMITH and ADMIN have non-empty METAL projections.
-        assert (
-            _is_empty_projection("metal_purchase", UserRole.GOLDSMITH)
-            is False
-        )
+        assert _is_empty_projection("metal_purchase", UserRole.GOLDSMITH) is False
         assert _is_empty_projection("metal_purchase", UserRole.ADMIN) is False
         # Other entity types do not have empty VIEWER projections.
         assert _is_empty_projection("order", UserRole.VIEWER) is False
@@ -534,9 +502,7 @@ class TestH13EmptyProjectionGuard:
             ScanContext(),
             viewer_user,
         )
-        assert resp.actions == [], (
-            f"Expected [] but got {[a.id for a in resp.actions]}"
-        )
+        assert resp.actions == [], f"Expected [] but got {[a.id for a in resp.actions]}"
 
     @pytest.mark.asyncio
     async def test_metal_viewer_entity_still_resolves_with_empty_dict(
@@ -597,9 +563,7 @@ class TestLogScan:
     @pytest.mark.asyncio
     async def test_basic_insert(self, db_session, sample_user):
         event = ScanLogCreate(raw_payload="ORDER:1", offline_queued=False)
-        row = await ScannerService.log_scan(
-            db_session, sample_user.id, event
-        )
+        row = await ScannerService.log_scan(db_session, sample_user.id, event)
         assert row.id is not None
         assert row.user_id == sample_user.id
         assert row.raw_payload == "ORDER:1"
@@ -609,9 +573,7 @@ class TestLogScan:
         assert row.retention_class == "standard_24m"
 
     @pytest.mark.asyncio
-    async def test_idempotent_duplicate_returns_same_row(
-        self, db_session, sample_user
-    ):
+    async def test_idempotent_duplicate_returns_same_row(self, db_session, sample_user):
         """Second log_scan with same idempotency_key returns the first
         row, no new INSERT. Slice 1 UNIQUE WHERE idempotency_key IS
         NOT NULL index supports this."""
@@ -620,21 +582,15 @@ class TestLogScan:
             raw_payload="ORDER:1",
             idempotency_key=str(key),
         )
-        first = await ScannerService.log_scan(
-            db_session, sample_user.id, event
-        )
-        second = await ScannerService.log_scan(
-            db_session, sample_user.id, event
-        )
+        first = await ScannerService.log_scan(db_session, sample_user.id, event)
+        second = await ScannerService.log_scan(db_session, sample_user.id, event)
         assert first.id == second.id, (
             "Idempotency-key dedupe must return the original row, "
             "not insert a second one."
         )
 
     @pytest.mark.asyncio
-    async def test_different_keys_insert_separately(
-        self, db_session, sample_user
-    ):
+    async def test_different_keys_insert_separately(self, db_session, sample_user):
         """Different idempotency_keys must both insert independently."""
         e1 = ScanLogCreate(
             raw_payload="ORDER:1",
@@ -649,9 +605,7 @@ class TestLogScan:
         assert r1.id != r2.id
 
     @pytest.mark.asyncio
-    async def test_null_idem_key_always_inserts(
-        self, db_session, sample_user
-    ):
+    async def test_null_idem_key_always_inserts(self, db_session, sample_user):
         """idempotency_key=None — unique index is partial, multiple
         inserts with NULL are all allowed."""
         e = ScanLogCreate(raw_payload="ORDER:1")
@@ -660,9 +614,7 @@ class TestLogScan:
         assert r1.id != r2.id
 
     @pytest.mark.asyncio
-    async def test_context_whitelist_persisted(
-        self, db_session, sample_user
-    ):
+    async def test_context_whitelist_persisted(self, db_session, sample_user):
         """ScanContext round-trips through model_dump into context col."""
         ctx = ScanContext(
             running_timer_id=str(uuid.uuid4()),
@@ -670,9 +622,7 @@ class TestLogScan:
             input_source="camera",
         )
         event = ScanLogCreate(raw_payload="ORDER:42", context=ctx)
-        row = await ScannerService.log_scan(
-            db_session, sample_user.id, event
-        )
+        row = await ScannerService.log_scan(db_session, sample_user.id, event)
         assert row.context is not None
         assert row.context["current_order_id"] == 42
         assert row.context["input_source"] == "camera"
@@ -685,13 +635,8 @@ class TestLogScan:
 
 class TestLogScanBatch:
     @pytest.mark.asyncio
-    async def test_batch_all_fresh_ingested(
-        self, db_session, sample_user
-    ):
-        events = [
-            ScanLogCreate(raw_payload=f"ORDER:{i}")
-            for i in range(1, 4)
-        ]
+    async def test_batch_all_fresh_ingested(self, db_session, sample_user):
+        events = [ScanLogCreate(raw_payload=f"ORDER:{i}") for i in range(1, 4)]
         summary = await ScannerService.log_scan_batch(
             db_session, sample_user.id, events
         )
@@ -700,9 +645,7 @@ class TestLogScanBatch:
         assert summary.rejected == 0
 
     @pytest.mark.asyncio
-    async def test_batch_dedupes_by_idempotency_key(
-        self, db_session, sample_user
-    ):
+    async def test_batch_dedupes_by_idempotency_key(self, db_session, sample_user):
         """One unique key inserted in a prior call → replay hit as
         dedupe; two fresh keys ingested."""
         seen_key = uuid.uuid4()
@@ -710,14 +653,10 @@ class TestLogScanBatch:
         await ScannerService.log_scan(
             db_session,
             sample_user.id,
-            ScanLogCreate(
-                raw_payload="ORDER:1", idempotency_key=str(seen_key)
-            ),
+            ScanLogCreate(raw_payload="ORDER:1", idempotency_key=str(seen_key)),
         )
         batch = [
-            ScanLogCreate(
-                raw_payload="ORDER:1", idempotency_key=str(seen_key)
-            ),
+            ScanLogCreate(raw_payload="ORDER:1", idempotency_key=str(seen_key)),
             ScanLogCreate(
                 raw_payload="ORDER:2",
                 idempotency_key=str(uuid.uuid4()),
@@ -727,9 +666,7 @@ class TestLogScanBatch:
                 idempotency_key=str(uuid.uuid4()),
             ),
         ]
-        summary = await ScannerService.log_scan_batch(
-            db_session, sample_user.id, batch
-        )
+        summary = await ScannerService.log_scan_batch(db_session, sample_user.id, batch)
         assert summary.ingested == 2
         assert summary.deduplicated == 1
         assert summary.rejected == 0
@@ -806,9 +743,7 @@ class TestSearchEntities:
         assert any("price_per_gram" in r for r in results)
 
     @pytest.mark.asyncio
-    async def test_empty_query_is_no_op(
-        self, db_session, sample_user
-    ):
+    async def test_empty_query_is_no_op(self, db_session, sample_user):
         results = await ScannerService.search_entities(
             db_session,
             "   ",

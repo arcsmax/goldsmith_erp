@@ -29,6 +29,7 @@ connect to the Postgres instance with AUTOCOMMIT, create
 ``goldsmith_h9_roundtrip_<pid>_<uuid8>``, point alembic at it for the
 round-trip, then drop it (even on failure).
 """
+
 from __future__ import annotations
 
 import os
@@ -37,10 +38,10 @@ from pathlib import Path
 from urllib.parse import urlparse, urlunparse
 
 import pytest
-from alembic import command
-from alembic.config import Config
 from sqlalchemy import create_engine, text
 
+from alembic import command
+from alembic.config import Config
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 ALEMBIC_INI = REPO_ROOT / "alembic.ini"

@@ -52,6 +52,7 @@ Task 5's router only wires up the order-scoped
 route exists yet (not in the plan's enumerated endpoint list). A
 symmetric repair endpoint can be added later without any service changes.
 """
+
 from __future__ import annotations
 
 import asyncio

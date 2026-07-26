@@ -84,6 +84,7 @@ KNOWN_SETTING_TYPES: list[str] = [
 
 # ── Internal helper ───────────────────────────────────────────────────────────
 
+
 def _one_hot(
     value: str | None,
     known_values: list[str],
@@ -116,6 +117,7 @@ def _one_hot(
 
 
 # ── Public encoding functions ─────────────────────────────────────────────────
+
 
 def encode_order_type(order_type: str | None) -> dict[str, int]:
     """

@@ -9,6 +9,7 @@ at all are rejected by the decorator *before* the ownership ladder runs.
 The decorator is the outer gate; the in-body check remains responsible for
 "you have the own-view permission but are asking about someone else."
 """
+
 from __future__ import annotations
 
 from unittest.mock import patch
@@ -16,9 +17,8 @@ from unittest.mock import patch
 import pytest
 from httpx import AsyncClient
 
-from goldsmith_erp.core.permissions import Permission, ROLE_PERMISSIONS
+from goldsmith_erp.core.permissions import ROLE_PERMISSIONS, Permission
 from goldsmith_erp.db.models import UserRole
-
 
 pytestmark = pytest.mark.asyncio
 

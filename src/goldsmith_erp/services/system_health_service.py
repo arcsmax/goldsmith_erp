@@ -6,6 +6,7 @@ Provides health checks for database, Redis, and disk, plus business metrics
 and backup status — aggregated into a single full-health report used by the
 admin dashboard and system monitor.
 """
+
 from __future__ import annotations
 
 import glob
@@ -107,8 +108,8 @@ class SystemHealthService:
         """
         try:
             usage = shutil.disk_usage("/")
-            total_gb = round(usage.total / (1024 ** 3), 2)
-            free_gb = round(usage.free / (1024 ** 3), 2)
+            total_gb = round(usage.total / (1024**3), 2)
+            free_gb = round(usage.free / (1024**3), 2)
             used_percent = round((usage.used / usage.total) * 100, 1)
 
             if used_percent >= 95.0:
@@ -220,10 +221,12 @@ class SystemHealthService:
             # Orders completed this month (completed_at is set when status changes)
             completed_stmt = select(func.count(Order.id)).where(
                 Order.completed_at >= month_start,
-                Order.status.in_([
-                    OrderStatusEnum.COMPLETED,
-                    OrderStatusEnum.DELIVERED,
-                ]),
+                Order.status.in_(
+                    [
+                        OrderStatusEnum.COMPLETED,
+                        OrderStatusEnum.DELIVERED,
+                    ]
+                ),
             )
             completed_result = await db.execute(completed_stmt)
             completed_this_month: int = completed_result.scalar_one() or 0
@@ -302,6 +305,7 @@ class SystemHealthService:
 # ---------------------------------------------------------------------------
 # Internal helper
 # ---------------------------------------------------------------------------
+
 
 async def _gather_safely(*coros):
     """Run coroutines concurrently, return results regardless of exceptions."""

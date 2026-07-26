@@ -46,21 +46,21 @@ _CACHE_KEY = "metal_prices:spot"
 # because the colour-alloying metals (Ni, Cu, Pd) add negligible cost
 # compared to the gold content at workshop scale.
 _ALLOY_RATIOS: Dict[MetalType, tuple[MetalType, float]] = {
-    MetalType.GOLD_24K:      (MetalType.GOLD_24K,     1.000),
-    MetalType.GOLD_22K:      (MetalType.GOLD_24K,     0.9166),
-    MetalType.GOLD_18K:      (MetalType.GOLD_24K,     0.750),
-    MetalType.GOLD_14K:      (MetalType.GOLD_24K,     0.585),
-    MetalType.GOLD_9K:       (MetalType.GOLD_24K,     0.375),
-    MetalType.WHITE_GOLD_18K:(MetalType.GOLD_24K,     0.750),
-    MetalType.WHITE_GOLD_14K:(MetalType.GOLD_24K,     0.585),
-    MetalType.ROSE_GOLD_18K: (MetalType.GOLD_24K,     0.750),
-    MetalType.ROSE_GOLD_14K: (MetalType.GOLD_24K,     0.585),
-    MetalType.SILVER_999:    (MetalType.SILVER_999,   1.000),
-    MetalType.SILVER_925:    (MetalType.SILVER_999,   0.925),
-    MetalType.SILVER_800:    (MetalType.SILVER_999,   0.800),
-    MetalType.PLATINUM_950:  (MetalType.PLATINUM_950, 0.950),
-    MetalType.PLATINUM_900:  (MetalType.PLATINUM_950, 0.900),
-    MetalType.PALLADIUM:     (MetalType.PLATINUM_950, 1.000),  # Palladium tracks platinum
+    MetalType.GOLD_24K: (MetalType.GOLD_24K, 1.000),
+    MetalType.GOLD_22K: (MetalType.GOLD_24K, 0.9166),
+    MetalType.GOLD_18K: (MetalType.GOLD_24K, 0.750),
+    MetalType.GOLD_14K: (MetalType.GOLD_24K, 0.585),
+    MetalType.GOLD_9K: (MetalType.GOLD_24K, 0.375),
+    MetalType.WHITE_GOLD_18K: (MetalType.GOLD_24K, 0.750),
+    MetalType.WHITE_GOLD_14K: (MetalType.GOLD_24K, 0.585),
+    MetalType.ROSE_GOLD_18K: (MetalType.GOLD_24K, 0.750),
+    MetalType.ROSE_GOLD_14K: (MetalType.GOLD_24K, 0.585),
+    MetalType.SILVER_999: (MetalType.SILVER_999, 1.000),
+    MetalType.SILVER_925: (MetalType.SILVER_999, 0.925),
+    MetalType.SILVER_800: (MetalType.SILVER_999, 0.800),
+    MetalType.PLATINUM_950: (MetalType.PLATINUM_950, 0.950),
+    MetalType.PLATINUM_900: (MetalType.PLATINUM_950, 0.900),
+    MetalType.PALLADIUM: (MetalType.PLATINUM_950, 1.000),  # Palladium tracks platinum
 }
 
 # Base metals stored in metal_price_history and returned by the external API.
@@ -95,6 +95,7 @@ class MetalPriceService:
             db: AsyncSession required only for the DB-history fallback tier.
                 If None and cache+API both fail, hardcoded defaults are used.
         """
+
         async def _fetch_prices() -> str:
             """
             Attempt to fetch from the external API and persist to DB history.
@@ -107,7 +108,9 @@ class MetalPriceService:
             prices = await MetalPriceService._fetch_from_api()
             # Persist to DB for future last-known-price fallback
             if db is not None:
-                await MetalPriceService._persist_prices(db, prices, MetalPriceSource.API)
+                await MetalPriceService._persist_prices(
+                    db, prices, MetalPriceSource.API
+                )
             return MetalPriceService._serialise_prices(prices)
 
         try:
@@ -115,7 +118,7 @@ class MetalPriceService:
                 key=_CACHE_KEY,
                 ttl=settings.METAL_PRICE_CACHE_TTL,
                 fetch_fn=_fetch_prices,
-                serialise=lambda x: x,   # fetch_fn already returns a JSON str
+                serialise=lambda x: x,  # fetch_fn already returns a JSON str
                 deserialise=lambda x: x,
             )
             prices_dict = MetalPriceService._deserialise_prices(raw)
@@ -189,7 +192,9 @@ class MetalPriceService:
         return alloy_price, source, updated_at
 
     @staticmethod
-    async def refresh_cache(db: Optional[AsyncSession] = None) -> Dict[MetalType, tuple[float, MetalPriceSource, datetime]]:
+    async def refresh_cache(
+        db: Optional[AsyncSession] = None,
+    ) -> Dict[MetalType, tuple[float, MetalPriceSource, datetime]]:
         """
         Force-invalidate the Redis cache and re-fetch from the API.
 
@@ -205,7 +210,9 @@ class MetalPriceService:
     # -------------------------------------------------------------------------
 
     @staticmethod
-    async def _fetch_from_api() -> Dict[MetalType, tuple[float, MetalPriceSource, datetime]]:
+    async def _fetch_from_api() -> (
+        Dict[MetalType, tuple[float, MetalPriceSource, datetime]]
+    ):
         """
         Fetch spot prices from the configured external API.
 
@@ -233,9 +240,21 @@ class MetalPriceService:
 
         # -- Try the Goldprice.org / direct EUR/gram format first --
         if "gold_eur_per_gram" in data:
-            prices[MetalType.GOLD_24K] = (float(data["gold_eur_per_gram"]), MetalPriceSource.API, now)
-            prices[MetalType.SILVER_999] = (float(data["silver_eur_per_gram"]), MetalPriceSource.API, now)
-            prices[MetalType.PLATINUM_950] = (float(data["platinum_eur_per_gram"]), MetalPriceSource.API, now)
+            prices[MetalType.GOLD_24K] = (
+                float(data["gold_eur_per_gram"]),
+                MetalPriceSource.API,
+                now,
+            )
+            prices[MetalType.SILVER_999] = (
+                float(data["silver_eur_per_gram"]),
+                MetalPriceSource.API,
+                now,
+            )
+            prices[MetalType.PLATINUM_950] = (
+                float(data["platinum_eur_per_gram"]),
+                MetalPriceSource.API,
+                now,
+            )
             return prices
 
         # -- Try the Open Exchange Rates / XAU format (troy oz in base currency) --
@@ -255,19 +274,31 @@ class MetalPriceService:
                 price_usd_per_oz = 1.0 / rates["XAU"]
                 price_usd_per_g = price_usd_per_oz / troy_oz_g
                 price_eur_per_g = price_usd_per_g * eur_rate
-                prices[MetalType.GOLD_24K] = (round(price_eur_per_g, 4), MetalPriceSource.API, now)
+                prices[MetalType.GOLD_24K] = (
+                    round(price_eur_per_g, 4),
+                    MetalPriceSource.API,
+                    now,
+                )
 
             if "XAG" in rates and rates["XAG"] > 0:
                 price_usd_per_oz = 1.0 / rates["XAG"]
                 price_usd_per_g = price_usd_per_oz / troy_oz_g
                 price_eur_per_g = price_usd_per_g * eur_rate
-                prices[MetalType.SILVER_999] = (round(price_eur_per_g, 4), MetalPriceSource.API, now)
+                prices[MetalType.SILVER_999] = (
+                    round(price_eur_per_g, 4),
+                    MetalPriceSource.API,
+                    now,
+                )
 
             if "XPT" in rates and rates["XPT"] > 0:
                 price_usd_per_oz = 1.0 / rates["XPT"]
                 price_usd_per_g = price_usd_per_oz / troy_oz_g
                 price_eur_per_g = price_usd_per_g * eur_rate
-                prices[MetalType.PLATINUM_950] = (round(price_eur_per_g, 4), MetalPriceSource.API, now)
+                prices[MetalType.PLATINUM_950] = (
+                    round(price_eur_per_g, 4),
+                    MetalPriceSource.API,
+                    now,
+                )
 
             if prices:
                 return prices
@@ -303,7 +334,9 @@ class MetalPriceService:
         return prices if len(prices) == len(_BASE_METALS) else None
 
     @staticmethod
-    def _hardcoded_defaults() -> Dict[MetalType, tuple[float, MetalPriceSource, datetime]]:
+    def _hardcoded_defaults() -> (
+        Dict[MetalType, tuple[float, MetalPriceSource, datetime]]
+    ):
         """Return hardcoded fallback prices from settings."""
         now = datetime.utcnow()
         return {

@@ -15,6 +15,7 @@ The metrics endpoint is ADMIN-only by design — it does not contain PII
 but the aggregate numbers are business-sensitive (employee profiling
 risk under BDSG §26 — A14.2).
 """
+
 from __future__ import annotations
 
 import uuid
@@ -24,6 +25,7 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from goldsmith_erp.core.security import get_password_hash
 from goldsmith_erp.db.models import (
     Activity,
     MaterialUsage,
@@ -36,8 +38,6 @@ from goldsmith_erp.db.models import (
     User,
     UserRole,
 )
-from goldsmith_erp.core.security import get_password_hash
-
 
 METRICS_URL = "/api/v1/admin/scan-metrics"
 
@@ -207,9 +207,7 @@ class TestScanAdoptionPct:
         order = await _make_order(db_session, gm)
         activity = await _make_activity(db_session, gm)
         for origin in ("scan", "scan", "scan", "manual", "import", "recovery"):
-            await _make_time_entry(
-                db_session, gm, order, activity, origin=origin
-            )
+            await _make_time_entry(db_session, gm, order, activity, origin=origin)
 
         response = await client.get(METRICS_URL, headers=admin_auth_headers)
         assert response.status_code == 200
@@ -225,19 +223,13 @@ class TestScanAdoptionPct:
     ):
         """A13.1 contract: is_test_user=True rows must not enter either side."""
         real = await _make_user(db_session, role=UserRole.GOLDSMITH)
-        test = await _make_user(
-            db_session, role=UserRole.GOLDSMITH, is_test_user=True
-        )
+        test = await _make_user(db_session, role=UserRole.GOLDSMITH, is_test_user=True)
         order_real = await _make_order(db_session, real)
         order_test = await _make_order(db_session, test)
         activity = await _make_activity(db_session, real)
         # Real GOLDSMITH: 1 scan, 1 manual -> 50%.
-        await _make_time_entry(
-            db_session, real, order_real, activity, origin="scan"
-        )
-        await _make_time_entry(
-            db_session, real, order_real, activity, origin="manual"
-        )
+        await _make_time_entry(db_session, real, order_real, activity, origin="scan")
+        await _make_time_entry(db_session, real, order_real, activity, origin="manual")
         # Test user: 5 scan rows — if included they would skew to ~85%.
         for _ in range(5):
             await _make_time_entry(
@@ -258,12 +250,8 @@ class TestScanAdoptionPct:
         gm = await _make_user(db_session, role=UserRole.GOLDSMITH)
         order = await _make_order(db_session, gm)
         activity = await _make_activity(db_session, gm)
-        base = await _make_time_entry(
-            db_session, gm, order, activity, origin="scan"
-        )
-        await _make_time_entry(
-            db_session, gm, order, activity, origin="manual"
-        )
+        base = await _make_time_entry(db_session, gm, order, activity, origin="scan")
+        await _make_time_entry(db_session, gm, order, activity, origin="manual")
         # Correction of the scan row. Must be excluded entirely.
         await _make_time_entry(
             db_session,
@@ -291,13 +279,9 @@ class TestScanAdoptionPct:
         admin = await _make_user(db_session, role=UserRole.ADMIN)
         order = await _make_order(db_session, gm)
         activity = await _make_activity(db_session, gm)
-        await _make_time_entry(
-            db_session, gm, order, activity, origin="scan"
-        )
+        await _make_time_entry(db_session, gm, order, activity, origin="scan")
         # Admin diagnostic — must be excluded.
-        await _make_time_entry(
-            db_session, admin, order, activity, origin="manual"
-        )
+        await _make_time_entry(db_session, admin, order, activity, origin="manual")
 
         response = await client.get(METRICS_URL, headers=admin_auth_headers)
         # 1 / 1 = 100% because admin row excluded.
@@ -327,9 +311,7 @@ class TestScanBreadthPct:
         order_l = await _make_order(db_session, light)
         activity = await _make_activity(db_session, heavy)
         for _ in range(20):
-            await _make_time_entry(
-                db_session, heavy, order_h, activity, origin="scan"
-            )
+            await _make_time_entry(db_session, heavy, order_h, activity, origin="scan")
         for _ in range(2):
             await _make_time_entry(
                 db_session, light, order_l, activity, origin="manual"

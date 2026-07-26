@@ -16,13 +16,13 @@ Date: 2025-11-06
 import ipaddress
 import logging
 import time
-from typing import Callable, Optional, Dict, Any
 from datetime import datetime, timedelta
+from typing import Any, Callable, Dict, Optional
 
-from fastapi import Request, Response, HTTPException, status
+import redis.asyncio as redis
+from fastapi import HTTPException, Request, Response, status
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.types import ASGIApp
-import redis.asyncio as redis
 
 from goldsmith_erp.core.config import settings
 
@@ -86,15 +86,13 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 
         # Rate limit configurations (requests per window)
         self.rate_limits = {
-            "anonymous": {"requests": 100, "window": 60},      # 100 req/min
+            "anonymous": {"requests": 100, "window": 60},  # 100 req/min
             "authenticated": {"requests": 300, "window": 60},  # 300 req/min
-            "admin": {"requests": 1000, "window": 60},         # 1000 req/min
-            "gdpr_export": {"requests": 5, "window": 3600},    # 5 req/hour
+            "admin": {"requests": 1000, "window": 60},  # 1000 req/min
+            "gdpr_export": {"requests": 5, "window": 3600},  # 5 req/hour
         }
 
-    async def dispatch(
-        self, request: Request, call_next: Callable
-    ) -> Response:
+    async def dispatch(self, request: Request, call_next: Callable) -> Response:
         """
         Check rate limit and process request.
 
@@ -121,9 +119,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 
         # Check rate limit
         is_allowed, remaining, reset_time = await self._check_rate_limit(
-            limit_key,
-            config["requests"],
-            config["window"]
+            limit_key, config["requests"], config["window"]
         )
 
         if not is_allowed:
@@ -148,7 +144,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
                     "X-RateLimit-Remaining": "0",
                     "X-RateLimit-Reset": str(int(time.time()) + reset_time),
                     "Retry-After": str(reset_time),
-                }
+                },
             )
 
         # Process request
@@ -165,9 +161,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         """Initialize Redis connection for distributed rate limiting."""
         try:
             self.redis_client = redis.from_url(
-                str(settings.REDIS_URL),
-                encoding="utf-8",
-                decode_responses=True
+                str(settings.REDIS_URL), encoding="utf-8", decode_responses=True
             )
             # Test connection
             await self.redis_client.ping()
@@ -220,10 +214,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         return "anonymous"
 
     async def _check_rate_limit(
-        self,
-        key: str,
-        max_requests: int,
-        window_seconds: int
+        self, key: str, max_requests: int, window_seconds: int
     ) -> tuple[bool, int, int]:
         """
         Check if request is within rate limit.
@@ -244,10 +235,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             return self._check_rate_limit_memory(key, max_requests, window_seconds)
 
     async def _check_rate_limit_redis(
-        self,
-        key: str,
-        max_requests: int,
-        window_seconds: int
+        self, key: str, max_requests: int, window_seconds: int
     ) -> tuple[bool, int, int]:
         """
         Check rate limit using Redis (distributed).
@@ -276,7 +264,9 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             if request_count >= max_requests:
                 # Rate limit exceeded
                 # Get oldest request to calculate reset time
-                oldest = await self.redis_client.zrange(redis_key, 0, 0, withscores=True)
+                oldest = await self.redis_client.zrange(
+                    redis_key, 0, 0, withscores=True
+                )
                 if oldest:
                     oldest_time = oldest[0][1]
                     reset_time = int((oldest_time + window_seconds) - current_time)
@@ -300,10 +290,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             return True, max_requests, window_seconds
 
     def _check_rate_limit_memory(
-        self,
-        key: str,
-        max_requests: int,
-        window_seconds: int
+        self, key: str, max_requests: int, window_seconds: int
     ) -> tuple[bool, int, int]:
         """
         Check rate limit using in-memory storage (single instance).
@@ -327,8 +314,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 
         # Remove old requests
         entry["requests"] = [
-            req_time for req_time in entry["requests"]
-            if req_time > window_start
+            req_time for req_time in entry["requests"] if req_time > window_start
         ]
 
         request_count = len(entry["requests"])
@@ -365,14 +351,21 @@ class EndpointRateLimitMiddleware(BaseHTTPMiddleware):
 
         # Endpoint-specific rate limits
         self.endpoint_limits = {
-            "/api/v1/login": {"requests": 5, "window": 300},        # 5 login attempts per 5 min
-            "/api/v1/customers/*/export": {"requests": 5, "window": 3600},  # 5 exports per hour
-            "/api/v1/customers/*/consent": {"requests": 20, "window": 3600},  # 20 consent changes per hour
+            "/api/v1/login": {
+                "requests": 5,
+                "window": 300,
+            },  # 5 login attempts per 5 min
+            "/api/v1/customers/*/export": {
+                "requests": 5,
+                "window": 3600,
+            },  # 5 exports per hour
+            "/api/v1/customers/*/consent": {
+                "requests": 20,
+                "window": 3600,
+            },  # 20 consent changes per hour
         }
 
-    async def dispatch(
-        self, request: Request, call_next: Callable
-    ) -> Response:
+    async def dispatch(self, request: Request, call_next: Callable) -> Response:
         """
         Check endpoint-specific rate limit.
 

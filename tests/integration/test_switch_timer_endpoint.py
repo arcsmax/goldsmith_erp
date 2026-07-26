@@ -19,6 +19,7 @@ Coverage:
     X-Client-Created-At headers without rejecting the call (V1.1
     transport-level contract; server-side dedupe is V1.1.5).
 """
+
 from __future__ import annotations
 
 import uuid
@@ -30,14 +31,7 @@ from httpx import AsyncClient
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from goldsmith_erp.db.models import (
-    Activity,
-    Order,
-    OrderStatusEnum,
-    TimeEntry,
-    User,
-)
-
+from goldsmith_erp.db.models import Activity, Order, OrderStatusEnum, TimeEntry, User
 
 # --------------------------------------------------------------------------- #
 # Fixtures

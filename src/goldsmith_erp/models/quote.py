@@ -13,12 +13,11 @@ German quote terminology:
 """
 
 from datetime import datetime, timedelta
-from typing import Optional, List
+from typing import List, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from goldsmith_erp.db.models import QuoteStatus, QuoteLineType
-
+from goldsmith_erp.db.models import QuoteLineType, QuoteStatus
 
 # ============================================================================
 # LINE ITEM SCHEMAS
@@ -120,7 +119,9 @@ class QuoteUpdate(BaseModel):
     status: Optional[QuoteStatus] = Field(None, description="New quote status")
     valid_until: Optional[datetime] = Field(None, description="Updated validity date")
     notes: Optional[str] = Field(None, max_length=2000, description="Updated notes")
-    tax_rate: Optional[float] = Field(None, ge=0, le=100, description="Updated MwSt rate")
+    tax_rate: Optional[float] = Field(
+        None, ge=0, le=100, description="Updated MwSt rate"
+    )
 
 
 class ApproveQuoteRequest(BaseModel):

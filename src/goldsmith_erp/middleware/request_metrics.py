@@ -9,6 +9,7 @@ Tracks:
 
 No external dependencies, no DB writes, resets on restart.
 """
+
 from __future__ import annotations
 
 import statistics
@@ -19,7 +20,6 @@ from typing import Any, Deque, Dict, List, Tuple
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.requests import Request
 from starlette.responses import Response
-
 
 # ---------------------------------------------------------------------------
 # Module-level ring buffers — all access is single-threaded inside asyncio
@@ -97,7 +97,11 @@ def get_metrics() -> Dict[str, Any]:
         )
         current_minute_key = int(time.time() // 60)
         current_minute_requests = next(
-            (count for (key, count) in reversed(_MINUTE_BUCKETS) if key == current_minute_key),
+            (
+                count
+                for (key, count) in reversed(_MINUTE_BUCKETS)
+                if key == current_minute_key
+            ),
             0,
         )
     else:

@@ -10,14 +10,16 @@ Tests cover:
 - Password security validation
 - Name validation
 """
-import pytest
+
 import uuid
+
+import pytest
 from sqlalchemy import select
 
-from goldsmith_erp.services.user_service import UserService
-from goldsmith_erp.models.user import UserCreate, UserUpdate
-from goldsmith_erp.db.models import User, UserRole
 from goldsmith_erp.core.security import verify_password
+from goldsmith_erp.db.models import User, UserRole
+from goldsmith_erp.models.user import UserCreate, UserUpdate
+from goldsmith_erp.services.user_service import UserService
 
 
 def _uid() -> str:
@@ -33,10 +35,7 @@ class TestUserCreation:
         """Test successful user creation"""
         email = f"newuser.{_uid()}@example.com"
         user_data = UserCreate(
-            email=email,
-            password="SecurePass123",
-            first_name="John",
-            last_name="Doe"
+            email=email, password="SecurePass123", first_name="John", last_name="Doe"
         )
 
         user = await UserService.create_user(db_session, user_data)
@@ -56,7 +55,7 @@ class TestUserCreation:
             email=f"secure.{_uid()}@example.com",
             password=plain_password,
             first_name="Secure",
-            last_name="User"
+            last_name="User",
         )
 
         user = await UserService.create_user(db_session, user_data)
@@ -76,7 +75,7 @@ class TestUserCreation:
             email=f"regular.{_uid()}@example.com",
             password="Pass1234",
             first_name="Regular",
-            last_name="User"
+            last_name="User",
         )
 
         user = await UserService.create_user(db_session, user_data)
@@ -89,7 +88,7 @@ class TestUserCreation:
             email=f"active.{_uid()}@example.com",
             password="Pass1234",
             first_name="Active",
-            last_name="User"
+            last_name="User",
         )
 
         user = await UserService.create_user(db_session, user_data)
@@ -102,7 +101,7 @@ class TestUserCreation:
             email=f"deutsch.{_uid()}@example.com",
             password="Pass1234",
             first_name="Jürgen",
-            last_name="Müller-Schmidt"
+            last_name="Müller-Schmidt",
         )
 
         user = await UserService.create_user(db_session, user_data)
@@ -139,7 +138,9 @@ class TestUserRetrieval:
 
     async def test_get_user_by_email_not_found(self, db_session):
         """Test getting user by non-existent email returns None"""
-        user = await UserService.get_user_by_email(db_session, "nonexistent@example.com")
+        user = await UserService.get_user_by_email(
+            db_session, "nonexistent@example.com"
+        )
 
         assert user is None
 
@@ -161,7 +162,7 @@ class TestUserRetrieval:
                 email=f"user{i}@example.com",
                 password="Pass1234",
                 first_name=names[i],
-                last_name="Test"
+                last_name="Test",
             )
             await UserService.create_user(db_session, user_data)
 
@@ -186,7 +187,7 @@ class TestUserRetrieval:
                 email=f"ordered{i}@example.com",
                 password="Pass1234",
                 first_name=ordered_names[i],
-                last_name="Test"
+                last_name="Test",
             )
             user = await UserService.create_user(db_session, user_data)
             user_ids.append(user.id)
@@ -213,10 +214,7 @@ class TestUserUpdate:
 
     async def test_update_user_names(self, db_session, sample_user):
         """Test updating user names"""
-        update_data = UserUpdate(
-            first_name="NewFirst",
-            last_name="NewLast"
-        )
+        update_data = UserUpdate(first_name="NewFirst", last_name="NewLast")
 
         updated = await UserService.update_user(db_session, sample_user.id, update_data)
 
@@ -345,7 +343,7 @@ class TestUserValidation:
                 email="not-an-email",  # Invalid format
                 password="Pass1234",
                 first_name="Test",
-                last_name="User"
+                last_name="User",
             )
 
     async def test_name_with_invalid_characters_fails(self, db_session):
@@ -355,7 +353,7 @@ class TestUserValidation:
                 email="test@example.com",
                 password="Pass1234",
                 first_name="John123",  # Numbers not allowed
-                last_name="Doe"
+                last_name="Doe",
             )
 
     async def test_name_with_special_chars_fails(self, db_session):
@@ -365,7 +363,7 @@ class TestUserValidation:
                 email="test@example.com",
                 password="Pass1234",
                 first_name="John",
-                last_name="Doe@Email"  # @ not allowed
+                last_name="Doe@Email",  # @ not allowed
             )
 
     async def test_empty_name_after_strip_fails(self, db_session):
@@ -376,7 +374,7 @@ class TestUserValidation:
                 email="test@example.com",
                 password="Pass1234",
                 first_name="   ",  # Only whitespace
-                last_name="Doe"
+                last_name="Doe",
             )
 
 
@@ -391,7 +389,7 @@ class TestPasswordSecurity:
                 email="test@example.com",
                 password="Short1",  # Only 6 chars
                 first_name="Test",
-                last_name="User"
+                last_name="User",
             )
 
     async def test_password_no_number_fails(self, db_session):
@@ -401,7 +399,7 @@ class TestPasswordSecurity:
                 email="test@example.com",
                 password="NoNumbersHere",
                 first_name="Test",
-                last_name="User"
+                last_name="User",
             )
 
     async def test_password_no_letter_fails(self, db_session):
@@ -411,7 +409,7 @@ class TestPasswordSecurity:
                 email="test@example.com",
                 password="12345678",  # Only numbers
                 first_name="Test",
-                last_name="User"
+                last_name="User",
             )
 
     async def test_password_too_long_fails(self, db_session):
@@ -421,7 +419,7 @@ class TestPasswordSecurity:
                 email="test@example.com",
                 password="a" * 129 + "1",  # 130 chars
                 first_name="Test",
-                last_name="User"
+                last_name="User",
             )
 
     async def test_valid_passwords_pass(self, db_session):
@@ -438,7 +436,7 @@ class TestPasswordSecurity:
                 email=f"valid{i}.{_uid()}@example.com",
                 password=password,
                 first_name="Valid",
-                last_name="User"
+                last_name="User",
             )
             user = await UserService.create_user(db_session, user_data)
             assert user.id is not None

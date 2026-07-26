@@ -19,6 +19,7 @@ Covers:
   MetalInventoryService.consume_material (V1.1 Task 4 fire-and-forget
   pattern).
 """
+
 import uuid
 from datetime import datetime, timedelta
 

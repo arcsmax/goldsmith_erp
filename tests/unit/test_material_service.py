@@ -10,12 +10,14 @@ Tests cover:
 - Stock value calculations
 - Error handling and edge cases
 """
-import pytest
+
 from decimal import Decimal
 
-from goldsmith_erp.services.material_service import MaterialService
-from goldsmith_erp.models.material import MaterialCreate, MaterialUpdate
+import pytest
+
 from goldsmith_erp.db.models import Material
+from goldsmith_erp.models.material import MaterialCreate, MaterialUpdate
+from goldsmith_erp.services.material_service import MaterialService
 
 
 @pytest.mark.asyncio
@@ -29,7 +31,7 @@ class TestMaterialCreation:
             description="18K gold ring setting for 1ct stone",
             unit_price=45.50,
             stock=25.5,
-            unit="Stück"
+            unit="Stück",
         )
 
         material = await MaterialService.create_material(db_session, material_data)
@@ -44,10 +46,7 @@ class TestMaterialCreation:
     async def test_create_material_minimal_fields(self, db_session):
         """Test creating material with only required fields"""
         material_data = MaterialCreate(
-            name="Simple Clasp",
-            unit_price=2.50,
-            stock=100,
-            unit="Stück"
+            name="Simple Clasp", unit_price=2.50, stock=100, unit="Stück"
         )
 
         material = await MaterialService.create_material(db_session, material_data)
@@ -61,19 +60,13 @@ class TestMaterialCreation:
         """Test that duplicate names are allowed (no unique constraint)"""
         # Create first material
         material_data_1 = MaterialCreate(
-            name="Standard Clasp",
-            unit_price=5.00,
-            stock=50,
-            unit="Stück"
+            name="Standard Clasp", unit_price=5.00, stock=50, unit="Stück"
         )
         await MaterialService.create_material(db_session, material_data_1)
 
         # Create second material with same name (should succeed)
         material_data_2 = MaterialCreate(
-            name="Standard Clasp",
-            unit_price=6.00,
-            stock=30,
-            unit="Stück"
+            name="Standard Clasp", unit_price=6.00, stock=30, unit="Stück"
         )
         material_2 = await MaterialService.create_material(db_session, material_data_2)
 
@@ -84,10 +77,7 @@ class TestMaterialCreation:
     async def test_create_material_zero_stock_allowed(self, db_session):
         """Test that zero stock is allowed"""
         material_data = MaterialCreate(
-            name="Out of Stock Item",
-            unit_price=10.00,
-            stock=0,
-            unit="g"
+            name="Out of Stock Item", unit_price=10.00, stock=0, unit="g"
         )
 
         material = await MaterialService.create_material(db_session, material_data)
@@ -98,10 +88,7 @@ class TestMaterialCreation:
     async def test_create_material_decimal_values(self, db_session):
         """Test creating material with decimal prices and stock"""
         material_data = MaterialCreate(
-            name="Precious Stone",
-            unit_price=123.456,
-            stock=7.89,
-            unit="Stück"
+            name="Precious Stone", unit_price=123.456, stock=7.89, unit="Stück"
         )
 
         material = await MaterialService.create_material(db_session, material_data)
@@ -116,10 +103,7 @@ class TestMaterialCreation:
 
         for i, unit in enumerate(units_to_test):
             material_data = MaterialCreate(
-                name=f"Material {unit}",
-                unit_price=10.00,
-                stock=50,
-                unit=unit
+                name=f"Material {unit}", unit_price=10.00, stock=50, unit=unit
             )
 
             material = await MaterialService.create_material(db_session, material_data)
@@ -133,7 +117,9 @@ class TestMaterialRetrieval:
 
     async def test_get_material_by_id_success(self, db_session, sample_material):
         """Test retrieving existing material by ID"""
-        material = await MaterialService.get_material_by_id(db_session, sample_material.id)
+        material = await MaterialService.get_material_by_id(
+            db_session, sample_material.id
+        )
 
         assert material is not None
         assert material.id == sample_material.id
@@ -148,7 +134,9 @@ class TestMaterialRetrieval:
 
     async def test_get_material_by_name_success(self, db_session, sample_material):
         """Test retrieving material by name"""
-        material = await MaterialService.get_material_by_name(db_session, sample_material.name)
+        material = await MaterialService.get_material_by_name(
+            db_session, sample_material.name
+        )
 
         assert material is not None
         assert material.id == sample_material.id
@@ -156,7 +144,9 @@ class TestMaterialRetrieval:
 
     async def test_get_material_by_name_not_found(self, db_session):
         """Test retrieving non-existent material by name returns None"""
-        material = await MaterialService.get_material_by_name(db_session, "Nonexistent Material")
+        material = await MaterialService.get_material_by_name(
+            db_session, "Nonexistent Material"
+        )
 
         assert material is None
 
@@ -172,10 +162,7 @@ class TestMaterialRetrieval:
         # Create 5 materials
         for i in range(5):
             material_data = MaterialCreate(
-                name=f"Material {i}",
-                unit_price=10.00 + i,
-                stock=50,
-                unit="Stück"
+                name=f"Material {i}", unit_price=10.00 + i, stock=50, unit="Stück"
             )
             await MaterialService.create_material(db_session, material_data)
 
@@ -194,7 +181,7 @@ class TestMaterialRetrieval:
                 name=f"Material {i:02d}",  # Zero-padded for correct sorting
                 unit_price=10.00,
                 stock=50,
-                unit="Stück"
+                unit="Stück",
             )
             await MaterialService.create_material(db_session, material_data)
 
@@ -219,10 +206,7 @@ class TestMaterialRetrieval:
         names = ["Zebra", "Alpha", "Bravo", "Charlie"]
         for name in names:
             material_data = MaterialCreate(
-                name=name,
-                unit_price=10.00,
-                stock=50,
-                unit="Stück"
+                name=name, unit_price=10.00, stock=50, unit="Stück"
             )
             await MaterialService.create_material(db_session, material_data)
 
@@ -280,10 +264,7 @@ class TestMaterialUpdate:
     async def test_update_material_multiple_fields(self, db_session, sample_material):
         """Test updating multiple fields at once"""
         update_data = MaterialUpdate(
-            name="New Name",
-            description="New Description",
-            unit_price=99.99,
-            stock=200
+            name="New Name", description="New Description", unit_price=99.99, stock=200
         )
 
         updated = await MaterialService.update_material(
@@ -406,20 +387,19 @@ class TestMaterialSearch:
             ("Low Stock 1", 5.0),
             ("Low Stock 2", 8.0),
             ("Normal Stock", 50.0),
-            ("High Stock", 500.0)
+            ("High Stock", 500.0),
         ]
 
         for name, stock in materials_data:
             material_data = MaterialCreate(
-                name=name,
-                unit_price=10.00,
-                stock=stock,
-                unit="Stück"
+                name=name, unit_price=10.00, stock=stock, unit="Stück"
             )
             await MaterialService.create_material(db_session, material_data)
 
         # Get materials with stock <= 10
-        low_stock = await MaterialService.get_low_stock_materials(db_session, threshold=10.0)
+        low_stock = await MaterialService.get_low_stock_materials(
+            db_session, threshold=10.0
+        )
 
         assert len(low_stock) == 2
         assert all(float(m.stock) <= 10.0 for m in low_stock)
@@ -430,14 +410,13 @@ class TestMaterialSearch:
         """Test low stock filter with no results"""
         # Create material with high stock
         material_data = MaterialCreate(
-            name="High Stock Item",
-            unit_price=10.00,
-            stock=1000.0,
-            unit="Stück"
+            name="High Stock Item", unit_price=10.00, stock=1000.0, unit="Stück"
         )
         await MaterialService.create_material(db_session, material_data)
 
-        low_stock = await MaterialService.get_low_stock_materials(db_session, threshold=5.0)
+        low_stock = await MaterialService.get_low_stock_materials(
+            db_session, threshold=5.0
+        )
 
         assert len(low_stock) == 0
 
@@ -449,12 +428,14 @@ class TestMaterialSearch:
                 name=f"Material {i}",
                 unit_price=10.00,
                 stock=i * 10.0,  # 0, 10, 20, 30, 40
-                unit="Stück"
+                unit="Stück",
             )
             await MaterialService.create_material(db_session, material_data)
 
         # Threshold 25 should return materials with stock 0, 10, 20
-        low_stock = await MaterialService.get_low_stock_materials(db_session, threshold=25.0)
+        low_stock = await MaterialService.get_low_stock_materials(
+            db_session, threshold=25.0
+        )
 
         assert len(low_stock) == 3
         assert all(float(m.stock) <= 25.0 for m in low_stock)
@@ -463,14 +444,13 @@ class TestMaterialSearch:
         """Test that low stock filter includes materials exactly at threshold"""
         # Create material with stock exactly at threshold
         material_data = MaterialCreate(
-            name="Exactly Threshold",
-            unit_price=10.00,
-            stock=10.0,
-            unit="Stück"
+            name="Exactly Threshold", unit_price=10.00, stock=10.0, unit="Stück"
         )
         material = await MaterialService.create_material(db_session, material_data)
 
-        low_stock = await MaterialService.get_low_stock_materials(db_session, threshold=10.0)
+        low_stock = await MaterialService.get_low_stock_materials(
+            db_session, threshold=10.0
+        )
 
         assert len(low_stock) == 1
         assert low_stock[0].id == material.id
@@ -519,10 +499,7 @@ class TestMaterialDeletion:
         materials = []
         for i in range(3):
             material_data = MaterialCreate(
-                name=f"Material {i}",
-                unit_price=10.00,
-                stock=50,
-                unit="Stück"
+                name=f"Material {i}", unit_price=10.00, stock=50, unit="Stück"
             )
             material = await MaterialService.create_material(db_session, material_data)
             materials.append(material)
@@ -545,17 +522,14 @@ class TestStockCalculations:
         """Test calculating total stock value"""
         # Create materials with known values
         materials_data = [
-            ("Material 1", 10.00, 5.0),    # Value: 50.00
-            ("Material 2", 25.00, 10.0),   # Value: 250.00
-            ("Material 3", 100.00, 2.0),   # Value: 200.00
+            ("Material 1", 10.00, 5.0),  # Value: 50.00
+            ("Material 2", 25.00, 10.0),  # Value: 250.00
+            ("Material 3", 100.00, 2.0),  # Value: 200.00
         ]
 
         for name, price, stock in materials_data:
             material_data = MaterialCreate(
-                name=name,
-                unit_price=price,
-                stock=stock,
-                unit="Stück"
+                name=name, unit_price=price, stock=stock, unit="Stück"
             )
             await MaterialService.create_material(db_session, material_data)
 
@@ -573,16 +547,13 @@ class TestStockCalculations:
     async def test_calculate_total_stock_value_with_zero_stock(self, db_session):
         """Test that materials with zero stock contribute zero value"""
         materials_data = [
-            ("In Stock", 50.00, 10.0),     # Value: 500.00
-            ("Out of Stock", 100.00, 0.0), # Value: 0.00
+            ("In Stock", 50.00, 10.0),  # Value: 500.00
+            ("Out of Stock", 100.00, 0.0),  # Value: 0.00
         ]
 
         for name, price, stock in materials_data:
             material_data = MaterialCreate(
-                name=name,
-                unit_price=price,
-                stock=stock,
-                unit="Stück"
+                name=name, unit_price=price, stock=stock, unit="Stück"
             )
             await MaterialService.create_material(db_session, material_data)
 
@@ -590,7 +561,9 @@ class TestStockCalculations:
 
         assert float(total_value) == pytest.approx(500.00, 0.01)
 
-    async def test_calculate_individual_material_value(self, db_session, sample_material):
+    async def test_calculate_individual_material_value(
+        self, db_session, sample_material
+    ):
         """Test calculating value for individual material"""
         # Set known values
         sample_material.unit_price = 15.50
@@ -598,7 +571,9 @@ class TestStockCalculations:
         await db_session.commit()
 
         # Expected value: 15.50 * 20 = 310.00
-        expected_value = float(sample_material.unit_price) * float(sample_material.stock)
+        expected_value = float(sample_material.unit_price) * float(
+            sample_material.stock
+        )
 
         assert expected_value == pytest.approx(310.00, 0.01)
 
@@ -613,7 +588,7 @@ class TestEdgeCases:
             name="Bulk Material",
             unit_price=1.00,
             stock=1000000.0,  # One million units
-            unit="g"
+            unit="g",
         )
 
         material = await MaterialService.create_material(db_session, material_data)
@@ -624,10 +599,7 @@ class TestEdgeCases:
     async def test_very_small_price(self, db_session):
         """Test handling very small prices"""
         material_data = MaterialCreate(
-            name="Cheap Material",
-            unit_price=0.01,  # 1 cent
-            stock=100.0,
-            unit="Stück"
+            name="Cheap Material", unit_price=0.01, stock=100.0, unit="Stück"  # 1 cent
         )
 
         material = await MaterialService.create_material(db_session, material_data)

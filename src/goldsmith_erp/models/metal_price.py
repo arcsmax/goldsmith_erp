@@ -56,7 +56,9 @@ class MetalPriceHistoryPoint(BaseModel):
     """Single data point in the price history chart series."""
 
     fetched_at: datetime = Field(..., description="When this price was recorded")
-    price_per_gram_eur: float = Field(..., description="Spot price in EUR/g at this timestamp")
+    price_per_gram_eur: float = Field(
+        ..., description="Spot price in EUR/g at this timestamp"
+    )
     source: MetalPriceSource = Field(..., description="Data source for this point")
 
     model_config = {"from_attributes": True}

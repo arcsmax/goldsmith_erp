@@ -16,6 +16,7 @@ and assert that after a single request:
 
 See H2 + H5 in docs/superpowers/plans/qr-barcode-workflow/V1.1-AMENDMENTS.md.
 """
+
 from __future__ import annotations
 
 from datetime import datetime, timedelta
@@ -61,9 +62,7 @@ class TestGdprErasureScrubsPii:
             description=(
                 f"Trauring fuer {test_customer.first_name} {test_customer.last_name}"
             ),
-            special_instructions=(
-                f"Anruf unter {test_customer.phone} vor Abholung"
-            ),
+            special_instructions=(f"Anruf unter {test_customer.phone} vor Abholung"),
             customer_id=test_customer.id,
             status=OrderStatusEnum.IN_PROGRESS,
             price=1200.00,
@@ -241,7 +240,8 @@ class TestGdprErasureScrubsPii:
         order_id = order.id
 
         first = await client.delete(
-            _erase_url(test_customer.id), headers=admin_auth_headers,
+            _erase_url(test_customer.id),
+            headers=admin_auth_headers,
         )
         assert first.status_code == 200
 
@@ -251,7 +251,8 @@ class TestGdprErasureScrubsPii:
         description_after_first = first_result.scalar_one().description
 
         second = await client.delete(
-            _erase_url(test_customer.id), headers=admin_auth_headers,
+            _erase_url(test_customer.id),
+            headers=admin_auth_headers,
         )
         assert second.status_code == 409
 
@@ -360,9 +361,7 @@ class TestGdprErasureScrubsH5Fields:
         # DB state — every H5 field must have the PII replaced
         scrubbed_history = (
             await db_session.execute(
-                select(OrderStatusHistory).filter(
-                    OrderStatusHistory.id == history_id
-                )
+                select(OrderStatusHistory).filter(OrderStatusHistory.id == history_id)
             )
         ).scalar_one()
         assert pii_surname not in scrubbed_history.notes

@@ -14,6 +14,7 @@ Matrix:
   * PATCH /orders/{id}: PUT admin path WITHOUT marks → 409 PUNZIERUNG_REQUIRED
   * PATCH /orders/{id}: invalid mark → 422
 """
+
 from __future__ import annotations
 
 import uuid
@@ -26,14 +27,7 @@ from httpx import AsyncClient
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from goldsmith_erp.db.models import (
-    Activity,
-    Order,
-    OrderStatusEnum,
-    TimeEntry,
-    User,
-)
-
+from goldsmith_erp.db.models import Activity, Order, OrderStatusEnum, TimeEntry, User
 
 # --------------------------------------------------------------------------- #
 # Helpers
@@ -254,9 +248,7 @@ class TestPatchOrderPunzierung:
         assert resp.status_code == 200, resp.text
 
         # Verify the DB row — marks and timestamp recorded.
-        result = await db_session.execute(
-            select(Order).where(Order.id == order_id)
-        )
+        result = await db_session.execute(select(Order).where(Order.id == order_id))
         refreshed = result.scalar_one()
         assert refreshed.punzierung_verified_at is not None
         assert "feingehalt_750" in refreshed.punzierung_verified_marks

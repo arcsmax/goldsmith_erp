@@ -13,6 +13,7 @@ text-searchable in the output bytes), so the document's textual content is
 verified through the pure `_compose_update_pdf_lines` seam the renderer
 consumes, plus /Info metadata byte checks for the reference string.
 """
+
 import io
 import re
 from types import SimpleNamespace

@@ -12,14 +12,20 @@ Tests cover:
 - Cost calculation field updates
 - Error handling and edge cases
 """
-import pytest
+
 from datetime import datetime, timedelta
 
-from goldsmith_erp.services.order_service import OrderService
-from goldsmith_erp.models.order import OrderCreate, OrderUpdate
+import pytest
+
 from goldsmith_erp.db.models import (
-    Order, OrderStatusEnum, MetalType, CostingMethod, Material
+    CostingMethod,
+    Material,
+    MetalType,
+    Order,
+    OrderStatusEnum,
 )
+from goldsmith_erp.models.order import OrderCreate, OrderUpdate
+from goldsmith_erp.services.order_service import OrderService
 
 
 @pytest.mark.asyncio
@@ -32,7 +38,7 @@ class TestOrderCreation:
             title="Gold Wedding Ring",
             description="18K gold wedding ring, 5mm width",
             customer_id=sample_customer.id,
-            price=1200.00
+            price=1200.00,
         )
 
         order = await OrderService.create_order(db_session, order_data)
@@ -52,7 +58,7 @@ class TestOrderCreation:
             title="Custom Necklace",
             description="Silver necklace",
             customer_id=sample_customer.id,
-            deadline=deadline
+            deadline=deadline,
         )
 
         order = await OrderService.create_order(db_session, order_data)
@@ -60,13 +66,15 @@ class TestOrderCreation:
         assert order.deadline is not None
         assert order.deadline.date() == deadline.date()
 
-    async def test_create_order_with_materials(self, db_session, sample_customer, sample_material):
+    async def test_create_order_with_materials(
+        self, db_session, sample_customer, sample_material
+    ):
         """Test creating order with linked materials"""
         order_data = OrderCreate(
             title="Bracelet with Gemstone",
             description="Gold bracelet with ruby",
             customer_id=sample_customer.id,
-            materials=[sample_material.id]
+            materials=[sample_material.id],
         )
 
         order = await OrderService.create_order(db_session, order_data)
@@ -74,7 +82,9 @@ class TestOrderCreation:
         assert len(order.materials) == 1
         assert order.materials[0].id == sample_material.id
 
-    async def test_create_order_with_multiple_materials(self, db_session, sample_customer):
+    async def test_create_order_with_multiple_materials(
+        self, db_session, sample_customer
+    ):
         """Test creating order with multiple materials"""
         # Create multiple materials and collect references BEFORE committing
         materials = []
@@ -84,7 +94,7 @@ class TestOrderCreation:
                 description=f"Description {i}",
                 unit_price=10.0 * (i + 1),
                 stock=100.0,
-                unit="g"
+                unit="g",
             )
             db_session.add(material)
             materials.append(material)
@@ -94,20 +104,22 @@ class TestOrderCreation:
             title="Complex Piece",
             description="Piece with multiple materials",
             customer_id=sample_customer.id,
-            materials=[m.id for m in materials]
+            materials=[m.id for m in materials],
         )
 
         order = await OrderService.create_order(db_session, order_data)
 
         assert len(order.materials) == 3
 
-    async def test_create_order_with_invalid_material_raises_error(self, db_session, sample_customer):
+    async def test_create_order_with_invalid_material_raises_error(
+        self, db_session, sample_customer
+    ):
         """Test that creating order with non-existent material raises error"""
         order_data = OrderCreate(
             title="Invalid Order",
             description="Order with invalid material",
             customer_id=sample_customer.id,
-            materials=[99999]  # Non-existent material
+            materials=[99999],  # Non-existent material
         )
 
         with pytest.raises(ValueError, match="Materials not found"):
@@ -121,7 +133,7 @@ class TestOrderCreation:
             customer_id=sample_customer.id,
             metal_type=MetalType.GOLD_18K,
             estimated_weight_g=15.0,
-            scrap_percentage=5.0
+            scrap_percentage=5.0,
         )
 
         order = await OrderService.create_order(db_session, order_data)
@@ -142,7 +154,7 @@ class TestOrderCreation:
             hourly_rate=80.00,
             profit_margin_percent=45.0,
             vat_rate=19.0,
-            costing_method=CostingMethod.FIFO
+            costing_method=CostingMethod.FIFO,
         )
 
         order = await OrderService.create_order(db_session, order_data)
@@ -153,7 +165,9 @@ class TestOrderCreation:
         assert order.vat_rate == 19.0
         assert order.costing_method_used == CostingMethod.FIFO
 
-    async def test_create_order_with_specific_metal_purchase(self, db_session, sample_customer, sample_metal_purchase):
+    async def test_create_order_with_specific_metal_purchase(
+        self, db_session, sample_customer, sample_metal_purchase
+    ):
         """Test creating order with specific metal purchase"""
         order_data = OrderCreate(
             title="Ring from specific batch",
@@ -162,7 +176,7 @@ class TestOrderCreation:
             metal_type=MetalType.GOLD_18K,
             costing_method=CostingMethod.SPECIFIC,
             specific_metal_purchase_id=sample_metal_purchase.id,
-            estimated_weight_g=10.0
+            estimated_weight_g=10.0,
         )
 
         order = await OrderService.create_order(db_session, order_data)
@@ -175,7 +189,7 @@ class TestOrderCreation:
         order_data = OrderCreate(
             title="Simple Order",
             description="Order with defaults",
-            customer_id=sample_customer.id
+            customer_id=sample_customer.id,
         )
 
         order = await OrderService.create_order(db_session, order_data)
@@ -214,13 +228,15 @@ class TestOrderRetrieval:
         assert order.customer is not None
         assert order.customer.id == sample_order.customer_id
 
-    async def test_get_order_eager_loads_materials(self, db_session, sample_customer, sample_material):
+    async def test_get_order_eager_loads_materials(
+        self, db_session, sample_customer, sample_material
+    ):
         """Test that get_order eager loads materials relationship"""
         order_data = OrderCreate(
             title="Order with materials",
             description="Test order",
             customer_id=sample_customer.id,
-            materials=[sample_material.id]
+            materials=[sample_material.id],
         )
         order = await OrderService.create_order(db_session, order_data)
 
@@ -247,7 +263,7 @@ class TestOrderRetrieval:
             order_data = OrderCreate(
                 title=f"Order {i}",
                 description=f"Description {i}",
-                customer_id=sample_customer.id
+                customer_id=sample_customer.id,
             )
             await OrderService.create_order(db_session, order_data)
 
@@ -262,7 +278,9 @@ class TestOrderRetrieval:
         # Ensure different orders
         assert page1[0].id != page2[0].id
 
-    async def test_get_orders_ordered_by_created_at_desc(self, db_session, sample_customer):
+    async def test_get_orders_ordered_by_created_at_desc(
+        self, db_session, sample_customer
+    ):
         """Test that orders are returned newest first"""
         # Create 3 orders with slight delays
         order_ids = []
@@ -270,7 +288,7 @@ class TestOrderRetrieval:
             order_data = OrderCreate(
                 title=f"Order {i}",
                 description=f"Created at time {i}",
-                customer_id=sample_customer.id
+                customer_id=sample_customer.id,
             )
             order = await OrderService.create_order(db_session, order_data)
             order_ids.append(order.id)
@@ -290,12 +308,12 @@ class TestOrderUpdate:
     async def test_update_order_basic_fields(self, db_session, sample_order):
         """Test updating basic order fields"""
         update_data = OrderUpdate(
-            title="Updated Title",
-            description="Updated description",
-            price=1500.00
+            title="Updated Title", description="Updated description", price=1500.00
         )
 
-        updated = await OrderService.update_order(db_session, sample_order.id, update_data)
+        updated = await OrderService.update_order(
+            db_session, sample_order.id, update_data
+        )
 
         assert updated.title == "Updated Title"
         assert updated.description == "Updated description"
@@ -305,7 +323,9 @@ class TestOrderUpdate:
         """Test updating order status"""
         update_data = OrderUpdate(status=OrderStatusEnum.IN_PROGRESS)
 
-        updated = await OrderService.update_order(db_session, sample_order.id, update_data)
+        updated = await OrderService.update_order(
+            db_session, sample_order.id, update_data
+        )
 
         assert updated.status == OrderStatusEnum.IN_PROGRESS
 
@@ -337,7 +357,9 @@ class TestOrderUpdate:
         new_deadline = datetime.utcnow() + timedelta(days=30)
         update_data = OrderUpdate(deadline=new_deadline)
 
-        updated = await OrderService.update_order(db_session, sample_order.id, update_data)
+        updated = await OrderService.update_order(
+            db_session, sample_order.id, update_data
+        )
 
         assert updated.deadline is not None
         assert updated.deadline.date() == new_deadline.date()
@@ -346,19 +368,21 @@ class TestOrderUpdate:
         """Test updating current location"""
         update_data = OrderUpdate(current_location="Werkbank 2")
 
-        updated = await OrderService.update_order(db_session, sample_order.id, update_data)
+        updated = await OrderService.update_order(
+            db_session, sample_order.id, update_data
+        )
 
         assert updated.current_location == "Werkbank 2"
 
     async def test_update_order_weight_fields(self, db_session, sample_order):
         """Test updating weight-related fields"""
         update_data = OrderUpdate(
-            estimated_weight_g=25.0,
-            actual_weight_g=24.5,
-            scrap_percentage=6.0
+            estimated_weight_g=25.0, actual_weight_g=24.5, scrap_percentage=6.0
         )
 
-        updated = await OrderService.update_order(db_session, sample_order.id, update_data)
+        updated = await OrderService.update_order(
+            db_session, sample_order.id, update_data
+        )
 
         assert updated.estimated_weight_g == 25.0
         assert updated.actual_weight_g == 24.5
@@ -367,11 +391,12 @@ class TestOrderUpdate:
     async def test_update_order_metal_type(self, db_session, sample_order):
         """Test updating metal type"""
         update_data = OrderUpdate(
-            metal_type=MetalType.SILVER_925,
-            costing_method=CostingMethod.LIFO
+            metal_type=MetalType.SILVER_925, costing_method=CostingMethod.LIFO
         )
 
-        updated = await OrderService.update_order(db_session, sample_order.id, update_data)
+        updated = await OrderService.update_order(
+            db_session, sample_order.id, update_data
+        )
 
         assert updated.metal_type == MetalType.SILVER_925
         assert updated.costing_method_used == CostingMethod.LIFO
@@ -383,10 +408,12 @@ class TestOrderUpdate:
             hourly_rate=90.00,
             profit_margin_percent=50.0,
             vat_rate=21.0,
-            material_cost_override=1000.00
+            material_cost_override=1000.00,
         )
 
-        updated = await OrderService.update_order(db_session, sample_order.id, update_data)
+        updated = await OrderService.update_order(
+            db_session, sample_order.id, update_data
+        )
 
         assert updated.labor_hours == 8.0
         assert updated.hourly_rate == 90.00
@@ -401,7 +428,9 @@ class TestOrderUpdate:
 
         update_data = OrderUpdate(description="New description only")
 
-        updated = await OrderService.update_order(db_session, sample_order.id, update_data)
+        updated = await OrderService.update_order(
+            db_session, sample_order.id, update_data
+        )
 
         # Changed field
         assert updated.description == "New description only"
@@ -423,7 +452,9 @@ class TestOrderUpdate:
 
         update_data = OrderUpdate(title="New Title")
 
-        updated = await OrderService.update_order(db_session, sample_order.id, update_data)
+        updated = await OrderService.update_order(
+            db_session, sample_order.id, update_data
+        )
 
         assert updated.updated_at > original_updated_at
 
@@ -451,14 +482,16 @@ class TestOrderDeletion:
         assert result["success"] is False
         assert "nicht gefunden" in result["message"].lower()
 
-    async def test_delete_order_with_materials(self, db_session, sample_customer, sample_material):
+    async def test_delete_order_with_materials(
+        self, db_session, sample_customer, sample_material
+    ):
         """Test deleting order that has materials linked"""
         # Create order with materials
         order_data = OrderCreate(
             title="Order with materials",
             description="Will be deleted",
             customer_id=sample_customer.id,
-            materials=[sample_material.id]
+            materials=[sample_material.id],
         )
         order = await OrderService.create_order(db_session, order_data)
 
@@ -476,14 +509,16 @@ class TestOrderDeletion:
 class TestOrderValidation:
     """Test order validation and error handling"""
 
-    async def test_create_order_sql_injection_prevention(self, db_session, sample_customer):
+    async def test_create_order_sql_injection_prevention(
+        self, db_session, sample_customer
+    ):
         """Test that SQL injection attempts are blocked at Pydantic validation time"""
         # Pydantic raises ValidationError (a subclass of ValueError) during model construction
         with pytest.raises(ValueError, match="dangerous SQL keyword"):
             OrderCreate(
                 title="'; DROP TABLE orders; --",
                 description="Normal description",
-                customer_id=sample_customer.id
+                customer_id=sample_customer.id,
             )
 
     async def test_create_order_empty_title_fails(self, db_session, sample_customer):
@@ -492,7 +527,7 @@ class TestOrderValidation:
             order_data = OrderCreate(
                 title="   ",  # Only whitespace
                 description="Valid description",
-                customer_id=sample_customer.id
+                customer_id=sample_customer.id,
             )
 
     async def test_create_order_negative_price_fails(self, db_session, sample_customer):
@@ -502,40 +537,48 @@ class TestOrderValidation:
                 title="Valid title",
                 description="Valid description",
                 customer_id=sample_customer.id,
-                price=-100.00
+                price=-100.00,
             )
 
-    async def test_create_order_excessive_price_fails(self, db_session, sample_customer):
+    async def test_create_order_excessive_price_fails(
+        self, db_session, sample_customer
+    ):
         """Test that excessive price fails validation"""
         with pytest.raises(ValueError, match="exceeds maximum"):
             order_data = OrderCreate(
                 title="Valid title",
                 description="Valid description",
                 customer_id=sample_customer.id,
-                price=2_000_000.00  # Over 1 million limit
+                price=2_000_000.00,  # Over 1 million limit
             )
 
-    async def test_create_order_duplicate_materials_fails(self, db_session, sample_customer, sample_material):
+    async def test_create_order_duplicate_materials_fails(
+        self, db_session, sample_customer, sample_material
+    ):
         """Test that duplicate material IDs fail validation"""
         with pytest.raises(ValueError, match="Duplicate material"):
             order_data = OrderCreate(
                 title="Valid title",
                 description="Valid description",
                 customer_id=sample_customer.id,
-                materials=[sample_material.id, sample_material.id]  # Duplicate!
+                materials=[sample_material.id, sample_material.id],  # Duplicate!
             )
 
-    async def test_create_order_invalid_material_id_fails(self, db_session, sample_customer):
+    async def test_create_order_invalid_material_id_fails(
+        self, db_session, sample_customer
+    ):
         """Test that invalid material ID fails validation"""
         with pytest.raises(ValueError, match="Invalid material ID"):
             order_data = OrderCreate(
                 title="Valid title",
                 description="Valid description",
                 customer_id=sample_customer.id,
-                materials=[-1, 0]  # Invalid IDs
+                materials=[-1, 0],  # Invalid IDs
             )
 
-    async def test_create_order_far_future_deadline_fails(self, db_session, sample_customer):
+    async def test_create_order_far_future_deadline_fails(
+        self, db_session, sample_customer
+    ):
         """Test that deadline too far in future fails"""
         far_future = datetime(2040, 1, 1)  # More than 10 years
 
@@ -544,7 +587,7 @@ class TestOrderValidation:
                 title="Valid title",
                 description="Valid description",
                 customer_id=sample_customer.id,
-                deadline=far_future
+                deadline=far_future,
             )
 
 
@@ -563,8 +606,16 @@ class TestOrderRelationships:
     async def test_order_materials_relationship(self, db_session, sample_customer):
         """Test Order.materials relationship"""
         # Create materials
-        material1 = Material(name="Gold", unit_price=45.0, stock=100.0, unit="g", description="18K Gold")
-        material2 = Material(name="Ruby", unit_price=200.0, stock=10.0, unit="ct", description="Ruby gemstone")
+        material1 = Material(
+            name="Gold", unit_price=45.0, stock=100.0, unit="g", description="18K Gold"
+        )
+        material2 = Material(
+            name="Ruby",
+            unit_price=200.0,
+            stock=10.0,
+            unit="ct",
+            description="Ruby gemstone",
+        )
         db_session.add(material1)
         db_session.add(material2)
         await db_session.commit()
@@ -574,7 +625,7 @@ class TestOrderRelationships:
             title="Ring with gemstone",
             description="Gold ring with ruby",
             customer_id=sample_customer.id,
-            materials=[material1.id, material2.id]
+            materials=[material1.id, material2.id],
         )
         order = await OrderService.create_order(db_session, order_data)
 
@@ -584,7 +635,9 @@ class TestOrderRelationships:
         assert "Gold" in material_names
         assert "Ruby" in material_names
 
-    async def test_order_metal_purchase_relationship(self, db_session, sample_customer, sample_metal_purchase):
+    async def test_order_metal_purchase_relationship(
+        self, db_session, sample_customer, sample_metal_purchase
+    ):
         """Test Order.specific_metal_purchase relationship"""
         order_data = OrderCreate(
             title="Ring from specific batch",
@@ -592,7 +645,7 @@ class TestOrderRelationships:
             customer_id=sample_customer.id,
             metal_type=MetalType.GOLD_18K,
             costing_method=CostingMethod.SPECIFIC,
-            specific_metal_purchase_id=sample_metal_purchase.id
+            specific_metal_purchase_id=sample_metal_purchase.id,
         )
         order = await OrderService.create_order(db_session, order_data)
 

@@ -3,8 +3,9 @@
 Common Pydantic models for validation across the application.
 """
 
-from pydantic import BaseModel, Field
 from typing import Optional
+
+from pydantic import BaseModel, Field
 
 
 class IdParam(BaseModel):
@@ -16,16 +17,12 @@ class IdParam(BaseModel):
 class PaginationParams(BaseModel):
     """Validation model for pagination query parameters."""
 
-    skip: int = Field(
-        default=0,
-        ge=0,
-        description="Number of records to skip (offset)"
-    )
+    skip: int = Field(default=0, ge=0, description="Number of records to skip (offset)")
     limit: int = Field(
         default=50,
         ge=1,
         le=100,
-        description="Maximum number of records to return (1-100)"
+        description="Maximum number of records to return (1-100)",
     )
 
 
@@ -63,7 +60,5 @@ class TimeEntryIdParam(BaseModel):
     """Validation model for time entry UUID path parameters."""
 
     entry_id: str = Field(
-        min_length=36,
-        max_length=36,
-        description="Time entry ID must be a valid UUID"
+        min_length=36, max_length=36, description="Time entry ID must be a valid UUID"
     )

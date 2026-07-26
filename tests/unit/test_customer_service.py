@@ -10,13 +10,15 @@ Tests cover:
 - Customer statistics and analytics
 - Error handling and edge cases
 """
-import pytest
+
 import uuid
 from datetime import datetime, timedelta
 
-from goldsmith_erp.services.customer_service import CustomerService
-from goldsmith_erp.models.customer import CustomerCreate, CustomerUpdate
+import pytest
+
 from goldsmith_erp.db.models import Customer, Order, OrderStatusEnum
+from goldsmith_erp.models.customer import CustomerCreate, CustomerUpdate
+from goldsmith_erp.services.customer_service import CustomerService
 
 
 def _uid() -> str:
@@ -39,7 +41,7 @@ class TestCustomerCreation:
             customer_type="private",
             city="Munich",
             postal_code="80331",
-            country="Germany"
+            country="Germany",
         )
 
         customer = await CustomerService.create_customer(db_session, customer_data)
@@ -65,7 +67,7 @@ class TestCustomerCreation:
             street="Maximilianstraße 1",
             city="Munich",
             postal_code="80539",
-            country="Germany"
+            country="Germany",
         )
 
         customer = await CustomerService.create_customer(db_session, customer_data)
@@ -74,13 +76,15 @@ class TestCustomerCreation:
         assert customer.customer_type == "business"
         assert customer.email == email
 
-    async def test_create_customer_duplicate_email_fails(self, db_session, sample_customer):
+    async def test_create_customer_duplicate_email_fails(
+        self, db_session, sample_customer
+    ):
         """Test that duplicate email raises ValueError"""
         duplicate_data = CustomerCreate(
             first_name="Different",
             last_name="Person",
             email=sample_customer.email,  # Same email!
-            customer_type="private"
+            customer_type="private",
         )
 
         with pytest.raises(ValueError, match="existiert bereits"):
@@ -93,7 +97,7 @@ class TestCustomerCreation:
             last_name="Customer",
             email=f"vip.{_uid()}@example.com",
             customer_type="private",
-            tags=["VIP", "Stammkunde", "Repeat Customer"]
+            tags=["VIP", "Stammkunde", "Repeat Customer"],
         )
 
         customer = await CustomerService.create_customer(db_session, customer_data)
@@ -109,7 +113,7 @@ class TestCustomerCreation:
             last_name="Requests",
             email=f"special.{_uid()}@example.com",
             customer_type="private",
-            notes="Prefers email contact. Allergic to nickel."
+            notes="Prefers email contact. Allergic to nickel.",
         )
 
         customer = await CustomerService.create_customer(db_session, customer_data)
@@ -153,7 +157,9 @@ class TestCustomerRetrieval:
 
         assert customer is None
 
-    async def test_get_customers_all(self, db_session, sample_customer, business_customer):
+    async def test_get_customers_all(
+        self, db_session, sample_customer, business_customer
+    ):
         """Test getting all customers"""
         customers = await CustomerService.get_customers(db_session)
 
@@ -171,7 +177,7 @@ class TestCustomerRetrieval:
                 first_name=pag_names[i],
                 last_name="User",
                 email=f"pag{i}.{_uid()}@example.com",
-                customer_type="private"
+                customer_type="private",
             )
             await CustomerService.create_customer(db_session, customer_data)
 
@@ -245,7 +251,9 @@ class TestCustomerFiltering:
 
     async def test_search_by_email(self, db_session, sample_customer):
         """Test searching by email"""
-        customers = await CustomerService.get_customers(db_session, search="max.mustermann")
+        customers = await CustomerService.get_customers(
+            db_session, search="max.mustermann"
+        )
 
         assert len(customers) >= 1
         assert sample_customer.id in [c.id for c in customers]
@@ -259,7 +267,7 @@ class TestCustomerFiltering:
 
     @pytest.mark.xfail(
         reason="JSON array containment filter uses PostgreSQL-specific @> operator; "
-               "not supported by SQLite used in unit tests. Passes on PostgreSQL."
+        "not supported by SQLite used in unit tests. Passes on PostgreSQL."
     )
     async def test_filter_by_tag(self, db_session):
         """Test filtering by tag"""
@@ -269,9 +277,11 @@ class TestCustomerFiltering:
             last_name="Person",
             email=f"vip.tag.{_uid()}@example.com",
             customer_type="private",
-            tags=["VIP", "Stammkunde"]
+            tags=["VIP", "Stammkunde"],
         )
-        vip_customer = await CustomerService.create_customer(db_session, vip_customer_data)
+        vip_customer = await CustomerService.create_customer(
+            db_session, vip_customer_data
+        )
 
         # Filter by VIP tag
         vips = await CustomerService.get_customers(db_session, tag="VIP")
@@ -287,17 +297,13 @@ class TestCustomerFiltering:
             last_name="VIPCustomer",
             email=f"private.vip.{_uid()}@example.com",
             customer_type="private",
-            tags=["VIP"]
+            tags=["VIP"],
         )
         customer = await CustomerService.create_customer(db_session, customer_data)
 
         # Search with multiple filters
         results = await CustomerService.get_customers(
-            db_session,
-            search="VIP",
-            customer_type="private",
-            is_active=True,
-            tag="VIP"
+            db_session, search="VIP", customer_type="private", is_active=True, tag="VIP"
         )
 
         assert customer.id in [c.id for c in results]
@@ -309,10 +315,7 @@ class TestCustomerUpdate:
 
     async def test_update_customer_contact_info(self, db_session, sample_customer):
         """Test updating customer contact information"""
-        update_data = CustomerUpdate(
-            phone="+49 89 NEW-PHONE",
-            mobile="+49 176 MOBILE"
-        )
+        update_data = CustomerUpdate(phone="+49 89 NEW-PHONE", mobile="+49 176 MOBILE")
 
         updated = await CustomerService.update_customer(
             db_session, sample_customer.id, update_data
@@ -329,7 +332,7 @@ class TestCustomerUpdate:
             street="New Street 123",
             city="Berlin",
             postal_code="10115",
-            country="Germany"
+            country="Germany",
         )
 
         updated = await CustomerService.update_customer(
@@ -342,9 +345,7 @@ class TestCustomerUpdate:
 
     async def test_update_customer_tags(self, db_session, sample_customer):
         """Test updating customer tags"""
-        update_data = CustomerUpdate(
-            tags=["VIP", "Premium", "Gold Member"]
-        )
+        update_data = CustomerUpdate(tags=["VIP", "Premium", "Gold Member"])
 
         updated = await CustomerService.update_customer(
             db_session, sample_customer.id, update_data
@@ -356,9 +357,7 @@ class TestCustomerUpdate:
 
     async def test_update_customer_notes(self, db_session, sample_customer):
         """Test updating customer notes"""
-        update_data = CustomerUpdate(
-            notes="Updated notes: Customer prefers SMS"
-        )
+        update_data = CustomerUpdate(notes="Updated notes: Customer prefers SMS")
 
         updated = await CustomerService.update_customer(
             db_session, sample_customer.id, update_data
@@ -369,8 +368,7 @@ class TestCustomerUpdate:
     async def test_update_customer_type(self, db_session, sample_customer):
         """Test changing customer type"""
         update_data = CustomerUpdate(
-            customer_type="business",
-            company_name="Mustermann GmbH"
+            customer_type="business", company_name="Mustermann GmbH"
         )
 
         updated = await CustomerService.update_customer(
@@ -393,11 +391,12 @@ class TestCustomerUpdate:
                 db_session, sample_customer.id, update_data
             )
 
-    async def test_update_customer_same_email_allowed(self, db_session, sample_customer):
+    async def test_update_customer_same_email_allowed(
+        self, db_session, sample_customer
+    ):
         """Test that updating with same email is allowed"""
         update_data = CustomerUpdate(
-            email=sample_customer.email,  # Same email
-            phone="New phone"
+            email=sample_customer.email, phone="New phone"  # Same email
         )
 
         updated = await CustomerService.update_customer(
@@ -451,7 +450,7 @@ class TestCustomerDeletion:
         order = Order(
             title="Test Order",
             customer_id=sample_customer.id,
-            status=OrderStatusEnum.NEW
+            status=OrderStatusEnum.NEW,
         )
         db_session.add(order)
         await db_session.commit()
@@ -488,7 +487,7 @@ class TestCustomerStatistics:
             order = Order(
                 title=f"Order {i}",
                 customer_id=sample_customer.id,
-                status=OrderStatusEnum.NEW
+                status=OrderStatusEnum.NEW,
             )
             db_session.add(order)
         await db_session.commit()
@@ -505,9 +504,24 @@ class TestCustomerStatistics:
 
         # Create orders with prices
         orders = [
-            Order(title="Order 1", customer_id=sample_customer.id, price=100.0, status=OrderStatusEnum.NEW),
-            Order(title="Order 2", customer_id=sample_customer.id, price=200.0, status=OrderStatusEnum.NEW),
-            Order(title="Order 3", customer_id=sample_customer.id, price=150.0, status=OrderStatusEnum.NEW),
+            Order(
+                title="Order 1",
+                customer_id=sample_customer.id,
+                price=100.0,
+                status=OrderStatusEnum.NEW,
+            ),
+            Order(
+                title="Order 2",
+                customer_id=sample_customer.id,
+                price=200.0,
+                status=OrderStatusEnum.NEW,
+            ),
+            Order(
+                title="Order 3",
+                customer_id=sample_customer.id,
+                price=150.0,
+                status=OrderStatusEnum.NEW,
+            ),
         ]
         for order in orders:
             db_session.add(order)
@@ -532,7 +546,7 @@ class TestCustomerSearch:
             first_name="Searchable",
             last_name="Customer",
             email=f"searchable.{_uid()}@example.com",
-            customer_type="private"
+            customer_type="private",
         )
         customer = await CustomerService.create_customer(db_session, customer_data)
 
@@ -551,7 +565,7 @@ class TestCustomerSearch:
                 first_name="Searchable",
                 last_name="Limittest",
                 email=f"limitcust.{_uid()}@example.com",
-                customer_type="private"
+                customer_type="private",
             )
             await CustomerService.create_customer(db_session, customer_data)
 
@@ -593,7 +607,7 @@ class TestTopCustomers:
                 first_name=name,
                 last_name="Customer",
                 email=email,
-                customer_type="private"
+                customer_type="private",
             )
             customer = await CustomerService.create_customer(db_session, customer_data)
             customers.append(customer)
@@ -604,7 +618,7 @@ class TestTopCustomers:
                     title=f"Order {j}",
                     customer_id=customer.id,
                     price=1000.0 * (i + 1),  # More expensive for higher i
-                    status=OrderStatusEnum.NEW
+                    status=OrderStatusEnum.NEW,
                 )
                 db_session.add(order)
 
@@ -627,7 +641,7 @@ class TestTopCustomers:
             first_name="ManyOrders",
             last_name="Customer",
             email=many_email,
-            customer_type="private"
+            customer_type="private",
         )
         customer = await CustomerService.create_customer(db_session, customer_data)
 
@@ -637,7 +651,7 @@ class TestTopCustomers:
                 title=f"Order {i}",
                 customer_id=customer.id,
                 price=100.0,
-                status=OrderStatusEnum.NEW
+                status=OrderStatusEnum.NEW,
             )
             db_session.add(order)
         await db_session.commit()
@@ -660,7 +674,7 @@ class TestTopCustomers:
             first_name="Recent",
             last_name="Customer",
             email=recent_email,
-            customer_type="private"
+            customer_type="private",
         )
         customer = await CustomerService.create_customer(db_session, customer_data)
 
@@ -670,7 +684,7 @@ class TestTopCustomers:
             customer_id=customer.id,
             price=100.0,
             status=OrderStatusEnum.NEW,
-            created_at=datetime.utcnow()
+            created_at=datetime.utcnow(),
         )
         db_session.add(order)
         await db_session.commit()
@@ -691,7 +705,7 @@ class TestTopCustomers:
             title="Order",
             customer_id=sample_customer.id,
             price=10000.0,
-            status=OrderStatusEnum.NEW
+            status=OrderStatusEnum.NEW,
         )
         db_session.add(order)
         await db_session.commit()

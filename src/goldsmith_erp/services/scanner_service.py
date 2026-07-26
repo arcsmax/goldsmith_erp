@@ -59,36 +59,16 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
-from goldsmith_erp.db.models import (
-    Activity as ActivityModel,
-)
-from goldsmith_erp.db.models import (
-    Material as MaterialModel,
-)
-from goldsmith_erp.db.models import (
-    MetalPurchase as MetalPurchaseModel,
-)
-from goldsmith_erp.db.models import (
-    Order as OrderModel,
-)
-from goldsmith_erp.db.models import (
-    OrderStatusEnum,
-)
-from goldsmith_erp.db.models import (
-    RepairJob as RepairJobModel,
-)
-from goldsmith_erp.db.models import (
-    RepairJobStatus,
-)
-from goldsmith_erp.db.models import (
-    ScanLog as ScanLogModel,
-)
-from goldsmith_erp.db.models import (
-    User as UserModel,
-)
-from goldsmith_erp.db.models import (
-    UserRole,
-)
+from goldsmith_erp.db.models import Activity as ActivityModel
+from goldsmith_erp.db.models import Material as MaterialModel
+from goldsmith_erp.db.models import MetalPurchase as MetalPurchaseModel
+from goldsmith_erp.db.models import Order as OrderModel
+from goldsmith_erp.db.models import OrderStatusEnum
+from goldsmith_erp.db.models import RepairJob as RepairJobModel
+from goldsmith_erp.db.models import RepairJobStatus
+from goldsmith_erp.db.models import ScanLog as ScanLogModel
+from goldsmith_erp.db.models import User as UserModel
+from goldsmith_erp.db.models import UserRole
 from goldsmith_erp.models.scanner import (
     ActionItem,
     ResolveResponse,
@@ -144,9 +124,7 @@ _PREFIX_TO_ENTITY_TYPE: Dict[str, str] = {
 
 
 # ORDER — :class:`goldsmith_erp.db.models.Order`
-ORDER_FIELDS_VIEWER: FrozenSet[str] = frozenset(
-    {"id", "status", "deadline"}
-)
+ORDER_FIELDS_VIEWER: FrozenSet[str] = frozenset({"id", "status", "deadline"})
 ORDER_FIELDS_GOLDSMITH: FrozenSet[str] = ORDER_FIELDS_VIEWER | frozenset(
     {
         "title",
@@ -181,8 +159,7 @@ ORDER_FIELDS_BY_ROLE: Dict[UserRole, FrozenSet[str]] = {
 
 # REPAIR — :class:`goldsmith_erp.db.models.RepairJob`
 REPAIR_FIELDS_VIEWER: FrozenSet[str] = frozenset(
-    {"id", "repair_number", "bag_number", "status",
-     "estimated_completion_date"}
+    {"id", "repair_number", "bag_number", "status", "estimated_completion_date"}
 )
 REPAIR_FIELDS_GOLDSMITH: FrozenSet[str] = REPAIR_FIELDS_VIEWER | frozenset(
     {"item_type", "metal_type", "diagnosis_notes"}
@@ -205,8 +182,7 @@ METAL_FIELDS_GOLDSMITH: FrozenSet[str] = frozenset(
     {"id", "metal_type", "remaining_weight_g", "weight_g", "lot_number"}
 )
 METAL_FIELDS_ADMIN: FrozenSet[str] = METAL_FIELDS_GOLDSMITH | frozenset(
-    {"price_total", "price_per_gram", "supplier", "invoice_number",
-     "date_purchased"}
+    {"price_total", "price_per_gram", "supplier", "invoice_number", "date_purchased"}
 )
 METAL_FIELDS_BY_ROLE: Dict[UserRole, FrozenSet[str]] = {
     UserRole.VIEWER: METAL_FIELDS_VIEWER,
@@ -313,12 +289,8 @@ class ScannerService:
 
         # 3. Numeric fallback — purely numeric strings map to ORDER:<n>.
         if raw_payload.isdigit():
-            response = await _resolve_prefix(
-                db, "ORDER", raw_payload, context, user
-            )
-            return response.model_copy(
-                update={"resolution_path": "numeric_fallback"}
-            )
+            response = await _resolve_prefix(db, "ORDER", raw_payload, context, user)
+            return response.model_copy(update={"resolution_path": "numeric_fallback"})
 
         # 4. Unknown.
         return ResolveResponse(
@@ -395,21 +367,13 @@ class ScannerService:
         role_allowed_types = _allowed_search_types(user.role, types)
         for type_token in role_allowed_types:
             if type_token == "order":
-                results.extend(
-                    await _search_orders(db, query, user.role)
-                )
+                results.extend(await _search_orders(db, query, user.role))
             elif type_token == "repair":
-                results.extend(
-                    await _search_repairs(db, query, user.role)
-                )
+                results.extend(await _search_repairs(db, query, user.role))
             elif type_token == "metal_purchase":
-                results.extend(
-                    await _search_metal(db, query, user.role)
-                )
+                results.extend(await _search_metal(db, query, user.role))
             elif type_token == "material":
-                results.extend(
-                    await _search_materials(db, query, user.role)
-                )
+                results.extend(await _search_materials(db, query, user.role))
             # ACTIVITY / INTERRUPT are by-code, not searched here.
         return results
 
@@ -446,9 +410,7 @@ class ScannerService:
         # Pre-insert dedupe — covers the common "client retried the
         # same offline event" case without burning an INSERT attempt.
         if event.idempotency_key is not None:
-            existing = await _find_by_idempotency_key(
-                db, str(event.idempotency_key)
-            )
+            existing = await _find_by_idempotency_key(db, str(event.idempotency_key))
             if existing is not None:
                 return existing
 
@@ -558,18 +520,14 @@ class ScannerService:
                     reasons.append(reason)
                 # Logged for ops debugging but NO per-row detail in
                 # the HTTP response.
-                logger.warning(
-                    "scan_logs batch insert rejected: %s", reason
-                )
+                logger.warning("scan_logs batch insert rejected: %s", reason)
             except Exception as exc:  # pragma: no cover - defensive
                 await db.rollback()
                 rejected += 1
                 reason = _shorten_reason(str(exc))
                 if reason not in reasons and len(reasons) < 10:
                     reasons.append(reason)
-                logger.warning(
-                    "scan_logs batch insert rejected: %s", reason
-                )
+                logger.warning("scan_logs batch insert rejected: %s", reason)
 
         return BatchLogResponseDTO(
             ingested=ingested,
@@ -722,9 +680,7 @@ async def _resolve_order(
     user: UserModel,
 ) -> ResolveResponse:
     """Fetch order, project fields for role, compute actions."""
-    result = await db.execute(
-        select(OrderModel).where(OrderModel.id == order_id)
-    )
+    result = await db.execute(select(OrderModel).where(OrderModel.id == order_id))
     order = result.scalar_one_or_none()
     if order is None:
         return ResolveResponse(
@@ -964,24 +920,18 @@ _ACTION_CHANGE_STATUS = ActionItem(
 _ACTION_CHANGE_LOCATION = ActionItem(
     id="change_location", label="Lagerort ändern", icon="pin"
 )
-_ACTION_TAKE_PHOTO = ActionItem(
-    id="take_photo", label="Foto aufnehmen", icon="camera"
-)
+_ACTION_TAKE_PHOTO = ActionItem(id="take_photo", label="Foto aufnehmen", icon="camera")
 _ACTION_ADD_MATERIAL = ActionItem(
     id="add_material", label="Material zuordnen", icon="gem"
 )
-_ACTION_ADD_NOTE = ActionItem(
-    id="add_note", label="Notiz hinzufügen", icon="note"
-)
+_ACTION_ADD_NOTE = ActionItem(id="add_note", label="Notiz hinzufügen", icon="note")
 _ACTION_CONTACT_CUSTOMER = ActionItem(
     id="contact_customer", label="Kunde kontaktieren", icon="phone"
 )
 _ACTION_PRINT_LABEL = ActionItem(
     id="print_label", label="Etikett drucken", icon="label"
 )
-_ACTION_OPEN_ENTITY = ActionItem(
-    id="open_entity", label="Öffnen", icon="link"
-)
+_ACTION_OPEN_ENTITY = ActionItem(id="open_entity", label="Öffnen", icon="link")
 _ACTION_PUNZIERUNG_CHECK = ActionItem(
     id="punzierung_check",
     label="Feingehalts-Punze kontrolliert",
@@ -990,18 +940,18 @@ _ACTION_PUNZIERUNG_CHECK = ActionItem(
 )
 # METAL
 _ACTION_CONSUME_METAL = ActionItem(
-    id="consume_material", label="Material entnehmen", icon="scale",
+    id="consume_material",
+    label="Material entnehmen",
+    icon="scale",
     primary=True,
 )
-_ACTION_CHECK_STOCK = ActionItem(
-    id="check_stock", label="Bestand prüfen", icon="chart"
-)
-_ACTION_REORDER = ActionItem(
-    id="reorder", label="Nachbestellen", icon="cart"
-)
+_ACTION_CHECK_STOCK = ActionItem(id="check_stock", label="Bestand prüfen", icon="chart")
+_ACTION_REORDER = ActionItem(id="reorder", label="Nachbestellen", icon="cart")
 # REPAIR
 _ACTION_ADVANCE_REPAIR = ActionItem(
-    id="advance_repair", label="Status weiterschalten", icon="clipboard",
+    id="advance_repair",
+    label="Status weiterschalten",
+    icon="clipboard",
     primary=True,
 )
 _ACTION_REPAIR_DIAGNOSIS = ActionItem(
@@ -1195,9 +1145,7 @@ def _allowed_search_types(
     if role == UserRole.VIEWER:
         allowed_for_role = frozenset({"order", "repair", "material"})
     else:
-        allowed_for_role = frozenset(
-            {"order", "repair", "metal_purchase", "material"}
-        )
+        allowed_for_role = frozenset({"order", "repair", "metal_purchase", "material"})
     return [t for t in requested if t in allowed_for_role]
 
 
@@ -1207,11 +1155,7 @@ async def _search_orders(
     role: UserRole,
 ) -> List[Dict[str, Any]]:
     """Title-substring search. Cap at 20 hits per type."""
-    stmt = (
-        select(OrderModel)
-        .where(OrderModel.title.ilike(f"%{query}%"))
-        .limit(20)
-    )
+    stmt = select(OrderModel).where(OrderModel.title.ilike(f"%{query}%")).limit(20)
     result = await db.execute(stmt)
     allowed = ORDER_FIELDS_BY_ROLE.get(role, ORDER_FIELDS_VIEWER)
     return [
@@ -1264,11 +1208,7 @@ async def _search_materials(
     query: str,
     role: UserRole,
 ) -> List[Dict[str, Any]]:
-    stmt = (
-        select(MaterialModel)
-        .where(MaterialModel.name.ilike(f"%{query}%"))
-        .limit(20)
-    )
+    stmt = select(MaterialModel).where(MaterialModel.name.ilike(f"%{query}%")).limit(20)
     result = await db.execute(stmt)
     allowed = MATERIAL_FIELDS_BY_ROLE.get(role, MATERIAL_FIELDS_VIEWER)
     return [
@@ -1322,9 +1262,7 @@ def _build_scan_log_row(
     else:
         context_dict = event.context.model_dump(exclude_unset=True)
 
-    idem_key = (
-        str(event.idempotency_key) if event.idempotency_key else None
-    )
+    idem_key = str(event.idempotency_key) if event.idempotency_key else None
 
     # ``scanned_at`` is server-set using UTC now. The composite PK on
     # the partitioned PostgreSQL table requires ``scanned_at`` to be

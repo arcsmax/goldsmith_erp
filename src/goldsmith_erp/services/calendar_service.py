@@ -5,6 +5,7 @@ Calendar service — business logic for event management and order-deadline synt
 All public methods are async and accept AsyncSession as their first parameter,
 in line with the project service-layer convention.
 """
+
 from __future__ import annotations
 
 import logging
@@ -15,11 +16,9 @@ from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from goldsmith_erp.db.models import (
-    CalendarEvent as CalendarEventModel,
-    CalendarEventType,
-    Order as OrderModel,
-)
+from goldsmith_erp.db.models import CalendarEvent as CalendarEventModel
+from goldsmith_erp.db.models import CalendarEventType
+from goldsmith_erp.db.models import Order as OrderModel
 from goldsmith_erp.models.calendar import (
     CalendarDeadlineEvent,
     CalendarEventCreate,

@@ -38,11 +38,13 @@ migration can import from `goldsmith_erp.*` freely.)
 These are deliberately written with `sa.inspect(bind)` rather than raw SQL so
 they work identically on SQLite (tests) and PostgreSQL (production).
 """
+
 from __future__ import annotations
 
 from typing import Any, Sequence
 
 import sqlalchemy as sa
+
 from alembic import op
 
 
@@ -101,6 +103,7 @@ def foreign_key_exists(table: str, constraint_name: str) -> bool:
 # Idempotent op wrappers
 # ---------------------------------------------------------------------------
 
+
 def add_column_if_not_exists(table: str, column: sa.Column) -> None:
     """`op.add_column(table, column)` unless the column already exists."""
     if not column_exists(table, column.name):
@@ -149,8 +152,12 @@ def create_fk_if_not_exists(
         # caller must use batch_alter_table explicitly.
         return
     op.create_foreign_key(
-        constraint_name, source_table, referent_table,
-        list(local_cols), list(remote_cols), **kwargs,
+        constraint_name,
+        source_table,
+        referent_table,
+        list(local_cols),
+        list(remote_cols),
+        **kwargs,
     )
 
 

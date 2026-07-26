@@ -25,6 +25,7 @@ It rewrites the region between the BEGIN/END markers in the root
 ``[tool.mypy]`` section of ``pyproject.toml`` and refreshes the debt table in
 ``docs/technical/MYPY_BURNDOWN.md`` (between its own markers).
 """
+
 from __future__ import annotations
 
 import argparse
@@ -42,7 +43,9 @@ BURNDOWN_DOC = REPO_ROOT / "docs" / "technical" / "MYPY_BURNDOWN.md"
 # Must match the mypy invocation in .github/workflows/ci.yml (`lint` job).
 MYPY_CMD = ["mypy", "goldsmith_erp/", "--ignore-missing-imports"]
 
-PYPROJECT_BEGIN = "# --- BEGIN generated mypy baseline (scripts/gen_mypy_baseline.py) ---"
+PYPROJECT_BEGIN = (
+    "# --- BEGIN generated mypy baseline (scripts/gen_mypy_baseline.py) ---"
+)
 PYPROJECT_END = "# --- END generated mypy baseline ---"
 DOC_BEGIN = "<!-- BEGIN generated mypy baseline table -->"
 DOC_END = "<!-- END generated mypy baseline table -->"
@@ -77,9 +80,7 @@ def parse(output: str) -> dict[str, Counter[str]]:
 
 def render_pyproject_blocks(per_module: dict[str, Counter[str]]) -> str:
     lines = [PYPROJECT_BEGIN]
-    lines.append(
-        "# Generated debt ledger — do not hand-edit. Regenerate with:"
-    )
+    lines.append("# Generated debt ledger — do not hand-edit. Regenerate with:")
     lines.append("#   poetry run python scripts/gen_mypy_baseline.py")
     total_errors = sum(sum(c.values()) for c in per_module.values())
     lines.append(
@@ -98,14 +99,10 @@ def render_pyproject_blocks(per_module: dict[str, Counter[str]]) -> str:
 
 def render_doc_table(per_module: dict[str, Counter[str]]) -> str:
     rows = []
-    for module in sorted(
-        per_module, key=lambda m: (-sum(per_module[m].values()), m)
-    ):
+    for module in sorted(per_module, key=lambda m: (-sum(per_module[m].values()), m)):
         counter = per_module[module]
         count = sum(counter.values())
-        codes = ", ".join(
-            f"`{c}`×{n}" for c, n in counter.most_common()
-        )
+        codes = ", ".join(f"`{c}`×{n}" for c, n in counter.most_common())
         rows.append(f"| `{module}` | {count} | {codes} |")
     total_errors = sum(sum(c.values()) for c in per_module.values())
     header = [
@@ -120,27 +117,19 @@ def render_doc_table(per_module: dict[str, Counter[str]]) -> str:
 
 
 def replace_region(text: str, begin: str, end: str, payload: str) -> str:
-    pattern = re.compile(
-        re.escape(begin) + r".*?" + re.escape(end), re.DOTALL
-    )
+    pattern = re.compile(re.escape(begin) + r".*?" + re.escape(end), re.DOTALL)
     if not pattern.search(text):
-        raise SystemExit(
-            f"Markers not found: {begin!r} .. {end!r}. Add them first."
-        )
+        raise SystemExit(f"Markers not found: {begin!r} .. {end!r}. Add them first.")
     return pattern.sub(lambda _: payload, text)
 
 
 def write_pyproject(per_module: dict[str, Counter[str]]) -> None:
     blocks = render_pyproject_blocks(per_module)
     text = PYPROJECT.read_text()
-    PYPROJECT.write_text(
-        replace_region(text, PYPROJECT_BEGIN, PYPROJECT_END, blocks)
-    )
+    PYPROJECT.write_text(replace_region(text, PYPROJECT_BEGIN, PYPROJECT_END, blocks))
 
 
-def merge(
-    acc: dict[str, Counter[str]], new: dict[str, Counter[str]]
-) -> None:
+def merge(acc: dict[str, Counter[str]], new: dict[str, Counter[str]]) -> None:
     for module, counter in new.items():
         acc[module].update(counter)
 
@@ -184,9 +173,7 @@ def main() -> int:
             print(
                 "mypy baseline is STALE — these modules/codes are not "
                 "covered:\n  "
-                + "\n  ".join(
-                    f"{m}: {sorted(c)}" for m, c in sorted(residual.items())
-                )
+                + "\n  ".join(f"{m}: {sorted(c)}" for m, c in sorted(residual.items()))
                 + "\nRegenerate with:\n"
                 "  poetry run python scripts/gen_mypy_baseline.py",
                 file=sys.stderr,
@@ -199,9 +186,7 @@ def main() -> int:
 
     if BURNDOWN_DOC.exists():
         doc = BURNDOWN_DOC.read_text()
-        doc = replace_region(
-            doc, DOC_BEGIN, DOC_END, render_doc_table(per_module)
-        )
+        doc = replace_region(doc, DOC_BEGIN, DOC_END, render_doc_table(per_module))
         BURNDOWN_DOC.write_text(doc)
 
     total_errors = sum(sum(c.values()) for c in per_module.values())

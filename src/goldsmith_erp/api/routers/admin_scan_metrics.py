@@ -23,6 +23,7 @@ The underlying tables (``time_entries``, ``users``, ``scan_logs``,
 ``material_usage``) are all scoped to the single-tenant V1.1 data model.
 V1.2 multi-tenancy will need to add a tenant filter here.
 """
+
 from __future__ import annotations
 
 import logging
@@ -35,13 +36,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from goldsmith_erp.api.deps import get_current_admin_user
-from goldsmith_erp.db.models import (
-    MaterialUsage,
-    ScanLog,
-    TimeEntry,
-    User,
-    UserRole,
-)
+from goldsmith_erp.db.models import MaterialUsage, ScanLog, TimeEntry, User, UserRole
 from goldsmith_erp.db.session import get_db
 
 logger = logging.getLogger(__name__)

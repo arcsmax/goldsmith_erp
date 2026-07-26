@@ -201,7 +201,9 @@ async def _fetch_token(token: str) -> Optional[dict]:
     return None
 
 
-def _build_order_response(order: Order, token: Optional[str] = None) -> PortalStatusResponse:
+def _build_order_response(
+    order: Order, token: Optional[str] = None
+) -> PortalStatusResponse:
     status_key = order.status.value if order.status else OrderStatusEnum.NEW.value
     status_label = _ORDER_STATUS_LABELS.get(order.status, "Unbekannt")
     current_step = _ORDER_STATUS_STEP.get(order.status, 1)
@@ -235,8 +237,12 @@ def _build_order_response(order: Order, token: Optional[str] = None) -> PortalSt
     )
 
 
-def _build_repair_response(repair: RepairJob, token: Optional[str] = None) -> PortalStatusResponse:
-    status_key = repair.status.value if repair.status else RepairJobStatus.RECEIVED.value
+def _build_repair_response(
+    repair: RepairJob, token: Optional[str] = None
+) -> PortalStatusResponse:
+    status_key = (
+        repair.status.value if repair.status else RepairJobStatus.RECEIVED.value
+    )
     status_label = _REPAIR_STATUS_LABELS.get(repair.status, "Unbekannt")
     current_step = _REPAIR_STATUS_STEP.get(repair.status, 1)
     total_steps = len(_REPAIR_PIPELINE)
@@ -249,7 +255,10 @@ def _build_repair_response(repair: RepairJob, token: Optional[str] = None) -> Po
         step_index = max(0, min(current_step - 1, total_steps - 1))
         step_label = _REPAIR_PIPELINE[step_index]
 
-    is_complete = repair.status in (RepairJobStatus.PICKED_UP, RepairJobStatus.CANCELLED)
+    is_complete = repair.status in (
+        RepairJobStatus.PICKED_UP,
+        RepairJobStatus.CANCELLED,
+    )
 
     estimated: Optional[str] = None
     if repair.estimated_completion_date and not is_complete:
@@ -433,9 +442,7 @@ async def portal_status_by_token(
             detail="Token ungueltig oder abgelaufen. Bitte suchen Sie erneut nach Ihrem Auftrag.",
         )
 
-    data = await _lookup_by_reference(
-        payload["reference_number"], payload["email"], db
-    )
+    data = await _lookup_by_reference(payload["reference_number"], payload["email"], db)
     if data is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

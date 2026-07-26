@@ -8,31 +8,35 @@ Tests cover:
 - Material allocation preview
 - Permission-based access control
 """
-import pytest
-from httpx import AsyncClient
+
 from datetime import datetime
 
-from goldsmith_erp.db.models import MetalType, CostingMethod
+import pytest
+from httpx import AsyncClient
+
+from goldsmith_erp.db.models import CostingMethod, MetalType
 
 
 class TestMetalPurchaseEndpoints:
     """Test metal purchase API endpoints"""
 
     @pytest.mark.asyncio
-    async def test_create_purchase_success(self, client: AsyncClient, admin_auth_headers):
+    async def test_create_purchase_success(
+        self, client: AsyncClient, admin_auth_headers
+    ):
         """Test creating a new metal purchase"""
         purchase_data = {
             "metal_type": "gold_18k",
             "weight_g": 100.0,
             "price_total": 4500.00,
             "supplier": "Metalor Technologies",
-            "invoice_number": "INV-2025-001"
+            "invoice_number": "INV-2025-001",
         }
 
         response = await client.post(
             "/api/v1/metal-inventory/purchases",
             json=purchase_data,
-            headers=admin_auth_headers
+            headers=admin_auth_headers,
         )
 
         assert response.status_code == 201
@@ -52,13 +56,13 @@ class TestMetalPurchaseEndpoints:
             "metal_type": "silver_925",
             "weight_g": 500.0,
             "price_total": 400.00,
-            "supplier": "Silver Supplier"
+            "supplier": "Silver Supplier",
         }
 
         response = await client.post(
             "/api/v1/metal-inventory/purchases",
             json=purchase_data,
-            headers=admin_auth_headers
+            headers=admin_auth_headers,
         )
 
         assert response.status_code == 201
@@ -71,8 +75,7 @@ class TestMetalPurchaseEndpoints:
     ):
         """Test listing all metal purchases"""
         response = await client.get(
-            "/api/v1/metal-inventory/purchases",
-            headers=admin_auth_headers
+            "/api/v1/metal-inventory/purchases", headers=admin_auth_headers
         )
 
         assert response.status_code == 200
@@ -88,8 +91,7 @@ class TestMetalPurchaseEndpoints:
         """List items expose invoice_number/lot_number so the inventory UI
         can search and display them (frontend MetalInventoryPage relies on this)."""
         response = await client.get(
-            "/api/v1/metal-inventory/purchases",
-            headers=admin_auth_headers
+            "/api/v1/metal-inventory/purchases", headers=admin_auth_headers
         )
 
         assert response.status_code == 200
@@ -99,12 +101,16 @@ class TestMetalPurchaseEndpoints:
 
     @pytest.mark.asyncio
     async def test_list_purchases_filter_by_metal_type(
-        self, client: AsyncClient, admin_auth_headers, sample_metal_purchase, silver_purchase
+        self,
+        client: AsyncClient,
+        admin_auth_headers,
+        sample_metal_purchase,
+        silver_purchase,
     ):
         """Test filtering purchases by metal type"""
         response = await client.get(
             "/api/v1/metal-inventory/purchases?metal_type=gold_18k",
-            headers=admin_auth_headers
+            headers=admin_auth_headers,
         )
 
         assert response.status_code == 200
@@ -122,7 +128,7 @@ class TestMetalPurchaseEndpoints:
 
         response = await client.get(
             "/api/v1/metal-inventory/purchases?include_depleted=false",
-            headers=admin_auth_headers
+            headers=admin_auth_headers,
         )
 
         assert response.status_code == 200
@@ -136,7 +142,7 @@ class TestMetalPurchaseEndpoints:
         """Test getting a specific purchase by ID"""
         response = await client.get(
             f"/api/v1/metal-inventory/purchases/{sample_metal_purchase.id}",
-            headers=admin_auth_headers
+            headers=admin_auth_headers,
         )
 
         assert response.status_code == 200
@@ -151,8 +157,7 @@ class TestMetalPurchaseEndpoints:
     ):
         """Test getting non-existent purchase returns 404"""
         response = await client.get(
-            "/api/v1/metal-inventory/purchases/99999",
-            headers=admin_auth_headers
+            "/api/v1/metal-inventory/purchases/99999", headers=admin_auth_headers
         )
 
         assert response.status_code == 404
@@ -162,15 +167,12 @@ class TestMetalPurchaseEndpoints:
         self, client: AsyncClient, admin_auth_headers, sample_metal_purchase
     ):
         """Test updating purchase metadata"""
-        update_data = {
-            "supplier": "Updated Supplier",
-            "notes": "Updated notes"
-        }
+        update_data = {"supplier": "Updated Supplier", "notes": "Updated notes"}
 
         response = await client.patch(
             f"/api/v1/metal-inventory/purchases/{sample_metal_purchase.id}",
             json=update_data,
-            headers=admin_auth_headers
+            headers=admin_auth_headers,
         )
 
         assert response.status_code == 200
@@ -187,21 +189,25 @@ class TestMaterialUsageEndpoints:
 
     @pytest.mark.asyncio
     async def test_consume_material_fifo(
-        self, client: AsyncClient, admin_auth_headers,
-        sample_metal_purchase, sample_order, db_session
+        self,
+        client: AsyncClient,
+        admin_auth_headers,
+        sample_metal_purchase,
+        sample_order,
+        db_session,
     ):
         """Test consuming material using FIFO method"""
         usage_data = {
             "order_id": sample_order.id,
             "weight_used_g": 25.0,
             "costing_method": "fifo",
-            "notes": "Test consumption"
+            "notes": "Test consumption",
         }
 
         response = await client.post(
             "/api/v1/metal-inventory/usage?metal_type=gold_18k",
             json=usage_data,
-            headers=admin_auth_headers
+            headers=admin_auth_headers,
         )
 
         assert response.status_code == 201
@@ -217,8 +223,11 @@ class TestMaterialUsageEndpoints:
 
     @pytest.mark.asyncio
     async def test_consume_material_specific_batch(
-        self, client: AsyncClient, admin_auth_headers,
-        sample_metal_purchase, sample_order
+        self,
+        client: AsyncClient,
+        admin_auth_headers,
+        sample_metal_purchase,
+        sample_order,
     ):
         """Test consuming material from specific batch"""
         usage_data = {
@@ -226,13 +235,13 @@ class TestMaterialUsageEndpoints:
             "weight_used_g": 30.0,
             "costing_method": "specific",
             "metal_purchase_id": sample_metal_purchase.id,
-            "notes": "Specific batch selection"
+            "notes": "Specific batch selection",
         }
 
         response = await client.post(
             "/api/v1/metal-inventory/usage?metal_type=gold_18k",
             json=usage_data,
-            headers=admin_auth_headers
+            headers=admin_auth_headers,
         )
 
         assert response.status_code == 201
@@ -241,19 +250,23 @@ class TestMaterialUsageEndpoints:
 
     @pytest.mark.asyncio
     async def test_consume_material_insufficient_inventory(
-        self, client: AsyncClient, admin_auth_headers, sample_metal_purchase, sample_order
+        self,
+        client: AsyncClient,
+        admin_auth_headers,
+        sample_metal_purchase,
+        sample_order,
     ):
         """Test error when insufficient inventory"""
         usage_data = {
             "order_id": sample_order.id,
             "weight_used_g": 200.0,  # More than available
-            "costing_method": "fifo"
+            "costing_method": "fifo",
         }
 
         response = await client.post(
             "/api/v1/metal-inventory/usage?metal_type=gold_18k",
             json=usage_data,
-            headers=admin_auth_headers
+            headers=admin_auth_headers,
         )
 
         assert response.status_code == 400
@@ -267,13 +280,13 @@ class TestMaterialUsageEndpoints:
         usage_data = {
             "order_id": sample_order.id,
             "weight_used_g": 10.0,
-            "costing_method": "fifo"
+            "costing_method": "fifo",
         }
 
         response = await client.post(
             "/api/v1/metal-inventory/usage?metal_type=gold_24k",  # No inventory
             json=usage_data,
-            headers=admin_auth_headers
+            headers=admin_auth_headers,
         )
 
         assert response.status_code == 400
@@ -281,8 +294,12 @@ class TestMaterialUsageEndpoints:
 
     @pytest.mark.asyncio
     async def test_get_usage_history(
-        self, client: AsyncClient, admin_auth_headers,
-        sample_metal_purchase, sample_order, db_session
+        self,
+        client: AsyncClient,
+        admin_auth_headers,
+        sample_metal_purchase,
+        sample_order,
+        db_session,
     ):
         """Test getting material usage history"""
         # First consume some material
@@ -292,14 +309,15 @@ class TestMaterialUsageEndpoints:
         usage_data = MaterialUsageCreate(
             order_id=sample_order.id,
             weight_used_g=20.0,
-            costing_method=CostingMethod.FIFO
+            costing_method=CostingMethod.FIFO,
         )
-        await MetalInventoryService.consume_material(db_session, usage_data, MetalType.GOLD_18K)
+        await MetalInventoryService.consume_material(
+            db_session, usage_data, MetalType.GOLD_18K
+        )
 
         # Now fetch usage history
         response = await client.get(
-            "/api/v1/metal-inventory/usage",
-            headers=admin_auth_headers
+            "/api/v1/metal-inventory/usage", headers=admin_auth_headers
         )
 
         assert response.status_code == 200
@@ -310,8 +328,12 @@ class TestMaterialUsageEndpoints:
 
     @pytest.mark.asyncio
     async def test_get_usage_history_filter_by_order(
-        self, client: AsyncClient, admin_auth_headers,
-        sample_metal_purchase, sample_order, db_session
+        self,
+        client: AsyncClient,
+        admin_auth_headers,
+        sample_metal_purchase,
+        sample_order,
+        db_session,
     ):
         """Test filtering usage history by order ID"""
         # Consume material
@@ -321,14 +343,16 @@ class TestMaterialUsageEndpoints:
         usage_data = MaterialUsageCreate(
             order_id=sample_order.id,
             weight_used_g=15.0,
-            costing_method=CostingMethod.FIFO
+            costing_method=CostingMethod.FIFO,
         )
-        await MetalInventoryService.consume_material(db_session, usage_data, MetalType.GOLD_18K)
+        await MetalInventoryService.consume_material(
+            db_session, usage_data, MetalType.GOLD_18K
+        )
 
         # Filter by order
         response = await client.get(
             f"/api/v1/metal-inventory/usage?order_id={sample_order.id}",
-            headers=admin_auth_headers
+            headers=admin_auth_headers,
         )
 
         assert response.status_code == 200
@@ -341,13 +365,15 @@ class TestInventoryStatistics:
 
     @pytest.mark.asyncio
     async def test_get_inventory_statistics(
-        self, client: AsyncClient, admin_auth_headers,
-        sample_metal_purchase, silver_purchase
+        self,
+        client: AsyncClient,
+        admin_auth_headers,
+        sample_metal_purchase,
+        silver_purchase,
     ):
         """Test getting inventory statistics"""
         response = await client.get(
-            "/api/v1/metal-inventory/statistics",
-            headers=admin_auth_headers
+            "/api/v1/metal-inventory/statistics", headers=admin_auth_headers
         )
 
         assert response.status_code == 200
@@ -359,7 +385,9 @@ class TestInventoryStatistics:
 
         # Check metal type breakdown
         assert len(data["metal_types"]) == 2
-        gold_stats = next((m for m in data["metal_types"] if m["metal_type"] == "gold_18k"), None)
+        gold_stats = next(
+            (m for m in data["metal_types"] if m["metal_type"] == "gold_18k"), None
+        )
         assert gold_stats is not None
         assert gold_stats["total_weight_g"] == 100.0
         assert gold_stats["average_price_per_gram"] == 45.00
@@ -379,14 +407,13 @@ class TestInventoryStatistics:
             remaining_weight_g=25.0,
             price_total=2500.00,
             price_per_gram=100.00,
-            supplier="Platinum Supplier"
+            supplier="Platinum Supplier",
         )
         db_session.add(low_stock)
         await db_session.commit()
 
         response = await client.get(
-            "/api/v1/metal-inventory/statistics",
-            headers=admin_auth_headers
+            "/api/v1/metal-inventory/statistics", headers=admin_auth_headers
         )
 
         assert response.status_code == 200
@@ -406,7 +433,7 @@ class TestMaterialAllocationPreview:
         response = await client.post(
             "/api/v1/metal-inventory/allocate-preview"
             "?metal_type=gold_18k&required_weight_g=25.0&costing_method=fifo",
-            headers=admin_auth_headers
+            headers=admin_auth_headers,
         )
 
         assert response.status_code == 200
@@ -424,7 +451,7 @@ class TestMaterialAllocationPreview:
         response = await client.post(
             "/api/v1/metal-inventory/allocate-preview"
             "?metal_type=gold_18k&required_weight_g=150.0&costing_method=fifo",
-            headers=admin_auth_headers
+            headers=admin_auth_headers,
         )
 
         assert response.status_code == 200
@@ -441,7 +468,7 @@ class TestMaterialAllocationPreview:
         response = await client.post(
             "/api/v1/metal-inventory/allocate-preview"
             "?metal_type=gold_18k&required_weight_g=200.0&costing_method=fifo",
-            headers=admin_auth_headers
+            headers=admin_auth_headers,
         )
 
         assert response.status_code == 400
@@ -455,7 +482,7 @@ class TestMaterialAllocationPreview:
         response = await client.post(
             "/api/v1/metal-inventory/allocate-preview"
             "?metal_type=gold_18k&required_weight_g=60.0&costing_method=average",
-            headers=admin_auth_headers
+            headers=admin_auth_headers,
         )
 
         assert response.status_code == 200
@@ -477,13 +504,13 @@ class TestPermissions:
             "metal_type": "gold_18k",
             "weight_g": 100.0,
             "price_total": 4500.00,
-            "supplier": "Test"
+            "supplier": "Test",
         }
 
         response = await client.post(
             "/api/v1/metal-inventory/purchases",
             json=purchase_data,
-            headers=auth_headers  # Regular user, not admin
+            headers=auth_headers,  # Regular user, not admin
         )
 
         # Should fail without permission

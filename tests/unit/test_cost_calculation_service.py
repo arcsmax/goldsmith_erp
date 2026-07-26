@@ -9,14 +9,16 @@ Tests cover:
 - Error handling (missing metal_type, insufficient inventory)
 - Integration with MetalInventoryService
 """
-import pytest
-from decimal import Decimal
-from datetime import datetime
 
+from datetime import datetime
+from decimal import Decimal
+
+import pytest
+
+from goldsmith_erp.db.models import CostingMethod, MetalType, OrderStatusEnum
+from goldsmith_erp.models.metal_inventory import MetalPurchaseCreate
 from goldsmith_erp.services.cost_calculation_service import CostCalculationService
 from goldsmith_erp.services.metal_inventory_service import MetalInventoryService
-from goldsmith_erp.models.metal_inventory import MetalPurchaseCreate
-from goldsmith_erp.db.models import MetalType, CostingMethod, OrderStatusEnum
 
 
 @pytest.mark.asyncio
@@ -54,7 +56,7 @@ class TestMaterialCostCalculation:
             estimated_weight_g=150.0,
             metal_type=MetalType.GOLD_18K,
             costing_method_used=CostingMethod.FIFO,
-            scrap_percentage=0.0  # No scrap for simple calculation
+            scrap_percentage=0.0,  # No scrap for simple calculation
         )
         db_session.add(order)
         await db_session.commit()
@@ -78,7 +80,7 @@ class TestMaterialCostCalculation:
             estimated_weight_g=150.0,
             metal_type=MetalType.GOLD_18K,
             costing_method_used=CostingMethod.LIFO,
-            scrap_percentage=0.0
+            scrap_percentage=0.0,
         )
         db_session.add(order)
         await db_session.commit()
@@ -102,7 +104,7 @@ class TestMaterialCostCalculation:
             estimated_weight_g=60.0,
             metal_type=MetalType.GOLD_18K,
             costing_method_used=CostingMethod.AVERAGE,
-            scrap_percentage=0.0
+            scrap_percentage=0.0,
         )
         db_session.add(order)
         await db_session.commit()
@@ -252,9 +254,7 @@ class TestPerActivityLaborCost:
         from goldsmith_erp.core.config import settings
         from goldsmith_erp.db.models import Activity
 
-        activity = Activity(
-            name="Polieren", category="fabrication", hourly_rate=None
-        )
+        activity = Activity(name="Polieren", category="fabrication", hourly_rate=None)
         db_session.add(activity)
         await db_session.commit()
         await db_session.refresh(activity)

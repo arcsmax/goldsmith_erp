@@ -2,11 +2,13 @@
 Deny-by-default authentication middleware.
 Requires valid JWT for all endpoints except whitelisted paths.
 """
+
 import logging
+
 from fastapi import Request, Response
+from jose import JWTError, jwt
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse
-from jose import jwt, JWTError
 
 from goldsmith_erp.core.config import settings
 from goldsmith_erp.core.security import ALGORITHM
@@ -88,9 +90,7 @@ class AuthRequiredMiddleware(BaseHTTPMiddleware):
 
         # Validate token
         try:
-            payload = jwt.decode(
-                token, settings.SECRET_KEY, algorithms=[ALGORITHM]
-            )
+            payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[ALGORITHM])
         except JWTError as e:
             logger.warning(
                 "Invalid JWT token",

@@ -26,16 +26,16 @@ import pytest
 
 import goldsmith_erp.services.estimate_accuracy_service as estimate_accuracy_service
 from goldsmith_erp.db.models import (
+    Activity,
+    Customer,
     EstimateAccuracy,
     Order,
     OrderStatusEnum,
     Quote,
     QuoteLineItem,
-    TimeEntry,
-    Activity,
-    Customer,
-    User,
     QuoteLineType,
+    TimeEntry,
+    User,
     UserRole,
 )
 from goldsmith_erp.services.estimate_accuracy_service import (

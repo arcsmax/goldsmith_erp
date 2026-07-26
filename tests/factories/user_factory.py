@@ -1,7 +1,8 @@
 """Factory for User model test data."""
-import factory
-from goldsmith_erp.db.models import User, UserRole
 
+import factory
+
+from goldsmith_erp.db.models import User, UserRole
 
 # Pre-computed bcrypt hash for "TestPass123!" to avoid passlib/bcrypt
 # compatibility issues and speed up factory builds.

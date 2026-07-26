@@ -38,7 +38,7 @@ class LabelService:
         svg = buffer.getvalue().decode("utf-8")
         # Strip the XML declaration so the string embeds cleanly in HTML
         if svg.startswith("<?xml"):
-            svg = svg[svg.index("<svg"):]
+            svg = svg[svg.index("<svg") :]
         return svg
 
     # ------------------------------------------------------------------ #
@@ -261,7 +261,9 @@ class LabelService:
             "new": "Neu",
         }
         raw_status = order.status  # type: ignore[union-attr]
-        status_value = raw_status.value if hasattr(raw_status, "value") else str(raw_status)
+        status_value = (
+            raw_status.value if hasattr(raw_status, "value") else str(raw_status)
+        )
         status_display = status_labels.get(status_value, status_value)
 
         css = LabelService._base_css(label_width_mm, label_height_mm)

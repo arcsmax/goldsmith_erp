@@ -35,6 +35,7 @@ Test matrix (≥ 20 tests):
     * POST /log twice same key    → both return same row (dedupe)
     * POST /log/batch mixed keys  → correct ingested / deduplicated counts
 """
+
 import uuid
 from datetime import datetime, timedelta, timezone
 
@@ -43,19 +44,13 @@ import pytest_asyncio
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from goldsmith_erp.db.models import (
-    MetalPurchase,
-    MetalType,
-    Order,
-    OrderStatusEnum,
-)
+from goldsmith_erp.db.models import MetalPurchase, MetalType, Order, OrderStatusEnum
 from goldsmith_erp.services.scanner_service import (
     METAL_FIELDS_GOLDSMITH,
     ORDER_FIELDS_ADMIN,
     ORDER_FIELDS_GOLDSMITH,
     ORDER_FIELDS_VIEWER,
 )
-
 
 RESOLVE_URL = "/api/v1/scan/resolve"
 LOG_URL = "/api/v1/scan/log"
@@ -405,7 +400,9 @@ class TestValidation:
             **goldsmith_auth_headers,
             "Idempotency-Key": "not-a-uuid",
         }
-        resp = await client.post(LOG_URL, json=_minimal_scan_log_body(), headers=headers)
+        resp = await client.post(
+            LOG_URL, json=_minimal_scan_log_body(), headers=headers
+        )
         assert resp.status_code == 400
         assert "Idempotency-Key" in resp.json()["detail"]
 
@@ -421,7 +418,9 @@ class TestValidation:
             **goldsmith_auth_headers,
             "X-Client-Created-At": old.isoformat(),
         }
-        resp = await client.post(LOG_URL, json=_minimal_scan_log_body(), headers=headers)
+        resp = await client.post(
+            LOG_URL, json=_minimal_scan_log_body(), headers=headers
+        )
         assert resp.status_code == 400
 
     @pytest.mark.asyncio

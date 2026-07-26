@@ -13,8 +13,10 @@ Covers:
 All tests use the in-memory SQLite DB from conftest.py.
 Redis publish_event is patched to a no-op by the autouse fixture in conftest.py.
 """
-import pytest
+
 from datetime import datetime, timedelta
+
+import pytest
 
 from goldsmith_erp.db.models import (
     Notification,
@@ -27,10 +29,10 @@ from goldsmith_erp.db.models import (
 )
 from goldsmith_erp.services.notification_service import NotificationService
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 async def _make_notification(
     db,
@@ -54,6 +56,7 @@ async def _make_notification(
 # ---------------------------------------------------------------------------
 # create_notification
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 class TestCreateNotification:
@@ -101,6 +104,7 @@ class TestCreateNotification:
 # get_notifications
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 class TestGetNotifications:
 
@@ -108,7 +112,9 @@ class TestGetNotifications:
         await _make_notification(db_session, sample_user.id)
         await _make_notification(db_session, sample_user.id)
 
-        results = await NotificationService.get_notifications(db_session, sample_user.id)
+        results = await NotificationService.get_notifications(
+            db_session, sample_user.id
+        )
         assert len(results) == 2
 
     async def test_does_not_return_other_users_notifications(
@@ -118,7 +124,9 @@ class TestGetNotifications:
         await _make_notification(db_session, admin_user.id)
         await _make_notification(db_session, sample_user.id)
 
-        results = await NotificationService.get_notifications(db_session, sample_user.id)
+        results = await NotificationService.get_notifications(
+            db_session, sample_user.id
+        )
 
         # Only the notification for sample_user should be returned
         assert len(results) == 1
@@ -128,7 +136,9 @@ class TestGetNotifications:
         n1 = await _make_notification(db_session, sample_user.id)
         n2 = await _make_notification(db_session, sample_user.id)
 
-        results = await NotificationService.get_notifications(db_session, sample_user.id)
+        results = await NotificationService.get_notifications(
+            db_session, sample_user.id
+        )
         ids = [n.id for n in results]
 
         # Newer ID should come first
@@ -139,7 +149,9 @@ class TestGetNotifications:
         await NotificationService.mark_as_read(db_session, n1.id, sample_user.id)
         await _make_notification(db_session, sample_user.id)  # unread
 
-        all_results = await NotificationService.get_notifications(db_session, sample_user.id)
+        all_results = await NotificationService.get_notifications(
+            db_session, sample_user.id
+        )
         unread_results = await NotificationService.get_notifications(
             db_session, sample_user.id, unread_only=True
         )
@@ -148,14 +160,19 @@ class TestGetNotifications:
         assert len(unread_results) == 1
         assert unread_results[0].is_read is False
 
-    async def test_empty_list_for_user_with_no_notifications(self, db_session, sample_user):
-        results = await NotificationService.get_notifications(db_session, sample_user.id)
+    async def test_empty_list_for_user_with_no_notifications(
+        self, db_session, sample_user
+    ):
+        results = await NotificationService.get_notifications(
+            db_session, sample_user.id
+        )
         assert results == []
 
 
 # ---------------------------------------------------------------------------
 # mark_as_read (cross-user isolation)
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 class TestMarkAsRead:
@@ -172,7 +189,9 @@ class TestMarkAsRead:
         assert updated.is_read is True
         assert updated.read_at is not None
 
-    async def test_cross_user_isolation_returns_none(self, db_session, sample_user, admin_user):
+    async def test_cross_user_isolation_returns_none(
+        self, db_session, sample_user, admin_user
+    ):
         """
         mark_as_read must return None when the notification belongs to a different user.
         This prevents cross-user data leakage or privilege escalation.
@@ -186,7 +205,9 @@ class TestMarkAsRead:
 
         assert result is None
 
-    async def test_cross_user_mark_does_not_mutate_db(self, db_session, sample_user, admin_user):
+    async def test_cross_user_mark_does_not_mutate_db(
+        self, db_session, sample_user, admin_user
+    ):
         """After a failed cross-user mark_as_read, the notification must still be unread."""
         notification = await _make_notification(db_session, admin_user.id)
 
@@ -203,7 +224,9 @@ class TestMarkAsRead:
     async def test_idempotent_on_already_read(self, db_session, sample_user):
         """Calling mark_as_read on an already-read notification must succeed without error."""
         notification = await _make_notification(db_session, sample_user.id)
-        await NotificationService.mark_as_read(db_session, notification.id, sample_user.id)
+        await NotificationService.mark_as_read(
+            db_session, notification.id, sample_user.id
+        )
         second_result = await NotificationService.mark_as_read(
             db_session, notification.id, sample_user.id
         )
@@ -220,6 +243,7 @@ class TestMarkAsRead:
 # ---------------------------------------------------------------------------
 # mark_all_read
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 class TestMarkAllRead:
@@ -269,6 +293,7 @@ class TestMarkAllRead:
 # get_unread_count
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 class TestGetUnreadCount:
 
@@ -309,6 +334,7 @@ class TestGetUnreadCount:
 # check_deadline_warnings — deduplication
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 class TestCheckDeadlineWarnings:
 
@@ -335,7 +361,9 @@ class TestCheckDeadlineWarnings:
         An order with a deadline within 4 days must trigger a notification
         for each ADMIN/GOLDSMITH user (sample_user is GOLDSMITH, admin_user is ADMIN).
         """
-        await self._create_order_with_deadline(db_session, sample_customer.id, days_ahead=2)
+        await self._create_order_with_deadline(
+            db_session, sample_customer.id, days_ahead=2
+        )
 
         created_count = await NotificationService.check_deadline_warnings(db_session)
 
@@ -349,7 +377,9 @@ class TestCheckDeadlineWarnings:
         Running check_deadline_warnings twice on the same day must not create
         duplicate DEADLINE_WARNING notifications for the same order.
         """
-        await self._create_order_with_deadline(db_session, sample_customer.id, days_ahead=1)
+        await self._create_order_with_deadline(
+            db_session, sample_customer.id, days_ahead=1
+        )
 
         first_run = await NotificationService.check_deadline_warnings(db_session)
         second_run = await NotificationService.check_deadline_warnings(db_session)
@@ -365,7 +395,9 @@ class TestCheckDeadlineWarnings:
         Once the existing DEADLINE_WARNING for an order is marked as read,
         the next scan may create a new one (the old one is no longer unread).
         """
-        await self._create_order_with_deadline(db_session, sample_customer.id, days_ahead=1)
+        await self._create_order_with_deadline(
+            db_session, sample_customer.id, days_ahead=1
+        )
 
         await NotificationService.check_deadline_warnings(db_session)
 
@@ -408,7 +440,9 @@ class TestCheckDeadlineWarnings:
         self, db_session, sample_user, admin_user, sample_customer
     ):
         """Orders with deadlines more than 4 days away must not trigger notifications."""
-        await self._create_order_with_deadline(db_session, sample_customer.id, days_ahead=10)
+        await self._create_order_with_deadline(
+            db_session, sample_customer.id, days_ahead=10
+        )
 
         created_count = await NotificationService.check_deadline_warnings(db_session)
         assert created_count == 0
@@ -417,7 +451,9 @@ class TestCheckDeadlineWarnings:
         self, db_session, sample_user, admin_user, sample_customer
     ):
         """An order due in 1 day must produce URGENT severity notifications."""
-        await self._create_order_with_deadline(db_session, sample_customer.id, days_ahead=1)
+        await self._create_order_with_deadline(
+            db_session, sample_customer.id, days_ahead=1
+        )
 
         await NotificationService.check_deadline_warnings(db_session)
 
@@ -432,7 +468,9 @@ class TestCheckDeadlineWarnings:
         self, db_session, sample_user, sample_customer
     ):
         """Notifications from check_deadline_warnings must have type DEADLINE_WARNING."""
-        await self._create_order_with_deadline(db_session, sample_customer.id, days_ahead=2)
+        await self._create_order_with_deadline(
+            db_session, sample_customer.id, days_ahead=2
+        )
 
         await NotificationService.check_deadline_warnings(db_session)
 

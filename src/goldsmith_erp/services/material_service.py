@@ -1,11 +1,12 @@
 # src/goldsmith_erp/services/material_service.py
 
 import json
+from typing import Any, Dict, List, Optional
+
+from sqlalchemy import delete, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from sqlalchemy import update, delete
 from sqlalchemy.orm import selectinload
-from typing import List, Optional, Dict, Any
 
 from goldsmith_erp.core.cache import MATERIALS_TTL, get_cached, invalidate
 from goldsmith_erp.db.models import Material as MaterialModel
@@ -20,9 +21,7 @@ class MaterialService:
 
     @staticmethod
     async def get_materials(
-        db: AsyncSession,
-        skip: int = 0,
-        limit: int = 100
+        db: AsyncSession, skip: int = 0, limit: int = 100
     ) -> List[MaterialModel]:
         """
         Holt alle Materialien mit Pagination.
@@ -39,6 +38,7 @@ class MaterialService:
         Returns:
             Liste von Material-Objekten
         """
+
         async def _fetch() -> List[MaterialModel]:
             result = await db.execute(
                 select(MaterialModel)
@@ -50,18 +50,21 @@ class MaterialService:
 
         # Only cache the canonical default query.
         if skip == 0 and limit == 100:
+
             def _serialise(materials: List[MaterialModel]) -> str:
-                return json.dumps([
-                    {
-                        "id": m.id,
-                        "name": m.name,
-                        "description": m.description,
-                        "unit_price": m.unit_price,
-                        "stock": m.stock,
-                        "unit": m.unit,
-                    }
-                    for m in materials
-                ])
+                return json.dumps(
+                    [
+                        {
+                            "id": m.id,
+                            "name": m.name,
+                            "description": m.description,
+                            "unit_price": m.unit_price,
+                            "stock": m.stock,
+                            "unit": m.unit,
+                        }
+                        for m in materials
+                    ]
+                )
 
             # Deserialisation returns plain dicts; callers that need ORM
             # objects with parameterised pagination go directly to the DB.
@@ -78,8 +81,7 @@ class MaterialService:
 
     @staticmethod
     async def get_material_by_id(
-        db: AsyncSession,
-        material_id: int
+        db: AsyncSession, material_id: int
     ) -> Optional[MaterialModel]:
         """
         Holt ein einzelnes Material über seine ID.
@@ -102,8 +104,7 @@ class MaterialService:
 
     @staticmethod
     async def get_material_by_name(
-        db: AsyncSession,
-        name: str
+        db: AsyncSession, name: str
     ) -> Optional[MaterialModel]:
         """
         Holt ein Material über seinen Namen.
@@ -122,8 +123,7 @@ class MaterialService:
 
     @staticmethod
     async def create_material(
-        db: AsyncSession,
-        material_in: MaterialCreate
+        db: AsyncSession, material_in: MaterialCreate
     ) -> MaterialModel:
         """
         Erstellt ein neues Material.
@@ -140,7 +140,7 @@ class MaterialService:
             description=material_in.description,
             unit_price=material_in.unit_price,
             stock=material_in.stock,
-            unit=material_in.unit
+            unit=material_in.unit,
         )
 
         db.add(db_material)
@@ -152,9 +152,7 @@ class MaterialService:
 
     @staticmethod
     async def update_material(
-        db: AsyncSession,
-        material_id: int,
-        material_in: MaterialUpdate
+        db: AsyncSession, material_id: int, material_in: MaterialUpdate
     ) -> Optional[MaterialModel]:
         """
         Aktualisiert ein bestehendes Material.
@@ -190,10 +188,7 @@ class MaterialService:
         return updated_material
 
     @staticmethod
-    async def delete_material(
-        db: AsyncSession,
-        material_id: int
-    ) -> Dict[str, Any]:
+    async def delete_material(db: AsyncSession, material_id: int) -> Dict[str, Any]:
         """
         Löscht ein Material aus der Datenbank.
 
@@ -210,23 +205,18 @@ class MaterialService:
             return {"success": False, "message": "Material not found"}
 
         # Material löschen
-        await db.execute(
-            delete(MaterialModel).where(MaterialModel.id == material_id)
-        )
+        await db.execute(delete(MaterialModel).where(MaterialModel.id == material_id))
         await db.commit()
         await invalidate(_MATERIALS_LIST_KEY)
 
         return {
             "success": True,
-            "message": f"Material {material_id} deleted successfully"
+            "message": f"Material {material_id} deleted successfully",
         }
 
     @staticmethod
     async def adjust_stock(
-        db: AsyncSession,
-        material_id: int,
-        quantity: float,
-        operation: str = "add"
+        db: AsyncSession, material_id: int, quantity: float, operation: str = "add"
     ) -> Optional[MaterialModel]:
         """
         Passt den Bestand eines Materials an.
@@ -269,8 +259,7 @@ class MaterialService:
 
     @staticmethod
     async def get_low_stock_materials(
-        db: AsyncSession,
-        threshold: float = 10.0
+        db: AsyncSession, threshold: float = 10.0
     ) -> List[MaterialModel]:
         """
         Holt alle Materialien mit niedrigem Bestand.
@@ -290,9 +279,7 @@ class MaterialService:
         return result.scalars().all()
 
     @staticmethod
-    async def calculate_total_stock_value(
-        db: AsyncSession
-    ) -> float:
+    async def calculate_total_stock_value(db: AsyncSession) -> float:
         """
         Berechnet den Gesamtwert aller Materialien im Lager.
 

@@ -279,7 +279,9 @@ async def update_hallmark_status(
             notes=body.notes,
         )
     except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc))
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+        )
 
     logger.info(
         "Hallmark status changed via API",
@@ -320,4 +322,6 @@ async def delete_hallmark(
     try:
         await HallmarkService.delete_hallmark(db, hallmark_id)
     except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc))
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+        )
