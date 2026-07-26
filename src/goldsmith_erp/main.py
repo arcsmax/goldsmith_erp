@@ -112,8 +112,20 @@ class RequestSizeLimitMiddleware(BaseHTTPMiddleware):
 
 
 # App-Instanz erstellen
+#
+# The interactive API docs (/docs, /redoc) and the OpenAPI schema
+# (/openapi.json) expose the full API surface. In production (DEBUG=False) they
+# are disabled entirely by passing None for all three URLs — the
+# FastAPI-idiomatic off switch. In development they stay on for convenience.
+# Defense in depth: middleware/auth_required.py also drops these paths from its
+# public whitelist when DEBUG is False, so any stray docs route hits the
+# deny-by-default 401 instead of being served.
+_docs_enabled = settings.DEBUG
 app = FastAPI(
-    title=settings.APP_NAME, openapi_url=f"{settings.API_V1_STR}/openapi.json"
+    title=settings.APP_NAME,
+    openapi_url=(f"{settings.API_V1_STR}/openapi.json" if _docs_enabled else None),
+    docs_url="/docs" if _docs_enabled else None,
+    redoc_url="/redoc" if _docs_enabled else None,
 )
 
 # Ensure uploads directory exists (photos served via authenticated router endpoints)

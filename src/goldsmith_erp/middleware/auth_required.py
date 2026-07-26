@@ -13,13 +13,21 @@ from goldsmith_erp.core.security import ALGORITHM
 
 logger = logging.getLogger(__name__)
 
+# API-docs endpoints are public ONLY in development. In production
+# (DEBUG=False) main.py disables them entirely (openapi_url/docs_url/redoc_url=
+# None); dropping them from the whitelist too is defense in depth — any stray
+# docs route then hits the deny-by-default 401 instead of being served.
+_DOCS_PATHS = (
+    ["/docs", "/redoc", "/openapi.json", f"{settings.API_V1_STR}/openapi.json"]
+    if settings.DEBUG
+    else []
+)
+_DOCS_PREFIXES = ["/docs", "/redoc"] if settings.DEBUG else []
+
 # Paths that do NOT require authentication
 PUBLIC_PATHS = [
     "/health",
-    "/docs",
-    "/redoc",
-    "/openapi.json",
-    f"{settings.API_V1_STR}/openapi.json",
+    *_DOCS_PATHS,
     f"{settings.API_V1_STR}/login",
     f"{settings.API_V1_STR}/logout",
     # /users/register is NOT public — locked to ADMIN-invitation-only
@@ -32,8 +40,7 @@ PUBLIC_PATHS = [
 
 # Prefixes that do NOT require authentication
 PUBLIC_PREFIXES = [
-    "/docs",
-    "/redoc",
+    *_DOCS_PREFIXES,
     "/static",
     # "/uploads" removed — photos served via authenticated router endpoints
     f"{settings.API_V1_STR}/login",
