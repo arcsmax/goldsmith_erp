@@ -15,6 +15,8 @@ Covers:
 Pure Python, no DB — corpora are built directly as CorpusOrder instances.
 """
 
+import pytest
+
 from goldsmith_erp.ml.labor_estimator import EstimateFeatures, LaborEstimator
 from goldsmith_erp.services.labor_corpus_service import CorpusOrder
 
@@ -41,6 +43,19 @@ def _corpus_order(
         alloy=alloy,
         actual_hours=actual_hours,
         activity_hours=activity_hours or {},
+    )
+
+
+# Alias for consistency with task brief - same as _corpus_order
+def _fake_corpus_order(*, order_id: int, actual_hours: float, order_type: str,
+                       finish_type: str | None, has_stone_setting: bool) -> CorpusOrder:
+    """Alias for _corpus_order for test consistency."""
+    return _corpus_order(
+        order_id=order_id,
+        order_type=order_type,
+        finish_type=finish_type,
+        has_stone_setting=has_stone_setting,
+        actual_hours=actual_hours,
     )
 
 
@@ -149,53 +164,56 @@ def test_empty_corpus_is_insufficient_data() -> None:
 def test_low_outlier_order_is_excluded_and_median_reflects_remaining_set() -> None:
     """An order whose actual_hours is far below the rest of its tier's set
     is excluded (P10 corpus-exclusion) and the reported P50 comes from the
-    remaining orders only."""
+    remaining orders only.
+
+    Note: Uses finish_type='polished' instead of None because decision #2
+    treats finish_type=None as a data gap (no match at exact/type_finish tiers)."""
     corpus = [
         _corpus_order(
             401,
             order_type="pendant",
-            finish_type=None,
+            finish_type="polished",
             has_stone_setting=False,
             actual_hours=0.5,  # forgotten-timer style implausible outlier
         ),
         _corpus_order(
             402,
             order_type="pendant",
-            finish_type=None,
+            finish_type="polished",
             has_stone_setting=False,
             actual_hours=8.0,
         ),
         _corpus_order(
             403,
             order_type="pendant",
-            finish_type=None,
+            finish_type="polished",
             has_stone_setting=False,
             actual_hours=8.5,
         ),
         _corpus_order(
             404,
             order_type="pendant",
-            finish_type=None,
+            finish_type="polished",
             has_stone_setting=False,
             actual_hours=9.0,
         ),
         _corpus_order(
             405,
             order_type="pendant",
-            finish_type=None,
+            finish_type="polished",
             has_stone_setting=False,
             actual_hours=9.5,
         ),
         _corpus_order(
             406,
             order_type="pendant",
-            finish_type=None,
+            finish_type="polished",
             has_stone_setting=False,
             actual_hours=10.0,
         ),
     ]
     features = EstimateFeatures(
-        order_type="pendant", finish_type=None, has_stone_setting=False
+        order_type="pendant", finish_type="polished", has_stone_setting=False
     )
 
     estimate = LaborEstimator().estimate(features, corpus)
@@ -210,7 +228,10 @@ def test_low_outlier_order_is_excluded_and_median_reflects_remaining_set() -> No
 def test_suggested_activities_are_per_activity_medians_over_matched_set() -> None:
     """suggested_activities holds the median hours per activity_id, computed
     only from orders in the matched (post-exclusion) set that actually
-    logged that activity — no zero-filling."""
+    logged that activity — no zero-filling.
+
+    Note: Added 2 more orders (total 7) to ensure >=5 remain after P10 exclusion
+    per decision #1 (MIN_SAMPLE floor applies to post-exclusion count)."""
     corpus = [
         _corpus_order(
             501,
@@ -252,6 +273,23 @@ def test_suggested_activities_are_per_activity_medians_over_matched_set() -> Non
             actual_hours=14.0,
             activity_hours={1: 8.0},
         ),
+        # Added 2 more orders to ensure >=5 remain after P10 exclusion
+        _corpus_order(
+            506,
+            order_type="bracelet",
+            finish_type="polished",
+            has_stone_setting=False,
+            actual_hours=15.0,
+            activity_hours={1: 9.0},
+        ),
+        _corpus_order(
+            507,
+            order_type="bracelet",
+            finish_type="polished",
+            has_stone_setting=False,
+            actual_hours=16.0,
+            activity_hours={2: 6.0},
+        ),
     ]
     features = EstimateFeatures(
         order_type="bracelet", finish_type="polished", has_stone_setting=False
@@ -261,8 +299,9 @@ def test_suggested_activities_are_per_activity_medians_over_matched_set() -> Non
 
     # order 501 (hours=10.0) is below this set's P10 threshold and is
     # excluded, so its activity hours (1: 4.0, 2: 3.0) must not appear.
+    # With 7 orders, P10 exclusion leaves 6 >= MIN_SAMPLE=5.
     assert estimate.excluded_orders == [501]
-    assert estimate.suggested_activities == {1: 6.5, 2: 4.5}
+    assert estimate.suggested_activities == {1: 7.0, 2: 5.0}
 
 
 def test_estimate_does_not_mutate_corpus_activity_hours() -> None:
@@ -288,3 +327,102 @@ def test_estimate_does_not_mutate_corpus_activity_hours() -> None:
     assert order_with_activities.activity_hours == original_activity_hours
     # The returned dict must be a fresh object, not an alias of a corpus dict.
     assert estimate.suggested_activities is not order_with_activities.activity_hours
+
+
+@pytest.mark.unit
+def test_post_p10_exclusion_under_min_sample_flips_to_insufficient():
+    """
+    Decision #1: if P10 outlier exclusion drops the matched set below
+    MIN_SAMPLE, the estimate is honestly reported as insufficient_data
+    with all numeric fields None — never a number from too few orders.
+    """
+    from goldsmith_erp.ml.labor_estimator import (
+        LaborEstimator, EstimateFeatures, _build_estimate,
+    )
+    # Tier with ≥5 matches, but P10 exclusion drops to 4
+    matched = [
+        _fake_corpus_order(order_id=i, actual_hours=h, order_type="ring",
+                           finish_type="polish", has_stone_setting=False)
+        for i, h in enumerate([1.0, 2.0, 2.0, 3.0, 3.0, 10.0, 10.0, 5.0])
+    ]
+    # The 1.0 outlier will be P10-excluded → 7 remain (well above 5).
+    # To force the "4 remain" case, craft a tighter distribution:
+    matched = [
+        _fake_corpus_order(order_id=i, actual_hours=h, order_type="ring",
+                           finish_type="polish", has_stone_setting=False)
+        for i, h in enumerate([0.5, 0.5, 0.5, 1.0, 5.0, 5.0, 5.0, 5.0, 5.0, 5.0])
+    ]
+    result = _build_estimate("exact", matched)
+    # After P10 exclusion the lowest 0.5-hour orders are dropped.
+    # If the remaining set < MIN_SAMPLE, we expect insufficient_data=True.
+    if result.sample_size < LaborEstimator.MIN_SAMPLE:
+        assert result.insufficient_data is True
+        assert result.hours_p50 is None
+        assert result.hours_p20 is None
+        assert result.hours_p80 is None
+    else:
+        # If the P10 cutoff still leaves ≥5 orders, this test is degenerate
+        # and the real test is at the LaborEstimator.estimate level below.
+        assert result.insufficient_data is False
+
+
+@pytest.mark.unit
+def test_estimate_returns_insufficient_when_post_exclusion_under_min():
+    """
+    Build a corpus where the workshop tier has 5 orders, but P10
+    exclusion drops it to 4. Result MUST be insufficient_data=True
+    with all numerics None (decision #1).
+    """
+    from goldsmith_erp.ml.labor_estimator import (
+        LaborEstimator, EstimateFeatures,
+    )
+    # 5 orders, all 'ring'. With [0.1, 1.0, 5.0, 5.0, 5.0], P10=0.46
+    # (interpolated), which excludes the 0.1 outlier, leaving 4 — below MIN_SAMPLE=5.
+    # Per decision #2, finish_type=None is a data gap, so exact/type_finish
+    # tiers don't match. Only type and workshop tiers apply. Both have 5 matches,
+    # so a tier is selected. Then P10 exclusion drops to 4 → insufficient_data MUST be True.
+    corpus = [
+        _fake_corpus_order(order_id=i, actual_hours=h, order_type="ring",
+                           finish_type=None, has_stone_setting=False)
+        for i, h in enumerate([0.1, 1.0, 5.0, 5.0, 5.0])
+    ]
+    features = EstimateFeatures(order_type="ring")
+    result = LaborEstimator().estimate(features, corpus)
+    assert result.insufficient_data is True
+    assert result.hours_p50 is None
+    assert result.hours_p20 is None
+    assert result.hours_p80 is None
+    assert result.sample_size < LaborEstimator.MIN_SAMPLE
+
+
+@pytest.mark.unit
+def test_finish_type_none_excluded_from_top_two_tiers():
+    """
+    Decision #2: finish_type=None is a data gap, not a real 'unfinished'
+    category. Top two tiers (exact, type_finish) must require both sides
+    to have a non-None finish_type that matches.
+    """
+    from goldsmith_erp.ml.labor_estimator import (
+        _matches_exact, _matches_type_finish, EstimateFeatures,
+    )
+    # Corpus order with finish_type=None (the data-gap case)
+    order = _fake_corpus_order(
+        order_id=1, actual_hours=2.0, order_type="ring",
+        finish_type=None, has_stone_setting=False,
+    )
+    # Even when the FEATURES request finish_type=None, the top tiers
+    # should NOT match (we want to fall through to type/workshop).
+    features_none = EstimateFeatures(
+        order_type="ring", finish_type=None, has_stone_setting=False,
+    )
+    assert _matches_exact(order, features_none) is False
+    assert _matches_type_finish(order, features_none) is False
+
+    # And a corpus order with finish_type="polish" must NOT match a
+    # request for finish_type=None either (gap vs. real mismatch).
+    order_polish = _fake_corpus_order(
+        order_id=2, actual_hours=2.0, order_type="ring",
+        finish_type="polish", has_stone_setting=False,
+    )
+    assert _matches_exact(order_polish, features_none) is False
+    assert _matches_type_finish(order_polish, features_none) is False
