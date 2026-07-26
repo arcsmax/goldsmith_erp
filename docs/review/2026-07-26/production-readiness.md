@@ -1,0 +1,82 @@
+# Production-Readiness Assessment — 2026-07-26
+
+**Assessed:** `main` @ `8e5556c` (last main push 2026-07-05)
+**Method:** 5 parallel audit passes (security floor, deploy/ops, GDPR lifecycle, GitHub/CI health, live test+build verification), findings cross-verified against code before inclusion. Follow-up to `docs/review/2026-04-23/` — most of that review's P0s are confirmed fixed; this document only lists what is still open.
+**Deployment context:** single goldsmith workshop (Anne), self-hosted rootless Podman on one machine, multi-device LAN access, real customer PII + financial data (GDPR + §147 AO apply), no public customer portal.
+
+## Verdict
+
+**Not deployable today, but the distance is small.** The deep engineering — encryption at rest with blind indexes, RBAC, HttpOnly cookie auth, deny-by-default auth middleware, audit middleware, backup tooling, fail-fast secret validation — is solid. What is broken is the *wiring between the pieces*: the production install path does not boot, the GDPR loop has three unfinished ends, and main has been CI-red for three weeks. Tier 0 + Tier 1 below is days-to-weeks of work, not months.
+
+---
+
+## Tier 0 — The install does not work (fix first)
+
+| # | Finding | Evidence | Fix direction |
+|---|---------|----------|---------------|
+| 0.1 | **BLOCKER** — `setup.sh`-generated `.env.production` crashes the backend on boot: writes `BACKEND_CORS_ORIGINS` comma-separated but `config.py` types it `list[str]`, pydantic-settings requires JSON. Empirically verified: `Settings()` raises `SettingsError` on exactly that value. | `setup.sh:119`, `core/config.py:54` | Emit JSON-array in setup.sh **and** add a `field_validator` accepting comma-separated strings (defense in depth) |
+| 0.2 | **BLOCKER** — "Production" frontend container runs the Vite dev server, not a build. The only Containerfile ends in `CMD ["yarn","dev"]` and prod compose uses it unmodified; the `NODE_ENV=production` build-arg is never consumed. | `frontend/Containerfile:49`, `podman-compose.prod.yml:113-119` | Multi-stage `Containerfile.prod`: `yarn build` → serve `dist/` via nginx |
+| 0.3 | **HIGH** — Frontend→backend proxy wired to nothing in every compose file: they set `VITE_API_URL` (read by nothing); the vite proxy reads `VITE_API_TARGET` (default `localhost:8080` = the container itself). Deliberate retarget in `e6dc8a8` for local dev silently broke containerized paths. | `frontend/src/api/client.ts:10`, `vite.config.ts:124-134`, `docker-compose.yml:67`, `podman-compose.yml:113` | Set `VITE_API_TARGET=http://backend:8000` + `VITE_WS_TARGET` in compose (moot for prod once 0.2 serves static behind a reverse proxy) |
+| 0.4 | **HIGH** — CORS rejects the workshop's other devices: `setup.sh` detects the LAN IP, advertises it for other machines, offers firewall rules — but never adds it to `BACKEND_CORS_ORIGINS`. | `setup.sh:119` vs `setup.sh:250-268`, `main.py:149-155` | Append detected `LOCAL_IP` (and mDNS hostname) when generating `.env.production` |
+
+## Tier 1 — Before any real customer data
+
+| # | Finding | Evidence | Fix direction |
+|---|---------|----------|---------------|
+| 1.1 | **BLOCKER** — No TLS/reverse proxy anywhere in the shipped deploy path; backend/frontend bind `0.0.0.0` directly; `COOKIE_SECURE` defaults `False` with no prod validator (unlike ENCRYPTION_KEY/SALT/SMTP which all have one). Credentials + auth cookie cross the LAN in plaintext. TLS guidance was explicitly deferred ("document Caddy later") and never written. | `podman-compose.prod.yml:82-83,121`, `core/config.py:156`, `docs/superpowers/specs/2026-04-01-production-hardening-design.md:419` | Add Caddy/nginx + TLS service to prod compose; add `model_validator` raising on `DEBUG=False and not COOKIE_SECURE` |
+| 1.2 | **BLOCKER** — Issue #7 root cause found, fix exists **unmerged**: `GDPRRequest.customer_id` on main has `ondelete="SET NULL"` FK; the audit-before-action path must insert a PENDING row for a nonexistent customer; PG rejects it, SQLite doesn't — hence red `test-integration-pg`. Branch `fix/gdpr-audit-fk-and-pg-percentile` (`8d97f4c`) drops the FK with an idempotent migration. | `db/models.py:2892-2894`, `customers.py:448`, `tests/integration/test_gdpr_request_lifecycle_h10.py:85` | **Merge the branch** — single highest-leverage action, likely un-reds PG CI |
+| 1.3 | **BLOCKER** — GDPR hard-delete never happens: `scripts/gdpr-cleanup.sh` is scheduled by nothing (no crontab/timer/compose-cron anywhere), and would FK-fail on any customer with an invoice/quote/valuation (`ondelete="RESTRICT"`, `nullable=False`). Errors are swallowed into `error_count`; nobody is alerted. Invoices are §147 AO 10-year records anyway. | `scripts/gdpr-cleanup.sh`, `db/models.py:1334,1466,2382` | Keep financial records, anonymize the customer FK (mirror `anonymize_user` pattern), document that as the retention policy; wire script into systemd timer with alerting; re-run `FileErasureService` + write audit row before delete |
+| 1.4 | **BLOCKER** — Employees have no erasure path: `UserService.anonymize_user` (well-built: transactional FK rewrite, sentinel user, HMAC token, last-admin guard) is called by **no router**. `DELETE /users/{id}` only sets `is_active=False`. Unused `hard_delete_user` would violate RESTRICT FKs. | `services/user_service.py:383,294`, `api/routers/users.py:228` | Add `POST /users/{id}/gdpr-erase` (ADMIN) → `anonymize_user`; delete/gate `hard_delete_user`. Also scrub denormalized `CustomerAuditLog.user_email` (`db/models.py:2877`) which survives anonymization |
+| 1.5 | **HIGH** — VIEWER role can read scrap-gold (Altgold) financial values: reads gated by `ORDER_VIEW` (VIEWER holds it); `ScrapGoldRead` includes `total_value_eur`, `gold_price_per_g`. Direct CLAUDE.md violation ("same protections as pricing"). | `api/routers/scrap_gold.py:61,208,275,296`, `models/scrap_gold.py:56-74`, `core/permissions.py:224-247` | Dedicated `SCRAP_GOLD_VIEW` permission for ADMIN/GOLDSMITH (mirror `INVOICE_VIEW`/`VALUATION_VIEW`) |
+| 1.6 | **HIGH** — No clean-production-DB seed path: `seed_demo.py` bundles 3 fake staff (shared password `demo2026!`), 10 fake customers, orders/quotes/invoices with the 15 reference activities; `db/seed_data.py` is dev-only. Only `scripts/create-admin.py` is prod-safe. | `scripts/seed_demo.py`, `src/goldsmith_erp/db/seed_data.py` | Extract idempotent reference-data-only seed (activities, standard materials). Note: untracked WIP files (`scripts/seed_data_definitions.py`, `seed_v11_v12_only.py`, `db/_seed_helpers.py`) suggest this was started — finish it |
+| 1.7 | **HIGH** — Dependabot: **1 critical + 34 high + 29 medium + 7 low** open. Critical: `tar` (GHSA-23hp-3jrh-7fpw). Pillow accounts for 9 high alerts alone; also starlette (x2), cryptography, axios, vite (x3), python-multipart, ws, form-data, ecdsa, lodash, et al. | GitHub Dependabot | Dedicated bump-and-test pass; Pillow bump is the quick big win |
+| 1.8 | **HIGH** — Repo state prevents deploying a trustworthy main: CI red on 4 jobs (test-backend, lint, test-integration-pg, test-e2e) for every run since 2026-07-04; **no branch protection on main** (404); 5 stacked phase-3 PRs (#44→#45→#46→#48→#49) all CI-red; **4 verified fix commits unpushed** on local `feat/v13-phase3-wire-order` (`3b168f2`, `c3f7ab3`, `16f76d6`, `8de0736` — PR #49 is stale without them); an **uncommitted Alembic migration** (`20260705_v13t5_...`) sitting in the main checkout. | `gh run list`, `gh api .../branches/main/protection`, `git status` | Push the 4 commits → land the PR stack → protect main (require green CI) |
+
+## Tier 2 — First weeks of operation
+
+| # | Finding | Evidence | Fix direction |
+|---|---------|----------|---------------|
+| 2.1 | No token revocation: 8-day JWTs (config says 8d, `.env.example` says 7d) survive logout and password change; logout only clears the cookie; Bearer-header fallback stays replayable. No `jti`/blocklist exists. | `core/config.py:33`, `api/routers/auth.py:88-94`, `api/routers/users.py:80-110` | ~30-min access tokens + refresh rotation + Redis `jti` blocklist, invalidated on logout/password change |
+| 2.2 | Financial reads unaudited despite CLAUDE.md's blanket rule: `orders` (price, hourly_rate, margins) and `activities.hourly_rate` are permission-gated (April C5 fix) but deliberately excluded from `_RESOURCE_ROUTES`. Not registered at all (no audit on read *or* write): `materials`, `time_entries`, `users`, `photos`/`repair_photos`, `measurements`. | `middleware/audit_logging.py:120`, `models/order.py:314-323` | Service-layer audit rows on financial-field-bearing reads (same pattern as `updates`/`cost-changes`); add missing resources to the routing table |
+| 2.3 | Retention enforcement missing: `retention_class` columns exist, indexed, documented per-purpose (HGB §257 etc.) — but no service/cron/task reads them. Repository methods were deleted in a pre-V1.1 hotfix and never rebuilt. | `db/models.py:553,750,1053,3052`, `db/repositories/customer.py:12` | Retention sweep job driven by the tags, co-scheduled with 1.3 |
+| 2.4 | `make restore` cannot restore the `.sql.gz` files `backup.sh` produces (pipes raw into psql, no gunzip). Correct implementation already exists at `scripts/restore.sh`. | `Makefile:264-278` | `restore:` → `@bash scripts/restore.sh $(FILE)` (one line) |
+| 2.5 | Backup-vs-erasure conflict undocumented: tiered dumps (7d/4w/3m) mean erased customers resurface on restore for up to ~3 months; no scrub mechanism or written policy. | `scripts/backup.sh` | Documented policy (re-run erasure after any restore; backup retention ≤ grace window rationale) once 1.3 lands |
+| 2.6 | No out-of-band alerting: no Sentry (ErrorBoundary has a TODO hook), health alerts only create in-app Notification rows — useless if the backend is down. | `frontend/src/components/ErrorBoundary.tsx:34-35`, `api/routers/health.py` | External cron `curl /health` → email dead-man's-switch; Sentry optional later |
+| 2.7 | `/docs`, `/redoc`, `/openapi.json` public in every environment (unconditionally whitelisted). | `middleware/auth_required.py:17-22` | Gate behind `settings.DEBUG` / `openapi_url=None` in prod |
+| 2.8 | `Permissions-Policy: camera=()` will break the product's own QR scanner the moment frontend/backend share an origin (currently masked by the two-origin dev setup). | `middleware/security_headers.py:28`, `frontend/src/components/scanner/QrCameraScanner.tsx` | `camera=(self)` |
+| 2.9 | No CORS-wildcard guard when `DEBUG=False` (every other prod-sensitive setting has a validator; combined with `allow_credentials=True` one typo creates a credentialed-CORS hole). | `core/config.py:54-57`, `main.py:151-154` | `model_validator` rejecting `"*"` in prod |
+| 2.10 | Rate limiting is IP-only and covers only login/refresh/portal-lookup; shared-NAT workshop means one abuser throttles everyone; no limits on any other mutating endpoint. | `api/routers/auth.py`, `customer_portal.py` | Bucket login by `(ip, username)`; add limits to mutating endpoints |
+| 2.11 | Art. 15 export still emits `order.description` (business-confidential design IP) unconditionally — consultation fields got the exclusion fix (F-06/#14), order descriptions did not. | `api/routers/customers.py` export handler | Redact/flag like consultation design data |
+| 2.12 | Plaintext financial/PII columns inconsistent with the encrypted-valuation pattern: `ScrapGold.total_value_eur`/`gold_price_per_g`/`signature_data` (biometric-adjacent), `Customer.notes`, `Customer.birthday`. | `db/models.py:~1150, 265, 282` | Encrypt or add explicit documented exemption |
+| 2.13 | `.env.example` drift: missing `ENCRYPTION_KEY` (the one var that hard-fails prod boot), `COOKIE_SECURE`, `WORKSHOP_NAME`, `BACKUP_*`, `DB_POOL_*`; documents an S3 integration that doesn't exist in `config.py`. | `.env.example` vs `core/config.py` | Regenerate from `Settings`; drop dead S3 block |
+| 2.14 | Documented install path never reaches the hardened stack: README/INSTALLATION/PODMAN_MIGRATION never mention `setup.sh`, `podman-compose.prod.yml`, or backup scripts; `setup-podman.sh` launches the **dev** compose. | docs, `setup-podman.sh` | "Production Deployment" docs section pointing at the real path |
+| 2.15 | Verarbeitungsverzeichnis (Art. 30) exists and is good (244 lines, legal basis + retention + TOMs) but dated 2026-04-17 — predates V1.2/V1.3 features (consultations updates flow, estimator). | `docs/superpowers/plans/qr-barcode-workflow/VERZEICHNIS-VERARBEITUNGSTAETIGKEITEN.md` | Refresh cycle for new processing activities |
+
+## Tier 3 — Hygiene backlog
+
+- **mypy: 1,505 errors / 105 files** — the unpassable backend lint gate (CI `lint` job red). Needs a burndown strategy (per-module baseline or gate-on-diff), not a heroic single pass.
+- **Missing `tests/__init__.py`** → 6 test errors (`ModuleNotFoundError: No module named 'tests'`) in `test_concurrent_metal_consumption.py` + `test_websocket_auth.py` (5 cases). One-file fix.
+- **Untracked WIP failing locally:** `tests/unit/test_seed_demo.py` (2 TDD-style failures against unfinished seed refactor), `frontend/src/api/estimates.ts` (3 tsc errors, missing type exports — file not imported anywhere yet). Belongs to the 1.6 work.
+- **No frontend ESLint config** (#33) — react-hooks/jsx-a11y unenforced.
+- **Flaky test:** `CustomerStep.test.tsx` (#31, 2/3 runs fail).
+- Open follow-up issues: #8 (stale e2e for removed /register), #18-22 (V1.1 wizard batch — #20 error-log PII hygiene is the one worth prioritizing), #24 (**GDPR: order_photos thumbnails not erased** — belongs with 1.3), #25 (JSON-null vs SQL-NULL double-count), #28 (gross-vs-net wording — Anne decision), #29, #31, #33, #39 (**activity-rate permissions/audit** — belongs with 2.2), #43 (EstimateAccuracy unique constraint).
+- Low-severity security niggles: dead `auth/mfa` public-prefix whitelist entry (`auth_required.py:40`), `theme.py:85-89` `logo_url` unrestricted scheme, WebSocket `?token=` query-param fallback leaks into logs (`main.py:274-278`), `.dockerignore` missing `.env`, `/admin/notify-backup` loopback-only gate (`health.py:303`), backend Containerfile standalone CMD ends in `--reload`, `deploy.resources.limits` may be a no-op under podman-compose (verify on target host), docker-compose.yml/podman-compose.yml dev-file drift.
+
+## Verified healthy — do not re-do
+
+- **Test suites:** backend 1,661 passed / 2 failed / 6 errors — every failure traces to WIP files or the missing `tests/__init__.py`, not product code. Frontend **475/475** + production `vite build` passes (1.8s, largest chunk 385kB/113kB gzip, PWA precache OK). Bandit: 0 high, 1 known-accepted medium (B104 bind-all).
+- **April 2026 review P0s all fixed and re-verified:** SECRET_KEY validation (blocklist + length + entropy, hard-fails prod), bcrypt hashing, single RBAC source of truth, deny-by-default auth middleware with pinned JWT alg, HttpOnly+SameSite=Strict cookie auth (no tokens in localStorage), register locked to admin-invite, audit middleware registered, Fernet `EncryptedString` + HMAC blind-index on Customer PII and valuations, fail-loud encryption, magic-byte upload validation, anti-spoof `get_real_ip`.
+- **Ops tooling exists and is good** (just mis-wired, see Tiers 0-2): backup.sh with tiered retention + integrity check, restore.sh, rotate-secrets.sh, check-migrations.sh, structured JSON logging with request-id, rich health-endpoint family, non-root containers + `no-new-privileges`, alembic-on-boot.
+- **GDPR customer path is real:** audit-before-action `gdpr_requests`, `scrub_customer_pii` (declarative registry), `FileErasureService` (path-traversal guard, per-file audit, dry-run), Art. 15 export with consultation design-IP exclusion, privacy-by-default customer portal.
+- **ARCHITECTURE_REVIEW.md (2025-11) is stale** — nearly everything it flags is fixed; `docs/review/2026-04-23/` is the accurate baseline. Consider archiving the old one.
+
+## Suggested sequence
+
+1. Merge `fix/gdpr-audit-fk-and-pg-percentile` (#7) → PG CI likely green.
+2. Push the 4 unpushed wire-order commits → land the phase-3 PR stack (#44→#49) → commit the orphan migration.
+3. Tier 0 install fixes (0.1-0.4) — one work package, verifiable with a scratch `setup.sh` run.
+4. Enable branch protection on main (require green CI).
+5. TLS + cookie validator (1.1); GDPR loop-closing (1.3, 1.4, plus #24); scrap-gold permission (1.5).
+6. Dependabot pass (1.7).
+7. Clean seed path (1.6) → go-live capable.
+8. Tier 2 as the first-weeks backlog; Tier 3 as background burndown.
