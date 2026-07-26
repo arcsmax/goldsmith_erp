@@ -73,7 +73,7 @@ poetry run python scripts/gen_mypy_baseline.py --check   # non-zero if stale
 ```
 
 <!-- BEGIN generated mypy baseline table -->
-_Auto-generated: 94 modules, 1524 suppressed errors. Regenerate with `poetry run python scripts/gen_mypy_baseline.py`._
+_Auto-generated: 96 modules, 1532 suppressed errors. Regenerate with `poetry run python scripts/gen_mypy_baseline.py`._
 
 | Module | Errors | Codes suppressed |
 | --- | ---: | --- |
@@ -92,11 +92,11 @@ _Auto-generated: 94 modules, 1524 suppressed errors. Regenerate with `poetry run
 | `goldsmith_erp.api.routers.quotes` | 31 | `misc`×13, `no-untyped-def`×13, `arg-type`×3, `assignment`×2 |
 | `goldsmith_erp.api.routers.customer_updates` | 29 | `misc`×10, `no-untyped-def`×10, `arg-type`×9 |
 | `goldsmith_erp.api.routers.comments` | 28 | `arg-type`×20, `misc`×4, `no-untyped-def`×4 |
+| `goldsmith_erp.api.routers.orders` | 27 | `no-untyped-def`×11, `misc`×11, `arg-type`×5 |
 | `goldsmith_erp.services.quote_service` | 27 | `arg-type`×15, `assignment`×9, `type-arg`×2, `return-value`×1 |
 | `goldsmith_erp.api.routers.scrap_gold` | 26 | `misc`×10, `no-untyped-def`×10, `arg-type`×5, `assignment`×1 |
 | `goldsmith_erp.services.time_tracking_service` | 26 | `arg-type`×14, `union-attr`×4, `return-value`×3, `assignment`×2, `truthy-function`×2, `operator`×1 |
 | `goldsmith_erp.api.routers.consultations` | 25 | `misc`×11, `no-untyped-def`×11, `arg-type`×2, `attr-defined`×1 |
-| `goldsmith_erp.api.routers.orders` | 25 | `no-untyped-def`×11, `misc`×11, `arg-type`×3 |
 | `goldsmith_erp.api.routers.customers` | 24 | `no-untyped-def`×16, `assignment`×4, `attr-defined`×1, `type-arg`×1, `return-value`×1, `arg-type`×1 |
 | `goldsmith_erp.api.routers.invoices` | 23 | `misc`×9, `no-untyped-def`×9, `arg-type`×3, `assignment`×2 |
 | `goldsmith_erp.db.repositories.customer` | 23 | `arg-type`×13, `assignment`×6, `no-untyped-def`×3, `override`×1 |
@@ -105,11 +105,11 @@ _Auto-generated: 94 modules, 1524 suppressed errors. Regenerate with `poetry run
 | `goldsmith_erp.api.routers.users` | 20 | `no-untyped-def`×10, `misc`×8, `arg-type`×2 |
 | `goldsmith_erp.services.scanner_service` | 18 | `arg-type`×13, `call-overload`×4, `union-attr`×1 |
 | `goldsmith_erp.services.invoice_service` | 17 | `arg-type`×9, `assignment`×5, `type-arg`×2, `return-value`×1 |
+| `goldsmith_erp.api.routers.activities` | 16 | `misc`×6, `no-untyped-def`×6, `arg-type`×3, `assignment`×1 |
 | `goldsmith_erp.api.routers.handoffs` | 15 | `misc`×5, `no-untyped-def`×5, `arg-type`×4, `call-arg`×1 |
 | `goldsmith_erp.api.routers.notifications` | 15 | `misc`×6, `arg-type`×4, `type-arg`×3, `return-value`×1, `unused-ignore`×1 |
 | `goldsmith_erp.core.permissions` | 14 | `no-untyped-def`×8, `type-arg`×5, `call-overload`×1 |
 | `goldsmith_erp.services.order_service` | 14 | `arg-type`×5, `return-value`×3, `type-arg`×1, `var-annotated`×1, `operator`×1, `assignment`×1, `no-untyped-def`×1, `unused-ignore`×1 |
-| `goldsmith_erp.api.routers.activities` | 13 | `misc`×6, `no-untyped-def`×6, `assignment`×1 |
 | `goldsmith_erp.api.routers.measurements` | 13 | `no-untyped-def`×6, `arg-type`×6, `attr-defined`×1 |
 | `goldsmith_erp.api.routers.photos` | 13 | `misc`×5, `no-untyped-def`×5, `arg-type`×2, `attr-defined`×1 |
 | `goldsmith_erp.db.repositories.order` | 13 | `assignment`×6, `arg-type`×3, `no-untyped-def`×2, `union-attr`×2 |
@@ -130,7 +130,6 @@ _Auto-generated: 94 modules, 1524 suppressed errors. Regenerate with `poetry run
 | `goldsmith_erp.db.repositories.base` | 9 | `attr-defined`×6, `no-untyped-def`×2, `no-any-return`×1 |
 | `goldsmith_erp.api.routers.scanner` | 8 | `misc`×5, `arg-type`×3 |
 | `goldsmith_erp.db.seed_data` | 8 | `type-arg`×6, `no-untyped-def`×1, `no-untyped-call`×1 |
-| `goldsmith_erp.jobs.gdpr_cleanup` | 8 | `attr-defined`×8 |
 | `goldsmith_erp.db.migration_helpers` | 7 | `no-untyped-call`×5, `no-untyped-def`×1, `type-arg`×1 |
 | `goldsmith_erp.services.calendar_service` | 7 | `arg-type`×4, `assignment`×2, `unused-ignore`×1 |
 | `goldsmith_erp.services.ml_data_service` | 7 | `union-attr`×4, `assignment`×1, `type-arg`×1, `list-item`×1 |

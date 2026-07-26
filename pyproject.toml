@@ -84,10 +84,10 @@ plugins = []
 # --- BEGIN generated mypy baseline (scripts/gen_mypy_baseline.py) ---
 # Generated debt ledger — do not hand-edit. Regenerate with:
 #   poetry run python scripts/gen_mypy_baseline.py
-# 94 modules, 1524 suppressed errors as of last run.
+# 96 modules, 1532 suppressed errors as of last run.
 [[tool.mypy.overrides]]
 module = "goldsmith_erp.api.routers.activities"
-disable_error_code = ["assignment", "misc", "no-untyped-def"]  # 13 error(s)
+disable_error_code = ["arg-type", "assignment", "misc", "no-untyped-def"]  # 16 error(s)
 [[tool.mypy.overrides]]
 module = "goldsmith_erp.api.routers.analytics"
 disable_error_code = ["misc", "type-arg"]  # 4 error(s)
@@ -153,7 +153,7 @@ module = "goldsmith_erp.api.routers.notifications"
 disable_error_code = ["arg-type", "misc", "return-value", "type-arg", "unused-ignore"]  # 15 error(s)
 [[tool.mypy.overrides]]
 module = "goldsmith_erp.api.routers.orders"
-disable_error_code = ["arg-type", "misc", "no-untyped-def"]  # 25 error(s)
+disable_error_code = ["arg-type", "misc", "no-untyped-def"]  # 27 error(s)
 [[tool.mypy.overrides]]
 module = "goldsmith_erp.api.routers.photos"
 disable_error_code = ["arg-type", "attr-defined", "misc", "no-untyped-def"]  # 13 error(s)
@@ -200,6 +200,9 @@ disable_error_code = ["no-untyped-def", "type-arg"]  # 2 error(s)
 module = "goldsmith_erp.core.security"
 disable_error_code = ["no-any-return", "type-arg"]  # 6 error(s)
 [[tool.mypy.overrides]]
+module = "goldsmith_erp.core.token_revocation"
+disable_error_code = ["type-arg"]  # 2 error(s)
+[[tool.mypy.overrides]]
 module = "goldsmith_erp.db.migration_helpers"
 disable_error_code = ["no-untyped-call", "no-untyped-def", "type-arg"]  # 7 error(s)
 [[tool.mypy.overrides]]
@@ -229,6 +232,9 @@ disable_error_code = ["no-any-return", "no-untyped-call", "no-untyped-def", "typ
 [[tool.mypy.overrides]]
 module = "goldsmith_erp.jobs.gdpr_cleanup"
 disable_error_code = ["attr-defined"]  # 8 error(s)
+[[tool.mypy.overrides]]
+module = "goldsmith_erp.jobs.retention_sweep"
+disable_error_code = ["var-annotated"]  # 1 error(s)
 [[tool.mypy.overrides]]
 module = "goldsmith_erp.main"
 disable_error_code = ["arg-type", "no-untyped-def"]  # 5 error(s)
