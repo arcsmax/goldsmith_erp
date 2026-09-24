@@ -104,6 +104,10 @@ describe('per-user lifecycle', () => {
     act(() => authRef?.logout());
 
     expect(await screen.findByText('none')).toBeInTheDocument();
+    // No PII survives logout on a shared bench tablet: the cached user
+    // record (name, email, role) and the running-timer snapshot (order id,
+    // activity) are both gone, alongside the legacy unscoped scan key.
+    expect(localStorage.getItem('user')).toBeNull();
     expect(localStorage.getItem('running_time_entry')).toBeNull();
     expect(localStorage.getItem('scanner_last_activity_id')).toBeNull();
     await waitFor(() =>

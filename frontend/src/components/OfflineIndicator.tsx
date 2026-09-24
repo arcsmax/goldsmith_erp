@@ -79,10 +79,7 @@ export const OfflineIndicator: React.FC = () => {
           <circle cx="8" cy="8" r="6.5" stroke="currentColor" strokeWidth="1.5"/>
           <line x1="2.5" y1="2.5" x2="13.5" y2="13.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
         </svg>
-        <span>
-          Offline-Modus —&nbsp;
-          Daten werden synchronisiert, sobald die Verbindung wiederhergestellt ist
-        </span>
+        <span>Offline: Änderungen werden nicht gespeichert</span>
       </div>
     );
   }
