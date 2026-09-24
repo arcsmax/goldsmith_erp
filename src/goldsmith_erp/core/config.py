@@ -248,6 +248,12 @@ class Settings(BaseSettings):
     # reverse proxy (HTTPS). Keep False for local network / dev environments.
     COOKIE_SECURE: bool = False
 
+    # ── Customer self-service portal (SEC-10, decision D-03) ─────────────────────
+    # Off by default: no live customer portal until W6-07's GDPR hardening
+    # (opaque per-order references, per-reference rate limits, audit logging)
+    # ships. Enable only for a deliberate LAN-only opt-in.
+    CUSTOMER_PORTAL_ENABLED: bool = False
+
     @model_validator(mode="after")
     def _check_encryption_key(self) -> "Settings":
         """Fail-fast in production if ENCRYPTION_KEY is not set."""
