@@ -33,14 +33,15 @@ from goldsmith_erp.services.image_validation import (
     _MAX_MAGIC_BYTES,
     THUMBNAIL_WIDTH,
     PhotoValidationError,
-)
-from goldsmith_erp.services.image_validation import (
-    create_thumbnail as _create_thumbnail,
+    create_thumbnail_bounded,
 )
 from goldsmith_erp.services.image_validation import (
     detect_image_type as _detect_image_type,
 )
-from goldsmith_erp.services.image_validation import read_validated_image
+from goldsmith_erp.services.image_validation import (
+    read_validated_image,
+    store_processed_original,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -58,9 +59,13 @@ ALLOWED_MIME_TYPES: dict[bytes, str] = {
 
 # ─── Internal helpers ─────────────────────────────────────────────────────────
 #
-# _detect_image_type, _create_thumbnail, _MAX_MAGIC_BYTES, and PhotoValidationError
-# now live in services/image_validation.py (shared with consultation_photo_service)
-# and are re-exported above so existing imports of this module keep working.
+# _detect_image_type, _MAX_MAGIC_BYTES, and PhotoValidationError now live in
+# services/image_validation.py (shared with consultation_photo_service) and
+# are re-exported above so existing imports of this module keep working.
+# Original storage and thumbnailing go through store_processed_original() /
+# create_thumbnail_bounded() (also image_validation.py) — both time-bounded
+# and run off the event loop (SEC-18), and the former strips EXIF metadata
+# from every stored original before it ever touches disk (GDPR-19).
 
 
 def _storage_root() -> Path:
@@ -131,8 +136,12 @@ class PhotoService:
         photo_path = order_dir / f"{file_uuid}.{ext}"
         thumb_path = _thumb_dir(order_id) / f"{file_uuid}.jpg"
 
-        # Write original file
-        photo_path.write_bytes(raw)
+        # Write the original — EXIF stripped (GDPR-19), orientation applied,
+        # off the event loop and time-bounded (SEC-18). Unlike thumbnail
+        # generation below, a failure here is FATAL: storing the raw,
+        # unprocessed bytes instead would defeat the EXIF-stripping
+        # guarantee, so the upload must fail rather than silently fall back.
+        await store_processed_original(raw, ext, photo_path)
         logger.info(
             "Photo saved",
             extra={
@@ -145,7 +154,7 @@ class PhotoService:
 
         # Generate thumbnail (non-fatal — log warning if it fails)
         try:
-            _create_thumbnail(photo_path, thumb_path)
+            await create_thumbnail_bounded(photo_path, thumb_path)
         except Exception:
             logger.warning(
                 "Thumbnail generation failed — photo still stored",

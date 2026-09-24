@@ -515,6 +515,26 @@ class Settings(BaseSettings):
 
         return v
 
+    # ── Image limits (SEC-18: decompression-bomb protection) ────────────────────
+    # Uploaded photos (order / repair / consultation) are decoded with Pillow —
+    # a small, deliberately crafted file can still declare enormous pixel
+    # dimensions that would allocate a huge in-memory bitmap on decode/resize.
+    # `services/image_validation.py` rejects an image from its DECLARED header
+    # dimensions (Image.open() only parses the header) before any pixel buffer
+    # is allocated, and also sets `PIL.Image.MAX_IMAGE_PIXELS` from
+    # IMAGE_MAX_MEGAPIXELS as a defense-in-depth guard for any other Pillow
+    # call in the process.
+    IMAGE_MAX_MEGAPIXELS: int = 40  # Image.MAX_IMAGE_PIXELS = this * 1_000_000
+    # General ceiling on bytes read before Pillow ever sees the buffer — a
+    # second bound alongside the per-endpoint PHOTO_MAX_SIZE_MB (kept
+    # independent so it is not silently loosened if a future endpoint raises
+    # its own upload limit).
+    IMAGE_MAX_UPLOAD_BYTES: int = 8 * 1024 * 1024  # 8 MB
+    # Pillow's decode/re-encode is synchronous, CPU-bound work; the photo
+    # services run it in a threadpool (so it never blocks the event loop) and
+    # bound it with this timeout so a pathological image can't hang a worker.
+    IMAGE_PROCESSING_TIMEOUT_SECONDS: int = 10
+
 
 # Instantiate once per process
 settings = Settings()

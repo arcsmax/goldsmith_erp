@@ -36,9 +36,10 @@ from goldsmith_erp.db.models import (
     ConsultationPhotoKind,
 )
 from goldsmith_erp.services.image_validation import (
-    create_thumbnail,
+    create_thumbnail_bounded,
     read_validated_image,
     resolve_within_root,
+    store_processed_original,
 )
 
 logger = logging.getLogger(__name__)
@@ -123,8 +124,12 @@ class ConsultationPhotoService:
         photo_path = consultation_dir / f"{file_uuid}.{ext}"
         thumb_path = _thumb_dir(consultation_id) / f"{file_uuid}.jpg"
 
-        # Write original file
-        photo_path.write_bytes(raw)
+        # Write the original — EXIF stripped (GDPR-19), orientation applied,
+        # off the event loop and time-bounded (SEC-18). A failure here is
+        # FATAL: storing the raw, unprocessed bytes instead would defeat the
+        # EXIF-stripping guarantee, so the upload must fail rather than
+        # silently fall back.
+        await store_processed_original(raw, ext, photo_path)
         logger.info(
             "Consultation photo saved",
             extra={
@@ -138,7 +143,7 @@ class ConsultationPhotoService:
 
         # Generate thumbnail (non-fatal — log warning if it fails)
         try:
-            create_thumbnail(photo_path, thumb_path)
+            await create_thumbnail_bounded(photo_path, thumb_path)
         except Exception:
             logger.warning(
                 "Thumbnail generation failed — photo still stored",
