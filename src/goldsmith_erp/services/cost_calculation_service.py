@@ -23,6 +23,7 @@ from goldsmith_erp.core.config import settings
 from goldsmith_erp.db.models import Activity as ActivityModel
 from goldsmith_erp.db.models import CostingMethod
 from goldsmith_erp.db.models import Gemstone as GemstoneModel
+from goldsmith_erp.db.models import MaterialUsage as MaterialUsageModel
 from goldsmith_erp.db.models import Order as OrderModel
 from goldsmith_erp.services.metal_inventory_service import MetalInventoryService
 
@@ -199,6 +200,36 @@ class CostCalculationService:
                 },
             )
             return order.material_cost_override
+
+        # BE-07: once material has actually been consumed for this order,
+        # MaterialUsage rows are the authoritative record of what it cost —
+        # use their SUM instead of re-previewing a fresh allocation against
+        # CURRENT remaining stock. The old preview-always approach either
+        # double-counted already-consumed metal (previewing on top of what
+        # was already drawn) or raised "Insufficient inventory" once a batch
+        # was exhausted by the real consumption. Only orders with NO
+        # recorded usage yet fall through to the estimate-based preview
+        # below (Decimal summation — house convention for money, see
+        # invoice_service.py / scrap_gold_service.py).
+        recorded_usage_result = await db.execute(
+            select(MaterialUsageModel.cost_at_time).where(
+                MaterialUsageModel.order_id == order.id
+            )
+        )
+        recorded_costs = recorded_usage_result.scalars().all()
+        if recorded_costs:
+            total_recorded_cost = sum(
+                (Decimal(str(c)) for c in recorded_costs), Decimal("0")
+            )
+            logger.debug(
+                "Using recorded MaterialUsage total instead of preview allocation",
+                extra={
+                    "order_id": order.id,
+                    "usage_row_count": len(recorded_costs),
+                    "material_cost": float(total_recorded_cost),
+                },
+            )
+            return float(total_recorded_cost)
 
         # If no metal type specified, cannot calculate from inventory
         if not order.metal_type:
