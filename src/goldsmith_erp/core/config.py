@@ -303,25 +303,39 @@ class Settings(BaseSettings):
         users can be recomputed by anyone who has the public repository.
         DEBUG=False raises and names the variable; DEBUG=True warns and
         accepts so a fresh dev checkout still boots.
+
+        Adversarial audit finding B1.2/B1.3/B1.4 (2026-09-25,
+        docs/technical/security/2026-09-AUDIT-FIXES-W1.md): the original
+        check was an exact `==` against the literal placeholder string, so
+        the two most natural real-world mistakes when copying it out of
+        .env.example — a trailing/leading whitespace character from a
+        paste, or lowercasing it — silently bypassed the rejection and
+        booted production with a publicly-known secret. Both sides of the
+        comparison are now normalised (surrounding whitespace stripped,
+        case-folded) before comparing.
         """
+        placeholder_normalized = ENV_EXAMPLE_PLACEHOLDER.strip().lower()
         offending = [
             name
             for name in _PLACEHOLDER_CHECKED_FIELDS
-            if getattr(self, name) == ENV_EXAMPLE_PLACEHOLDER
+            if isinstance(getattr(self, name), str)
+            and getattr(self, name).strip().lower() == placeholder_normalized
         ]
         if not offending:
             return self
         names = ", ".join(offending)
         if not self.DEBUG:
             raise ValueError(
-                f"{names} is set to the public .env.example placeholder, which "
-                "must never be used in production (DEBUG=False). Generate a "
-                'real value with: python3 -c "import secrets; '
+                f"{names} is set to the public .env.example placeholder "
+                "(whitespace/case-insensitive match), which must never be "
+                "used in production (DEBUG=False). Generate a real value "
+                'with: python3 -c "import secrets; '
                 'print(secrets.token_urlsafe(64))"'
             )
         logging.getLogger(__name__).warning(
-            "%s is set to the .env.example placeholder. Acceptable only in "
-            "development (DEBUG=True); production refuses to boot with it.",
+            "%s is set to the .env.example placeholder (whitespace/"
+            "case-insensitive match). Acceptable only in development "
+            "(DEBUG=True); production refuses to boot with it.",
             names,
         )
         return self

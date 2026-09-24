@@ -176,10 +176,32 @@ class UserAdminUpdate(UserUpdate):
 
     Deliberately NOT a field on ``UserSelfUpdate``/``UserUpdate``: a user
     must never be able to grant themselves a role via ``PUT /users/me``.
+
+    ``current_password`` (SEC-11, adversarial finding B3.1/B3.2,
+    2026-09-25): this route is gated only by ``Permission.USER_EDIT``, which
+    ADMIN holds unconditionally — including against their own ``user_id``.
+    Without this field an ADMIN could change their own email/password
+    through this route with zero re-authentication, completely bypassing
+    the SEC-11 rule ``PUT /users/me`` enforces. The router requires and
+    verifies it only when ``user_id == current_user.id`` and the payload
+    changes email or password; changing another user's credentials as
+    ADMIN is unaffected (that stays allowed, and is audit-logged by the
+    middleware). Optional here because it is irrelevant for every other
+    call of this route.
     """
 
     role: Optional[UserRole] = Field(
         None, description="New role (admin/goldsmith/viewer); ADMIN only"
+    )
+    current_password: Optional[str] = Field(
+        None,
+        min_length=1,
+        max_length=128,
+        description=(
+            "Current password of the acting ADMIN. Required only when "
+            "user_id is the caller's own id AND the payload changes email "
+            "or password (SEC-11); ignored otherwise. Never persisted."
+        ),
     )
 
 
