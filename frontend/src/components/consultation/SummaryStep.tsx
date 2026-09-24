@@ -45,6 +45,27 @@ export const formatBudgetRange = (
 const formatDate = (iso?: string | null): string | null =>
   iso ? new Date(iso).toLocaleDateString('de-DE') : null;
 
+/** DOM-03 (W2-05): what the backend carries from the consultation onto the
+ * order — see src/goldsmith_erp/services/consultation_carry.py. Shown before
+ * converting so nobody retypes it on the order. */
+export const carryOverItems = (
+  consultation: WizardStepProps['consultation'],
+  firstMaterial: string | undefined
+): string[] => {
+  const items: string[] = [];
+  const occasionDate = formatDate(consultation.occasion_date);
+  if (occasionDate) items.push(`Liefertermin ${occasionDate}`);
+  if (consultation.piece_type) {
+    items.push(`Schmuckstück ${PIECE_TYPE_LABELS[consultation.piece_type]}`);
+  }
+  if (firstMaterial) items.push(`Legierung ${firstMaterial}`);
+  if (consultation.piece_type === 'ring') items.push('Ringgröße aus den Maßen');
+  if (consultation.photos.length > 0) {
+    items.push(`${consultation.photos.length} Skizzen & Fotos`);
+  }
+  return items;
+};
+
 /** Shape of the 409 detail body — see consultations.py convert_consultation. */
 interface ConvertConflictDetail {
   message?: string;
@@ -147,7 +168,9 @@ export const SummaryStep: React.FC<WizardStepProps> = ({
       // never navigate to `/orders/undefined` if the backend response is
       // ever missing it.
       if (target === 'quote') {
-        navigate('/quotes');
+        navigate(
+          updated.converted_quote_id ? `/quotes?quote_id=${updated.converted_quote_id}` : '/quotes'
+        );
       } else {
         navigate(updated.converted_order_id ? `/orders/${updated.converted_order_id}` : '/orders');
       }
@@ -266,6 +289,7 @@ export const SummaryStep: React.FC<WizardStepProps> = ({
   const materials = (consultation.materials_discussed ?? [])
     .map((entry) => entry.metal)
     .filter((metal): metal is string => Boolean(metal));
+  const carried = carryOverItems(consultation, materials[0]);
 
   return (
     <div className="summary-step">
@@ -358,6 +382,17 @@ export const SummaryStep: React.FC<WizardStepProps> = ({
         <div className="summary-section">
           <h3>Vereinbarte Wiedervorlage</h3>
           <p>{formatDate(consultation.follow_up_at)}</p>
+        </div>
+      )}
+
+      {carried.length > 0 && (
+        <div className="summary-section" aria-labelledby="carry-over-title">
+          <h3 id="carry-over-title">Wird in den Auftrag übernommen</h3>
+          <ul>
+            {carried.map((item) => (
+              <li key={item}>{item}</li>
+            ))}
+          </ul>
         </div>
       )}
 

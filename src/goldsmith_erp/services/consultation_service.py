@@ -32,6 +32,7 @@ from goldsmith_erp.db.models import (
 )
 from goldsmith_erp.db.transaction import transactional
 from goldsmith_erp.models.consultation import ConsultationCreate, ConsultationUpdate
+from goldsmith_erp.services import consultation_carry
 
 logger = logging.getLogger(__name__)
 
@@ -295,12 +296,18 @@ class ConsultationService:
         new_order_id: Optional[int] = None
         new_quote_id: Optional[int] = None
         if target == "order":
+            # DOM-03: deadline, order type, alloy/metal and ring size reach
+            # the order (see services/consultation_carry.py for the mapping).
+            carried = await consultation_carry.fields_from_consultation(
+                db, consultation
+            )
             order = await OrderService.create_order(
                 db,
                 OrderCreate(
                     customer_id=consultation.customer_id,
                     title=f"Beratung #{consultation.id}: {piece_label}"[:200],
                     description=wishes_text[:2000],
+                    **carried.as_order_kwargs(),
                 ),
             )
             new_order_id = order.id
