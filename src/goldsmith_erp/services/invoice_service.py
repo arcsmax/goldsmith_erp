@@ -14,7 +14,8 @@ All service methods are async and accept AsyncSession as first parameter.
 
 import logging
 from datetime import date, datetime
-from typing import List, Optional
+from decimal import ROUND_HALF_UP, Decimal
+from typing import Any, Dict, Iterable, List, Optional
 
 from sqlalchemy import extract, func
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -26,6 +27,8 @@ from goldsmith_erp.db.models import Invoice as InvoiceModel
 from goldsmith_erp.db.models import InvoiceLineItem as InvoiceLineItemModel
 from goldsmith_erp.db.models import InvoiceLineType, InvoiceStatus
 from goldsmith_erp.db.models import Order as OrderModel
+from goldsmith_erp.db.models import Quote as QuoteModel
+from goldsmith_erp.db.models import QuoteStatus
 from goldsmith_erp.db.models import ScrapGold as ScrapGoldModel
 from goldsmith_erp.db.models import ScrapGoldStatus
 from goldsmith_erp.db.models import User as UserModel
@@ -38,6 +41,25 @@ from goldsmith_erp.models.invoice import (
 )
 
 logger = logging.getLogger(__name__)
+
+_CENT = Decimal("0.01")
+_DEFAULT_VAT_RATE = 19.0
+
+
+def _to_cents(value: float | Decimal) -> Decimal:
+    """Convert a money amount to Decimal rounded half-up to cents."""
+    return Decimal(str(value)).quantize(_CENT, rounding=ROUND_HALF_UP)
+
+
+def net_from_gross(gross: float | Decimal, vat_rate_percent: float) -> Decimal:
+    """
+    Derive the net amount from a gross (VAT-inclusive) amount.
+
+    net = gross / (1 + vat_rate/100), rounded half-up to cents, computed in
+    Decimal (never float). See ADR-2026-09-25-price-semantics.
+    """
+    divisor = Decimal("1") + Decimal(str(vat_rate_percent)) / Decimal("100")
+    return (Decimal(str(gross)) / divisor).quantize(_CENT, rounding=ROUND_HALF_UP)
 
 
 def _log_financial_access(
@@ -137,94 +159,78 @@ class InvoiceService:
     # -------------------------------------------------------------------------
 
     @staticmethod
-    def _build_line_items_from_order(order: OrderModel) -> List[InvoiceLineItemCreate]:
+    def _build_line_items_from_order(
+        order: OrderModel,
+        converted_quote: Optional[QuoteModel] = None,
+    ) -> List[InvoiceLineItemCreate]:
         """
-        Build standard line items from an order's cost fields.
+        Build invoice line items from the AGREED price of an order (BE-01/BE-02).
 
-        Generates:
-        1. Material line item (if material_cost_calculated or material_cost_override)
-        2. Labor line item (if labor_hours > 0)
-        3. One line item per gemstone (if gemstones are attached)
-        4. Falls back to a single line item from order.price if no cost breakdown exists
+        Precedence (all amounts NET, see ADR-2026-09-25-price-semantics):
+        1. Line items of the CONVERTED quote linked to this order
+        2. ``order.price`` (net) as a single line
+        3. ``order.calculated_price`` (stored GROSS by CostCalculationService),
+           converted to net with ``order.vat_rate``
+
+        The cost breakdown (material purchase cost, labor_hours x rate,
+        gemstone cost) is internal Soll/Ist data and is never billed: it
+        omits the margin. Raises 422 if no agreed price exists.
         """
-        items: List[InvoiceLineItemCreate] = []
+        if converted_quote is not None and converted_quote.line_items:
+            return [
+                InvoiceLineItemCreate(
+                    line_type=InvoiceLineType(line.line_type.value),
+                    description=line.description,
+                    quantity=line.quantity,
+                    unit_price=float(_to_cents(line.unit_price)),
+                )
+                for line in converted_quote.line_items
+            ]
 
-        # --- Material cost ---
-        material_cost = order.material_cost_override or order.material_cost_calculated
-        if material_cost and material_cost > 0:
-            metal_desc = (
-                f"Material: {order.metal_type.value}"
-                if order.metal_type
-                else "Material"
+        if order.price is not None and order.price > 0:
+            net_price = _to_cents(order.price)
+        elif order.calculated_price is not None and order.calculated_price > 0:
+            vat_rate = (
+                order.vat_rate if order.vat_rate is not None else _DEFAULT_VAT_RATE
             )
-            if order.actual_weight_g:
-                metal_desc += f", {order.actual_weight_g:.2f}g"
-            elif order.estimated_weight_g:
-                metal_desc += f", ~{order.estimated_weight_g:.2f}g (geschaetzt)"
-            items.append(
-                InvoiceLineItemCreate(
-                    line_type=InvoiceLineType.MATERIAL,
-                    description=metal_desc,
-                    quantity=1.0,
-                    unit_price=round(material_cost, 2),
-                )
-            )
+            net_price = net_from_gross(order.calculated_price, vat_rate)
+        else:
+            from fastapi import HTTPException
 
-        # --- Labor cost ---
-        if order.labor_hours and order.labor_hours > 0:
-            hourly_rate = order.hourly_rate or 75.0
-            labor_cost = round(order.labor_hours * hourly_rate, 2)
-            items.append(
-                InvoiceLineItemCreate(
-                    line_type=InvoiceLineType.LABOR,
-                    description=f"Arbeitszeit: {order.labor_hours:.2f}h x {hourly_rate:.2f} EUR/h",
-                    quantity=order.labor_hours,
-                    unit_price=round(hourly_rate, 2),
-                )
-            )
-        elif order.labor_cost and order.labor_cost > 0:
-            items.append(
-                InvoiceLineItemCreate(
-                    line_type=InvoiceLineType.LABOR,
-                    description="Arbeitszeit",
-                    quantity=1.0,
-                    unit_price=round(order.labor_cost, 2),
-                )
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"Auftrag {order.id} hat keinen vereinbarten Preis "
+                    "(Preis, Kalkulation oder umgewandelter Kostenvoranschlag). "
+                    "Bitte zuerst einen Preis festlegen."
+                ),
             )
 
-        # --- Gemstones ---
-        for gemstone in order.gemstones or []:
-            gemstone_desc = gemstone.type.capitalize()
-            if gemstone.carat:
-                gemstone_desc += f" {gemstone.carat:.2f}ct"
-            if gemstone.quality:
-                gemstone_desc += f" {gemstone.quality}"
-            if gemstone.color:
-                gemstone_desc += f" {gemstone.color}"
-            if gemstone.cut:
-                gemstone_desc += f" {gemstone.cut}"
-            items.append(
-                InvoiceLineItemCreate(
-                    line_type=InvoiceLineType.GEMSTONE,
-                    description=gemstone_desc,
-                    quantity=float(gemstone.quantity or 1),
-                    unit_price=round(gemstone.cost, 2),
-                )
+        return [
+            InvoiceLineItemCreate(
+                line_type=InvoiceLineType.OTHER,
+                description=f"Auftrag: {order.title}",
+                quantity=1.0,
+                unit_price=float(net_price),
             )
+        ]
 
-        # --- Fallback: use order.price or calculated_price if no breakdown available ---
-        if not items:
-            fallback_price = order.price or order.calculated_price or 0.0
-            items.append(
-                InvoiceLineItemCreate(
-                    line_type=InvoiceLineType.OTHER,
-                    description=f"Auftrag: {order.title}",
-                    quantity=1.0,
-                    unit_price=round(fallback_price, 2),
-                )
+    @staticmethod
+    async def _get_converted_quote(
+        db: AsyncSession, order_id: int
+    ) -> Optional[QuoteModel]:
+        """Return the most recently CONVERTED quote for this order, if any."""
+        result = await db.execute(
+            select(QuoteModel)
+            .options(selectinload(QuoteModel.line_items))
+            .where(
+                QuoteModel.order_id == order_id,
+                QuoteModel.status == QuoteStatus.CONVERTED,
             )
-
-        return items
+            .order_by(QuoteModel.converted_at.desc(), QuoteModel.id.desc())
+            .limit(1)
+        )
+        return result.scalar_one_or_none()
 
     # -------------------------------------------------------------------------
     # Scrap gold credit
@@ -234,10 +240,10 @@ class InvoiceService:
     async def _get_scrap_gold_credit(
         db: AsyncSession,
         order_id: int,
-    ) -> Optional[ScrapGoldModel]:
+    ) -> List[ScrapGoldModel]:
         """
-        Return the ScrapGold record for this order if it is in a state that
-        qualifies for a credit line on the invoice (SIGNED or CREDITED).
+        Return the ScrapGold records for this order that qualify for an
+        Altgold credit (SIGNED or CREDITED).
 
         CREDITED is included so that idempotent re-generation of a cancelled
         invoice does not silently drop an already-applied credit.
@@ -250,34 +256,60 @@ class InvoiceService:
                 ),
             )
         )
-        return result.scalar_one_or_none()
+        return list(result.scalars().all())
 
     @staticmethod
-    def _build_scrap_gold_line_item(
-        scrap_gold: ScrapGoldModel,
-    ) -> InvoiceLineItemCreate:
-        """
-        Build a negative (credit) line item for scrap gold handed in by the
-        customer.
-
-        The description follows the German jewellery trade convention:
-        "Gutschrift Altgold (Xg Feingold)"
-
-        unit_price is negative so that the line item reduces the invoice total.
-        total_value_eur must be > 0 for the credit to be meaningful; if the
-        value was never calculated the credit is 0.00 EUR (edge case, but safe).
-        """
-        fine_gold_g = scrap_gold.total_fine_gold_g or 0.0
-        value_eur = scrap_gold.total_value_eur or 0.0
-
-        description = f"Gutschrift Altgold ({fine_gold_g:.3f}g Feingold)"
-
-        return InvoiceLineItemCreate(
-            line_type=InvoiceLineType.OTHER,
-            description=description,
-            quantity=1.0,
-            unit_price=round(-value_eur, 2),
+    def _scrap_gold_credit_amount(records: Iterable[ScrapGoldModel]) -> Decimal:
+        """Sum the EUR value of Altgold records (Decimal, cents, half-up)."""
+        return sum(
+            (_to_cents(record.total_value_eur or 0.0) for record in records),
+            Decimal("0.00"),
         )
+
+    @staticmethod
+    def _set_payment_summary(invoice: InvoiceModel, credit: Decimal) -> None:
+        """
+        Attach the Altgold credit and the resulting amount due (BE-03).
+
+        The credit is a POST-TAX deduction: the VAT base stays the full sale
+        price, so ``subtotal``/``tax_amount``/``total`` are untouched and the
+        credit only reduces what the customer pays. A negative amount_due
+        means the workshop owes the customer the difference. These are
+        derived, non-persisted attributes read by InvoiceResponse.
+        """
+        amount_due = _to_cents(invoice.total or 0.0) - credit
+        setattr(invoice, "scrap_gold_credit", float(credit))
+        setattr(invoice, "amount_due", float(amount_due))
+
+    @staticmethod
+    async def _attach_payment_summaries(
+        db: AsyncSession, invoices: List[InvoiceModel]
+    ) -> None:
+        """Batch-load Altgold credits for invoices (one query, no N+1)."""
+        if not invoices:
+            return
+        order_ids = {inv.order_id for inv in invoices}
+        result = await db.execute(
+            select(ScrapGoldModel).where(
+                ScrapGoldModel.order_id.in_(order_ids),
+                ScrapGoldModel.status.in_(
+                    [ScrapGoldStatus.SIGNED, ScrapGoldStatus.CREDITED]
+                ),
+            )
+        )
+        # Keyed by order_id (typed Any: ORM Column[int] vs runtime int)
+        by_order: Dict[Any, List[ScrapGoldModel]] = {}
+        for record in result.scalars().all():
+            by_order.setdefault(record.order_id, []).append(record)
+        for invoice in invoices:
+            credit = (
+                Decimal("0.00")
+                if invoice.status == InvoiceStatus.CANCELLED
+                else InvoiceService._scrap_gold_credit_amount(
+                    by_order.get(invoice.order_id, [])
+                )
+            )
+            InvoiceService._set_payment_summary(invoice, credit)
 
     # -------------------------------------------------------------------------
     # CRUD
@@ -353,16 +385,18 @@ class InvoiceService:
                 detail=f"Fuer Auftrag {invoice_in.order_id} existiert bereits eine aktive Rechnung",
             )
 
-        # Build line items
-        auto_items = InvoiceService._build_line_items_from_order(order)
-
-        # Scrap gold credit (Gutschrift Altgold) — must be queried before the
-        # transaction opens so we can decide whether to append the credit item.
-        scrap_gold = await InvoiceService._get_scrap_gold_credit(
+        # Build line items from the agreed price (never purchase cost)
+        converted_quote = await InvoiceService._get_converted_quote(
             db, invoice_in.order_id
         )
-        if scrap_gold is not None:
-            auto_items.append(InvoiceService._build_scrap_gold_line_item(scrap_gold))
+        auto_items = InvoiceService._build_line_items_from_order(order, converted_quote)
+
+        # Scrap gold credit (Gutschrift Altgold) is a post-tax deduction and
+        # is NOT a line item: it must not shrink the VAT base (BE-03).
+        scrap_golds = await InvoiceService._get_scrap_gold_credit(
+            db, invoice_in.order_id
+        )
+        for scrap_gold in scrap_golds:
             logger.info(
                 "Scrap gold credit applied to invoice",
                 extra={
@@ -413,9 +447,10 @@ class InvoiceService:
 
             # Transition scrap gold status to CREDITED atomically with the
             # invoice creation so the two records are always consistent.
-            if scrap_gold is not None and scrap_gold.status != ScrapGoldStatus.CREDITED:
-                scrap_gold.status = ScrapGoldStatus.CREDITED
-                db.add(scrap_gold)
+            for scrap_gold in scrap_golds:
+                if scrap_gold.status != ScrapGoldStatus.CREDITED:
+                    scrap_gold.status = ScrapGoldStatus.CREDITED
+                    db.add(scrap_gold)
 
         # Audit log AFTER successful commit
         _log_financial_access(
@@ -451,6 +486,7 @@ class InvoiceService:
         invoice = result.scalar_one_or_none()
 
         if invoice:
+            await InvoiceService._attach_payment_summaries(db, [invoice])
             _log_financial_access(
                 action="viewed",
                 invoice_id=invoice_id,
@@ -505,8 +541,9 @@ class InvoiceService:
 
         items_result = await db.execute(base_query)
         count_result = await db.execute(count_query)
-        items = items_result.scalars().all()
+        items = list(items_result.scalars().all())
         total = count_result.scalar_one()
+        await InvoiceService._attach_payment_summaries(db, items)
 
         _log_financial_access(
             action="listed",
@@ -523,7 +560,7 @@ class InvoiceService:
             },
         )
 
-        return list(items), total
+        return items, total
 
     @staticmethod
     async def update_invoice(
@@ -533,10 +570,11 @@ class InvoiceService:
         current_user: UserModel,
     ) -> Optional[InvoiceModel]:
         """
-        Update mutable invoice fields (status, due_date, notes, payment_method).
+        Update mutable invoice fields (due_date, notes, payment_method).
 
+        Status is NOT editable here (BE-05); use send / mark-paid / cancel.
         Returns None if invoice not found.
-        Raises 422 if attempting to update a CANCELLED invoice.
+        Raises 409 if the invoice is PAID or CANCELLED (final documents).
         """
         result = await db.execute(
             select(InvoiceModel).where(InvoiceModel.id == invoice_id)
@@ -545,12 +583,15 @@ class InvoiceService:
         if not invoice:
             return None
 
-        if invoice.status == InvoiceStatus.CANCELLED:
+        if invoice.status in (InvoiceStatus.PAID, InvoiceStatus.CANCELLED):
             from fastapi import HTTPException
 
             raise HTTPException(
-                status_code=422,
-                detail="Stornierte Rechnungen koennen nicht bearbeitet werden",
+                status_code=409,
+                detail=(
+                    "Bezahlte oder stornierte Rechnungen koennen nicht "
+                    "bearbeitet werden"
+                ),
             )
 
         update_data = invoice_in.model_dump(exclude_unset=True)
@@ -571,6 +612,51 @@ class InvoiceService:
                 else str(current_user.role)
             ),
             extra={"updated_fields": list(update_data.keys())},
+        )
+
+        return await InvoiceService.get_invoice(db, invoice_id, current_user)
+
+    @staticmethod
+    async def mark_as_sent(
+        db: AsyncSession,
+        invoice_id: int,
+        current_user: UserModel,
+    ) -> Optional[InvoiceModel]:
+        """
+        Mark a DRAFT invoice as SENT (versendet).
+
+        Returns None if not found; raises 409 for any other current status.
+        """
+        result = await db.execute(
+            select(InvoiceModel).where(InvoiceModel.id == invoice_id)
+        )
+        invoice = result.scalar_one_or_none()
+        if not invoice:
+            return None
+
+        if invoice.status != InvoiceStatus.DRAFT:
+            from fastapi import HTTPException
+
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"Nur Entwuerfe koennen versendet werden. "
+                    f"Aktueller Status: {invoice.status.value}"
+                ),
+            )
+
+        async with transactional(db):
+            invoice.status = InvoiceStatus.SENT
+
+        _log_financial_access(
+            action="sent",
+            invoice_id=invoice_id,
+            user_id=current_user.id,
+            user_role=(
+                current_user.role.value
+                if hasattr(current_user.role, "value")
+                else str(current_user.role)
+            ),
         )
 
         return await InvoiceService.get_invoice(db, invoice_id, current_user)

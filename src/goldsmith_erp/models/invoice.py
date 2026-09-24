@@ -18,6 +18,7 @@ from typing import List, Optional
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from goldsmith_erp.db.models import InvoiceLineType, InvoiceStatus
+from goldsmith_erp.models._common import UtcNaiveDatetime
 
 # ============================================================================
 # LINE ITEM SCHEMAS
@@ -82,7 +83,9 @@ class InvoiceCreate(BaseModel):
     """
 
     order_id: int = Field(..., gt=0, description="Order ID to generate invoice from")
-    due_date: datetime = Field(..., description="Payment due date (Faelligkeitsdatum)")
+    due_date: UtcNaiveDatetime = Field(
+        ..., description="Payment due date (Faelligkeitsdatum); normalised to UTC"
+    )
     tax_rate: float = Field(
         default=19.0,
         ge=0,
@@ -116,11 +119,15 @@ class InvoiceUpdate(BaseModel):
     Schema for updating an existing invoice.
 
     Only editable fields — invoice_number, order_id and customer_id are immutable.
-    To mark as paid use the dedicated mark-paid endpoint.
+    ``status`` is deliberately NOT editable here (BE-05): transitions go through
+    the dedicated endpoints (send, mark-paid, cancel), which carry their own
+    permission checks. Unknown fields are rejected so a stray ``status`` fails
+    loudly instead of being ignored.
     """
 
-    status: Optional[InvoiceStatus] = Field(None, description="New invoice status")
-    due_date: Optional[datetime] = Field(None, description="Updated due date")
+    model_config = ConfigDict(extra="forbid")
+
+    due_date: Optional[UtcNaiveDatetime] = Field(None, description="Updated due date")
     notes: Optional[str] = Field(None, max_length=2000, description="Updated notes")
     payment_method: Optional[str] = Field(
         None, max_length=50, description="Payment method"
@@ -143,6 +150,13 @@ class InvoiceResponse(BaseModel):
     tax_rate: float = Field(..., description="MwSt-Satz in Prozent")
     tax_amount: float = Field(..., description="MwSt-Betrag")
     total: float = Field(..., description="Gesamtbetrag (gross)")
+    scrap_gold_credit: float = Field(
+        default=0.0,
+        description="Altgold-Gutschrift, deducted after VAT (not part of the VAT base)",
+    )
+    amount_due: Optional[float] = Field(
+        default=None, description="Zahlbetrag = total - scrap_gold_credit"
+    )
     notes: Optional[str] = None
     payment_method: Optional[str] = None
     created_at: datetime
@@ -164,6 +178,8 @@ class InvoiceListItem(BaseModel):
     due_date: datetime
     paid_date: Optional[datetime] = None
     total: float
+    scrap_gold_credit: float = 0.0
+    amount_due: Optional[float] = None
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
@@ -181,7 +197,7 @@ class InvoiceListResponse(BaseModel):
 class MarkPaidRequest(BaseModel):
     """Request body for marking an invoice as paid (bezahlt)."""
 
-    paid_date: Optional[datetime] = Field(
+    paid_date: Optional[UtcNaiveDatetime] = Field(
         default=None,
         description="Actual payment date (defaults to now if omitted)",
     )
