@@ -85,10 +85,19 @@ the answer letter to the customer (Art. 12 Abs. 4).
 Health data is the opposite case: `customers.allergies` and all
 `customer_consents` rows are deleted at request time (no retention duty).
 
-**Known gap (deferred to the invoice-snapshot batch):** invoice PDFs are
-still rendered from the live customer row, so after the grace-period
-anonymisation a re-rendered invoice shows `[GELÖSCHT]` as recipient. The
-immutable invoice snapshot (GDPR-01 part a) fixes that.
+**Immutable invoice snapshot (GDPR-01 part a, W1-10, 2026-09):** every
+invoice carries `invoices.snapshot` (encrypted JSON: recipient name and
+postal address, seller, lines, totals) written at creation, and from issue
+(DRAFT → SENT/PAID) the frozen PDF (`issued_pdf`, encrypted) plus its
+`issued_pdf_sha256`. The PDF endpoint renders from the snapshot and serves
+the frozen bytes for every non-DRAFT invoice, so neither an address change
+nor the grace-period anonymisation alters an issued invoice
+(`services/invoice_snapshot_service.py`). Invoices issued before W1-10 were
+backfilled from the then-current customer data (`backfilled: true`); those
+whose customer was already anonymised carry `recipient_anonymized: true`
+and need a note in the Art. 30 record. The snapshot is retained with the
+invoice under Art. 17(3)(b) and deleted with it at the end of the
+retention period.
 
 > **Design choice — why in-place anonymisation, not a sentinel customer.**
 > The two options were (a) create a global "deleted customer" sentinel row and

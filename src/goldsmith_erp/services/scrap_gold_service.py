@@ -32,6 +32,41 @@ logger = logging.getLogger(__name__)
 _GRAM_QUANT = Decimal("0.001")
 _EUR_QUANT = Decimal("0.01")
 
+# BE-11: once the customer has signed the Ankaufsbeleg (or the credit was
+# applied to an invoice) the record is the signed document. Items, weights,
+# prices and the signature are frozen; only status progression and notes
+# may change. Enforced here (service level) rather than with a DB trigger:
+# every write path goes through this service, and the invoice service only
+# ever moves SIGNED -> CREDITED.
+LOCKED_STATUSES = frozenset({ScrapGoldStatus.SIGNED, ScrapGoldStatus.CREDITED})
+_LOCKED_MESSAGE = (
+    "Altgold-Eintrag ist bereits vom Kunden unterschrieben und kann nicht "
+    "mehr geaendert werden (nur Notizen)."
+)
+
+
+class ScrapGoldLockedError(ValueError):
+    """Raised when a signed/credited Altgold record would be altered (409)."""
+
+    def __init__(self, scrap_gold_id: int) -> None:
+        super().__init__(_LOCKED_MESSAGE)
+        self.scrap_gold_id = scrap_gold_id
+
+
+def is_locked(scrap_gold: ScrapGoldModel) -> bool:
+    """True once the record is SIGNED or CREDITED (BE-11)."""
+    return scrap_gold.status in LOCKED_STATUSES
+
+
+def ensure_editable(scrap_gold: ScrapGoldModel) -> None:
+    """Raise ``ScrapGoldLockedError`` if the record may no longer change."""
+    if is_locked(scrap_gold):
+        logger.warning(
+            "Rejected change to signed scrap gold record",
+            extra={"scrap_gold_id": scrap_gold.id, "status": str(scrap_gold.status)},
+        )
+        raise ScrapGoldLockedError(scrap_gold.id)
+
 
 class ScrapGoldService:
 
@@ -98,7 +133,12 @@ class ScrapGoldService:
     async def add_item(
         db: AsyncSession, scrap_gold_id: int, item_data: ScrapGoldItemCreate
     ) -> ScrapGoldItemModel:
-        """Add an item to a scrap gold record and recalculate totals."""
+        """Add an item to a scrap gold record and recalculate totals.
+
+        Raises ``ScrapGoldLockedError`` once the record is signed (BE-11).
+        """
+        if await ScrapGoldService._load_editable(db, scrap_gold_id) is None:
+            raise LookupError(f"Scrap gold {scrap_gold_id} not found")
         fine_content = ScrapGoldService.calculate_fine_content(
             item_data.alloy, item_data.weight_g
         )
@@ -120,7 +160,12 @@ class ScrapGoldService:
 
     @staticmethod
     async def remove_item(db: AsyncSession, scrap_gold_id: int, item_id: int) -> bool:
-        """Remove an item and recalculate totals."""
+        """Remove an item and recalculate totals.
+
+        Raises ``ScrapGoldLockedError`` once the record is signed (BE-11).
+        """
+        if await ScrapGoldService._load_editable(db, scrap_gold_id) is None:
+            return False
         result = await db.execute(
             select(ScrapGoldItemModel).where(
                 ScrapGoldItemModel.id == item_id,
@@ -139,10 +184,21 @@ class ScrapGoldService:
     async def calculate_and_update(
         db: AsyncSession, scrap_gold_id: int, gold_price_per_g: Optional[float] = None
     ) -> Optional[ScrapGoldModel]:
-        """Recalculate totals and optionally update the gold price override."""
+        """Recalculate totals and optionally update the gold price override.
+
+        On a signed/credited record (BE-11) the signed totals are final: a
+        price override raises ``ScrapGoldLockedError``, a plain recalculation
+        is a no-op (no re-pricing against today's spot price, no status
+        demotion).
+        """
         scrap_gold = await ScrapGoldService.get_by_id(db, scrap_gold_id)
         if not scrap_gold:
             return None
+
+        if is_locked(scrap_gold):
+            if gold_price_per_g is not None:
+                ensure_editable(scrap_gold)
+            return scrap_gold
 
         if gold_price_per_g is not None:
             scrap_gold.gold_price_per_g = gold_price_per_g
@@ -158,10 +214,15 @@ class ScrapGoldService:
     async def sign(
         db: AsyncSession, scrap_gold_id: int, signature_data: str
     ) -> Optional[ScrapGoldModel]:
-        """Record customer's digital signature on scrap gold receipt."""
+        """Record customer's digital signature on scrap gold receipt.
+
+        A record can be signed exactly once (BE-11): re-signing would swap
+        the signature under an already-issued receipt.
+        """
         scrap_gold = await ScrapGoldService.get_by_id(db, scrap_gold_id)
         if not scrap_gold:
             return None
+        ensure_editable(scrap_gold)
 
         scrap_gold.signature_data = signature_data
         scrap_gold.signed_at = datetime.utcnow()
@@ -169,6 +230,46 @@ class ScrapGoldService:
         await db.commit()
         await db.refresh(scrap_gold)
         logger.info(f"Scrap gold {scrap_gold_id} signed by customer")
+        return scrap_gold
+
+    @staticmethod
+    async def update(
+        db: AsyncSession, scrap_gold_id: int, data: ScrapGoldUpdate
+    ) -> Optional[ScrapGoldModel]:
+        """Update header fields. After signing only ``notes`` may change."""
+        scrap_gold = await ScrapGoldService.get_by_id(db, scrap_gold_id)
+        if not scrap_gold:
+            return None
+
+        changes = data.model_dump(exclude_unset=True)
+        if is_locked(scrap_gold) and set(changes) - {"notes"}:
+            ensure_editable(scrap_gold)
+
+        for field, value in changes.items():
+            setattr(scrap_gold, field, value)
+        await db.commit()
+        if "gold_price_per_g" in changes:
+            await ScrapGoldService._recalculate_totals(db, scrap_gold_id)
+        return await ScrapGoldService.get_by_id(db, scrap_gold_id)
+
+    @staticmethod
+    async def ensure_item_editable(
+        db: AsyncSession, scrap_gold_id: int
+    ) -> Optional[ScrapGoldModel]:
+        """Public guard for item-level writes outside this service (photo upload)."""
+        return await ScrapGoldService._load_editable(db, scrap_gold_id)
+
+    @staticmethod
+    async def _load_editable(
+        db: AsyncSession, scrap_gold_id: int
+    ) -> Optional[ScrapGoldModel]:
+        """Load the record for an item write; None if missing, raise if locked."""
+        result = await db.execute(
+            select(ScrapGoldModel).where(ScrapGoldModel.id == scrap_gold_id)
+        )
+        scrap_gold = result.scalar_one_or_none()
+        if scrap_gold is not None:
+            ensure_editable(scrap_gold)
         return scrap_gold
 
     @staticmethod

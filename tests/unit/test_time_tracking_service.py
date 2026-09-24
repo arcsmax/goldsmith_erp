@@ -16,6 +16,7 @@ import uuid
 from datetime import datetime, timedelta
 
 import pytest
+from fastapi import HTTPException
 
 from goldsmith_erp.db.models import TimeEntry as TimeEntryModel
 from goldsmith_erp.models.interruption import InterruptionCreate
@@ -339,8 +340,10 @@ class TestActiveTimeTracking:
             activity_id=sample_activity.id,
         )
 
-        with pytest.raises(ValueError, match="laufende Zeiterfassung"):
+        # BE-12 (W1-17): a second start is a 409, not a generic 400.
+        with pytest.raises(HTTPException, match="läuft bereits") as exc_info:
             await TimeTrackingService.start_time_entry(db_session, entry_start)
+        assert exc_info.value.status_code == 409
 
     async def test_stop_time_entry_success(self, db_session, active_time_entry):
         """Test stopping an active time entry"""

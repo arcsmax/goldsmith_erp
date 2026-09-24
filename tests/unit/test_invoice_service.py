@@ -228,8 +228,10 @@ class TestCalculateTotals:
         result = InvoiceService.calculate_totals(items, tax_rate=19.0)
 
         assert result["subtotal"] == 187.5
-        assert result["tax_amount"] == round(187.5 * 0.19, 2)
-        assert result["total"] == round(187.5 + result["tax_amount"], 2)
+        # A1: 187.50 x 19 % = 35.625 -> 35.63 with ROUND_HALF_UP. The old
+        # expectation used float round(), which gives 35.62.
+        assert result["tax_amount"] == 35.63
+        assert result["total"] == 223.13
 
     def test_totals_rounded_to_two_decimal_places(self):
         """Results must be rounded to 2 decimal places (currency precision)."""

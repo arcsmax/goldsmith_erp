@@ -6,6 +6,7 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import HTTPException
 from sqlalchemy import and_, case, delete, func, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy.orm import selectinload
@@ -66,6 +67,32 @@ class TimerPossiblyStaleError(HTTPException):
         )
 
 
+# BE-18 (W1-17): an edited entry may not be longer than one working day.
+MAX_EDITED_DURATION = timedelta(hours=24)
+
+
+class TimerAlreadyRunningError(HTTPException):
+    """409 when the user already has a running timer (BE-12, W1-17).
+
+    Raised by the pre-insert check and, for the lost race of two concurrent
+    starts, when the partial unique index ``uq_time_entries_one_running``
+    rejects the INSERT.
+    """
+
+    def __init__(self, running_entry_id: Optional[str] = None) -> None:
+        suffix = f" (ID: {running_entry_id})" if running_entry_id else ""
+        super().__init__(
+            status_code=409,
+            detail=(
+                f"Es läuft bereits eine Zeiterfassung{suffix}. " "Bitte zuerst stoppen."
+            ),
+        )
+
+
+class TimeEntryValidationError(ValueError):
+    """An edit would store an impossible time entry (BE-18) -> 422."""
+
+
 class CrossUserTimerError(HTTPException):
     """Raised by ``switch_timer`` when a caller tries to switch another user's timer (A5.1).
 
@@ -113,10 +140,7 @@ class TimeTrackingService:
             db, entry_in.user_id
         )
         if running_entry:
-            raise ValueError(
-                f"User hat bereits eine laufende Zeiterfassung (ID: {running_entry.id}). "
-                "Bitte zuerst stoppen."
-            )
+            raise TimerAlreadyRunningError(running_entry.id)
 
         # Erstelle neue TimeEntry
         db_entry = TimeEntryModel(
@@ -131,7 +155,17 @@ class TimeTrackingService:
         )
 
         db.add(db_entry)
-        await db.commit()
+        try:
+            await db.commit()
+        except IntegrityError as exc:
+            # Lost race: a concurrent start committed first and the partial
+            # unique index rejected this INSERT (BE-12).
+            await db.rollback()
+            logger.info(
+                "Concurrent timer start rejected by uq_time_entries_one_running",
+                extra={"user_id": entry_in.user_id},
+            )
+            raise TimerAlreadyRunningError() from exc
         await db.refresh(db_entry)
 
         # Increment activity usage counter
@@ -150,7 +184,10 @@ class TimeTrackingService:
 
     @staticmethod
     async def stop_time_entry(
-        db: AsyncSession, entry_id: str, stop_data: TimeEntryStop
+        db: AsyncSession,
+        entry_id: str,
+        stop_data: TimeEntryStop,
+        end_time: Optional[datetime] = None,
     ) -> Optional[TimeEntryModel]:
         """
         Stoppt eine laufende Zeiterfassung und fügt Bewertungen hinzu.
@@ -159,6 +196,8 @@ class TimeTrackingService:
             db: Database session
             entry_id: UUID der TimeEntry
             stop_data: TimeEntryStop schema mit ratings und notes
+            end_time: explicit end (correction of a forgotten timer via PUT,
+                already validated by ``update_time_entry``); default now.
 
         Returns:
             Updated TimeEntry or None
@@ -171,7 +210,8 @@ class TimeTrackingService:
             raise ValueError("Diese Zeiterfassung wurde bereits gestoppt")
 
         # Berechne Dauer
-        end_time = datetime.utcnow()
+        if end_time is None:
+            end_time = datetime.utcnow()
         duration = int((end_time - entry.start_time).total_seconds() / 60)
 
         # Update Entry
@@ -385,8 +425,13 @@ class TimeTrackingService:
                     TimeEntryModel.user_id == user_id, TimeEntryModel.end_time.is_(None)
                 )
             )
+            # The partial unique index guarantees at most one row; ordering +
+            # first() keeps legacy data (pre-index duplicates) from turning
+            # into a MultipleResultsFound 500 (BE-12).
+            .order_by(TimeEntryModel.start_time.desc())
+            .limit(1)
         )
-        return result.scalar_one_or_none()
+        return result.scalars().first()
 
     @staticmethod
     async def get_time_entries_for_order(
@@ -487,19 +532,34 @@ class TimeTrackingService:
     async def update_time_entry(
         db: AsyncSession, entry_id: str, entry_in: TimeEntryUpdate
     ) -> Optional[TimeEntryModel]:
-        """Aktualisiert eine bestehende TimeEntry."""
+        """Aktualisiert eine bestehende TimeEntry.
+
+        BE-18: ``end_time`` must lie after ``start_time`` and within 24 h;
+        a running entry cannot get a duration without an end time and
+        ``end_time`` cannot be cleared. Setting ``end_time`` on a running
+        entry goes through ``stop_time_entry`` so the stop side effects
+        (activity average, anomaly check, cost watch) run.
+
+        Raises:
+            TimeEntryValidationError: the edit is impossible (422).
+        """
         entry = await TimeTrackingService.get_time_entry(db, entry_id)
         if not entry:
             return None
 
         update_data = entry_in.model_dump(exclude_unset=True)
+        TimeTrackingService._validate_edit(entry, update_data)
 
-        # Berechne Dauer neu falls end_time geändert wurde
-        if "end_time" in update_data and update_data["end_time"] and entry.start_time:
-            duration = int(
-                (update_data["end_time"] - entry.start_time).total_seconds() / 60
+        new_end: Optional[datetime] = update_data.get("end_time")
+        if entry.end_time is None and new_end is not None:
+            return await TimeTrackingService._stop_via_edit(
+                db, entry, new_end, update_data
             )
-            update_data["duration_minutes"] = duration
+
+        if new_end is not None:
+            update_data["duration_minutes"] = int(
+                (new_end - entry.start_time).total_seconds() / 60
+            )
 
         await db.execute(
             update(TimeEntryModel)
@@ -508,6 +568,68 @@ class TimeTrackingService:
         )
         await db.commit()
 
+        return await TimeTrackingService.get_time_entry(db, entry_id)
+
+    @staticmethod
+    def _validate_edit(entry: TimeEntryModel, update_data: Dict[str, Any]) -> None:
+        """Reject impossible time edits (BE-18) with a German message."""
+        if "end_time" in update_data and update_data["end_time"] is None:
+            raise TimeEntryValidationError(
+                "Die Endzeit kann nicht entfernt werden. Bitte eine neue "
+                "Zeiterfassung starten."
+            )
+        new_end: Optional[datetime] = update_data.get("end_time")
+        if new_end is not None:
+            if new_end <= entry.start_time:
+                raise TimeEntryValidationError(
+                    "Die Endzeit muss nach der Startzeit liegen."
+                )
+            if new_end - entry.start_time > MAX_EDITED_DURATION:
+                raise TimeEntryValidationError(
+                    "Eine Zeiterfassung darf höchstens 24 Stunden dauern."
+                )
+        elif entry.end_time is None and update_data.get("duration_minutes"):
+            raise TimeEntryValidationError(
+                "Eine laufende Zeiterfassung hat noch keine Dauer. Bitte "
+                "stoppen oder eine Endzeit angeben."
+            )
+
+    @staticmethod
+    async def _stop_via_edit(
+        db: AsyncSession,
+        entry: TimeEntryModel,
+        end_time: datetime,
+        update_data: Dict[str, Any],
+    ) -> Optional[TimeEntryModel]:
+        """PUT with ``end_time`` on a running entry = the stop flow (BE-18)."""
+        entry_id = entry.id
+        stop_keys = {
+            "end_time",
+            "notes",
+            "complexity_rating",
+            "quality_rating",
+            "rework_required",
+        }
+        stop_data = TimeEntryStop(
+            complexity_rating=update_data.get(
+                "complexity_rating", entry.complexity_rating
+            ),
+            quality_rating=update_data.get("quality_rating", entry.quality_rating),
+            rework_required=bool(
+                update_data.get("rework_required", entry.rework_required)
+            ),
+            notes=update_data.get("notes", entry.notes),
+        )
+        stopped = await TimeTrackingService.stop_time_entry(
+            db, entry_id, stop_data, end_time=end_time
+        )
+        rest = {k: v for k, v in update_data.items() if k not in stop_keys}
+        if not rest:
+            return stopped
+        await db.execute(
+            update(TimeEntryModel).where(TimeEntryModel.id == entry_id).values(**rest)
+        )
+        await db.commit()
         return await TimeTrackingService.get_time_entry(db, entry_id)
 
     @staticmethod
@@ -737,7 +859,7 @@ class TimeTrackingService:
             )
             db.add(new_entry)
             await db.commit()
-        except Exception:
+        except Exception as exc:
             # Roll back everything — if the new-entry insert failed the
             # old entry's stop must not stick.
             await db.rollback()
@@ -754,6 +876,9 @@ class TimeTrackingService:
                     .values(end_time=None, duration_minutes=None)
                 )
                 await db.commit()
+            if isinstance(exc, IntegrityError):
+                # Another timer of this user is already running (BE-12).
+                raise TimerAlreadyRunningError() from exc
             raise
 
         # Reload with relationships for downstream use / response.
