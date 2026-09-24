@@ -42,68 +42,43 @@ class TestSecretKeyPlaceholderBypass:
             Settings(**_prod_kwargs(SECRET_KEY=ENV_EXAMPLE_PLACEHOLDER))
 
     def test_placeholder_with_trailing_whitespace_bypasses_rejection(self):
-        """A single trailing space defeats the exact-match placeholder
-        check in _reject_placeholder_secrets AND is not in
-        validate_secret_key's insecure_values list (also exact-match), so a
-        production deployment boots with a publicly-known, guessable
-        SECRET_KEY."""
+        """A single trailing space must NOT defeat the placeholder check.
+
+        Fixed 2026-09-25: _reject_placeholder_secrets now strips whitespace
+        before comparing, so a value one whitespace character away from the
+        public placeholder is rejected exactly like the bare placeholder."""
         smuggled = ENV_EXAMPLE_PLACEHOLDER + " "
         assert len(smuggled) >= 32  # passes the length check too
 
-        settings = Settings(**_prod_kwargs(SECRET_KEY=smuggled))
-
-        # BUG: this should have raised ValidationError, exactly like the
-        # bare placeholder does above. Instead production boots with a
-        # value one whitespace character away from the public placeholder.
-        assert settings.SECRET_KEY != smuggled, (
-            "SEC-02 bypass: SECRET_KEY = ENV_EXAMPLE_PLACEHOLDER + ' ' "
-            "booted with DEBUG=False. "
-            "src/goldsmith_erp/core/config.py Settings._reject_placeholder_secrets "
-            "does exact string equality only "
-            "(getattr(self, name) == ENV_EXAMPLE_PLACEHOLDER) and "
-            "Settings.validate_secret_key's insecure_values check is also "
-            "exact-match, so a trivially-guessable near-placeholder secret "
-            "is accepted in production."
-        )
+        with pytest.raises(ValidationError, match="(?i)placeholder"):
+            Settings(**_prod_kwargs(SECRET_KEY=smuggled))
 
     def test_lowercased_placeholder_bypasses_rejection(self):
-        """Case alone defeats both checks: _reject_placeholder_secrets does
-        `==` against the uppercase literal, and validate_secret_key's
-        insecure_values list contains a DIFFERENT (shorter) lowercase
-        string, not this placeholder lowercased. A case-insensitive
-        variant of the single most obviously-guessable secret in the
-        entire codebase boots successfully in production."""
+        """Case alone must NOT defeat the placeholder check.
+
+        Fixed 2026-09-25: _reject_placeholder_secrets now case-folds before
+        comparing, so a case-insensitive variant of the single most
+        obviously-guessable secret in the entire codebase is rejected in
+        production, not silently accepted."""
         smuggled = ENV_EXAMPLE_PLACEHOLDER.lower()
         assert len(smuggled) >= 32
 
-        settings = Settings(**_prod_kwargs(SECRET_KEY=smuggled))
-
-        assert settings.SECRET_KEY != smuggled, (
-            "SEC-02 bypass: SECRET_KEY = ENV_EXAMPLE_PLACEHOLDER.lower() "
-            "booted with DEBUG=False — a case-insensitive variant of the "
-            "public .env.example placeholder is accepted as a 'secure' "
-            "production secret. CRITICAL: anyone who has read the public "
-            "repository's .env.example can forge admin JWTs against any "
-            "installation that made this trivial casing mistake."
-        )
+        with pytest.raises(ValidationError, match="(?i)placeholder"):
+            Settings(**_prod_kwargs(SECRET_KEY=smuggled))
 
     def test_anonymization_salt_lowercased_placeholder_also_bypasses(self):
         """ANONYMIZATION_SALT has NO length/entropy validator at all (unlike
         SECRET_KEY) — its only protection is _reject_placeholder_secrets'
-        exact-match check, so this bypass is even more direct: any
-        non-exact variant of the placeholder, including a lowercased one,
-        is accepted outright with zero strength checking."""
+        match check, so this bypass would otherwise be even more direct.
+
+        Fixed 2026-09-25: the same whitespace/case normalisation covers
+        ANONYMIZATION_SALT too, so a lowercased variant of the placeholder
+        is rejected in production rather than accepted outright with zero
+        strength checking."""
         smuggled = ENV_EXAMPLE_PLACEHOLDER.lower()
 
-        settings = Settings(**_prod_kwargs(ANONYMIZATION_SALT=smuggled))
-
-        assert settings.ANONYMIZATION_SALT != smuggled, (
-            "SEC-02 bypass: ANONYMIZATION_SALT = ENV_EXAMPLE_PLACEHOLDER.lower() "
-            "booted with DEBUG=False. Since erasure-tracking HMACs are keyed "
-            "on this salt, an installation that makes this casing mistake "
-            "has its GDPR Art. 17 tracking tokens recomputable by anyone "
-            "who knows the public placeholder."
-        )
+        with pytest.raises(ValidationError, match="(?i)placeholder"):
+            Settings(**_prod_kwargs(ANONYMIZATION_SALT=smuggled))
 
 
 class TestSecretKeyLengthValidatorRegression:

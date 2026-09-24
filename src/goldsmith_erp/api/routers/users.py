@@ -1,7 +1,7 @@
 # src/goldsmith_erp/api/routers/users.py
 
 import logging
-from typing import List, Optional
+from typing import List, Optional, Union
 
 from fastapi import APIRouter, Body, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -93,14 +93,24 @@ async def get_current_user_profile(current_user: UserModel = Depends(get_current
     return current_user
 
 
-def _changes_credentials(user_in: UserSelfUpdate, current_user: UserModel) -> bool:
+# Either update schema carries an (optional) current_password field, used
+# by both PUT /users/me (self-service) and, since SEC-11 finding B3.1/B3.2
+# (2026-09-25), PUT /users/{user_id} when an ADMIN targets their own id.
+_ReauthableUserUpdate = Union[UserSelfUpdate, UserAdminUpdate]
+
+
+def _changes_credentials(
+    user_in: _ReauthableUserUpdate, current_user: UserModel
+) -> bool:
     """True if the update changes the password or the (login) email."""
     if user_in.password is not None:
         return True
     return user_in.email is not None and user_in.email != current_user.email
 
 
-def _require_current_password(user_in: UserSelfUpdate, current_user: UserModel) -> None:
+def _require_current_password(
+    user_in: _ReauthableUserUpdate, current_user: UserModel
+) -> None:
     """Re-authenticate a credential change (SEC-11). Raises on failure."""
     if not user_in.current_password:
         raise HTTPException(
@@ -273,7 +283,23 @@ async def update_user_by_admin(
 
     **Use Case**: Admin möchte Benutzer-Daten korrigieren, Status ändern
     oder einem Kollegen eine andere Rolle zuweisen.
+
+    **Security note (SEC-11, adversarial finding B3.1/B3.2, 2026-09-25):**
+    `USER_EDIT` is held unconditionally by ADMIN, including against their
+    own `user_id` — without a check this route would let a hijacked/XSS'd
+    ADMIN session, or an unattended unlocked session, silently take over
+    the account by changing its own email/password here with zero
+    re-authentication, completely bypassing the SEC-11 rule `PUT /users/me`
+    enforces. When `user_id == current_user.id` and the payload changes
+    email or password, `current_password` is required and verified exactly
+    like `/users/me` (400 missing, 403 wrong). Changing another user's
+    credentials as ADMIN is unaffected — that stays allowed and is
+    audit-logged by the middleware.
     """
+    is_self_edit = user_id == current_user.id
+    if is_self_edit and _changes_credentials(user_in, current_user):
+        _require_current_password(user_in, current_user)
+
     # Prüfen ob neue E-Mail bereits existiert (falls geändert)
     if user_in.email:
         user = await UserService.get_user_by_id(db, user_id)
@@ -285,9 +311,14 @@ async def update_user_by_admin(
                     detail="Email already in use",
                 )
 
-    # Benutzer aktualisieren
+    # Benutzer aktualisieren (current_password is verification only, never
+    # persisted — UserService.update_user would otherwise try to write it
+    # to a non-existent column).
+    update_payload = UserAdminUpdate(
+        **user_in.model_dump(exclude_unset=True, exclude={"current_password"})
+    )
     try:
-        updated_user = await UserService.update_user(db, user_id, user_in)
+        updated_user = await UserService.update_user(db, user_id, update_payload)
     except LastAdminError:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -311,6 +342,18 @@ async def update_user_by_admin(
                 "new_role": user_in.role.value,
                 "changed_by": current_user.id,
                 "event": "role_change",
+            },
+        )
+
+    if is_self_edit and _changes_credentials(user_in, current_user):
+        email_changed = user_in.email is not None
+        logger.info(
+            "Credentials changed by account owner via admin route",
+            extra={
+                "user_id": user_id,
+                "event": "credential_change",
+                "password_changed": user_in.password is not None,
+                "email_changed": email_changed,
             },
         )
 
