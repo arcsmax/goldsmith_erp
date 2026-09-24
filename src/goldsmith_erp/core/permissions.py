@@ -56,6 +56,10 @@ class Permission(str, Enum):
     CUSTOMER_CREATE = "customer:create"
     CUSTOMER_EDIT = "customer:edit"
     CUSTOMER_DELETE = "customer:delete"
+    # GDPR-02 / GDPR-11 — Art. 9 health data (allergies) and the consent
+    # records that make processing it lawful. GOLDSMITH + ADMIN only.
+    CUSTOMER_HEALTH_VIEW = "customer:health_view"
+    CONSENT_MANAGE = "consent:manage"
 
     # Invoice permissions (financial data - ADMIN and GOLDSMITH only)
     INVOICE_VIEW = "invoice:view"
@@ -188,6 +192,9 @@ ROLE_PERMISSIONS: dict[UserRole, List[Permission]] = {
         Permission.CUSTOMER_VIEW,
         Permission.CUSTOMER_CREATE,
         Permission.CUSTOMER_EDIT,
+        # Health data (allergies) + consent records (GDPR-02 / GDPR-11)
+        Permission.CUSTOMER_HEALTH_VIEW,
+        Permission.CONSENT_MANAGE,
         # Invoices (financial data - goldsmith can view and create, not delete)
         Permission.INVOICE_VIEW,
         Permission.INVOICE_CREATE,

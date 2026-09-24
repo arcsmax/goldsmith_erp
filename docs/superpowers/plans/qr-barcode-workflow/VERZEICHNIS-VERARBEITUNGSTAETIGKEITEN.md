@@ -113,7 +113,7 @@
 | **Zweck der Verarbeitung** | Loeschen kundenbezogener Dateien im Dateisystem (PDFs, Fotos, Belege) ausserhalb der DB-Zeilen, die bei `scrub_customer_pii` allein zurueckbleiben wuerden. Erfuellt Art. 17(1) „ohne unangemessene Verzoegerung" auch fuer Nicht-DB-Artefakte. |
 | **Rechtsgrundlage** | Art. 6(1)(c) DSGVO iVm Art. 17. |
 | **Betroffene Personen** | Kunden, deren Loeschbegehren in V1.1-004 eingereicht wurde. |
-| **Datenkategorien** | 5 Datei-Pfade + physische Dateiinhalte: `valuation_certificates.pdf_path` (Schaetzgutachten mit Kunden-Name/Signatur), `order_photos.file_path`, `repair_photos.file_path`, `scrap_gold_items.photo_path`, `scrap_gold.receipt_pdf_path` (Altgold-Beleg mit Signatur). Siehe PII-SCRUB-AUDIT.md O1/O2. |
+| **Datenkategorien** | 4 Datei-Pfade + physische Dateiinhalte: `valuation_certificates.pdf_path` (Schaetzgutachten mit Kunden-Name/Signatur), `order_photos.file_path`, `repair_photos.file_path`, `scrap_gold_items.photo_path`. **Nicht** geloescht (GDPR-01, 2026-09): `scrap_gold.receipt_pdf_path` (Altgold-Ankaufbeleg, §8 Abs. 4 GwG / §147 AO, Art. 17 Abs. 3 lit. b DSGVO). Siehe PII-SCRUB-AUDIT.md O1/O2. |
 | **Empfaenger** | Intern: ADMIN (ausloesen); Dateisystem lokal. Extern: keine. |
 | **Drittland-Transfer** | Nein. Files liegen auf lokalem Podman-Volume; kein S3/Drittland-Storage in V1.1. |
 | **Loeschfristen** | Synchron mit V1.1-004 (30 Tage Grace + Execution). `gdpr_requests.status = PARTIAL_FILE_ERASURE` wenn einzelne Dateien nicht loeschbar (Netzwerk-Share offline, Read-Only) — ADMIN-Nacharbeit erforderlich. |
@@ -167,11 +167,11 @@
 | **Zweck der Verarbeitung** | Ankauf von Altgold von Privatkunden, gesetzlich vorgeschriebene Identifikations- und Dokumentationspflicht nach GwG (Geldwaeschegesetz) §§ 10, 12. Erfasst Kundensignatur als Nachweis der Uebergabe und Kaufpreis-Akzeptanz. |
 | **Rechtsgrundlage** | Art. 6(1)(c) DSGVO iVm GwG §10 (Identifikationspflicht bei Bartransaktionen ≥ 10 000 € bzw. ≥ 2 000 € fuer Gueterhaendler mit hohem Bargeldanteil); Art. 6(1)(b) DSGVO (Kaufvertragsabwicklung). **eIDAS-Klassifikation der Signatur: einfache elektronische Signatur (Art. 3 Nr. 10 VO 910/2014)** — Details siehe `EIDAS-ALTGOLD-SIGNATUREN.md`. |
 | **Betroffene Personen** | Privatkunden, die Altgold verkaufen. |
-| **Datenkategorien** | `scrap_gold.customer_id` (nullable — Walk-in-Kunde moeglich), `signature_data` (base64 PNG, SCRUB-binary Target 25), `notes` (SCRUB Target 24), `receipt_pdf_path` (File-Erasure-Target), `scrap_gold_items.description` (SCRUB Target 26), `photo_path` (File-Erasure-Target), `price_source`. Siehe PII-SCRUB-AUDIT.md Zeilen 63–68. |
+| **Datenkategorien** | `scrap_gold.customer_id` (nullable — Walk-in-Kunde moeglich), `signature_data` (base64 PNG), `notes`, `receipt_pdf_path`, `scrap_gold_items.description`, `photo_path` (File-Erasure-Target), `price_source`. Seit GDPR-01 (2026-09) werden Signatur, Notizen, Positionen und Beleg bei Art. 17 **nicht** mehr geschwaerzt (`RETAINED_RECORD_FIELDS`). |
 | **Empfaenger** | Intern: GOLDSMITH (Ankauf), ADMIN (Financial Oversight). Extern: Finanzamt (Betriebspruefung), GwG-Aufsichtsbehoerde bei Verdachtsmeldung. |
 | **Drittland-Transfer** | Nein. |
-| **Loeschfristen** | `retention_class = financial_10y` (HGB §257 + GwG §8 Abs. 4). Bei Art. 17-Antrag des Kunden: Datenminimierung auf das GwG-Minimum; Signatur und Foto werden nach Ablauf der GwG-Frist geloescht. |
-| **TOMs** | Signatur binary-SCRUB, Foto per FileErasureService, Path-Traversal-Guard. **eIDAS-Empfehlung V1.2**: qualifizierte Signatur fuer Transaktionen > 5 000 € (siehe `EIDAS-ALTGOLD-SIGNATUREN.md`). |
+| **Loeschfristen** | `retention_class = financial_10y` (HGB §257 + GwG §8 Abs. 4). Bei Art. 17-Antrag des Kunden: Datensatz inkl. Signatur und Beleg bleibt unveraendert (Art. 17 Abs. 3 lit. b); `customers.retention_hold_until` (Jahresende des juengsten Belegs + 10 Jahre) markiert, ab wann geloescht werden darf; die Kundenzeile wird nach 30 Tagen anonymisiert. Nur Artikelfotos werden sofort geloescht. |
+| **TOMs** | Signatur und Beleg aufbewahrt (GDPR-01), Foto per FileErasureService, Path-Traversal-Guard. **eIDAS-Empfehlung V1.2**: qualifizierte Signatur fuer Transaktionen > 5 000 € (siehe `EIDAS-ALTGOLD-SIGNATUREN.md`). |
 | **Verantwortlicher** | Max Kull |
 | **Auftragsverarbeiter** | N/A. |
 
@@ -238,7 +238,7 @@
 |---|---|
 | **Lfd. Nr.** | V1.3-002 |
 | **Zweck der Verarbeitung** | Automatisierte, fristgerechte Ausfuehrung von Loeschbegehren (Art. 17) nach Ablauf der 30-Tage-Grace-Period. Ergaenzt die Mechanismen aus V1.1-004/005/006 um (a) den geplanten Kunden-Cleanup-Job (`jobs.gdpr_cleanup` → `CustomerService.hard_delete_expired_customers`, systemd-Timer) und (b) die tatsaechlich verdrahteten Erasure-Endpoints, die es zuvor nicht gab: `DELETE /customers/{id}/gdpr-erase` und **neu** `POST /users/{id}/gdpr-erase` (Mitarbeiter, ruft `anonymize_user`). |
-| **Rechtsgrundlage** | Art. 6(1)(c) DSGVO iVm Art. 17. Ausnahme Art. 17(3)(b): Kunden mit aufbewahrungspflichtigen Finanzunterlagen (Rechnung/Kostenvoranschlag/Wertgutachten, §147 AO — 10 Jahre) werden **in-place anonymisiert** statt geloescht; ohne solche Unterlagen wird die Zeile hart geloescht. |
+| **Rechtsgrundlage** | Art. 6(1)(c) DSGVO iVm Art. 17. Ausnahme Art. 17(3)(b): Kunden mit aufbewahrungspflichtigen Unterlagen (Rechnung/Kostenvoranschlag/Wertgutachten, §147 AO / §14b UStG — 10 Jahre; Altgold-Ankauf, §8 Abs. 4 GwG) werden **in-place anonymisiert** statt geloescht; die Unterlagen selbst bleiben unveraendert (GDPR-01), `customers.retention_hold_until` + Audit-Row `gdpr_retention_hold` dokumentieren Frist und Rechtsgrundlage. Ohne solche Unterlagen wird die Zeile hart geloescht. |
 | **Betroffene Personen** | Kunden (nach Ablauf der Grace-Period) und Mitarbeiter (Austritt oder Loeschbegehren). |
 | **Datenkategorien** | Kundenseitig: alle identifizierenden `customers`-Spalten → `[GELOESCHT]`/NULL bzw. Zeile geloescht, plus Datei-Artefakte (V1.1-006). Mitarbeiterseitig: `users`-PII → Sentinel (V1.1-005). Audit: `customer_audit_logs` (`gdpr_pii_scrub`, `gdpr_file_erasure`) + `gdpr_requests` (`erasure`, `erasure_cleanup`) bleiben erhalten. |
 | **Empfaenger** | Intern: ADMIN (loest die Endpoints aus); der Cleanup-Job laeuft unbeaufsichtigt im Backend-Container. Bei Fehlern: WARNING-Benachrichtigung an alle aktiven ADMINs (systemd `OnFailure` → `/admin/notify-gdpr-cleanup`). Extern: ggf. Aufsichtsbehoerde bei Beschwerde. |
@@ -297,3 +297,21 @@ _________________________________________
 Max Kull, Verantwortlicher nach Art. 4 Nr. 7 DSGVO
 Ort, Datum
 ```
+
+---
+
+## V1.4-001 — Einwilligungen und Gesundheitsdaten (Allergien)
+
+| Feld | Inhalt |
+|---|---|
+| **Lfd. Nr.** | V1.4-001 (GDPR-02 / GDPR-11, 2026-09) |
+| **Zweck der Verarbeitung** | Nachweis von Einwilligungen je Zweck (`customer_consents`: `health_data`, `photo_use`, `email_contact`, `marketing`). Erste Anwendung: Allergien (z. B. Nickel) als Gesundheitsdaten, damit kein allergieausloesendes Material verarbeitet wird. |
+| **Rechtsgrundlage** | Allergien: Art. 9 Abs. 2 lit. a DSGVO (ausdrueckliche Einwilligung); Einwilligungsnachweis: Art. 7 Abs. 1. Ohne aktive `health_data`-Einwilligung lehnt das System das Speichern von Allergien ab (HTTP 422). |
+| **Betroffene Personen** | Kundinnen und Kunden. |
+| **Datenkategorien** | Zweck, Art der Erteilung (`in_person`/`written`/`portal`), Textversion, Erteilt-/Widerrufen-Zeitpunkt, erfassende Person, Notiz (verschluesselt). Allergien: `customers.allergies` (verschluesselt), `customer_no_gos` Kategorie `allergy` (verschluesselt). |
+| **Empfaenger** | Intern: nur GOLDSMITH und ADMIN (`CUSTOMER_HEALTH_VIEW`, `CONSENT_MANAGE`). VIEWER sieht weder Allergien noch Allergie-No-Gos. |
+| **Drittland-Transfer** | Nein. |
+| **Loeschfristen** | Widerruf (Art. 7 Abs. 3) loescht Allergien und Allergie-No-Gos sofort. Art. 17-Antrag: Allergien und alle Einwilligungen werden sofort geloescht; Art. 15-Auskunft enthaelt die Einwilligungshistorie. |
+| **TOMs** | Verschluesselung at rest, Rollenprojektion im API (`CustomerRead` serialisiert Allergien nie), Audit-Rows `consent_granted`/`consent_revoked`, Audit-Middleware fuer `/customers/*`. |
+| **Verantwortlicher** | Max Kull |
+| **Auftragsverarbeiter** | N/A. |

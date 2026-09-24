@@ -30,6 +30,16 @@ def _style_profile_url(customer_id: int) -> str:
     return f"/api/v1/customers/{customer_id}/style-profile"
 
 
+async def _grant_health_consent(client: AsyncClient, customer_id: int, headers):
+    """GDPR-02: ALLERGY no-gos need an explicit HEALTH_DATA consent first."""
+    resp = await client.post(
+        f"/api/v1/customers/{customer_id}/consents",
+        json={"purpose": "health_data", "method": "written"},
+        headers=headers,
+    )
+    assert resp.status_code == 201, resp.text
+
+
 class TestNoGos:
     @pytest.mark.asyncio
     async def test_no_go_crud_and_duplicate(
@@ -39,6 +49,7 @@ class TestNoGos:
         test_customer: Customer,
     ):
         base = _no_gos_url(test_customer.id)
+        await _grant_health_consent(client, test_customer.id, goldsmith_auth_headers)
         created = await client.post(
             base,
             json={"category": "allergy", "value": "Nickel"},
@@ -78,6 +89,7 @@ class TestNoGos:
         (e.g. an allergy). NoGoService.add_no_go's duplicate ValueError
         embeds the raw value; the router must map it to a generic detail."""
         base = _no_gos_url(test_customer.id)
+        await _grant_health_consent(client, test_customer.id, goldsmith_auth_headers)
         secret_value = "Nickelsulfat-Allergie-XYZ"
         await client.post(
             base,

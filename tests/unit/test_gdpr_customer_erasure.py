@@ -21,8 +21,11 @@ Additional scope per H5 (extension):
   - repair_jobs.diagnosis_notes
   - valuation_certificates.item_description
   - valuation_certificates.gemstones_description
-  - quotes.notes
-  - quotes.customer_signature_data (blob → [REDACTED_SIGNATURE])
+
+GDPR-01 (2026-09): quotes / invoices / Altgold columns are NO LONGER
+scrubbed — §147 AO, §14b UStG and §8 Abs. 4 GwG require them unaltered
+(Art. 17 Abs. 3 lit. b DSGVO). They live in ``RETAINED_RECORD_FIELDS`` and
+``TestRetainedRecordsAreNotScrubbed`` asserts they survive verbatim.
 """
 
 from __future__ import annotations
@@ -92,6 +95,7 @@ from goldsmith_erp.db.models import (
 )
 from goldsmith_erp.services.customer_service import (
     REDACTION_TOKEN,
+    RETAINED_RECORD_FIELDS,
     SCRUBBABLE_FIELDS,
     SIGNATURE_REDACTION_TOKEN,
     CustomerService,
@@ -984,7 +988,7 @@ class TestScrubH5CustomerScopedFields:
         assert counts["valuation_certificates.gemstones_description"] == 1
 
     @pytest.mark.asyncio
-    async def test_scrub_redacts_quote_notes(
+    async def test_scrub_keeps_quote_notes_gdpr01(
         self,
         db_session: AsyncSession,
         mueller_maria: Customer,
@@ -1010,19 +1014,21 @@ class TestScrubH5CustomerScopedFields:
         await db_session.commit()
         await db_session.refresh(quote)
 
-        assert "Maria" not in quote.notes
-        assert "Mueller" not in quote.notes
-        assert counts["quotes.notes"] == 2
+        # GDPR-01: quotes are retained trade records — never altered.
+        assert (
+            quote.notes == "Sonderkonditionen fuer Stammkundin Maria Mueller vereinbart"
+        )
+        assert "quotes.notes" not in counts
 
     @pytest.mark.asyncio
-    async def test_scrub_replaces_customer_signature_blob(
+    async def test_scrub_keeps_customer_signature_blob_gdpr01(
         self,
         db_session: AsyncSession,
         mueller_maria: Customer,
         admin: User,
     ):
-        """The base64 signature blob is replaced wholesale — regex cannot
-        reach into image bytes, so we swap the entire field for a sentinel.
+        """GDPR-01: the signature on an accepted quote is part of the
+        retained trade record — it is kept verbatim, not replaced.
         """
         fake_signature_base64 = (
             "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lE"
@@ -1048,11 +1054,11 @@ class TestScrubH5CustomerScopedFields:
         await db_session.commit()
         await db_session.refresh(quote)
 
-        assert quote.customer_signature_data == SIGNATURE_REDACTION_TOKEN
-        assert counts["quotes.customer_signature_data"] == 1
+        assert quote.customer_signature_data == fake_signature_base64
+        assert "quotes.customer_signature_data" not in counts
 
     @pytest.mark.asyncio
-    async def test_scrub_skips_empty_customer_signature(
+    async def test_scrub_leaves_empty_customer_signature_alone(
         self,
         db_session: AsyncSession,
         mueller_maria: Customer,
@@ -1080,7 +1086,7 @@ class TestScrubH5CustomerScopedFields:
         await db_session.refresh(quote)
 
         assert quote.customer_signature_data is None
-        assert counts["quotes.customer_signature_data"] == 0
+        assert "quotes.customer_signature_data" not in counts
 
 
 class TestScrubH5CrossField:
@@ -1174,8 +1180,8 @@ class TestScrubH5CrossField:
         assert counts["repair_jobs.diagnosis_notes"] >= 1
         assert counts["valuation_certificates.item_description"] >= 2
         assert counts["valuation_certificates.gemstones_description"] >= 1
-        assert counts["quotes.notes"] >= 2
-        assert counts["quotes.customer_signature_data"] == 1
+        # GDPR-01: the quote is retained verbatim, so no quote counters.
+        assert "quotes.notes" not in counts
 
     @pytest.mark.asyncio
     async def test_scrub_is_idempotent_across_h5_fields(
@@ -1243,8 +1249,6 @@ class TestScrubH5CrossField:
             "repair_jobs.diagnosis_notes",
             "valuation_certificates.item_description",
             "valuation_certificates.gemstones_description",
-            "quotes.notes",
-            "quotes.customer_signature_data",
         ):
             assert second[field] == 0, f"{field} double-redacted: {second[field]}"
 
@@ -1344,6 +1348,9 @@ class TestScrubH5CrossField:
             "consultations.occasion_date",
             "customers.style_profile",
             "customer_no_gos.deleted",
+            # GDPR-02 (2026-09): health data + consents go at request time.
+            "customers.allergies",
+            "customer_consents.deleted",
             "repair_jobs.intake_checklist",
             "customer_updates.photo_ids",
             "cost_change_requests.line_items",
@@ -2030,19 +2037,11 @@ _FACTORY_MAP = {
     "repair_jobs.diagnosis_notes": _f_repair_jobs_diagnosis_notes,
     "valuation_certificates.item_description": _f_valuation_certificates_item_description,
     "valuation_certificates.gemstones_description": _f_valuation_certificates_gemstones_description,
-    "quotes.notes": _f_quotes_notes,
-    "quotes.customer_signature_data": _f_quotes_signature,
     "customer_measurements.notes": _f_customer_measurements_notes,
     "order_photos.notes": _f_order_photos_notes,
     "repair_photos.notes": _f_repair_photos_notes,
     "order_hallmarks.notes": _f_order_hallmarks_notes,
     "order_items.description": _f_order_items_description,
-    "invoices.notes": _f_invoices_notes,
-    "invoice_line_items.description": _f_invoice_line_items_description,
-    "quote_line_items.description": _f_quote_line_items_description,
-    "scrap_gold.notes": _f_scrap_gold_notes,
-    "scrap_gold.signature_data": _f_scrap_gold_signature,
-    "scrap_gold_items.description": _f_scrap_gold_items_description,
     "material_usage.notes": _f_material_usage_notes,
     "calendar_events.title": _f_calendar_events_title,
     "calendar_events.description": _f_calendar_events_description,
@@ -2065,6 +2064,59 @@ _FACTORY_MAP = {
     "cost_change_requests.reason": _f_cost_change_requests_reason,
     "cost_change_requests.response_evidence": _f_cost_change_requests_response_evidence,
 }
+
+
+# GDPR-01 — factories for columns that must survive erasure verbatim
+# (RETAINED_RECORD_FIELDS). ``scrap_gold.receipt_pdf_path`` is a file path,
+# covered by tests/unit/test_file_erasure.py instead.
+_RETAINED_FACTORY_MAP = {
+    "invoices.notes": _f_invoices_notes,
+    "invoice_line_items.description": _f_invoice_line_items_description,
+    "quotes.notes": _f_quotes_notes,
+    "quotes.customer_signature_data": _f_quotes_signature,
+    "quote_line_items.description": _f_quote_line_items_description,
+    "scrap_gold.notes": _f_scrap_gold_notes,
+    "scrap_gold.signature_data": _f_scrap_gold_signature,
+    "scrap_gold_items.description": _f_scrap_gold_items_description,
+}
+
+
+def test_retained_fields_never_overlap_scrub_targets():
+    """GDPR-01 meta-test: a column is either scrubbed or retained, never both."""
+    scrubbed = {(t.model, t.column) for t in SCRUBBABLE_FIELDS}
+    retained = {(f.model, f.column) for f in RETAINED_RECORD_FIELDS}
+    assert not scrubbed & retained, scrubbed & retained
+    for field_ in RETAINED_RECORD_FIELDS:
+        assert field_.legal_basis, field_.counter_key
+
+
+class TestRetainedRecordsAreNotScrubbed:
+    """GDPR-01: invoice / quote / Altgold content survives erasure verbatim."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("counter_key", sorted(_RETAINED_FACTORY_MAP))
+    async def test_retained_column_is_untouched(
+        self,
+        db_session: AsyncSession,
+        mueller_maria: Customer,
+        admin: User,
+        counter_key: str,
+    ):
+        field_ = next(f for f in RETAINED_RECORD_FIELDS if f.counter_key == counter_key)
+        row = await _RETAINED_FACTORY_MAP[counter_key](
+            db_session, mueller_maria, admin, PII_STRING
+        )
+
+        counts = await CustomerService.scrub_customer_pii(
+            db_session,
+            customer_id=mueller_maria.id,
+            performed_by=admin.id,
+        )
+        await db_session.commit()
+        await db_session.refresh(row)
+
+        assert getattr(row, field_.column) == PII_STRING
+        assert counter_key not in counts
 
 
 def test_factory_map_covers_every_scrub_target():
@@ -2178,8 +2230,8 @@ class TestNoBleedAcrossCustomers:
                 "orders.description",
                 "order_comments.text",
                 "repair_jobs.item_description",
-                "quotes.notes",
-                "invoice_line_items.description",
+                "customers.notes",
+                "consultations.notes",
                 "notifications.message",
             }
         ],

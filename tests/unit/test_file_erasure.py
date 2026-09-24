@@ -264,14 +264,15 @@ class TestHappyPath:
                 assert p.file_path != REDACTED_PATH_SENTINEL
 
     @pytest.mark.asyncio
-    async def test_nullable_column_set_to_null(
+    async def test_scrap_gold_receipt_is_retained_gdpr01(
         self,
         db_session: AsyncSession,
         customer_a: Customer,
         admin: User,
         tmp_path: Path,
     ):
-        """scrap_gold.receipt_pdf_path is nullable — after erasure it is NULL."""
+        """GDPR-01: the Altgold receipt (Ankaufbeleg) is a GwG/§147 AO record
+        and is retained — neither the file nor its path is touched."""
         service = FileErasureService(tmp_path)
         scrap = await _mk_scrap(db_session, customer_a, admin)
         rel = f"receipts/scrap_{scrap.id}.pdf"
@@ -286,8 +287,9 @@ class TestHappyPath:
         await db_session.commit()
         await db_session.refresh(scrap)
 
-        assert scrap.receipt_pdf_path is None
-        assert result.files_deleted >= 1
+        assert scrap.receipt_pdf_path == rel
+        assert (tmp_path / rel).exists()
+        assert result.files_deleted == 0
 
 
 # ---------------------------------------------------------------------------

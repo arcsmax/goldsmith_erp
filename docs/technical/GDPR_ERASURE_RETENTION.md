@@ -26,8 +26,11 @@ depends on whether they have **retained financial records**:
 
 | Customer has …                              | Disposition                     | Why                                                                 |
 | ------------------------------------------- | ------------------------------- | ------------------------------------------------------------------- |
-| No invoices, quotes, or valuations          | **Hard-delete** the customer row | Nothing legally blocks removal; child rows go via CASCADE / SET NULL |
-| ≥1 invoice, quote, or valuation certificate | **Anonymise in place** (keep row) | §147 AO requires the record be kept; the FK must keep resolving      |
+| No invoices, quotes, Altgold purchases, or valuations | **Hard-delete** the customer row | Nothing legally blocks removal; child rows go via CASCADE / SET NULL |
+| ≥1 invoice, quote, Altgold purchase, or valuation certificate | **Anonymise in place** (keep row) | §147 AO / §14b UStG / §8 Abs. 4 GwG require the record be kept; the FK must keep resolving |
+
+Altgold (`scrap_gold`) was added by GDPR-01 (2026-09): its `customer_id` is
+`SET NULL`, so a hard-delete used to orphan the GwG identification record.
 
 The schema **encodes** this obligation and made the old naive delete
 impossible: `invoices.customer_id`, `quotes.customer_id`, and
@@ -54,11 +57,38 @@ valid — and overwrites every identifying / personal column:
   `deletion_scheduled_at=NULL` (the schedule is discharged),
   `deletion_reason` records the §147 AO rationale.
 
-The retained **invoice/quote/valuation still exists**, still carries its
-financial content for the tax audit, and now points at a customer shell that
-holds **no personal data**. Free-text PII that had leaked into those records
-(e.g. a name typed into `invoices.notes`) was already `[REDACTED]` at request
-time by `CustomerService.scrub_customer_pii`.
+The retained **invoice/quote/Altgold record/valuation still exists**, still
+carries its content for the tax audit, and now points at a customer shell
+that holds **no personal data**.
+
+### What is NOT erased (GDPR-01, 2026-09)
+
+Before GDPR-01 the request-time scrub also rewrote `invoices.notes`,
+`invoice_line_items.description`, `quotes.notes`,
+`quotes.customer_signature_data`, `quote_line_items.description`,
+`scrap_gold.notes`, `scrap_gold.signature_data`,
+`scrap_gold_items.description` and deleted the Altgold receipt PDF
+(`scrap_gold.receipt_pdf_path`). That altered records §146 Abs. 4 AO / GoBD
+forbid altering. These columns now live in
+`customer_service.RETAINED_RECORD_FIELDS` and are kept verbatim; a test
+asserts they never overlap `SCRUBBABLE_FIELDS`.
+
+On every erasure request with retained records,
+`CustomerService.apply_retention_hold` sets `customers.retention_hold_until`
+(end of the calendar year of the newest retained record + 10 years,
+§147 Abs. 4 AO; conservative — confirm the 8-year Buchungsbeleg period with
+the Steuerberater before shortening) and writes a `gdpr_retention_hold`
+audit row. The `gdpr_requests` notes and the `/gdpr-erase` response
+(`retention_hold`) name the legal basis — Art. 17 Abs. 3 lit. b DSGVO — for
+the answer letter to the customer (Art. 12 Abs. 4).
+
+Health data is the opposite case: `customers.allergies` and all
+`customer_consents` rows are deleted at request time (no retention duty).
+
+**Known gap (deferred to the invoice-snapshot batch):** invoice PDFs are
+still rendered from the live customer row, so after the grace-period
+anonymisation a re-rendered invoice shows `[GELÖSCHT]` as recipient. The
+immutable invoice snapshot (GDPR-01 part a) fixes that.
 
 > **Design choice — why in-place anonymisation, not a sentinel customer.**
 > The two options were (a) create a global "deleted customer" sentinel row and

@@ -6,6 +6,8 @@ from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
+from goldsmith_erp.models.consent import ConsentExport
+
 
 class CustomerBase(BaseModel):
     """Base Customer schema with common fields"""
@@ -172,7 +174,17 @@ class CustomerUpdate(BaseModel):
 
 
 class CustomerRead(CustomerBase):
-    """Schema for reading a customer (includes DB fields)"""
+    """Schema for reading a customer (includes DB fields)
+
+    ``allergies`` is Art. 9 health data (GDPR-02 / GDPR-11) and is NEVER
+    serialised by this schema — it also rides along embedded in other
+    responses (e.g. ``OrderRead.customer``) that any CUSTOMER/ORDER viewer
+    can read. The customer router adds it back explicitly, and only for
+    CUSTOMER_HEALTH_VIEW holders when a HEALTH_DATA consent exists (see
+    ``api/routers/customers.py::_customer_response``).
+    """
+
+    allergies: Optional[str] = Field(None, exclude=True)
 
     id: int
     is_active: bool
@@ -363,6 +375,8 @@ class CustomerGdprExport(BaseModel):
     no_gos: List[NoGoExport] = Field(default_factory=list)
     style_profile: Dict[str, Any] = Field(default_factory=dict)
     consultations: List[ConsultationExportItem] = Field(default_factory=list)
+    # GDPR-11: consent history (active + revoked) — Art. 15 Abs. 1 lit. c/h.
+    consents: List[ConsentExport] = Field(default_factory=list)
     # Machine-readable companion to the design-IP exclusion documented on
     # ConsultationExportItem — always True (the export endpoint has no
     # code path that includes design IP).

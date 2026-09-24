@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Annotated, Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi.responses import JSONResponse
 from pydantic import StringConstraints
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -14,12 +15,13 @@ from sqlalchemy.orm import selectinload
 from goldsmith_erp.api.deps import get_db
 from goldsmith_erp.core.config import settings
 from goldsmith_erp.core.idempotency import IdempotencyContext, get_idempotency_context
-from goldsmith_erp.core.permissions import Permission
+from goldsmith_erp.core.permissions import Permission, has_permission
 from goldsmith_erp.core.permissions import require_permission_dep as require_permission
 from goldsmith_erp.db.models import Consultation
 from goldsmith_erp.db.models import Customer as CustomerModel
-from goldsmith_erp.db.models import CustomerNoGo, GDPRRequest, User
+from goldsmith_erp.db.models import CustomerNoGo, GDPRRequest, NoGoCategory, User
 from goldsmith_erp.db.transaction import transactional
+from goldsmith_erp.models.consent import ConsentGrant, ConsentPurpose, ConsentRead
 from goldsmith_erp.models.consultation import (
     NoGoConflict,
     NoGoCreate,
@@ -35,13 +37,51 @@ from goldsmith_erp.models.customer import (
     CustomerUpdate,
     CustomerWithOrders,
 )
-from goldsmith_erp.services.customer_service import CustomerService
+from goldsmith_erp.services.consent_service import (
+    ConsentCustomerNotFoundError,
+    ConsentService,
+    HealthDataConsentRequiredError,
+)
+from goldsmith_erp.services.customer_service import CustomerService, RetentionHold
 from goldsmith_erp.services.file_erasure_service import FileErasureService
 from goldsmith_erp.services.no_go_service import DuplicateNoGoError, NoGoService
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/customers", tags=["customers"])
+
+
+def _may_see_health_data(user: User) -> bool:
+    """GDPR-11: Art. 9 health data is for GOLDSMITH/ADMIN only."""
+    return has_permission(user, Permission.CUSTOMER_HEALTH_VIEW)
+
+
+async def _customer_response(
+    db: AsyncSession,
+    customer: CustomerModel,
+    user: User,
+    status_code: int = status.HTTP_200_OK,
+) -> JSONResponse:
+    """Serialise a customer with the allergy field projected by role + consent.
+
+    ``CustomerRead`` never serialises ``allergies`` (GDPR-02 / GDPR-11). It is
+    added back only when the caller holds CUSTOMER_HEALTH_VIEW AND an active
+    HEALTH_DATA consent exists; otherwise the key is absent. Legacy allergy
+    text without a consent record is therefore not displayed.
+    """
+    payload = CustomerRead.model_validate(customer).model_dump(mode="json")
+    if _may_see_health_data(user) and await ConsentService.has_consent(
+        db, customer.id, ConsentPurpose.HEALTH_DATA
+    ):
+        payload["allergies"] = customer.allergies
+    return JSONResponse(content=payload, status_code=status_code)
+
+
+def _health_consent_422() -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        detail=HealthDataConsentRequiredError().args[0],
+    )
 
 
 @router.get("/", response_model=List[CustomerListItem])
@@ -148,6 +188,9 @@ async def get_customer(
     """
     Get customer by ID.
 
+    ``allergies`` is only present for GOLDSMITH/ADMIN when a HEALTH_DATA
+    consent exists (GDPR-02 / GDPR-11).
+
     Permissions: Requires CUSTOMER_VIEW permission.
     """
     customer = await CustomerService.get_customer(db, customer_id)
@@ -156,7 +199,7 @@ async def get_customer(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Customer {customer_id} not found",
         )
-    return customer
+    return await _customer_response(db, customer, current_user)
 
 
 @router.get("/{customer_id}/stats", response_model=dict)
@@ -203,8 +246,12 @@ async def create_customer(
     """
     try:
         customer = await CustomerService.create_customer(db, customer_in)
-        return customer
+        return await _customer_response(
+            db, customer, current_user, status_code=status.HTTP_201_CREATED
+        )
 
+    except HealthDataConsentRequiredError:
+        raise _health_consent_422()
     except ValueError as e:
         # Email already exists or validation error
         logger.warning(f"Customer creation validation error: {str(e)}")
@@ -240,8 +287,12 @@ async def update_customer(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Customer {customer_id} not found",
             )
-        return customer
+        return await _customer_response(db, customer, current_user)
 
+    except HTTPException:
+        raise
+    except HealthDataConsentRequiredError:
+        raise _health_consent_422()
     except ValueError as e:
         # Email conflict or validation error
         logger.warning(f"Customer update validation error: {str(e)}")
@@ -318,6 +369,7 @@ async def gdpr_export_customer(
         .order_by(Consultation.created_at.asc())
     )
     consultations = list(consultations_result.scalars().all())
+    consents = await ConsentService.list_consents(db, customer_id)
 
     # Audit log — financial/PII data export must be traceable
     logger.info(
@@ -440,6 +492,18 @@ async def gdpr_export_customer(
         "no_gos": no_gos_data,
         "style_profile": customer.style_profile or {},
         "consultations": consultations_data,
+        # GDPR-11: consent history incl. revoked grants (Art. 7 Abs. 1 proof).
+        "consents": [
+            {
+                "purpose": c.purpose,
+                "method": c.method,
+                "wording_version": c.wording_version,
+                "granted_at": c.granted_at.isoformat() if c.granted_at else None,
+                "revoked_at": c.revoked_at.isoformat() if c.revoked_at else None,
+                "note": c.note,
+            }
+            for c in consents
+        ],
         # Machine-readable companion to the docstring's design-IP note —
         # keep true whenever orders are exported without ``description`` and
         # consultations without wishes/notes/source_material/
@@ -586,8 +650,13 @@ async def gdpr_erase_customer(
          for the full scope. Invoked with ``skip_gdpr_request=True``
          because this endpoint owns the Art. 30 row lifecycle.
       3. Filesystem artefacts referenced by customer-linked rows
-         (generated PDFs, order/repair photos, scrap-gold receipts) are
-         deleted by `FileErasureService.erase_customer_files` (O1/O2).
+         (generated PDFs, order/repair photos) are deleted by
+         `FileErasureService.erase_customer_files` (O1/O2).
+         GDPR-01: invoices, quotes, Altgold records (incl. signature and
+         receipt PDF) and valuation certificates are kept UNALTERED
+         (Art. 17 Abs. 3 lit. b DSGVO; §147 AO, §14b UStG, §8 Abs. 4 GwG);
+         ``customers.retention_hold_until`` records when they may go and
+         the response's ``retention_hold`` block names the legal basis.
       4. ``customer_audit_logs`` rows are written and the
          ``gdpr_requests`` row promoted to its terminal status.
 
@@ -699,6 +768,14 @@ async def gdpr_erase_customer(
             skip_gdpr_request=True,
         )
 
+        # GDPR-01: invoices / quotes / Altgold / valuations are NOT scrubbed
+        # (Art. 17 Abs. 3 lit. b). Record the legal hold and its basis.
+        retention_hold: Optional[RetentionHold] = (
+            await CustomerService.apply_retention_hold(
+                db, customer_id, performed_by=admin_user_id
+            )
+        )
+
         # File-level erasure — deletes actual files on disk referenced
         # by customer-linked rows. Partial failures are captured in
         # the result; they do NOT raise.
@@ -731,6 +808,13 @@ async def gdpr_erase_customer(
         )
 
     # --- Success path — promote PENDING row to terminal status ----------
+    retention_note = (
+        f" Retained unaltered: {retention_hold.retained_records} — "
+        f"{retention_hold.legal_basis}; hold until "
+        f"{retention_hold.hold_until.date().isoformat()}."
+        if retention_hold is not None
+        else ""
+    )
     if file_erasure_result.files_failed > 0:
         partial_note = (
             f"File-erasure partial failure: "
@@ -743,7 +827,7 @@ async def gdpr_erase_customer(
             "PARTIAL_FILE_ERASURE",
             notes_suffix=(
                 f"Art. 17 erasure — scrubbed {scrub_counts.get('total', 0)} "
-                f"PII occurrence(s); {partial_note}"
+                f"PII occurrence(s); {partial_note}{retention_note}"
             ),
         )
     else:
@@ -751,7 +835,7 @@ async def gdpr_erase_customer(
             "completed",
             notes_suffix=(
                 f"Art. 17 erasure — scrubbed {scrub_counts.get('total', 0)} "
-                f"PII occurrence(s); all files erased cleanly."
+                f"PII occurrence(s); all files erased cleanly.{retention_note}"
             ),
         )
 
@@ -795,6 +879,10 @@ async def gdpr_erase_customer(
         "pii_redactions": scrub_counts,
         "file_erasure": file_erasure_result.as_dict(),
         "partial": is_partial,
+        # GDPR-01: what was kept and why (for the Art. 12 answer letter).
+        "retention_hold": (
+            retention_hold.as_dict() if retention_hold is not None else None
+        ),
     }
 
 
@@ -918,7 +1006,11 @@ async def list_customer_no_gos(
     Permissions: Requires CUSTOMER_VIEW permission.
     """
     await _get_active_customer_or_404(db, customer_id)
-    return await NoGoService.list_no_gos(db, customer_id)
+    no_gos = await NoGoService.list_no_gos(db, customer_id)
+    if _may_see_health_data(current_user):
+        return no_gos
+    # GDPR-11: ALLERGY no-gos are Art. 9 health data — GOLDSMITH/ADMIN only.
+    return [n for n in no_gos if n.category != NoGoCategory.ALLERGY]
 
 
 @router.post(
@@ -942,6 +1034,11 @@ async def create_customer_no_go(
     Permissions: Requires CUSTOMER_EDIT permission.
     """
     await _get_active_customer_or_404(db, customer_id)
+    if no_go_in.category == NoGoCategory.ALLERGY and not (
+        await ConsentService.has_consent(db, customer_id, ConsentPurpose.HEALTH_DATA)
+    ):
+        # GDPR-02: an allergy is Art. 9 health data — explicit consent first.
+        raise _health_consent_422()
     try:
         return await NoGoService.add_no_go(db, customer_id, no_go_in)
     except DuplicateNoGoError:
@@ -1015,7 +1112,11 @@ async def check_customer_no_go_conflicts(
     Permissions: Requires CUSTOMER_VIEW permission.
     """
     await _get_active_customer_or_404(db, customer_id)
-    return await NoGoService.check_conflicts(db, customer_id, candidate)
+    conflicts = await NoGoService.check_conflicts(db, customer_id, candidate)
+    if _may_see_health_data(current_user):
+        return conflicts
+    # GDPR-11: do not reveal ALLERGY no-gos to roles without health access.
+    return [c for c in conflicts if c.category != NoGoCategory.ALLERGY]
 
 
 @router.get("/{customer_id}/style-profile", response_model=StyleProfileRead)
@@ -1064,3 +1165,97 @@ async def update_style_profile(
         profile = _normalize_style_profile(profile)
         customer.style_profile = profile
     return StyleProfileRead(**profile)
+
+
+# ---------------------------------------------------------------------------
+# GDPR-02 / GDPR-11 — consent records (Art. 7 Abs. 1 proof).
+#
+# CONSENT_MANAGE (GOLDSMITH + ADMIN). Audited twice: the audit middleware's
+# ``customers`` family records every verb on /customers/*, and
+# ConsentService writes a ``consent_granted`` / ``consent_revoked``
+# CustomerAuditLog row with the purpose.
+# ---------------------------------------------------------------------------
+
+
+@router.get("/{customer_id}/consents", response_model=List[ConsentRead])
+async def list_customer_consents(
+    customer_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_permission(Permission.CONSENT_MANAGE)),
+):
+    """List all consent records (active and revoked) of a customer.
+
+    Permissions: Requires CONSENT_MANAGE permission.
+    """
+    await _get_active_customer_or_404(db, customer_id)
+    return await ConsentService.list_consents(db, customer_id)
+
+
+@router.post(
+    "/{customer_id}/consents",
+    response_model=ConsentRead,
+    status_code=status.HTTP_201_CREATED,
+)
+async def grant_customer_consent(
+    customer_id: int,
+    consent_in: ConsentGrant,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_permission(Permission.CONSENT_MANAGE)),
+):
+    """Record a consent (idempotent while one is active for the purpose).
+
+    Permissions: Requires CONSENT_MANAGE permission.
+    """
+    await _get_active_customer_or_404(db, customer_id)
+    user_id = int(current_user.id)
+    try:
+        async with transactional(db):
+            consent = await ConsentService.grant(
+                db,
+                customer_id,
+                purpose=consent_in.purpose,
+                method=consent_in.method,
+                recorded_by_user_id=user_id,
+                note=consent_in.note,
+                wording_version=consent_in.wording_version,
+            )
+    except ConsentCustomerNotFoundError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=_CUSTOMER_NOT_FOUND_DETAIL,
+        )
+    return consent
+
+
+@router.delete("/{customer_id}/consents/{purpose}", response_model=ConsentRead)
+async def revoke_customer_consent(
+    customer_id: int,
+    purpose: ConsentPurpose,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_permission(Permission.CONSENT_MANAGE)),
+):
+    """Withdraw the active consent for ``purpose`` (Art. 7 Abs. 3).
+
+    Withdrawing ``health_data`` deletes the allergy data it covered.
+    404 when no active consent exists for that purpose.
+
+    Permissions: Requires CONSENT_MANAGE permission.
+    """
+    await _get_active_customer_or_404(db, customer_id)
+    user_id = int(current_user.id)
+    try:
+        async with transactional(db):
+            consent = await ConsentService.revoke(
+                db, customer_id, purpose, revoked_by_user_id=user_id
+            )
+    except ConsentCustomerNotFoundError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=_CUSTOMER_NOT_FOUND_DETAIL,
+        )
+    if consent is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Keine aktive Einwilligung für diesen Zweck",
+        )
+    return consent
