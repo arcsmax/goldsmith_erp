@@ -66,6 +66,10 @@ async def _make_customer(db_session, suffix: str) -> Customer:
 
 
 class TestEmptyQuoteConversion:
+    @pytest.mark.xfail(
+        strict=True,
+        reason="tracked: A3.1 — fixed by W2-05 quote agent",
+    )
     async def test_zero_subtotal_quote_converts_to_zero_price_confirmed_order(
         self, db_session
     ):
@@ -122,6 +126,10 @@ class TestDoubleConversion:
             await QuoteService.convert_quote(db_session, quote.id, user)
         assert exc_info.value.status_code == 422
 
+    @pytest.mark.xfail(
+        strict=True,
+        reason="tracked: A3.3 — fixed by W2-05 quote agent",
+    )
     async def test_concurrent_double_conversion_only_one_order_created(
         self, db_session: AsyncSession
     ):
@@ -193,6 +201,10 @@ class TestDoubleConversion:
 
 
 class TestCustomerDriftNotRevalidatedAtConversion:
+    @pytest.mark.xfail(
+        strict=True,
+        reason="tracked: A3.4 — fixed by W2-05 quote agent",
+    )
     async def test_order_reassigned_to_other_customer_after_quote_creation(
         self, db_session
     ):

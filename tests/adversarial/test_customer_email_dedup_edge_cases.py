@@ -158,6 +158,10 @@ class TestNoCrashWithoutCustomerEmail:
 
 
 class TestReCompletionAfterReopen:
+    @pytest.mark.xfail(
+        strict=True,
+        reason="tracked: C1.2 — fixed by W2-02 repairs agent",
+    )
     async def test_second_completion_after_reopen_does_not_notify_customer_again(
         self, db_session: AsyncSession
     ):

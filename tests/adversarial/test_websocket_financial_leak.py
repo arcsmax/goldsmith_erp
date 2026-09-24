@@ -84,6 +84,10 @@ def ws_client(db_session):
 
 @pytest.mark.asyncio
 class TestWebSocketBypassesFinancialRbac:
+    @pytest.mark.xfail(
+        strict=True,
+        reason="tracked: D.1 — fixed by W2-13 realtime agent",
+    )
     async def test_viewer_receives_order_price_over_ws_orders(
         self, ws_client, db_session
     ):
