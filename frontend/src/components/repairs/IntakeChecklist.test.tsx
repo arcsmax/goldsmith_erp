@@ -27,8 +27,12 @@ vi.mock('../../api/repairs', () => ({
 }));
 
 const mockShowToast = vi.fn();
+// GOLDSMITH by default — DESIGN_VIEW is held, so existing behaviour (intake
+// photo thumbnails render) is unchanged. See IntakeChecklist.viewer.test.tsx
+// for the VIEWER (no DESIGN_VIEW) coverage added for SEC-09/GDPR-04.
 vi.mock('../../contexts', () => ({
   useToast: () => ({ showToast: mockShowToast }),
+  useAuth: () => ({ user: { role: 'GOLDSMITH' } }),
 }));
 
 vi.mock('../AuthenticatedImage', () => ({

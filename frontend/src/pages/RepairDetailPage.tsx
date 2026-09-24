@@ -13,8 +13,9 @@ import type {
 import { PhotoCompare } from '../components/PhotoCompare';
 import type { PhotoItem } from '../components/PhotoCompare';
 import { IntakeChecklist } from '../components/repairs/IntakeChecklist';
-import { useConfirm, useToast } from '../contexts';
+import { useAuth, useConfirm, useToast } from '../contexts';
 import { logError } from '../lib/logError';
+import { canViewDesign } from '../lib/roles';
 import '../styles/repairs.css';
 
 // ─── helpers ────────────────────────────────────────────────────────────────
@@ -367,8 +368,12 @@ function PhotosTab({
   const [uploadingPhase, setUploadingPhase] = useState<RepairPhotoPhase | null>(null);
   const [deletingPhotoId, setDeletingPhotoId] = useState<number | null>(null);
 
+  // DESIGN_VIEW (SEC-09/GDPR-04): `repair.photos` is stripped entirely from
+  // the backend response for a caller without it, so this tab must never
+  // be reachable for that role (guarded by the caller — see `tabs` below)
+  // and must not blow up on an undefined array if it somehow is.
   const photosByPhase = (phase: RepairPhotoPhase) =>
-    repair.photos.filter(p => p.phase === phase);
+    (repair.photos ?? []).filter(p => p.phase === phase);
 
   const handleFileSelect = async (
     phase: RepairPhotoPhase,
@@ -654,6 +659,8 @@ type Tab = 'details' | 'fotos' | 'diagnose' | 'historie';
 export function RepairDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const canDesign = canViewDesign(user?.role);
   const repairId = Number(id);
 
   const [repair, setRepair] = useState<RepairJob | null>(null);
@@ -735,9 +742,14 @@ export function RepairDetailPage() {
     </div>
   );
 
+  // DESIGN_VIEW (SEC-09/GDPR-04): every repair-photo endpoint 403s for a
+  // caller without it, and `repair.photos` itself is stripped from the
+  // response — so the tab is omitted rather than shown empty or crashing.
   const tabs: Array<{ id: Tab; label: string }> = [
     { id: 'details', label: 'Details' },
-    { id: 'fotos', label: `Fotos (${repair.photos.length})` },
+    ...(canDesign
+      ? [{ id: 'fotos' as const, label: `Fotos (${repair.photos?.length ?? 0})` }]
+      : []),
     { id: 'diagnose', label: 'Diagnose' },
     { id: 'historie', label: 'Historie' },
   ];
@@ -815,7 +827,7 @@ export function RepairDetailPage() {
 
       {/* Tab panels */}
       {activeTab === 'details' && <DetailsTab repair={repair} />}
-      {activeTab === 'fotos' && (
+      {activeTab === 'fotos' && canDesign && (
         <PhotosTab repair={repair} onPhotoAdded={handlePhotoAdded} reloadRepair={loadRepair} />
       )}
       {activeTab === 'diagnose' && <DiagnosisTab repair={repair} />}

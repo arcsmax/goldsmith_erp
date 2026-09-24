@@ -6,6 +6,8 @@ import apiClient from '../api/client';
 import { photosApi } from '../api/photos';
 import AuthenticatedImage from '../components/AuthenticatedImage';
 import { CustomerFormModal } from '../components/CustomerFormModal';
+import { useAuth } from '../contexts';
+import { canViewDesign } from '../lib/roles';
 import { Customer, CustomerCreateInput, CustomerUpdateInput, OrderType } from '../types';
 import '../styles/customer-detail.css';
 // Pulls the `.invoice-status-badge.status-{draft|sent|paid|overdue|cancelled}`
@@ -209,6 +211,11 @@ type PhotoMap = Record<number, string | null>;
 
 const AuftraegeTab: React.FC<{ customerId: number }> = ({ customerId }) => {
   const navigate = useNavigate();
+  const { user } = useAuth();
+  // DESIGN_VIEW (SEC-09/GDPR-04): GET /orders/{id}/photos 403s for a caller
+  // without it — skip the per-order photo fetch entirely instead of
+  // triggering (and swallowing) a 403 for every order in the list.
+  const canDesign = canViewDesign(user?.role);
   const [orders, setOrders] = useState<OrderType[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -225,6 +232,10 @@ const AuftraegeTab: React.FC<{ customerId: number }> = ({ customerId }) => {
           (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
         );
         setOrders(customerOrders);
+
+        if (!canDesign) {
+          return;
+        }
 
         // Fetch first photo for each order lazily (fire-and-forget per order)
         customerOrders.forEach(async (order) => {
@@ -251,7 +262,7 @@ const AuftraegeTab: React.FC<{ customerId: number }> = ({ customerId }) => {
       }
     };
     load();
-  }, [customerId]);
+  }, [customerId, canDesign]);
 
   if (isLoading) return <div className="cdetail-loading">Lade Aufträge...</div>;
   if (error) return <div className="cdetail-error">{error}</div>;
