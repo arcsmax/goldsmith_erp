@@ -181,3 +181,12 @@ export const useAuth = (): AuthContextType => {
   }
   return context;
 };
+
+/**
+ * useOptionalAuth — like useAuth but returns null outside an AuthProvider.
+ * For components that are also rendered standalone (e.g. ScanOverlay in
+ * tests) and only need the user id opportunistically.
+ */
+export const useOptionalAuth = (): AuthContextType | null => {
+  return useContext(AuthContext) ?? null;
+};

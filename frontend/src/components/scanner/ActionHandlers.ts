@@ -49,6 +49,7 @@ import {
   type PunzierungsCheckModalProps,
   type PunzierungsCheckPayload,
 } from '../qc/PunzierungsCheckModal';
+import { ActivityPickerModal } from './ActivityPickerModal';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -82,6 +83,12 @@ export interface ActionHandlerContext {
    * Running time entry ID if any. Drives switch/stop semantics.
    */
   runningEntryId: string | null;
+  /**
+   * Current user's id. Scopes the remembered last-used activity so a shared
+   * bench tablet never reuses another goldsmith's choice (FE-02/FE-07).
+   * Omitted/null falls back to the legacy unscoped key.
+   */
+  userId?: number | null;
 }
 
 export type ActionHandler = (ctx: ActionHandlerContext) => Promise<void>;
@@ -90,7 +97,20 @@ export type ActionHandler = (ctx: ActionHandlerContext) => Promise<void>;
 // Helpers
 // ---------------------------------------------------------------------------
 
-const LAST_ACTIVITY_LS = 'scanner_last_activity_id';
+/** Legacy unscoped key; still read when no user id is known. */
+export const LAST_ACTIVITY_LS = 'scanner_last_activity_id';
+
+/** localStorage key holding this user's last-used scan activity. */
+export function lastActivityKey(userId: number | null | undefined): string {
+  return userId === null || userId === undefined
+    ? LAST_ACTIVITY_LS
+    : `${LAST_ACTIVITY_LS}:${userId}`;
+}
+
+const NO_ACTIVITY_MESSAGE =
+  'Keine Aktivität gewählt – Timer wurde nicht gestartet.';
+const REPAIR_TIMER_MESSAGE =
+  'Zeiterfassung auf Reparaturen ist noch nicht möglich. Bitte die Zeit am Auftrag buchen oder in der Reparatur vermerken.';
 
 function getEntity(ctx: ActionHandlerContext): ResolvedEntity | null {
   return ctx.response.entity;
@@ -110,21 +130,73 @@ function entityData(ctx: ActionHandlerContext): Record<string, unknown> {
 function readActivityId(ctx: ActionHandlerContext): number | null {
   if (ctx.activityId !== null) return ctx.activityId;
   try {
-    const raw = localStorage.getItem(LAST_ACTIVITY_LS);
+    const raw = localStorage.getItem(lastActivityKey(ctx.userId));
     if (raw === null) return null;
     const parsed = Number.parseInt(raw, 10);
-    return Number.isFinite(parsed) ? parsed : null;
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
   } catch {
     return null;
   }
 }
 
-function rememberActivityId(id: number): void {
+function rememberActivityId(ctx: ActionHandlerContext, id: number): void {
   try {
-    localStorage.setItem(LAST_ACTIVITY_LS, String(id));
+    localStorage.setItem(lastActivityKey(ctx.userId), String(id));
   } catch {
     // ignore private-browsing
   }
+}
+
+/**
+ * FE-02 — resolve the activity for a scan-driven timer start. Order:
+ * explicit ctx.activityId → this user's last-used activity → ask via the
+ * ActivityPicker modal. Throws a German error if the user cancels, so the
+ * QuickActionModalV2 error banner explains why nothing started.
+ */
+async function resolveActivityId(ctx: ActionHandlerContext): Promise<number> {
+  const known = readActivityId(ctx);
+  if (known !== null) return known;
+  try {
+    return await fireModal<number, Record<string, unknown>>(
+      ActivityPickerModal,
+      {},
+    );
+  } catch {
+    throw new Error(NO_ACTIVITY_MESSAGE);
+  }
+}
+
+/**
+ * FE-03 — only orders can take a time entry (time entries have no repair
+ * link yet). Refuse early for any other entity so a REPAIR:17 scan never
+ * books labour on ORDER 17.
+ */
+function requireTimerOrderId(ctx: ActionHandlerContext): number {
+  const entity = getEntity(ctx);
+  if (entity === null) throw new Error('Kein Auftrag erkannt.');
+  if (entity.entity_type === 'repair') throw new Error(REPAIR_TIMER_MESSAGE);
+  if (entity.entity_type !== 'order') {
+    throw new Error('Timer kann nur für Aufträge gestartet werden.');
+  }
+  return entity.entity_id;
+}
+
+/** FE-03 — order-only navigation actions refuse other entity types. */
+function requireOrderId(ctx: ActionHandlerContext, message: string): number {
+  const entity = getEntity(ctx);
+  if (entity === null || entity.entity_type !== 'order') {
+    throw new Error(message);
+  }
+  return entity.entity_id;
+}
+
+/** FE-03 — detail-page base path per entity type (routes that exist). */
+function detailBasePath(ctx: ActionHandlerContext): string | null {
+  const entity = getEntity(ctx);
+  if (entity === null) return null;
+  if (entity.entity_type === 'order') return `/orders/${entity.entity_id}`;
+  if (entity.entity_type === 'repair') return `/repairs/${entity.entity_id}`;
+  return null;
 }
 
 /**
@@ -176,22 +248,14 @@ function extractErrorInfo(err: unknown): {
 // ---------------------------------------------------------------------------
 
 async function handleStartTimer(ctx: ActionHandlerContext): Promise<void> {
-  const id = entityId(ctx);
-  if (id === null) throw new Error('Kein Auftrag erkannt.');
-  const activityId = readActivityId(ctx);
-  if (activityId === null) {
-    ctx.hooks.toast(
-      'Bitte zuerst eine Aktivitaet auf dem Werkbank-Screen waehlen.',
-      'warning',
-    );
-    return;
-  }
+  const id = requireTimerOrderId(ctx);
+  const activityId = await resolveActivityId(ctx);
   await apiClient.post('/time-tracking/start', {
     order_id: id,
     activity_id: activityId,
     location: ctx.scanContext.current_location ?? undefined,
   });
-  rememberActivityId(activityId);
+  rememberActivityId(ctx, activityId);
   await ctx.hooks.refreshTimer();
   ctx.hooks.toast('Timer gestartet.', 'success');
   ctx.hooks.closeOverlay();
@@ -207,24 +271,16 @@ async function handleStopTimer(ctx: ActionHandlerContext): Promise<void> {
 }
 
 async function handleSwitchTimer(ctx: ActionHandlerContext): Promise<void> {
-  const newOrderId = entityId(ctx);
-  if (newOrderId === null) throw new Error('Kein Auftrag erkannt.');
-
-  const activityId = readActivityId(ctx);
-  if (activityId === null) {
-    ctx.hooks.toast(
-      'Bitte zuerst eine Aktivitaet auf dem Werkbank-Screen waehlen.',
-      'warning',
-    );
-    return;
-  }
+  const newOrderId = requireTimerOrderId(ctx);
 
   const entryId = ctx.runningEntryId;
   if (entryId === null) {
-    // No running timer — degrade to start_timer.
+    // No running timer — degrade to start_timer (which picks the activity).
     await handleStartTimer(ctx);
     return;
   }
+
+  const activityId = await resolveActivityId(ctx);
 
   // H18 — atomic stop+start via dedicated /switch endpoint. Replaces the
   // Slice 11 stop+start emulation; the server wraps both writes in one
@@ -259,23 +315,21 @@ async function handleSwitchTimer(ctx: ActionHandlerContext): Promise<void> {
     throw err;
   }
 
-  rememberActivityId(activityId);
+  rememberActivityId(ctx, activityId);
   await ctx.hooks.refreshTimer();
   ctx.hooks.toast('Timer gewechselt.', 'success');
   ctx.hooks.closeOverlay();
 }
 
 async function handleChangeStatus(ctx: ActionHandlerContext): Promise<void> {
-  const id = entityId(ctx);
-  if (id === null) throw new Error('Kein Auftrag erkannt.');
+  const id = requireOrderId(ctx, 'Status aendern ist hier nur fuer Auftraege moeglich.');
   // Picker lives on the order detail page (A11.13 — no nested views).
   ctx.hooks.navigate(`/orders/${id}?edit=status`);
   ctx.hooks.closeOverlay();
 }
 
 async function handleChangeLocation(ctx: ActionHandlerContext): Promise<void> {
-  const id = entityId(ctx);
-  if (id === null) throw new Error('Kein Auftrag erkannt.');
+  const id = requireOrderId(ctx, 'Ort aendern ist hier nur fuer Auftraege moeglich.');
   ctx.hooks.navigate(`/orders/${id}?edit=location`);
   ctx.hooks.closeOverlay();
 }
@@ -314,18 +368,16 @@ async function handleLogInterruption(
 }
 
 async function handleTakePhoto(ctx: ActionHandlerContext): Promise<void> {
-  const id = entityId(ctx);
-  if (id === null) throw new Error('Kein Auftrag erkannt.');
-  ctx.hooks.navigate(`/orders/${id}?action=take-photo`);
+  const base = detailBasePath(ctx);
+  if (base === null) throw new Error('Foto fuer diesen Code nicht moeglich.');
+  ctx.hooks.navigate(`${base}?action=take-photo`);
   ctx.hooks.closeOverlay();
 }
 
 async function handlePrintLabel(ctx: ActionHandlerContext): Promise<void> {
-  const id = entityId(ctx);
-  if (id === null) throw new Error('Entitaet unklar.');
-  const entity = getEntity(ctx);
-  const type = entity?.entity_type ?? 'order';
-  ctx.hooks.navigate(`/${type === 'order' ? 'orders' : type}/${id}?action=print-label`);
+  const base = detailBasePath(ctx);
+  if (base === null) throw new Error('Etikett fuer diesen Code nicht verfuegbar.');
+  ctx.hooks.navigate(`${base}?action=print-label`);
   ctx.hooks.closeOverlay();
 }
 
@@ -390,8 +442,7 @@ async function handleConsumeMaterial(
 async function handlePunzierungCheck(
   ctx: ActionHandlerContext,
 ): Promise<void> {
-  const id = entityId(ctx);
-  if (id === null) throw new Error('Auftrag unklar.');
+  const id = requireOrderId(ctx, 'Auftrag unklar.');
   const data = entityData(ctx);
   const orderAlloy = typeof data.alloy === 'string' ? data.alloy : undefined;
   const orderTitle = typeof data.title === 'string' ? data.title : undefined;
