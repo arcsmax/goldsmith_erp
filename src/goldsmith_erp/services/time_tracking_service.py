@@ -137,6 +137,15 @@ class TimeTrackingService:
         # Increment activity usage counter
         await ActivityService.increment_usage(db, entry_in.activity_id)
 
+        # W2-13: other devices of this user refresh their timer.
+        await TimeTrackingService._publish_timer_hint(
+            action="start",
+            user_id=db_entry.user_id,
+            entry_id=db_entry.id,
+            order_id=db_entry.order_id,
+            activity_id=db_entry.activity_id,
+        )
+
         return db_entry
 
     @staticmethod
@@ -204,7 +213,57 @@ class TimeTrackingService:
         order_id = stopped_entry.order_id if stopped_entry is not None else None
         await CostWatchService.safe_check(db, order_id)
 
+        # W2-13: other devices of this user drop the running timer.
+        await TimeTrackingService._publish_timer_hint(
+            action="stop",
+            user_id=entry.user_id,
+            entry_id=entry_id,
+            order_id=entry.order_id,
+            activity_id=entry.activity_id,
+        )
+
         return stopped_entry
+
+    @staticmethod
+    async def _publish_timer_hint(
+        *,
+        action: str,
+        user_id: int,
+        entry_id: str,
+        order_id: Optional[int],
+        activity_id: Optional[int],
+    ) -> None:
+        """Post-commit ``time_tracking_updates`` hint for start/stop.
+
+        Never raises: the mutation is committed; a lost hint only means the
+        other device refreshes on its next poll or reconnect.
+        """
+        from goldsmith_erp.core import pubsub  # noqa: PLC0415 (patched in tests)
+
+        payload = {
+            "action": action,
+            "source": "manual",
+            "user_id": user_id,
+            "entry_id": entry_id,
+            "order_id": order_id,
+            "activity_id": activity_id,
+        }
+        try:
+            published = await pubsub.publish_event(
+                "time_tracking_updates", json.dumps(payload)
+            )
+        except Exception as exc:
+            logger.error(
+                "Timer hint publish raised",
+                extra={"action": action, "entry_id": entry_id, "error": str(exc)},
+                exc_info=True,
+            )
+            return
+        if published is False:
+            logger.warning(
+                "Timer hint not delivered; other devices refresh on reconnect",
+                extra={"action": action, "entry_id": entry_id, "user_id": user_id},
+            )
 
     @staticmethod
     async def _check_and_publish_anomaly(
@@ -928,8 +987,10 @@ class TimeTrackingService:
 
         publish_succeeded = False
         try:
-            await publish_event(channel, json.dumps(payload))
-            publish_succeeded = True
+            # BE-20: publish_event returns False after its final retry.
+            publish_succeeded = (
+                await publish_event(channel, json.dumps(payload)) is not False
+            )
         except Exception as exc:
             # publish_event itself catches and logs — this branch only
             # fires if a caller subclass raises unexpectedly.
@@ -947,13 +1008,8 @@ class TimeTrackingService:
         if publish_succeeded:
             return
 
-        # Detection path: publish_event returns None on success OR
-        # silent failure (it logs internally). We cannot distinguish
-        # the two from the return value in V1.1. The ``publish_succeeded``
-        # branch above covers unexpected exceptions; the A5.5 in-app
-        # notification is triggered by an explicit side-channel in
-        # production via the notification service. For now we rely on
-        # the logged ERROR + a best-effort notification write.
+        # Detection path: publish_event returned False (all retries failed)
+        # or raised unexpectedly — write the A5.5 in-app notification.
         try:
             from goldsmith_erp.db.models import (  # noqa: PLC0415
                 NotificationSeverityEnum,

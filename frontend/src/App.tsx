@@ -2,6 +2,7 @@
 import React, { Suspense, lazy } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, OrderProvider, ScannerProvider, TimeTrackingProvider, ToastProvider } from './contexts';
+import { WebSocketProvider } from './contexts/WebSocketProvider';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { MainLayout } from './layouts/MainLayout';
 import { ToastContainer } from './components/Toast';
@@ -64,6 +65,8 @@ const PageLoader: React.FC = () => (
  */
 const StaffApp: React.FC = () => (
   <AuthProvider>
+    {/* W2-13: the one live-update socket; staff shell only, never /portal. */}
+    <WebSocketProvider>
     <ScannerProvider>
       <TimeTrackingProvider>
         <OrderProvider>
@@ -241,6 +244,7 @@ const StaffApp: React.FC = () => (
         </OrderProvider>
       </TimeTrackingProvider>
     </ScannerProvider>
+    </WebSocketProvider>
   </AuthProvider>
 );
 

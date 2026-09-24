@@ -138,7 +138,9 @@ def mock_publish_event(monkeypatch):
     """
 
     async def _noop(*args, **kwargs):
-        pass
+        # publish_event returns True on success (BE-20); False means the
+        # live update did not go out and callers notify the user.
+        return True
 
     monkeypatch.setattr("goldsmith_erp.core.pubsub.publish_event", _noop)
 
