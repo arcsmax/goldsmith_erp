@@ -85,12 +85,12 @@ TestSessionLocal = sessionmaker(
 # ---------------------------------------------------------------------------
 
 
-@pytest.fixture(scope="session")
-def event_loop():
-    """Single event loop for the whole integration test session."""
-    loop = asyncio.get_event_loop_policy().new_event_loop()
-    yield loop
-    loop.close()
+# The session event loop is provided once by tests/conftest.py. A second
+# session-scoped ``event_loop`` here made pytest-asyncio 0.23 close the root
+# loop when the integration loop was set up, so every async test that ran
+# after this directory (root and unit tests) failed with "Event loop is
+# closed" as soon as a directory sorting before ``integration`` (adversarial)
+# had already created the root loop.
 
 
 # ---------------------------------------------------------------------------
