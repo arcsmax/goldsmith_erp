@@ -218,7 +218,8 @@ docker-compose-down: stop ## Alias for 'stop' (Docker compatibility)
 # =============================================================================
 
 .PHONY: setup prod-start prod-stop prod-restart prod-logs prod-status \
-        update backup-now restore install-service install-backup-cron rotate-secrets
+        update backup-now restore install-service install-backup-cron rotate-secrets \
+        install-timers timers-status
 
 PROD_COMPOSE := podman-compose --env-file .env.production -f podman-compose.prod.yml
 
@@ -291,3 +292,9 @@ install-backup-cron: ## Install daily 02:00 backup cron job
 
 rotate-secrets: ## Rotate SECRET_KEY in .env.production via scripts/rotate-secrets.sh (requires restart)
 	@bash scripts/rotate-secrets.sh
+
+install-timers: ## OPS-07 — install + enable + start all compliance systemd user timers (GDPR cleanup, retention sweep, health watchdog)
+	@bash scripts/install-timers.sh
+
+timers-status: ## OPS-07 — show status of the installed compliance timers (systemctl --user list-timers)
+	@bash scripts/install-timers.sh --status
