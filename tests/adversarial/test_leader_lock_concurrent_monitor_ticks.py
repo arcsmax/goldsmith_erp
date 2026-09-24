@@ -91,10 +91,6 @@ class TestSqliteLeaderLockIsAlwaysGrantedToEveryWorker:
 
 
 class TestConcurrentMonitorTicksWithoutTheLock:
-    @pytest.mark.xfail(
-        strict=True,
-        reason="tracked: C2.2 — fixed by batch B migration agent",
-    )
     async def test_two_concurrent_pickup_reminder_scans_send_customer_mail_twice(
         self,
     ):

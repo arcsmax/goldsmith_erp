@@ -58,10 +58,6 @@ class TestCalculateTotalsFloatRoundingBug:
     Decimal/ROUND_HALF_UP reference the ADR requires for money math.
     """
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="tracked: A1.1 — fixed by batch B migration agent",
-    )
     def test_two_line_items_with_three_decimal_prices_undercount_by_one_cent(self):
         # Found by property search against the Decimal reference; both are
         # plausible real amounts (a converted quote line, a manual addition).
@@ -79,10 +75,6 @@ class TestCalculateTotalsFloatRoundingBug:
             "InvoiceService.calculate_totals uses float + round(), not Decimal)"
         )
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="tracked: A1.2 — fixed by batch B migration agent",
-    )
     def test_single_item_classic_float_midpoint_rounds_down_instead_of_up(self):
         # round(0.145, 2) == 0.14 in Python because 0.145 cannot be
         # represented exactly in binary float; Decimal ROUND_HALF_UP gives 0.15.
