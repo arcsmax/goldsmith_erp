@@ -43,7 +43,7 @@ class OrderBase(BaseModel):
         description="Order description (1-2000 characters)",
     )
     price: Optional[float] = Field(
-        None, ge=0, description="Order price (must be non-negative)"
+        None, ge=0, description="Agreed order price, NET excl. VAT (ADR-2026-09-25)"
     )
 
     @field_validator("title", "description")
@@ -204,7 +204,9 @@ class OrderUpdate(BaseModel):
     description: Optional[str] = Field(
         None, min_length=1, max_length=2000, description="New order description"
     )
-    price: Optional[float] = Field(None, ge=0, description="New order price")
+    price: Optional[float] = Field(
+        None, ge=0, description="New agreed order price, NET excl. VAT"
+    )
     status: Optional[OrderStatusEnum] = Field(
         None, description="Order status (new, in_progress, completed, delivered)"
     )
