@@ -6,6 +6,7 @@ import apiClient from '../api/client';
 import { photosApi } from '../api/photos';
 import AuthenticatedImage from '../components/AuthenticatedImage';
 import { CustomerFormModal } from '../components/CustomerFormModal';
+import { ConsentPanel } from '../components/customers/ConsentPanel';
 import { Customer, CustomerCreateInput, CustomerUpdateInput, OrderType } from '../types';
 import '../styles/customer-detail.css';
 // Pulls the `.invoice-status-badge.status-{draft|sent|paid|overdue|cancelled}`
@@ -179,6 +180,8 @@ const StammdatenTab: React.FC<{ customer: Customer; onEdit: () => void }> = ({ c
           <p className="cdetail-notes">{customer.notes}</p>
         </section>
       )}
+
+      <ConsentPanel customerId={customer.id} />
     </div>
   </div>
 );

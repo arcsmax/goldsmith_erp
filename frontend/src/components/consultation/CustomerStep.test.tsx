@@ -27,6 +27,11 @@ vi.mock('../../api/consultations', () => ({
 const mockShowToast = vi.fn();
 vi.mock('../../contexts', () => ({
   useToast: () => ({ showToast: mockShowToast }),
+  // CustomerFormModal (rendered by CustomerStep) now also calls useConfirm()
+  // unconditionally for its health-data consent "Einwilligung widerrufen"
+  // action (GDPR-02) — stub it so the hook call doesn't throw here even
+  // though this suite never exercises that path.
+  useConfirm: () => ({ showConfirm: vi.fn() }),
 }));
 
 import { CustomerStep } from './CustomerStep';
