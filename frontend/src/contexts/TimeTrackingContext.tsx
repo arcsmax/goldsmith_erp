@@ -43,6 +43,8 @@ interface TimeTrackingContextType {
   clearError: () => void;
 }
 
+const POLL_INTERVAL_MS = 5000;
+
 // Create the context
 const TimeTrackingContext = createContext<TimeTrackingContextType | undefined>(undefined);
 
@@ -61,6 +63,9 @@ export const TimeTrackingProvider: React.FC<TimeTrackingProviderProps> = ({ chil
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const pollingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // FE-07: everything here is per-user; key initialisation on the user id.
+  const { user } = useAuth();
+  const userId = user?.id ?? null;
 
   /**
    * Fetch running entry from server
@@ -244,8 +249,15 @@ export const TimeTrackingProvider: React.FC<TimeTrackingProviderProps> = ({ chil
       clearInterval(pollingIntervalRef.current);
     }
     pollingIntervalRef.current = setInterval(() => {
-      refreshRunningEntry();
-    }, 5000);
+      void refreshRunningEntry().then((entry) => {
+        // FE-19: no running timer (stopped elsewhere, e.g. TimerWidget
+        // calling the API directly, or session gone) → stop polling.
+        if (!entry && pollingIntervalRef.current) {
+          clearInterval(pollingIntervalRef.current);
+          pollingIntervalRef.current = null;
+        }
+      });
+    }, POLL_INTERVAL_MS);
   }, [refreshRunningEntry]);
 
   /**
@@ -266,9 +278,19 @@ export const TimeTrackingProvider: React.FC<TimeTrackingProviderProps> = ({ chil
   };
 
   /**
-   * Initialize on mount
+   * Initialize per user (FE-07). Runs on mount AND whenever the signed-in
+   * user changes: after login it loads that user's running timer, after
+   * logout it drops all per-user state and stops polling (FE-19).
    */
   useEffect(() => {
+    if (userId === null) {
+      stopPolling();
+      setRunningEntry(null);
+      setActivities([]);
+      setError(null);
+      return undefined;
+    }
+
     const initialize = async () => {
       setIsLoading(true);
       try {
@@ -295,7 +317,8 @@ export const TimeTrackingProvider: React.FC<TimeTrackingProviderProps> = ({ chil
     return () => {
       stopPolling();
     };
-  }, []); // Empty deps - only run on mount
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userId]); // Re-run per user; the helpers are stable callbacks.
 
   /**
    * Save running entry to localStorage as backup
@@ -318,7 +341,6 @@ export const TimeTrackingProvider: React.FC<TimeTrackingProviderProps> = ({ chil
    * client session (Meister's laptop pushing a change the Werkbank
    * iPad needs to pick up).
    */
-  const { user } = useAuth();
   const handleWsMessage = useCallback(
     (message: WebSocketMessage): void => {
       const type = typeof message.type === 'string' ? message.type : '';
