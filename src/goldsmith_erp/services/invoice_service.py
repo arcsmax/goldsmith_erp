@@ -148,12 +148,26 @@ class InvoiceService:
           subtotal   - Zwischensumme (netto)
           tax_amount - MwSt-Betrag
           total      - Gesamtbetrag (brutto)
+
+        A1: computed in Decimal with ROUND_HALF_UP to cents (ADR
+        2026-09-25), never float ``round()`` (``round(0.145, 2) == 0.14``).
+        ``total - subtotal == tax_amount`` holds exactly.
         """
-        subtotal = sum(item.quantity * item.unit_price for item in line_items)
-        tax_amount = round(subtotal * (tax_rate / 100), 2)
-        total = round(subtotal + tax_amount, 2)
-        subtotal = round(subtotal, 2)
-        return {"subtotal": subtotal, "tax_amount": tax_amount, "total": total}
+        raw_subtotal = sum(
+            (
+                Decimal(str(item.quantity)) * Decimal(str(item.unit_price))
+                for item in line_items
+            ),
+            Decimal("0"),
+        )
+        subtotal = _to_cents(raw_subtotal)
+        tax_amount = _to_cents(subtotal * Decimal(str(tax_rate)) / Decimal("100"))
+        total = subtotal + tax_amount
+        return {
+            "subtotal": float(subtotal),
+            "tax_amount": float(tax_amount),
+            "total": float(total),
+        }
 
     # -------------------------------------------------------------------------
     # Auto-generate line items from order data
@@ -443,7 +457,11 @@ class InvoiceService:
                     description=item.description,
                     quantity=item.quantity,
                     unit_price=item.unit_price,
-                    total=round(item.quantity * item.unit_price, 2),
+                    total=float(
+                        _to_cents(
+                            Decimal(str(item.quantity)) * Decimal(str(item.unit_price))
+                        )
+                    ),
                 )
                 db.add(db_line)
                 db_lines.append(db_line)
