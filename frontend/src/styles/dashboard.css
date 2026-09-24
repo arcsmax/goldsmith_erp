@@ -924,3 +924,88 @@
     font-size: 0.625rem;
   }
 }
+
+/* =============================================================================
+   "Heute" view (W2-03). Reuses the deadline-item / deadline-badge tones:
+   deadline-urgent = danger (overdue, failed customer update),
+   deadline-soon = due soon / waiting, deadline-ok = ready for pickup.
+   Tokens only; spacing follows the surrounding legacy dashboard styles
+   until the Wave 4 scales exist.
+   ============================================================================= */
+
+.today-view {
+  display: flex;
+  flex-direction: column;
+  gap: var(--today-gap, 1.5rem);
+}
+
+.today-lane,
+.today-kennzahlen {
+  margin-top: var(--today-gap, 1.5rem);
+}
+
+.today-row {
+  color: inherit;
+  text-decoration: none;
+  min-height: var(--touch-min);
+}
+
+.today-row:focus-visible,
+.today-tile:focus-visible {
+  outline: 2px solid var(--color-border-focus);
+  outline-offset: 2px;
+}
+
+.today-row-static {
+  cursor: default;
+}
+
+.today-row-static:hover {
+  transform: none;
+}
+
+.today-row-action {
+  flex-shrink: 0;
+  font-weight: 600;
+  color: var(--color-interactive-primary);
+  white-space: nowrap;
+}
+
+.today-meta {
+  flex-wrap: wrap;
+}
+
+.today-tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+.today-tiles {
+  grid-template-columns: repeat(4, 1fr);
+}
+
+.today-tile {
+  display: flex;
+  flex-direction: column;
+  color: inherit;
+  text-decoration: none;
+  min-height: var(--touch-comfort);
+}
+
+.today-empty-action {
+  margin-top: var(--today-gap, 1.5rem);
+  min-height: var(--touch-min);
+}
+
+.today-kennzahlen-title {
+  color: var(--color-text-heading);
+}
+
+@media (max-width: 600px) {
+  .today-tiles {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .today-row {
+    flex-wrap: wrap;
+  }
+}
