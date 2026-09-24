@@ -11,6 +11,7 @@ from goldsmith_erp.api.deps import get_current_user
 from goldsmith_erp.api.role_projection import (
     ExcludeSpec,
     build_excludes,
+    can_view_design,
     can_view_financial,
 )
 from goldsmith_erp.core.config import settings
@@ -22,12 +23,16 @@ from goldsmith_erp.models.order import (
     LocationHistoryRead,
     OrderCreate,
     OrderRead,
+    OrderStatusChange,
+    OrderTimelineRead,
     OrderUpdate,
 )
 from goldsmith_erp.services.cost_calculation_service import CostCalculationService
 from goldsmith_erp.services.customer_update_service import write_financial_audit_row
 from goldsmith_erp.services.label_service import LabelService
 from goldsmith_erp.services.order_service import OrderService
+from goldsmith_erp.services.order_timeline import build_order_timeline
+from goldsmith_erp.services.order_workflow import counts_for_deadline
 
 router = APIRouter()
 
@@ -170,7 +175,9 @@ async def get_calendar_deadlines(
         if not order.deadline:
             continue
         days_until = (order.deadline - now).days
-        if order.status in ("completed", "delivered"):
+        # W2-07: finished, paused (on_hold) and cancelled orders raise no
+        # deadline alarm.
+        if not counts_for_deadline(order.status):
             traffic_light = "grey"
         elif days_until < 2:
             traffic_light = "red"
@@ -209,7 +216,7 @@ async def create_order(
     current_user: User = Depends(get_current_user),
 ):
     """Neuen Auftrag erstellen."""
-    return await OrderService.create_order(db, order_in)
+    return await OrderService.create_order(db, order_in, user_id=current_user.id)
 
 
 @router.get("/{order_id}", response_model=OrderRead)
@@ -294,6 +301,79 @@ async def patch_order(
         )
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
+
+
+@router.patch("/{order_id}/status", response_model=OrderRead)
+@require_permission(Permission.ORDER_EDIT)
+async def change_order_status(
+    order_id: int,
+    change: OrderStatusChange,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Status wechseln (W2-07).
+
+    Validated by the transition table in ``services/order_workflow.py``:
+    409 ``INVALID_STATUS_TRANSITION`` with a German message and the allowed
+    next statuses, 422 when ``on_hold`` / ``cancelled`` have no ``reason``,
+    409 ``PUNZIERUNG_REQUIRED`` for an unverified alloyed piece. The status
+    change and its ``order_events`` row are committed together.
+    """
+    order = await OrderService.get_order(db, order_id)
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    try:
+        updated = await OrderService.update_order(
+            db,
+            order_id,
+            OrderUpdate.model_validate(
+                {
+                    "status": change.status,
+                    "status_reason": change.reason,
+                    "resume_date": change.resume_date,
+                }
+            ),
+            verified_by_user_id=current_user.id,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    return _project_order_for_user(updated, current_user)
+
+
+@router.get("/{order_id}/timeline", response_model=OrderTimelineRead)
+@require_permission(Permission.ORDER_VIEW)
+async def get_order_timeline(
+    order_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> OrderTimelineRead:
+    """Verlauf eines Auftrags (W2-07, ARCH-01).
+
+    Status events, Kundeninfos, photos and time entries merged ascending by
+    time. No prices or customer free text for anyone; photos only with
+    DESIGN_VIEW; the amount-bearing subject of a cost-change update only
+    with FINANCIAL_VIEW (that read is audit-logged).
+    """
+    order = await OrderService.get_order(db, order_id)
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    financial = can_view_financial(current_user)
+    timeline = await build_order_timeline(
+        db, order_id, financial=financial, design=can_view_design(current_user)
+    )
+    if financial and any(
+        item.data.get("kind") == "cost_change" for item in timeline.items
+    ):
+        await write_financial_audit_row(
+            db,
+            action="timeline_accessed_financial",
+            entity="order",
+            entity_id=order_id,
+            order_id=order_id,
+            user_id=current_user.id,
+            endpoint=f"/api/v1/orders/{order_id}/timeline",
+        )
+    return timeline
 
 
 @router.post("/{order_id}/location", response_model=OrderRead)

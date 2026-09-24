@@ -175,7 +175,12 @@ export type OrderStatus =
   | 'ready_for_setting'
   | 'quality_check'
   | 'completed'
-  | 'delivered';
+  | 'delivered'
+  // W2-07 (DOM-13): Pausiert (hold_reason, resume_date) and Storniert
+  // (cancel_reason). Labels: backend services/order_workflow.py
+  // ORDER_STATUS_LABELS until src/design/status.ts exists (Wave 4).
+  | 'on_hold'
+  | 'cancelled';
 
 // MetalType defined in Metal Inventory section below
 
