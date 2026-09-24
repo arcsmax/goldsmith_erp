@@ -2,6 +2,9 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { ordersApi } from '../api';
+import type { OrderListItem } from '../api/orders';
+import { photoThumbnailPath } from '../api/photos';
+import AuthenticatedImage from '../components/AuthenticatedImage';
 import { OrderType, OrderCreateInput, OrderUpdateInput, OrderStatus } from '../types';
 
 // Valid order statuses accepted via the ?status=... URL parameter.
@@ -23,14 +26,16 @@ import { OrderFormModal } from '../components/orders/OrderFormModal';
 import { useToast, useConfirm } from '../contexts';
 import '../styles/pages.css';
 import '../styles/orders.css';
+// .order-list-thumb (W2-01 thumbnail column) lives with the order styles.
+import '../styles/order-detail.css';
 
 export const OrdersPage: React.FC = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { showToast } = useToast();
   const { showConfirm } = useConfirm();
-  const [orders, setOrders] = useState<OrderType[]>([]);
-  const [filteredOrders, setFilteredOrders] = useState<OrderType[]>([]);
+  const [orders, setOrders] = useState<OrderListItem[]>([]);
+  const [filteredOrders, setFilteredOrders] = useState<OrderListItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -305,6 +310,7 @@ export const OrdersPage: React.FC = () => {
             <table className="orders-table">
               <thead>
                 <tr>
+                  <th className="order-list-thumb-cell">Foto</th>
                   <th>ID</th>
                   <th>Titel</th>
                   <th>Beschreibung</th>
@@ -321,6 +327,15 @@ export const OrdersPage: React.FC = () => {
                     key={order.id}
                     onClick={() => navigate(`/orders/${order.id}`)}
                   >
+                    <td className="order-list-thumb-cell">
+                      {order.first_photo_id && (
+                        <AuthenticatedImage
+                          src={photoThumbnailPath(order.first_photo_id)}
+                          alt={`Foto zu ${order.title}`}
+                          className="order-list-thumb"
+                        />
+                      )}
+                    </td>
                     <td>#{order.id}</td>
                     <td>{order.title}</td>
                     <td>{(order.description ?? '').substring(0, 50)}...</td>

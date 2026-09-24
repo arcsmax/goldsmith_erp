@@ -2,6 +2,12 @@
 import apiClient from './client';
 import { OrderType, OrderCreateInput, OrderUpdateInput, OrderComparison } from '../types';
 
+/**
+ * One row of GET /orders/. `first_photo_id` is the order's oldest photo
+ * (thumbnail via /photos/{id}/thumbnail); null without DESIGN_VIEW (W2-01).
+ */
+export type OrderListItem = OrderType & { first_photo_id?: string | null };
+
 export interface LocationHistoryEntry {
   id: number;
   order_id: number;
@@ -15,14 +21,14 @@ export const ordersApi = {
    * Get all orders with pagination and optional server-side filtering.
    * @param options - skip, limit, and optional customer_id filter
    */
-  getAll: async (options?: { skip?: number; limit?: number; customer_id?: number }): Promise<OrderType[]> => {
+  getAll: async (options?: { skip?: number; limit?: number; customer_id?: number }): Promise<OrderListItem[]> => {
     const skip = options?.skip ?? 0;
     const limit = options?.limit ?? 100;
     const params: Record<string, unknown> = { skip, limit };
     if (options?.customer_id !== undefined) {
       params.customer_id = options.customer_id;
     }
-    const response = await apiClient.get<OrderType[]>('/orders/', { params });
+    const response = await apiClient.get<OrderListItem[]>('/orders/', { params });
     return response.data;
   },
 
