@@ -432,7 +432,7 @@ class TestValuationPdf:
         assert resp.status_code == 403
 
     @pytest.mark.asyncio
-    async def test_pdf_goldsmith_can_download(
+    async def test_pdf_goldsmith_returns_403(
         self,
         client: AsyncClient,
         db_session: AsyncSession,
@@ -440,12 +440,15 @@ class TestValuationPdf:
         goldsmith_auth_headers: dict,
         test_customer: Customer,
     ):
-        """GOLDSMITH has VALUATION_VIEW and can download PDFs."""
+        """GDPR-09 / CLAUDE.md: valuations are exportable only by ADMIN.
+
+        GOLDSMITH still views certificates (VALUATION_VIEW) but lacks
+        VALUATION_EXPORT, so the PDF download is denied.
+        """
         order = await _create_order(db_session, test_customer)
         cert_id = await _create_valuation(
             client, admin_auth_headers, order.id, test_customer.id
         )
 
         resp = await client.get(_pdf_url(cert_id), headers=goldsmith_auth_headers)
-        assert resp.status_code == 200
-        assert "application/pdf" in resp.headers.get("content-type", "")
+        assert resp.status_code == 403
