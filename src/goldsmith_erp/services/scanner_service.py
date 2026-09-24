@@ -1075,9 +1075,10 @@ def _compute_repair_actions(
     status_value = getattr(getattr(repair, "status", None), "value", None)
     if user_role in (UserRole.GOLDSMITH, UserRole.ADMIN):
         actions.append(_ACTION_ADVANCE_REPAIR)
-        # Timer-start only while the piece is actually being worked.
-        if status_value == RepairJobStatus.IN_REPAIR.value:
-            actions.append(_ACTION_START_TIMER)
+        # No start_timer for repairs (FE-03): time entries have no
+        # repair_job_id yet, so the only bookable target would be the ORDER
+        # with the same numeric id — wrong piece, wrong customer, wrong
+        # invoice. Re-add once TimeEntry can reference a repair.
         if status_value == RepairJobStatus.RECEIVED.value:
             actions.append(_ACTION_REPAIR_DIAGNOSIS)
         actions.append(_ACTION_TAKE_PHOTO)

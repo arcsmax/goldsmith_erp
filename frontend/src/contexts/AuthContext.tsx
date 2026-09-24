@@ -9,6 +9,46 @@ import {
   AuthContextType,
 } from '../types';
 
+/** localStorage keys holding the previous user's session data (FE-07). */
+const PER_USER_STORAGE_KEYS = [
+  'user',
+  'running_time_entry',
+  // Legacy unscoped scan activity; per-user keys
+  // (scanner_last_activity_id:<id>) are intentionally kept.
+  'scanner_last_activity_id',
+];
+
+/** Service-worker runtime caches holding authenticated API responses. */
+const AUTHENTICATED_CACHE_PREFIX = 'api-';
+
+/**
+ * FE-07 / FE-11 — on a shared bench tablet the next user must not see the
+ * previous user's timer, orders, prices or materials. Clears per-user
+ * localStorage and the SW API caches (static assets stay cached).
+ */
+export function clearPerUserClientState(): void {
+  for (const key of PER_USER_STORAGE_KEYS) {
+    try {
+      localStorage.removeItem(key);
+    } catch (err) {
+      console.error('Failed to clear local session key:', key, err);
+    }
+  }
+  if (typeof caches === 'undefined') return;
+  void caches
+    .keys()
+    .then((names) =>
+      Promise.all(
+        names
+          .filter((name) => name.startsWith(AUTHENTICATED_CACHE_PREFIX))
+          .map((name) => caches.delete(name)),
+      ),
+    )
+    .catch((err: unknown) => {
+      console.error('Failed to clear API caches on logout:', err);
+    });
+}
+
 // Create the context
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
@@ -48,8 +88,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
    */
   useEffect(() => {
     const handleSessionExpired = () => {
+      clearPerUserClientState();
       setUser(null);
-      localStorage.removeItem('user');
     };
     window.addEventListener('auth:session-expired', handleSessionExpired);
     return () => window.removeEventListener('auth:session-expired', handleSessionExpired);
@@ -138,6 +178,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
    */
   const logout = (): void => {
     authApi.logout();
+    clearPerUserClientState();
     setUser(null);
   };
 
@@ -180,4 +221,13 @@ export const useAuth = (): AuthContextType => {
     throw new Error('useAuth must be used within an AuthProvider');
   }
   return context;
+};
+
+/**
+ * useOptionalAuth — like useAuth but returns null outside an AuthProvider.
+ * For components that are also rendered standalone (e.g. ScanOverlay in
+ * tests) and only need the user id opportunistically.
+ */
+export const useOptionalAuth = (): AuthContextType | null => {
+  return useContext(AuthContext) ?? null;
 };

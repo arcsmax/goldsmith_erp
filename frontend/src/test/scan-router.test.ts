@@ -100,6 +100,24 @@ describe('ScannerRouter.resolve — prefix match', () => {
     expect(resolver.lookup).not.toHaveBeenCalled();
   });
 
+  it('keeps a repair and an order with the same number distinct (FE-03)', async () => {
+    // Label payloads are REPAIR:<id> (repairs.py label) and ORDER:<id>
+    // (orders.py label). The router must never collapse REPAIR:17 onto
+    // ORDER:17; only a *bare* number falls back to ORDER.
+    const transport = makeMockTransport();
+    const router = new ScannerRouter(makeMockResolver(), transport);
+
+    await router.resolve('REPAIR:17', CTX);
+    await router.resolve('ORDER:17', CTX);
+    await router.resolve(' REPAIR:17 ', CTX);
+
+    expect(transport.resolve.mock.calls.map((c) => c[0])).toEqual([
+      'REPAIR:17',
+      'ORDER:17',
+      'REPAIR:17',
+    ]);
+  });
+
   it('accepts all V1.1 prefixes: ORDER, REPAIR, METAL, MATERIAL, ACTIVITY, INTERRUPT', async () => {
     const resolver = makeMockResolver();
     const transport = makeMockTransport();

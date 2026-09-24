@@ -43,6 +43,7 @@ import { NetworkAliasResolver } from '../../lib/network-alias-resolver';
 import { NetworkTransport } from '../../lib/network-transport';
 import { useScannerContext } from '../../contexts/ScannerContext';
 import { useTimeTracking } from '../../contexts/TimeTrackingContext';
+import { useOptionalAuth } from '../../contexts/AuthContext';
 import type {
   ResolveResponse,
   ScanContext,
@@ -141,6 +142,8 @@ export const ScanOverlay: React.FC<ScanOverlayProps> = ({ transport }) => {
     currentLocation,
   } = useScannerContext();
   const { runningEntry, refreshRunningEntry } = useTimeTracking();
+  const auth = useOptionalAuth();
+  const userId = auth?.user?.id ?? null;
   const navigate = useNavigate();
 
   const [isActive, setIsActive] = useState<boolean>(true);
@@ -415,8 +418,12 @@ export const ScanOverlay: React.FC<ScanOverlayProps> = ({ transport }) => {
                     scanContext: makeScanContext('manual', currentLocation),
                     transport: activeTransport,
                     hooks,
-                    activityId: null,
+                    // FE-02: when switching, keep the running timer's
+                    // activity; otherwise the handler uses this user's
+                    // last-used activity or asks via ActivityPickerModal.
+                    activityId: runningEntry?.activity_id ?? null,
                     runningEntryId: runningEntry?.id ?? null,
+                    userId,
                   });
                 }}
                 onClose={handleClose}

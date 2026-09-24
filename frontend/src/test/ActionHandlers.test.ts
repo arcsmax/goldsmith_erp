@@ -196,10 +196,15 @@ describe('start_timer handler', () => {
     expect(ctx.hooks.closeOverlay).toHaveBeenCalled();
   });
 
-  it('warns the user when no activity is available', async () => {
+  it('asks for an activity when none is known and aborts with a German error on cancel (FE-02)', async () => {
+    (fireModal as unknown as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+      new Error('cancelled'),
+    );
     const ctx = baseContext(orderResponse(7), { activityId: null });
-    await ACTION_HANDLERS.start_timer(ctx);
-    expect(ctx.hooks.toast).toHaveBeenCalled();
+    await expect(ACTION_HANDLERS.start_timer(ctx)).rejects.toThrow(
+      /Keine Aktivität gewählt/,
+    );
+    expect(fireModal).toHaveBeenCalled();
     expect(apiClient.post).not.toHaveBeenCalled();
   });
 
