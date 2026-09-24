@@ -5,6 +5,8 @@ import { ordersApi } from '../api';
 import type { OrderListItem } from '../api/orders';
 import { photoThumbnailPath } from '../api/photos';
 import AuthenticatedImage from '../components/AuthenticatedImage';
+import { useRefetchOn } from '../lib/refetchBus';
+import { logError } from '../lib/logError';
 import { OrderType, OrderCreateInput, OrderUpdateInput, OrderStatus } from '../types';
 
 // Valid order statuses accepted via the ?status=... URL parameter.
@@ -70,17 +72,28 @@ export const OrdersPage: React.FC = () => {
     fetchOrders();
   }, []);
 
+  // W2-13: a status change or new order on another device refreshes the
+  // list in place (no spinner, filters and page kept).
+  useRefetchOn('orders', () => {
+    fetchOrders({ isSilent: true });
+  });
+
   useEffect(() => {
     filterAndSortOrders();
   }, [orders, searchQuery, filterStatus, sortBy]);
 
-  const fetchOrders = async () => {
+  const fetchOrders = async ({ isSilent = false }: { isSilent?: boolean } = {}) => {
     try {
-      setIsLoading(true);
+      if (!isSilent) setIsLoading(true);
       setError(null);
       const data = await ordersApi.getAll();
       setOrders(data);
     } catch (err: any) {
+      // A failed background refresh keeps the list that is on screen.
+      if (isSilent) {
+        logError('OrdersPage.refetch', err);
+        return;
+      }
       setError(err.response?.data?.detail || 'Fehler beim Laden der Aufträge');
     } finally {
       setIsLoading(false);

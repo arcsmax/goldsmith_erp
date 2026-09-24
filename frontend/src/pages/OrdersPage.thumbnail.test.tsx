@@ -2,7 +2,7 @@
 // The backend sends the oldest photo id per order (null for VIEWER), and the
 // list renders it through the authenticated thumbnail endpoint.
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 
 const mockGetAll = vi.fn();
@@ -26,6 +26,7 @@ vi.mock('../components/AuthenticatedImage', () => ({
 }));
 
 import { OrdersPage } from './OrdersPage';
+import { triggerRefetch } from '../lib/refetchBus';
 
 function order(id: number, firstPhotoId: string | null) {
   return {
@@ -42,6 +43,28 @@ function order(id: number, firstPhotoId: string | null) {
 
 afterEach(() => {
   vi.clearAllMocks();
+  mockGetAll.mockReset();
+});
+
+describe('OrdersPage — realtime refresh (W2-13 hook)', () => {
+  it('reloads the list when the orders topic fires', async () => {
+    mockGetAll.mockResolvedValueOnce([order(1, null)]);
+    mockGetAll.mockResolvedValueOnce([order(1, 'photo-uuid-9')]);
+
+    render(
+      <MemoryRouter>
+        <OrdersPage />
+      </MemoryRouter>
+    );
+    expect(await screen.findByText('Auftrag 1')).toBeInTheDocument();
+    expect(mockGetAll).toHaveBeenCalledTimes(1);
+
+    triggerRefetch('orders');
+
+    await waitFor(() => expect(mockGetAll).toHaveBeenCalledTimes(2));
+    const img = await screen.findByTestId('auth-img');
+    expect(img).toHaveAttribute('data-src', '/photos/photo-uuid-9/thumbnail');
+  });
 });
 
 describe('OrdersPage — photo thumbnail', () => {

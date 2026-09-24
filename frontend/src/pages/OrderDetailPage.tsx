@@ -22,6 +22,8 @@ import { PhotoCompare, type PhotoItem } from '../components/PhotoCompare';
 import { PhotoUpload } from '../components/orders/PhotoUpload';
 import { parseOrderDeepLink, stripOrderDeepLink } from '../components/orders/orderDeepLink';
 import { photoFilePath, photoThumbnailPath, photosApi } from '../api/photos';
+import { useRefetchOn } from '../lib/refetchBus';
+import { logError } from '../lib/logError';
 import '../styles/order-detail.css';
 
 export const OrderDetailPage: React.FC = () => {
@@ -63,9 +65,11 @@ export const OrderDetailPage: React.FC = () => {
     fetchOrder(parseInt(orderId));
   }, [orderId]);
 
-  const fetchOrder = async (id: number) => {
+  // `isSilent` refreshes in place (realtime hint): no loading screen, so
+  // the open tab and a running photo upload stay mounted.
+  const fetchOrder = async (id: number, { isSilent = false }: { isSilent?: boolean } = {}) => {
     try {
-      setIsLoading(true);
+      if (!isSilent) setIsLoading(true);
       setError(null);
       const orderData = await ordersApi.getById(id);
       setOrder(orderData);
@@ -83,16 +87,28 @@ export const OrderDetailPage: React.FC = () => {
         try {
           const photosResponse = await photosApi.getForOrder(id);
           setOrderPhotos(photosResponse.data ?? []);
-        } catch {
-          // Photo loading failure is non-critical; silently ignore
+        } catch (photoErr: unknown) {
+          // Non-critical for the page, but never silent.
+          logError('OrderDetailPage.loadPhotos', photoErr);
         }
       }
     } catch (err: any) {
+      // A failed background refresh keeps the order that is on screen.
+      if (isSilent) {
+        logError('OrderDetailPage.refetch', err);
+        return;
+      }
       setError(err.response?.data?.detail || 'Fehler beim Laden des Auftrags');
     } finally {
       setIsLoading(false);
     }
   };
+
+  // W2-13: status changes and new photos from another device refresh the
+  // open order without a manual reload.
+  useRefetchOn('orders', () => {
+    if (orderId) fetchOrder(parseInt(orderId), { isSilent: true });
+  });
 
   const handleTabChange = (tab: OrderTab) => {
     if (orderId) {

@@ -12,6 +12,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import userEvent from '@testing-library/user-event';
 import type { OrderType } from '../types';
+import { triggerRefetch } from '../lib/refetchBus';
 
 const mockGetById = vi.fn();
 vi.mock('../api', () => ({
@@ -174,6 +175,25 @@ describe('OrderDetailPage — Fotos tab upload', () => {
     expect(await screen.findByText('Fotos (2)')).toBeInTheDocument();
     const srcs = (await screen.findAllByTestId('auth-img')).map((el) => el.getAttribute('data-src'));
     expect(srcs).toContain('/photos/bbbb-2222/thumbnail');
+  });
+});
+
+describe('OrderDetailPage — realtime refresh (W2-13 hook)', () => {
+  it('reloads the order and its photos when the orders topic fires, without unmounting the tab', async () => {
+    mockUseAuth.mockReturnValue({ user: { role: 'GOLDSMITH' } });
+    renderPage();
+    await userEvent.click(await screen.findByText('Fotos (1)'));
+    expect(mockGetById).toHaveBeenCalledTimes(1);
+
+    mockGetForOrder.mockResolvedValue({
+      data: [EXISTING_PHOTO, { ...EXISTING_PHOTO, id: 'cccc-3333' }],
+    });
+    triggerRefetch('orders');
+
+    await waitFor(() => expect(mockGetById).toHaveBeenCalledTimes(2));
+    expect(await screen.findByText('Fotos (2)')).toBeInTheDocument();
+    // Silent refresh: the Fotos tab (and a running upload) stays mounted.
+    expect(screen.getByLabelText('Foto aufnehmen')).toBeInTheDocument();
   });
 });
 
