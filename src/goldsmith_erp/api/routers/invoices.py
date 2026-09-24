@@ -11,7 +11,8 @@ Endpoints:
   GET    /api/v1/invoices/export/datev         - DATEV Buchungsstapel CSV (ADMIN)
   GET    /api/v1/invoices/export/lexoffice     - Lexoffice CSV (ADMIN)
   GET    /api/v1/invoices/{invoice_id}         - Get single invoice
-  PUT    /api/v1/invoices/{invoice_id}         - Update invoice status/notes
+  PUT    /api/v1/invoices/{invoice_id}         - Update due date/notes (no status)
+  POST   /api/v1/invoices/{invoice_id}/send        - Mark DRAFT as sent
   POST   /api/v1/invoices/{invoice_id}/mark-paid   - Mark as paid
   POST   /api/v1/invoices/{invoice_id}/cancel      - Cancel invoice
   GET    /api/v1/invoices/{invoice_id}/pdf         - Download invoice as PDF
@@ -303,15 +304,36 @@ async def update_invoice(
     current_user: User = Depends(get_current_user),
 ):
     """
-    Rechnung aktualisieren (Update invoice status, due date, notes, or payment method).
+    Rechnung aktualisieren (Update due date, notes, or payment method).
 
-    Invoice number, order_id, and customer_id are immutable.
-    To mark as paid use the dedicated mark-paid endpoint.
-    Cancelled invoices cannot be updated.
+    Invoice number, order_id, customer_id and status are not editable here.
+    Status changes go through /send, /mark-paid and /cancel (BE-05), each
+    with its own permission. PAID or CANCELLED invoices return 409.
     """
     invoice = await InvoiceService.update_invoice(
         db, invoice_id, invoice_in, current_user
     )
+    if not invoice:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Rechnung {invoice_id} nicht gefunden",
+        )
+    return invoice
+
+
+@router.post("/{invoice_id}/send", response_model=InvoiceResponse)
+@require_permission(Permission.INVOICE_EDIT)
+async def send_invoice(
+    invoice_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Rechnung als versendet markieren (Mark a DRAFT invoice as SENT).
+
+    Only DRAFT invoices can be sent; any other status returns 409.
+    """
+    invoice = await InvoiceService.mark_as_sent(db, invoice_id, current_user)
     if not invoice:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

@@ -406,6 +406,12 @@ class QuoteService:
                     status_code=404,
                     detail=f"Auftrag {quote_in.order_id} nicht gefunden",
                 )
+            if order.customer_id != quote_in.customer_id:
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"Auftrag {quote_in.order_id} gehoert zu einem anderen "
+                    f"Kunden; Angebot und Auftrag muessen denselben Kunden haben.",
+                )
             auto_items = QuoteService._build_line_items_from_order(order)
 
         all_line_items = auto_items + (quote_in.additional_line_items or [])
@@ -887,17 +893,23 @@ class QuoteService:
         current_user: UserModel,
     ) -> Optional[QuoteModel]:
         """
-        Convert an APPROVED quote to a confirmed order (CONVERTED status).
+        Convert an APPROVED quote into a confirmed order (CONVERTED status).
 
-        Creates a new Order in CONFIRMED status using the quote data, then
-        marks the quote as CONVERTED and links it to the new order.
+        - If the quote was built from an existing order (``quote.order_id``),
+          that order is confirmed and priced from the quote; no duplicate
+          order is created (BE-17).
+        - Otherwise a new CONFIRMED order is created.
 
-        Only APPROVED quotes can be converted.
+        ``Order.price`` is NET: it receives ``quote.subtotal``, never the
+        gross ``quote.total`` (BE-01, ADR-2026-09-25-price-semantics).
+
+        Only APPROVED, non-expired quotes can be converted.
         """
         result = await db.execute(
             select(QuoteModel)
             .options(selectinload(QuoteModel.line_items))
             .where(QuoteModel.id == quote_id)
+            .with_for_update()
         )
         quote = result.scalar_one_or_none()
         if not quote:
@@ -911,34 +923,65 @@ class QuoteService:
             )
 
         now = datetime.utcnow()
+        if quote.valid_until is not None and quote.valid_until < now:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Angebot {quote.quote_number} ist abgelaufen "
+                f"(gueltig bis {quote.valid_until:%d.%m.%Y}) und kann nicht "
+                f"umgewandelt werden.",
+            )
 
-        # Build order title from quote number
-        order_title = f"Auftrag aus {quote.quote_number}"
-
-        # Calculate estimated price from quote total (gross)
-        estimated_price = quote.total
+        net_price = round(quote.subtotal or 0.0, 2)
+        existing_order: Optional[OrderModel] = None
+        if quote.order_id is not None:
+            order_result = await db.execute(
+                select(OrderModel)
+                .where(OrderModel.id == quote.order_id)
+                .where(OrderModel.is_deleted.is_(False))
+            )
+            existing_order = order_result.scalar_one_or_none()
+            if existing_order is None:
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"Verknuepfter Auftrag {quote.order_id} existiert nicht "
+                    f"mehr; Angebot kann nicht umgewandelt werden.",
+                )
 
         async with transactional(db):
-            new_order = OrderModel(
-                title=order_title,
-                description=quote.notes or "",
-                price=estimated_price,
-                status=OrderStatusEnum.CONFIRMED,
-                customer_id=quote.customer_id,
-            )
-            db.add(new_order)
-            await db.flush()
+            if existing_order is not None:
+                target_order = existing_order
+                target_order.price = net_price
+                if target_order.status in (
+                    OrderStatusEnum.DRAFT,
+                    OrderStatusEnum.NEW,
+                ):
+                    target_order.status = OrderStatusEnum.CONFIRMED
+            else:
+                target_order = OrderModel(
+                    title=f"Auftrag aus {quote.quote_number}",
+                    description=quote.notes or "",
+                    price=net_price,
+                    status=OrderStatusEnum.CONFIRMED,
+                    customer_id=quote.customer_id,
+                )
+                db.add(target_order)
+                await db.flush()
 
             quote.status = QuoteStatus.CONVERTED
             quote.converted_at = now
-            quote.order_id = new_order.id
+            quote.order_id = target_order.id
 
         _log_quote_access(
             action="converted",
             quote_id=quote_id,
             user_id=current_user.id,
             user_role=_user_role_str(current_user),
-            extra={"new_order_id": new_order.id, "total": quote.total},
+            extra={
+                "order_id": target_order.id,
+                "reused_existing_order": existing_order is not None,
+                "net_price": net_price,
+                "total": quote.total,
+            },
         )
 
         return await QuoteService.get_quote(db, quote_id, current_user)

@@ -450,8 +450,8 @@ class TestInvoiceNumberOnCreate:
 class TestStatusTransitions:
     """Verify allowed and forbidden status transitions."""
 
-    async def test_draft_to_sent_via_update(self, db_session):
-        """DRAFT invoice can be updated to SENT status."""
+    async def test_draft_to_sent_via_mark_as_sent(self, db_session):
+        """DRAFT invoice moves to SENT through the dedicated action (BE-05)."""
         user = await _make_user(db_session)
         customer = await _make_customer(db_session)
         order = await _make_order(db_session, customer)
@@ -459,13 +459,35 @@ class TestStatusTransitions:
 
         assert invoice.status == InvoiceStatus.DRAFT
 
-        update = InvoiceUpdate(status=InvoiceStatus.SENT)
-        updated = await InvoiceService.update_invoice(
-            db_session, invoice.id, update, user
-        )
+        updated = await InvoiceService.mark_as_sent(db_session, invoice.id, user)
 
         assert updated is not None
         assert updated.status == InvoiceStatus.SENT
+
+    async def test_invoice_update_rejects_status_field(self):
+        """InvoiceUpdate must not accept status (BE-05)."""
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError):
+            InvoiceUpdate(status=InvoiceStatus.CANCELLED)
+
+    async def test_paid_invoice_cannot_be_updated(self, db_session):
+        """PAID invoice rejects PUT edits with 409 (BE-05)."""
+        from fastapi import HTTPException
+
+        user = await _make_user(db_session)
+        customer = await _make_customer(db_session)
+        order = await _make_order(db_session, customer)
+        invoice = await _make_invoice(db_session, order, user)
+        invoice.status = InvoiceStatus.PAID
+        await db_session.commit()
+
+        with pytest.raises(HTTPException) as exc_info:
+            await InvoiceService.update_invoice(
+                db_session, invoice.id, InvoiceUpdate(notes="attempt"), user
+            )
+
+        assert exc_info.value.status_code == 409
 
     async def test_sent_to_paid_via_mark_paid(self, db_session):
         """SENT invoice can be marked as PAID."""
@@ -536,7 +558,7 @@ class TestStatusTransitions:
         assert exc_info.value.status_code == 422
 
     async def test_cancelled_invoice_cannot_be_updated(self, db_session):
-        """CANCELLED invoice must raise 422 on any update attempt."""
+        """CANCELLED invoice must raise 409 on any update attempt (ADR 2026-09-25)."""
         from fastapi import HTTPException
 
         user = await _make_user(db_session)
@@ -551,7 +573,7 @@ class TestStatusTransitions:
                 db_session, invoice.id, InvoiceUpdate(notes="attempt"), user
             )
 
-        assert exc_info.value.status_code == 422
+        assert exc_info.value.status_code == 409
 
     async def test_already_cancelled_invoice_cancel_again_raises_422(self, db_session):
         """Cancelling a CANCELLED invoice must raise 422."""
