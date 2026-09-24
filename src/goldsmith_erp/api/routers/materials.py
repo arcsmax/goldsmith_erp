@@ -13,6 +13,12 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from goldsmith_erp.api.deps import get_current_user
+from goldsmith_erp.api.role_projection import (
+    ExcludeSpec,
+    build_excludes,
+    ensure_financial_view,
+    project_response,
+)
 from goldsmith_erp.core.config import settings
 from goldsmith_erp.core.permissions import Permission, require_permission
 from goldsmith_erp.db.models import Material as MaterialModel
@@ -37,6 +43,15 @@ logger = logging.getLogger(__name__)
 _MATERIAL_IMAGE_MAX_BYTES: int = 10 * 1024 * 1024
 
 router = APIRouter()
+
+# SEC-01 / GDPR-03: material prices and derived stock values are financial
+# data (CLAUDE.md: ADMIN + GOLDSMITH only). Stripped for callers without
+# FINANCIAL_VIEW; the pure stock-value report requires it outright.
+_MATERIAL_FINANCIAL_FIELDS: frozenset[str] = frozenset({"unit_price", "stock_value"})
+
+
+def _material_excludes(user: UserModel) -> ExcludeSpec:
+    return build_excludes(user, financial=_MATERIAL_FINANCIAL_FIELDS)
 
 
 # ==================== PYDANTIC SCHEMAS ====================
@@ -77,7 +92,7 @@ async def list_materials(
     **Use Case**: Übersicht über alle verfügbaren Materialien.
     """
     materials = await MaterialService.get_materials(db, skip, limit)
-    return materials
+    return project_response(MaterialRead, materials, _material_excludes(current_user))
 
 
 @router.post("/", response_model=MaterialRead, status_code=status.HTTP_201_CREATED)
@@ -177,7 +192,7 @@ async def get_material(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Material not found"
         )
-    return material
+    return project_response(MaterialRead, material, _material_excludes(current_user))
 
 
 @router.put("/{material_id}", response_model=MaterialRead)
@@ -304,7 +319,9 @@ async def get_low_stock_materials(
     # Konvertiere zu MaterialWithStock mit Wertberechnung
     materials_with_value = [MaterialWithStock.from_material(m) for m in materials]
 
-    return materials_with_value
+    return project_response(
+        MaterialWithStock, materials_with_value, _material_excludes(current_user)
+    )
 
 
 @router.post("/{material_id}/image", response_model=MaterialRead)
@@ -455,6 +472,9 @@ async def get_total_stock_value(
     - Nützlich für Bilanzierung und Reporting
 
     **Use Case**: Lagerwert für Buchhaltung ermitteln.
+
+    Finanzdaten: erfordert FINANCIAL_VIEW (ADMIN, GOLDSMITH; SEC-01).
     """
+    ensure_financial_view(current_user)
     total_value = await MaterialService.calculate_total_stock_value(db)
     return StockValueResponse(total_value=total_value)

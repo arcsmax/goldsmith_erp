@@ -2,6 +2,11 @@
 Metal Inventory API Router
 
 Endpoints for managing metal purchases, inventory tracking, and material usage.
+
+SEC-01 / GDPR-03: every read that returns purchase prices, per-gram costs,
+usage costs or inventory value (purchases list/detail, usage history,
+statistics, allocate-preview) requires ``financial:view`` (ADMIN, GOLDSMITH).
+The weight-only forecast stays on ``material:view``.
 """
 
 import logging
@@ -103,12 +108,12 @@ async def list_metal_purchases(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=500),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_permission(Permission.MATERIAL_VIEW)),
+    current_user: User = Depends(require_permission(Permission.FINANCIAL_VIEW)),
 ):
     """
     List metal purchases with optional filtering.
 
-    **Permissions:** Requires `material:view`
+    **Permissions:** Requires `financial:view`
 
     **Query Parameters:**
     - `metal_type`: Filter by specific metal type (e.g., `gold_18k`)
@@ -154,12 +159,12 @@ async def list_metal_purchases(
 async def get_metal_purchase(
     purchase_id: int,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_permission(Permission.MATERIAL_VIEW)),
+    current_user: User = Depends(require_permission(Permission.FINANCIAL_VIEW)),
 ):
     """
     Get detailed information about a specific metal purchase.
 
-    **Permissions:** Requires `material:view`
+    **Permissions:** Requires `financial:view`
     """
     purchase = await MetalInventoryService.get_purchase(db, purchase_id)
 
@@ -338,12 +343,12 @@ async def get_usage_history(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=500),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_permission(Permission.ORDER_VIEW)),
+    current_user: User = Depends(require_permission(Permission.FINANCIAL_VIEW)),
 ):
     """
     Get material usage history with optional filtering.
 
-    **Permissions:** Requires `order:view`
+    **Permissions:** Requires `financial:view`
 
     **Returns:** List of material consumption records ordered by date (newest first)
     """
@@ -384,12 +389,12 @@ async def get_usage_history(
 @router.get("/statistics", response_model=InventoryStatistics)
 async def get_inventory_statistics(
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_permission(Permission.MATERIAL_VIEW)),
+    current_user: User = Depends(require_permission(Permission.FINANCIAL_VIEW)),
 ):
     """
     Get comprehensive inventory statistics.
 
-    **Permissions:** Requires `material:view`
+    **Permissions:** Requires `financial:view`
 
     **Returns:**
     - Total inventory value (EUR)
@@ -444,12 +449,12 @@ async def preview_material_allocation(
         None, description="For SPECIFIC method"
     ),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_permission(Permission.ORDER_VIEW)),
+    current_user: User = Depends(require_permission(Permission.FINANCIAL_VIEW)),
 ):
     """
     Preview material allocation without consuming inventory.
 
-    **Permissions:** Requires `order:view`
+    **Permissions:** Requires `financial:view`
 
     **Use Case:** Calculate cost before creating order.
 

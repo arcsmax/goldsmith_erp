@@ -160,10 +160,11 @@ class TestViewerFinancialProjection:
 
         # These fields must survive the projection. They are the core
         # identifying + status fields a VIEWER legitimately needs.
+        # ``description`` is design IP and is stripped for VIEWER since
+        # SEC-09 (see tests/integration/test_viewer_role_projection.py).
         must_keep = {
             "id",
             "title",
-            "description",
             "status",
             "customer_id",
             "deadline",

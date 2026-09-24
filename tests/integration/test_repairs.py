@@ -589,15 +589,20 @@ class TestRepairPhotos:
         assert resp.status_code == 404
 
     @pytest.mark.asyncio
-    async def test_viewer_can_get_photo_but_not_upload_or_delete(
+    async def test_viewer_cannot_read_upload_or_delete_photos(
         self,
         client: AsyncClient,
         admin_auth_headers: dict,
+        goldsmith_auth_headers: dict,
         viewer_auth_headers: dict,
         tmp_path,
         monkeypatch,
     ):
-        """VIEWER has REPAIR_VIEW (GET) but not REPAIR_EDIT (POST/DELETE)."""
+        """Repair photos are design IP (SEC-09, GDPR-04): DESIGN_VIEW only.
+
+        VIEWER holds REPAIR_VIEW but neither DESIGN_VIEW (GET) nor
+        REPAIR_EDIT (POST/DELETE). GOLDSMITH keeps read access.
+        """
         monkeypatch.setattr(
             "goldsmith_erp.core.config.settings.PHOTO_STORAGE_PATH", str(tmp_path)
         )
@@ -612,7 +617,7 @@ class TestRepairPhotos:
         )
         assert upload_as_viewer.status_code == 403
 
-        # Upload for real as admin so VIEWER has something to GET.
+        # Upload for real as admin so there is something to GET.
         upload = await client.post(
             f"{REPAIRS_URL}{repair_id}/photos",
             files=files,
@@ -622,20 +627,16 @@ class TestRepairPhotos:
         assert upload.status_code == 201, upload.text
         photo_id = upload.json()["id"]
 
-        get_resp = await client.get(
-            f"{REPAIRS_URL}photos/{photo_id}", headers=viewer_auth_headers
-        )
-        assert get_resp.status_code == 200
-
-        thumb_resp = await client.get(
-            f"{REPAIRS_URL}photos/{photo_id}/thumbnail", headers=viewer_auth_headers
-        )
-        assert thumb_resp.status_code == 200
-
-        list_resp = await client.get(
-            f"{REPAIRS_URL}{repair_id}/photos", headers=viewer_auth_headers
-        )
-        assert list_resp.status_code == 200
+        read_urls = [
+            f"{REPAIRS_URL}photos/{photo_id}",
+            f"{REPAIRS_URL}photos/{photo_id}/thumbnail",
+            f"{REPAIRS_URL}{repair_id}/photos",
+        ]
+        for url in read_urls:
+            viewer_resp = await client.get(url, headers=viewer_auth_headers)
+            assert viewer_resp.status_code == 403, url
+            goldsmith_resp = await client.get(url, headers=goldsmith_auth_headers)
+            assert goldsmith_resp.status_code == 200, url
 
         delete_as_viewer = await client.delete(
             f"{REPAIRS_URL}photos/{photo_id}", headers=viewer_auth_headers

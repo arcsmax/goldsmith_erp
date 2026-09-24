@@ -3,7 +3,8 @@
 Pydantic schemas for the Repair Tracking module (Reparaturverwaltung).
 
 All financial fields (estimated_cost, actual_cost, estimated_value) are
-visible only to GOLDSMITH and ADMIN roles — enforced at the router level.
+visible only to holders of FINANCIAL_VIEW (GOLDSMITH, ADMIN): the repair
+router strips them via api/role_projection.py (SEC-01, GDPR-03).
 """
 
 from datetime import datetime, timezone
@@ -225,8 +226,9 @@ class RepairJobRead(BaseModel):
     """
     Full repair job detail — returned by GET /repairs/{id}.
 
-    Financial fields (estimated_cost, actual_cost, estimated_value) are
-    included here; the router enforces GOLDSMITH/ADMIN access.
+    Financial fields (estimated_cost, actual_cost, estimated_value) and
+    ``photos`` are included here; the router strips them for callers without
+    FINANCIAL_VIEW / DESIGN_VIEW (api/role_projection.py).
     """
 
     id: int
