@@ -1,5 +1,6 @@
 # src/goldsmith_erp/api/routers/users.py
 
+import logging
 from typing import List, Optional
 
 from fastapi import APIRouter, Body, Depends, HTTPException, status
@@ -7,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from goldsmith_erp.api.deps import get_current_user
 from goldsmith_erp.core.permissions import Permission, require_permission
+from goldsmith_erp.core.security import verify_password
 from goldsmith_erp.core.token_revocation import invalidate_user_tokens
 from goldsmith_erp.db.models import User as UserModel
 from goldsmith_erp.db.session import get_db
@@ -18,9 +20,12 @@ from goldsmith_erp.models.user import (
     UserErasureRequest,
     UserErasureResponse,
     UserNotFound,
+    UserSelfUpdate,
     UserUpdate,
 )
 from goldsmith_erp.services.user_service import UserService
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -87,9 +92,36 @@ async def get_current_user_profile(current_user: UserModel = Depends(get_current
     return current_user
 
 
+def _changes_credentials(user_in: UserSelfUpdate, current_user: UserModel) -> bool:
+    """True if the update changes the password or the (login) email."""
+    if user_in.password is not None:
+        return True
+    return user_in.email is not None and user_in.email != current_user.email
+
+
+def _require_current_password(user_in: UserSelfUpdate, current_user: UserModel) -> None:
+    """Re-authenticate a credential change (SEC-11). Raises on failure."""
+    if not user_in.current_password:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="current_password is required to change email or password",
+        )
+    if not verify_password(user_in.current_password, current_user.hashed_password):
+        # 403, not 401: the session is valid, and a 401 would make the frontend
+        # interceptor treat it as an expired token.
+        logger.warning(
+            "Credential change rejected: wrong current password",
+            extra={"user_id": current_user.id, "event": "credential_change_denied"},
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Current password is incorrect",
+        )
+
+
 @router.put("/me", response_model=User)
 async def update_current_user_profile(
-    user_in: UserUpdate,
+    user_in: UserSelfUpdate,
     current_user: UserModel = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -99,9 +131,15 @@ async def update_current_user_profile(
     - **Authentifizierung erforderlich**
     - Benutzer kann nur sein eigenes Profil bearbeiten
     - E-Mail, Name und Passwort können geändert werden
+    - E-Mail- oder Passwortänderung erfordert `current_password` (SEC-11)
 
     **Use Case**: Benutzer möchte seine Profil-Daten aktualisieren.
     """
+    is_credential_change = _changes_credentials(user_in, current_user)
+    is_email_change = user_in.email is not None and user_in.email != current_user.email
+    if is_credential_change:
+        _require_current_password(user_in, current_user)
+
     # Prüfen ob neue E-Mail bereits existiert (falls geändert)
     if user_in.email and user_in.email != current_user.email:
         existing_user = await UserService.get_user_by_email(db, user_in.email)
@@ -110,11 +148,25 @@ async def update_current_user_profile(
                 status_code=status.HTTP_400_BAD_REQUEST, detail="Email already in use"
             )
 
-    # Profil aktualisieren
-    updated_user = await UserService.update_user(db, current_user.id, user_in)
+    # Profil aktualisieren (current_password is verification only, never stored)
+    profile_update = UserUpdate(
+        **user_in.model_dump(exclude_unset=True, exclude={"current_password"})
+    )
+    updated_user = await UserService.update_user(db, current_user.id, profile_update)
     if not updated_user:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
+        )
+
+    if is_credential_change:
+        logger.info(
+            "Credentials changed by account owner",
+            extra={
+                "user_id": current_user.id,
+                "event": "credential_change",
+                "password_changed": user_in.password is not None,
+                "email_changed": is_email_change,
+            },
         )
 
     # Password change revokes all outstanding tokens for this user (finding 2.1):

@@ -21,11 +21,11 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, EmailStr, Field
 from slowapi import Limiter
-from slowapi.util import get_remote_address
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy.orm import selectinload
 
+from goldsmith_erp.core.client_ip import get_client_ip
 from goldsmith_erp.core.pubsub import get_redis_client
 from goldsmith_erp.db.models import (
     Customer,
@@ -40,7 +40,7 @@ from goldsmith_erp.db.session import get_db
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
-limiter = Limiter(key_func=get_remote_address)
+limiter = Limiter(key_func=get_client_ip)
 
 # ─── Token settings ────────────────────────────────────────────────────────────
 _TOKEN_TTL_SECONDS = 3600  # 1 hour

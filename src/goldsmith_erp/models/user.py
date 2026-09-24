@@ -162,6 +162,22 @@ class UserUpdate(BaseModel):
         return v
 
 
+class UserSelfUpdate(UserUpdate):
+    """Schema for ``PUT /users/me``.
+
+    Changing the account's email or password requires ``current_password``
+    (SEC-11): an unattended open session must not be enough to take the
+    account over. It is verified by the router and never persisted.
+    """
+
+    current_password: Optional[str] = Field(
+        None,
+        min_length=1,
+        max_length=128,
+        description="Current password; required when changing email or password",
+    )
+
+
 class User(UserBase):
     """Schema für User-Anzeige mit RBAC role."""
 

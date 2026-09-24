@@ -1,5 +1,6 @@
 # src/goldsmith_erp/core/config.py
 
+import ipaddress
 import json
 import logging
 import secrets
@@ -8,6 +9,12 @@ from typing import Annotated, Any, Optional
 
 from pydantic import Field, PostgresDsn, RedisDsn, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
+
+# The literal value `.env.example` ships for SECRET_KEY and ANONYMIZATION_SALT.
+# It is public (in the repository), so it must never sign JWTs or salt HMACs in
+# production (SEC-02). Development keeps warn-and-accept so fresh checkouts boot.
+ENV_EXAMPLE_PLACEHOLDER = "CHANGE_THIS_TO_A_SECURE_RANDOM_STRING_AT_LEAST_32_CHARS"
+_PLACEHOLDER_CHECKED_FIELDS = ("SECRET_KEY", "ANONYMIZATION_SALT")
 
 
 class Settings(BaseSettings):
@@ -76,7 +83,25 @@ class Settings(BaseSettings):
         "http://localhost:8000",
     ]
 
-    @field_validator("BACKEND_CORS_ORIGINS", mode="before")
+    # ── Reverse-proxy trust (SEC-04) ────────────────────────────────────────────
+    # Networks whose X-Forwarded-For / X-Real-IP headers are believed when they
+    # are the direct TCP peer. Production traffic is Caddy -> nginx -> backend
+    # over the compose network, so rate limits and audit logs key on the real
+    # client (core/client_ip.py) instead of the nginx container. The default
+    # trusts loopback plus the address ranges container runtimes use (podman
+    # 10.88/10.89, docker 172.17+), but NOT 192.168.0.0/16, the typical
+    # workshop LAN: a LAN device talking to a published backend port directly
+    # cannot spoof its address. Narrow it to the compose subnet when known.
+    # Accepts a JSON array or a comma-separated string of CIDRs.
+    TRUSTED_PROXIES: Annotated[list[str], NoDecode] = [
+        "127.0.0.0/8",
+        "::1/128",
+        "10.0.0.0/8",
+        "172.16.0.0/12",
+        "fc00::/7",
+    ]
+
+    @field_validator("BACKEND_CORS_ORIGINS", "TRUSTED_PROXIES", mode="before")
     @classmethod
     def _assemble_cors_origins(cls, value: Any) -> Any:
         """Accept CORS origins as a JSON array *or* a comma-separated string.
@@ -90,7 +115,7 @@ class Settings(BaseSettings):
         if value is None or isinstance(value, (list, tuple)):
             return value
         if not isinstance(value, str):
-            raise ValueError(f"Invalid BACKEND_CORS_ORIGINS value: {value!r}")
+            raise ValueError(f"Invalid list value: {value!r}")
         text = value.strip()
         if not text:
             return []
@@ -106,6 +131,23 @@ class Settings(BaseSettings):
             for origin in text.split(",")
             if origin.strip()
         ]
+
+    @field_validator("TRUSTED_PROXIES")
+    @classmethod
+    def _validate_trusted_proxies(cls, value: list[str]) -> list[str]:
+        """Fail fast on a malformed CIDR instead of silently trusting nothing."""
+        invalid = []
+        for entry in value:
+            try:
+                ipaddress.ip_network(entry, strict=False)
+            except ValueError:
+                invalid.append(entry)
+        if invalid:
+            raise ValueError(
+                f"TRUSTED_PROXIES contains invalid networks: {invalid}. Use CIDR "
+                "notation, e.g. 10.89.0.0/24 or 127.0.0.1/32."
+            )
+        return value
 
     @classmethod
     @field_validator("DATABASE_URL", mode="before")
@@ -247,6 +289,38 @@ class Settings(BaseSettings):
         return self
 
     @model_validator(mode="after")
+    def _reject_placeholder_secrets(self) -> "Settings":
+        """Reject the public .env.example placeholder secrets in production.
+
+        SEC-02: with the placeholder SECRET_KEY anyone can forge admin JWTs;
+        with the placeholder ANONYMIZATION_SALT the tracking HMACs of erased
+        users can be recomputed by anyone who has the public repository.
+        DEBUG=False raises and names the variable; DEBUG=True warns and
+        accepts so a fresh dev checkout still boots.
+        """
+        offending = [
+            name
+            for name in _PLACEHOLDER_CHECKED_FIELDS
+            if getattr(self, name) == ENV_EXAMPLE_PLACEHOLDER
+        ]
+        if not offending:
+            return self
+        names = ", ".join(offending)
+        if not self.DEBUG:
+            raise ValueError(
+                f"{names} is set to the public .env.example placeholder, which "
+                "must never be used in production (DEBUG=False). Generate a "
+                'real value with: python3 -c "import secrets; '
+                'print(secrets.token_urlsafe(64))"'
+            )
+        logging.getLogger(__name__).warning(
+            "%s is set to the .env.example placeholder. Acceptable only in "
+            "development (DEBUG=True); production refuses to boot with it.",
+            names,
+        )
+        return self
+
+    @model_validator(mode="after")
     def _check_cookie_secure(self) -> "Settings":
         """Fail-fast in production if the auth cookie is not marked Secure.
 
@@ -382,20 +456,15 @@ class Settings(BaseSettings):
         Security requirements:
         - Non-empty
         - Minimum 32 characters
-        - Not the .env.example placeholder (warn but accept, so `make start` works
-          out of the box for devs)
+        - The .env.example placeholder is deferred to
+          ``_reject_placeholder_secrets`` (prod: reject, dev: warn and accept)
         - Not a common insecure default value (hard-reject)
         - High entropy (for production)
         """
-        # .env.example placeholder: warn but accept, so fresh checkouts boot
-        # without a manual key generation step. The runtime warning is loud
-        # enough that no operator would miss it in a real environment.
-        if v == "CHANGE_THIS_TO_A_SECURE_RANDOM_STRING_AT_LEAST_32_CHARS":
-            logging.getLogger(__name__).warning(
-                "SECRET_KEY is set to the .env.example placeholder — DO NOT use this "
-                "in production. Generate a real key with:\n"
-                '  python3 -c "import secrets; print(secrets.token_urlsafe(64))"'
-            )
+        # .env.example placeholder: skip the strength checks here. Whether it is
+        # acceptable depends on DEBUG, which a field validator cannot see, so
+        # ``_reject_placeholder_secrets`` decides (raise in prod, warn in dev).
+        if v == ENV_EXAMPLE_PLACEHOLDER:
             return v
 
         # Reject empty

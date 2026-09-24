@@ -11,9 +11,19 @@ configuration.
 QR payload format:
   Orders:  ORDER:<id>      e.g. "ORDER:42"
   Repairs: REPAIR:<id>     (reserved for future repair entity)
+
+Every interpolated value is HTML-escaped via ``_esc`` (SEC-07): titles,
+descriptions, customer names and the workshop name are user-controlled and
+the label page is served same-origin.
 """
 
+import html
 import io
+
+
+def _esc(value: object) -> str:
+    """HTML-escape *value* (quotes included) for safe interpolation."""
+    return html.escape(str(value), quote=True)
 
 
 class LabelService:
@@ -182,7 +192,7 @@ class LabelService:
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>{title}</title>
+  <title>{_esc(title)}</title>
   {css}
   <script>
     // Auto-trigger print dialog; close tab on cancel/done.
@@ -275,15 +285,15 @@ class LabelService:
   </div>
   <div class="label-divider"></div>
   <div class="label-body">
-    <div class="label-workshop">{workshop_name}</div>
-    <div class="label-order-number">Auftrag #{order.id}</div>
-    <div class="label-title">{order.title}</div>
+    <div class="label-workshop">{_esc(workshop_name)}</div>
+    <div class="label-order-number">Auftrag #{_esc(order.id)}</div>
+    <div class="label-title">{_esc(order.title)}</div>
     <div class="label-meta">
-      <div class="label-meta-row"><strong>Kunde:</strong> {customer_name}</div>
-      <div class="label-meta-row"><strong>Deadline:</strong> {deadline_str}</div>
-      {f'<div class="label-meta-row">{ring_size_str}</div>' if ring_size_str else ''}
+      <div class="label-meta-row"><strong>Kunde:</strong> {_esc(customer_name)}</div>
+      <div class="label-meta-row"><strong>Deadline:</strong> {_esc(deadline_str)}</div>
+      {f'<div class="label-meta-row">{_esc(ring_size_str)}</div>' if ring_size_str else ''}
     </div>
-    <div class="label-status">{status_display}</div>
+    <div class="label-status">{_esc(status_display)}</div>
   </div>
 </div>"""
 
@@ -343,12 +353,12 @@ class LabelService:
   </div>
   <div class="label-divider"></div>
   <div class="label-body">
-    <div class="label-workshop">{workshop_name}</div>
-    <div class="label-order-number">Reparatur #{repair.id} · Beutel {bag_number}</div>
-    <div class="label-title">{item_description}</div>
+    <div class="label-workshop">{_esc(workshop_name)}</div>
+    <div class="label-order-number">Reparatur #{_esc(repair.id)} · Beutel {_esc(bag_number)}</div>
+    <div class="label-title">{_esc(item_description)}</div>
     <div class="label-meta">
-      <div class="label-meta-row"><strong>Kunde:</strong> {customer_name}</div>
-      <div class="label-meta-row"><strong>Fertig ca.:</strong> {est_completion}</div>
+      <div class="label-meta-row"><strong>Kunde:</strong> {_esc(customer_name)}</div>
+      <div class="label-meta-row"><strong>Fertig ca.:</strong> {_esc(est_completion)}</div>
     </div>
   </div>
 </div>"""
