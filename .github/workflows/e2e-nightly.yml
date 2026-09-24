@@ -80,6 +80,10 @@ jobs:
           --health-retries 5
     steps:
       - uses: actions/checkout@v4
+      - name: Install Poetry
+        # OPS-04: Poetry must be on PATH before setup-python for its
+        # `cache: poetry` option to resolve a cache directory.
+        run: pipx install poetry
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
@@ -89,8 +93,6 @@ jobs:
           node-version: "22"
           cache: "yarn"
           cache-dependency-path: frontend/yarn.lock
-      - name: Install Poetry
-        run: pip install poetry
       - name: Install backend dependencies
         run: poetry install
       - name: Run migrations

@@ -19,11 +19,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Install Poetry
+        # OPS-04: Poetry must be on PATH before setup-python for its
+        # `cache: poetry` option to resolve a cache directory.
+        run: pipx install poetry
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - name: Install Poetry
-        run: pip install poetry
+          cache: "poetry"
       - name: Install dependencies
         working-directory: ./src
         run: poetry install
@@ -63,6 +66,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
+          cache: "yarn"
+          cache-dependency-path: frontend/yarn.lock
       - name: Enable Corepack
         run: corepack enable
       - name: Install dependencies
@@ -83,6 +88,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Install Poetry
+        # OPS-04: Poetry must be on PATH before setup-python for its
+        # `cache: poetry` option to resolve a cache directory.
+        run: pipx install poetry
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
@@ -92,8 +101,6 @@ jobs:
           node-version: "22"
           cache: "yarn"
           cache-dependency-path: frontend/yarn.lock
-      - name: Install Poetry
-        run: pip install poetry
       - name: Install backend dependencies
         working-directory: ./src
         run: poetry install
@@ -182,11 +189,17 @@ jobs:
           --health-retries 5
     steps:
       - uses: actions/checkout@v4
+      - name: Install Poetry
+        # OPS-04: actions/setup-python's `cache: poetry` needs Poetry on PATH
+        # *before* setup-python runs (it shells out to `poetry config
+        # cache-dir` to resolve what to cache) — pipx ships preinstalled on
+        # the ubuntu-latest image and works with whatever system Python is
+        # already there, ahead of the 3.11 setup-python installs next.
+        run: pipx install poetry
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - name: Install Poetry
-        run: pip install poetry
+          cache: "poetry"
       - name: Install dependencies
         working-directory: ./src
         run: poetry install
@@ -249,11 +262,17 @@ jobs:
       DEBUG: "true"
     steps:
       - uses: actions/checkout@v4
+      - name: Install Poetry
+        # OPS-04: actions/setup-python's `cache: poetry` needs Poetry on PATH
+        # *before* setup-python runs (it shells out to `poetry config
+        # cache-dir` to resolve what to cache) — pipx ships preinstalled on
+        # the ubuntu-latest image and works with whatever system Python is
+        # already there, ahead of the 3.11 setup-python installs next.
+        run: pipx install poetry
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - name: Install Poetry
-        run: pip install poetry
+          cache: "poetry"
       - name: Install dependencies
         working-directory: ./src
         run: poetry install
@@ -306,11 +325,17 @@ jobs:
       DEBUG: "true"
     steps:
       - uses: actions/checkout@v4
+      - name: Install Poetry
+        # OPS-04: actions/setup-python's `cache: poetry` needs Poetry on PATH
+        # *before* setup-python runs (it shells out to `poetry config
+        # cache-dir` to resolve what to cache) — pipx ships preinstalled on
+        # the ubuntu-latest image and works with whatever system Python is
+        # already there, ahead of the 3.11 setup-python installs next.
+        run: pipx install poetry
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - name: Install Poetry
-        run: pip install poetry
+          cache: "poetry"
       - name: Install dependencies
         run: poetry install
       - name: Alembic upgrade → downgrade → upgrade round-trip
@@ -326,6 +351,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
+          cache: "yarn"
+          cache-dependency-path: frontend/yarn.lock
       - name: Enable Corepack
         run: corepack enable
       - name: Install dependencies
@@ -384,14 +411,19 @@ jobs:
       CI: "true"
     steps:
       - uses: actions/checkout@v4
+      - name: Install Poetry
+        # OPS-04: Poetry must be on PATH before setup-python for its
+        # `cache: poetry` option to resolve a cache directory.
+        run: pipx install poetry
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+          cache: "poetry"
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-      - name: Install Poetry
-        run: pip install poetry
+          cache: "yarn"
+          cache-dependency-path: frontend/yarn.lock
       - name: Install backend dependencies
         run: poetry install
       - name: Run migrations

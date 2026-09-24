@@ -1,7 +1,8 @@
 # Makefile for Goldsmith ERP with Podman
 # Makes development easier with simple commands
 
-.PHONY: help install start stop restart logs clean build test test-integration-pg lint format seed-demo seed-production validate-compose
+.PHONY: help install start stop restart logs clean build test test-integration-pg lint format seed-demo seed-production validate-compose \
+        test-backend-local test-frontend-local lint-local
 
 # Default target
 .DEFAULT_GOAL := help
@@ -150,6 +151,25 @@ test-integration-pg: ## F1 — run integration tests against real Postgres (not 
 	  DEBUG=true \
 	  poetry run pytest ../tests/integration/ -v --tb=short
 
+test-backend-local: ## OPS-05 — full backend suite outside containers, same env + command as CI's test-backend job
+	@echo "$(GREEN)Starting db + redis services...$(NC)"
+	@$(COMPOSE) up -d db redis
+	@echo "$(GREEN)Running backend suite (env mirrors .github/workflows/ci.yml test-backend job)...$(NC)"
+	@DATABASE_URL=postgresql+asyncpg://user:pass@localhost:5432/goldsmith_test \
+	  REDIS_URL=redis://localhost:6379/0 \
+	  SECRET_KEY=ci-test-secret-key-minimum-32-characters-long-enough \
+	  ENCRYPTION_KEY=V0Ae_U1MhSkUCNugAmmQV7Jl2GnxkizHeurQnglXVOc= \
+	  ANONYMIZATION_SALT=testsalt1234567890abcdef \
+	  MIGRATION_TEST_DATABASE_URL=postgresql://user:pass@localhost:5432/goldsmith_test \
+	  DEBUG=true \
+	  PYTHONDONTWRITEBYTECODE=1 \
+	  poetry run python -m pytest tests/ --maxfail=3 -q --tb=short --cov=goldsmith_erp --cov-report=term --cov-fail-under=50
+
+test-frontend-local: ## OPS-05 — frontend suite outside containers, same commands as CI's test-frontend job
+	@echo "$(GREEN)Running frontend suite (yarn test + build check, same as CI)...$(NC)"
+	@cd frontend && yarn test --run
+	@cd frontend && yarn build
+
 # Linting and formatting
 lint: ## Run linters (pylint, mypy, black check)
 	@echo "$(GREEN)Running linters...$(NC)"
@@ -157,6 +177,15 @@ lint: ## Run linters (pylint, mypy, black check)
 	@$(COMPOSE) exec backend poetry run isort --check src/
 	@$(COMPOSE) exec backend poetry run pylint src/
 	@$(COMPOSE) exec backend poetry run mypy src/
+
+lint-local: ## OPS-05 — backend lint suite outside containers, same tools as CI's lint job, run from repo root
+	@echo "$(GREEN)Running lint suite from repo root (same tools as CI's lint job)...$(NC)"
+	@poetry run black --check src/goldsmith_erp/
+	@poetry run isort --check-only src/goldsmith_erp/
+	@poetry run bandit -r src/goldsmith_erp/ -c pyproject.toml
+	@poetry run mypy src/goldsmith_erp/ --ignore-missing-imports
+	@poetry run pip install --quiet ruff
+	@poetry run ruff check src/goldsmith_erp/ --exit-zero
 
 format: ## Format code with black and isort
 	@echo "$(GREEN)Formatting code...$(NC)"
