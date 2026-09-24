@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import List
 
 import uvicorn
-from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Request, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from jose import JWTError, jwt
@@ -50,11 +50,12 @@ from goldsmith_erp.api.routers import scanner as scanner_router
 from goldsmith_erp.api.routers import scrap_gold
 from goldsmith_erp.api.routers import theme as theme_router
 from goldsmith_erp.api.routers import time_tracking, users, valuations
+from goldsmith_erp.core import ws_manager
 from goldsmith_erp.core.config import settings
 from goldsmith_erp.core.encryption import EncryptionError, check_encryption_configured
 from goldsmith_erp.core.logging import setup_logging
-from goldsmith_erp.core.pubsub import publish_event, subscribe_and_forward
 from goldsmith_erp.core.security import ALGORITHM
+from goldsmith_erp.core.token_revocation import is_token_revoked
 from goldsmith_erp.middleware import RequestLoggingMiddleware, RequestMetricsMiddleware
 from goldsmith_erp.middleware.audit_logging import AuditLoggingMiddleware
 from goldsmith_erp.middleware.auth_required import AuthRequiredMiddleware
@@ -284,7 +285,11 @@ app.include_router(
 
 
 async def _authenticate_websocket(websocket: WebSocket) -> int | None:
-    """Extract and validate JWT from WebSocket cookie or query param."""
+    """Validate the JWT (cookie, or legacy ``?token=``) and its revocation.
+
+    A token blocklisted at logout or predating the user's invalid-before
+    mark is refused, so a logged-out tablet cannot keep a live channel.
+    """
     token = websocket.cookies.get("access_token")
     if not token:
         token = websocket.query_params.get("token")
@@ -293,64 +298,32 @@ async def _authenticate_websocket(websocket: WebSocket) -> int | None:
     try:
         payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[ALGORITHM])
         user_id = payload.get("sub")
-        return int(user_id) if user_id else None
+        if not user_id:
+            return None
+        parsed_user_id = int(user_id)
     except (JWTError, ValueError, TypeError):
         return None
+    if await is_token_revoked(payload):
+        logger.info("Revoked token refused on WebSocket", extra={"user_id": user_id})
+        return None
+    return parsed_user_id
 
 
-# WebSocket endpoint with Redis Pub/Sub integration
-@app.websocket("/ws/orders")
-async def websocket_endpoint(websocket: WebSocket):
+# W2-13 / FE-08 / BE-20 / D.1 — one live-update socket per browser session.
+# The process-wide hub holds ONE Redis subscription and routes role-safe
+# invalidation hints (ids, status, timestamps; never prices or PII) to the
+# right users: order_updates to all staff, time_tracking_updates and
+# notifications:{uid} only to that user. The former /ws/orders and
+# /ws/notifications/{id} raw relays are removed (/ws/orders leaked
+# Order.price to VIEWER sockets, SEC-01).
+@app.websocket("/ws/events")
+async def events_websocket_endpoint(websocket: WebSocket) -> None:
     user_id = await _authenticate_websocket(websocket)
     if user_id is None:
         await websocket.close(code=4001, reason="Authentication required")
         return
     await websocket.accept()
-    channel = "order_updates"
-    subscribe_task = asyncio.create_task(subscribe_and_forward(websocket, channel))
-    try:
-        while True:
-            data = await websocket.receive_text()
-            logger.debug(
-                "WS client message", extra={"channel": channel, "user_id": user_id}
-            )
-    except WebSocketDisconnect:
-        logger.info("WebSocket disconnected", extra={"channel": channel})
-    finally:
-        subscribe_task.cancel()
-        try:
-            await subscribe_task
-        except asyncio.CancelledError:
-            pass
-
-
-# Per-user notification WebSocket — channel: ``notifications:{user_id}``
-# The frontend opens this socket for the currently logged-in user.
-# JWT authentication is enforced at the HTTP level by AuthRequiredMiddleware
-# before the WebSocket upgrade is accepted.
-@app.websocket("/ws/notifications/{user_id}")
-async def notification_websocket_endpoint(websocket: WebSocket, user_id: int):
-    authenticated_user_id = await _authenticate_websocket(websocket)
-    if authenticated_user_id is None or authenticated_user_id != user_id:
-        await websocket.close(code=4001, reason="Authentication required")
-        return
-    await websocket.accept()
-    channel = f"notifications:{user_id}"
-    subscribe_task = asyncio.create_task(subscribe_and_forward(websocket, channel))
-    try:
-        while True:
-            await websocket.receive_text()
-    except WebSocketDisconnect:
-        logger.info(
-            "Notification WebSocket disconnected",
-            extra={"channel": channel, "user_id": user_id},
-        )
-    finally:
-        subscribe_task.cancel()
-        try:
-            await subscribe_task
-        except asyncio.CancelledError:
-            pass
+    await ws_manager.realtime_hub.serve(websocket, user_id)
 
 
 @app.on_event("startup")
