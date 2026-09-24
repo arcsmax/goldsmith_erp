@@ -270,6 +270,7 @@ async def write_financial_audit_row(
     user_id: int,
     endpoint: str,
     http_method: str = "GET",
+    repair_job_id: Optional[int] = None,
 ) -> None:
     """
     Persist a ``CustomerAuditLog`` row for a financial-data access that
@@ -294,13 +295,15 @@ async def write_financial_audit_row(
     non-GET call site so the audit row's ``details`` reflect the real
     verb instead of a stale hardcoded one.
 
-    ``customer_id`` is derived from the order (CLAUDE.md: financial-data
-    audit rows must be traceable to the customer), not from the caller —
-    a caller supplying the wrong id here would silently mis-attribute the
-    row, so this method does its own lookup rather than trusting a
-    passed-in value. ``order_id=None`` (e.g. a prospective labor estimate
-    with no associated order yet) is a valid input — ``customer_id``
-    simply stays ``None``.
+    ``customer_id`` is derived from the order or, when ``order_id`` is
+    unset, from ``repair_job_id`` (W2-02: repair-scoped Kundeninfo access,
+    e.g. ``CustomerUpdateService.list_for_repair``) — never from the
+    caller (CLAUDE.md: financial-data audit rows must be traceable to the
+    customer; a caller supplying the wrong id here would silently
+    mis-attribute the row, so this method does its own lookup rather than
+    trusting a passed-in value). Both unset (e.g. a prospective labor
+    estimate with no associated order yet) is a valid input —
+    ``customer_id`` simply stays ``None``.
 
     Fire-and-forget, mirroring the middleware's own broad except: a DB
     outage on the audit path must never deny (or 500) the legitimate
@@ -316,6 +319,12 @@ async def write_financial_audit_row(
         ).scalar_one_or_none()
         if order is not None:
             customer_id = cast(Optional[int], order.customer_id)
+    elif repair_job_id is not None:
+        repair = (
+            await db.execute(select(RepairJob).where(RepairJob.id == repair_job_id))
+        ).scalar_one_or_none()
+        if repair is not None:
+            customer_id = cast(Optional[int], repair.customer_id)
 
     details = {
         "endpoint": endpoint,
@@ -901,5 +910,34 @@ class CustomerUpdateService:
             order_id=order_id,
             user_id=user_id,
             endpoint=f"/api/v1/orders/{order_id}/updates",
+        )
+        return updates
+
+    @staticmethod
+    async def list_for_repair(
+        db: AsyncSession, repair_job_id: int, user_id: int
+    ) -> List[CustomerUpdate]:
+        """
+        Update history for a repair job, newest first (W2-02) — mirrors
+        ``list_for_order``. In practice this is usually a single row (the
+        pickup-ready draft created by ``RepairService.complete_repair``),
+        since a repair's status machine only reaches READY once.
+        """
+        result = await db.execute(
+            select(CustomerUpdate)
+            .where(CustomerUpdate.repair_job_id == repair_job_id)
+            .order_by(CustomerUpdate.created_at.desc())
+        )
+        updates = list(result.scalars().all())
+        _log_financial_access("list_accessed", None, None, user_id)
+        await write_financial_audit_row(
+            db,
+            action="list_accessed_financial",
+            entity="customer_update",
+            entity_id=None,
+            order_id=None,
+            repair_job_id=repair_job_id,
+            user_id=user_id,
+            endpoint=f"/api/v1/repairs/{repair_job_id}/customer-updates",
         )
         return updates

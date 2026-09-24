@@ -124,6 +124,33 @@ export const customerUpdatesApi = {
   },
 
   /**
+   * List a repair's customer-update history (DOM-12 / W2-02) — in practice
+   * usually a single pickup-ready draft, created automatically when the
+   * repair reaches READY.
+   * GET /repairs/{repairId}/customer-updates
+   */
+  listRepairUpdates: async (repairId: number): Promise<CustomerUpdate[]> => {
+    const response = await apiClient.get<CustomerUpdate[]>(
+      `/repairs/${repairId}/customer-updates`
+    );
+    return response.data;
+  },
+
+  /**
+   * One-tap send of a repair's pickup-ready draft (DOM-12 / W2-02). Unlike
+   * `sendUpdate`, this is repair-scoped (not update-id-scoped): the backend
+   * locates the repair's current draft itself.
+   * POST /repairs/{repairId}/customer-updates/send
+   */
+  sendRepairUpdate: async (repairId: number): Promise<CustomerUpdateSendResult> => {
+    const response = await apiClient.post<CustomerUpdateSendResult>(
+      `/repairs/${repairId}/customer-updates/send`,
+      {}
+    );
+    return response.data;
+  },
+
+  /**
    * Create a new draft customer update for an order.
    * POST /orders/{orderId}/updates
    */

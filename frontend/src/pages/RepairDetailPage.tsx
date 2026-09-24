@@ -13,6 +13,7 @@ import type {
 import { PhotoCompare } from '../components/PhotoCompare';
 import type { PhotoItem } from '../components/PhotoCompare';
 import { IntakeChecklist } from '../components/repairs/IntakeChecklist';
+import { RepairCustomerUpdatePanel } from '../components/repairs/RepairCustomerUpdatePanel';
 import { useConfirm, useToast } from '../contexts';
 import { logError } from '../lib/logError';
 import '../styles/repairs.css';
@@ -794,6 +795,9 @@ export function RepairDetailPage() {
       {/* Eingangs-Checkliste — dispute protection, kept prominent above the
           tabs so it stays visible regardless of which tab is active. */}
       <IntakeChecklist repair={repair} onUpdated={setRepair} onRefresh={loadRepair} />
+
+      {/* Kundeninfo — Abholbereit draft + one-tap send (DOM-12 / W2-02) */}
+      <RepairCustomerUpdatePanel repair={repair} onRepairRefresh={loadRepair} />
 
       {/* Action buttons */}
       <ActionButtons repair={repair} onAction={handleAction} busy={busy} />
