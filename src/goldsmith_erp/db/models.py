@@ -704,6 +704,19 @@ class TimeEntry(Base):
     """Haupt-Zeiterfassung"""
 
     __tablename__ = "time_entries"
+    # BE-12 (W1-17): at most one running timer (end_time IS NULL) per user.
+    # Partial unique index on both dialects so a double tap cannot create two
+    # open entries; the service maps the IntegrityError to a 409.
+    # Migration: 20260925_w117_one_running_timer.
+    __table_args__ = (
+        Index(
+            "uq_time_entries_one_running",
+            "user_id",
+            unique=True,
+            postgresql_where=text("end_time IS NULL"),
+            sqlite_where=text("end_time IS NULL"),
+        ),
+    )
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     order_id = Column(

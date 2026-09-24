@@ -126,7 +126,11 @@ async def _make_time_entry(
         user_id=user.id,
         order_id=order.id,
         activity_id=activity.id,
-        start_time=datetime.utcnow(),
+        # Completed entries: the partial unique index (BE-12) allows only one
+        # running timer per user, and these metrics count rows, not timers.
+        start_time=datetime.utcnow() - timedelta(minutes=2),
+        end_time=datetime.utcnow() - timedelta(minutes=1),
+        duration_minutes=1,
         origin=origin,
         correction_of=correction_of,
     )
