@@ -388,12 +388,14 @@ class TestCheckDeadlineWarnings:
         assert first_run > 0
         assert second_run == 0
 
-    async def test_deduplication_allows_new_notification_after_reading(
+    async def test_deduplication_holds_after_reading_same_day(
         self, db_session, sample_user, admin_user, sample_customer
     ):
         """
-        Once the existing DEADLINE_WARNING for an order is marked as read,
-        the next scan may create a new one (the old one is no longer unread).
+        BE-09: reading the DEADLINE_WARNING must NOT re-arm it. The old
+        ``is_read=False`` dedup re-created the row on the next 5-minute
+        monitor tick after staff read it. Dedup is per (user, order, type,
+        day) regardless of read state.
         """
         await self._create_order_with_deadline(
             db_session, sample_customer.id, days_ahead=1
@@ -401,12 +403,11 @@ class TestCheckDeadlineWarnings:
 
         await NotificationService.check_deadline_warnings(db_session)
 
-        # Mark all notifications as read to clear the deduplication guard
         await NotificationService.mark_all_read(db_session, sample_user.id)
         await NotificationService.mark_all_read(db_session, admin_user.id)
 
         second_run = await NotificationService.check_deadline_warnings(db_session)
-        assert second_run > 0
+        assert second_run == 0
 
     async def test_skips_completed_orders(
         self, db_session, sample_user, admin_user, sample_customer

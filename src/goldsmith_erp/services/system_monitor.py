@@ -23,6 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from goldsmith_erp.core import pubsub
 from goldsmith_erp.core.config import settings
+from goldsmith_erp.core.leader_lock import SYSTEM_MONITOR_LOCK_KEY, LeaderLease
 from goldsmith_erp.db.models import (
     MetalPriceSource,
     Notification,
@@ -31,7 +32,7 @@ from goldsmith_erp.db.models import (
     User,
     UserRole,
 )
-from goldsmith_erp.db.session import AsyncSessionLocal
+from goldsmith_erp.db.session import AsyncSessionLocal, engine
 from goldsmith_erp.services.metal_price_service import MetalPriceService
 from goldsmith_erp.services.notification_service import NotificationService
 from goldsmith_erp.services.system_health_service import SystemHealthService
@@ -330,9 +331,25 @@ async def _run_one_cycle() -> None:
                 )
 
 
+async def run_cycle_if_leader(lease: LeaderLease) -> bool:
+    """Run one cycle only if this process holds the monitor leader lease.
+
+    Every uvicorn worker starts ``system_monitor_loop``, but only the one that
+    holds the PostgreSQL advisory lock runs the scans. The others skip, so
+    scans, customer mails and metal price rows are not repeated per worker
+    (ARCH-04 / BE-09). Returns True if a cycle ran.
+    """
+    if not await lease.try_acquire():
+        logger.debug("System monitor: not leader, skipping cycle")
+        return False
+    await _run_one_cycle()
+    return True
+
+
 async def system_monitor_loop() -> None:
     """
-    Infinite async loop — run a health check cycle every MONITOR_INTERVAL_SECONDS.
+    Infinite async loop — run a health check cycle every MONITOR_INTERVAL_SECONDS
+    on at most one process (see ``run_cycle_if_leader``).
 
     Register this in main.py startup via:
         asyncio.create_task(system_monitor_loop())
@@ -341,6 +358,10 @@ async def system_monitor_loop() -> None:
         "System monitor started",
         extra={"interval_seconds": MONITOR_INTERVAL_SECONDS},
     )
-    while True:
-        await _run_one_cycle()
-        await asyncio.sleep(MONITOR_INTERVAL_SECONDS)
+    lease = LeaderLease(engine, SYSTEM_MONITOR_LOCK_KEY)
+    try:
+        while True:
+            await run_cycle_if_leader(lease)
+            await asyncio.sleep(MONITOR_INTERVAL_SECONDS)
+    finally:
+        await lease.release()
