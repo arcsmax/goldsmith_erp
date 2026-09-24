@@ -22,6 +22,166 @@ info() { echo -e "${YELLOW}[INFO]${NC} $*"; }
 err()  { echo -e "${RED}[FEHLER]${NC} $*" >&2; }
 step() { echo -e "\n${BOLD}==> $*${NC}"; }
 
+FRONTEND_PORT=3000
+
+# ---------------------------------------------------------------------------
+# Env-file helpers (also used by the non-interactive --render-env mode)
+# ---------------------------------------------------------------------------
+detect_local_ip() {
+    python3 -c "
+import socket
+try:
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    s.connect(('8.8.8.8', 80))
+    print(s.getsockname()[0])
+    s.close()
+except Exception:
+    print('127.0.0.1')
+"
+}
+
+# Build the CORS allow-list as a JSON array. pydantic-settings requires JSON
+# for the list[str] BACKEND_CORS_ORIGINS field — a comma-separated string
+# raises SettingsError and crashes the backend on boot. localhost + loopback
+# are always included, plus the detected LAN IP for multi-device access.
+build_cors_json() {
+    local port="$1" ip="$2"
+    local origins="\"http://localhost:${port}\",\"http://127.0.0.1:${port}\""
+    if [[ -n "$ip" && "$ip" != "127.0.0.1" && "$ip" != "localhost" ]]; then
+        origins="${origins},\"http://${ip}:${port}\""
+    fi
+    printf '[%s]' "$origins"
+}
+
+# URL-safe random secret (SECRET_KEY, ANONYMIZATION_SALT, DB password).
+generate_token() {
+    python3 -c "import secrets, sys; print(secrets.token_urlsafe(int(sys.argv[1])))" "$1"
+}
+
+# Fernet key = urlsafe base64 of 32 random bytes. Built with the standard
+# library so setup does not need the `cryptography` package on the host.
+generate_fernet_key() {
+    python3 -c "import base64, os; print(base64.urlsafe_b64encode(os.urandom(32)).decode())"
+}
+
+# render_env_production <file>
+# Writes a bootable production env file with freshly generated secrets.
+# Every secret the backend refuses to boot without (DEBUG=false) is generated
+# here: SECRET_KEY, ENCRYPTION_KEY and ANONYMIZATION_SALT (F-1). The token
+# lifetime is left to the config default (30 min, SEC-03).
+render_env_production() {
+    local out="$1"
+    local secret_key encryption_key anonymization_salt db_password
+    secret_key=$(generate_token 64)
+    encryption_key=$(generate_fernet_key)
+    anonymization_salt=$(generate_token 64)
+    db_password=$(generate_token 24)
+
+    # Create the file private before any secret is written into it.
+    ( umask 077 && : > "$out" )
+    cat > "$out" <<EOF
+# Goldsmith ERP – Production Environment
+# Generiert am: $(date -u +"%Y-%m-%dT%H:%M:%SZ")
+# ACHTUNG: Diese Datei enthält geheime Schlüssel. Niemals in Git einchecken!
+
+# Application
+WORKSHOP_NAME=${WORKSHOP_NAME}
+DEBUG=false
+SECRET_KEY=${secret_key}
+ENCRYPTION_KEY=${encryption_key}
+# Access tokens use the config default lifetime (30 min, refreshed
+# transparently by the frontend). Do not raise it without a reason (SEC-03).
+
+# Anonymisation salt for GDPR erasure. NEVER rotate after the first erasure —
+# previously emitted tracking HMACs could no longer be matched. Back it up.
+ANONYMIZATION_SALT=${anonymization_salt}
+
+# Cookie security — the HttpOnly auth cookie is marked Secure so browsers only
+# send it over HTTPS. Required in production (config.py raises on DEBUG=false +
+# COOKIE_SECURE=false). TLS is terminated by the Caddy reverse proxy; see
+# docs/technical/infrastructure/PRODUCTION_TLS.md.
+COOKIE_SECURE=true
+
+# Database
+DB_PASSWORD=${db_password}
+POSTGRES_USER=goldsmith
+POSTGRES_DB=goldsmith
+POSTGRES_HOST=db
+POSTGRES_PORT=5432
+DATABASE_URL=postgresql+asyncpg://goldsmith:${db_password}@db:5432/goldsmith
+
+# Redis
+REDIS_URL=redis://redis:6379/0
+REDIS_HOST=redis
+REDIS_PORT=6379
+
+# CORS — JSON array (pydantic-settings requires JSON for list[str]).
+# Includes the detected LAN IP so other workshop devices are not CORS-rejected.
+# Adjust to add your actual domain/IP.
+BACKEND_CORS_ORIGINS=${CORS_ORIGINS_JSON}
+
+# Backup
+BACKUP_DIR=${BACKUP_DIR}
+CLOUD_SYNC_URL=${CLOUD_SYNC_URL}
+
+# Admin user (used only during setup – remove after first run if desired)
+ADMIN_EMAIL=${ADMIN_EMAIL}
+ADMIN_FIRST_NAME=${ADMIN_FIRST_NAME}
+ADMIN_LAST_NAME=${ADMIN_LAST_NAME}
+EOF
+    chmod 600 "$out"
+}
+
+# upgrade_env_production <file>
+# Brings an env file written by an older setup.sh up to a bootable state:
+# appends a generated ANONYMIZATION_SALT when missing (F-1) and warns about a
+# long ACCESS_TOKEN_EXPIRE_MINUTES override (SEC-03). Never rotates an
+# existing salt.
+upgrade_env_production() {
+    local file="$1"
+    if ! grep -q '^ANONYMIZATION_SALT=.' "$file"; then
+        info "ANONYMIZATION_SALT fehlt in $file – wird generiert und ergänzt."
+        printf '\n# Added by setup.sh: GDPR anonymisation salt. NEVER rotate after the first erasure.\nANONYMIZATION_SALT=%s\n' \
+            "$(generate_token 64)" >> "$file"
+    fi
+    if grep -q '^ACCESS_TOKEN_EXPIRE_MINUTES=' "$file"; then
+        info "$file setzt ACCESS_TOKEN_EXPIRE_MINUTES – empfohlen ist, die Zeile zu entfernen (Standard: 30 Minuten)."
+    fi
+    chmod 600 "$file"
+}
+
+# ---------------------------------------------------------------------------
+# Non-interactive mode: setup.sh --render-env <file>
+# Renders only the production env file from environment variables (for
+# automation and tests), then exits. No containers are touched.
+# ---------------------------------------------------------------------------
+if [[ "${1:-}" == "--render-env" ]]; then
+    if [[ -z "${2:-}" ]]; then
+        err "Aufruf: setup.sh --render-env <Datei>"
+        exit 2
+    fi
+    WORKSHOP_NAME="${WORKSHOP_NAME:-Goldschmiede}"
+    ADMIN_EMAIL="${ADMIN_EMAIL:-}"
+    ADMIN_FIRST_NAME="${ADMIN_FIRST_NAME:-Admin}"
+    ADMIN_LAST_NAME="${ADMIN_LAST_NAME:-User}"
+    BACKUP_DIR="${BACKUP_DIR:-$HOME/goldsmith-backups/}"
+    CLOUD_SYNC_URL="${CLOUD_SYNC_URL:-}"
+    CORS_ORIGINS_JSON=$(build_cors_json "$FRONTEND_PORT" "${LOCAL_IP:-$(detect_local_ip)}")
+    render_env_production "$2"
+    ok "$2 erstellt (Berechtigungen: 600)."
+    exit 0
+fi
+
+# setup.sh --upgrade-env <file>: repair an existing env file, then exit.
+if [[ "${1:-}" == "--upgrade-env" ]]; then
+    if [[ ! -f "${2:-}" ]]; then
+        err "Aufruf: setup.sh --upgrade-env <vorhandene Datei>"
+        exit 2
+    fi
+    upgrade_env_production "$2"
+    exit 0
+fi
+
 # ---------------------------------------------------------------------------
 # Dependency checks
 # ---------------------------------------------------------------------------
@@ -40,34 +200,7 @@ ok "Alle Abhängigkeiten gefunden."
 # Needed *before* .env.production is written so the detected address can be
 # added to the CORS allow-list (otherwise the workshop's other devices are
 # rejected by CORS). Reused for the access-URL banner near the end.
-FRONTEND_PORT=3000
-
-detect_local_ip() {
-    python3 -c "
-import socket
-try:
-    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    s.connect(('8.8.8.8', 80))
-    print(s.getsockname()[0])
-    s.close()
-except Exception:
-    print('127.0.0.1')
-"
-}
 LOCAL_IP=$(detect_local_ip)
-
-# Build the CORS allow-list as a JSON array. pydantic-settings requires JSON
-# for the list[str] BACKEND_CORS_ORIGINS field — a comma-separated string
-# raises SettingsError and crashes the backend on boot. localhost + loopback
-# are always included, plus the detected LAN IP for multi-device access.
-build_cors_json() {
-    local port="$1" ip="$2"
-    local origins="\"http://localhost:${port}\",\"http://127.0.0.1:${port}\""
-    if [[ -n "$ip" && "$ip" != "127.0.0.1" && "$ip" != "localhost" ]]; then
-        origins="${origins},\"http://${ip}:${port}\""
-    fi
-    printf '[%s]' "$origins"
-}
 CORS_ORIGINS_JSON=$(build_cors_json "$FRONTEND_PORT" "$LOCAL_IP")
 
 # ---------------------------------------------------------------------------
@@ -99,6 +232,7 @@ ENV_FILE=".env.production"
 
 if [[ -f "$ENV_FILE" ]]; then
     info "$ENV_FILE existiert bereits – Konfigurationsabschnitt wird übersprungen."
+    upgrade_env_production "$ENV_FILE"
     # shellcheck source=/dev/null
     source "$ENV_FILE"
 else
@@ -117,61 +251,8 @@ else
         exit 1
     fi
 
-    # Generate secrets
-    step "Sicherheitsschlüssel generieren"
-    SECRET_KEY=$(python3 -c "import secrets; print(secrets.token_urlsafe(64))")
-    ENCRYPTION_KEY=$(python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())")
-    DB_PASSWORD=$(python3 -c "import secrets; print(secrets.token_urlsafe(24))")
-    ok "Schlüssel generiert."
-
-    # Write .env.production
-    step ".env.production erstellen"
-    cat > "$ENV_FILE" <<EOF
-# Goldsmith ERP – Production Environment
-# Generiert am: $(date -u +"%Y-%m-%dT%H:%M:%SZ")
-# ACHTUNG: Diese Datei enthält geheime Schlüssel. Niemals in Git einchecken!
-
-# Application
-WORKSHOP_NAME=${WORKSHOP_NAME}
-DEBUG=false
-SECRET_KEY=${SECRET_KEY}
-ENCRYPTION_KEY=${ENCRYPTION_KEY}
-ACCESS_TOKEN_EXPIRE_MINUTES=10080
-
-# Cookie security — the HttpOnly auth cookie is marked Secure so browsers only
-# send it over HTTPS. Required in production (config.py raises on DEBUG=false +
-# COOKIE_SECURE=false). TLS is terminated by the Caddy reverse proxy; see
-# docs/technical/infrastructure/PRODUCTION_TLS.md.
-COOKIE_SECURE=true
-
-# Database
-DB_PASSWORD=${DB_PASSWORD}
-POSTGRES_USER=goldsmith
-POSTGRES_DB=goldsmith
-POSTGRES_HOST=db
-POSTGRES_PORT=5432
-DATABASE_URL=postgresql+asyncpg://goldsmith:${DB_PASSWORD}@db:5432/goldsmith
-
-# Redis
-REDIS_URL=redis://redis:6379/0
-REDIS_HOST=redis
-REDIS_PORT=6379
-
-# CORS — JSON array (pydantic-settings requires JSON for list[str]).
-# Includes the detected LAN IP so other workshop devices are not CORS-rejected.
-# Adjust to add your actual domain/IP.
-BACKEND_CORS_ORIGINS=${CORS_ORIGINS_JSON}
-
-# Backup
-BACKUP_DIR=${BACKUP_DIR}
-CLOUD_SYNC_URL=${CLOUD_SYNC_URL}
-
-# Admin user (used only during setup – remove after first run if desired)
-ADMIN_EMAIL=${ADMIN_EMAIL}
-ADMIN_FIRST_NAME=${ADMIN_FIRST_NAME}
-ADMIN_LAST_NAME=${ADMIN_LAST_NAME}
-EOF
-    chmod 600 "$ENV_FILE"
+    step "Sicherheitsschlüssel generieren und $ENV_FILE erstellen"
+    render_env_production "$ENV_FILE"
     ok "$ENV_FILE erstellt (Berechtigungen: 600)."
 fi
 
