@@ -4,7 +4,7 @@ import { timeTrackingApi } from '../api/time-tracking';
 import { activitiesApi } from '../api/activities';
 import apiClient from '../api/client';
 import { useAuth } from './AuthContext';
-import { useWebSocket, type WebSocketMessage } from '../hooks/useWebSocket';
+import { useRealtime } from './WebSocketProvider';
 import {
   TimeEntry,
   Activity,
@@ -332,34 +332,15 @@ export const TimeTrackingProvider: React.FC<TimeTrackingProviderProps> = ({ chil
   }, [runningEntry]);
 
   /**
-   * Slice 11 — Pub/sub refresh on time_tracking_updates.
+   * W2-13 / FE-08 — refresh the timer on time_tracking_updates.
    *
-   * The backend publishes time_tracking_updates events with a `source`
-   * field (e.g. "scan") whenever a scan-triggered switch lands. We
-   * subscribe and re-fetch the running entry so TimerWidget reflects
-   * the new state within 1s even if the pubsub fires from another
-   * client session (Meister's laptop pushing a change the Werkbank
-   * iPad needs to pick up).
+   * The backend routes each start/stop/switch/interruption hint to the
+   * sockets of the user it belongs to, so a timer started on the bench
+   * iPad shows on the same user's laptop within a second. Also fires as a
+   * resync after a reconnect.
    */
-  const handleWsMessage = useCallback(
-    (message: WebSocketMessage): void => {
-      const type = typeof message.type === 'string' ? message.type : '';
-      const channel =
-        typeof (message as Record<string, unknown>).channel === 'string'
-          ? ((message as Record<string, unknown>).channel as string)
-          : '';
-      if (
-        type === 'time_tracking_updates' ||
-        channel === 'time_tracking_updates'
-      ) {
-        void refreshRunningEntry();
-      }
-    },
-    [refreshRunningEntry],
-  );
-  useWebSocket({
-    userId: user?.id ?? null,
-    onMessage: handleWsMessage,
+  useRealtime('time_tracking_updates', () => {
+    void refreshRunningEntry();
   });
 
   const value: TimeTrackingContextType = {

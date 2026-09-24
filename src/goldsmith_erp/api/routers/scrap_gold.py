@@ -26,10 +26,14 @@ from goldsmith_erp.models.scrap_gold import (
     ScrapGoldItemRead,
     ScrapGoldRead,
     ScrapGoldSignRequest,
+    ScrapGoldUpdate,
 )
 from goldsmith_erp.services.customer_update_service import write_financial_audit_row
 from goldsmith_erp.services.pdf_service import PDFService
-from goldsmith_erp.services.scrap_gold_service import ScrapGoldService
+from goldsmith_erp.services.scrap_gold_service import (
+    ScrapGoldLockedError,
+    ScrapGoldService,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +45,11 @@ _UPLOAD_ROOT = Path("./uploads/scrap-gold")
 # Max accepted photo size. Mirrors the material-image limit; guards against
 # memory exhaustion from an unbounded upload read.
 _SCRAP_PHOTO_MAX_BYTES: int = 10 * 1024 * 1024
+
+
+def _locked_conflict(exc: ScrapGoldLockedError) -> HTTPException:
+    """BE-11: a signed Altgold record cannot change -> 409 with German text."""
+    return HTTPException(status_code=409, detail=str(exc))
 
 
 def _detect_image_extension(header: bytes) -> Optional[str]:
@@ -132,7 +141,10 @@ async def add_item(
     scrap_gold = await ScrapGoldService.get_by_id(db, scrap_gold_id)
     if not scrap_gold:
         raise HTTPException(status_code=404, detail="Altgold-Eintrag nicht gefunden")
-    return await ScrapGoldService.add_item(db, scrap_gold_id, item_data)
+    try:
+        return await ScrapGoldService.add_item(db, scrap_gold_id, item_data)
+    except ScrapGoldLockedError as exc:
+        raise _locked_conflict(exc) from exc
 
 
 @router.delete("/scrap-gold/{scrap_gold_id}/items/{item_id}", status_code=204)
@@ -144,7 +156,10 @@ async def remove_item(
     current_user: User = Depends(get_current_user),
 ):
     """Position aus Altgold-Eintrag entfernen."""
-    deleted = await ScrapGoldService.remove_item(db, scrap_gold_id, item_id)
+    try:
+        deleted = await ScrapGoldService.remove_item(db, scrap_gold_id, item_id)
+    except ScrapGoldLockedError as exc:
+        raise _locked_conflict(exc) from exc
     if not deleted:
         raise HTTPException(status_code=404, detail="Position nicht gefunden")
 
@@ -179,6 +194,10 @@ async def upload_item_photo(
     item = result.scalar_one_or_none()
     if item is None:
         raise HTTPException(status_code=404, detail="Position nicht gefunden")
+    try:
+        await ScrapGoldService.ensure_item_editable(db, scrap_gold_id)
+    except ScrapGoldLockedError as exc:
+        raise _locked_conflict(exc) from exc
 
     # Read the first 12 bytes for magic-byte validation (enough for all three types)
     header = await file.read(12)
@@ -287,9 +306,12 @@ async def calculate_totals(
     current_user: User = Depends(get_current_user),
 ):
     """Feingold-Gehalt und Wert berechnen."""
-    result = await ScrapGoldService.calculate_and_update(
-        db, scrap_gold_id, gold_price_per_g
-    )
+    try:
+        result = await ScrapGoldService.calculate_and_update(
+            db, scrap_gold_id, gold_price_per_g
+        )
+    except ScrapGoldLockedError as exc:
+        raise _locked_conflict(exc) from exc
     if not result:
         raise HTTPException(status_code=404, detail="Altgold-Eintrag nicht gefunden")
     return await ScrapGoldService.get_by_id(db, scrap_gold_id)
@@ -304,10 +326,33 @@ async def sign_receipt(
     current_user: User = Depends(get_current_user),
 ):
     """Digitale Unterschrift des Kunden erfassen."""
-    result = await ScrapGoldService.sign(db, scrap_gold_id, sign_data.signature_data)
+    try:
+        result = await ScrapGoldService.sign(
+            db, scrap_gold_id, sign_data.signature_data
+        )
+    except ScrapGoldLockedError as exc:
+        raise _locked_conflict(exc) from exc
     if not result:
         raise HTTPException(status_code=404, detail="Altgold-Eintrag nicht gefunden")
     return await ScrapGoldService.get_by_id(db, scrap_gold_id)
+
+
+@router.patch("/scrap-gold/{scrap_gold_id}", response_model=ScrapGoldRead)
+@require_permission(Permission.ORDER_EDIT)
+async def update_scrap_gold(
+    scrap_gold_id: int,
+    data: ScrapGoldUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Altgold-Eintrag bearbeiten. Nach der Unterschrift nur Notizen (BE-11)."""
+    try:
+        result = await ScrapGoldService.update(db, scrap_gold_id, data)
+    except ScrapGoldLockedError as exc:
+        raise _locked_conflict(exc) from exc
+    if not result:
+        raise HTTPException(status_code=404, detail="Altgold-Eintrag nicht gefunden")
+    return result
 
 
 @router.get("/scrap-gold/alloy-calculator", response_model=AlloyCalculation)

@@ -476,8 +476,11 @@ class OrderService:
         }
         publish_ok = False
         try:
-            await pubsub.publish_event("order_updates", json.dumps(envelope))
-            publish_ok = True
+            # BE-20: publish_event returns False after its final retry.
+            publish_ok = (
+                await pubsub.publish_event("order_updates", json.dumps(envelope))
+                is not False
+            )
         except Exception as e:
             logger.error(
                 f"Failed to publish order update event: {str(e)}",

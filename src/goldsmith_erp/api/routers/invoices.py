@@ -32,9 +32,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from goldsmith_erp.api.deps import get_current_user
-from goldsmith_erp.core.config import settings
 from goldsmith_erp.core.permissions import Permission, require_permission
-from goldsmith_erp.db.models import Customer, Invoice, InvoiceStatus, User
+from goldsmith_erp.db.models import Invoice, InvoiceStatus, User
 from goldsmith_erp.db.session import get_db
 from goldsmith_erp.models.invoice import (
     InvoiceCreate,
@@ -44,15 +43,40 @@ from goldsmith_erp.models.invoice import (
     MarkPaidRequest,
 )
 from goldsmith_erp.services.accounting_export_service import (
+    AccountingExportError,
     export_datev_csv,
     export_lexoffice_csv,
 )
 from goldsmith_erp.services.invoice_service import InvoiceService
-from goldsmith_erp.services.pdf_service import PDFService
+from goldsmith_erp.services.invoice_snapshot_service import InvoiceSnapshotService
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+# Invoice statuses treated as "issued" (a legal document exists) for the
+# accounting export — booked as normal revenue. See BE-13 /
+# accounting_export_service.py module docstring for the CANCELLED handling.
+_ISSUED_INVOICE_STATUSES = (
+    InvoiceStatus.SENT,
+    InvoiceStatus.PAID,
+    InvoiceStatus.OVERDUE,
+)
+
+
+def _partition_invoices_for_accounting_export(
+    invoices: List[Invoice],
+) -> tuple[List[Invoice], List[Invoice]]:
+    """Split invoices into (issued, cancelled) for the accounting export.
+
+    Issued invoices (SENT/PAID/OVERDUE) get a normal revenue booking.
+    CANCELLED invoices get a Storno reversal booking. DRAFT invoices are
+    excluded entirely — no legal document was ever issued, so there is
+    nothing to book or reverse (BE-13).
+    """
+    issued = [inv for inv in invoices if inv.status in _ISSUED_INVOICE_STATUSES]
+    cancelled = [inv for inv in invoices if inv.status == InvoiceStatus.CANCELLED]
+    return issued, cancelled
 
 
 @router.post("/", response_model=InvoiceResponse, status_code=status.HTTP_201_CREATED)
@@ -141,13 +165,19 @@ async def export_invoices_datev(
     Exports invoices in DATEV format 510 (Buchungsstapel), ready for import
     into DATEV Unternehmen Online or DATEV Kanzlei-Rechnungswesen.
 
+    Only issued invoices (SENT/PAID/OVERDUE) are booked as revenue;
+    CANCELLED invoices produce a Storno reversal booking instead of being
+    silently omitted, and the revenue account is chosen per the invoice's
+    VAT rate (BE-13, W1-09 — see accounting_export_service.py docstring).
+
     Access is restricted to ADMIN role (financial data export).
     Each export call is audit-logged.
 
     Query parameters:
       date_from  - ISO 8601 datetime, filters by issue_date
       date_to    - ISO 8601 datetime, filters by issue_date
-      status     - Invoice status filter (e.g. PAID, SENT)
+      status     - Invoice status filter (e.g. PAID, SENT); unset exports
+                   every issued/cancelled invoice in the date range
 
     Returns a StreamingResponse with Content-Type text/csv and a
     Content-Disposition attachment header (datev_export_YYYYMMDD.csv).
@@ -181,14 +211,18 @@ async def export_invoices_datev(
         date_from=date_from,
         date_to=date_to,
     )
+    issued_invoices, cancelled_invoices = _partition_invoices_for_accounting_export(
+        invoices
+    )
 
-    invoice_ids = [inv.id for inv in invoices]
-    if not invoice_ids:
-        csv_content = export_datev_csv([])
-    else:
-        result = await db.execute(select(Invoice).where(Invoice.id.in_(invoice_ids)))
-        orm_invoices = result.scalars().all()
-        csv_content = export_datev_csv(list(orm_invoices))
+    try:
+        csv_content = export_datev_csv(
+            issued_invoices, reversal_invoices=cancelled_invoices
+        )
+    except AccountingExportError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+        ) from exc
 
     filename = f"datev_export_{datetime.utcnow().strftime('%Y%m%d')}.csv"
     return StreamingResponse(
@@ -220,6 +254,11 @@ async def export_invoices_lexoffice(
     Exports invoices as a simplified CSV suitable for import into Lexoffice
     (Haufe lexware). Columns: Datum, Belegnummer, Beschreibung, Netto,
     MwSt-Satz, Brutto.
+
+    Only issued invoices (SENT/PAID/OVERDUE) are booked as revenue;
+    CANCELLED invoices produce a negative Storno row instead of being
+    silently omitted (BE-13, W1-09 — see accounting_export_service.py
+    docstring).
 
     Access is restricted to ADMIN role (financial data export).
     Each export call is audit-logged.
@@ -255,14 +294,13 @@ async def export_invoices_lexoffice(
         date_from=date_from,
         date_to=date_to,
     )
+    issued_invoices, cancelled_invoices = _partition_invoices_for_accounting_export(
+        invoices
+    )
 
-    invoice_ids = [inv.id for inv in invoices]
-    if not invoice_ids:
-        csv_content = export_lexoffice_csv([])
-    else:
-        result = await db.execute(select(Invoice).where(Invoice.id.in_(invoice_ids)))
-        orm_invoices = result.scalars().all()
-        csv_content = export_lexoffice_csv(list(orm_invoices))
+    csv_content = export_lexoffice_csv(
+        issued_invoices, reversal_invoices=cancelled_invoices
+    )
 
     filename = f"lexoffice_export_{datetime.utcnow().strftime('%Y%m%d')}.csv"
     return StreamingResponse(
@@ -408,6 +446,11 @@ async def download_invoice_pdf(
     Access is audit-logged by the service layer as financial data.
 
     Returns a streaming PDF response (application/pdf).
+
+    W1-10 (GDPR-01, BE-23): rendered from the invoice snapshot, never from
+    the live customer row. DRAFT is re-rendered per request; SENT, PAID,
+    OVERDUE and CANCELLED invoices serve the PDF frozen at issue time after
+    a SHA-256 integrity check.
     """
     invoice = await InvoiceService.get_invoice(db, invoice_id, current_user)
     if not invoice:
@@ -416,48 +459,8 @@ async def download_invoice_pdf(
             detail=f"Rechnung {invoice_id} nicht gefunden",
         )
 
-    # Load the associated customer — customer_id is stored on the invoice.
-    customer_result = await db.execute(
-        select(Customer).where(Customer.id == invoice.customer_id)
-    )
-    customer = customer_result.scalar_one_or_none()
-    if not customer:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Kunde {invoice.customer_id} nicht gefunden",
-        )
-
-    # Build a thin adapter so PDFService sees a uniform .name, .address, .city
-    # without depending on the ORM model's internal field names.
-    class _CustomerAdapter:
-        name: str
-        address: str
-        city: str
-        email: str
-        phone: str
-
-        def __init__(self, c: Customer) -> None:
-            self.name = f"{c.first_name} {c.last_name}".strip()
-            parts = []
-            if c.street:
-                parts.append(c.street)
-            self.address = ", ".join(parts)
-            city_parts = []
-            if c.postal_code:
-                city_parts.append(c.postal_code)
-            if c.city:
-                city_parts.append(c.city)
-            self.city = " ".join(city_parts)
-            self.email = c.email or ""
-            self.phone = c.phone or ""
-
     try:
-        pdf_bytes = PDFService.render_invoice_pdf(
-            invoice=invoice,
-            customer=_CustomerAdapter(customer),
-            line_items=invoice.line_items,
-            workshop_name=settings.WORKSHOP_NAME,
-        )
+        pdf_bytes = await InvoiceSnapshotService.pdf_for_download(db, invoice)
     except Exception:
         logger.exception(
             "PDF generation failed for invoice",

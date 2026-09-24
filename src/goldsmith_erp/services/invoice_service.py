@@ -39,6 +39,7 @@ from goldsmith_erp.models.invoice import (
     InvoiceUpdate,
     MarkPaidRequest,
 )
+from goldsmith_erp.services.invoice_snapshot_service import InvoiceSnapshotService
 
 logger = logging.getLogger(__name__)
 
@@ -147,12 +148,26 @@ class InvoiceService:
           subtotal   - Zwischensumme (netto)
           tax_amount - MwSt-Betrag
           total      - Gesamtbetrag (brutto)
+
+        A1: computed in Decimal with ROUND_HALF_UP to cents (ADR
+        2026-09-25), never float ``round()`` (``round(0.145, 2) == 0.14``).
+        ``total - subtotal == tax_amount`` holds exactly.
         """
-        subtotal = sum(item.quantity * item.unit_price for item in line_items)
-        tax_amount = round(subtotal * (tax_rate / 100), 2)
-        total = round(subtotal + tax_amount, 2)
-        subtotal = round(subtotal, 2)
-        return {"subtotal": subtotal, "tax_amount": tax_amount, "total": total}
+        raw_subtotal = sum(
+            (
+                Decimal(str(item.quantity)) * Decimal(str(item.unit_price))
+                for item in line_items
+            ),
+            Decimal("0"),
+        )
+        subtotal = _to_cents(raw_subtotal)
+        tax_amount = _to_cents(subtotal * Decimal(str(tax_rate)) / Decimal("100"))
+        total = subtotal + tax_amount
+        return {
+            "subtotal": float(subtotal),
+            "tax_amount": float(tax_amount),
+            "total": float(total),
+        }
 
     # -------------------------------------------------------------------------
     # Auto-generate line items from order data
@@ -434,6 +449,7 @@ class InvoiceService:
             db.add(db_invoice)
             await db.flush()  # Populate db_invoice.id before adding line items
 
+            db_lines = []
             for item in all_line_items:
                 db_line = InvoiceLineItemModel(
                     invoice_id=db_invoice.id,
@@ -441,9 +457,28 @@ class InvoiceService:
                     description=item.description,
                     quantity=item.quantity,
                     unit_price=item.unit_price,
-                    total=round(item.quantity * item.unit_price, 2),
+                    total=float(
+                        _to_cents(
+                            Decimal(str(item.quantity)) * Decimal(str(item.unit_price))
+                        )
+                    ),
                 )
                 db.add(db_line)
+                db_lines.append(db_line)
+
+            # W1-10: immutable snapshot of recipient/seller/lines/totals,
+            # taken now so later customer changes never reach this invoice.
+            db_invoice.snapshot = InvoiceSnapshotService.dump(
+                InvoiceSnapshotService.build(
+                    db_invoice,
+                    db_lines,
+                    order.customer,
+                    order,
+                    scrap_gold_credit=InvoiceService._scrap_gold_credit_amount(
+                        scrap_golds
+                    ),
+                )
+            )
 
             # Transition scrap gold status to CREDITED atomically with the
             # invoice creation so the two records are always consistent.
@@ -601,6 +636,9 @@ class InvoiceService:
         async with transactional(db):
             for field, value in update_data.items():
                 setattr(invoice, field, value)
+            # DRAFT snapshot follows the invoice's own fields; frozen ones
+            # are write-once (W1-10).
+            InvoiceSnapshotService.sync_draft_fields(invoice)
 
         _log_financial_access(
             action="updated",
@@ -647,6 +685,8 @@ class InvoiceService:
 
         async with transactional(db):
             invoice.status = InvoiceStatus.SENT
+            # W1-10: the issued document is frozen (PDF bytes + SHA-256).
+            await InvoiceSnapshotService.freeze(db, invoice)
 
         _log_financial_access(
             action="sent",
@@ -698,10 +738,15 @@ class InvoiceService:
         paid_at = request.paid_date or datetime.utcnow()
 
         async with transactional(db):
+            was_draft = invoice.status == InvoiceStatus.DRAFT
             invoice.status = InvoiceStatus.PAID
             invoice.paid_date = paid_at
             if request.payment_method:
                 invoice.payment_method = request.payment_method
+            if was_draft:
+                # Issued straight from DRAFT (e.g. paid cash at pickup):
+                # freeze now, with the payment method on the document.
+                await InvoiceSnapshotService.freeze(db, invoice)
 
         _log_financial_access(
             action="marked_paid",

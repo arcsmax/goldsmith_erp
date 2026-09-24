@@ -35,6 +35,7 @@ from datetime import datetime
 from typing import Optional, cast
 
 from sqlalchemy import and_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from goldsmith_erp.core.config import settings
@@ -127,6 +128,11 @@ async def _already_handled(
     return False
 
 
+def _dedupe_key(order_id: int, event: NotificationTypeEnum) -> str:
+    """Value for ``customer_updates.dedupe_key`` (C2.2 DB backstop)."""
+    return f"auto:order:{order_id}:{event.value}"
+
+
 async def _system_actor_id(db: AsyncSession) -> Optional[int]:
     """User recorded as ``sent_by`` for automated mails.
 
@@ -204,7 +210,30 @@ async def _create_and_send(
                 photo_ids=None,  # design-IP rule: automated mails attach nothing
             ),
             user_id=actor_id,
+            dedupe_key=_dedupe_key(order_id, event),
         )
+    except IntegrityError:
+        # C2.2: a concurrent tick created the live row for this key between
+        # our _already_handled check and this insert, so that tick sends
+        # (or already sent) the mail. Nothing was sent here.
+        logger.info(
+            "Automated customer mail already handled by a concurrent run",
+            extra={"order_id": order_id, "event": event.value},
+        )
+        return False
+    except Exception as exc:
+        logger.error(
+            "Automated customer mail failed",
+            extra={
+                "order_id": order_id,
+                "event": event.value,
+                "error_type": type(exc).__name__,
+            },
+            exc_info=True,
+        )
+        return False
+
+    try:
         result = await CustomerUpdateService.send(db, int(draft.id), actor_id)
     except Exception as exc:
         logger.error(

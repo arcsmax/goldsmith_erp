@@ -522,9 +522,14 @@ class CustomerUpdateService:
         repair_job_id: Optional[int],
         data: CustomerUpdateCreate,
         user_id: int,
+        dedupe_key: Optional[str] = None,
     ) -> CustomerUpdate:
         """
         Create a DRAFT CustomerUpdate for exactly one target.
+
+        ``dedupe_key`` is set only by the automated sender (C2.2); a second
+        live row with the same key raises ``IntegrityError`` from the partial
+        unique index ``uq_customer_updates_dedupe_key``.
 
         Raises:
             ValueError: target (order/repair) does not exist, or exactly-one
@@ -590,6 +595,7 @@ class CustomerUpdateService:
                 photo_ids=data.photo_ids or None,
                 status=CustomerUpdateStatus.DRAFT,
                 sent_by=user_id,
+                dedupe_key=dedupe_key,
             )
             db.add(update)
 

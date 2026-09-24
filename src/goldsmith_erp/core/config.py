@@ -521,6 +521,77 @@ class Settings(BaseSettings):
 
         return v
 
+    # ==========================================================================
+    # Accounting export (BE-13, W1-09) — DATEV / lexoffice
+    # ==========================================================================
+    # Revenue account per VAT rate (SKR03 chart of accounts, "Erloese").
+    # Keys are the VAT rate as a percentage with no trailing ".0"
+    # (e.g. "19", "7", "0"); values are the SKR03 account number as a string.
+    # Only 19 -> "8400" (Erloese 19% USt) is confirmed — it was the original
+    # hardcoded constant in accounting_export_service.py. The 7% and 0%
+    # accounts MUST come from the Steuerberater before invoices at those
+    # rates can be exported (assumption D-02,
+    # docs/review/2026-09-25/MASTER-FIX-PLAN.md W1-09); export_datev_csv
+    # raises AccountingExportError for any VAT rate with no entry here
+    # rather than silently booking it to the wrong account.
+    #
+    # Accepts a JSON object from the environment, e.g.:
+    #   DATEV_REVENUE_ACCOUNTS={"19": "8400", "7": "8300", "0": "8200"}
+    DATEV_REVENUE_ACCOUNTS: Annotated[dict[str, str], NoDecode] = {"19": "8400"}
+
+    # Counter-account (Gegenkonto) for the receivables side of every
+    # DATEV booking — "Forderungen aus Lieferungen und Leistungen" (SKR03).
+    DATEV_RECEIVABLES_ACCOUNT: str = "1400"
+
+    @field_validator("DATEV_REVENUE_ACCOUNTS", mode="before")
+    @classmethod
+    def _parse_datev_revenue_accounts(cls, value: Any) -> Any:
+        """Accept the account map as a JSON object from the environment.
+
+        Mirrors ``_assemble_cors_origins``: this is financial data, so a
+        malformed value must fail loudly (ValueError) rather than silently
+        falling back to an empty map, which would make every invoice
+        unexportable with no obvious error at the source.
+        """
+        if value is None or isinstance(value, dict):
+            return value
+        if not isinstance(value, str):
+            raise ValueError(f"Invalid DATEV_REVENUE_ACCOUNTS value: {value!r}")
+        text = value.strip()
+        if not text:
+            return {}
+        try:
+            parsed = json.loads(text)
+        except json.JSONDecodeError as exc:
+            raise ValueError(
+                "DATEV_REVENUE_ACCOUNTS must be a JSON object mapping VAT "
+                'rate to account number, e.g. {"19": "8400", "7": "8300"}: '
+                f"{exc}"
+            ) from exc
+        if not isinstance(parsed, dict):
+            raise ValueError("DATEV_REVENUE_ACCOUNTS must be a JSON object")
+        return {str(k): str(v) for k, v in parsed.items()}
+
+    # ── Image limits (SEC-18: decompression-bomb protection) ────────────────────
+    # Uploaded photos (order / repair / consultation) are decoded with Pillow —
+    # a small, deliberately crafted file can still declare enormous pixel
+    # dimensions that would allocate a huge in-memory bitmap on decode/resize.
+    # `services/image_validation.py` rejects an image from its DECLARED header
+    # dimensions (Image.open() only parses the header) before any pixel buffer
+    # is allocated, and also sets `PIL.Image.MAX_IMAGE_PIXELS` from
+    # IMAGE_MAX_MEGAPIXELS as a defense-in-depth guard for any other Pillow
+    # call in the process.
+    IMAGE_MAX_MEGAPIXELS: int = 40  # Image.MAX_IMAGE_PIXELS = this * 1_000_000
+    # General ceiling on bytes read before Pillow ever sees the buffer — a
+    # second bound alongside the per-endpoint PHOTO_MAX_SIZE_MB (kept
+    # independent so it is not silently loosened if a future endpoint raises
+    # its own upload limit).
+    IMAGE_MAX_UPLOAD_BYTES: int = 8 * 1024 * 1024  # 8 MB
+    # Pillow's decode/re-encode is synchronous, CPU-bound work; the photo
+    # services run it in a threadpool (so it never blocks the event loop) and
+    # bound it with this timeout so a pathological image can't hang a worker.
+    IMAGE_PROCESSING_TIMEOUT_SECONDS: int = 10
+
 
 # Instantiate once per process
 settings = Settings()

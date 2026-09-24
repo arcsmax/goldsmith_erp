@@ -12,6 +12,7 @@ from goldsmith_erp.core.permissions import (
     check_ownership_or_permission,
     require_permission,
 )
+from goldsmith_erp.db.models import TimeEntry as TimeEntryModel
 from goldsmith_erp.db.models import User
 from goldsmith_erp.db.session import get_db
 from goldsmith_erp.models.interruption import InterruptionCreate, InterruptionRead
@@ -29,9 +30,33 @@ from goldsmith_erp.models.time_entry import (
     TimeEntryWithDetails,
     TimeSummaryStats,
 )
-from goldsmith_erp.services.time_tracking_service import TimeTrackingService
+from goldsmith_erp.services.time_tracking_service import (
+    TimeEntryValidationError,
+    TimeTrackingService,
+)
 
 router = APIRouter()
+
+
+async def _get_owned_entry(
+    db: AsyncSession, entry_id: str, current_user: User
+) -> TimeEntryModel:
+    """SEC-13: load an entry the caller may mutate (owner or TIME_VIEW_ALL).
+
+    404 for an unknown id, 403 for a colleague's entry. ADMIN holds
+    TIME_VIEW_ALL; GOLDSMITH and VIEWER do not.
+    """
+    entry = await TimeTrackingService.get_time_entry(db, entry_id)
+    if entry is None:
+        raise HTTPException(status_code=404, detail="Time entry not found")
+    if not check_ownership_or_permission(
+        entry.user_id, current_user, Permission.TIME_VIEW_ALL
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail="Sie können nur Ihre eigenen Zeiterfassungen ändern.",
+        )
+    return entry
 
 
 @router.post("/start", response_model=TimeEntryRead)
@@ -72,6 +97,7 @@ async def stop_time_tracking(
     - Speichert Bewertungen (complexity, quality, rework)
     - Aktualisiert Activity average_duration
     """
+    await _get_owned_entry(db, entry_id, current_user)
     try:
         entry = await TimeTrackingService.stop_time_entry(db, entry_id, stop_data)
         if not entry:
@@ -215,8 +241,12 @@ async def update_time_entry(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Aktualisiert eine Zeiterfassung."""
-    entry = await TimeTrackingService.update_time_entry(db, entry_id, entry_in)
+    """Aktualisiert eine Zeiterfassung (nur eigene, außer ADMIN)."""
+    await _get_owned_entry(db, entry_id, current_user)
+    try:
+        entry = await TimeTrackingService.update_time_entry(db, entry_id, entry_in)
+    except TimeEntryValidationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     if not entry:
         raise HTTPException(status_code=404, detail="Time entry not found")
     return entry
@@ -247,6 +277,7 @@ async def add_interruption(
     """Fügt eine Unterbrechung zu einer Zeiterfassung hinzu."""
     # Override entry_id from path
     interruption_in.time_entry_id = entry_id
+    await _get_owned_entry(db, entry_id, current_user)
 
     try:
         return await TimeTrackingService.add_interruption(db, interruption_in)

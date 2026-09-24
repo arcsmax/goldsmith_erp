@@ -1,28 +1,30 @@
 """
-Integration tests for WebSocket authentication.
+Integration tests for WebSocket authentication on ``/ws/events``.
 
 Tests cover:
-- /ws/orders rejects connections without a token (close code 4001)
-- /ws/orders rejects connections with an invalid JWT (close code 4001)
-- /ws/orders accepts connections with a valid JWT
-- /ws/notifications/{user_id} rejects when token user_id != path user_id
-- /ws/notifications/{user_id} accepts when token user_id matches path
+- /ws/events rejects connections without a token (close code 4001)
+- /ws/events rejects connections with an invalid JWT (close code 4001)
+- /ws/events accepts a valid JWT from the ``access_token`` cookie
+- /ws/events still accepts the legacy ``?token=`` query parameter
+  (W3-10 removes it)
+- the removed raw relays /ws/orders and /ws/notifications/{id} no longer
+  accept connections (W2-13; /ws/orders leaked Order.price, SEC-01 / D.1)
 
-WebSocket auth is handled by _authenticate_websocket in main.py, which reads
-the token from the ``access_token`` cookie or the ``token`` query parameter.
-For testing we pass the token as a query parameter.
-
-subscribe_and_forward is patched to a no-op coroutine so tests do not require
-a running Redis instance.
+Recipient routing is the user id from the token, not a path parameter, so
+a user can no longer ask for somebody else's channel. The realtime hub is
+replaced by one with an idle in-memory subscriber so no Redis is needed;
+fan-out behaviour is covered in test_ws_fanout.py.
 """
 
 import asyncio
 from datetime import timedelta
-from unittest.mock import patch
+from typing import Any, Optional
 
 import pytest
 from starlette.testclient import TestClient
+from starlette.websockets import WebSocketDisconnect
 
+from goldsmith_erp.core import ws_manager
 from goldsmith_erp.core.security import create_access_token
 from goldsmith_erp.db.session import get_db
 from goldsmith_erp.main import app
@@ -40,22 +42,27 @@ def _make_token(user_id: int) -> str:
     )
 
 
-def _noop_subscribe_and_forward():
-    """
-    Return an async function that blocks until cancelled.
+class _IdlePubSub:
+    """Subscriber that never receives anything (no Redis in tests)."""
 
-    Replaces subscribe_and_forward so WebSocket endpoints don't attempt
-    to connect to Redis.  The coroutine just sleeps indefinitely — the
-    caller (the WS endpoint) cancels it when the connection closes.
-    """
+    async def subscribe(self, *channels: str) -> None:
+        return None
 
-    async def _noop(ws, channel):
-        try:
-            await asyncio.sleep(3600)
-        except asyncio.CancelledError:
-            pass
+    async def psubscribe(self, *patterns: str) -> None:
+        return None
 
-    return _noop
+    async def get_message(
+        self, ignore_subscribe_messages: bool = True, timeout: float = 1.0
+    ) -> Optional[dict[str, Any]]:
+        await asyncio.sleep(timeout)
+        return None
+
+    async def aclose(self) -> None:
+        return None
+
+
+async def _idle_factory() -> _IdlePubSub:
+    return _IdlePubSub()
 
 
 # ---------------------------------------------------------------------------
@@ -64,103 +71,71 @@ def _noop_subscribe_and_forward():
 
 
 @pytest.fixture()
-def ws_client(db_session):
+def ws_client(db_session, fake_redis, monkeypatch):
     """
-    Starlette synchronous TestClient with DB override and Redis mock.
+    Starlette synchronous TestClient with DB override and an idle hub.
 
     Uses ``raise_server_exceptions=False`` so that WebSocket close frames
     from the server do not raise Python exceptions in the test process.
     """
     from tests.integration.conftest import _override_get_db_factory
 
+    monkeypatch.setattr(
+        ws_manager,
+        "realtime_hub",
+        ws_manager.RealtimeHub(
+            pubsub_factory=_idle_factory, heartbeat_interval=3600.0, poll_timeout=0.05
+        ),
+    )
     app.dependency_overrides[get_db] = _override_get_db_factory(db_session)
-    with (
-        patch(
-            "goldsmith_erp.core.pubsub.subscribe_and_forward",
-            new=_noop_subscribe_and_forward(),
-        ),
-        patch(
-            "goldsmith_erp.main.subscribe_and_forward",
-            new=_noop_subscribe_and_forward(),
-        ),
-    ):
-        yield TestClient(app, raise_server_exceptions=False)
+    yield TestClient(app, raise_server_exceptions=False)
     app.dependency_overrides.clear()
 
 
 # ===========================================================================
-# /ws/orders tests
+# /ws/events tests
 # ===========================================================================
 
 
-class TestWsOrdersAuth:
-    """WebSocket authentication tests for /ws/orders."""
+class TestWsEventsAuth:
+    """WebSocket authentication tests for /ws/events."""
 
-    def test_ws_orders_without_token_rejected(self, ws_client):
-        """Connect to /ws/orders with no token — should get closed with code 4001."""
-        from starlette.websockets import WebSocketDisconnect
-
+    def test_ws_events_without_token_rejected(self, ws_client):
         with pytest.raises(WebSocketDisconnect) as exc_info:
-            with ws_client.websocket_connect("/ws/orders") as ws:
+            with ws_client.websocket_connect("/ws/events") as ws:
                 ws.receive_text()
         assert exc_info.value.code == 4001
 
-    def test_ws_orders_with_invalid_token_rejected(self, ws_client):
-        """Connect to /ws/orders with an invalid JWT — should close with code 4001."""
-        from starlette.websockets import WebSocketDisconnect
-
+    def test_ws_events_with_invalid_token_rejected(self, ws_client):
         with pytest.raises(WebSocketDisconnect) as exc_info:
             with ws_client.websocket_connect(
-                "/ws/orders?token=this.is.not.a.valid.jwt"
+                "/ws/events?token=this.is.not.a.valid.jwt"
             ) as ws:
                 ws.receive_text()
         assert exc_info.value.code == 4001
 
-    def test_ws_orders_with_valid_token_accepted(self, ws_client, goldsmith_user):
-        """Connect to /ws/orders with a valid JWT — should be accepted."""
-        token = _make_token(goldsmith_user.id)
-        with ws_client.websocket_connect(f"/ws/orders?token={token}") as ws:
-            # Connection accepted — send a message to verify the socket is live
-            ws.send_text("ping")
-            # Close cleanly from the client side
-            ws.close()
-
-
-# ===========================================================================
-# /ws/notifications/{user_id} tests
-# ===========================================================================
-
-
-class TestWsNotificationsAuth:
-    """WebSocket authentication tests for /ws/notifications/{user_id}."""
-
-    def test_ws_notifications_wrong_user_rejected(self, ws_client, goldsmith_user):
-        """Connect to /ws/notifications/999 with a token for a different user_id.
-
-        The server checks ``authenticated_user_id != user_id`` and closes
-        with code 4001 when they don't match.
-        """
-        from starlette.websockets import WebSocketDisconnect
-
-        token = _make_token(goldsmith_user.id)
-        wrong_user_id = goldsmith_user.id + 9999  # guaranteed to be different
-
-        with pytest.raises(WebSocketDisconnect) as exc_info:
-            with ws_client.websocket_connect(
-                f"/ws/notifications/{wrong_user_id}?token={token}"
-            ) as ws:
-                ws.receive_text()
-        assert exc_info.value.code == 4001
-
-    def test_ws_notifications_correct_user_accepted(self, ws_client, goldsmith_user):
-        """Connect to /ws/notifications/{user_id} with a matching token.
-
-        The token's ``sub`` claim must equal the path ``user_id``.
-        """
+    def test_ws_events_with_cookie_token_accepted(self, ws_client, goldsmith_user):
         token = _make_token(goldsmith_user.id)
         with ws_client.websocket_connect(
-            f"/ws/notifications/{goldsmith_user.id}?token={token}"
+            "/ws/events", headers={"cookie": f"access_token={token}"}
         ) as ws:
-            # Connection accepted — send a message to verify the socket is live
-            ws.send_text("ping")
+            ws.send_text("pong")
             ws.close()
+
+    def test_ws_events_with_legacy_query_token_accepted(
+        self, ws_client, goldsmith_user
+    ):
+        token = _make_token(goldsmith_user.id)
+        with ws_client.websocket_connect(f"/ws/events?token={token}") as ws:
+            ws.send_text("pong")
+            ws.close()
+
+
+class TestLegacyEndpointsRemoved:
+    @pytest.mark.parametrize("path", ["/ws/orders", "/ws/notifications/{uid}"])
+    def test_legacy_endpoint_refuses_connection(self, ws_client, goldsmith_user, path):
+        token = _make_token(goldsmith_user.id)
+        url = path.format(uid=goldsmith_user.id) + f"?token={token}"
+        with pytest.raises(WebSocketDisconnect):
+            with ws_client.websocket_connect(url) as ws:
+                ws.receive_text()

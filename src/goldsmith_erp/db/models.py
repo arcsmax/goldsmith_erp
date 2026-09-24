@@ -704,6 +704,19 @@ class TimeEntry(Base):
     """Haupt-Zeiterfassung"""
 
     __tablename__ = "time_entries"
+    # BE-12 (W1-17): at most one running timer (end_time IS NULL) per user.
+    # Partial unique index on both dialects so a double tap cannot create two
+    # open entries; the service maps the IntegrityError to a 409.
+    # Migration: 20260925_w117_one_running_timer.
+    __table_args__ = (
+        Index(
+            "uq_time_entries_one_running",
+            "user_id",
+            unique=True,
+            postgresql_where=text("end_time IS NULL"),
+            sqlite_where=text("end_time IS NULL"),
+        ),
+    )
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     order_id = Column(
@@ -1368,6 +1381,20 @@ class Invoice(Base):
     payment_method = Column(
         String(50), nullable=True
     )  # Zahlungsart (Ueberweisung, Bar, Karte)
+
+    # ── W1-10 (GDPR-01, BE-23): immutable invoice snapshot ─────────────
+    # JSON (recipient, seller, order, lines, totals) written at creation;
+    # holds recipient name/address, so it is encrypted at rest. The PDF is
+    # rendered from it, never from the live customer row. See
+    # services/invoice_snapshot_service.py. Migration:
+    # 20260925_w110_invoice_snapshot (backfills legacy rows, backfilled=True).
+    snapshot = Column(EncryptedString, nullable=True)
+    # Frozen at issue (DRAFT -> SENT, or DRAFT -> PAID): base64 PDF bytes
+    # (encrypted, contains the recipient) plus SHA-256 of the raw bytes.
+    # Write-once; served verbatim for every non-DRAFT invoice.
+    issued_at = Column(DateTime, nullable=True)
+    issued_pdf = Column(EncryptedString, nullable=True)
+    issued_pdf_sha256 = Column(String(64), nullable=True)
 
     # Metadata
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
@@ -2691,8 +2718,26 @@ class CustomerUpdate(Base):
     """
 
     __tablename__ = "customer_updates"
+    # C2.2: DB backstop for the automated customer-mail dedupe
+    # (services/automated_customer_email.py). Automated rows carry a
+    # ``dedupe_key``; at most one live (draft/sent) row per key, so two
+    # concurrent monitor ticks cannot both email the customer. Failed sends
+    # are excluded so the next day's retry can insert a new row. Staff-written
+    # Kundeninfo has no key and is unrestricted.
+    # Migration: 20260925_c22_cu_dedupe.
+    __table_args__ = (
+        Index(
+            "uq_customer_updates_dedupe_key",
+            "dedupe_key",
+            unique=True,
+            postgresql_where=text("dedupe_key IS NOT NULL AND status <> 'send_failed'"),
+            sqlite_where=text("dedupe_key IS NOT NULL AND status <> 'send_failed'"),
+        ),
+    )
 
     id = Column(Integer, primary_key=True, index=True)
+    # Set only by the automated sender, e.g. "auto:order:12:pickup_ready".
+    dedupe_key = Column(String(200), nullable=True)
 
     # Exactly one of these two must be set — Pydantic-layer invariant, see
     # class docstring. SET NULL, not CASCADE — Art. 30 retention, see

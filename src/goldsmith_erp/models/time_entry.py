@@ -2,8 +2,9 @@
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from goldsmith_erp.models._common import UtcNaiveDatetime
 from goldsmith_erp.models.time_entry_metadata import TimeEntryMetadata
 
 
@@ -113,9 +114,16 @@ class TimeEntryCreate(TimeEntryBase):
 
 
 class TimeEntryUpdate(BaseModel):
-    """Schema für TimeEntry-Updates mit Input Validation."""
+    """Schema für TimeEntry-Updates mit Input Validation.
 
-    end_time: Optional[datetime] = None
+    BE-18: ``end_time`` is normalised to naive UTC (browser sends ``Z``);
+    ``duration_minutes`` together with ``end_time`` is rejected because the
+    two conflict (the duration is always derived from the end time). The
+    ``end > start`` and 24 h checks need the stored ``start_time`` and run
+    in ``TimeTrackingService.update_time_entry`` (422).
+    """
+
+    end_time: Optional[UtcNaiveDatetime] = None
     duration_minutes: Optional[int] = Field(
         None, gt=0, le=1440, description="Duration in minutes (1-1440)"  # Max 24 hours
     )
@@ -138,6 +146,15 @@ class TimeEntryUpdate(BaseModel):
     @classmethod
     def _scrub_extra_metadata(cls, v):
         return _validate_metadata_whitelist(v)
+
+    @model_validator(mode="after")
+    def _duration_xor_end_time(self) -> "TimeEntryUpdate":
+        if self.end_time is not None and self.duration_minutes is not None:
+            raise ValueError(
+                "Bitte entweder Endzeit oder Dauer angeben, nicht beides "
+                "(die Dauer wird aus der Endzeit berechnet)."
+            )
+        return self
 
 
 class TimeEntryRead(TimeEntryBase):

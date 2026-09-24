@@ -2,8 +2,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { notificationsApi } from '../api/notifications';
 import { Notification, NotificationSeverity } from '../types';
-import { useAuth } from '../contexts/AuthContext';
-import { useWebSocket, WebSocketMessage } from '../hooks/useWebSocket';
+import { useRealtime } from '../contexts/WebSocketProvider';
 import '../styles/notification-bell.css';
 
 // ---------------------------------------------------------------------------
@@ -62,7 +61,6 @@ function severityLabel(severity: NotificationSeverity): string {
 const POLL_INTERVAL_MS = 60_000; // 60 seconds — fallback polling
 
 export const NotificationBell: React.FC = () => {
-  const { user } = useAuth();
   const [unreadCount, setUnreadCount] = useState(0);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [isOpen, setIsOpen] = useState(false);
@@ -124,34 +122,16 @@ export const NotificationBell: React.FC = () => {
   // ---------------------------------------------------------------------------
 
   /**
-   * Handle incoming WebSocket messages from the per-user notifications channel.
-   *
-   * The backend publishes a JSON object whenever a new notification is created
-   * for this user.  We increment the unread badge immediately so the user sees
-   * the change without waiting for the next polling cycle.
-   *
-   * Supported message shapes:
-   *   { type: "notification", ... }  — new notification arrived
-   *   { action: "create", ... }      — backend event-style message
+   * W2-13 — the server sends a hint on `notifications` (id, type, severity;
+   * no text) whenever a notification is created for this user, and a resync
+   * after a reconnect. Refetch the unread count, and the list when the
+   * dropdown is open, so the badge updates without waiting for the poll.
    */
-  const handleWebSocketMessage = useCallback((message: WebSocketMessage) => {
-    const isNotification =
-      message.type === 'notification' || message.action === 'create';
-
-    if (isNotification) {
-      // Bump the badge count immediately for instant feedback.
-      setUnreadCount((prev) => prev + 1);
-      // If the dropdown is currently open, refresh the list so the new item
-      // appears straight away.
-      if (isOpen) {
-        fetchNotifications();
-      }
+  useRealtime('notifications', () => {
+    void fetchUnreadCount();
+    if (isOpen) {
+      void fetchNotifications();
     }
-  }, [isOpen, fetchNotifications]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  useWebSocket({
-    userId: user?.id ?? null,
-    onMessage: handleWebSocketMessage,
   });
 
   // ---------------------------------------------------------------------------
