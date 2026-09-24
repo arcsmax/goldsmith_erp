@@ -62,4 +62,16 @@ export const invoicesApi = {
     const response = await apiClient.post<Invoice>(`/invoices/${id}/mark-paid`, data);
     return response.data;
   },
+
+  /**
+   * Cancel/void an invoice (Rechnung stornieren).
+   *
+   * Status transitions go through the dedicated action endpoints, not
+   * `PUT /invoices/{id}` — see ADR-2026-09-25 (price-semantics), decision 5.
+   * POST /invoices/{id}/cancel
+   */
+  cancelInvoice: async (id: number): Promise<Invoice> => {
+    const response = await apiClient.post<Invoice>(`/invoices/${id}/cancel`);
+    return response.data;
+  },
 };

@@ -748,7 +748,9 @@ export const InvoicesPage: React.FC = () => {
     });
     if (!confirmed) return;
     try {
-      await invoicesApi.updateInvoice(invoice.id, { status: 'cancelled' });
+      // Status transitions go through dedicated action endpoints, not the
+      // generic PUT — see ADR-2026-09-25 (price-semantics), decision 5.
+      await invoicesApi.cancelInvoice(invoice.id);
       await fetchInvoices();
     } catch (err) {
       showToast(

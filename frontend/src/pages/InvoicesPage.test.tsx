@@ -49,13 +49,16 @@ const mockGetInvoices = vi.fn();
 const mockCreateFromOrder = vi.fn();
 const mockGetInvoice = vi.fn();
 const mockOrdersGetAll = vi.fn();
+const mockUpdateInvoice = vi.fn();
+const mockCancelInvoice = vi.fn();
 
 vi.mock('../api/invoices', () => ({
   invoicesApi: {
     getInvoices: (...args: unknown[]) => mockGetInvoices(...args),
     createFromOrder: (...args: unknown[]) => mockCreateFromOrder(...args),
     getInvoice: (...args: unknown[]) => mockGetInvoice(...args),
-    updateInvoice: vi.fn(),
+    updateInvoice: (...args: unknown[]) => mockUpdateInvoice(...args),
+    cancelInvoice: (...args: unknown[]) => mockCancelInvoice(...args),
     markAsPaid: vi.fn(),
   },
 }));
@@ -441,5 +444,99 @@ describe('InvoicesPage — Bug #2 (Drucken renders empty)', () => {
     expect(
       screen.getByRole('button', { name: /Drucken/i })
     ).toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// BE-05 follow-up — cancel MUST go through the dedicated cancel endpoint.
+//
+// ADR-2026-09-25 (price-semantics) removes `status` from `InvoiceUpdate`, so
+// `PUT /invoices/{id}` with `{status: "cancelled"}` now returns 422. The
+// "Stornieren" action must call `POST /invoices/{id}/cancel` instead, and
+// must never send a `status` field via the generic PUT/updateInvoice path.
+// ---------------------------------------------------------------------------
+
+describe('InvoicesPage — cancel via dedicated endpoint (BE-05 follow-up)', () => {
+  function draftListItem(overrides: Partial<{ id: number; invoice_number: string }> = {}) {
+    return {
+      id: 1,
+      invoice_number: 'RE-2026-0001',
+      order_id: 1,
+      customer_id: 1,
+      status: 'draft' as const,
+      issue_date: '2026-04-10T10:00:00Z',
+      due_date: '2026-05-10T10:00:00Z',
+      paid_date: null,
+      total: 100,
+      created_at: '2026-04-10T10:00:00Z',
+      ...overrides,
+    };
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockHasRole.mockReturnValue(true);
+    mockShowConfirm.mockResolvedValue(true);
+  });
+
+  it('calls POST /invoices/{id}/cancel, not PUT with a status field', async () => {
+    mockGetInvoices.mockResolvedValue({
+      items: [draftListItem()],
+      total: 1,
+      skip: 0,
+      limit: 25,
+    });
+    mockCancelInvoice.mockResolvedValue({ ...draftListItem(), status: 'cancelled' });
+
+    render(<InvoicesPage />);
+    await screen.findByText('RE-2026-0001');
+
+    fireEvent.click(screen.getByRole('button', { name: /^Stornieren$/ }));
+
+    await waitFor(() => expect(mockCancelInvoice).toHaveBeenCalledWith(1));
+    expect(mockUpdateInvoice).not.toHaveBeenCalled();
+  });
+
+  it('does not cancel when the confirmation dialog is dismissed', async () => {
+    mockGetInvoices.mockResolvedValue({
+      items: [draftListItem()],
+      total: 1,
+      skip: 0,
+      limit: 25,
+    });
+    mockShowConfirm.mockResolvedValue(false);
+
+    render(<InvoicesPage />);
+    await screen.findByText('RE-2026-0001');
+
+    fireEvent.click(screen.getByRole('button', { name: /^Stornieren$/ }));
+
+    await waitFor(() => expect(mockShowConfirm).toHaveBeenCalled());
+    expect(mockCancelInvoice).not.toHaveBeenCalled();
+    expect(mockUpdateInvoice).not.toHaveBeenCalled();
+  });
+
+  it('shows an error toast when cancellation fails', async () => {
+    mockGetInvoices.mockResolvedValue({
+      items: [draftListItem()],
+      total: 1,
+      skip: 0,
+      limit: 25,
+    });
+    mockCancelInvoice.mockRejectedValue({
+      response: { status: 409, data: { detail: 'Bezahlte Rechnungen koennen nicht storniert werden' } },
+    });
+
+    render(<InvoicesPage />);
+    await screen.findByText('RE-2026-0001');
+
+    fireEvent.click(screen.getByRole('button', { name: /^Stornieren$/ }));
+
+    await waitFor(() => {
+      expect(mockShowToast).toHaveBeenCalledWith(
+        'Bezahlte Rechnungen koennen nicht storniert werden',
+        'error'
+      );
+    });
   });
 });

@@ -429,9 +429,14 @@ class CostCalculationService:
         order.labor_cost = price_breakdown.labor_cost
         order.calculated_price = price_breakdown.final_price
 
-        # Don't override manual price if set
+        # Don't override manual price if set.
+        #
+        # ADR-2026-09-25 (price-semantics): Order.price is NET (excluding
+        # VAT), so this must write subtotal_with_margin, not the gross
+        # final_price (which still includes VAT and is kept separately in
+        # calculated_price for cost-vs-price comparisons).
         if order.price is None:
-            order.price = price_breakdown.final_price
+            order.price = price_breakdown.subtotal_with_margin
 
         await db.commit()
         await db.refresh(order)
@@ -440,8 +445,8 @@ class CostCalculationService:
             "Order price updated",
             extra={
                 "order_id": order_id,
-                "calculated_price": price_breakdown.final_price,
-                "final_price": order.price,
+                "calculated_price_gross": price_breakdown.final_price,
+                "order_price_net": order.price,
             },
         )
 
