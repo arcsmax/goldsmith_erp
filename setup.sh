@@ -383,6 +383,8 @@ echo -e "  Frontend:  ${GREEN}http://${LOCAL_IP}:3000${NC}"
 echo -e "  Backend:   ${GREEN}http://${LOCAL_IP}:8000${NC}"
 echo -e "  API-Docs:  ${GREEN}http://${LOCAL_IP}:8000/docs${NC}"
 echo ""
+echo -e "  ${YELLOW}Nächster Schritt:${NC} 'make install-timers' ausführen, um Backup-/DSGVO-Löschung-/Health-Timer zu aktivieren (siehe PRODUCTION_DEPLOYMENT.md Schritt 7)."
+echo ""
 
 # ---------------------------------------------------------------------------
 # Optional: firewall setup (ufw / firewalld)

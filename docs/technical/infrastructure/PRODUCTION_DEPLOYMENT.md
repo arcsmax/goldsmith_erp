@@ -185,14 +185,76 @@ einen Cron-Eintrag ein, z. B. täglich nachts:
 
 ---
 
-## Schritt 7 – DSGVO-Löschjob (systemd-Timer)
+## Schritt 7 – Systemd-Timer installieren (GDPR-Löschjob, Retention-Sweep, Health-Watchdog)
 
-Die Art.-17-Löschung nach Ablauf der 30-Tage-Frist wird durch nichts
-automatisch ausgelöst, solange der Timer nicht installiert ist. Installiere die
-User-Units aus `deploy/systemd/` (`goldsmith-gdpr-cleanup.{service,timer}` +
-`…-alert.service`) und setze für Produktion `COMPOSE_FILE=podman-compose.prod.yml`.
+Drei compliance-kritische Aufgaben — die tägliche Art.-17-Löschung, der
+wöchentliche `retention_class`-Sweep und der externe `/health`-Watchdog —
+liegen als fertige systemd-User-Units unter `deploy/systemd/`, laufen aber
+erst, wenn sie installiert, aktiviert und gestartet wurden. **Kein Backup,
+keine DSGVO-Löschung, kein Health-Alert läuft, solange dieser Schritt
+übersprungen wird.**
 
-Vollständige Installations- und Alerting-Anleitung:
+```bash
+make install-timers     # kopiert + aktiviert + startet alle drei Timer (idempotent)
+make timers-status      # zeigt systemctl --user list-timers 'goldsmith-*'
+```
+
+`make install-timers` ruft `scripts/install-timers.sh` auf, das:
+
+1. alle `deploy/systemd/goldsmith-*.{service,timer}` nach
+   `~/.config/systemd/user/` kopiert und dabei den Platzhalter
+   `WorkingDirectory=%h/goldsmith_erp` durch den tatsächlichen
+   Projekt-Root-Pfad ersetzt (funktioniert also unabhängig davon, wohin das
+   Repo geklont wurde);
+2. `systemctl --user daemon-reload` ausführt;
+3. nur die drei `.timer`-Units aktiviert und startet (`enable --now`) — die
+   zugehörigen `.service`/`-alert.service`-Units werden nur *durch* den Timer
+   bzw. über `OnFailure=` ausgelöst und nie direkt aktiviert;
+4. `loginctl enable-linger` best-effort setzt, damit die Timer auch laufen,
+   wenn kein Benutzer eingeloggt ist;
+5. am Ende `systemctl --user list-timers 'goldsmith-*'` ausgibt.
+
+Erneutes Ausführen ist sicher (reines Überschreiben + `enable --now` ist ein
+No-op auf bereits aktiven Units).
+
+> ℹ️ **Produktion vs. Entwicklung:** die kopierten `.service`-Units haben
+> standardmäßig `COMPOSE_FILE=podman-compose.yml`. Für einen Produktions-
+> Host ergänze in der kopierten Unit
+> (`~/.config/systemd/user/goldsmith-gdpr-cleanup.service` bzw.
+> `-retention-sweep.service`) eine Zeile
+> `Environment=COMPOSE_FILE=podman-compose.prod.yml` und lade danach
+> `systemctl --user daemon-reload` neu.
+
+> 🔒 **Retention-Sweep ist standardmäßig ein Dry-Run.** Der Sweep zählt und
+> loggt nur Kandidatenzeilen, löscht aber nichts, bis ein Operator nach
+> Prüfung der Dry-Run-Logs **und** Freigabe durch Anna+Henrik in der
+> kopierten Unit `RETENTION_EXECUTE=1` setzt. Das ist eine bewusste,
+> separate Entscheidung — `make install-timers` allein aktiviert keine
+> Löschungen.
+
+### Verifikations-Checkliste (Schritt 7)
+
+- [ ] `make install-timers` lief ohne Fehler durch.
+- [ ] `make timers-status` (bzw. `systemctl --user list-timers 'goldsmith-*'`)
+      listet alle drei Timer mit einem Wert unter `NEXT` (nicht leer/`n/a`).
+- [ ] `systemctl --user status goldsmith-gdpr-cleanup.timer
+      goldsmith-retention-sweep.timer goldsmith-health-watchdog.timer` zeigt
+      jeweils `active (waiting)`.
+- [ ] `loginctl show-user "$(whoami)" -p Linger` zeigt `Linger=yes` (sonst
+      stoppen die Timer beim Ausloggen — siehe Hinweis oben,
+      `loginctl enable-linger $(whoami)` manuell nachholen).
+- [ ] Für Produktion: `COMPOSE_FILE=podman-compose.prod.yml` wurde in den
+      kopierten `-cleanup.service`/`-sweep.service`-Units ergänzt (siehe
+      Hinweis oben) und `daemon-reload` danach erneut ausgeführt.
+- [ ] `RETENTION_EXECUTE=1` ist eine bewusste, separate Entscheidung nach
+      Anna+Henrik-Freigabe — nicht versehentlich beim Kopieren der Unit
+      gesetzt.
+- [ ] Ein manueller Testlauf je Job bestätigt Erreichbarkeit:
+      `systemctl --user start goldsmith-health-watchdog.service` (sollte bei
+      laufendem Backend sofort erfolgreich beenden).
+
+Vollständige Installations- und Alerting-Anleitung (inkl. der einzelnen
+Unit-Dateien und Policy-Hintergrund):
 → [GDPR_ERASURE_RETENTION.md](../GDPR_ERASURE_RETENTION.md).
 
 ---
@@ -205,7 +267,9 @@ Vollständige Installations- und Alerting-Anleitung:
 - [ ] Caddy-Root-CA auf allen Werkstattgeräten vertraut; `https://<IP>` ohne Warnung.
 - [ ] Referenzdaten vorhanden (`make seed-production` idempotent), **keine** Demo-Daten.
 - [ ] Backup-Zeitplan aktiv (`scripts/backup.sh` per Timer/Cron), Restore getestet.
-- [ ] DSGVO-Löschtimer installiert und `list-timers` zeigt ihn.
+- [ ] `make install-timers` gelaufen; `make timers-status` zeigt alle drei
+      Timer (GDPR-Löschung, Retention-Sweep, Health-Watchdog) aktiv — siehe
+      Verifikations-Checkliste in Schritt 7.
 
 ## Siehe auch
 
