@@ -8,6 +8,13 @@ import AuthenticatedImage from './AuthenticatedImage';
 
 export interface PhotoItem {
   id: number;
+  /**
+   * Stable React key when `id` is not unique on its own — order photos
+   * have UUID ids, so they pass the UUID here and a positional `id`
+   * (W2-01: replaces the former `Math.random()` fallback that remounted
+   * the gallery on every render).
+   */
+  renderKey?: string;
   file_path: string;
   notes?: string | null;
   timestamp?: string;
@@ -16,8 +23,8 @@ export interface PhotoItem {
    * baseURL). When set, rendering goes through AuthenticatedImage instead of
    * a raw `<img src={file_path}>` — required once file_path is a
    * server-side filesystem path rather than a directly fetchable URL (real
-   * repair photo uploads, V1.1 Task 3). Orders still pass neither and keep
-   * the original raw-`<img>` behaviour unchanged.
+   * repair photo uploads, V1.1 Task 3). Order photos pass
+   * `/photos/{id}/thumbnail|file` (W2-01).
    */
   thumbSrc?: string;
   fullSrc?: string;
@@ -260,7 +267,7 @@ function PhotoColumn({
         <div className="photo-compare-grid">
           {photos.map((photo, i) => (
             <PhotoThumb
-              key={photo.id}
+              key={photo.renderKey ?? photo.id}
               photo={photo}
               onClick={() => onOpenLightbox(allColumnPhotos, i)}
               onDelete={onDeletePhoto}
@@ -308,7 +315,7 @@ export function PhotoCompare({
         <div className="photo-compare-flat-grid">
           {allPhotos.map((photo, i) => (
             <PhotoThumb
-              key={photo.id}
+              key={photo.renderKey ?? photo.id}
               photo={photo}
               onClick={() => openLightbox(allPhotos, i)}
               onDelete={onDeletePhoto}
