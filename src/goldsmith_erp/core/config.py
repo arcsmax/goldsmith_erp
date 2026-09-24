@@ -592,6 +592,23 @@ class Settings(BaseSettings):
     # bound it with this timeout so a pathological image can't hang a worker.
     IMAGE_PROCESSING_TIMEOUT_SECONDS: int = 10
 
+    # ── Metal price feed (W2-15 / BE-22 / DOM-11c) ───────────────────────────
+    # Appended at the end of Settings on purpose (merge-safety across
+    # parallel fix-plan agents touching this file — see MASTER-FIX-PLAN.md
+    # §4.4). See services/metal_price_service.py for how these are used.
+
+    # Timeout (seconds) for the outbound metal spot-price API call. Was
+    # previously hardcoded to 10.0 in metal_price_service.py; now tunable so
+    # operators can react to a consistently slow/unreachable upstream API
+    # without a code change.
+    METAL_PRICE_HTTP_TIMEOUT_SECONDS: float = 10.0
+
+    # A metal price older than this many hours is flagged `is_stale=True`
+    # (shown as "veraltet" in the estimator/quote UI) instead of being
+    # presented as current. Applies to whichever fallback tier served the
+    # price (API, DB history, or hardcoded default).
+    METAL_PRICE_STALENESS_HOURS: float = 24.0
+
 
 # Instantiate once per process
 settings = Settings()
