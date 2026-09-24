@@ -2718,8 +2718,26 @@ class CustomerUpdate(Base):
     """
 
     __tablename__ = "customer_updates"
+    # C2.2: DB backstop for the automated customer-mail dedupe
+    # (services/automated_customer_email.py). Automated rows carry a
+    # ``dedupe_key``; at most one live (draft/sent) row per key, so two
+    # concurrent monitor ticks cannot both email the customer. Failed sends
+    # are excluded so the next day's retry can insert a new row. Staff-written
+    # Kundeninfo has no key and is unrestricted.
+    # Migration: 20260925_c22_cu_dedupe.
+    __table_args__ = (
+        Index(
+            "uq_customer_updates_dedupe_key",
+            "dedupe_key",
+            unique=True,
+            postgresql_where=text("dedupe_key IS NOT NULL AND status <> 'send_failed'"),
+            sqlite_where=text("dedupe_key IS NOT NULL AND status <> 'send_failed'"),
+        ),
+    )
 
     id = Column(Integer, primary_key=True, index=True)
+    # Set only by the automated sender, e.g. "auto:order:12:pickup_ready".
+    dedupe_key = Column(String(200), nullable=True)
 
     # Exactly one of these two must be set — Pydantic-layer invariant, see
     # class docstring. SET NULL, not CASCADE — Art. 30 retention, see
