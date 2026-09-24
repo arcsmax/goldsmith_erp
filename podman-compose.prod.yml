@@ -132,12 +132,26 @@ services:
     expose:
       # nginx listens on 3000 inside the container.
       - "3000"
+    healthcheck:
+      # frontend/Containerfile.prod's nginx-unprivileged base has a matching
+      # HEALTHCHECK; declared here too so `podman-compose ps` / `depends_on:
+      # condition: service_healthy` (see caddy, below) can see it.
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3000/"]
+      interval: 30s
+      timeout: 3s
+      start_period: 10s
+      retries: 3
     depends_on:
       backend:
         condition: service_healthy
     restart: unless-stopped
     security_opt:
       - no-new-privileges:true
+    # nginx-unprivileged writes only under /tmp (pid, client body/proxy temp
+    # dirs) by design — safe to run the root filesystem read-only.
+    read_only: true
+    tmpfs:
+      - /tmp
     deploy:
       resources:
         limits:
@@ -168,9 +182,18 @@ services:
       #   podman cp goldsmith-caddy-prod:/data/caddy/pki/authorities/local/root.crt ./caddy-root.crt
       - caddy_data:/data
       - caddy_config:/config
+    healthcheck:
+      # Caddy's admin API listens on 127.0.0.1:2019 inside the container by
+      # default (not published — see Caddyfile); /config/ always answers 200
+      # once the server is up, independent of the LAN-facing TLS listeners.
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://127.0.0.1:2019/config/"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
     depends_on:
       frontend:
-        condition: service_started
+        condition: service_healthy
     restart: unless-stopped
     security_opt:
       - no-new-privileges:true

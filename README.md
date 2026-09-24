@@ -115,6 +115,14 @@ Das Script:
 > Weg nutzen — `setup.sh` + `podman-compose.prod.yml` (inkl. **Caddy
 > TLS-Proxy**), Referenz-Seed, Backups und DSGVO-Löschtimer:
 > **→ [Produktions-Deployment](docs/technical/infrastructure/PRODUCTION_DEPLOYMENT.md)**.
+>
+> **Echte Kundendaten laufen NIEMALS auf dem Dev-Stack.** Redis, Backend und
+> DB des Dev-Stacks (`podman-compose.yml`, `docker-compose.yml`) binden ihre
+> veröffentlichten Ports standardmäßig an `127.0.0.1` — nicht ans LAN — weil
+> `DEBUG=true` jeden Produktions-Validator zur Warnung statt zum Boot-Abbruch
+> herabstuft und Redis dort ohne Passwort läuft. Nur `podman-compose.prod.yml`
+> ist für echte Daten gehärtet (nur Caddy auf `:80`/`:443` ans LAN, TLS,
+> `DEBUG=false`).
 
 ### Mit Makefile (Alternative)
 

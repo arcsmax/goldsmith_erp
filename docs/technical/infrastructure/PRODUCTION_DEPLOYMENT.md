@@ -27,6 +27,7 @@ Referenz-Seed → Backups → DSGVO-Löschjob.
 | TLS | keins | **Caddy** (`:443`, `tls internal`) |
 | Cookie `Secure` | aus | **`COOKIE_SECURE=true`** (Boot erzwingt es) |
 | Seed | Demo-/Beispieldaten möglich | **nur Referenzdaten** + ein Admin |
+| Netzwerk-Exposition | Redis + Backend an `127.0.0.1` gebunden (kein LAN-Zugriff, kein Auth auf Redis) | nur Caddy (`:80`/`:443`) ans LAN; Redis/Backend/Frontend nur `expose:` (kein Host-Port) |
 
 Der einzige nach außen veröffentlichte Port im Produktions-Stack ist Caddy
 (`80`/`443`). `backend` und `frontend` sind `expose`-only und nur im
