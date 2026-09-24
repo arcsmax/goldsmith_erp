@@ -50,6 +50,7 @@ import {
   type PunzierungsCheckPayload,
 } from '../qc/PunzierungsCheckModal';
 import { ActivityPickerModal } from './ActivityPickerModal';
+import { orderPhotoCaptureLink } from '../orders/orderDeepLink';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -368,6 +369,14 @@ async function handleLogInterruption(
 }
 
 async function handleTakePhoto(ctx: ActionHandlerContext): Promise<void> {
+  const entity = getEntity(ctx);
+  // W2-01 / DOM-01: an order scan lands on the Fotos tab with the camera
+  // already open (OrderDetailPage reads ?tab=fotos&capture=1).
+  if (entity !== null && entity.entity_type === 'order') {
+    ctx.hooks.navigate(orderPhotoCaptureLink(entity.entity_id));
+    ctx.hooks.closeOverlay();
+    return;
+  }
   const base = detailBasePath(ctx);
   if (base === null) throw new Error('Foto fuer diesen Code nicht moeglich.');
   ctx.hooks.navigate(`${base}?action=take-photo`);

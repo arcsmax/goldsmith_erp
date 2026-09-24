@@ -486,11 +486,11 @@ describe('navigation-only handlers', () => {
     expect(ctx.hooks.navigate).toHaveBeenCalledWith('/orders/42');
   });
 
-  it('take_photo navigates with action=take-photo', async () => {
+  it('take_photo on an order deep-links to the Fotos tab with the camera', async () => {
     const ctx = baseContext(orderResponse(42));
     await ACTION_HANDLERS.take_photo(ctx);
     expect(ctx.hooks.navigate).toHaveBeenCalledWith(
-      '/orders/42?action=take-photo',
+      '/orders/42?tab=fotos&capture=1',
     );
   });
 });
