@@ -416,6 +416,17 @@ class OrderRead(OrderBase):
     model_config = ConfigDict(from_attributes=True)
 
 
+class OrderListRead(OrderRead):
+    """Schema for one row of the orders list (``GET /orders/``).
+
+    ``first_photo_id`` is the id of the order's oldest photo so the list can
+    render a thumbnail via ``/photos/{id}/thumbnail`` (W2-01 / FE-13). It is
+    design IP (DESIGN_VIEW): callers without it always receive ``None``.
+    """
+
+    first_photo_id: Optional[str] = None
+
+
 class LocationChangeRequest(BaseModel):
     """Schema for changing an order's current location."""
 
@@ -455,6 +466,7 @@ def _resolve_forward_refs():
         from goldsmith_erp.models.customer import CustomerRead
 
         OrderRead.model_rebuild()
+        OrderListRead.model_rebuild()
     except ImportError:
         # If customer module isn't available yet, that's okay
         # The forward reference will be resolved when it's imported elsewhere
