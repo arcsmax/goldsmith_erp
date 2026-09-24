@@ -3,7 +3,8 @@ import React, { useEffect, useState } from 'react';
 import { materialsApi } from '../api';
 import { MaterialType, MaterialCreateInput, MaterialUpdateInput, PurchaseListItem } from '../types';
 import { MaterialFormModal } from '../components/materials/MaterialFormModal';
-import { useToast, useConfirm } from '../contexts';
+import { useToast, useConfirm, useAuth } from '../contexts';
+import { canViewFinancials } from '../lib/roles';
 import '../styles/pages.css';
 import '../styles/materials.css';
 
@@ -113,6 +114,12 @@ const PurchaseListModal: React.FC<PurchaseListModalProps> = ({ isOpen, onClose }
 export const MaterialsPage: React.FC = () => {
   const { showToast } = useToast();
   const { showConfirm } = useConfirm();
+  const { user } = useAuth();
+  // FINANCIAL_VIEW (SEC-01): the backend strips `unit_price`/`stock_value`
+  // from every materials response for a caller without it (GDPR-03) — the
+  // list itself still loads (materials_list is "projected", not gated), so
+  // only the price-bearing columns and totals are hidden here.
+  const canFinance = canViewFinancials(user?.role);
   const [materials, setMaterials] = useState<MaterialType[]>([]);
   const [filteredMaterials, setFilteredMaterials] = useState<MaterialType[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -168,7 +175,7 @@ export const MaterialsPage: React.FC = () => {
     filtered.sort((a, b) => {
       if (sortBy === 'name') {
         return a.name.localeCompare(b.name);
-      } else if (sortBy === 'price') {
+      } else if (sortBy === 'price' && canFinance) {
         return b.unit_price - a.unit_price;
       } else if (sortBy === 'stock') {
         return a.stock - b.stock;
@@ -282,10 +289,9 @@ export const MaterialsPage: React.FC = () => {
     return <div className="page-error">{error}</div>;
   }
 
-  const totalValue = filteredMaterials.reduce(
-    (sum, m) => sum + m.unit_price * m.stock,
-    0
-  );
+  const totalValue = canFinance
+    ? filteredMaterials.reduce((sum, m) => sum + m.unit_price * m.stock, 0)
+    : null;
 
   return (
     <div className="page-container">
@@ -293,7 +299,8 @@ export const MaterialsPage: React.FC = () => {
         <div>
           <h1>Materialien</h1>
           <p style={{ color: '#666', margin: '0.5rem 0 0 0' }}>
-            {filteredMaterials.length} Materialien • Gesamtwert: {totalValue.toFixed(2)} €
+            {filteredMaterials.length} Materialien
+            {totalValue !== null && ` • Gesamtwert: ${totalValue.toFixed(2)} €`}
           </p>
         </div>
         <div style={{ display: 'flex', gap: '0.75rem' }}>
@@ -321,7 +328,7 @@ export const MaterialsPage: React.FC = () => {
           <label>Sortieren:</label>
           <select value={sortBy} onChange={(e) => setSortBy(e.target.value as any)}>
             <option value="name">Name</option>
-            <option value="price">Preis</option>
+            {canFinance && <option value="price">Preis</option>}
             <option value="stock">Bestand</option>
           </select>
         </div>
@@ -356,10 +363,10 @@ export const MaterialsPage: React.FC = () => {
                 <th>Name</th>
                 <th>Lieferant</th>
                 <th>Beschreibung</th>
-                <th>Preis/Einheit</th>
+                {canFinance && <th>Preis/Einheit</th>}
                 <th>Bestand</th>
                 <th>Einheit</th>
-                <th>Wert</th>
+                {canFinance && <th>Wert</th>}
                 <th>Aktionen</th>
               </tr>
             </thead>
@@ -436,7 +443,9 @@ export const MaterialsPage: React.FC = () => {
                       )}
                     </td>
                     <td>{material.description || '-'}</td>
-                    <td>{material.unit_price.toFixed(2)} €</td>
+                    {canFinance && (
+                      <td>{material.unit_price != null ? `${material.unit_price.toFixed(2)} €` : '—'}</td>
+                    )}
                     <td className={lowStock ? 'low-stock' : ''}>
                       <div className="stock-indicator">
                         {material.stock}
@@ -446,7 +455,13 @@ export const MaterialsPage: React.FC = () => {
                       </div>
                     </td>
                     <td>{material.unit}</td>
-                    <td>{(material.unit_price * material.stock).toFixed(2)} €</td>
+                    {canFinance && (
+                      <td>
+                        {material.unit_price != null
+                          ? `${(material.unit_price * material.stock).toFixed(2)} €`
+                          : '—'}
+                      </td>
+                    )}
                     <td>
                       <div className="materials-page-actions">
                         <button

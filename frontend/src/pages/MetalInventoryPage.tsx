@@ -9,6 +9,7 @@ import { MetalTypeManager } from '../components/metal/MetalTypeManager';
 import { ConsumeMetalModal } from '../components/metal/ConsumeMetalModal';
 import { UsageHistoryPanel } from '../components/metal/UsageHistoryPanel';
 import { useToast, useConfirm, useAuth } from '../contexts';
+import { canViewFinancials, FINANCIAL_HIDDEN_HINT } from '../lib/roles';
 import '../styles/pages.css';
 import '../styles/metal-inventory.css';
 
@@ -40,6 +41,11 @@ export const MetalInventoryPage: React.FC = () => {
   const { showConfirm } = useConfirm();
   const { user } = useAuth();
   const isAdmin = user?.role === 'ADMIN';
+  // FINANCIAL_VIEW (SEC-01): every endpoint on this page — purchases,
+  // statistics, usage history, allocate-preview — is financial by nature
+  // and 403s a VIEWER outright, so the fetch is gated on the role, not just
+  // the rendered UI (mirrors CostAlertBanner's canView pattern).
+  const canFinance = canViewFinancials(user?.role);
 
   const [purchases, setPurchases] = useState<MetalPurchaseListItem[]>([]);
   const [filteredPurchases, setFilteredPurchases] = useState<MetalPurchaseListItem[]>([]);
@@ -65,8 +71,12 @@ export const MetalInventoryPage: React.FC = () => {
   const [pageSize, setPageSize] = useState(25);
 
   useEffect(() => {
+    if (!canFinance) {
+      setIsLoading(false);
+      return;
+    }
     fetchPurchases();
-  }, []);
+  }, [canFinance]);
 
   useEffect(() => {
     filterAndSortPurchases();
@@ -217,6 +227,16 @@ export const MetalInventoryPage: React.FC = () => {
     if (total === 0) return 0;
     return ((total - remaining) / total) * 100;
   };
+
+  if (!canFinance) {
+    return (
+      <div className="page-container">
+        <div className="empty-state">
+          <p>{FINANCIAL_HIDDEN_HINT}</p>
+        </div>
+      </div>
+    );
+  }
 
   if (isLoading) {
     return <div className="page-loading">Lade Metallinventar...</div>;

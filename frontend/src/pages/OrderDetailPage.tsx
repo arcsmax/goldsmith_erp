@@ -4,7 +4,8 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { ordersApi, materialsApi } from '../api';
 import apiClient from '../api/client';
 import { OrderType, MaterialType, OrderStatus, OrderPhoto } from '../types';
-import { useOrders, OrderTab, useToast } from '../contexts';
+import { useOrders, OrderTab, useToast, useAuth } from '../contexts';
+import { canViewDesign, canViewFinancials } from '../lib/roles';
 import TimeTrackingTab from '../components/TimeTrackingTab';
 import { CommentsTab } from '../components/CommentsTab';
 import { ScrapGoldTab } from '../components/scrap-gold';
@@ -26,6 +27,14 @@ export const OrderDetailPage: React.FC = () => {
   const navigate = useNavigate();
   const { setActiveOrder, setOrderTab, getOrderTab } = useOrders();
   const { showToast } = useToast();
+  const { user } = useAuth();
+  // DESIGN_VIEW / FINANCIAL_VIEW (SEC-09/GDPR-04, SEC-01): a VIEWER 403s on
+  // order photos and on the Soll/Ist comparison, and the order object
+  // itself arrives with description/special_instructions/price/nested
+  // materials[].unit_price stripped (GDPR-03) — gate the fetch, the tabs,
+  // and the affected fields on the same two checks the backend uses.
+  const canDesign = canViewDesign(user?.role);
+  const canFinance = canViewFinancials(user?.role);
 
   const [order, setOrder] = useState<OrderType | null>(null);
   const [materials, setMaterials] = useState<MaterialType[]>([]);
@@ -62,12 +71,16 @@ export const OrderDetailPage: React.FC = () => {
         setMaterials(orderData.materials);
       }
 
-      // Load order photos (best-effort — don't block page render on failure)
-      try {
-        const photosResponse = await photosApi.getForOrder(id);
-        setOrderPhotos(photosResponse.data ?? []);
-      } catch {
-        // Photo loading failure is non-critical; silently ignore
+      // Load order photos (best-effort — don't block page render on
+      // failure). DESIGN_VIEW: /orders/{id}/photos 403s for a caller
+      // without it, so skip the call entirely rather than triggering it.
+      if (canDesign) {
+        try {
+          const photosResponse = await photosApi.getForOrder(id);
+          setOrderPhotos(photosResponse.data ?? []);
+        } catch {
+          // Photo loading failure is non-critical; silently ignore
+        }
       }
     } catch (err: any) {
       setError(err.response?.data?.detail || 'Fehler beim Laden des Auftrags');
@@ -178,12 +191,14 @@ export const OrderDetailPage: React.FC = () => {
         >
           📋 Details
         </button>
-        <button
-          className={`tab ${activeTab === 'kosten' ? 'active' : ''}`}
-          onClick={() => handleTabChange('kosten')}
-        >
-          💰 Kosten
-        </button>
+        {canFinance && (
+          <button
+            className={`tab ${activeTab === 'kosten' ? 'active' : ''}`}
+            onClick={() => handleTabChange('kosten')}
+          >
+            💰 Kosten
+          </button>
+        )}
         {order.metal_type && (
           <button
             className={`tab ${activeTab === 'metall' ? 'active' : ''}`}
@@ -228,12 +243,14 @@ export const OrderDetailPage: React.FC = () => {
         >
           🥇 Altgold
         </button>
-        <button
-          className={`tab ${activeTab === 'fotos' ? 'active' : ''}`}
-          onClick={() => handleTabChange('fotos')}
-        >
-          Fotos ({orderPhotos.length})
-        </button>
+        {canDesign && (
+          <button
+            className={`tab ${activeTab === 'fotos' ? 'active' : ''}`}
+            onClick={() => handleTabChange('fotos')}
+          >
+            Fotos ({orderPhotos.length})
+          </button>
+        )}
         <button
           className={`tab ${activeTab === 'handoff' ? 'active' : ''}`}
           onClick={() => handleTabChange('handoff')}
@@ -254,7 +271,7 @@ export const OrderDetailPage: React.FC = () => {
             🔧 Arbeitszettel
           </button>
         )}
-        {(order.status === 'completed' || order.status === 'delivered') && (
+        {canFinance && (order.status === 'completed' || order.status === 'delivered') && (
           <button
             className={`tab ${activeTab === 'soll-ist' ? 'active' : ''}`}
             onClick={() => handleTabChange('soll-ist')}
@@ -270,7 +287,7 @@ export const OrderDetailPage: React.FC = () => {
           <DetailsTab order={order} />
         )}
 
-        {activeTab === 'kosten' && (
+        {activeTab === 'kosten' && canFinance && (
           <CostsTab
             order={order}
             onCostChangeUpdated={() => setCostDataVersion((v) => v + 1)}
@@ -305,7 +322,7 @@ export const OrderDetailPage: React.FC = () => {
           <ScrapGoldTab orderId={order.id} customerId={order.customer_id} />
         )}
 
-        {activeTab === 'fotos' && (
+        {activeTab === 'fotos' && canDesign && (
           <OrderPhotosTab photos={orderPhotos} />
         )}
 
@@ -334,7 +351,7 @@ export const OrderDetailPage: React.FC = () => {
           />
         )}
 
-        {activeTab === 'soll-ist' && (
+        {activeTab === 'soll-ist' && canFinance && (
           <SollIstTab orderId={order.id} orderStatus={order.status} />
         )}
       </div>
@@ -344,7 +361,12 @@ export const OrderDetailPage: React.FC = () => {
 
 // Tab Components
 
-const DetailsTab: React.FC<{ order: OrderType }> = ({ order }) => (
+const DetailsTab: React.FC<{ order: OrderType }> = ({ order }) => {
+  const { user } = useAuth();
+  const canDesign = canViewDesign(user?.role);
+  const canFinance = canViewFinancials(user?.role);
+
+  return (
   <div className="tab-panel">
     <h2>Auftragsdetails</h2>
 
@@ -366,14 +388,24 @@ const DetailsTab: React.FC<{ order: OrderType }> = ({ order }) => (
           <label>Titel:</label>
           <span>{order.title}</span>
         </div>
-        <div className="detail-item">
-          <label>Beschreibung:</label>
-          <span>{order.description}</span>
-        </div>
-        <div className="detail-item">
-          <label>Preis:</label>
-          <span>{order.price ? `${order.price.toFixed(2)} €` : 'Nicht festgelegt'}</span>
-        </div>
+        {/* DESIGN_VIEW (GDPR-04): `description` is stripped from the
+            response for a caller without it — omit the row rather than
+            show an empty value next to the label. */}
+        {canDesign && (
+          <div className="detail-item">
+            <label>Beschreibung:</label>
+            <span>{order.description || '—'}</span>
+          </div>
+        )}
+        {/* FINANCIAL_VIEW (SEC-01): `price` is stripped for a caller
+            without it — omit the row rather than misreport it as
+            "Nicht festgelegt" (not set). */}
+        {canFinance && (
+          <div className="detail-item">
+            <label>Preis:</label>
+            <span>{order.price ? `${order.price.toFixed(2)} €` : 'Nicht festgelegt'}</span>
+          </div>
+        )}
         {order.deadline && (
           <div className="detail-item">
             <label>Deadline:</label>
@@ -397,7 +429,8 @@ const DetailsTab: React.FC<{ order: OrderType }> = ({ order }) => (
       </div>
     </div>
   </div>
-);
+  );
+};
 
 const CostsTab: React.FC<{ order: OrderType; onCostChangeUpdated: () => void }> = ({
   order,
@@ -419,36 +452,45 @@ const MetalTab: React.FC<{ order: OrderType }> = ({ order }) => (
 
 const MaterialsTab: React.FC<{ materials: MaterialType[]; orderId: number }> = ({
   materials,
-  orderId,
-}) => (
-  <div className="tab-panel">
-    <h2>Verwendete Materialien</h2>
-    {materials.length === 0 ? (
-      <p className="empty-message">Keine Materialien zugeordnet.</p>
-    ) : (
-      <table className="materials-table">
-        <thead>
-          <tr>
-            <th>Material</th>
-            <th>Beschreibung</th>
-            <th>Preis/Einheit</th>
-            <th>Einheit</th>
-          </tr>
-        </thead>
-        <tbody>
-          {materials.map((material) => (
-            <tr key={material.id}>
-              <td>{material.name}</td>
-              <td>{material.description || '-'}</td>
-              <td>{material.unit_price.toFixed(2)} €</td>
-              <td>{material.unit}</td>
+}) => {
+  const { user } = useAuth();
+  // FINANCIAL_VIEW (GDPR-03): the backend strips `unit_price` from every
+  // item in `order.materials[]` for a caller without it — the column is
+  // omitted rather than crashing on `undefined.toFixed(...)`.
+  const canFinance = canViewFinancials(user?.role);
+
+  return (
+    <div className="tab-panel">
+      <h2>Verwendete Materialien</h2>
+      {materials.length === 0 ? (
+        <p className="empty-message">Keine Materialien zugeordnet.</p>
+      ) : (
+        <table className="materials-table">
+          <thead>
+            <tr>
+              <th>Material</th>
+              <th>Beschreibung</th>
+              {canFinance && <th>Preis/Einheit</th>}
+              <th>Einheit</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
-    )}
-  </div>
-);
+          </thead>
+          <tbody>
+            {materials.map((material) => (
+              <tr key={material.id}>
+                <td>{material.name}</td>
+                <td>{material.description || '-'}</td>
+                {canFinance && (
+                  <td>{material.unit_price != null ? `${material.unit_price.toFixed(2)} €` : '—'}</td>
+                )}
+                <td>{material.unit}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
+};
 
 const StatusTab: React.FC<{
   order: OrderType;
