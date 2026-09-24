@@ -5,6 +5,11 @@ Repair tracking endpoints (Reparaturverwaltung).
 All endpoints require authentication.  Write operations (create, status changes)
 require REPAIR_CREATE or REPAIR_EDIT permission.  The list/detail endpoints
 require REPAIR_VIEW which is granted to all roles including VIEWER.
+
+SEC-01 / GDPR-03: list/detail strip ``estimated_cost``, ``actual_cost`` and
+``estimated_value`` (insurance value) for callers without FINANCIAL_VIEW.
+SEC-09 / GDPR-04: repair photos (list, file, thumbnail, and the ``photos``
+array on the detail view) require DESIGN_VIEW.
 """
 
 import logging
@@ -17,6 +22,11 @@ from fastapi.responses import FileResponse, HTMLResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from goldsmith_erp.api.deps import get_current_user
+from goldsmith_erp.api.role_projection import (
+    ExcludeSpec,
+    build_excludes,
+    project_response,
+)
 from goldsmith_erp.core.config import settings
 from goldsmith_erp.core.permissions import Permission, require_permission
 from goldsmith_erp.db.models import RepairJobStatus, RepairPhotoPhase, User
@@ -41,6 +51,19 @@ from goldsmith_erp.services.repair_service import (
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+# Fields removed from repair reads for callers without FINANCIAL_VIEW.
+_REPAIR_FINANCIAL_FIELDS: frozenset[str] = frozenset(
+    {"estimated_cost", "actual_cost", "estimated_value"}
+)
+# Fields removed for callers without DESIGN_VIEW (photos of the piece).
+_REPAIR_DESIGN_FIELDS: frozenset[str] = frozenset({"photos"})
+
+
+def _repair_excludes(user: User) -> ExcludeSpec:
+    return build_excludes(
+        user, financial=_REPAIR_FINANCIAL_FIELDS, design=_REPAIR_DESIGN_FIELDS
+    )
 
 
 def _media_type_from_ext(suffix: str) -> str:
@@ -76,8 +99,9 @@ async def list_repairs(
     Liste aller Reparaturauftraege mit optionalen Filtern.
 
     Gibt kompakte ListItem-Objekte zurueck (ohne Fotos und lange Felder).
+    Ohne FINANCIAL_VIEW (VIEWER) entfaellt ``estimated_cost``.
     """
-    return await RepairService.list_repairs(
+    repairs = await RepairService.list_repairs(
         db,
         skip=skip,
         limit=limit,
@@ -85,6 +109,7 @@ async def list_repairs(
         customer_id=customer_id,
         search=search,
     )
+    return project_response(RepairJobListItem, repairs, _repair_excludes(current_user))
 
 
 @router.get("/{repair_id}", response_model=RepairJobRead)
@@ -94,14 +119,18 @@ async def get_repair(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Reparaturauftrag Detailansicht mit Fotos."""
+    """Reparaturauftrag Detailansicht mit Fotos.
+
+    Ohne FINANCIAL_VIEW entfallen Kosten und Versicherungswert, ohne
+    DESIGN_VIEW die Fotos (SEC-01, SEC-09).
+    """
     repair = await RepairService.get_repair(db, repair_id)
     if repair is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Reparaturauftrag #{repair_id} nicht gefunden",
         )
-    return repair
+    return project_response(RepairJobRead, repair, _repair_excludes(current_user))
 
 
 @router.get("/{repair_id}/label", response_class=HTMLResponse)
@@ -454,7 +483,7 @@ async def upload_repair_photo(
 
 
 @router.get("/{repair_id}/photos", response_model=List[RepairPhotoRead])
-@require_permission(Permission.REPAIR_VIEW)
+@require_permission(Permission.DESIGN_VIEW)
 async def list_photos(
     repair_id: int,
     db: AsyncSession = Depends(get_db),
@@ -471,7 +500,7 @@ async def list_photos(
 
 
 @router.get("/photos/{photo_id}")
-@require_permission(Permission.REPAIR_VIEW)
+@require_permission(Permission.DESIGN_VIEW)
 async def get_repair_photo_file(
     photo_id: int,
     db: AsyncSession = Depends(get_db),
@@ -480,7 +509,7 @@ async def get_repair_photo_file(
     """
     Original-Foto herunterladen.
 
-    Requires REPAIR_VIEW permission.
+    Requires DESIGN_VIEW permission (GOLDSMITH/ADMIN; SEC-09, GDPR-04).
     """
     try:
         path = await RepairPhotoService.get_photo_path(db, photo_id)
@@ -505,7 +534,7 @@ async def get_repair_photo_file(
 
 
 @router.get("/photos/{photo_id}/thumbnail")
-@require_permission(Permission.REPAIR_VIEW)
+@require_permission(Permission.DESIGN_VIEW)
 async def get_repair_photo_thumbnail(
     photo_id: int,
     db: AsyncSession = Depends(get_db),
@@ -515,7 +544,7 @@ async def get_repair_photo_thumbnail(
     Miniaturansicht herunterladen. Faellt auf das Original zurueck, falls keine
     Miniaturansicht existiert (z. B. bei fehlgeschlagener Thumbnail-Erzeugung).
 
-    Requires REPAIR_VIEW permission.
+    Requires DESIGN_VIEW permission (GOLDSMITH/ADMIN; SEC-09, GDPR-04).
     """
     try:
         thumb_path = await RepairPhotoService.get_photo_path(

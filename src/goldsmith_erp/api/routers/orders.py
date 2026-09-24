@@ -8,9 +8,14 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from goldsmith_erp.api.deps import get_current_user
+from goldsmith_erp.api.role_projection import (
+    ExcludeSpec,
+    build_excludes,
+    can_view_financial,
+)
 from goldsmith_erp.core.config import settings
 from goldsmith_erp.core.permissions import Permission, require_permission
-from goldsmith_erp.db.models import User, UserRole
+from goldsmith_erp.db.models import User
 from goldsmith_erp.db.session import get_db
 from goldsmith_erp.models.order import (
     LocationChangeRequest,
@@ -54,29 +59,44 @@ _FINANCIAL_FIELDS: frozenset[str] = frozenset(
 )
 
 
-def _financial_excludes_for_user(user: User) -> set[str]:
-    """Return the set of Order fields to strip for the caller's role.
+# SEC-09 / GDPR-04: design IP. CLAUDE.md: "Design descriptions in orders are
+# business-confidential" and design data is GOLDSMITH/ADMIN only.
+_DESIGN_FIELDS: frozenset[str] = frozenset({"description", "special_instructions"})
 
-    ADMIN and GOLDSMITH see the unredacted response (empty exclude set).
-    Every other role — including VIEWER and any future read-only role — sees
-    the order WITHOUT the seven financial fields.
+# GDPR-03: ``OrderRead.materials[]`` carries each material's ``unit_price``,
+# which bypassed the seven top-level fields above.
+_NESTED_FINANCIAL_FIELDS: dict[str, frozenset[str]] = {
+    "materials": frozenset({"unit_price"}),
+}
+
+
+def _order_excludes_for_user(user: User) -> ExcludeSpec:
+    """Return the pydantic exclude spec for the caller.
+
+    FINANCIAL_VIEW holders (ADMIN, GOLDSMITH) keep the seven financial fields
+    and nested material prices; DESIGN_VIEW holders (ADMIN, GOLDSMITH) keep
+    ``description`` / ``special_instructions``. Everyone else (VIEWER and any
+    future read-only role) gets them stripped. ADMIN/GOLDSMITH therefore see
+    the unredacted response exactly as before (empty spec).
     """
-    if user.role in (UserRole.ADMIN, UserRole.GOLDSMITH):
-        return set()
-    return set(_FINANCIAL_FIELDS)
+    return build_excludes(
+        user,
+        financial=_FINANCIAL_FIELDS,
+        design=_DESIGN_FIELDS,
+        nested_financial=_NESTED_FINANCIAL_FIELDS,
+    )
 
 
 def _project_order_for_user(order, user: User) -> JSONResponse:
     """Serialize a single ORM Order into a role-aware JSON response."""
-    data = OrderRead.model_validate(order).model_dump(
-        exclude=_financial_excludes_for_user(user),
-    )
+    excludes = _order_excludes_for_user(user)
+    data = OrderRead.model_validate(order).model_dump(exclude=excludes or None)
     return JSONResponse(content=jsonable_encoder(data))
 
 
 def _project_orders_for_user(orders, user: User) -> JSONResponse:
     """Serialize a list of ORM Orders into a role-aware JSON response."""
-    excludes = _financial_excludes_for_user(user)
+    excludes = _order_excludes_for_user(user) or None
     data = [OrderRead.model_validate(o).model_dump(exclude=excludes) for o in orders]
     return JSONResponse(content=jsonable_encoder(data))
 
@@ -116,7 +136,7 @@ async def list_orders(
     # financial roles. VIEWERs get them stripped (C5), so their read exposes no
     # financial data and needs no row. Safe to commit mid-handler: get_db's
     # session factory uses expire_on_commit=False (see scrap_gold precedent).
-    if not _financial_excludes_for_user(current_user):
+    if can_view_financial(current_user):
         await write_financial_audit_row(
             db,
             action="list_accessed_financial",
@@ -209,7 +229,7 @@ async def get_order(
     # Finding 2.2: audit the financial-field-bearing read (see list_orders for
     # the full rationale). Only ADMIN/GOLDSMITH receive the seven financial
     # fields; VIEWER reads are stripped (C5) and need no financial_read row.
-    if not _financial_excludes_for_user(current_user):
+    if can_view_financial(current_user):
         await write_financial_audit_row(
             db,
             action="financial_read",

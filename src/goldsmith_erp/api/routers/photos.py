@@ -111,7 +111,7 @@ async def upload_photo(
     "/orders/{order_id}/photos",
     response_model=List[OrderPhotoRead],
 )
-@require_permission(Permission.ORDER_VIEW)
+@require_permission(Permission.DESIGN_VIEW)
 async def list_photos(
     order_id: int,
     db: AsyncSession = Depends(get_db),
@@ -124,7 +124,7 @@ async def list_photos(
     upload time (oldest first). Use the file/thumbnail endpoints to
     retrieve the actual image data.
 
-    Requires ORDER_VIEW permission.
+    Requires DESIGN_VIEW permission (GOLDSMITH/ADMIN; SEC-09, GDPR-04).
     """
     photos = await PhotoService.get_photos(db, order_id)
     return photos
@@ -134,7 +134,7 @@ async def list_photos(
 
 
 @router.get("/photos/{photo_id}/file")
-@require_permission(Permission.ORDER_VIEW)
+@require_permission(Permission.DESIGN_VIEW)
 async def get_photo_file(
     photo_id: str,
     db: AsyncSession = Depends(get_db),
@@ -146,7 +146,7 @@ async def get_photo_file(
     Returns the full-resolution image via FileResponse.
     Content-Type is inferred from the file extension.
 
-    Requires ORDER_VIEW permission.
+    Requires DESIGN_VIEW permission (GOLDSMITH/ADMIN; SEC-09, GDPR-04).
     """
     photo = await PhotoService.get_photo(db, photo_id)
     if not photo:
@@ -177,7 +177,7 @@ async def get_photo_file(
 
 
 @router.get("/photos/{photo_id}/thumbnail")
-@require_permission(Permission.ORDER_VIEW)
+@require_permission(Permission.DESIGN_VIEW)
 async def get_photo_thumbnail(
     photo_id: str,
     db: AsyncSession = Depends(get_db),
@@ -190,7 +190,7 @@ async def get_photo_thumbnail(
     Falls back to the original file if no thumbnail exists (e.g. for
     photos uploaded before thumbnail support was added).
 
-    Requires ORDER_VIEW permission.
+    Requires DESIGN_VIEW permission (GOLDSMITH/ADMIN; SEC-09, GDPR-04).
     """
     photo = await PhotoService.get_photo(db, photo_id)
     if not photo:

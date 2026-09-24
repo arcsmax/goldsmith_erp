@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from goldsmith_erp.api.deps import get_db
+from goldsmith_erp.api.role_projection import can_view_financial, ensure_financial_view
 from goldsmith_erp.core.config import settings
 from goldsmith_erp.core.idempotency import IdempotencyContext, get_idempotency_context
 from goldsmith_erp.core.permissions import Permission
@@ -119,17 +120,30 @@ async def get_top_customers(
     - orders: Customers with most orders
     - recent: Customers with most recent orders
 
-    Permissions: Requires CUSTOMER_VIEW permission.
+    Permissions: Requires CUSTOMER_VIEW permission. ``by=revenue`` is a
+    revenue ranking (financial data) and additionally requires
+    FINANCIAL_VIEW (ADMIN, GOLDSMITH; SEC-01, GDPR-03).
     """
     if by not in ["revenue", "orders", "recent"]:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid 'by' parameter. Must be: revenue, orders, or recent",
         )
+    if by == "revenue":
+        ensure_financial_view(current_user)
 
     try:
         top_customers = await CustomerService.get_top_customers(db, limit=limit, by=by)
-        return top_customers
+        # The service returns ORM Customer objects, which the ``List[dict]``
+        # response model cannot serialise (every call used to 500). Project
+        # each through the lightweight list schema.
+        return [
+            {
+                **row,
+                "customer": CustomerListItem.model_validate(row["customer"]),
+            }
+            for row in top_customers
+        ]
 
     except Exception as e:
         logger.error("Error getting top customers", exc_info=True)
@@ -168,7 +182,8 @@ async def get_customer_statistics(
     """
     Get customer statistics (order count, total spent, last order).
 
-    Permissions: Requires CUSTOMER_VIEW permission.
+    Permissions: Requires CUSTOMER_VIEW permission. ``total_spent`` (customer
+    revenue) is only returned to FINANCIAL_VIEW holders (SEC-01, GDPR-03).
     """
     # Verify customer exists
     customer = await CustomerService.get_customer(db, customer_id)
@@ -180,6 +195,8 @@ async def get_customer_statistics(
 
     try:
         stats = await CustomerService.get_customer_stats(db, customer_id)
+        if not can_view_financial(current_user):
+            return {k: v for k, v in stats.items() if k != "total_spent"}
         return stats
 
     except Exception as e:
