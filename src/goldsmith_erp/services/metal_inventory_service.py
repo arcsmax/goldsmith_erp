@@ -8,6 +8,7 @@ Supports multiple costing methods: FIFO, LIFO, Weighted Average, and Specific Id
 import json
 import logging
 from datetime import datetime
+from decimal import Decimal
 from typing import List, Literal, Optional, Tuple
 
 from fastapi import HTTPException
@@ -338,24 +339,59 @@ class MetalInventoryService:
                 f"{required_weight_g:.2f}g required"
             )
 
-        # Weighted Average Cost calculation
+        # Weighted Average Cost calculation (BE-08).
+        #
+        # The average PRICE is the weighted average across every available
+        # batch, but the physical draw must actually come from real batches
+        # — it cannot all be pulled from available_purchases[0] once that
+        # batch is smaller than the requested weight (that used to trip the
+        # "concurrent consume" re-check in consume_material() for a case
+        # that has nothing to do with concurrency). So: draw FIFO
+        # (oldest-first, same order_by as above) across as many batches as
+        # needed, pricing every gram at the weighted average.
+        #
+        # Decimal is used for the money-sensitive weighted-average price so
+        # repeated multi-batch draws don't accumulate float rounding drift
+        # (house convention — see invoice_service.py / scrap_gold_service.py).
         if costing_method == CostingMethod.AVERAGE:
             total_value = sum(
-                p.remaining_weight_g * p.price_per_gram for p in available_purchases
+                (
+                    Decimal(str(p.remaining_weight_g)) * Decimal(str(p.price_per_gram))
+                    for p in available_purchases
+                ),
+                Decimal("0"),
             )
-            avg_price_per_gram = total_value / total_available
+            total_available_decimal = Decimal(str(total_available))
+            avg_price_decimal = total_value / total_available_decimal
+            avg_price_per_gram = float(avg_price_decimal)
 
-            # Allocate from first batch (for simplicity), but use average price
-            allocations = [
-                MetalAllocation(
-                    metal_purchase_id=available_purchases[0].id,
-                    metal_type=metal_type,
-                    weight_allocated_g=required_weight_g,
-                    price_per_gram=avg_price_per_gram,
-                    cost=required_weight_g * avg_price_per_gram,
-                    date_purchased=available_purchases[0].date_purchased,
+            allocations = []
+            remaining_need = Decimal(str(required_weight_g))
+
+            for purchase in available_purchases:
+                if remaining_need <= 0:
+                    break
+
+                batch_remaining = Decimal(str(purchase.remaining_weight_g))
+                allocated_from_batch = min(batch_remaining, remaining_need)
+
+                allocations.append(
+                    MetalAllocation(
+                        metal_purchase_id=purchase.id,
+                        metal_type=metal_type,
+                        weight_allocated_g=float(allocated_from_batch),
+                        price_per_gram=avg_price_per_gram,
+                        cost=float(allocated_from_batch * avg_price_decimal),
+                        date_purchased=purchase.date_purchased,
+                    )
                 )
-            ]
+
+                remaining_need -= allocated_from_batch
+
+            if remaining_need > Decimal("0.01"):  # Floating point tolerance
+                raise ValueError(
+                    "Failed to allocate sufficient material (internal error)"
+                )
 
             return OrderMaterialAllocation(
                 order_id=0,
@@ -559,10 +595,34 @@ class MetalInventoryService:
             await db.flush()
             await db.refresh(usage)
 
-            # 5. Update Order.material_cost_calculated
+            # 5. Update Order.material_cost_calculated / actual_weight_g.
+            #
+            # BE-07: these MUST accumulate across every consumption for the
+            # order, not just reflect the latest call (a second consume —
+            # e.g. a later repair/sizing top-up — used to silently discard
+            # the first one's cost and weight). MaterialUsage rows are never
+            # overwritten or deleted, so SUM(cost_at_time)/SUM(weight_used_g)
+            # over all usage rows for this order is the authoritative total
+            # — recomputed from source rather than incremented in place, so
+            # it can't drift even if this method is ever called more than
+            # once for the same logical consumption. Decimal is used for the
+            # summation to avoid float drift across many small draws over an
+            # order's lifetime (house convention for money — see
+            # invoice_service.py / scrap_gold_service.py).
             if order:
-                order.material_cost_calculated = allocation.total_cost
-                order.actual_weight_g = usage_data.weight_used_g
+                usage_totals = await db.execute(
+                    select(
+                        MaterialUsage.cost_at_time, MaterialUsage.weight_used_g
+                    ).where(MaterialUsage.order_id == usage_data.order_id)
+                )
+                total_cost = Decimal("0")
+                total_weight = Decimal("0")
+                for cost_at_time, weight_used_g in usage_totals.all():
+                    total_cost += Decimal(str(cost_at_time))
+                    total_weight += Decimal(str(weight_used_g))
+
+                order.material_cost_calculated = float(total_cost)
+                order.actual_weight_g = float(total_weight)
 
         if alloy_override:
             logger.info(
