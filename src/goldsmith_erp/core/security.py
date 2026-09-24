@@ -29,6 +29,16 @@ def get_password_hash(password: str) -> str:
     return pwd_context.hash(password)
 
 
+# SEC-17: login previously short-circuited before any bcrypt call when the
+# submitted e-mail matched no user, so a known account's ~250ms bcrypt cost
+# made it distinguishable from an unknown one by response timing alone (an
+# account-enumeration side channel). The login handler runs `verify_password`
+# against this fixed, never-matching hash for the unknown-user branch so both
+# cases pay the same bcrypt cost. Generated once per process from random
+# bytes — not a real password, never stored or used to authenticate anyone.
+DUMMY_PASSWORD_HASH = get_password_hash(uuid.uuid4().hex)
+
+
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
     """Generiert ein JWT-Token mit optionaler Ablaufzeit.
 
