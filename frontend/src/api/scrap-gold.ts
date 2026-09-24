@@ -7,7 +7,13 @@ export interface ScrapGoldItem {
   id: number;
   scrap_gold_id: number;
   description: string;
-  alloy: number;
+  /**
+   * Canonical alloy/fineness code, e.g. "585", "750", "ag925", "pt950" —
+   * matches the backend's ``AlloyType`` enum values exactly (a string; the
+   * old ``number`` type here caused every add-item request to 422, since
+   * the backend has never accepted a numeric alloy — see DOM-19).
+   */
+  alloy: string;
   weight_g: number;
   fine_content_g: number;
   photo_path: string | null;
@@ -39,15 +45,16 @@ export interface ScrapGoldCreateInput {
 
 export interface ScrapGoldItemCreateInput {
   description: string;
-  alloy: number;
+  /** Canonical alloy/fineness code — see ScrapGoldItem.alloy. */
+  alloy: string;
   weight_g: number;
 }
 
 export interface AlloyCalculation {
-  alloy: number;
+  alloy: string;
   weight_g: number;
   fine_content_g: number;
-  fine_percentage: number;
+  fine_content_percent: number;
 }
 
 export interface ScrapGoldSignInput {
@@ -125,7 +132,7 @@ export const scrapGoldApi = {
   /**
    * Calculate fine content for an alloy and weight (server-side)
    */
-  calculateAlloy: async (alloy: number, weightG: number): Promise<AlloyCalculation> => {
+  calculateAlloy: async (alloy: string, weightG: number): Promise<AlloyCalculation> => {
     const response = await apiClient.get<AlloyCalculation>(
       '/scrap-gold/alloy-calculator',
       { params: { alloy, weight_g: weightG } }

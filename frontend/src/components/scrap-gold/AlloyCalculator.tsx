@@ -3,20 +3,39 @@ import React, { useState, useMemo } from 'react';
 import { useMetalTypes } from '../../hooks/useMetalTypes';
 
 export interface AlloyOption {
+  /** Permille fineness, used for the <select> value and the %-preview math. */
   value: number;
+  /**
+   * Canonical alloy code sent to the backend — matches
+   * ``goldsmith_erp.db.models.AlloyType`` exactly (e.g. "585", "ag925",
+   * "pt950"). Gold codes are the bare permille number; silver and
+   * platinum are prefixed ("ag"/"pt") because the backend enum
+   * disambiguates them that way (DOM-19: the old UI sent the bare
+   * permille number for every metal, which is wrong for silver/platinum
+   * and — being a number, not a string — was rejected outright for all
+   * three).
+   */
+  code: string;
   label: string;
   metalType: 'gold' | 'silver' | 'platinum';
 }
 
+/** Derive the canonical backend AlloyType code from a permille value and metal family. */
+function alloyCodeForMetal(value: number, metalType: AlloyOption['metalType']): string {
+  if (metalType === 'silver') return `ag${value}`;
+  if (metalType === 'platinum') return `pt${value}`;
+  return String(value);
+}
+
 export const ALLOY_OPTIONS: AlloyOption[] = [
-  { value: 999, label: '999 / 24K Feingold', metalType: 'gold' },
-  { value: 750, label: '750 / 18K', metalType: 'gold' },
-  { value: 585, label: '585 / 14K', metalType: 'gold' },
-  { value: 375, label: '375 / 9K', metalType: 'gold' },
-  { value: 333, label: '333 / 8K', metalType: 'gold' },
-  { value: 925, label: 'Silber 925', metalType: 'silver' },
-  { value: 800, label: 'Silber 800', metalType: 'silver' },
-  { value: 950, label: 'Platin 950', metalType: 'platinum' },
+  { value: 999, code: alloyCodeForMetal(999, 'gold'), label: '999 / 24K Feingold', metalType: 'gold' },
+  { value: 750, code: alloyCodeForMetal(750, 'gold'), label: '750 / 18K', metalType: 'gold' },
+  { value: 585, code: alloyCodeForMetal(585, 'gold'), label: '585 / 14K', metalType: 'gold' },
+  { value: 375, code: alloyCodeForMetal(375, 'gold'), label: '375 / 9K', metalType: 'gold' },
+  { value: 333, code: alloyCodeForMetal(333, 'gold'), label: '333 / 8K', metalType: 'gold' },
+  { value: 925, code: alloyCodeForMetal(925, 'silver'), label: 'Silber 925', metalType: 'silver' },
+  { value: 800, code: alloyCodeForMetal(800, 'silver'), label: 'Silber 800', metalType: 'silver' },
+  { value: 950, code: alloyCodeForMetal(950, 'platinum'), label: 'Platin 950', metalType: 'platinum' },
 ];
 
 interface AlloyCalculatorProps {
@@ -46,7 +65,12 @@ export const AlloyCalculator: React.FC<AlloyCalculatorProps> = ({
         base === 'silver' ? 'silver' : base === 'platinum' || base === 'palladium' ? 'platinum' : 'gold';
       for (const t of types) {
         const permille = Math.round(t.fine_content_ratio * 1000);
-        result.push({ value: permille, label: t.display_name, metalType });
+        result.push({
+          value: permille,
+          code: alloyCodeForMetal(permille, metalType),
+          label: t.display_name,
+          metalType,
+        });
       }
     }
     // Deduplicate by value — keep first occurrence (built-ins take priority)
@@ -84,8 +108,12 @@ export const AlloyCalculator: React.FC<AlloyCalculatorProps> = ({
     const weight = parseFloat(weightG);
     if (isNaN(weight) || weight <= 0) return;
     if (!description.trim()) return;
+    // selectedOption carries the canonical backend alloy code (DOM-19) — if
+    // somehow unresolved (should not happen; every <select> value comes from
+    // dynamicOptions/ALLOY_OPTIONS), fail loudly rather than send a bad value.
+    if (!selectedOption) return;
 
-    onAddItem(description.trim(), String(selectedAlloy), weight);
+    onAddItem(description.trim(), selectedOption.code, weight);
 
     // Reset form
     setDescription('');
