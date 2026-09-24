@@ -1,0 +1,101 @@
+/* Status tones: phase 1 stopgap (UI-UX-PLAYBOOK section 3.2 and 9; DES-03).
+ *
+ * Loaded globally from index.css so a status badge looks the same on every
+ * page, whatever feature stylesheets happen to be loaded (design-investigation
+ * B.5). Keeps the existing class names, so no component changes:
+ *   orders:  .status-badge.status-<OrderStatus>   (OrdersPage, OrderDetailPage,
+ *            CustomerDetailPage, DashboardPage)
+ *   repairs: .status-badge.<RepairJobStatus>      (RepairsPage, RepairDetailPage)
+ *
+ * The `:root` prefix lifts specificity to (0,3,0) so these rules win over the
+ * older per-page colour rules (dashboard.css) regardless of load order.
+ * Colour is never the only cue: draft is dashed, handed-over states use a
+ * double border, cancelled is struck through, and every badge carries its
+ * German label. Phase 2 replaces all of this with <StatusBadge> + status.ts.
+ */
+
+/* Base shape, for pages that load no feature stylesheet defining .status-badge
+ * (e.g. a deep link to the order detail page). Feature stylesheets loaded later
+ * override the shape with equal specificity. */
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-sm);
+  font-size: var(--type-sm);
+  font-weight: 600;
+  line-height: var(--line-height-heading);
+  white-space: nowrap;
+  border: 1px solid transparent;
+}
+
+/* ---- Tone mapping ------------------------------------------------------- */
+
+/* neutral */
+:root .status-badge.status-draft {
+  color: var(--tone-neutral-fg);
+  background: var(--tone-neutral-bg);
+  border: 1px dashed var(--tone-neutral-border);
+}
+
+/* info */
+:root .status-badge.status-new,
+:root .status-badge.status-confirmed,
+:root .status-badge.received,
+:root .status-badge.approved {
+  color: var(--tone-info-fg);
+  background: var(--tone-info-bg);
+  border: 1px solid var(--tone-info-border);
+}
+
+/* progress */
+:root .status-badge.status-in_progress,
+:root .status-badge.status-fitting_done,
+:root .status-badge.status-ready_for_setting,
+:root .status-badge.diagnosed,
+:root .status-badge.in_repair {
+  color: var(--tone-progress-fg);
+  background: var(--tone-progress-bg);
+  border: 1px solid var(--tone-progress-border);
+}
+
+/* waiting */
+:root .status-badge.status-waiting_for_fitting,
+:root .status-badge.quoted {
+  color: var(--tone-waiting-fg);
+  background: var(--tone-waiting-bg);
+  border: 1px solid var(--tone-waiting-border);
+}
+
+/* check */
+:root .status-badge.status-quality_check,
+:root .status-badge.quality_check {
+  color: var(--tone-check-fg);
+  background: var(--tone-check-bg);
+  border: 1px solid var(--tone-check-border);
+}
+
+/* done */
+:root .status-badge.status-completed,
+:root .status-badge.ready {
+  color: var(--tone-done-fg);
+  background: var(--tone-done-bg);
+  border: 1px solid var(--tone-done-border);
+}
+
+/* handover: double border marks "finished and with the customer" */
+:root .status-badge.status-delivered,
+:root .status-badge.picked_up {
+  color: var(--tone-handover-fg);
+  background: var(--tone-handover-bg);
+  border: 3px double var(--tone-handover-border);
+}
+
+/* danger: struck-through label */
+:root .status-badge.cancelled {
+  color: var(--tone-danger-fg);
+  background: var(--tone-danger-bg);
+  border: 1px solid var(--tone-danger-border);
+  text-decoration: line-through;
+}

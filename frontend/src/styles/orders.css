@@ -141,25 +141,8 @@
   display: inline-block;
 }
 
-.status-badge.status-new {
-  background: #dbeafe;
-  color: #1e40af;
-}
-
-.status-badge.status-in_progress {
-  background: #fef3c7;
-  color: #92400e;
-}
-
-.status-badge.status-completed {
-  background: #d1fae5;
-  color: #065f46;
-}
-
-.status-badge.status-delivered {
-  background: #e5e7eb;
-  color: #374151;
-}
+/* Per-status colours live in styles/status-tones.css (global, --tone-* tokens,
+ * all order and repair statuses; W4-01 / DES-03). */
 
 /* ==================== ORDERS TABLE ==================== */
 

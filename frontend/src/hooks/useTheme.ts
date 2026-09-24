@@ -25,11 +25,13 @@ export interface ThemeSettings {
   logo_url: string | null;
 }
 
+// Defaults match the AA tokens in styles/brand-tokens.css (W4-01): white text
+// on #b45309 is 5.02:1, on the old #d97706 only 3.19:1.
 const DEFAULTS: ThemeSettings = {
-  primary_color: '#d97706',
+  primary_color: '#b45309',
   primary_dark: '#92400e',
-  header_gradient_start: '#d97706',
-  header_gradient_end: '#92400e',
+  header_gradient_start: '#b45309',
+  header_gradient_end: '#78350f',
   accent_color: '#f59e0b',
   page_background: '#faf8f4',
   workshop_name: 'Goldschmiede Werkstatt',
@@ -45,18 +47,65 @@ const THEME_ENDPOINT = '/api/v1/theme';
  * Apply a ThemeSettings object to document.documentElement CSS variables.
  * Safe to call with a partial object — missing keys fall back to defaults.
  */
+/** WCAG AA minimum for normal-size text (white labels on buttons and header). */
+const MIN_TEXT_CONTRAST = 4.5;
+const HEX6 = /^#[0-9a-fA-F]{6}$/;
+
+function relativeLuminance(hex: string): number {
+  const channel = (offset: number): number => {
+    const c = parseInt(hex.slice(offset, offset + 2), 16) / 255;
+    return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+  };
+  return 0.2126 * channel(1) + 0.7152 * channel(3) + 0.0722 * channel(5);
+}
+
+/**
+ * Contrast ratio of white text on `hex` (WCAG 2.x, playbook Appendix B).
+ * Returns null when `hex` is not a #rrggbb colour and so cannot be checked.
+ */
+export function contrastWithWhite(hex: string): number | null {
+  if (!HEX6.test(hex)) return null;
+  return 1.05 / (relativeLuminance(hex) + 0.05);
+}
+
+function carriesWhiteText(hex: string): boolean {
+  const ratio = contrastWithWhite(hex);
+  return ratio !== null && ratio >= MIN_TEXT_CONTRAST;
+}
+
+/**
+ * Set a colour that carries white text only if it passes AA; otherwise drop
+ * any inline override so the AA token from brand-tokens.css applies (DES-27).
+ */
+function setTextBearingColour(prop: string, hex: string): boolean {
+  const root = document.documentElement;
+  if (carriesWhiteText(hex)) {
+    root.style.setProperty(prop, hex);
+    return true;
+  }
+  root.style.removeProperty(prop);
+  console.warn(
+    `[theme] ${prop} ${hex} fails WCAG AA with white text (needs ${MIN_TEXT_CONTRAST}:1); using the default token.`,
+  );
+  return false;
+}
+
 export function applyTheme(partial: Partial<ThemeSettings>): void {
   const t: ThemeSettings = { ...DEFAULTS, ...partial };
   const root = document.documentElement;
 
-  root.style.setProperty('--color-interactive-primary', t.primary_color);
-  root.style.setProperty('--color-interactive-primary-hover', t.primary_dark);
-  root.style.setProperty('--color-surface-header-start', t.header_gradient_start);
-  root.style.setProperty('--color-surface-header-end', t.header_gradient_end);
-  root.style.setProperty(
-    '--color-surface-header-gradient',
-    `linear-gradient(135deg, ${t.header_gradient_start}, ${t.header_gradient_end})`
-  );
+  setTextBearingColour('--color-interactive-primary', t.primary_color);
+  setTextBearingColour('--color-interactive-primary-hover', t.primary_dark);
+  const startOk = setTextBearingColour('--color-surface-header-start', t.header_gradient_start);
+  const endOk = setTextBearingColour('--color-surface-header-end', t.header_gradient_end);
+  if (startOk && endOk) {
+    root.style.setProperty(
+      '--color-surface-header-gradient',
+      `linear-gradient(135deg, ${t.header_gradient_start}, ${t.header_gradient_end})`
+    );
+  } else {
+    root.style.removeProperty('--color-surface-header-gradient');
+  }
   root.style.setProperty('--color-brand-cta-500', t.accent_color);
   root.style.setProperty('--color-surface-page', t.page_background);
 
