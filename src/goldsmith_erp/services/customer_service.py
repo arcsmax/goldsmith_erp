@@ -49,6 +49,7 @@ from goldsmith_erp.db.models import (
 )
 from goldsmith_erp.db.transaction import transactional
 from goldsmith_erp.models.customer import CustomerCreate, CustomerUpdate
+from goldsmith_erp.services.consent_service import ConsentService
 
 logger = logging.getLogger(__name__)
 
@@ -196,14 +197,6 @@ SCRUBBABLE_FIELDS: List[ScrubTarget] = [
         "customer_id",
         "valuation_certificates.gemstones_description",
     ),
-    ScrubTarget(Quote, "notes", "customer_id", "quotes.notes"),
-    ScrubTarget(
-        Quote,
-        "customer_signature_data",
-        "customer_id",
-        "quotes.customer_signature_data",
-        binary=True,
-    ),
     # ── Final-sweep (2026-04-17) — definitive coverage ─────────────────
     ScrubTarget(OrderModel, "title", "customer_id", "orders.title"),
     ScrubTarget(
@@ -221,33 +214,6 @@ SCRUBBABLE_FIELDS: List[ScrubTarget] = [
     ),
     ScrubTarget(OrderHallmark, "notes", "order_id", "order_hallmarks.notes"),
     ScrubTarget(OrderItem, "description", "order_id", "order_items.description"),
-    ScrubTarget(Invoice, "notes", "customer_id", "invoices.notes"),
-    ScrubTarget(
-        InvoiceLineItem,
-        "description",
-        "invoice_id",
-        "invoice_line_items.description",
-    ),
-    ScrubTarget(
-        QuoteLineItem,
-        "description",
-        "quote_id",
-        "quote_line_items.description",
-    ),
-    ScrubTarget(ScrapGold, "notes", "customer_id", "scrap_gold.notes"),
-    ScrubTarget(
-        ScrapGold,
-        "signature_data",
-        "customer_id",
-        "scrap_gold.signature_data",
-        binary=True,
-    ),
-    ScrubTarget(
-        ScrapGoldItem,
-        "description",
-        "scrap_gold_id",
-        "scrap_gold_items.description",
-    ),
     ScrubTarget(MaterialUsage, "notes", "order_id", "material_usage.notes"),
     ScrubTarget(
         CalendarEvent,
@@ -315,6 +281,105 @@ SCRUBBABLE_FIELDS: List[ScrubTarget] = [
         "cost_change_requests.response_evidence",
     ),
 ]
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# GDPR-01 — records Art. 17 erasure must NOT alter (Art. 17 Abs. 3 lit. b)
+# ═══════════════════════════════════════════════════════════════════════════
+#
+# These columns used to be in SCRUBBABLE_FIELDS. Scrubbing them destroyed
+# records the workshop is legally obliged to keep unchanged (§146 Abs. 4 AO /
+# GoBD: no alteration of Buchungsbelege). They are now retained verbatim;
+# the customer row is anonymised at the end of the grace period and
+# ``customers.retention_hold_until`` records when the retained records may be
+# deleted. A test asserts this list and SCRUBBABLE_FIELDS never overlap.
+
+LEGAL_BASIS_TAX = "§147 AO, §14b UStG"
+LEGAL_BASIS_GWG = "§8 Abs. 4 GwG"
+RETENTION_LEGAL_BASIS = (
+    "Art. 17 Abs. 3 lit. b DSGVO — gesetzliche Aufbewahrungspflicht "
+    f"({LEGAL_BASIS_TAX}; {LEGAL_BASIS_GWG})"
+)
+# §147 Abs. 3 AO: up to 10 years; the period starts at the end of the
+# calendar year in which the record was created (§147 Abs. 4 AO). 10 is the
+# conservative upper bound (Buchungsbelege: 8 since BEG IV — confirm with the
+# Steuerberater before shortening; GwG records: 5).
+RETENTION_YEARS = 10
+
+
+@dataclass(frozen=True)
+class RetainedField:
+    """One column kept verbatim on erasure because the law requires it."""
+
+    model: type
+    column: str
+    counter_key: str
+    legal_basis: str
+
+
+RETAINED_RECORD_FIELDS: List[RetainedField] = [
+    RetainedField(Invoice, "notes", "invoices.notes", LEGAL_BASIS_TAX),
+    RetainedField(
+        InvoiceLineItem,
+        "description",
+        "invoice_line_items.description",
+        LEGAL_BASIS_TAX,
+    ),
+    RetainedField(Quote, "notes", "quotes.notes", LEGAL_BASIS_TAX),
+    RetainedField(
+        Quote,
+        "customer_signature_data",
+        "quotes.customer_signature_data",
+        LEGAL_BASIS_TAX,
+    ),
+    RetainedField(
+        QuoteLineItem,
+        "description",
+        "quote_line_items.description",
+        LEGAL_BASIS_TAX,
+    ),
+    RetainedField(ScrapGold, "notes", "scrap_gold.notes", LEGAL_BASIS_GWG),
+    RetainedField(
+        ScrapGold, "signature_data", "scrap_gold.signature_data", LEGAL_BASIS_GWG
+    ),
+    RetainedField(
+        ScrapGold, "receipt_pdf_path", "scrap_gold.receipt_pdf_path", LEGAL_BASIS_GWG
+    ),
+    RetainedField(
+        ScrapGoldItem,
+        "description",
+        "scrap_gold_items.description",
+        LEGAL_BASIS_GWG,
+    ),
+]
+
+# Tables whose rows put the customer under a legal hold. Their customer FK
+# is RESTRICT (invoices, quotes, valuation certificates) or SET NULL
+# (scrap_gold — a hard-delete would silently orphan the GwG record), so in
+# every case the customer row is anonymised in place, never deleted.
+RETAINED_RECORD_MODELS: Dict[str, type] = {
+    "invoices": Invoice,
+    "quotes": Quote,
+    "scrap_gold": ScrapGold,
+    "valuation_certificates": ValuationCertificate,
+}
+
+
+@dataclass(frozen=True)
+class RetentionHold:
+    """Result of ``CustomerService.apply_retention_hold``."""
+
+    hold_until: datetime
+    retained_records: Dict[str, int]
+    legal_basis: str = RETENTION_LEGAL_BASIS
+
+    def as_dict(self) -> Dict[str, Any]:
+        return {
+            "hold_until": self.hold_until.date().isoformat(),
+            "retained_records": dict(self.retained_records),
+            "legal_basis": self.legal_basis,
+        }
+
 
 # ── PII encryption helpers ────────────────────────────────────────────────────
 # These fields contain GDPR-sensitive personal data and must be encrypted at
@@ -622,7 +687,13 @@ class CustomerService:
         happens transparently at the ORM layer (``EncryptedString`` on every
         PII column); ``email_hash`` is populated here because it has no
         separate encryption layer and must be derived from plaintext.
+
+        Raises ``HealthDataConsentRequiredError`` when ``allergies`` is set:
+        a new customer cannot have a HEALTH_DATA consent yet (GDPR-02).
         """
+        await ConsentService.require_health_data_consent(
+            db, None, customer_in.allergies
+        )
         async with transactional(db):
             # Check if email already exists (via blind-index)
             existing = await CustomerService.get_customer_by_email(
@@ -665,15 +736,23 @@ class CustomerService:
         is updated, the companion ``email_hash`` blind-index is
         recomputed so the uniqueness constraint stays consistent with the
         (ciphertext) ``email`` value.
+
+        Raises ``HealthDataConsentRequiredError`` when a non-blank
+        ``allergies`` value is written without an active HEALTH_DATA consent
+        (Art. 9 Abs. 2 lit. a DSGVO — GDPR-02). Clearing it is always allowed.
         """
+        # Update only provided fields
+        update_data = customer_update.model_dump(exclude_unset=True)
+        if "allergies" in update_data:
+            await ConsentService.require_health_data_consent(
+                db, customer_id, update_data["allergies"]
+            )
+
         async with transactional(db):
             # Get existing customer
             db_customer = await CustomerService.get_customer(db, customer_id)
             if not db_customer:
                 return None
-
-            # Update only provided fields
-            update_data = customer_update.model_dump(exclude_unset=True)
 
             # Check email uniqueness if email is being updated
             if "email" in update_data and update_data["email"] != db_customer.email:
@@ -1156,6 +1235,8 @@ class CustomerService:
         counts["consultations.occasion_date"] = 0
         counts["customers.style_profile"] = 0
         counts["customer_no_gos.deleted"] = 0
+        counts["customers.allergies"] = 0
+        counts["customer_consents.deleted"] = 0
         counts["repair_jobs.intake_checklist"] = 0
         counts["customer_updates.photo_ids"] = 0
         counts["cost_change_requests.line_items"] = 0
@@ -1255,6 +1336,22 @@ class CustomerService:
             delete(CustomerNoGo).where(CustomerNoGo.customer_id == customer_id)
         )
         counts["customer_no_gos.deleted"] = max(no_go_result.rowcount or 0, 0)
+
+        # GDPR-02: allergies are Art. 9 health data with no retention duty —
+        # they go at request time, not only at the end of the grace period.
+        # Consent rows go with them: the data they covered is gone.
+        allergies_result = await db.execute(
+            update(CustomerModel)
+            .where(
+                CustomerModel.id == customer_id,
+                CustomerModel.allergies.isnot(None),
+            )
+            .values(allergies=None)
+        )
+        counts["customers.allergies"] = max(allergies_result.rowcount or 0, 0)
+        counts["customer_consents.deleted"] = (
+            await ConsentService.delete_all_for_customer(db, customer_id)
+        )
 
         # Repair intake checklist (V1.1 Task 2, fix round 1): ``na_reason``
         # values are operator free-text ABOUT the erased customer's item
@@ -1565,10 +1662,12 @@ class CustomerService:
     ) -> bool:
         """Return True if the customer has ≥1 §147-AO-retained record.
 
-        Checks the three tables whose ``customer_id`` FK is
-        ``ON DELETE RESTRICT`` + ``NOT NULL`` — invoices, quotes, and
-        valuation certificates. Any hit means the customer row cannot be
-        hard-deleted and must instead be anonymised in place.
+        Checks ``RETAINED_RECORD_MODELS`` — invoices, quotes and valuation
+        certificates (``customer_id`` FK ``ON DELETE RESTRICT``) plus
+        Altgold purchases (GDPR-01: ``scrap_gold.customer_id`` is SET NULL,
+        so a hard-delete would silently orphan the GwG record). Any hit
+        means the customer row cannot be hard-deleted and must instead be
+        anonymised in place.
 
         The decision is made by an EXPLICIT existence query — NOT by
         catching a DB ``IntegrityError`` — so it behaves identically on
@@ -1576,13 +1675,111 @@ class CustomerService:
         enforced). ``security > correctness`` (CLAUDE.md): we never rely on
         the database refusing the delete.
         """
-        for model in (Invoice, Quote, ValuationCertificate):
+        for model in RETAINED_RECORD_MODELS.values():
             existing = await db.execute(
                 select(model.id).filter(model.customer_id == customer_id).limit(1)
             )
             if existing.first() is not None:
                 return True
         return False
+
+    @staticmethod
+    async def count_retained_records(
+        db: AsyncSession, customer_id: int
+    ) -> Tuple[Dict[str, int], Optional[datetime]]:
+        """Count the customer's legally retained records per table.
+
+        Returns ``(counts, newest_created_at)``; ``newest_created_at`` is
+        None when there are no retained records.
+        """
+        counts: Dict[str, int] = {}
+        newest: Optional[datetime] = None
+        for table, model in RETAINED_RECORD_MODELS.items():
+            row = (
+                await db.execute(
+                    select(func.count(model.id), func.max(model.created_at)).filter(
+                        model.customer_id == customer_id
+                    )
+                )
+            ).one()
+            counts[table] = int(row[0] or 0)
+            # scrap_gold.created_at is nullable: a record without a date
+            # still exists and must be held — count it as created now.
+            record_date = row[1]
+            if counts[table] and record_date is None:
+                record_date = datetime.utcnow()
+            if record_date is not None and (newest is None or record_date > newest):
+                newest = record_date
+        return counts, newest
+
+    @staticmethod
+    def retention_end_for(created_at: datetime) -> datetime:
+        """End of the statutory retention period for a record.
+
+        §147 Abs. 4 AO: the period starts at the end of the calendar year
+        the record was created in; it then runs ``RETENTION_YEARS`` years.
+        """
+        return datetime(created_at.year + RETENTION_YEARS, 12, 31, 23, 59, 59)
+
+    @staticmethod
+    async def apply_retention_hold(
+        db: AsyncSession,
+        customer_id: int,
+        *,
+        performed_by: Optional[int] = None,
+    ) -> Optional[RetentionHold]:
+        """Set the GDPR-01 legal hold if the customer has retained records.
+
+        Sets ``customers.retention_hold_until`` (never shortens an existing
+        hold) and writes a ``gdpr_retention_hold`` audit row naming the
+        legal basis (Art. 17 Abs. 3 lit. b DSGVO). Returns None — and writes
+        nothing — when there is nothing to retain. Only flushes.
+        """
+        counts, newest = await CustomerService.count_retained_records(db, customer_id)
+        if newest is None:
+            return None
+        customer = await db.get(CustomerModel, customer_id)
+        if customer is None:
+            return None
+
+        hold_until = CustomerService.retention_end_for(newest)
+        if (
+            customer.retention_hold_until is not None
+            and customer.retention_hold_until > hold_until
+        ):
+            hold_until = customer.retention_hold_until
+        customer.retention_hold_until = hold_until
+        hold = RetentionHold(hold_until=hold_until, retained_records=counts)
+
+        db.add(
+            CustomerAuditLog(
+                customer_id=customer_id,
+                user_id=performed_by,
+                action="gdpr_retention_hold",
+                entity="customer",
+                entity_id=customer_id,
+                details={
+                    "legal_basis": RETENTION_LEGAL_BASIS,
+                    "hold_until": hold_until.isoformat(),
+                    "retained_records": counts,
+                    "retained_fields": [f.counter_key for f in RETAINED_RECORD_FIELDS],
+                },
+                timestamp=datetime.utcnow(),
+            )
+        )
+        await db.flush()
+        logger.info(
+            "GDPR retention hold applied",
+            extra={
+                "audit": True,
+                "action": "gdpr_retention_hold",
+                "customer_id": customer_id,
+                "user_id": performed_by,
+                "hold_until": hold_until.isoformat(),
+                "retained_records": counts,
+            },
+        )
+        return hold
 
     @staticmethod
     async def anonymize_customer(
@@ -1774,13 +1971,23 @@ class CustomerService:
                     db, customer_id
                 )
                 if has_financial:
+                    hold = await CustomerService.apply_retention_hold(
+                        db, customer_id, performed_by=performed_by
+                    )
                     await CustomerService.anonymize_customer(
                         db, customer_id, performed_by=performed_by
                     )
                     disposition = "anonymized"
+                    hold_text = (
+                        f" Retention hold until {hold.hold_until.date().isoformat()}."
+                        if hold is not None
+                        else ""
+                    )
                     note = (
-                        "Financial records retained under §147 AO; customer "
-                        "row anonymised in place (identity scrubbed, FKs kept)."
+                        "Financial records retained under §147 AO / GwG "
+                        f"({RETENTION_LEGAL_BASIS}); records left unaltered, "
+                        "customer row anonymised in place (identity scrubbed, "
+                        f"FKs kept).{hold_text}"
                     )
                 else:
                     await db.execute(

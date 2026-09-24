@@ -4,7 +4,8 @@ File-level GDPR Art. 17 erasure service.
 Complements ``CustomerService.scrub_customer_pii`` (which scrubs DB-resident
 freetext PII) by removing the filesystem artefacts referenced by DB path
 columns — generated valuation PDFs, order / repair photos, scrap-gold
-receipts, consultation sketches/references (+ thumbnails). These files
+item photos, consultation sketches/references (+ thumbnails). Scrap-gold
+receipts are retained (GDPR-01, §8 Abs. 4 GwG / §147 AO). These files
 contain customer PII (names, addresses, signatures, item photos) that
 survives the DB scrub because the DB stores only the path, not the content.
 
@@ -191,13 +192,11 @@ FILE_ERASURE_TARGETS: List[FileErasureTarget] = [
         link="scrap_gold_id",
         path_column_nullable=True,
     ),
-    FileErasureTarget(
-        table="scrap_gold",
-        model=ScrapGold,
-        path_column="receipt_pdf_path",
-        link="customer_id",
-        path_column_nullable=True,
-    ),
+    # GDPR-01: ``scrap_gold.receipt_pdf_path`` (the Altgold Ankaufbeleg) is
+    # deliberately NOT a target. It is the identification/purchase record
+    # §8 Abs. 4 GwG and §147 AO require us to keep, so Art. 17 Abs. 3 lit. b
+    # DSGVO exempts it from erasure — see
+    # ``customer_service.RETAINED_RECORD_FIELDS``.
 ]
 
 

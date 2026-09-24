@@ -295,6 +295,14 @@ class Customer(Base):
     # After this date the gdpr-cleanup.sh cron job permanently deletes the record.
     deletion_scheduled_at = Column(DateTime, nullable=True, index=True)
 
+    # GDPR-01 — legal hold. Set on erasure when the customer has records that
+    # §147 AO / §14b UStG / GwG §8 Abs. 4 require us to keep (invoices,
+    # quotes, Altgold purchases, valuation certificates). Those records are
+    # NOT scrubbed (Art. 17 Abs. 3 lit. b DSGVO); this date is the earliest
+    # point at which they — and the anonymised customer row they point at —
+    # may be deleted. NULL = no hold.
+    retention_hold_until = Column(DateTime, nullable=True, index=True)
+
     # Soft delete
     is_deleted = Column(Boolean, default=False, nullable=False, index=True)
     deleted_at = Column(DateTime, nullable=True)
@@ -2908,6 +2916,49 @@ class GDPRRequest(Base):
         Integer, ForeignKey("users.id", ondelete="RESTRICT"), nullable=True
     )
     notes = Column(Text, nullable=True)
+
+
+class CustomerConsent(Base):
+    """Per-purpose consent record — Art. 7(1) DSGVO proof (GDPR-02 / GDPR-11).
+
+    One row per grant. ``revoked_at`` is set on withdrawal (Art. 7(3)); a new
+    grant after a withdrawal is a new row, so the history stays provable.
+
+    ``purpose`` / ``method`` are plain strings validated by the Pydantic
+    enums in ``models/consent.py`` (``ConsentPurpose`` / ``ConsentMethod``) —
+    String rather than a native PG enum so adding a purpose never needs an
+    ``ALTER TYPE`` migration.
+
+    ``note`` may carry free text about the grant ("Bogen v1 unterschrieben"),
+    so it is encrypted at rest like the other customer free text.
+
+    Erasure: rows are deleted with the customer's other preference/health
+    data (``CustomerService.scrub_customer_pii``); ``customer_id`` CASCADEs
+    on a hard-delete.
+    """
+
+    __tablename__ = "customer_consents"
+
+    id = Column(Integer, primary_key=True, index=True)
+    customer_id = Column(
+        Integer,
+        ForeignKey("customers.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    purpose = Column(String(32), nullable=False, index=True)
+    method = Column(String(20), nullable=False)
+    wording_version = Column(String(32), nullable=True)
+    granted_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    revoked_at = Column(DateTime, nullable=True)
+    recorded_by_user_id = Column(
+        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    revoked_by_user_id = Column(
+        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    note = Column(EncryptedString, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
 
 
 # ============================================================================
