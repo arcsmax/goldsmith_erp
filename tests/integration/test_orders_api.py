@@ -141,7 +141,7 @@ class TestCreateOrder:
         assert response.status_code == 200
         body = response.json()
         assert body["title"] == "Admin Created Order"
-        assert body["status"] == OrderStatusEnum.NEW.value
+        assert body["status"] == OrderStatusEnum.DRAFT.value  # W2-07 / DOM-46
         assert body["customer_id"] == test_customer.id
         assert "id" in body
         assert "created_at" in body
@@ -359,6 +359,20 @@ class TestUpdateOrder:
             ORDERS_URL, json=payload, headers=admin_auth_headers
         )
         order_id = post_resp.json()["id"]
+
+        # W2-07: a new order is a DRAFT; it is confirmed (with the
+        # Pflichtfelder) before production starts.
+        confirm_resp = await client.put(
+            _order_url(order_id),
+            json={
+                "status": OrderStatusEnum.CONFIRMED.value,
+                "metal_type": "gold_18k",
+                "alloy": "750",
+                "deadline": "2030-01-15T10:00:00",
+            },
+            headers=admin_auth_headers,
+        )
+        assert confirm_resp.status_code == 200, confirm_resp.text
 
         update_payload = {"status": OrderStatusEnum.IN_PROGRESS.value}
         put_resp = await client.put(
