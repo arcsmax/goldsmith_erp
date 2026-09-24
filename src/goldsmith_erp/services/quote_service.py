@@ -23,13 +23,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy.orm import selectinload
 
+from goldsmith_erp.db.models import CostChangeResponseMethod
 from goldsmith_erp.db.models import Customer as CustomerModel
-from goldsmith_erp.db.models import InvoiceLineType, MetalType
+from goldsmith_erp.db.models import CustomerUpdateStatus, InvoiceLineType, MetalType
 from goldsmith_erp.db.models import Order as OrderModel
 from goldsmith_erp.db.models import OrderStatusEnum
 from goldsmith_erp.db.models import Quote as QuoteModel
 from goldsmith_erp.db.models import QuoteLineItem as QuoteLineItemModel
-from goldsmith_erp.db.models import QuoteLineType, QuoteStatus
+from goldsmith_erp.db.models import QuoteLineType, QuoteStatus, UpdateDeliveryMethod
 from goldsmith_erp.db.models import User as UserModel
 from goldsmith_erp.db.transaction import transactional
 from goldsmith_erp.models.quote import (
@@ -38,8 +39,16 @@ from goldsmith_erp.models.quote import (
     QuoteLineItemCreate,
     QuoteUpdate,
 )
+from goldsmith_erp.services import quote_delivery
 
 logger = logging.getLogger(__name__)
+
+# DOM-11d: German evidence text for how the customer approved a quote.
+_APPROVAL_METHOD_LABELS: dict[CostChangeResponseMethod, str] = {
+    CostChangeResponseMethod.IN_PERSON: "persönlich vor Ort",
+    CostChangeResponseMethod.EMAIL_REPLY: "per E-Mail",
+    CostChangeResponseMethod.PHONE: "telefonisch",
+}
 
 
 def _log_quote_access(
@@ -771,15 +780,78 @@ class QuoteService:
         current_user: UserModel,
     ) -> Optional[QuoteModel]:
         """
-        Mark a quote as SENT (Versendet).
+        Versenden: deliver a DRAFT quote to the customer and mark it SENT.
 
-        Only DRAFT quotes can be sent. Records audit log.
+        DOM-11. With SMTP configured and a customer email, the quote PDF is
+        emailed; otherwise the hand-over is recorded as PDF_MANUAL (the UI
+        downloads the PDF). Status becomes SENT only after a successful send
+        or the manual record. An SMTP failure keeps the DRAFT, records
+        SEND_FAILED and raises 502 (see services/quote_delivery.py).
+
+        Returns None if not found. 422 if the quote is not a DRAFT.
         """
-        result = await db.execute(select(QuoteModel).where(QuoteModel.id == quote_id))
-        quote = result.scalar_one_or_none()
+        quote = await QuoteService._load_quote(db, quote_id)
         if not quote:
             return None
+        QuoteService._require_draft_for_send(quote)
 
+        customer = await quote_delivery.load_customer(db, int(quote.customer_id))
+        recipient = (
+            quote_delivery.customer_email(customer)
+            if quote_delivery.email_delivery_enabled()
+            else None
+        )
+        method = UpdateDeliveryMethod.PDF_MANUAL
+        if recipient is not None:
+            method = UpdateDeliveryMethod.EMAIL
+            if not await quote_delivery.email_quote(quote, customer, recipient):
+                await QuoteService._record_send_failure(db, quote, current_user)
+                raise HTTPException(
+                    status_code=502, detail=quote_delivery.SMTP_FAILED_DETAIL
+                )
+
+        async with transactional(db):
+            locked = await QuoteService._load_quote(db, quote_id, for_update=True)
+            if locked is None:
+                raise QuoteNotFoundError(quote_id)
+            QuoteService._require_draft_for_send(locked)
+            locked.status = QuoteStatus.SENT
+            db.add(
+                quote_delivery.build_record(
+                    locked,
+                    int(current_user.id),
+                    CustomerUpdateStatus.SENT,
+                    method,
+                    datetime.utcnow(),
+                )
+            )
+
+        _log_quote_access(
+            action="sent",
+            quote_id=quote_id,
+            user_id=current_user.id,
+            user_role=_user_role_str(current_user),
+            extra={"delivery_method": method.value},
+        )
+
+        return await QuoteService.get_quote(db, quote_id, current_user)
+
+    @staticmethod
+    async def _load_quote(
+        db: AsyncSession, quote_id: int, for_update: bool = False
+    ) -> Optional[QuoteModel]:
+        """Load a quote with line items (optionally FOR UPDATE)."""
+        stmt = (
+            select(QuoteModel)
+            .options(selectinload(QuoteModel.line_items))
+            .where(QuoteModel.id == quote_id)
+        )
+        if for_update:
+            stmt = stmt.with_for_update()
+        return (await db.execute(stmt)).scalar_one_or_none()
+
+    @staticmethod
+    def _require_draft_for_send(quote: QuoteModel) -> None:
         if quote.status != QuoteStatus.DRAFT:
             raise HTTPException(
                 status_code=422,
@@ -787,17 +859,39 @@ class QuoteService:
                 f"Aktueller Status: {quote.status.value}",
             )
 
+    @staticmethod
+    async def _record_send_failure(
+        db: AsyncSession, quote: QuoteModel, current_user: UserModel
+    ) -> None:
+        """Record a failed email attempt; the quote itself stays a DRAFT."""
         async with transactional(db):
-            quote.status = QuoteStatus.SENT
-
-        _log_quote_access(
-            action="sent",
-            quote_id=quote_id,
-            user_id=current_user.id,
-            user_role=_user_role_str(current_user),
+            db.add(
+                quote_delivery.build_record(
+                    quote,
+                    int(current_user.id),
+                    CustomerUpdateStatus.SEND_FAILED,
+                    None,
+                    None,
+                )
+            )
+        logger.error(
+            "Quote email delivery failed; quote stays DRAFT",
+            extra={"quote_id": quote.id, "user_id": current_user.id},
         )
 
-        return await QuoteService.get_quote(db, quote_id, current_user)
+    @staticmethod
+    async def get_delivery(
+        db: AsyncSession, quote: QuoteModel
+    ) -> Optional[quote_delivery.QuoteDelivery]:
+        """How and when ``quote`` was delivered (None if never sent)."""
+        return await quote_delivery.get_delivery(db, quote)
+
+    @staticmethod
+    def _approval_note(request: ApproveQuoteRequest, now: datetime) -> str:
+        label = _APPROVAL_METHOD_LABELS[request.response_method]
+        if request.signature_data:
+            label += " mit Unterschrift"
+        return f"[Freigabe] {label} am {now:%d.%m.%Y}"
 
     @staticmethod
     async def approve_quote(
@@ -809,7 +903,9 @@ class QuoteService:
         """
         Mark a quote as APPROVED (Genehmigt) and optionally store signature.
 
-        Only SENT quotes can be approved.
+        SENT or DRAFT quotes can be approved. DOM-11d: the request says how
+        the customer agreed; that evidence is appended to the notes (same
+        pattern as the rejection reason) and audit-logged.
         """
         result = await db.execute(select(QuoteModel).where(QuoteModel.id == quote_id))
         quote = result.scalar_one_or_none()
@@ -824,10 +920,12 @@ class QuoteService:
             )
 
         now = datetime.utcnow()
+        note = QuoteService._approval_note(request, now)
 
         async with transactional(db):
             quote.status = QuoteStatus.APPROVED
             quote.approved_at = now
+            quote.notes = f"{quote.notes or ''}\n{note}".strip()
             if request.signature_data:
                 quote.customer_signature_data = request.signature_data
 
@@ -836,7 +934,10 @@ class QuoteService:
             quote_id=quote_id,
             user_id=current_user.id,
             user_role=_user_role_str(current_user),
-            extra={"has_signature": bool(request.signature_data)},
+            extra={
+                "has_signature": bool(request.signature_data),
+                "response_method": request.response_method.value,
+            },
         )
 
         return await QuoteService.get_quote(db, quote_id, current_user)

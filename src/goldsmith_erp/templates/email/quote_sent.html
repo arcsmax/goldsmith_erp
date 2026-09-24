@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Kostenvoranschlag KV-{{ quote_number }} — {{ workshop_name }}{% endblock %}
+{% block title %}Kostenvoranschlag {{ quote_number }} — {{ workshop_name }}{% endblock %}
 
 {% block body %}
 <h2>Ihr Kostenvoranschlag</h2>
@@ -8,10 +8,10 @@
 
 <dl class="info-box">
   <dt>Kostenvoranschlag</dt>
-  <dd>KV-{{ quote_number }}</dd>
+  <dd>{{ quote_number }}</dd>
 
   <dt>Gesamtbetrag (inkl. MwSt.)</dt>
-  <dd><strong>{{ total }}&nbsp;&euro;</strong></dd>
+  <dd><strong>{{ total }}</strong></dd>
 
   <dt>Gültig bis</dt>
   <dd>{{ valid_until }}</dd>

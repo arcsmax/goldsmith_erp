@@ -12,6 +12,26 @@ import {
   EstimatorMetadata,
 } from '../types';
 
+/**
+ * DOM-11d: how the customer agreed to the quote — mirrors the backend
+ * `CostChangeResponseMethod` enum (models/quote.py ApproveQuoteRequest).
+ * Local type (types.ts is out of scope for W2-05).
+ */
+export type QuoteApprovalMethod = 'in_person' | 'email_reply' | 'phone';
+
+export interface ApproveQuotePayload extends ApproveQuoteInput {
+  response_method: QuoteApprovalMethod;
+}
+
+/** DOM-11: how a sent quote reached the customer. */
+export type QuoteDeliveryMethod = 'email' | 'pdf_manual';
+
+/** Quote as returned by GET /quotes/{id} and POST /quotes/{id}/send. */
+export interface QuoteWithDelivery extends Quote {
+  delivery_method?: QuoteDeliveryMethod | null;
+  sent_at?: string | null;
+}
+
 export interface QuoteFilterParams {
   status?: string;
   customer_id?: number;
@@ -42,8 +62,8 @@ export const quotesApi = {
    * Fetch a single quote by ID (includes line items).
    * GET /quotes/{id}
    */
-  getQuote: async (id: number): Promise<Quote> => {
-    const response = await apiClient.get<Quote>(`/quotes/${id}`);
+  getQuote: async (id: number): Promise<QuoteWithDelivery> => {
+    const response = await apiClient.get<QuoteWithDelivery>(`/quotes/${id}`);
     return response.data;
   },
 
@@ -57,19 +77,23 @@ export const quotesApi = {
   },
 
   /**
-   * Mark quote as SENT (versenden).
+   * Send a DRAFT quote (versenden). With SMTP the backend emails the PDF
+   * (delivery_method "email"); without SMTP it records "pdf_manual" and the
+   * caller downloads the PDF. A failed email returns 502 and the quote stays
+   * a draft.
    * POST /quotes/{id}/send
    */
-  sendQuote: async (id: number): Promise<Quote> => {
-    const response = await apiClient.post<Quote>(`/quotes/${id}/send`, {});
+  sendQuote: async (id: number): Promise<QuoteWithDelivery> => {
+    const response = await apiClient.post<QuoteWithDelivery>(`/quotes/${id}/send`, {});
     return response.data;
   },
 
   /**
-   * Approve a quote with optional customer signature.
+   * Approve a quote: how the customer agreed (required) and an optional
+   * signature.
    * POST /quotes/{id}/approve
    */
-  approveQuote: async (id: number, data: ApproveQuoteInput): Promise<Quote> => {
+  approveQuote: async (id: number, data: ApproveQuotePayload): Promise<Quote> => {
     const response = await apiClient.post<Quote>(`/quotes/${id}/approve`, data);
     return response.data;
   },

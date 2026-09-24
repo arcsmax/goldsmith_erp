@@ -344,7 +344,7 @@ class TestApproveQuote:
 
         resp = await client.post(
             _action_url(quote_id, "approve"),
-            json={"signature_data": None},
+            json={"signature_data": None, "response_method": "in_person"},
             headers=admin_auth_headers,
         )
         assert resp.status_code == 200
@@ -365,7 +365,7 @@ class TestApproveQuote:
         fake_sig = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
         resp = await client.post(
             _action_url(quote_id, "approve"),
-            json={"signature_data": fake_sig},
+            json={"signature_data": fake_sig, "response_method": "in_person"},
             headers=admin_auth_headers,
         )
         assert resp.status_code == 200
@@ -379,7 +379,7 @@ class TestApproveQuote:
     ):
         resp = await client.post(
             _action_url(99999, "approve"),
-            json={},
+            json={"response_method": "phone"},
             headers=admin_auth_headers,
         )
         assert resp.status_code == 404
