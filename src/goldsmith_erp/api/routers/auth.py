@@ -12,6 +12,7 @@ from goldsmith_erp.core.client_ip import get_client_ip
 from goldsmith_erp.core.config import settings
 from goldsmith_erp.core.security import (
     ALGORITHM,
+    DUMMY_PASSWORD_HASH,
     create_access_token,
     decode_token_allowing_grace_window,
     verify_password,
@@ -87,6 +88,11 @@ async def login_access_token(
     user = result.scalar_one_or_none()
 
     if not user:
+        # SEC-17: run the same bcrypt verify a real account would pay for,
+        # against a hash nothing will ever match, so an unknown email costs
+        # the same wall-clock time as a wrong password on a known account —
+        # response timing cannot be used to enumerate accounts.
+        verify_password(form_data.password, DUMMY_PASSWORD_HASH)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect email or password",

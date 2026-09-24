@@ -12,6 +12,10 @@ Key properties:
   - Token-based lookup requires Redis; when Redis is unavailable the token
     endpoint returns 404 (token not found).
   - Rate-limited at 10 req/min per IP via slowapi.
+
+The portal router is off by default (SEC-10, decision D-03; see
+test_portal_flag.py for the disabled-by-default coverage) — every test in
+this file opts it back in via the autouse fixture below.
 """
 
 from unittest.mock import AsyncMock, patch
@@ -20,6 +24,7 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from goldsmith_erp.core.config import settings
 from goldsmith_erp.db.models import (
     Customer,
     Order,
@@ -32,6 +37,12 @@ from goldsmith_erp.db.models import (
 
 PORTAL_BASE = "/api/v1/portal"
 LOOKUP_URL = f"{PORTAL_BASE}/lookup"
+
+
+@pytest.fixture(autouse=True)
+def _portal_enabled(monkeypatch):
+    """This whole file exercises portal behaviour, so opt it back in (SEC-10)."""
+    monkeypatch.setattr(settings, "CUSTOMER_PORTAL_ENABLED", True)
 
 
 def _lookup_payload(reference: str, email: str) -> dict:
