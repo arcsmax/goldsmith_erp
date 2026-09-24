@@ -16,6 +16,7 @@ from goldsmith_erp.models.user import (
     LastAdminError,
     SentinelMissing,
     User,
+    UserAdminUpdate,
     UserCreate,
     UserErasureRequest,
     UserErasureResponse,
@@ -256,18 +257,22 @@ async def get_user_by_id(
 @require_permission(Permission.USER_EDIT)
 async def update_user_by_admin(
     user_id: int,
-    user_in: UserUpdate,
+    user_in: UserAdminUpdate,
     db: AsyncSession = Depends(get_db),
     current_user: UserModel = Depends(get_current_user),
 ):
     """
     Benutzer durch Admin aktualisieren.
 
-    - **Admin-Berechtigung erforderlich**
+    - **Admin-Berechtigung erforderlich** (`USER_EDIT`, ADMIN only — see
+      `core.permissions.ROLE_PERMISSIONS`)
     - Admin kann beliebige Benutzer-Daten ändern
     - Inkl. Aktivierungs-Status (is_active)
+    - Inkl. Rolle (`role`, SEC-F6): nur ein ADMIN darf Rollen vergeben oder
+      ändern; der letzte aktive ADMIN kann nicht herabgestuft werden (409)
 
-    **Use Case**: Admin möchte Benutzer-Daten korrigieren oder Status ändern.
+    **Use Case**: Admin möchte Benutzer-Daten korrigieren, Status ändern
+    oder einem Kollegen eine andere Rolle zuweisen.
     """
     # Prüfen ob neue E-Mail bereits existiert (falls geändert)
     if user_in.email:
@@ -281,7 +286,13 @@ async def update_user_by_admin(
                 )
 
     # Benutzer aktualisieren
-    updated_user = await UserService.update_user(db, user_id, user_in)
+    try:
+        updated_user = await UserService.update_user(db, user_id, user_in)
+    except LastAdminError:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Cannot change the role of the last active administrator.",
+        )
     if not updated_user:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
@@ -291,6 +302,17 @@ async def update_user_by_admin(
     # (finding 2.1) — see the self-service handler above for the mechanism.
     if user_in.password is not None:
         await invalidate_user_tokens(str(user_id))
+
+    if user_in.role is not None:
+        logger.info(
+            "User role changed by admin",
+            extra={
+                "user_id": user_id,
+                "new_role": user_in.role.value,
+                "changed_by": current_user.id,
+                "event": "role_change",
+            },
+        )
 
     return updated_user
 
