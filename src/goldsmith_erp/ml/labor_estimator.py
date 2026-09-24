@@ -40,10 +40,22 @@ Design notes
   threshold use ``_percentile()``, a manual linear-interpolation-between-
   ranks implementation (the same method numpy's default ``'linear'`` mode
   and Excel's ``PERCENTILE.INC`` use) — no numpy dependency required.
-* **suggested_activities** is the per-activity MEDIAN hours across the
-  matched (post-exclusion) set, computed only from orders that actually
-  logged that activity (no zero-filling for orders that didn't). This
-  drives per-activity cost conversion in Task 5.
+* **suggested_activities** (BE-10 / decision D-09, 2026-09-25) is the
+  per-activity MEDIAN hours across the matched (post-exclusion) set,
+  ZERO-FILLED — an order that never logged the activity counts 0.0 hours
+  toward its median, not "not counted at all" — and reported only for
+  activities present in at least ``ACTIVITY_PRESENCE_THRESHOLD`` (50%) of
+  that set. Before this fix, an activity logged by even a single order in
+  the matched set (e.g. a one-off Gravur on one ring out of five) still
+  contributed its full median hours, so ``sum(suggested_activities)``
+  could exceed ``hours_p50`` by however many extra activities a minority
+  of orders happened to log — and Task 5 priced labor cost from that
+  inflated sum. Zero-filling + the 50% floor keeps
+  ``sum(suggested_activities) approx hours_p50``, which
+  ``estimator_service.estimate_labor`` relies on to price at ``hours_p50
+  x blended rate`` (a single weighted-average EUR/hour figure applied to
+  the TOTAL hours actually shown) rather than re-summing per-activity
+  hours that were never guaranteed to add up to that total.
 * **Immutability.** ``CorpusOrder.activity_hours`` is a shared dict living
   inside a frozen dataclass (Task 2) — this module never mutates it. Any
   aggregation builds fresh lists/dicts.
@@ -66,6 +78,11 @@ P10: float = 10.0  # corpus-exclusion threshold: drop implausibly-low hours
 P20: float = 20.0
 P50: float = 50.0
 P80: float = 80.0
+
+# ── suggested_activities presence floor (BE-10 / decision D-09) ──────────────
+# An activity must be logged on at least this fraction of the matched set to
+# be reported in suggested_activities at all — see _median_activity_hours.
+ACTIVITY_PRESENCE_THRESHOLD: float = 0.5
 
 # ── Rounding precision for reported hours ─────────────────────────────────────
 ROUND_DP: int = 2
@@ -101,7 +118,9 @@ class LaborEstimate:
     sample_size: int
     similarity_level: SimilarityLevel
     similar_orders: list[int]
-    suggested_activities: dict[int, float]  # activity_id -> median hours
+    # activity_id -> zero-filled median hours, >= ACTIVITY_PRESENCE_THRESHOLD
+    # presence only (BE-10 / D-09) — see _median_activity_hours.
+    suggested_activities: dict[int, float]
     excluded_orders: list[int]
     insufficient_data: bool
 
@@ -207,22 +226,46 @@ def _exclude_implausibly_low(
 
 def _median_activity_hours(orders: Sequence[CorpusOrder]) -> dict[int, float]:
     """
-    Per-activity median hours across ``orders``, built from fresh lists.
+    Per-activity median hours across ``orders``, zero-filled and presence-
+    filtered (BE-10 / decision D-09).
 
-    Only orders that actually logged an activity contribute to that
-    activity's median (no zero-filling) — and ``CorpusOrder.activity_hours``
-    (a shared dict on a frozen dataclass) is only ever read here, never
-    mutated.
+    Every activity_id that appears in ANY order's ``activity_hours`` is
+    considered over the FULL ``orders`` set: an order that did NOT log
+    that activity contributes 0.0 hours to its median — zero-filling
+    replaces the earlier "median over only the orders that logged it"
+    approach, which let a rarely-logged activity drag its full hours into
+    the breakdown even though it is not representative of the matched
+    set. An activity is only reported (kept in the returned dict) when it
+    is present in at least ``ACTIVITY_PRESENCE_THRESHOLD`` of ``orders`` —
+    e.g. a one-off Gravur entry on a single ring out of five is noise, not
+    a representative part of the job, and is dropped entirely rather than
+    zero-filled-and-kept.
+
+    ``CorpusOrder.activity_hours`` (a shared dict on a frozen dataclass) is
+    only ever read here via ``.get()``, never mutated.
     """
-    hours_by_activity: dict[int, list[float]] = {}
-    for order in orders:
-        for activity_id, hours in order.activity_hours.items():
-            hours_by_activity.setdefault(activity_id, []).append(hours)
+    order_count = len(orders)
+    if order_count == 0:
+        return {}
 
-    return {
-        activity_id: round(statistics.median(hours_list), ROUND_DP)
-        for activity_id, hours_list in hours_by_activity.items()
+    all_activity_ids = {
+        activity_id for order in orders for activity_id in order.activity_hours
     }
+
+    medians: dict[int, float] = {}
+    for activity_id in all_activity_ids:
+        present_count = sum(
+            1 for order in orders if activity_id in order.activity_hours
+        )
+        if present_count < order_count * ACTIVITY_PRESENCE_THRESHOLD:
+            continue
+
+        zero_filled_hours = [
+            order.activity_hours.get(activity_id, 0.0) for order in orders
+        ]
+        medians[activity_id] = round(statistics.median(zero_filled_hours), ROUND_DP)
+
+    return medians
 
 
 def _insufficient_estimate() -> LaborEstimate:

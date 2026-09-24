@@ -270,7 +270,15 @@ class TestUnknownActivityIdGuard:
     ):
         """Even when LaborEstimator's output references a stale activity_id
         (simulated via a patched LaborEstimator.estimate), estimate_labor
-        must not crash and must compute a cost from only the known ids."""
+        must not crash and must compute the blended rate from only the
+        known ids (BE-10 / decision D-09).
+
+        The known-only blended rate is rated_activity's own 80 EUR/h
+        (unknown_id's 3h contribute no rate information at all), and BE-10
+        prices the FULL hours_p50 (5.0h) at that rate -- 400.00 -- not the
+        pre-fix 160.00, which only priced the known subset's 2h and
+        silently left unknown_id's 3h unpriced (a different, smaller
+        under-count than the shown hours_p50)."""
         await _seed_ring_corpus(
             db_session, est_customer, est_user, rated_activity, [2, 4, 6, 8, 10]
         )
@@ -297,9 +305,10 @@ class TestUnknownActivityIdGuard:
 
         assert response.insufficient_data is False
         assert response.hours_p50 == 5.0
-        # Only rated_activity's 2h * 80 EUR/h = 160 counted; unknown_id's
-        # 3h excluded entirely.
-        assert response.labor_cost_p50 == pytest.approx(160.0)
+        # Blended rate = rated_activity's own 80 EUR/h (unknown_id's 3h
+        # excluded from the rate computation); priced at hours_p50 (5.0h):
+        # 5.0 * 80 = 400.00.
+        assert response.labor_cost_p50 == pytest.approx(400.0)
 
 
 # ---------------------------------------------------------------------------

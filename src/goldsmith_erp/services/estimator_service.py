@@ -18,13 +18,35 @@ this is PRICING data, correctness is the #1 requirement):
   ``Activity`` row was deleted after the corpus order was recorded) must
   not silently produce a plausible-but-wrong price: those hours are
   excluded from the labor cost computation and logged as a warning,
-  never crash. See ``_labor_cost_from_activity_hours`` below — this is a
-  DIFFERENT case from an activity with a NULL ``hourly_rate``, which is a
+  never crash. See ``_known_activity_hours`` below — this is a DIFFERENT
+  case from an activity with a NULL ``hourly_rate``, which is a
   legitimate, intentional shop-default fallback already handled inside
   ``CostCalculationService._calculate_labor_cost_per_activity`` (Task 1).
 * Raw ``hourly_rate`` values are never returned to callers — only
   aggregate computed costs (see ``models/estimator.py::
   LaborEstimateResponse``).
+
+Cost basis (BE-10 / decision D-09, 2026-09-25 audit, assumption A6 — the
+plan's stated default, since neither pending estimator decision had been
+answered by Max at fix time): ``labor_cost_p50 = hours_p50 x blended
+rate``. The "blended rate" is the known-activity-hours-weighted average
+EUR/hour over ``suggested_activities`` (``_blended_hourly_rate``).
+Before this fix, ``labor_cost_p50`` was priced as
+``sum(cost(activity) for activity in suggested_activities)`` — but
+``suggested_activities`` (Task 3) only carried the median hours from
+orders that happened to log each activity, with NO zero-filling, so its
+hours could sum to MORE than ``hours_p50`` (a one-off activity on a
+single matched order still counted its full hours). That summed a
+different, larger number of hours than the ``hours_p50`` actually shown
+to the customer — e.g. 5 comparable rings each with 1h Polieren, one of
+which also logged 2h Gravur: ``hours_p50`` is 1h, but the old code priced
+3h (1 Polieren + 2 Gravur) worth of labor. Pricing at ``hours_p50 x
+blended rate`` instead guarantees the priced total is always exactly the
+``hours_p50`` figure shown, using whatever per-activity rate information
+``suggested_activities`` provides to build a representative EUR/hour
+figure (labor_estimator.py's zero-fill + 50%-presence floor keeps that
+breakdown's summed hours close to ``hours_p50``, but ``estimate_labor``
+never relies on them being exactly equal).
 """
 
 from __future__ import annotations
@@ -34,6 +56,7 @@ import logging
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from goldsmith_erp.core.config import settings
 from goldsmith_erp.db.models import Activity as ActivityModel
 from goldsmith_erp.ml.labor_estimator import (
     EstimateFeatures,
@@ -52,12 +75,12 @@ logger = logging.getLogger(__name__)
 ESTIMATOR_VERSION = "labor_estimator_v1"
 
 
-async def _labor_cost_from_activity_hours(
+async def _known_activity_hours(
     db: AsyncSession, activity_hours: dict[int, float]
-) -> float:
+) -> dict[int, float]:
     """
-    Convert a ``{activity_id: hours}`` breakdown into a labor cost via the
-    Task-1 per-activity hourly-rate path, guarding against stale/unknown
+    Resolve a ``{activity_id: hours}`` breakdown to only the subset whose
+    ``activity_id`` still exists in the DB, guarding against stale/unknown
     activity ids.
 
     ``CostCalculationService._calculate_labor_cost_per_activity`` already
@@ -68,13 +91,14 @@ async def _labor_cost_from_activity_hours(
     stale/unknown activity_id (the corpus order referenced an ``Activity``
     that has since been deleted) silently reusing the shop-default rate
     would produce a plausible-looking but unverifiable price. So this
-    helper resolves which ids actually exist FIRST, logs a warning and
+    helper resolves which ids actually exist FIRST, logs a warning, and
     drops any unknown id's hours entirely (excluded from the cost, not
-    charged at any rate), and only forwards the known subset onward to
-    the Task-1 per-activity costing path.
+    charged at any rate) — the known subset is what both
+    ``_labor_cost_from_activity_hours`` and ``_blended_hourly_rate``
+    forward onward to the Task-1 per-activity costing path.
     """
     if not activity_hours:
-        return 0.0
+        return {}
 
     result = await db.execute(
         select(ActivityModel.id).where(ActivityModel.id.in_(activity_hours.keys()))
@@ -91,15 +115,63 @@ async def _labor_cost_from_activity_hours(
             extra={"unknown_activity_ids": sorted(unknown_ids)},
         )
 
-    known_activity_hours = {
+    return {
         activity_id: hours
         for activity_id, hours in activity_hours.items()
         if activity_id in known_ids
     }
 
+
+async def _labor_cost_from_activity_hours(
+    db: AsyncSession, activity_hours: dict[int, float]
+) -> float:
+    """
+    Convert a ``{activity_id: hours}`` breakdown into a labor cost via the
+    Task-1 per-activity hourly-rate path, guarding against stale/unknown
+    activity ids (see ``_known_activity_hours``).
+
+    Kept as a standalone helper (used directly by
+    ``TestUnknownActivityIdGuard`` in tests/unit/test_estimator_service.py)
+    — ``estimate_labor`` itself no longer calls this for its priced total
+    (see ``_blended_hourly_rate`` / BE-10 module docstring), since costing
+    only the known-activity subset of hours understates the price
+    whenever ``suggested_activities`` includes a hole (a stale id, or an
+    activity below the 50% presence floor) relative to ``hours_p50``.
+    """
+    known_activity_hours = await _known_activity_hours(db, activity_hours)
     return await CostCalculationService._calculate_labor_cost_per_activity(
         db, known_activity_hours
     )
+
+
+async def _blended_hourly_rate(
+    db: AsyncSession, activity_hours: dict[int, float]
+) -> float:
+    """
+    Weighted-average EUR/hour rate across a ``{activity_id: hours}``
+    breakdown (BE-10 / decision D-09): the known-activity subset's total
+    per-activity cost (Task 1's rate path, via ``_known_activity_hours``)
+    divided by its total hours — an activity that makes up more of the
+    job pulls the blended rate further toward its own rate.
+
+    Falls back to the shop default rate (``settings.DEFAULT_HOURLY_RATE``)
+    when there are no known, positive-hour activities to weight by (e.g.
+    every suggested activity referenced a stale/deleted ``Activity`` row).
+    This mirrors Task 1's existing "unset/unknown rate -> shop default"
+    fallback rather than inventing a new "cannot price" behavior: refusing
+    to price would discard the still-honest ``hours_p50`` figure over a
+    rate-lookup edge case, not a "too few comparable orders" one — the
+    ``insufficient_data`` case already covers the latter.
+    """
+    known_activity_hours = await _known_activity_hours(db, activity_hours)
+    total_known_hours = sum(known_activity_hours.values())
+    if total_known_hours <= 0:
+        return settings.DEFAULT_HOURLY_RATE
+
+    total_known_cost = await CostCalculationService._calculate_labor_cost_per_activity(
+        db, known_activity_hours
+    )
+    return total_known_cost / total_known_hours
 
 
 def _scale_cost(labor_cost_p50: float, hours_p50: float, hours_target: float) -> float:
@@ -128,9 +200,9 @@ async def estimate_labor(
     Produce a labor-hours + labor-cost estimate for the given job features.
 
     Pipeline: load the corpus (Task 2) -> ``LaborEstimator.estimate``
-    (Task 3) -> convert ``suggested_activities`` to a labor cost via the
-    Task-1 per-activity rate path (with the unknown-activity_id guard
-    documented on ``_labor_cost_from_activity_hours``).
+    (Task 3) -> price ``hours_p50 x blended rate`` (BE-10 / decision D-09,
+    ``_blended_hourly_rate``, with the unknown-activity_id guard
+    documented on ``_known_activity_hours``).
 
     When the estimate reports ``insufficient_data``, every numeric field
     on the response is ``None`` — this is never overridden with a
@@ -171,9 +243,12 @@ async def estimate_labor(
             "an hours percentile — refusing to compute a price from it"
         )
 
-    labor_cost_p50 = await _labor_cost_from_activity_hours(
-        db, estimate.suggested_activities
-    )
+    # BE-10 / decision D-09: price at hours_p50 x blended rate, NOT
+    # sum(per-activity cost) -- see this module's docstring. This
+    # guarantees the priced total is always exactly hours_p50 hours' worth,
+    # regardless of whether suggested_activities' own hours sum to it.
+    blended_rate = await _blended_hourly_rate(db, estimate.suggested_activities)
+    labor_cost_p50 = round(estimate.hours_p50 * blended_rate, 2)
     labor_cost_p20 = _scale_cost(labor_cost_p50, estimate.hours_p50, estimate.hours_p20)
     labor_cost_p80 = _scale_cost(labor_cost_p50, estimate.hours_p50, estimate.hours_p80)
 
@@ -181,7 +256,7 @@ async def estimate_labor(
         hours_p50=estimate.hours_p50,
         hours_p20=estimate.hours_p20,
         hours_p80=estimate.hours_p80,
-        labor_cost_p50=round(labor_cost_p50, 2),
+        labor_cost_p50=labor_cost_p50,
         labor_cost_p20=labor_cost_p20,
         labor_cost_p80=labor_cost_p80,
         sample_size=estimate.sample_size,
