@@ -1,6 +1,6 @@
 // Order Detail Page with Tabs
-import React, { useEffect, useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import React, { useCallback, useEffect, useState } from 'react';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { ordersApi, materialsApi } from '../api';
 import apiClient from '../api/client';
 import { OrderType, MaterialType, OrderStatus, OrderPhoto } from '../types';
@@ -18,8 +18,12 @@ import ArbeitszettelTab from '../components/orders/ArbeitszettelTab';
 import { KundeninfoTab } from '../components/orders/KundeninfoTab';
 import { CostAlertBanner } from '../components/orders/CostAlertBanner';
 import { CostChangeSection } from '../components/orders/CostChangeSection';
-import { PhotoCompare } from '../components/PhotoCompare';
-import { photosApi } from '../api/photos';
+import { PhotoCompare, type PhotoItem } from '../components/PhotoCompare';
+import { PhotoUpload } from '../components/orders/PhotoUpload';
+import { parseOrderDeepLink, stripOrderDeepLink } from '../components/orders/orderDeepLink';
+import { photoFilePath, photoThumbnailPath, photosApi } from '../api/photos';
+import { useRefetchOn } from '../lib/refetchBus';
+import { logError } from '../lib/logError';
 import '../styles/order-detail.css';
 
 export const OrderDetailPage: React.FC = () => {
@@ -45,6 +49,9 @@ export const OrderDetailPage: React.FC = () => {
   // may have changed the projected cost, so CostAlertBanner re-fetches
   // without needing orderId to change.
   const [costDataVersion, setCostDataVersion] = useState(0);
+  // Scanner deep link (?tab=fotos&capture=1): open the camera once.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [autoCapture, setAutoCapture] = useState(false);
 
   // Get active tab from context (remembers last tab)
   const activeTab = orderId ? getOrderTab(parseInt(orderId)) : 'details';
@@ -58,9 +65,11 @@ export const OrderDetailPage: React.FC = () => {
     fetchOrder(parseInt(orderId));
   }, [orderId]);
 
-  const fetchOrder = async (id: number) => {
+  // `isSilent` refreshes in place (realtime hint): no loading screen, so
+  // the open tab and a running photo upload stay mounted.
+  const fetchOrder = async (id: number, { isSilent = false }: { isSilent?: boolean } = {}) => {
     try {
-      setIsLoading(true);
+      if (!isSilent) setIsLoading(true);
       setError(null);
       const orderData = await ordersApi.getById(id);
       setOrder(orderData);
@@ -78,22 +87,62 @@ export const OrderDetailPage: React.FC = () => {
         try {
           const photosResponse = await photosApi.getForOrder(id);
           setOrderPhotos(photosResponse.data ?? []);
-        } catch {
-          // Photo loading failure is non-critical; silently ignore
+        } catch (photoErr: unknown) {
+          // Non-critical for the page, but never silent.
+          logError('OrderDetailPage.loadPhotos', photoErr);
         }
       }
     } catch (err: any) {
+      // A failed background refresh keeps the order that is on screen.
+      if (isSilent) {
+        logError('OrderDetailPage.refetch', err);
+        return;
+      }
       setError(err.response?.data?.detail || 'Fehler beim Laden des Auftrags');
     } finally {
       setIsLoading(false);
     }
   };
 
+  // W2-13: status changes and new photos from another device refresh the
+  // open order without a manual reload.
+  useRefetchOn('orders', () => {
+    if (orderId) fetchOrder(parseInt(orderId), { isSilent: true });
+  });
+
   const handleTabChange = (tab: OrderTab) => {
     if (orderId) {
       setOrderTab(parseInt(orderId), tab);
     }
   };
+
+  // W2-01 / FE-04: honour scanner deep links once the order is loaded
+  // (after fetchOrder's setActiveOrder has set its default tab), then drop
+  // the params so a reload does not reopen the camera. Photos are
+  // DESIGN_VIEW: a caller without it never gets the Fotos tab or camera.
+  const loadedOrderId = order?.id ?? null;
+  useEffect(() => {
+    if (loadedOrderId === null) return;
+    const link = parseOrderDeepLink(searchParams);
+    if (link === null) return;
+    const isPhotoTab = link.tab === 'fotos';
+    if (link.tab && (!isPhotoTab || canDesign)) {
+      setOrderTab(loadedOrderId, link.tab);
+    }
+    if (link.capture && canDesign) {
+      setAutoCapture(true);
+    }
+    setSearchParams(stripOrderDeepLink(searchParams), { replace: true });
+    // setOrderTab is recreated by the context on every render; the effect
+    // must only react to a new order or new params.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loadedOrderId, searchParams, canDesign]);
+
+  const handlePhotoUploaded = useCallback((photo: OrderPhoto) => {
+    setOrderPhotos((prev) => [...prev, photo]);
+  }, []);
+
+  const handleAutoCaptureDone = useCallback(() => setAutoCapture(false), []);
 
   const handleStatusChange = async (newStatus: OrderStatus) => {
     if (!order) return;
@@ -323,7 +372,13 @@ export const OrderDetailPage: React.FC = () => {
         )}
 
         {activeTab === 'fotos' && canDesign && (
-          <OrderPhotosTab photos={orderPhotos} />
+          <OrderPhotosTab
+            orderId={order.id}
+            photos={orderPhotos}
+            autoCapture={autoCapture}
+            onAutoCaptureDone={handleAutoCaptureDone}
+            onPhotoUploaded={handlePhotoUploaded}
+          />
         )}
 
         {activeTab === 'handoff' && (
@@ -562,17 +617,45 @@ const HistoryTab: React.FC<{ order: OrderType }> = ({ order }) => (
 
 // ─── Fotos tab ────────────────────────────────────────────────────────────────
 
-const OrderPhotosTab: React.FC<{ photos: OrderPhoto[] }> = ({ photos }) => {
-  const photoItems = photos.map(p => ({
-    id: Number(p.id.replace(/-/g, '').slice(0, 8)) || Math.random(),
-    file_path: p.file_path,
-    notes: p.notes,
-    timestamp: p.timestamp,
-  }));
+/** Order photos → PhotoCompare items: stable keys, authenticated URLs. */
+function toOrderPhotoItem(photo: OrderPhoto, index: number): PhotoItem {
+  return {
+    id: index + 1,
+    renderKey: photo.id,
+    file_path: photo.file_path,
+    notes: photo.notes,
+    timestamp: photo.timestamp,
+    thumbSrc: photoThumbnailPath(photo.id),
+    fullSrc: photoFilePath(photo.id),
+  };
+}
+
+interface OrderPhotosTabProps {
+  orderId: number;
+  photos: OrderPhoto[];
+  autoCapture: boolean;
+  onAutoCaptureDone: () => void;
+  onPhotoUploaded: (photo: OrderPhoto) => void;
+}
+
+const OrderPhotosTab: React.FC<OrderPhotosTabProps> = ({
+  orderId,
+  photos,
+  autoCapture,
+  onAutoCaptureDone,
+  onPhotoUploaded,
+}) => {
+  const photoItems = photos.map(toOrderPhotoItem);
 
   return (
-    <div className="tab-panel">
+    <div className="tab-panel order-photos-panel">
       <h2>Auftragsdokumentationen</h2>
+      <PhotoUpload
+        orderId={orderId}
+        onUploaded={onPhotoUploaded}
+        autoOpen={autoCapture}
+        onAutoOpened={onAutoCaptureDone}
+      />
       <PhotoCompare
         beforePhotos={[]}
         afterPhotos={[]}

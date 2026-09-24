@@ -5,22 +5,25 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import HTMLResponse, JSONResponse
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from goldsmith_erp.api.deps import get_current_user
 from goldsmith_erp.api.role_projection import (
     ExcludeSpec,
     build_excludes,
+    can_view_design,
     can_view_financial,
 )
 from goldsmith_erp.core.config import settings
 from goldsmith_erp.core.permissions import Permission, require_permission
-from goldsmith_erp.db.models import User
+from goldsmith_erp.db.models import OrderPhoto, User
 from goldsmith_erp.db.session import get_db
 from goldsmith_erp.models.order import (
     LocationChangeRequest,
     LocationHistoryRead,
     OrderCreate,
+    OrderListRead,
     OrderRead,
     OrderUpdate,
 )
@@ -94,16 +97,59 @@ def _project_order_for_user(order, user: User) -> JSONResponse:
     return JSONResponse(content=jsonable_encoder(data))
 
 
-def _project_orders_for_user(orders, user: User) -> JSONResponse:
-    """Serialize a list of ORM Orders into a role-aware JSON response."""
+async def _first_photo_ids(db: AsyncSession, order_ids: List[int]) -> Dict[int, str]:
+    """Map order id -> id of its oldest photo, in one query (no N+1).
+
+    W2-01 / FE-13: lets the orders list show a thumbnail through
+    ``/photos/{id}/thumbnail``. Ties on ``timestamp`` resolve to the
+    smallest photo id so the result is deterministic.
+    """
+    if not order_ids:
+        return {}
+    oldest = (
+        select(
+            OrderPhoto.order_id.label("order_id"),
+            func.min(OrderPhoto.timestamp).label("first_ts"),
+        )
+        .where(OrderPhoto.order_id.in_(order_ids))
+        .group_by(OrderPhoto.order_id)
+        .subquery()
+    )
+    rows = await db.execute(
+        select(OrderPhoto.order_id, func.min(OrderPhoto.id))
+        .join(
+            oldest,
+            (OrderPhoto.order_id == oldest.c.order_id)
+            & (OrderPhoto.timestamp == oldest.c.first_ts),
+        )
+        .group_by(OrderPhoto.order_id)
+    )
+    return {int(order_id): str(photo_id) for order_id, photo_id in rows.all()}
+
+
+def _project_orders_for_user(
+    orders: Any,
+    user: User,
+    first_photo_ids: Optional[Dict[int, str]] = None,
+) -> JSONResponse:
+    """Serialize a list of ORM Orders into a role-aware JSON response.
+
+    ``first_photo_id`` is design IP (DESIGN_VIEW): it is only filled for
+    callers that may see photos; everyone else gets ``None`` (W2-01).
+    """
     excludes = _order_excludes_for_user(user) or None
-    data = [OrderRead.model_validate(o).model_dump(exclude=excludes) for o in orders]
+    photo_ids = first_photo_ids if can_view_design(user) else None
+    data = []
+    for order in orders:
+        row = OrderListRead.model_validate(order).model_dump(exclude=excludes)
+        row["first_photo_id"] = (photo_ids or {}).get(order.id)
+        data.append(row)
     return JSONResponse(content=jsonable_encoder(data))
 
 
 @router.get(
     "/",
-    response_model=List[OrderRead],
+    response_model=List[OrderListRead],
     # C5: VIEWER responses strip financial fields — the actual projection
     # happens in _project_orders_for_user. ``response_model`` still documents
     # the maximal shape for ADMIN/GOLDSMITH in the OpenAPI schema.
@@ -146,7 +192,14 @@ async def list_orders(
             user_id=current_user.id,
             endpoint="/api/v1/orders/",
         )
-    return _project_orders_for_user(orders, current_user)
+    # W2-01: the photo lookup is skipped entirely for callers without
+    # DESIGN_VIEW — they always receive ``first_photo_id: null``.
+    first_photo_ids = (
+        await _first_photo_ids(db, [o.id for o in orders])
+        if can_view_design(current_user)
+        else None
+    )
+    return _project_orders_for_user(orders, current_user, first_photo_ids)
 
 
 @router.get("/calendar/deadlines")

@@ -172,7 +172,7 @@ describe('repair scans never act on the order with the same id (FE-03)', () => {
   it('take_photo on an order with the same number still opens the order', async () => {
     const ctx = ctxFor(response('order', 17));
     await ACTION_HANDLERS.take_photo(ctx);
-    expect(ctx.hooks.navigate).toHaveBeenCalledWith('/orders/17?action=take-photo');
+    expect(ctx.hooks.navigate).toHaveBeenCalledWith('/orders/17?tab=fotos&capture=1');
   });
 
   it('print_label on a repair routes to /repairs/17 (an existing route)', async () => {
