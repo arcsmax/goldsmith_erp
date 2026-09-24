@@ -56,6 +56,211 @@ const PageLoader: React.FC = () => (
   </div>
 );
 
+/**
+ * Staff shell — everything that needs a session. The per-user providers
+ * (Auth, Scanner, TimeTracking, Order) mount ONLY here, so public routes
+ * never fire /users/me, /time-tracking/running or /activities and never
+ * trip the axios 401 -> /login redirect (FE-01).
+ */
+const StaffApp: React.FC = () => (
+  <AuthProvider>
+    <ScannerProvider>
+      <TimeTrackingProvider>
+        <OrderProvider>
+          <Routes>
+            <Route path="/login" element={<LoginPage />} />
+            {/* /register route removed (fix A3, 2026-04-23).
+                Public self-registration is no longer supported; admins
+                create users via the authenticated /users page. Any
+                hard-coded /register link now falls through to the
+                catch-all → /dashboard → /login (unauthenticated). */}
+
+            {/* Protected Routes */}
+            <Route
+              path="/"
+              element={
+                <ProtectedRoute>
+                  <MainLayout />
+                </ProtectedRoute>
+              }
+            >
+              <Route index element={<Navigate to="/dashboard" replace />} />
+              <Route path="dashboard" element={<DashboardPage />} />
+
+              {/* Kunden — ADMIN und GOLDSMITH */}
+              <Route
+                path="customers"
+                element={
+                  <ProtectedRoute requiredRoles={['ADMIN', 'GOLDSMITH']}>
+                    <CustomersPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="customers/:id"
+                element={
+                  <ProtectedRoute requiredRoles={['ADMIN', 'GOLDSMITH']}>
+                    <CustomerDetailPage />
+                  </ProtectedRoute>
+                }
+              />
+
+              {/* Beratung — ADMIN und GOLDSMITH */}
+              <Route
+                path="consultations"
+                element={
+                  <ProtectedRoute requiredRoles={['ADMIN', 'GOLDSMITH']}>
+                    <ConsultationsPage />
+                  </ProtectedRoute>
+                }
+              />
+              {/* Static "new" segment must be registered alongside the
+                  dynamic ":id" segment below — react-router v7 ranks
+                  static path segments above dynamic ones during
+                  matching regardless of array order, so /consultations/new
+                  always resolves here and never against :id. Pinned by
+                  pages/ConsultationsRoutes.test.tsx. */}
+              <Route
+                path="consultations/new"
+                element={
+                  <ProtectedRoute requiredRoles={['ADMIN', 'GOLDSMITH']}>
+                    <ConsultationWizardPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="consultations/:id"
+                element={
+                  <ProtectedRoute requiredRoles={['ADMIN', 'GOLDSMITH']}>
+                    <ConsultationWizardPage />
+                  </ProtectedRoute>
+                }
+              />
+
+              {/* Materialien — ADMIN und GOLDSMITH */}
+              <Route
+                path="materials"
+                element={
+                  <ProtectedRoute requiredRoles={['ADMIN', 'GOLDSMITH']}>
+                    <MaterialsPage />
+                  </ProtectedRoute>
+                }
+              />
+
+              {/* Metallinventar — ADMIN und GOLDSMITH */}
+              <Route
+                path="metal-inventory"
+                element={
+                  <ProtectedRoute requiredRoles={['ADMIN', 'GOLDSMITH']}>
+                    <MetalInventoryPage />
+                  </ProtectedRoute>
+                }
+              />
+
+              <Route path="orders" element={<OrdersPage />} />
+              <Route path="orders/:orderId" element={<OrderDetailPage />} />
+
+              {/* Reparaturen — ADMIN und GOLDSMITH */}
+              <Route
+                path="repairs"
+                element={
+                  <ProtectedRoute requiredRoles={['ADMIN', 'GOLDSMITH']}>
+                    <RepairsPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="repairs/:id"
+                element={
+                  <ProtectedRoute requiredRoles={['ADMIN', 'GOLDSMITH']}>
+                    <RepairDetailPage />
+                  </ProtectedRoute>
+                }
+              />
+
+              <Route path="time-tracking" element={<TimeTrackingPage />} />
+
+              {/* Benutzerverwaltung — nur ADMIN */}
+              <Route
+                path="users"
+                element={
+                  <ProtectedRoute requiredRoles={['ADMIN']}>
+                    <UsersPage />
+                  </ProtectedRoute>
+                }
+              />
+
+              <Route path="scanner" element={<ScannerPage />} />
+              <Route path="settings" element={<UserSettingsPage />} />
+              <Route path="calendar" element={<CalendarPage />} />
+
+              {/* Rechnungen — ADMIN und GOLDSMITH */}
+              <Route
+                path="invoices"
+                element={
+                  <ProtectedRoute requiredRoles={['ADMIN', 'GOLDSMITH']}>
+                    <InvoicesPage />
+                  </ProtectedRoute>
+                }
+              />
+
+              {/* Angebote (Kostenvoranschlag) — ADMIN und GOLDSMITH */}
+              <Route
+                path="quotes"
+                element={
+                  <ProtectedRoute requiredRoles={['ADMIN', 'GOLDSMITH']}>
+                    <QuotesPage />
+                  </ProtectedRoute>
+                }
+              />
+
+              {/* Systemübersicht — nur ADMIN */}
+              <Route
+                path="admin/system"
+                element={
+                  <ProtectedRoute requiredRoles={['ADMIN']}>
+                    <AdminSystemPage />
+                  </ProtectedRoute>
+                }
+              />
+
+              {/* V1.1 Scan-Adoption Dashboard — nur ADMIN (Slice 13) */}
+              <Route
+                path="admin/scan-gate"
+                element={
+                  <ProtectedRoute requiredRoles={['ADMIN']}>
+                    <ScanAdoptionDashboard />
+                  </ProtectedRoute>
+                }
+              />
+            </Route>
+
+            {/* Catch all - redirect to dashboard */}
+            <Route path="*" element={<Navigate to="/dashboard" replace />} />
+          </Routes>
+        </OrderProvider>
+      </TimeTrackingProvider>
+    </ScannerProvider>
+  </AuthProvider>
+);
+
+/**
+ * Top-level route split: public customer routes first (no auth providers),
+ * everything else falls through to the staff shell. Exported for routing
+ * tests (App.portal.test.tsx) so they can use a MemoryRouter.
+ */
+export const AppRoutes: React.FC = () => (
+  <ErrorBoundary variant="app">
+    <Suspense fallback={<PageLoader />}>
+      <Routes>
+        {/* Customer self-service portal — public, no login, no auth providers (FE-01) */}
+        <Route path="/portal" element={<CustomerPortalPage />} />
+        <Route path="*" element={<StaffApp />} />
+      </Routes>
+    </Suspense>
+  </ErrorBoundary>
+);
+
 const App: React.FC = () => {
   // Apply admin-configurable theme settings as CSS variables on first paint
   useTheme();
@@ -63,192 +268,7 @@ const App: React.FC = () => {
   return (
     <BrowserRouter>
       <ToastProvider>
-        <AuthProvider>
-          <ScannerProvider>
-            <TimeTrackingProvider>
-              <OrderProvider>
-                <ErrorBoundary variant="app">
-                <Suspense fallback={<PageLoader />}>
-                <Routes>
-                  {/* Public Routes */}
-                  <Route path="/login" element={<LoginPage />} />
-                  {/* /register route removed (fix A3, 2026-04-23).
-                      Public self-registration is no longer supported; admins
-                      create users via the authenticated /users page. Any
-                      hard-coded /register link now falls through to the
-                      catch-all → /dashboard → /login (unauthenticated). */}
-                  {/* Customer self-service portal — no login required */}
-                  <Route path="/portal" element={<CustomerPortalPage />} />
-
-                  {/* Protected Routes */}
-                  <Route
-                    path="/"
-                    element={
-                      <ProtectedRoute>
-                        <MainLayout />
-                      </ProtectedRoute>
-                    }
-                  >
-                    <Route index element={<Navigate to="/dashboard" replace />} />
-                    <Route path="dashboard" element={<DashboardPage />} />
-
-                    {/* Kunden — ADMIN und GOLDSMITH */}
-                    <Route
-                      path="customers"
-                      element={
-                        <ProtectedRoute requiredRoles={['ADMIN', 'GOLDSMITH']}>
-                          <CustomersPage />
-                        </ProtectedRoute>
-                      }
-                    />
-                    <Route
-                      path="customers/:id"
-                      element={
-                        <ProtectedRoute requiredRoles={['ADMIN', 'GOLDSMITH']}>
-                          <CustomerDetailPage />
-                        </ProtectedRoute>
-                      }
-                    />
-
-                    {/* Beratung — ADMIN und GOLDSMITH */}
-                    <Route
-                      path="consultations"
-                      element={
-                        <ProtectedRoute requiredRoles={['ADMIN', 'GOLDSMITH']}>
-                          <ConsultationsPage />
-                        </ProtectedRoute>
-                      }
-                    />
-                    {/* Static "new" segment must be registered alongside the
-                        dynamic ":id" segment below — react-router v7 ranks
-                        static path segments above dynamic ones during
-                        matching regardless of array order, so /consultations/new
-                        always resolves here and never against :id. Pinned by
-                        pages/ConsultationsRoutes.test.tsx. */}
-                    <Route
-                      path="consultations/new"
-                      element={
-                        <ProtectedRoute requiredRoles={['ADMIN', 'GOLDSMITH']}>
-                          <ConsultationWizardPage />
-                        </ProtectedRoute>
-                      }
-                    />
-                    <Route
-                      path="consultations/:id"
-                      element={
-                        <ProtectedRoute requiredRoles={['ADMIN', 'GOLDSMITH']}>
-                          <ConsultationWizardPage />
-                        </ProtectedRoute>
-                      }
-                    />
-
-                    {/* Materialien — ADMIN und GOLDSMITH */}
-                    <Route
-                      path="materials"
-                      element={
-                        <ProtectedRoute requiredRoles={['ADMIN', 'GOLDSMITH']}>
-                          <MaterialsPage />
-                        </ProtectedRoute>
-                      }
-                    />
-
-                    {/* Metallinventar — ADMIN und GOLDSMITH */}
-                    <Route
-                      path="metal-inventory"
-                      element={
-                        <ProtectedRoute requiredRoles={['ADMIN', 'GOLDSMITH']}>
-                          <MetalInventoryPage />
-                        </ProtectedRoute>
-                      }
-                    />
-
-                    <Route path="orders" element={<OrdersPage />} />
-                    <Route path="orders/:orderId" element={<OrderDetailPage />} />
-
-                    {/* Reparaturen — ADMIN und GOLDSMITH */}
-                    <Route
-                      path="repairs"
-                      element={
-                        <ProtectedRoute requiredRoles={['ADMIN', 'GOLDSMITH']}>
-                          <RepairsPage />
-                        </ProtectedRoute>
-                      }
-                    />
-                    <Route
-                      path="repairs/:id"
-                      element={
-                        <ProtectedRoute requiredRoles={['ADMIN', 'GOLDSMITH']}>
-                          <RepairDetailPage />
-                        </ProtectedRoute>
-                      }
-                    />
-
-                    <Route path="time-tracking" element={<TimeTrackingPage />} />
-
-                    {/* Benutzerverwaltung — nur ADMIN */}
-                    <Route
-                      path="users"
-                      element={
-                        <ProtectedRoute requiredRoles={['ADMIN']}>
-                          <UsersPage />
-                        </ProtectedRoute>
-                      }
-                    />
-
-                    <Route path="scanner" element={<ScannerPage />} />
-                    <Route path="settings" element={<UserSettingsPage />} />
-                    <Route path="calendar" element={<CalendarPage />} />
-
-                    {/* Rechnungen — ADMIN und GOLDSMITH */}
-                    <Route
-                      path="invoices"
-                      element={
-                        <ProtectedRoute requiredRoles={['ADMIN', 'GOLDSMITH']}>
-                          <InvoicesPage />
-                        </ProtectedRoute>
-                      }
-                    />
-
-                    {/* Angebote (Kostenvoranschlag) — ADMIN und GOLDSMITH */}
-                    <Route
-                      path="quotes"
-                      element={
-                        <ProtectedRoute requiredRoles={['ADMIN', 'GOLDSMITH']}>
-                          <QuotesPage />
-                        </ProtectedRoute>
-                      }
-                    />
-
-                    {/* Systemübersicht — nur ADMIN */}
-                    <Route
-                      path="admin/system"
-                      element={
-                        <ProtectedRoute requiredRoles={['ADMIN']}>
-                          <AdminSystemPage />
-                        </ProtectedRoute>
-                      }
-                    />
-
-                    {/* V1.1 Scan-Adoption Dashboard — nur ADMIN (Slice 13) */}
-                    <Route
-                      path="admin/scan-gate"
-                      element={
-                        <ProtectedRoute requiredRoles={['ADMIN']}>
-                          <ScanAdoptionDashboard />
-                        </ProtectedRoute>
-                      }
-                    />
-                  </Route>
-
-                  {/* Catch all - redirect to dashboard */}
-                  <Route path="*" element={<Navigate to="/dashboard" replace />} />
-                  </Routes>
-                </Suspense>
-                </ErrorBoundary>
-              </OrderProvider>
-            </TimeTrackingProvider>
-          </ScannerProvider>
-        </AuthProvider>
+        <AppRoutes />
         {/* Toast notifications and confirm dialogs rendered above all app content */}
         <ToastContainer />
         <ConfirmDialog />
