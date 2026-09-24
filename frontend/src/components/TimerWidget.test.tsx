@@ -112,22 +112,34 @@ describe('TimerWidget', () => {
     });
   });
 
-  describe('Pause / Resume', () => {
-    it('toggles between running and paused state', async () => {
-      const user = userEvent.setup();
+  describe('Pause (FE-10)', () => {
+    it('renders no Pause control — the timer only ever shows the running state', () => {
+      // FE-10: "Pause" was a local display toggle only — the server kept
+      // counting the whole time, so the booked hours silently included
+      // breaks. Removed entirely (D-15 default); a real pause returns in
+      // W2-14 as a server-side interruption.
       renderWidget(makeEntry());
       expand();
 
       expect(screen.getByText('⏱️ Läuft')).toBeInTheDocument();
+      expect(screen.queryByText('⏸️ Pause')).not.toBeInTheDocument();
+      expect(screen.queryByText('⏸️ Pausiert')).not.toBeInTheDocument();
+      expect(screen.queryByText('▶️ Fortsetzen')).not.toBeInTheDocument();
+    });
 
-      await user.click(screen.getByText('⏸️ Pause'));
+    it('keeps advancing the elapsed time — nothing in the UI can freeze it', () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2025-01-01T12:00:00Z'));
+      renderWidget(makeEntry({ start_time: '2025-01-01T11:59:00Z' }));
+      expand();
 
-      expect(screen.getByText('⏸️ Pausiert')).toBeInTheDocument();
-      expect(screen.getByText('▶️ Fortsetzen')).toBeInTheDocument();
+      expect(document.querySelector('.timer-time')?.textContent).toBe('1:00');
 
-      await user.click(screen.getByText('▶️ Fortsetzen'));
+      act(() => {
+        vi.advanceTimersByTime(60_000);
+      });
 
-      expect(screen.getByText('⏱️ Läuft')).toBeInTheDocument();
+      expect(document.querySelector('.timer-time')?.textContent).toBe('2:00');
     });
   });
 

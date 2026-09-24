@@ -24,7 +24,6 @@ const TimerWidget: React.FC<TimerWidgetProps> = ({
   onRefresh,
 }) => {
   const [elapsedTime, setElapsedTime] = useState(0);
-  const [isPaused, setIsPaused] = useState(false);
   const [isCollapsed, setIsCollapsed] = useState(true);
 
   // Listen for external "expand timer" events (e.g. clicking a running entry row)
@@ -50,9 +49,11 @@ const TimerWidget: React.FC<TimerWidgetProps> = ({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Calculate elapsed time
+  // Calculate elapsed time. There is no client-side pause (FE-10): the
+  // displayed time always tracks wall-clock time from start_time, matching
+  // what the server actually records.
   useEffect(() => {
-    if (!runningEntry || isPaused) return;
+    if (!runningEntry) return;
 
     // Server sends UTC timestamps without 'Z' suffix — append it so
     // JavaScript doesn't interpret them as local time.
@@ -74,7 +75,7 @@ const TimerWidget: React.FC<TimerWidgetProps> = ({
     const interval = setInterval(updateElapsed, 1000);
 
     return () => clearInterval(interval);
-  }, [runningEntry, isPaused]);
+  }, [runningEntry]);
 
   const formatTime = (seconds: number): string => {
     const hours = Math.floor(seconds / 3600);
@@ -85,13 +86,6 @@ const TimerWidget: React.FC<TimerWidgetProps> = ({
       return `${hours}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
     }
     return `${minutes}:${secs.toString().padStart(2, '0')}`;
-  };
-
-  const handlePauseResume = () => {
-    if (!runningEntry) return;
-    // Pause/resume is a local UI action only — the backend timer keeps running.
-    // The actual elapsed time is always calculated from start_time to end_time.
-    setIsPaused((prev) => !prev);
   };
 
   const handleStopClick = () => {
@@ -309,12 +303,10 @@ const TimerWidget: React.FC<TimerWidgetProps> = ({
   return (
     <>
       {/* Timer Widget (Sticky, expanded) */}
-      <div className={`timer-widget ${isPaused ? 'paused' : ''}`}>
+      <div className="timer-widget">
         <div className="timer-widget-content">
           <div className="timer-info">
-            <div className="timer-label">
-              {isPaused ? '⏸️ Pausiert' : '⏱️ Läuft'}
-            </div>
+            <div className="timer-label">⏱️ Läuft</div>
             <div className="timer-time">{formatTime(elapsedTime)}</div>
             <div className="timer-activity">
               Auftrag #{runningEntry.order_id}
@@ -322,13 +314,6 @@ const TimerWidget: React.FC<TimerWidgetProps> = ({
           </div>
 
           <div className="timer-controls">
-            <button
-              onClick={handlePauseResume}
-              className="timer-button timer-button-pause"
-              disabled={loading}
-            >
-              {isPaused ? '▶️ Fortsetzen' : '⏸️ Pause'}
-            </button>
             <button
               onClick={handleStopClick}
               className="timer-button timer-button-stop"
