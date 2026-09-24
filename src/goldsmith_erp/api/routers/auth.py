@@ -5,10 +5,10 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Request, Response, 
 from fastapi.security import OAuth2PasswordRequestForm
 from jose import JWTError, jwt
 from slowapi import Limiter
-from slowapi.util import get_remote_address
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
+from goldsmith_erp.core.client_ip import get_client_ip
 from goldsmith_erp.core.config import settings
 from goldsmith_erp.core.security import (
     ALGORITHM,
@@ -27,7 +27,7 @@ from goldsmith_erp.db.session import get_db
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
-limiter = Limiter(key_func=get_remote_address)
+limiter = Limiter(key_func=get_client_ip)
 
 # Login rate-limit tuning (finding 2.10). The whole workshop shares one NAT IP,
 # so an IP-only limiter lets a single abuser lock everyone out. We bucket the
@@ -54,7 +54,7 @@ async def _capture_login_identifier(
 
 def _login_ip_username_key(request: Request) -> str:
     """slowapi key: ``ip|normalized-username``. Called synchronously by slowapi."""
-    ip = get_remote_address(request)
+    ip = get_client_ip(request)
     username = getattr(request.state, "login_username", "") or ""
     return f"{ip}|{username}"
 
@@ -199,7 +199,7 @@ async def refresh_access_token(
     except JWTError as exc:
         logger.warning(
             "Token refresh rejected",
-            extra={"reason": str(exc), "path": str(request.url)},
+            extra={"reason": str(exc), "path": request.url.path},
         )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -213,7 +213,7 @@ async def refresh_access_token(
     if await is_token_revoked(payload):
         logger.warning(
             "Token refresh rejected: token revoked",
-            extra={"path": str(request.url)},
+            extra={"path": request.url.path},
         )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

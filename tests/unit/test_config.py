@@ -1,8 +1,9 @@
 """Unit tests for core.config.Settings validators.
 
-Focused on the SECRET_KEY validator: must accept the .env.example placeholder
-with a WARNING (so fresh `make start` boots out of the box), but hard-reject
-empty values and other insecure defaults.
+Focused on the SECRET_KEY validator: in development (DEBUG=True) it accepts the
+.env.example placeholder with a WARNING (so fresh `make start` boots out of the
+box); in production (DEBUG=False) the placeholder is rejected (SEC-02). Empty
+values and other insecure defaults are always hard-rejected.
 """
 
 import logging
@@ -312,3 +313,71 @@ class TestCorsWildcardValidator:
 
         assert settings.BACKEND_CORS_ORIGINS == ["*"]
         assert settings.DEBUG is True
+
+
+# ── .env.example placeholder secrets in production (SEC-02, 2026-09-25) ───────
+# The public .env.example ships SECRET_KEY / ANONYMIZATION_SALT set to a known
+# placeholder. Accepting it with DEBUG=False lets anyone mint admin JWTs, so
+# production must hard-reject; development keeps warn-and-accept so a fresh
+# checkout still boots.
+
+ENV_EXAMPLE_PLACEHOLDER = "CHANGE_THIS_TO_A_SECURE_RANDOM_STRING_AT_LEAST_32_CHARS"
+STRONG_SECRET = "aZ9kQ2mNbV7xP4rT8wL3jF5yH6sD1cE0uG2iO5pR8tW4qX7vY3zK9jM2nB6cF"
+
+
+def _prod_kwargs(**overrides) -> dict:
+    """Kwargs that satisfy every other production validator."""
+    kwargs: dict = dict(
+        _env_file=None,
+        DEBUG=False,
+        SECRET_KEY=STRONG_SECRET,
+        ENCRYPTION_KEY="test-encryption-key-not-a-real-fernet-key",
+        ANONYMIZATION_SALT="a-non-empty-test-salt-value",
+        COOKIE_SECURE=True,
+    )
+    kwargs.update(overrides)
+    return kwargs
+
+
+class TestPlaceholderSecretsRejectedInProduction:
+    def test_prod_placeholder_secret_key_raises_naming_variable(self):
+        with pytest.raises(ValidationError) as exc_info:
+            Settings(**_prod_kwargs(SECRET_KEY=ENV_EXAMPLE_PLACEHOLDER))
+
+        message = str(exc_info.value)
+        assert "SECRET_KEY" in message
+        assert "placeholder" in message.lower()
+
+    def test_prod_placeholder_anonymization_salt_raises_naming_variable(self):
+        with pytest.raises(ValidationError) as exc_info:
+            Settings(**_prod_kwargs(ANONYMIZATION_SALT=ENV_EXAMPLE_PLACEHOLDER))
+
+        message = str(exc_info.value)
+        assert "ANONYMIZATION_SALT" in message
+        assert "placeholder" in message.lower()
+
+    def test_prod_with_real_secrets_boots(self):
+        settings = Settings(**_prod_kwargs())
+
+        assert settings.DEBUG is False
+        assert settings.SECRET_KEY == STRONG_SECRET
+
+    def test_dev_placeholder_secret_key_warns_and_boots(self, caplog):
+        with caplog.at_level(logging.WARNING, logger="goldsmith_erp.core.config"):
+            settings = Settings(
+                _env_file=None, DEBUG=True, SECRET_KEY=ENV_EXAMPLE_PLACEHOLDER
+            )
+
+        assert settings.SECRET_KEY == ENV_EXAMPLE_PLACEHOLDER
+        assert any("SECRET_KEY" in r.getMessage() for r in caplog.records)
+
+    def test_dev_placeholder_anonymization_salt_warns_and_boots(self, caplog):
+        with caplog.at_level(logging.WARNING, logger="goldsmith_erp.core.config"):
+            settings = Settings(
+                _env_file=None,
+                DEBUG=True,
+                ANONYMIZATION_SALT=ENV_EXAMPLE_PLACEHOLDER,
+            )
+
+        assert settings.ANONYMIZATION_SALT == ENV_EXAMPLE_PLACEHOLDER
+        assert any("ANONYMIZATION_SALT" in r.getMessage() for r in caplog.records)

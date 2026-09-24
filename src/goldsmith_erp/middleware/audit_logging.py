@@ -32,7 +32,6 @@ History:
   financial data).
 """
 
-import ipaddress
 import json
 import logging
 import time
@@ -42,6 +41,8 @@ from typing import Callable, Optional, Tuple
 from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.types import ASGIApp
+
+from goldsmith_erp.core.client_ip import get_client_ip
 
 try:
     from goldsmith_erp.db.session import AsyncSessionLocal
@@ -54,38 +55,6 @@ except ImportError:
     CustomerAuditLog = None  # type: ignore[assignment,misc]
 
 logger = logging.getLogger(__name__)
-
-
-def _is_trusted_proxy_ip(ip: str) -> bool:
-    """Return True if *ip* is a loopback or RFC-1918 private address."""
-    try:
-        addr = ipaddress.ip_address(ip)
-        return addr.is_loopback or addr.is_private
-    except ValueError:
-        return False
-
-
-def get_real_ip(request: Request) -> str:
-    """
-    Return the real client IP address.
-
-    X-Forwarded-For is only trusted when the direct TCP peer
-    (request.client.host) is a loopback or private-network address,
-    i.e. a known-good reverse proxy.  Untrusted clients that inject
-    X-Forwarded-For are ignored and their direct IP is used instead.
-    """
-    direct_ip = request.client.host if request.client else None
-
-    if direct_ip and _is_trusted_proxy_ip(direct_ip):
-        forwarded_for = request.headers.get("X-Forwarded-For")
-        if forwarded_for:
-            return forwarded_for.split(",")[0].strip()
-
-        real_ip = request.headers.get("X-Real-IP")
-        if real_ip:
-            return real_ip
-
-    return direct_ip or "unknown"
 
 
 # ---------------------------------------------------------------------------
@@ -473,7 +442,7 @@ class AuditLoggingMiddleware(BaseHTTPMiddleware):
         Returns:
             Client IP address
         """
-        return get_real_ip(request)
+        return get_client_ip(request)
 
     def _method_to_action(self, method: str) -> str:
         """
@@ -653,7 +622,7 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
 
     def _get_client_ip(self, request: Request) -> str:
         """Get client IP address, validating proxy headers against the direct peer."""
-        return get_real_ip(request)
+        return get_client_ip(request)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
