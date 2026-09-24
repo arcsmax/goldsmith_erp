@@ -110,3 +110,17 @@ def test_access_log_omits_query_strings(conf: str):
     assert "$request " not in fmt and '$request"' not in fmt
     assert "$http_referer" not in fmt
     assert re.search(rf"access_log\s+\S+\s+{name};", conf)
+
+
+def test_client_max_body_size_covers_the_largest_upload(conf: str):
+    """SEC-F2: nginx's 1m default 413s every photo (8 MB) and material (10 MB)
+    upload the backend otherwise accepts."""
+    match = re.search(r"client_max_body_size\s+(\d+)\s*([kKmM]?)\s*;", conf)
+    assert match, "client_max_body_size not set (nginx defaults to 1m)"
+    value, unit = match.groups()
+    multiplier = {"": 1, "k": 1024, "m": 1024 * 1024}[unit.lower()]
+    size_bytes = int(value) * multiplier
+    min_required = 10 * 1024 * 1024
+    assert size_bytes >= min_required, (
+        f"client_max_body_size {value}{unit} is smaller than the 10 MB material upload limit"
+    )

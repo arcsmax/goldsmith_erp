@@ -171,3 +171,17 @@ def test_upgrade_env_never_rotates_existing_salt(tmp_path: Path):
 
     assert result.returncode == 0, result.stderr
     assert _parse_env_file(existing)["ANONYMIZATION_SALT"] == "keep-me-forever"
+
+
+def test_env_example_documents_auth_revocation_fail_closed():
+    """OPS-15: AUTH_REVOCATION_FAIL_CLOSED is a real security/availability
+    toggle (core/config.py) but was the one remaining undocumented knob in
+    .env.example, unlike every other security-relevant setting."""
+    text = (REPO_ROOT / ".env.example").read_text(encoding="utf-8")
+
+    assert "AUTH_REVOCATION_FAIL_CLOSED" in text
+    # Documented, not just named: a comment block precedes the line, mirroring
+    # every other security-toggle section in this file.
+    idx = text.index("AUTH_REVOCATION_FAIL_CLOSED")
+    preceding = text[max(0, idx - 400) : idx]
+    assert "#" in preceding, "AUTH_REVOCATION_FAIL_CLOSED has no explanatory comment"
