@@ -32,7 +32,27 @@ vi.mock('../api/photos', () => ({
 
 const mockUseAuth = vi.fn();
 vi.mock('../contexts', () => ({
-  useAuth: () => mockUseAuth(),
+  useAuth: () => {
+    const value = mockUseAuth() as { user?: { role?: string } };
+    const role = value?.user?.role ?? '';
+    return {
+      hasRole: (roles: string | string[]) =>
+        (Array.isArray(roles) ? roles : [roles]).includes(role),
+      ...value,
+    };
+  },
+  useToast: () => ({ showToast: vi.fn() }),
+  useConfirm: () => ({ showConfirm: vi.fn().mockResolvedValue(false) }),
+}));
+
+// The consent panel mounted on this page lists consents on render; keep it inert here.
+vi.mock('../api/consents', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../api/consents')>()),
+  consentsApi: {
+    list: vi.fn().mockResolvedValue([]),
+    grant: vi.fn(),
+    revoke: vi.fn(),
+  },
 }));
 
 import { CustomerDetailPage } from './CustomerDetailPage';
