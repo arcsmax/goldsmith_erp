@@ -26,6 +26,7 @@ from goldsmith_erp.api.routers import (
     customer_portal,
     customer_updates,
     customers,
+    dashboard,
     estimator,
     hallmarks,
     handoffs,
@@ -277,6 +278,9 @@ app.include_router(
     tags=["customer-updates"],
 )  # V1.2 Kundeninfo + §649 BGB Kostenfreigabe (mixed /orders, /updates,
 #    /cost-changes path roots — bare API prefix, handoffs.py precedent)
+app.include_router(
+    dashboard.router, prefix=f"{settings.API_V1_STR}/dashboard", tags=["dashboard"]
+)  # W2-03 "Heute" start-of-day view
 app.include_router(
     estimator.router,
     prefix=f"{settings.API_V1_STR}/estimates",
