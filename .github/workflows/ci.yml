@@ -39,6 +39,22 @@ jobs:
       - name: Type checking (mypy)
         working-directory: ./src
         run: poetry run mypy goldsmith_erp/ --ignore-missing-imports
+      - name: Lint (ruff)
+        # OPS-12: ruff already runs via pre-commit's ruff-pre-commit hook, but
+        # only for contributors who have hooks installed — nothing in CI ever
+        # invoked it. Installed with plain pip (not `poetry add`) so this
+        # never touches poetry.lock, per the audit's scope guardrail.
+        # --exit-zero: no [tool.ruff] config existed before this PR (see
+        # pyproject.toml); a first real run against src/ found 994
+        # pre-existing violations, none introduced here. That count is the
+        # baseline — non-blocking for now, matching the mypy baseline-ledger
+        # pattern already used in this repo (see docs/technical/
+        # MYPY_BURNDOWN.md). Drop --exit-zero once the baseline is burned
+        # down and this should start blocking merges.
+        working-directory: ./src
+        run: |
+          pip install ruff
+          ruff check goldsmith_erp/ --exit-zero
 
   lint-frontend:
     runs-on: ubuntu-latest
@@ -55,6 +71,75 @@ jobs:
       - name: Type check
         working-directory: ./frontend
         run: npx tsc --noEmit
+
+  # OPS-11 — dependency-vulnerability scanning. Advisory only: the repo
+  # carries a real, already-tracked backlog (OPS-06: 35 open Dependabot
+  # alerts at last count) that a blocking gate would turn into a permanent
+  # red CI. Every step still runs its own audit to completion and writes a
+  # human-readable summary to the job's GitHub Actions summary page, so a
+  # newly-introduced vulnerability is visible on every PR without blocking
+  # merges while that backlog is paid down.
+  security-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "poetry"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "yarn"
+          cache-dependency-path: frontend/yarn.lock
+      - name: Install Poetry
+        run: pip install poetry
+      - name: Install backend dependencies
+        working-directory: ./src
+        run: poetry install
+      - name: pip-audit (advisory — see job comment)
+        id: pip-audit
+        continue-on-error: true
+        working-directory: ./src
+        run: |
+          set +e
+          poetry run pip-audit --desc > pip-audit.txt 2>&1
+          audit_exit=$?
+          set -e
+          {
+            echo "## pip-audit (backend)"
+            echo '```'
+            cat pip-audit.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "$audit_exit"
+      - name: Enable Corepack
+        run: corepack enable
+      - name: Install frontend dependencies
+        working-directory: ./frontend
+        run: yarn install --frozen-lockfile
+      - name: yarn npm audit --severity high (advisory — see job comment)
+        id: yarn-audit
+        continue-on-error: true
+        working-directory: ./frontend
+        run: |
+          set +e
+          yarn npm audit --severity high > yarn-audit.txt 2>&1
+          audit_exit=$?
+          set -e
+          {
+            echo "## yarn npm audit --severity high (frontend)"
+            echo '```'
+            cat yarn-audit.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "$audit_exit"
+      - name: Report advisory outcome
+        if: always()
+        run: |
+          echo "pip-audit outcome:       ${{ steps.pip-audit.outcome }}"
+          echo "yarn npm audit outcome:  ${{ steps.yarn-audit.outcome }}"
+          echo "Both are advisory (continue-on-error) — see the job summary above for details. A 'failure' outcome means the tool found something to look at, not that this job failed."
 
   # Stage 2: Tests
   test-backend:

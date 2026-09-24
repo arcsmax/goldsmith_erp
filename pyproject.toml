@@ -68,6 +68,17 @@ ml = [
 line-length = 88
 target-version = ["py311"]
 
+[tool.ruff]
+# Minimal config (OPS-12): no [tool.ruff] existed before this — pre-commit's
+# ruff-pre-commit hook was running with all-defaults. Line length matches
+# black so the two never disagree. select is deliberately narrow (pyflakes,
+# pycodestyle errors, isort, bugbear) — this is a floor, not the full ruleset.
+line-length = 88
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B"]
+
 [tool.isort]
 profile = "black"
 
