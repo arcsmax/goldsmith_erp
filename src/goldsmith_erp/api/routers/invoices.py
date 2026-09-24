@@ -44,6 +44,7 @@ from goldsmith_erp.models.invoice import (
     MarkPaidRequest,
 )
 from goldsmith_erp.services.accounting_export_service import (
+    AccountingExportError,
     export_datev_csv,
     export_lexoffice_csv,
 )
@@ -53,6 +54,30 @@ from goldsmith_erp.services.pdf_service import PDFService
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+# Invoice statuses treated as "issued" (a legal document exists) for the
+# accounting export — booked as normal revenue. See BE-13 /
+# accounting_export_service.py module docstring for the CANCELLED handling.
+_ISSUED_INVOICE_STATUSES = (
+    InvoiceStatus.SENT,
+    InvoiceStatus.PAID,
+    InvoiceStatus.OVERDUE,
+)
+
+
+def _partition_invoices_for_accounting_export(
+    invoices: List[Invoice],
+) -> tuple[List[Invoice], List[Invoice]]:
+    """Split invoices into (issued, cancelled) for the accounting export.
+
+    Issued invoices (SENT/PAID/OVERDUE) get a normal revenue booking.
+    CANCELLED invoices get a Storno reversal booking. DRAFT invoices are
+    excluded entirely — no legal document was ever issued, so there is
+    nothing to book or reverse (BE-13).
+    """
+    issued = [inv for inv in invoices if inv.status in _ISSUED_INVOICE_STATUSES]
+    cancelled = [inv for inv in invoices if inv.status == InvoiceStatus.CANCELLED]
+    return issued, cancelled
 
 
 @router.post("/", response_model=InvoiceResponse, status_code=status.HTTP_201_CREATED)
@@ -141,13 +166,19 @@ async def export_invoices_datev(
     Exports invoices in DATEV format 510 (Buchungsstapel), ready for import
     into DATEV Unternehmen Online or DATEV Kanzlei-Rechnungswesen.
 
+    Only issued invoices (SENT/PAID/OVERDUE) are booked as revenue;
+    CANCELLED invoices produce a Storno reversal booking instead of being
+    silently omitted, and the revenue account is chosen per the invoice's
+    VAT rate (BE-13, W1-09 — see accounting_export_service.py docstring).
+
     Access is restricted to ADMIN role (financial data export).
     Each export call is audit-logged.
 
     Query parameters:
       date_from  - ISO 8601 datetime, filters by issue_date
       date_to    - ISO 8601 datetime, filters by issue_date
-      status     - Invoice status filter (e.g. PAID, SENT)
+      status     - Invoice status filter (e.g. PAID, SENT); unset exports
+                   every issued/cancelled invoice in the date range
 
     Returns a StreamingResponse with Content-Type text/csv and a
     Content-Disposition attachment header (datev_export_YYYYMMDD.csv).
@@ -181,14 +212,18 @@ async def export_invoices_datev(
         date_from=date_from,
         date_to=date_to,
     )
+    issued_invoices, cancelled_invoices = _partition_invoices_for_accounting_export(
+        invoices
+    )
 
-    invoice_ids = [inv.id for inv in invoices]
-    if not invoice_ids:
-        csv_content = export_datev_csv([])
-    else:
-        result = await db.execute(select(Invoice).where(Invoice.id.in_(invoice_ids)))
-        orm_invoices = result.scalars().all()
-        csv_content = export_datev_csv(list(orm_invoices))
+    try:
+        csv_content = export_datev_csv(
+            issued_invoices, reversal_invoices=cancelled_invoices
+        )
+    except AccountingExportError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+        ) from exc
 
     filename = f"datev_export_{datetime.utcnow().strftime('%Y%m%d')}.csv"
     return StreamingResponse(
@@ -220,6 +255,11 @@ async def export_invoices_lexoffice(
     Exports invoices as a simplified CSV suitable for import into Lexoffice
     (Haufe lexware). Columns: Datum, Belegnummer, Beschreibung, Netto,
     MwSt-Satz, Brutto.
+
+    Only issued invoices (SENT/PAID/OVERDUE) are booked as revenue;
+    CANCELLED invoices produce a negative Storno row instead of being
+    silently omitted (BE-13, W1-09 — see accounting_export_service.py
+    docstring).
 
     Access is restricted to ADMIN role (financial data export).
     Each export call is audit-logged.
@@ -255,14 +295,13 @@ async def export_invoices_lexoffice(
         date_from=date_from,
         date_to=date_to,
     )
+    issued_invoices, cancelled_invoices = _partition_invoices_for_accounting_export(
+        invoices
+    )
 
-    invoice_ids = [inv.id for inv in invoices]
-    if not invoice_ids:
-        csv_content = export_lexoffice_csv([])
-    else:
-        result = await db.execute(select(Invoice).where(Invoice.id.in_(invoice_ids)))
-        orm_invoices = result.scalars().all()
-        csv_content = export_lexoffice_csv(list(orm_invoices))
+    csv_content = export_lexoffice_csv(
+        issued_invoices, reversal_invoices=cancelled_invoices
+    )
 
     filename = f"lexoffice_export_{datetime.utcnow().strftime('%Y%m%d')}.csv"
     return StreamingResponse(
