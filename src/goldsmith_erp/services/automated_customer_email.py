@@ -20,11 +20,25 @@ goes through the regular Kundeninfo path (``CustomerUpdateService.create_draft``
 - the ``CustomerUpdate`` rows are also the dedupe store (no new table or
   column).
 
-Dedupe key: (order_id, kind[, fixed subject]).
+Dedupe key: (order_id, kind, subject).
 - A SENT row for the key means the customer was already informed (by this job
   or by staff by hand), so the job never sends again.
 - A SEND_FAILED row created today means the job already tried today, so the
   retry waits for the next day.
+
+Adversarial fix (C1.2, 2026-09-25): the key used to be (order_id, kind[, a
+FIXED subject]) with no bound on WHICH occurrence of the event it covers. An
+order/repair whose lifecycle can revisit the triggering status more than once
+(e.g. reopened for a warranty fix and completed a SECOND time) would never be
+re-mailed — a SENT row from the FIRST completion blocked every later one
+forever. ``_EventMail.occurrence_marker`` folds a per-occurrence value (e.g.
+``Order.completed_at``, at full precision — see its docstring for why it is
+NOT rounded) into the stored ``subject``, so a genuinely new occurrence gets
+its own subject and is never shadowed by a stale SENT row from a previous one,
+while the SAME occurrence (unchanged completed_at across retries/ticks) still
+dedupes exactly as before. A DB-level unique backstop for concurrent double
+sends of the SAME occurrence (C2.2) is tracked separately (schema change,
+out of this module's scope).
 """
 
 from __future__ import annotations
@@ -59,16 +73,51 @@ class _EventMail:
     """How one automated event maps onto a CustomerUpdate."""
 
     kind: CustomerUpdateKind
-    # None means "use CustomerUpdateService's German template for ``kind``"
-    # and dedupe on (order, kind) alone.
-    subject_template: Optional[str] = None
-    body: Optional[str] = None
+    subject_template: str
+    body: str
+    # Attribute name on ``Order`` holding this event's per-occurrence
+    # timestamp (e.g. "completed_at") — C1.2, see module docstring. ``None``
+    # means this event has no natural per-occurrence timestamp on ``Order``
+    # today, so its dedupe stays order-scoped (unchanged pre-fix behaviour).
+    occurrence_field: Optional[str] = None
 
-    def subject_for(self, order_id: int) -> Optional[str]:
-        if self.subject_template is None:
+    def occurrence_marker(self, order: Order) -> Optional[str]:
+        """
+        Per-occurrence value for THIS event on ``order``, or ``None`` if the
+        event has no such marker.
+
+        Full microsecond precision (``datetime.isoformat()``, not rounded to
+        seconds/minutes) is deliberate: two genuinely different occurrences
+        (e.g. an automated re-open-and-recomplete test, or a same-day
+        reopen+refix in production) can be only milliseconds apart, and
+        rounding would let them collide onto the identical marker —
+        silently re-introducing the exact bug this fixes.
+        """
+        if self.occurrence_field is None:
             return None
-        return self.subject_template.format(order_id=order_id)
+        value = cast(Optional[datetime], getattr(order, self.occurrence_field, None))
+        if value is None:
+            return None
+        return value.isoformat(sep=" ")
 
+    def subject_for(self, order_id: int, occurrence: Optional[str]) -> str:
+        subject = self.subject_template.format(order_id=order_id)
+        if occurrence is not None:
+            subject = f"{subject} (Bearbeitung vom {occurrence} UTC)"
+        return subject
+
+
+_PICKUP_READY_SUBJECT = (
+    "Ihr Schmuckstueck ist fertig zur Abholung — Auftrag #{order_id}"
+)
+# Duplicated from CustomerUpdateService._default_subject_body's
+# READY_FOR_PICKUP text rather than imported: this module needs a template it
+# can pass an occurrence marker through (see subject_for), and
+# _default_subject_body only fills in when subject/body are omitted entirely.
+_PICKUP_READY_BODY = (
+    "Ihr Schmuckstueck ist fertig und kann ab sofort in unserem "
+    "Atelier abgeholt werden."
+)
 
 _FITTING_BODY = (
     "Ihr Schmuckstueck ist bereit fuer die Anprobe. Bitte melden Sie sich "
@@ -77,12 +126,18 @@ _FITTING_BODY = (
 
 _EVENT_MAILS: dict[NotificationTypeEnum, _EventMail] = {
     NotificationTypeEnum.PICKUP_READY: _EventMail(
-        kind=CustomerUpdateKind.READY_FOR_PICKUP
+        kind=CustomerUpdateKind.READY_FOR_PICKUP,
+        subject_template=_PICKUP_READY_SUBJECT,
+        body=_PICKUP_READY_BODY,
+        occurrence_field="completed_at",
     ),
     NotificationTypeEnum.FITTING_REMINDER: _EventMail(
         kind=CustomerUpdateKind.CUSTOM,
         subject_template="Anprobe fuer Ihren Auftrag #{order_id}",
         body=_FITTING_BODY,
+        # No timestamp column tracks "entered WAITING_FOR_FITTING at" on
+        # Order today (adding one is a migration, out of this fix's scope)
+        # — dedupe stays order-scoped, matching pre-fix behaviour.
     ),
 }
 
@@ -102,16 +157,26 @@ async def _customer_has_email(db: AsyncSession, customer_id: Optional[int]) -> b
 
 
 async def _already_handled(
-    db: AsyncSession, order_id: int, mail: _EventMail, day_start: datetime
+    db: AsyncSession,
+    order_id: int,
+    mail: _EventMail,
+    day_start: datetime,
+    occurrence: Optional[str],
 ) -> bool:
-    """True if the customer was already informed, or we already tried today."""
+    """True if the customer was already informed, or we already tried today.
+
+    ``occurrence`` (C1.2) scopes the check to THIS occurrence of the event —
+    see ``_EventMail.occurrence_marker``. Folded into the ``subject`` equality
+    condition (the same column FITTING_REMINDER already used to key its
+    dedupe on), not a separate condition, so a stale row from a PRIOR
+    occurrence (different subject) is structurally invisible here rather than
+    filtered out after the fact.
+    """
     conditions = [
         CustomerUpdate.order_id == order_id,
         CustomerUpdate.kind == mail.kind,
+        CustomerUpdate.subject == mail.subject_for(order_id, occurrence),
     ]
-    subject = mail.subject_for(order_id)
-    if subject is not None:
-        conditions.append(CustomerUpdate.subject == subject)
 
     rows = (
         await db.execute(
@@ -170,8 +235,9 @@ async def send_customer_mail_once(
     if not await _customer_has_email(db, cast(Optional[int], order.customer_id)):
         return False
 
+    occurrence = mail.occurrence_marker(order)
     day_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
-    if await _already_handled(db, order_id, mail, day_start):
+    if await _already_handled(db, order_id, mail, day_start, occurrence):
         return False
 
     actor_id = await _system_actor_id(db)
@@ -182,7 +248,7 @@ async def send_customer_mail_once(
         )
         return False
 
-    return await _create_and_send(db, order_id, event, mail, actor_id)
+    return await _create_and_send(db, order_id, event, mail, actor_id, occurrence)
 
 
 async def _create_and_send(
@@ -191,6 +257,7 @@ async def _create_and_send(
     event: NotificationTypeEnum,
     mail: _EventMail,
     actor_id: int,
+    occurrence: Optional[str],
 ) -> bool:
     # Late import: customer_update_service lazily imports NotificationService,
     # and notification_service lazily imports this module.
@@ -205,7 +272,7 @@ async def _create_and_send(
             repair_job_id=None,
             data=CustomerUpdateCreate(
                 kind=mail.kind,
-                subject=mail.subject_for(order_id),
+                subject=mail.subject_for(order_id, occurrence),
                 body=mail.body,
                 photo_ids=None,  # design-IP rule: automated mails attach nothing
             ),

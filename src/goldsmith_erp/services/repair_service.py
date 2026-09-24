@@ -24,6 +24,8 @@ from goldsmith_erp.core import pubsub
 from goldsmith_erp.core.config import settings
 from goldsmith_erp.db.models import (
     Customer,
+    CustomerUpdate,
+    CustomerUpdateKind,
     Notification,
     NotificationSeverityEnum,
     NotificationTypeEnum,
@@ -34,6 +36,10 @@ from goldsmith_erp.db.models import (
     User,
 )
 from goldsmith_erp.db.transaction import transactional
+from goldsmith_erp.models.customer_update import (
+    CustomerUpdateCreate,
+    CustomerUpdateSendResult,
+)
 from goldsmith_erp.models.repair import (
     IntakeChecklistItem,
     RepairCompleteInput,
@@ -66,6 +72,21 @@ class InvalidChecklistPhotoError(ValueError):
             f"Ungueltige photo_id(s) fuer Reparaturauftrag #{repair_id}: "
             f"{invalid_photo_ids} — muss ein INTAKE-Phase-Foto dieses "
             f"Auftrags sein"
+        )
+
+
+class NoCustomerUpdateDraftError(ValueError):
+    """
+    No CustomerUpdate exists yet for this repair — maps to 404.
+
+    Expected when the repair has not reached READY yet (no draft has been
+    created — see ``RepairService.complete_repair``). ID-only message,
+    same rationale as ``InvalidChecklistPhotoError``.
+    """
+
+    def __init__(self, repair_id: int) -> None:
+        super().__init__(
+            f"Kein Kundeninfo-Entwurf fuer Reparaturauftrag #{repair_id} vorhanden"
         )
 
 
@@ -518,10 +539,18 @@ class RepairService:
         user_id: int,
     ) -> RepairJob:
         """
-        Quality check passed — mark as READY and notify customer.
+        Quality check passed — mark as READY and prepare the customer's
+        pickup-ready Kundeninfo draft.
 
-        Records actual cost and completion timestamp.
-        Sends REPAIR_READY notification to any admin/goldsmith users.
+        Records actual cost and completion timestamp. Creates an in-app
+        REPAIR_READY notification for staff, AND a DRAFT CustomerUpdate
+        (kind=READY_FOR_PICKUP) the customer will actually receive once
+        staff sends it (one tap — see ``send_customer_update``).
+
+        DOM-12 / W2-02: unlike the pre-fix behaviour, ``customer_notified_at``
+        is deliberately NOT stamped here — a draft existing is not the same
+        as the customer having been informed. It is stamped by
+        ``send_customer_update`` only once a send actually delivers.
         """
         now = datetime.utcnow()
         repair = await RepairService._transition(
@@ -531,15 +560,121 @@ class RepairService:
             extra_updates={
                 "actual_cost": data.actual_cost,
                 "actual_completion_date": now,
-                "customer_notified_at": now,
             },
         )
 
         # Create in-app notification for admins (customer contact role)
-        # In a production system we'd also send an SMS/email here
         await RepairService._notify_admins_repair_ready(db, repair, user_id)
 
+        # Create the customer-facing pickup-ready draft — staff sends it
+        # with one tap from the repair detail page
+        # (RepairCustomerUpdatePanel), via send_customer_update below.
+        await RepairService._create_pickup_ready_draft(db, repair, user_id)
+
         return repair
+
+    @staticmethod
+    async def _create_pickup_ready_draft(
+        db: AsyncSession, repair: RepairJob, user_id: int
+    ) -> None:
+        """
+        Create the DRAFT CustomerUpdate for a repair that just reached READY.
+
+        Reuses ``CustomerUpdateService.create_draft`` — the SAME
+        draft/send/dedupe mechanism used for orders (see
+        ``automated_customer_email.py``), not a second notification path.
+
+        Never raises: a failure to create the draft must not fail the
+        status transition itself (the repair IS ready regardless of
+        whether the Kundeninfo draft could be prepared) — logged loudly
+        instead (CLAUDE.md: fail loudly, never swallow silently) so staff
+        can notice and create the update by hand via
+        ``POST /repairs/{id}/customer-updates`` if this ever happens.
+        """
+        # Late import — mirrors automated_customer_email._create_and_send's
+        # deferred import of the same service (avoids a def-time coupling
+        # between the two service modules).
+        from goldsmith_erp.services.customer_update_service import (  # noqa: PLC0415
+            CustomerUpdateService,
+        )
+
+        try:
+            await CustomerUpdateService.create_draft(
+                db,
+                order_id=None,
+                repair_job_id=cast(int, repair.id),
+                data=CustomerUpdateCreate(
+                    kind=CustomerUpdateKind.READY_FOR_PICKUP,
+                    subject=None,
+                    body=None,
+                    photo_ids=None,
+                ),
+                user_id=user_id,
+            )
+        except Exception:
+            logger.error(
+                "Failed to create pickup-ready Kundeninfo draft for repair",
+                extra={"repair_id": repair.id},
+                exc_info=True,
+            )
+
+    @staticmethod
+    async def send_customer_update(
+        db: AsyncSession, repair_id: int, user_id: int
+    ) -> CustomerUpdateSendResult:
+        """
+        One-tap send of the repair's pickup-ready Kundeninfo draft
+        (DOM-12 / W2-02).
+
+        Sends the MOST RECENT CustomerUpdate row for this repair (the draft
+        created by ``complete_repair`` when the repair reached READY) via
+        ``CustomerUpdateService.send`` — the same draft/send/dedupe path
+        used everywhere else, not a second notification mechanism.
+
+        ``RepairJob.customer_notified_at`` is stamped with the update's
+        actual ``sent_at`` ONLY when the send is delivered (email accepted
+        by SMTP) — never on a merely-attempted or SMTP-unconfigured send,
+        so the timestamp can never lie about whether the customer was
+        actually informed. A subsequent PDF-manual delivery confirmation
+        (``POST /updates/{id}/mark-delivered``) also informs the customer
+        but does not (yet) stamp this field — tracked as a follow-up, not
+        part of this fix's Definition of Done.
+
+        Raises:
+            ValueError: repair not found (404).
+            NoCustomerUpdateDraftError: no CustomerUpdate exists yet for
+                this repair (404) — most likely it hasn't reached READY.
+            CustomerUpdateNotFoundError / InvalidUpdateStateError: bubbled
+                from CustomerUpdateService.send (already SENT -> 409).
+        """
+        # Late import — see _create_pickup_ready_draft's docstring.
+        from goldsmith_erp.services.customer_update_service import (  # noqa: PLC0415
+            CustomerUpdateService,
+        )
+
+        repair = await _load_repair(db, repair_id)
+        if repair is None:
+            raise ValueError(f"Reparaturauftrag #{repair_id} nicht gefunden")
+
+        latest = (
+            await db.execute(
+                select(CustomerUpdate)
+                .where(CustomerUpdate.repair_job_id == repair_id)
+                .order_by(CustomerUpdate.created_at.desc())
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        if latest is None:
+            raise NoCustomerUpdateDraftError(repair_id)
+
+        result = await CustomerUpdateService.send(db, cast(int, latest.id), user_id)
+
+        if result.delivered and result.update.sent_at is not None:
+            async with transactional(db):
+                repair.customer_notified_at = result.update.sent_at
+            await db.refresh(repair)
+
+        return result
 
     @staticmethod
     async def _notify_admins_repair_ready(

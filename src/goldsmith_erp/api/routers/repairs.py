@@ -31,6 +31,10 @@ from goldsmith_erp.core.config import settings
 from goldsmith_erp.core.permissions import Permission, require_permission
 from goldsmith_erp.db.models import RepairJobStatus, RepairPhotoPhase, User
 from goldsmith_erp.db.session import get_db
+from goldsmith_erp.models.customer_update import (
+    CustomerUpdateRead,
+    CustomerUpdateSendResult,
+)
 from goldsmith_erp.models.repair import (
     IntakeChecklistUpdate,
     RepairCompleteInput,
@@ -41,11 +45,17 @@ from goldsmith_erp.models.repair import (
     RepairPhotoRead,
     RepairStatusUpdate,
 )
+from goldsmith_erp.services.customer_update_service import (
+    CustomerUpdateNotFoundError,
+    CustomerUpdateService,
+    InvalidUpdateStateError,
+)
 from goldsmith_erp.services.label_service import LabelService
 from goldsmith_erp.services.photo_service import PhotoValidationError
 from goldsmith_erp.services.repair_photo_service import RepairPhotoService
 from goldsmith_erp.services.repair_service import (
     InvalidChecklistPhotoError,
+    NoCustomerUpdateDraftError,
     RepairService,
 )
 
@@ -340,10 +350,13 @@ async def complete_repair(
     current_user: User = Depends(get_current_user),
 ):
     """
-    Reparatur fertigmelden — Status wechselt zu READY, Kunde wird benachrichtigt.
+    Reparatur fertigmelden — Status wechselt zu READY.
 
     Erfasst den tatsaechlichen Rechnungsbetrag (kann vom Kostenvoranschlag abweichen).
-    Erstellt REPAIR_READY Benachrichtigungen fuer alle aktiven Benutzer.
+    Erstellt REPAIR_READY Benachrichtigungen fuer alle aktiven Benutzer UND einen
+    Kundeninfo-Entwurf (Abholbereit). Der Kunde wird erst benachrichtigt, wenn
+    dieser Entwurf per "Kunde benachrichtigen" verschickt wird (DOM-12 / W2-02) —
+    siehe POST .../customer-updates/send.
     """
     try:
         repair = await RepairService.complete_repair(
@@ -400,6 +413,76 @@ async def cancel_repair(
         )
     repair = await RepairService.get_repair(db, repair.id)
     return repair
+
+
+# ============================================================================
+# CUSTOMER UPDATES (Kundeninfo) — DOM-12 / W2-02
+#
+# A pickup-ready draft is created automatically when the repair reaches
+# READY (see POST /{repair_id}/complete -> RepairService.complete_repair).
+# These two endpoints let staff view it and send it with one tap — the same
+# CustomerUpdateService draft/send/dedupe mechanism the order-scoped
+# /orders/{id}/updates family uses (api/routers/customer_updates.py), not a
+# second notification path.
+# ============================================================================
+
+
+@router.get(
+    "/{repair_id}/customer-updates",
+    response_model=List[CustomerUpdateRead],
+    summary="Kundeninfo-Update-Verlauf einer Reparatur abrufen",
+)
+@require_permission(Permission.CUSTOMER_UPDATE_VIEW)
+async def get_repair_customer_updates(
+    repair_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Gibt alle Kundeninfo-Updates fuer eine Reparatur zurueck (neueste
+    zuerst) — i. d. R. genau ein Abholbereit-Entwurf, automatisch erstellt
+    beim Wechsel nach READY (siehe POST /{repair_id}/complete).
+    """
+    updates = await CustomerUpdateService.list_for_repair(
+        db, repair_id, current_user.id
+    )
+    return [CustomerUpdateRead.model_validate(u) for u in updates]
+
+
+@router.post(
+    "/{repair_id}/customer-updates/send",
+    response_model=CustomerUpdateSendResult,
+    summary="Kundeninfo-Update der Reparatur verschicken",
+)
+@require_permission(Permission.CUSTOMER_UPDATE_SEND)
+async def send_repair_customer_update(
+    repair_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Verschickt den (i. d. R. einzigen) Kundeninfo-Entwurf dieser Reparatur
+    per Email — "ein Tastendruck" (DOM-12 / W2-02).
+
+    Setzt ``customer_notified_at`` auf der Reparatur NUR bei erfolgreicher
+    Zustellung — niemals beim reinen Entwurf-Erstellen. Liefert IMMER 200
+    bei einem gueltigen Entwurf, auch wenn SMTP nicht konfiguriert ist
+    (``delivered=false``); die Goldschmiedin kann dann per PDF-Download +
+    manueller Zustellbestaetigung ausweichen (siehe
+    GET /updates/{update_id}/pdf und POST .../mark-delivered in
+    api/routers/customer_updates.py). Kein Entwurf vorhanden -> 404.
+    Bereits verschickt -> 409 (kein erneuter Versand).
+    """
+    try:
+        return await RepairService.send_customer_update(db, repair_id, current_user.id)
+    except NoCustomerUpdateDraftError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+    except CustomerUpdateNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+    except InvalidUpdateStateError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
 
 
 @router.delete("/{repair_id}", status_code=status.HTTP_204_NO_CONTENT)

@@ -22,6 +22,7 @@ import pytest_asyncio
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from goldsmith_erp.core.config import settings
 from goldsmith_erp.core.security import get_password_hash
 from goldsmith_erp.db.models import (
     Customer,
@@ -31,7 +32,6 @@ from goldsmith_erp.db.models import (
     User,
     UserRole,
 )
-from goldsmith_erp.core.config import settings
 from goldsmith_erp.services import email_service as email_service_module
 from goldsmith_erp.services.notification_service import NotificationService
 
@@ -84,9 +84,7 @@ async def _make_customer(db_session: AsyncSession, with_email: bool = True) -> C
         first_name="Anna",
         last_name="Kundin",
         email=(
-            f"email_once_cust_{uuid.uuid4().hex[:8]}@example.com"
-            if with_email
-            else ""
+            f"email_once_cust_{uuid.uuid4().hex[:8]}@example.com" if with_email else ""
         ),
         customer_type="private",
         is_active=True,
@@ -116,10 +114,14 @@ async def _make_order(db_session: AsyncSession, customer: Customer, status) -> O
 
 async def _customer_update_count(db_session: AsyncSession, order_id: int) -> int:
     rows = (
-        await db_session.execute(
-            select(CustomerUpdate).where(CustomerUpdate.order_id == order_id)
+        (
+            await db_session.execute(
+                select(CustomerUpdate).where(CustomerUpdate.order_id == order_id)
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     return len(rows)
 
 
@@ -158,10 +160,6 @@ class TestNoCrashWithoutCustomerEmail:
 
 
 class TestReCompletionAfterReopen:
-    @pytest.mark.xfail(
-        strict=True,
-        reason="tracked: C1.2 — fixed by W2-02 repairs agent",
-    )
     async def test_second_completion_after_reopen_does_not_notify_customer_again(
         self, db_session: AsyncSession
     ):
