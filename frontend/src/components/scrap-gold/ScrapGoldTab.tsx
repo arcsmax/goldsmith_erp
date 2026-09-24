@@ -21,13 +21,14 @@ const STATUS_CONFIG: Record<ScrapGoldStatus, { label: string; className: string 
 };
 
 /**
- * Formats alloy value to human-readable label.
- * Accepts both number (585) and string ("585") because the backend
- * may return alloy as a string while the frontend stores it as a number.
+ * Formats an alloy code (e.g. "585", "ag925", "pt950") to a human-readable
+ * label. Falls back to the raw code for an alloy this tab's static option
+ * list doesn't recognise (e.g. a custom metal type added via Verwaltung —
+ * AlloyCalculator's dynamicOptions aren't available here).
  */
-const getAlloyLabel = (alloy: number | string): string => {
-  const option = ALLOY_OPTIONS.find((o) => o.value === Number(alloy));
-  return option ? option.label : `${alloy}`;
+const getAlloyLabel = (alloy: string): string => {
+  const option = ALLOY_OPTIONS.find((o) => o.code === alloy);
+  return option ? option.label : alloy;
 };
 
 export const ScrapGoldTab: React.FC<ScrapGoldTabProps> = ({ orderId, customerId }) => {
@@ -77,7 +78,11 @@ export const ScrapGoldTab: React.FC<ScrapGoldTabProps> = ({ orderId, customerId 
     if (!scrapGold) return;
 
     try {
-      await scrapGoldApi.addItem(scrapGold.id, { description, alloy: Number(alloy), weight_g: weightG });
+      // alloy is already the canonical backend code (e.g. "585", "ag925") —
+      // the previous `Number(alloy)` conversion here was the DOM-19 bug: it
+      // turned a valid string payload back into a number the Pydantic
+      // schema has never accepted, so every add-item request 422'd.
+      await scrapGoldApi.addItem(scrapGold.id, { description, alloy, weight_g: weightG });
       await loadScrapGold();
     } catch (err) {
       console.error('Failed to add item:', err);
