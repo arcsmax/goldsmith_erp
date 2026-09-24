@@ -39,6 +39,16 @@ class MetalPriceResponse(BaseModel):
         ...,
         description="When this price was last refreshed",
     )
+    is_stale: bool = Field(
+        ...,
+        description=(
+            "True when `updated_at` is older than "
+            "settings.METAL_PRICE_STALENESS_HOURS. The estimator/quote UI "
+            "shows a 'veraltet' warning in this case (W2-15 / DOM-11c) — "
+            "the price itself is still returned (never hidden), just "
+            "flagged so the goldsmith can decide whether to trust it."
+        ),
+    )
 
     model_config = {"from_attributes": True}
 

@@ -10,12 +10,20 @@ import { useAuth } from "../../contexts/AuthContext";
 import { useToast } from "../../contexts/ToastContext";
 import { logError } from "../../lib/logError";
 import { estimatesApi } from "../../api/estimates";
-import { formatCurrency, formatHours } from "../../utils/formatters";
+import { metalInventoryApi, MetalPriceInfo } from "../../api/metal-inventory";
+import { formatCurrency, formatDateTime, formatHours } from "../../utils/formatters";
 import {
   SIMILARITY_LEVEL_DESCRIPTION,
   SIMILARITY_LEVEL_LABEL,
 } from "./labels";
 import styles from "./EstimatorPanel.module.css";
+
+/** German label per MetalPriceSource ('api' | 'manual' | 'fallback'). */
+const METAL_PRICE_SOURCE_LABEL: Record<string, string> = {
+  api: "Live-Kurs",
+  manual: "Manuell",
+  fallback: "Standardwert",
+};
 
 /**
  * Minimal order shape the EstimatorPanel needs.
@@ -82,6 +90,7 @@ export function EstimatorPanel({
   const [finishType, setFinishType] = useState<string>("");
   const [complexity, setComplexity] = useState<number>(3);
   const [alloy, setAlloy] = useState<string>("");
+  const [metalPrice, setMetalPrice] = useState<MetalPriceInfo | null>(null);
   const quoteIdRef = useRef(quote.id);
 
   // Keep ref pointing at the quote the panel was opened for so we can
@@ -90,6 +99,36 @@ export function EstimatorPanel({
   useEffect(() => {
     quoteIdRef.current = quote.id;
   }, [quote.id]);
+
+  // Metal price provenance (W2-15 / BE-22 / DOM-11c): show the live
+  // price/gram, currency and timestamp behind whatever alloy the order or
+  // the override input specifies, so a quote never hides which price it
+  // was built against. A missing mapping (unknown/legacy alloy string) or
+  // a fetch failure just hides the block — it's context, not something
+  // that should block the (already-working) labor estimate.
+  const resolvedAlloy = (alloy || order?.alloy || "").trim();
+  useEffect(() => {
+    let cancelled = false;
+    setMetalPrice(null);
+    if (!resolvedAlloy) return undefined;
+
+    async function loadMetalPrice(): Promise<void> {
+      try {
+        const info = await metalInventoryApi.getSpotPriceByAlloy(resolvedAlloy);
+        if (!cancelled) setMetalPrice(info);
+      } catch (err: unknown) {
+        if (!cancelled) {
+          setMetalPrice(null);
+          logError("estimator.getSpotPriceByAlloy", err);
+        }
+      }
+    }
+    void loadMetalPrice();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [resolvedAlloy]);
 
   // Role gate: only ADMIN and GOLDSMITH can see/use the estimator.
   // The component returns null rather than rendering a disabled shell —
@@ -204,6 +243,37 @@ export function EstimatorPanel({
       <div className={styles["estimator-panel__header"]}>
         <h3 className={styles["estimator-panel__title"]}>Kalkulation</h3>
       </div>
+
+      {metalPrice && (
+        <div
+          className={styles["estimator-panel__metal-price"]}
+          data-testid="estimator-metal-price"
+        >
+          <span className={styles["estimator-panel__metal-price-value"]}>
+            {formatCurrency(metalPrice.price_per_gram, 2)}/g ({metalPrice.currency})
+          </span>
+          <span className={styles["estimator-panel__metal-price-meta"]}>
+            Kurs vom {formatDateTime(metalPrice.updated_at)}, Quelle:{" "}
+            {METAL_PRICE_SOURCE_LABEL[metalPrice.source] ?? metalPrice.source}
+          </span>
+          {metalPrice.is_stale && (
+            <span
+              className={styles["estimator-panel__metal-price-stale"]}
+              data-testid="estimator-metal-price-stale"
+            >
+              veraltet
+            </span>
+          )}
+          {metalPrice.source === "fallback" && (
+            <span
+              className={styles["estimator-panel__metal-price-fallback-warning"]}
+              data-testid="estimator-metal-price-fallback-warning"
+            >
+              Standardwert – kein Live-Kurs verfügbar
+            </span>
+          )}
+        </div>
+      )}
 
       {state.kind === "idle" && (
         <>

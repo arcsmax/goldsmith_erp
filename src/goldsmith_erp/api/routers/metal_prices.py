@@ -10,10 +10,16 @@ for missing price data.
 Financial data access is audit-logged per CLAUDE.md requirements.
 
 Endpoints:
-  GET  /api/v1/metal-prices              — all alloy prices
-  GET  /api/v1/metal-prices/history      — price history for charting
-  GET  /api/v1/metal-prices/{metal_type} — single alloy price
-  POST /api/v1/metal-prices/refresh      — force cache refresh (ADMIN only)
+  GET  /api/v1/metal-prices                — all alloy prices
+  GET  /api/v1/metal-prices/history        — price history for charting
+  GET  /api/v1/metal-prices/{metal_type}   — single alloy price
+  GET  /api/v1/metal-prices/by-alloy/{alloy} — price for a Feingehalt string
+                                                (e.g. 750, Pt950, Ag925)
+  POST /api/v1/metal-prices/refresh        — force cache refresh (ADMIN only)
+
+Every response carries `is_stale` (W2-15 / DOM-11c): true when `updated_at`
+is older than `settings.METAL_PRICE_STALENESS_HOURS`, so the frontend can
+show a "veraltet" warning instead of presenting an old price as current.
 """
 
 import logging
@@ -25,9 +31,10 @@ from sqlalchemy import asc, desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from goldsmith_erp.api.deps import get_current_user
+from goldsmith_erp.core.config import settings
 from goldsmith_erp.core.permissions import Permission
 from goldsmith_erp.core.permissions import require_permission_dep as require_permission
-from goldsmith_erp.db.models import MetalPriceHistory, MetalType, User
+from goldsmith_erp.db.models import MetalPriceHistory, MetalPriceSource, MetalType, User
 from goldsmith_erp.db.session import get_db
 from goldsmith_erp.models.metal_price import (
     MetalPriceHistoryPoint,
@@ -35,10 +42,43 @@ from goldsmith_erp.models.metal_price import (
     MetalPriceListResponse,
     MetalPriceResponse,
 )
+from goldsmith_erp.services.metal_inventory_service import resolve_alloy_to_metal_type
 from goldsmith_erp.services.metal_price_service import MetalPriceService
 
 router = APIRouter(prefix="/metal-prices", tags=["metal-prices"])
 logger = logging.getLogger(__name__)
+
+# German, user-facing — this is what a goldsmith sees when the price feed
+# has no answer at all (W2-15 fail-loud requirement). The 4-tier fallback
+# chain in MetalPriceService means this should be rare: it's only reached
+# when the hardcoded defaults themselves are somehow rejected.
+_PRICE_UNAVAILABLE_DETAIL = (
+    "Metallpreis derzeit nicht verfügbar. Bitte später erneut versuchen."
+)
+
+
+def _is_stale(updated_at: datetime) -> bool:
+    """True when a price is older than the configured staleness threshold."""
+    age = datetime.utcnow() - updated_at
+    return age > timedelta(hours=settings.METAL_PRICE_STALENESS_HOURS)
+
+
+def _to_price_response(
+    metal_type: MetalType,
+    price: float,
+    source: MetalPriceSource,
+    updated_at: datetime,
+) -> MetalPriceResponse:
+    """Single place that builds MetalPriceResponse so `is_stale` can never
+    be forgotten at one of the four call sites in this router."""
+    return MetalPriceResponse(
+        metal_type=metal_type,
+        price_per_gram=price,
+        currency="EUR",
+        source=source,
+        updated_at=updated_at,
+        is_stale=_is_stale(updated_at),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -78,21 +118,17 @@ async def list_metal_prices(
             price, source, updated_at = (
                 await MetalPriceService.get_price_for_metal_type(metal_type, db)
             )
-            price_list.append(
-                MetalPriceResponse(
-                    metal_type=metal_type,
-                    price_per_gram=price,
-                    currency="EUR",
-                    source=source,
-                    updated_at=updated_at,
-                )
-            )
+            price_list.append(_to_price_response(metal_type, price, source, updated_at))
         except Exception as exc:
             # Fail loudly per CLAUDE.md — log and skip this entry rather than
             # returning a corrupt price.
             logger.error(
                 "Failed to derive price for metal type",
-                extra={"metal_type": metal_type.value, "error": str(exc)},
+                extra={
+                    "metal_type": metal_type.value,
+                    "error": str(exc),
+                    "error_type": type(exc).__name__,
+                },
             )
 
     return MetalPriceListResponse(prices=price_list, count=len(price_list))
@@ -243,25 +279,89 @@ async def get_metal_price(
     except KeyError:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"No price mapping defined for metal type '{metal_type.value}'",
+            detail=f"Keine Preiszuordnung für Metalltyp '{metal_type.value}' hinterlegt.",
         )
     except Exception as exc:
         logger.error(
             "Unexpected error fetching metal price",
-            extra={"metal_type": metal_type.value, "error": str(exc)},
+            extra={
+                "metal_type": metal_type.value,
+                "error": str(exc),
+                "error_type": type(exc).__name__,
+            },
         )
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Metal price temporarily unavailable. Please try again.",
+            detail=_PRICE_UNAVAILABLE_DETAIL,
         )
 
-    return MetalPriceResponse(
-        metal_type=metal_type,
-        price_per_gram=price,
-        currency="EUR",
-        source=source,
-        updated_at=updated_at,
+    return _to_price_response(metal_type, price, source, updated_at)
+
+
+# ---------------------------------------------------------------------------
+# GET /metal-prices/by-alloy/{alloy} — resolve a workshop alloy string
+# ---------------------------------------------------------------------------
+
+
+@router.get(
+    "/by-alloy/{alloy}",
+    response_model=MetalPriceResponse,
+    summary="Get current price for a workshop alloy string (e.g. 750, Pt950, Ag925)",
+)
+async def get_metal_price_by_alloy(
+    alloy: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_permission(Permission.MATERIAL_VIEW)),
+) -> MetalPriceResponse:
+    """
+    Resolve a workshop Feingehalt/alloy string — as stored on ``Order.alloy``
+    or typed into the estimator — to its live EUR/gram price.
+
+    Backs the EstimatorPanel's metal-price-provenance display (W2-15 /
+    DOM-11c): price per gram, currency and the timestamp the price was
+    fetched, plus `is_stale` so the UI can show a "veraltet" warning.
+
+    **Path parameter:** `alloy` — a Feingehalt string such as `750`, `585`,
+    `Pt950`, `Ag925` (case-insensitive; matches `Order.alloy` values).
+
+    **Permissions:** `material:view` (ADMIN, GOLDSMITH, VIEWER)
+    """
+    metal_type = resolve_alloy_to_metal_type(alloy)
+    if metal_type is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Keine Preiszuordnung für Legierung '{alloy}' hinterlegt.",
+        )
+
+    logger.info(
+        "Metal price by alloy accessed",
+        extra={
+            "alloy": alloy,
+            "metal_type": metal_type.value,
+            "user_id": current_user.id,
+        },
     )
+
+    try:
+        price, source, updated_at = await MetalPriceService.get_price_for_metal_type(
+            metal_type, db
+        )
+    except Exception as exc:
+        logger.error(
+            "Failed to resolve metal price by alloy",
+            extra={
+                "alloy": alloy,
+                "metal_type": metal_type.value,
+                "error": str(exc),
+                "error_type": type(exc).__name__,
+            },
+        )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=_PRICE_UNAVAILABLE_DETAIL,
+        )
+
+    return _to_price_response(metal_type, price, source, updated_at)
 
 
 # ---------------------------------------------------------------------------
@@ -300,19 +400,15 @@ async def refresh_metal_prices(
             price, source, updated_at = (
                 await MetalPriceService.get_price_for_metal_type(metal_type, db)
             )
-            price_list.append(
-                MetalPriceResponse(
-                    metal_type=metal_type,
-                    price_per_gram=price,
-                    currency="EUR",
-                    source=source,
-                    updated_at=updated_at,
-                )
-            )
+            price_list.append(_to_price_response(metal_type, price, source, updated_at))
         except Exception as exc:
             logger.error(
                 "Failed to derive price during refresh",
-                extra={"metal_type": metal_type.value, "error": str(exc)},
+                extra={
+                    "metal_type": metal_type.value,
+                    "error": str(exc),
+                    "error_type": type(exc).__name__,
+                },
             )
 
     logger.info(

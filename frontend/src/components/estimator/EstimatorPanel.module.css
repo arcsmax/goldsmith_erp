@@ -154,3 +154,49 @@
 @keyframes spin {
   to { transform: rotate(360deg); }
 }
+
+/* Metal price provenance (W2-15 / DOM-11c) — shown above the per-state
+   content so the goldsmith always sees which price/date the estimate is
+   built against, whatever state the panel is in. */
+.estimator-panel__metal-price {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--color-border-default, #e5e7eb);
+  border-radius: 4px;
+  background: white;
+  font-size: 0.8125rem;
+}
+
+.estimator-panel__metal-price-value {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text-heading, #1a1a2e);
+}
+
+.estimator-panel__metal-price-meta {
+  color: var(--color-text-muted, #6b7280);
+}
+
+.estimator-panel__metal-price-stale {
+  display: inline-block;
+  padding: 0.125rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  background: #fef3c7;
+  color: #78350f;
+}
+
+.estimator-panel__metal-price-fallback-warning {
+  display: inline-block;
+  padding: 0.125rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  background: #fee2e2;
+  color: #991b1b;
+}

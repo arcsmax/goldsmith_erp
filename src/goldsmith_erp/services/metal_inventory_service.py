@@ -118,6 +118,40 @@ def _expected_alloy(mt: MetalType) -> Optional[str]:
     return _METAL_TYPE_TO_ALLOY.get(mt)
 
 
+# Reverse of _METAL_TYPE_TO_ALLOY, built once at import time. Where several
+# MetalType entries share the same alloy string (e.g. "750" is both
+# GOLD_18K and WHITE_GOLD_18K/ROSE_GOLD_18K — identical price, since
+# _ALLOY_RATIOS in metal_price_service.py derives all three from the same
+# GOLD_24K spot at the same 0.750 ratio), the FIRST entry in
+# _METAL_TYPE_TO_ALLOY's definition order wins so the plain karat type
+# (not a white/rose variant) is the canonical one shown to the user.
+_ALLOY_TO_METAL_TYPE: dict[str, MetalType] = {}
+for _metal_type, _alloy_str in _METAL_TYPE_TO_ALLOY.items():
+    if _alloy_str and _alloy_str not in _ALLOY_TO_METAL_TYPE:
+        _ALLOY_TO_METAL_TYPE[_alloy_str] = _metal_type
+del _metal_type, _alloy_str
+
+
+def resolve_alloy_to_metal_type(alloy: str) -> Optional[MetalType]:
+    """Map a workshop Feingehalt/alloy string (e.g. '750', 'Pt950', 'Ag925'
+    — case-insensitive, as stored on ``Order.alloy`` or typed into the
+    estimator) to the ``MetalType`` whose live spot price represents it.
+
+    Single source of truth: reuses ``_METAL_TYPE_TO_ALLOY`` (the R10
+    alloy-mismatch mapping above) instead of a second hardcoded table that
+    could drift out of sync (W2-15 / DOM-11c: metal price lookup for the
+    estimator/quote UI).
+
+    Returns None when the alloy has no defined price mapping (e.g. the
+    order-intake-only '333'/'900' gold marks have no MetalType/spot-price
+    equivalent yet) — callers must treat that as "no price available",
+    never guess a default.
+    """
+    if not alloy:
+        return None
+    return _ALLOY_TO_METAL_TYPE.get(alloy.strip().lower())
+
+
 class MetalInventoryService:
     """Service for metal inventory management and cost accounting"""
 

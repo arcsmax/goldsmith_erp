@@ -20,6 +20,17 @@ vi.mock("../../api/estimates", () => ({
   },
 }));
 
+// W2-15 / DOM-11c: metal price provenance lookup. Mocked directly (like
+// estimatesApi above) rather than left to hit the MSW server in
+// src/test/mocks — the existing tests below don't set up a handler for
+// GET /metal-prices/by-alloy/{alloy} and the global server config errors
+// on unhandled requests.
+vi.mock("../../api/metal-inventory", () => ({
+  metalInventoryApi: {
+    getSpotPriceByAlloy: vi.fn(),
+  },
+}));
+
 vi.mock("../../contexts/AuthContext", () => ({
   useAuth: () => ({
     hasRole: () => mockHasRoleReturn,
@@ -33,6 +44,7 @@ vi.mock("../../contexts/ToastContext", () => ({
 vi.mock("../../lib/logError", () => ({ logError: vi.fn() }));
 
 import { estimatesApi } from "../../api/estimates";
+import { metalInventoryApi } from "../../api/metal-inventory";
 
 const mockQuote = {
   id: 1,
@@ -299,5 +311,120 @@ describe("EstimatorPanel", () => {
     await waitFor(() => {
       expect(screen.queryByTestId("estimator-cost")).not.toBeInTheDocument();
     });
+  });
+});
+
+// W2-15 / BE-22 / DOM-11c: the metal price feed silently fell back
+// (wrong currency, stale-looking data) with no indication in the UI of
+// which price/date backed a quote. These tests cover the EstimatorPanel's
+// metal-price-provenance display: price/g, currency, timestamp, a
+// "veraltet" hint past the staleness threshold, and a red warning when
+// the price came from a hardcoded fallback rather than a live source.
+describe("EstimatorPanel — metal price provenance (W2-15 / DOM-11c)", () => {
+  const priceOrder = { ...mockOrder, alloy: "750" };
+
+  beforeEach(() => {
+    vi.resetAllMocks();
+    mockHasRoleReturn = true;
+    mockShowToast.mockClear();
+  });
+
+  it("shows the metal price per gram, currency and timestamp once resolved", async () => {
+    vi.mocked(metalInventoryApi.getSpotPriceByAlloy).mockResolvedValue({
+      metal_type: "gold_18k",
+      price_per_gram: 56.25,
+      currency: "EUR",
+      source: "api",
+      updated_at: "2026-09-25T08:00:00Z",
+      is_stale: false,
+    } as any);
+
+    render(
+      <EstimatorPanel
+        quote={mockQuote as any}
+        order={priceOrder as any}
+        onPatch={vi.fn()}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(metalInventoryApi.getSpotPriceByAlloy).toHaveBeenCalledWith("750");
+    });
+    const priceBlock = await screen.findByTestId("estimator-metal-price");
+    expect(priceBlock).toHaveTextContent("56,25");
+    expect(priceBlock).toHaveTextContent("EUR");
+    expect(
+      screen.queryByTestId("estimator-metal-price-stale"),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByTestId("estimator-metal-price-fallback-warning"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("shows a 'veraltet' hint when the price is older than the staleness threshold", async () => {
+    vi.mocked(metalInventoryApi.getSpotPriceByAlloy).mockResolvedValue({
+      metal_type: "gold_18k",
+      price_per_gram: 56.25,
+      currency: "EUR",
+      source: "api",
+      updated_at: "2026-01-01T00:00:00Z",
+      is_stale: true,
+    } as any);
+
+    render(
+      <EstimatorPanel
+        quote={mockQuote as any}
+        order={priceOrder as any}
+        onPatch={vi.fn()}
+      />,
+    );
+
+    expect(
+      await screen.findByTestId("estimator-metal-price-stale"),
+    ).toHaveTextContent(/veraltet/i);
+  });
+
+  it("shows a red warning when the price came from a hardcoded fallback", async () => {
+    vi.mocked(metalInventoryApi.getSpotPriceByAlloy).mockResolvedValue({
+      metal_type: "gold_18k",
+      price_per_gram: 75.0,
+      currency: "EUR",
+      source: "fallback",
+      updated_at: "2026-09-25T08:00:00Z",
+      is_stale: false,
+    } as any);
+
+    render(
+      <EstimatorPanel
+        quote={mockQuote as any}
+        order={priceOrder as any}
+        onPatch={vi.fn()}
+      />,
+    );
+
+    expect(
+      await screen.findByTestId("estimator-metal-price-fallback-warning"),
+    ).toBeInTheDocument();
+  });
+
+  it("shows no metal-price block when the alloy has no price mapping (404)", async () => {
+    vi.mocked(metalInventoryApi.getSpotPriceByAlloy).mockRejectedValue(
+      Object.assign(new Error("not found"), { response: { status: 404 } }),
+    );
+
+    render(
+      <EstimatorPanel
+        quote={mockQuote as any}
+        order={mockOrder as any}
+        onPatch={vi.fn()}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(metalInventoryApi.getSpotPriceByAlloy).toHaveBeenCalled();
+    });
+    expect(
+      screen.queryByTestId("estimator-metal-price"),
+    ).not.toBeInTheDocument();
   });
 });
