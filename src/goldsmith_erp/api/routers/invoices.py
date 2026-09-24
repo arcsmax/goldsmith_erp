@@ -32,9 +32,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from goldsmith_erp.api.deps import get_current_user
-from goldsmith_erp.core.config import settings
 from goldsmith_erp.core.permissions import Permission, require_permission
-from goldsmith_erp.db.models import Customer, Invoice, InvoiceStatus, User
+from goldsmith_erp.db.models import Invoice, InvoiceStatus, User
 from goldsmith_erp.db.session import get_db
 from goldsmith_erp.models.invoice import (
     InvoiceCreate,
@@ -48,7 +47,7 @@ from goldsmith_erp.services.accounting_export_service import (
     export_lexoffice_csv,
 )
 from goldsmith_erp.services.invoice_service import InvoiceService
-from goldsmith_erp.services.pdf_service import PDFService
+from goldsmith_erp.services.invoice_snapshot_service import InvoiceSnapshotService
 
 logger = logging.getLogger(__name__)
 
@@ -408,6 +407,11 @@ async def download_invoice_pdf(
     Access is audit-logged by the service layer as financial data.
 
     Returns a streaming PDF response (application/pdf).
+
+    W1-10 (GDPR-01, BE-23): rendered from the invoice snapshot, never from
+    the live customer row. DRAFT is re-rendered per request; SENT, PAID,
+    OVERDUE and CANCELLED invoices serve the PDF frozen at issue time after
+    a SHA-256 integrity check.
     """
     invoice = await InvoiceService.get_invoice(db, invoice_id, current_user)
     if not invoice:
@@ -416,48 +420,8 @@ async def download_invoice_pdf(
             detail=f"Rechnung {invoice_id} nicht gefunden",
         )
 
-    # Load the associated customer — customer_id is stored on the invoice.
-    customer_result = await db.execute(
-        select(Customer).where(Customer.id == invoice.customer_id)
-    )
-    customer = customer_result.scalar_one_or_none()
-    if not customer:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Kunde {invoice.customer_id} nicht gefunden",
-        )
-
-    # Build a thin adapter so PDFService sees a uniform .name, .address, .city
-    # without depending on the ORM model's internal field names.
-    class _CustomerAdapter:
-        name: str
-        address: str
-        city: str
-        email: str
-        phone: str
-
-        def __init__(self, c: Customer) -> None:
-            self.name = f"{c.first_name} {c.last_name}".strip()
-            parts = []
-            if c.street:
-                parts.append(c.street)
-            self.address = ", ".join(parts)
-            city_parts = []
-            if c.postal_code:
-                city_parts.append(c.postal_code)
-            if c.city:
-                city_parts.append(c.city)
-            self.city = " ".join(city_parts)
-            self.email = c.email or ""
-            self.phone = c.phone or ""
-
     try:
-        pdf_bytes = PDFService.render_invoice_pdf(
-            invoice=invoice,
-            customer=_CustomerAdapter(customer),
-            line_items=invoice.line_items,
-            workshop_name=settings.WORKSHOP_NAME,
-        )
+        pdf_bytes = await InvoiceSnapshotService.pdf_for_download(db, invoice)
     except Exception:
         logger.exception(
             "PDF generation failed for invoice",

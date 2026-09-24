@@ -1382,6 +1382,20 @@ class Invoice(Base):
         String(50), nullable=True
     )  # Zahlungsart (Ueberweisung, Bar, Karte)
 
+    # ── W1-10 (GDPR-01, BE-23): immutable invoice snapshot ─────────────
+    # JSON (recipient, seller, order, lines, totals) written at creation;
+    # holds recipient name/address, so it is encrypted at rest. The PDF is
+    # rendered from it, never from the live customer row. See
+    # services/invoice_snapshot_service.py. Migration:
+    # 20260925_w110_invoice_snapshot (backfills legacy rows, backfilled=True).
+    snapshot = Column(EncryptedString, nullable=True)
+    # Frozen at issue (DRAFT -> SENT, or DRAFT -> PAID): base64 PDF bytes
+    # (encrypted, contains the recipient) plus SHA-256 of the raw bytes.
+    # Write-once; served verbatim for every non-DRAFT invoice.
+    issued_at = Column(DateTime, nullable=True)
+    issued_pdf = Column(EncryptedString, nullable=True)
+    issued_pdf_sha256 = Column(String(64), nullable=True)
+
     # Metadata
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(
