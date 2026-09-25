@@ -4,11 +4,11 @@
 // The backend (CustomerMessageService) is the authority: photos only go out
 // with a PHOTO_USE consent, an Art. 21 opt-out or a missing address means the
 // update is handed over as PDF. These hints only explain that before sending.
-import React from 'react';
 import type {
   CustomerMessageContext,
   CustomerMessagePreview,
 } from '../../api/customer-updates';
+import { Button } from '../../ui';
 
 interface ComposerHintsProps {
   context: CustomerMessageContext | null;
@@ -38,14 +38,9 @@ export function ComposerHints({
             ein Text-Update ist möglich. Die Einwilligung erfassen Sie im Kundenprofil.
           </p>
           {photoBlocked && (
-            <button
-              type="button"
-              className="btn btn-secondary btn-sm"
-              onClick={onRemovePhotos}
-              disabled={disabled}
-            >
+            <Button variant="secondary" icon="trash" onClick={onRemovePhotos} disabled={disabled}>
               Fotos entfernen
-            </button>
+            </Button>
           )}
         </div>
       )}
@@ -72,10 +67,10 @@ export function MessagePreviewBox({ preview, onClose }: PreviewBoxProps) {
   return (
     <section className="kundeninfo-preview" aria-label="Vorschau der Kundeninfo">
       <div className="kundeninfo-preview-header">
-        <h4>Vorschau{preview.delivery_method === 'pdf_manual' ? ' (PDF-Übergabe)' : ' (E-Mail)'}</h4>
-        <button type="button" className="btn btn-secondary btn-sm" onClick={onClose}>
+        <h4 className="kundeninfo-preview-title">Vorschau{preview.delivery_method === 'pdf_manual' ? ' (PDF-Übergabe)' : ' (E-Mail)'}</h4>
+        <Button variant="ghost" icon="close" onClick={onClose}>
           Vorschau schließen
-        </button>
+        </Button>
       </div>
       {preview.blocked_reason && (
         <p className="kundeninfo-hint kundeninfo-hint--blocking" role="alert">

@@ -1,7 +1,8 @@
 // DeliveredActions (W2-11, DOM-34/35): Abholprotokoll + Wertgutachten.
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { renderWithQuery } from '../../test/queryWrapper';
 
 const mockDownloadHandover = vi.fn();
 const mockSaveBlob = vi.fn();
@@ -38,14 +39,14 @@ beforeEach(() => {
 
 describe('DeliveredActions', () => {
   it('downloads the Abholprotokoll', async () => {
-    render(<DeliveredActions orderId={42} price={1200} role="GOLDSMITH" userName="Anne Gold" />);
+    renderWithQuery(<DeliveredActions orderId={42} price={1200} role="GOLDSMITH" userName="Anne Gold" />);
     await userEvent.click(screen.getByRole('button', { name: 'Abholprotokoll herunterladen' }));
     expect(mockDownloadHandover).toHaveBeenCalledWith(42);
     expect(mockSaveBlob).toHaveBeenCalledWith(expect.any(Blob), 'Abholprotokoll_42.pdf');
   });
 
   it('creates a Wertgutachten from the order with a prefilled value and downloads it as ADMIN', async () => {
-    render(<DeliveredActions orderId={42} price={1200} role="ADMIN" userName="Anne Gold" />);
+    renderWithQuery(<DeliveredActions orderId={42} price={1200} role="ADMIN" userName="Anne Gold" />);
     await userEvent.click(screen.getByRole('button', { name: 'Wertgutachten erstellen' }));
 
     expect((screen.getByLabelText('Gutachtenwert (€)') as HTMLInputElement).value).toBe('1200');
@@ -61,7 +62,7 @@ describe('DeliveredActions', () => {
   });
 
   it('does not export the PDF for a goldsmith (ADMIN only) but still creates it', async () => {
-    render(<DeliveredActions orderId={42} price={1200} role="GOLDSMITH" userName="Anne Gold" />);
+    renderWithQuery(<DeliveredActions orderId={42} price={1200} role="GOLDSMITH" userName="Anne Gold" />);
     await userEvent.click(screen.getByRole('button', { name: 'Wertgutachten erstellen' }));
     await userEvent.click(screen.getByRole('button', { name: 'Wertgutachten speichern' }));
 
@@ -71,7 +72,7 @@ describe('DeliveredActions', () => {
 
   it('offers the existing certificate instead of creating a second one', async () => {
     mockList.mockResolvedValue([cert]);
-    render(<DeliveredActions orderId={42} price={1200} role="ADMIN" userName="Anne Gold" />);
+    renderWithQuery(<DeliveredActions orderId={42} price={1200} role="ADMIN" userName="Anne Gold" />);
     await userEvent.click(await screen.findByRole('button', { name: 'Wertgutachten WG-2026-0001 herunterladen' }));
     expect(mockDownloadAndSave).toHaveBeenCalledWith(9, 'WG-2026-0001');
     expect(mockCreateFromOrder).not.toHaveBeenCalled();
