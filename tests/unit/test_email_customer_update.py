@@ -283,7 +283,8 @@ def test_footer_shows_default_note_and_omits_contact_when_unset(monkeypatch):
         },
     )
 
-    assert "automatisch versandt" in html
+    # W6: customer_update.html asks for a reply by email instead.
+    assert "antworten Sie einfach auf diese E-Mail" in html
     assert "Tel." not in html
 
 
@@ -324,9 +325,9 @@ def test_cost_change_footer_overrides_note_with_reply_instructions(monkeypatch):
     assert "automatisch versandt" not in html
 
 
-def test_customer_update_footer_keeps_default_note():
-    """A non-overriding template (customer_update.html) must keep the
-    default footer_note text."""
+def test_customer_update_footer_asks_for_reply_and_carries_privacy_line():
+    """W6 (E2/E4): customer_update.html overrides footer_note with the
+    reply-by-email instruction; the shared Art. 13 line stays."""
     html = EmailService._render_template(
         "customer_update.html",
         {
@@ -337,7 +338,9 @@ def test_customer_update_footer_keeps_default_note():
         },
     )
 
-    assert "automatisch versandt" in html
+    assert "automatisch versandt" not in html
+    assert "antworten Sie einfach auf diese E-Mail" in html
+    assert "Art. 6 Abs. 1 lit. b DSGVO" in html
 
 
 # ---------------------------------------------------------------------------
