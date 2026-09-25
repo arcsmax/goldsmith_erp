@@ -1,379 +1,209 @@
-// NotificationBell — header bell icon with unread badge and dropdown panel
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+// NotificationBell — header bell with unread badge; the list opens in a
+// src/ui Sheet (focus trap, Escape, focus return) instead of a hand-rolled
+// dropdown (W4-03).
+//
+// Data: TanStack Query. The unread count polls every 60 s as a fallback; the
+// realtime `notifications` hint invalidates ['notifications']
+// (lib/realtimeInvalidation.ts), so the badge and an open list refresh at
+// once. This component registers no realtime handler of its own.
+import React, { useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { notificationsApi } from '../api/notifications';
-import { Notification, NotificationSeverity } from '../types';
-import { useRealtime } from '../contexts/WebSocketProvider';
+import { queryKeys } from '../api/queryKeys';
+import { getErrorMessage } from '../lib/errors';
+import type { Notification, NotificationSeverity } from '../types';
+import { Button, EmptyState, Icon, PageState, Sheet, type IconName, type PageStateValue } from '../ui';
 import '../styles/notification-bell.css';
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
+const POLL_INTERVAL_MS = 60_000;
+const LIST_LIMIT = 10;
+const MAX_BADGE_COUNT = 99;
 
-/** Returns a human-readable relative time string in German. */
-function timeAgo(isoString: string): string {
-  const diffMs = Date.now() - new Date(isoString).getTime();
-  const diffMinutes = Math.floor(diffMs / 60_000);
-
+/** Relative time in German ("vor 5 Min."). */
+function timeAgo(isoString: string, now = Date.now()): string {
+  const diffMinutes = Math.floor((now - new Date(isoString).getTime()) / 60_000);
   if (diffMinutes < 1) return 'gerade eben';
   if (diffMinutes < 60) return `vor ${diffMinutes} Min.`;
-
   const diffHours = Math.floor(diffMinutes / 60);
   if (diffHours < 24) return `vor ${diffHours} Std.`;
-
   const diffDays = Math.floor(diffHours / 24);
-  if (diffDays === 1) return 'gestern';
-  return `vor ${diffDays} Tagen`;
+  return diffDays === 1 ? 'gestern' : `vor ${diffDays} Tagen`;
 }
 
-/**
- * Returns the CSS modifier class for severity.
- * Uses both color and an icon label so colorblind users are not excluded.
- */
-function severityClass(severity: NotificationSeverity): string {
-  switch (severity) {
-    case 'urgent':
-      return 'notification-item--urgent';
-    case 'warning':
-      return 'notification-item--warning';
-    case 'info':
-    default:
-      return 'notification-item--info';
-  }
+/** Severity: tone + icon + German word, never colour alone. */
+const SEVERITY: Readonly<Record<NotificationSeverity, { label: string; icon: IconName }>> = {
+  urgent: { label: 'Dringend', icon: 'alert-triangle' },
+  warning: { label: 'Warnung', icon: 'triangle-alert' },
+  info: { label: 'Info', icon: 'circle-help' },
+};
+
+function severityMeta(severity: NotificationSeverity) {
+  return SEVERITY[severity] ?? SEVERITY.info;
 }
 
-/** Accessible severity label shown alongside the color indicator dot. */
-function severityLabel(severity: NotificationSeverity): string {
-  switch (severity) {
-    case 'urgent':
-      return '!';
-    case 'warning':
-      return '~';
-    case 'info':
-    default:
-      return 'i';
-  }
+const BellIcon: React.FC = () => (
+  <svg
+    className="notification-bell__icon"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+    focusable="false"
+  >
+    <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
+    <path d="M13.73 21a2 2 0 0 1-3.46 0" />
+  </svg>
+);
+
+interface ItemProps {
+  notification: Notification;
+  onMarkRead: (n: Notification) => void;
 }
 
-// ---------------------------------------------------------------------------
-// Component
-// ---------------------------------------------------------------------------
-
-const POLL_INTERVAL_MS = 60_000; // 60 seconds — fallback polling
-
-export const NotificationBell: React.FC = () => {
-  const [unreadCount, setUnreadCount] = useState(0);
-  const [notifications, setNotifications] = useState<Notification[]>([]);
-  const [isOpen, setIsOpen] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
-  const [hasError, setHasError] = useState(false);
-
-  const containerRef = useRef<HTMLDivElement>(null);
-  const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
-  // ---------------------------------------------------------------------------
-  // Data fetching
-  // ---------------------------------------------------------------------------
-
-  const fetchUnreadCount = useCallback(async () => {
-    try {
-      const data = await notificationsApi.getUnreadCount();
-      setUnreadCount(data.unread_count);
-      setHasError(false);
-    } catch {
-      // Silently fail for background polling — do not surface to user
-      setHasError(true);
-    }
-  }, []);
-
-  const fetchNotifications = useCallback(async () => {
-    setIsLoading(true);
-    try {
-      const data = await notificationsApi.getNotifications(10);
-      setNotifications(data);
-      // Recalculate unread count from the freshly loaded list so the badge
-      // and dropdown stay in sync without an extra network round-trip.
-      setUnreadCount(data.filter((n) => !n.is_read).length);
-      setHasError(false);
-    } catch {
-      setHasError(true);
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
-
-  // ---------------------------------------------------------------------------
-  // Polling — fetch unread count every 60 s
-  // ---------------------------------------------------------------------------
-
-  useEffect(() => {
-    fetchUnreadCount();
-
-    pollTimerRef.current = setInterval(fetchUnreadCount, POLL_INTERVAL_MS);
-
-    return () => {
-      if (pollTimerRef.current !== null) {
-        clearInterval(pollTimerRef.current);
-      }
-    };
-  }, [fetchUnreadCount]);
-
-  // ---------------------------------------------------------------------------
-  // WebSocket — real-time notification updates
-  // ---------------------------------------------------------------------------
-
-  /**
-   * W2-13 — the server sends a hint on `notifications` (id, type, severity;
-   * no text) whenever a notification is created for this user, and a resync
-   * after a reconnect. Refetch the unread count, and the list when the
-   * dropdown is open, so the badge updates without waiting for the poll.
-   */
-  useRealtime('notifications', () => {
-    void fetchUnreadCount();
-    if (isOpen) {
-      void fetchNotifications();
-    }
-  });
-
-  // ---------------------------------------------------------------------------
-  // Dropdown open / close
-  // ---------------------------------------------------------------------------
-
-  const openDropdown = useCallback(() => {
-    setIsOpen(true);
-    fetchNotifications();
-  }, [fetchNotifications]);
-
-  const closeDropdown = useCallback(() => {
-    setIsOpen(false);
-  }, []);
-
-  const toggleDropdown = useCallback(() => {
-    if (isOpen) {
-      closeDropdown();
-    } else {
-      openDropdown();
-    }
-  }, [isOpen, openDropdown, closeDropdown]);
-
-  // Close when clicking outside
-  useEffect(() => {
-    if (!isOpen) return;
-
-    const handleOutsideClick = (event: MouseEvent) => {
-      if (
-        containerRef.current &&
-        !containerRef.current.contains(event.target as Node)
-      ) {
-        closeDropdown();
-      }
-    };
-
-    document.addEventListener('mousedown', handleOutsideClick);
-    return () => document.removeEventListener('mousedown', handleOutsideClick);
-  }, [isOpen, closeDropdown]);
-
-  // Close on Escape key
-  useEffect(() => {
-    if (!isOpen) return;
-
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') closeDropdown();
-    };
-
-    document.addEventListener('keydown', handleKeyDown);
-    return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, closeDropdown]);
-
-  // ---------------------------------------------------------------------------
-  // Actions
-  // ---------------------------------------------------------------------------
-
-  const handleMarkAsRead = useCallback(
-    async (notification: Notification) => {
-      if (notification.is_read) return;
-      try {
-        await notificationsApi.markAsRead(notification.id);
-        setNotifications((prev) =>
-          prev.map((n) =>
-            n.id === notification.id ? { ...n, is_read: true } : n
-          )
-        );
-        setUnreadCount((prev) => Math.max(0, prev - 1));
-      } catch {
-        // Non-critical — do not surface error for a read-mark action
-      }
-    },
-    []
-  );
-
-  const handleMarkAllRead = useCallback(async () => {
-    try {
-      await notificationsApi.markAllRead();
-      setNotifications((prev) => prev.map((n) => ({ ...n, is_read: true })));
-      setUnreadCount(0);
-    } catch {
-      // Non-critical
-    }
-  }, []);
-
-  // ---------------------------------------------------------------------------
-  // Render
-  // ---------------------------------------------------------------------------
-
-  const hasUnread = unreadCount > 0;
+const NotificationItem: React.FC<ItemProps> = ({ notification, onMarkRead }) => {
+  const meta = severityMeta(notification.severity);
+  const classes = [
+    'notification-item',
+    `notification-item--${notification.severity}`,
+    notification.is_read ? 'notification-item--read' : '',
+  ]
+    .filter(Boolean)
+    .join(' ');
 
   return (
-    <div className="notification-bell" ref={containerRef}>
-      {/* Bell trigger button */}
+    <li className={classes}>
+      <button
+        type="button"
+        className="notification-item__inner"
+        onClick={() => onMarkRead(notification)}
+        aria-label={
+          notification.is_read ? notification.title : `Als gelesen markieren: ${notification.title}`
+        }
+      >
+        <span className="notification-item__severity">
+          <Icon name={meta.icon} />
+          {meta.label}
+        </span>
+        <span className="notification-item__body">
+          <span className="notification-item__title">{notification.title}</span>
+          <span className="notification-item__message">{notification.message}</span>
+          <span className="notification-item__time">{timeAgo(notification.created_at)}</span>
+        </span>
+        {!notification.is_read && <span className="notification-item__unread">Neu</span>}
+      </button>
+    </li>
+  );
+};
+
+function useNotificationMutations() {
+  const queryClient = useQueryClient();
+  const invalidate = () => queryClient.invalidateQueries({ queryKey: queryKeys.notifications.all });
+  const markRead = useMutation({
+    mutationFn: (id: number) => notificationsApi.markAsRead(id),
+    onSuccess: invalidate,
+  });
+  const markAllRead = useMutation({
+    mutationFn: () => notificationsApi.markAllRead(),
+    onSuccess: invalidate,
+  });
+  return { markRead, markAllRead };
+}
+
+export const NotificationBell: React.FC = () => {
+  const [isOpen, setIsOpen] = useState(false);
+
+  const countQuery = useQuery({
+    queryKey: queryKeys.notifications.unreadCount(),
+    queryFn: () => notificationsApi.getUnreadCount(),
+    refetchInterval: POLL_INTERVAL_MS,
+  });
+  const listQuery = useQuery({
+    queryKey: queryKeys.notifications.list(LIST_LIMIT),
+    queryFn: () => notificationsApi.getNotifications(LIST_LIMIT),
+    enabled: isOpen,
+  });
+  const { markRead, markAllRead } = useNotificationMutations();
+
+  const unreadCount = countQuery.data?.unread_count ?? 0;
+  const hasUnread = unreadCount > 0;
+  const notifications = listQuery.data ?? [];
+  const mutationError = markRead.error ?? markAllRead.error;
+
+  const handleMarkRead = (n: Notification) => {
+    if (!n.is_read) markRead.mutate(n.id);
+  };
+
+  const listState: PageStateValue = listQuery.isPending
+    ? { status: 'loading' }
+    : listQuery.isError
+      ? {
+          status: 'error',
+          error: getErrorMessage(listQuery.error, 'Benachrichtigungen konnten nicht geladen werden.'),
+          retry: () => void listQuery.refetch(),
+        }
+      : { status: 'ready' };
+
+  return (
+    <div className="notification-bell">
       <button
         className="notification-bell__trigger"
-        onClick={toggleDropdown}
-        aria-label={
-          hasUnread
-            ? `Benachrichtigungen — ${unreadCount} ungelesen`
-            : 'Benachrichtigungen'
-        }
+        onClick={() => setIsOpen(true)}
+        aria-label={hasUnread ? `Benachrichtigungen — ${unreadCount} ungelesen` : 'Benachrichtigungen'}
+        aria-haspopup="dialog"
         aria-expanded={isOpen}
-        aria-haspopup="true"
         type="button"
       >
-        {/* Bell SVG — inline so we can control stroke precisely */}
-        <svg
-          className="notification-bell__icon"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          aria-hidden="true"
-          focusable="false"
-        >
-          <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
-          <path d="M13.73 21a2 2 0 0 1-3.46 0" />
-        </svg>
-
-        {/* Unread count badge */}
+        <BellIcon />
         {hasUnread && (
-          <span
-            className="notification-bell__badge"
-            aria-hidden="true" // count is already in the button aria-label
-            aria-live="polite"
-          >
-            {unreadCount > 99 ? '99+' : unreadCount}
+          <span className="notification-bell__badge" aria-hidden="true">
+            {unreadCount > MAX_BADGE_COUNT ? `${MAX_BADGE_COUNT}+` : unreadCount}
           </span>
         )}
       </button>
 
-      {/* Dropdown panel */}
-      {isOpen && (
-        <div
-          className="notification-dropdown"
-          role="dialog"
-          aria-label="Benachrichtigungen"
-        >
-          {/* Header row */}
-          <div className="notification-dropdown__header">
-            <span className="notification-dropdown__title">
-              Benachrichtigungen
-            </span>
-            {hasUnread && (
-              <span className="notification-dropdown__unread-label">
-                {unreadCount} ungelesen
-              </span>
-            )}
-          </div>
-
-          {/* Notification list */}
-          <ul className="notification-dropdown__list" role="list">
-            {isLoading && (
-              <li className="notification-dropdown__state-row">
-                <span className="notification-dropdown__spinner" aria-hidden="true" />
-                Wird geladen…
-              </li>
-            )}
-
-            {!isLoading && hasError && (
-              <li className="notification-dropdown__state-row notification-dropdown__state-row--error">
-                Benachrichtigungen konnten nicht geladen werden.
-              </li>
-            )}
-
-            {!isLoading && !hasError && notifications.length === 0 && (
-              <li className="notification-dropdown__state-row">
-                Keine Benachrichtigungen vorhanden.
-              </li>
-            )}
-
-            {!isLoading &&
-              !hasError &&
-              notifications.map((notification) => (
-                <li
-                  key={notification.id}
-                  className={[
-                    'notification-item',
-                    severityClass(notification.severity),
-                    notification.is_read ? 'notification-item--read' : '',
-                  ]
-                    .filter(Boolean)
-                    .join(' ')}
-                >
-                  <button
-                    className="notification-item__inner"
-                    onClick={() => handleMarkAsRead(notification)}
-                    type="button"
-                    aria-label={
-                      notification.is_read
-                        ? notification.title
-                        : `Als gelesen markieren: ${notification.title}`
-                    }
-                  >
-                    {/* Severity indicator — color + text label for colorblind safety */}
-                    <span
-                      className="notification-item__severity"
-                      aria-label={`Priorität: ${notification.severity}`}
-                      title={notification.severity}
-                    >
-                      {severityLabel(notification.severity)}
-                    </span>
-
-                    <div className="notification-item__body">
-                      <span className="notification-item__title">
-                        {notification.title}
-                      </span>
-                      <span className="notification-item__message">
-                        {notification.message}
-                      </span>
-                      <span className="notification-item__time">
-                        {timeAgo(notification.created_at)}
-                      </span>
-                    </div>
-
-                    {/* Unread dot — visually confirms unread state */}
-                    {!notification.is_read && (
-                      <span
-                        className="notification-item__unread-dot"
-                        aria-hidden="true"
-                      />
-                    )}
-                  </button>
-                </li>
+      <Sheet
+        open={isOpen}
+        onClose={() => setIsOpen(false)}
+        title="Benachrichtigungen"
+        description={hasUnread ? `${unreadCount} ungelesen` : undefined}
+        dismissOnBackdrop
+        footer={
+          <Button
+            variant="secondary"
+            icon="check"
+            onClick={() => markAllRead.mutate()}
+            disabled={!hasUnread}
+            loading={markAllRead.isPending}
+          >
+            Alle als gelesen markieren
+          </Button>
+        }
+      >
+        {mutationError && (
+          <p className="notification-sheet__error" role="alert">
+            {getErrorMessage(mutationError, 'Benachrichtigung konnte nicht aktualisiert werden.')}
+          </p>
+        )}
+        <PageState state={listState} skeleton="list" skeletonCount={3}>
+          {notifications.length === 0 ? (
+            <EmptyState
+              icon="inbox"
+              title="Keine Benachrichtigungen"
+              body="Neue Hinweise zu Aufträgen erscheinen hier."
+              headingLevel={3}
+            />
+          ) : (
+            <ul className="notification-list">
+              {notifications.map((n) => (
+                <NotificationItem key={n.id} notification={n} onMarkRead={handleMarkRead} />
               ))}
-          </ul>
-
-          {/* Footer — mark all read */}
-          <div className="notification-dropdown__footer">
-            <button
-              className="notification-dropdown__mark-all"
-              onClick={handleMarkAllRead}
-              disabled={!hasUnread}
-              type="button"
-            >
-              Alle als gelesen markieren
-            </button>
-          </div>
-        </div>
-      )}
+            </ul>
+          )}
+        </PageState>
+      </Sheet>
     </div>
   );
 };
