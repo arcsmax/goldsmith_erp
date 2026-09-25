@@ -18,6 +18,7 @@ import { getErrorMessage } from '../lib/errors';
 import { Button, Icon, IconButton } from '../ui';
 import { StatusBadge } from '../ui/StatusBadge';
 import { TimeEntry, TimeEntryStopInput } from '../types';
+import { parseUTC } from '../utils/formatters';
 import { TimerStartForm } from './time-tracking/TimerStartForm';
 import { TimerStopDialog } from './time-tracking/TimerStopDialog';
 import '../styles/components/TimerWidget.css';
@@ -35,9 +36,9 @@ interface TimerWidgetProps {
 
 const TICK_MS = 1000;
 
-/** Server timestamps are UTC without 'Z'; append it so JS does not read local time. */
+/** Server timestamps may be naive or already timezone-aware; parseUTC handles both. */
 function parseStart(startTime: string): number {
-  return new Date(startTime.endsWith('Z') ? startTime : `${startTime}Z`).getTime();
+  return parseUTC(startTime).getTime();
 }
 
 function formatElapsed(seconds: number): string {
