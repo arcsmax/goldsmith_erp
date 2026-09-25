@@ -71,7 +71,7 @@ test.describe('Login form interactions', () => {
     await page.locator('button[type="submit"]').click();
 
     // Wait for the error message to appear (network request completes)
-    const errorMsg = page.locator('.error-message');
+    const errorMsg = page.locator('.auth-alert');
     await expect(errorMsg).toBeVisible({ timeout: 15_000 });
     // Error text is either the server detail or the fallback German message
     await expect(errorMsg).not.toBeEmpty();

@@ -17,33 +17,22 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { useState } from 'react';
-import { render, screen, waitFor, within } from '@testing-library/react';
-import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { screen, waitFor, within } from '@testing-library/react';
+import { Route, Routes } from 'react-router-dom';
+import { renderWithQuery } from './queryWrapper';
 import userEvent from '@testing-library/user-event';
 import type { OrderStatus, OrderType } from '../types';
 
 describe('OrderDetailPage — "Angebot erstellen" button mojibake regression', () => {
-  it('does not contain the literal string "F4DD" in the button CSS', () => {
+  // W4-03: the button is the src/ui ButtonLink with an SVG icon; the page
+  // CSS no longer draws a ::before glyph, so the "F4DD" escape bug cannot
+  // come back through order-detail.css.
+  it('does not contain the literal string "F4DD" in the page CSS', () => {
     const cssPath = resolve(__dirname, '../styles/order-detail.css');
     const css = readFileSync(cssPath, 'utf-8');
-
-    // Find the .btn-create-quote::before block.
-    const blockMatch = css.match(/\.btn-create-quote::before\s*\{[^}]*\}/);
-    expect(blockMatch).not.toBeNull();
-    const block = blockMatch![0];
-
-    // Must NOT contain bare "F4DD" (the mojibake symptom). The fixed
-    // CSS uses the escape sequence \01F4DD which contains a backslash
-    // before the F, so this regex still excludes the broken form.
-    expect(block).not.toMatch(/"F4DD/);
-
-    // Must NOT contain a stray SOH control char (U+0001) that snuck in
-    // alongside the original broken escape.
-    expect(block).not.toContain('\u0001');
-
-    // Must contain a proper CSS Unicode escape that resolves to U+1F4DD
-    // (memo emoji). Both \01F4DD and \1F4DD are valid CSS forms.
-    expect(block).toMatch(/\\0?1F4DD/i);
+    expect(css).not.toMatch(/"F4DD/);
+    expect(css).not.toContain('\u0001');
+    expect(css).not.toMatch(/\.btn-create-quote::before/);
   });
 });
 
@@ -149,12 +138,11 @@ const PHOTOS = [
 ];
 
 function renderPage(entry = '/orders/42') {
-  return render(
-    <MemoryRouter initialEntries={[entry]}>
-      <Routes>
-        <Route path="/orders/:orderId" element={<OrderDetailPage />} />
-      </Routes>
-    </MemoryRouter>
+  return renderWithQuery(
+    <Routes>
+      <Route path="/orders/:orderId" element={<OrderDetailPage />} />
+    </Routes>,
+    { route: entry }
   );
 }
 
@@ -230,7 +218,10 @@ describe('OrderDetailPage — "Angebot erstellen" role gate (LV2-04)', () => {
     mockGetById.mockResolvedValue(makeOrder('in_progress'));
     renderPage();
 
-    expect(await screen.findByRole('button', { name: 'Angebot erstellen' })).toBeInTheDocument();
+    // W4-03: navigation is a link styled as a button (playbook 4.1).
+    const link = await screen.findByRole('link', { name: 'Angebot erstellen' });
+    expect(link).toHaveAttribute('href', '/quotes?order_id=42&customer_id=1');
+    expect(link.textContent).not.toMatch(/F4DD/);
   });
 
   it('hides "Angebot erstellen" for VIEWER — it used to navigate to /quotes and get silently bounced to /dashboard by the route guard', async () => {
@@ -239,7 +230,7 @@ describe('OrderDetailPage — "Angebot erstellen" role gate (LV2-04)', () => {
     renderPage();
 
     await screen.findAllByText('Trauringe Meier');
-    expect(screen.queryByRole('button', { name: 'Angebot erstellen' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Angebot erstellen' })).not.toBeInTheDocument();
   });
 });
 

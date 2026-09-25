@@ -1,522 +1,291 @@
-// Calendar Page Component - Monthly calendar with traffic light deadline indicators
-// and full create/edit/delete support for calendar events.
-import React, { useEffect, useState, useMemo, useCallback } from 'react';
+// Calendar page — month grid with deadline markers and stored events (W4-03).
+//
+// Data: one query per visible date range (stored events + order deadlines).
+// Order hints invalidate ['calendar'] (lib/realtimeInvalidation.ts), because
+// deadlines are derived from order delivery dates. Create, update and delete
+// go through useMutation and invalidate ['calendar'].
+import React, { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { calendarApi } from '../api/calendar';
+import { queryKeys, type DateRange } from '../api/queryKeys';
 import { CalendarEventModal } from '../components/CalendarEventModal';
 import {
+  DAY_NAMES,
+  DAY_NAMES_FULL,
+  LEGEND_MARKERS,
+  MONTH_NAMES,
+  buildCalendarGrid,
+  getEventMarker,
+  groupByDate,
+  isDeadlineEvent,
+  isStoredEvent,
+  toDateString,
+  type CalendarCell,
+} from '../components/calendar/calendarGrid';
+import { getErrorMessage } from '../lib/errors';
+import { logError } from '../lib/logError';
+import type {
   AnyCalendarEvent,
-  CalendarDeadlineEvent,
   CalendarEvent,
   CalendarEventCreate,
-  CalendarEventType,
   CalendarEventUpdate,
-  TrafficLight,
 } from '../types';
+import { Button, PageHeader, PageState, type PageStateValue } from '../ui';
 import '../styles/calendar.css';
 
-// ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
-
-const DAY_NAMES = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'];
-const DAY_NAMES_FULL = [
-  'Montag',
-  'Dienstag',
-  'Mittwoch',
-  'Donnerstag',
-  'Freitag',
-  'Samstag',
-  'Sonntag',
-];
-const MONTH_NAMES = [
-  'Januar',
-  'Februar',
-  'März',
-  'April',
-  'Mai',
-  'Juni',
-  'Juli',
-  'August',
-  'September',
-  'Oktober',
-  'November',
-  'Dezember',
-];
-
-/** Maximum events to show per day cell before showing "+N weitere" */
+/** Maximum events per day cell before "+N weitere". */
 const MAX_EVENTS_PER_CELL = 3;
-
-// ---------------------------------------------------------------------------
-// Event type color coding
-// ---------------------------------------------------------------------------
-
-/**
- * Returns a CSS class suffix for each CalendarEventType.
- * ORDER_DEADLINE uses the traffic-light system; others have fixed colours.
- */
-function getEventTypeClass(
-  eventType: CalendarEventType,
-  trafficLight?: TrafficLight
-): string {
-  switch (eventType) {
-    case 'order_deadline':
-      switch (trafficLight) {
-        case 'red':
-          return 'traffic-red';
-        case 'yellow':
-          return 'traffic-yellow';
-        case 'green':
-          return 'traffic-green';
-        default:
-          return 'traffic-grey';
-      }
-    case 'workshop_task':
-      return 'event-blue';
-    case 'appointment':
-      return 'event-purple';
-    case 'reminder':
-      return 'event-yellow';
-    default:
-      return 'traffic-grey';
-  }
-}
-
-/** Human-readable label for event type legend */
-const EVENT_TYPE_LABELS: Record<CalendarEventType, string> = {
-  order_deadline: 'Auftragsdeadline',
-  workshop_task: 'Werkstattaufgabe',
-  appointment: 'Termin',
-  reminder: 'Erinnerung',
-};
-
-// ---------------------------------------------------------------------------
-// Calendar grid helpers
-// ---------------------------------------------------------------------------
-
-interface CalendarCell {
-  date: Date;
-  day: number;
-  isCurrentMonth: boolean;
-  isToday: boolean;
-}
-
-function getMonthStartDayOffset(year: number, month: number): number {
-  const day = new Date(year, month, 1).getDay();
-  // JS: 0 = Sunday. We want Monday = 0.
-  return day === 0 ? 6 : day - 1;
-}
-
-function getDaysInMonth(year: number, month: number): number {
-  return new Date(year, month + 1, 0).getDate();
-}
-
-function buildCalendarGrid(year: number, month: number): CalendarCell[][] {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-
-  const daysInMonth = getDaysInMonth(year, month);
-  const startOffset = getMonthStartDayOffset(year, month);
-
-  const prevMonth = month === 0 ? 11 : month - 1;
-  const prevYear = month === 0 ? year - 1 : year;
-  const daysInPrevMonth = getDaysInMonth(prevYear, prevMonth);
-
-  const cells: CalendarCell[] = [];
-
-  for (let i = startOffset - 1; i >= 0; i--) {
-    const day = daysInPrevMonth - i;
-    const date = new Date(prevYear, prevMonth, day);
-    date.setHours(0, 0, 0, 0);
-    cells.push({ date, day, isCurrentMonth: false, isToday: date.getTime() === today.getTime() });
-  }
-
-  for (let day = 1; day <= daysInMonth; day++) {
-    const date = new Date(year, month, day);
-    date.setHours(0, 0, 0, 0);
-    cells.push({ date, day, isCurrentMonth: true, isToday: date.getTime() === today.getTime() });
-  }
-
-  const remaining = 7 - (cells.length % 7);
-  if (remaining < 7) {
-    const nextMonth = month === 11 ? 0 : month + 1;
-    const nextYear = month === 11 ? year + 1 : year;
-    for (let day = 1; day <= remaining; day++) {
-      const date = new Date(nextYear, nextMonth, day);
-      date.setHours(0, 0, 0, 0);
-      cells.push({ date, day, isCurrentMonth: false, isToday: date.getTime() === today.getTime() });
-    }
-  }
-
-  const weeks: CalendarCell[][] = [];
-  for (let i = 0; i < cells.length; i += 7) {
-    weeks.push(cells.slice(i, i + 7));
-  }
-
-  return weeks;
-}
-
-/** Format a Date as YYYY-MM-DD */
-function toDateString(d: Date): string {
-  const year = d.getFullYear();
-  const month = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
-}
-
-// ---------------------------------------------------------------------------
-// Type guards
-// ---------------------------------------------------------------------------
-
-function isDeadlineEvent(evt: AnyCalendarEvent): evt is CalendarDeadlineEvent {
-  return evt.event_type === 'order_deadline' && 'traffic_light' in evt;
-}
-
-function isStoredEvent(evt: AnyCalendarEvent): evt is CalendarEvent {
-  return 'user_id' in evt;
-}
-
-// ---------------------------------------------------------------------------
-// Modal state
-// ---------------------------------------------------------------------------
 
 type ModalState =
   | { mode: 'closed' }
   | { mode: 'create'; defaultDate: string }
   | { mode: 'edit'; event: CalendarEvent };
 
-// ---------------------------------------------------------------------------
-// Component
-// ---------------------------------------------------------------------------
+async function fetchCalendar(range: DateRange): Promise<AnyCalendarEvent[]> {
+  try {
+    const [storedEvents, deadlines] = await Promise.all([
+      calendarApi.getEvents(range.start_date, range.end_date),
+      calendarApi.getDeadlines(range.start_date, range.end_date),
+    ]);
+    return [...storedEvents, ...deadlines].sort((a, b) =>
+      a.start_datetime.localeCompare(b.start_datetime),
+    );
+  } catch (err) {
+    logError('CalendarPage.fetchCalendar', err);
+    throw err;
+  }
+}
+
+function gridRange(grid: CalendarCell[][]): DateRange {
+  const lastWeek = grid[grid.length - 1];
+  return {
+    start_date: toDateString(grid[0][0].date),
+    end_date: toDateString(lastWeek[lastWeek.length - 1].date),
+  };
+}
+
+function eventTitle(evt: AnyCalendarEvent): string {
+  const marker = getEventMarker(evt);
+  if (isDeadlineEvent(evt)) {
+    return `${evt.title} — ${marker.label}, noch ${evt.days_until_deadline} Tag(e)`;
+  }
+  return `${evt.title} — ${marker.label}`;
+}
+
+interface DayCellProps {
+  cell: CalendarCell;
+  events: AnyCalendarEvent[];
+  onCreate: (dateKey: string) => void;
+  onOpenEvent: (evt: AnyCalendarEvent) => void;
+}
+
+const DayCell: React.FC<DayCellProps> = ({ cell, events, onCreate, onOpenEvent }) => {
+  const dateKey = toDateString(cell.date);
+  const visible = events.slice(0, MAX_EVENTS_PER_CELL);
+  const hiddenCount = events.length - visible.length;
+  const dateLabel = cell.date.toLocaleDateString('de-DE', { day: 'numeric', month: 'long' });
+  const cellClass = [
+    'calendar-day',
+    cell.isCurrentMonth ? 'current-month' : 'other-month',
+    cell.isToday ? 'today' : '',
+  ]
+    .filter(Boolean)
+    .join(' ');
+
+  return (
+    <td aria-current={cell.isToday ? 'date' : undefined}>
+      <div className={cellClass}>
+        {cell.isCurrentMonth ? (
+          <button
+            type="button"
+            className="calendar-day-number"
+            onClick={() => onCreate(dateKey)}
+            aria-label={`${dateLabel}: Termin anlegen`}
+          >
+            {cell.day}
+          </button>
+        ) : (
+          <span className="calendar-day-number">{cell.day}</span>
+        )}
+
+        <div className="calendar-day-orders">
+          {visible.map((evt) => {
+            const marker = getEventMarker(evt);
+            return (
+              <button
+                type="button"
+                key={`${evt.event_type}-${evt.id}`}
+                className="calendar-event"
+                onClick={() => onOpenEvent(evt)}
+                title={eventTitle(evt)}
+              >
+                <span className={`calendar-marker calendar-marker--${marker.tone}`} aria-hidden="true">
+                  {marker.symbol}
+                </span>
+                <span className="ui-visually-hidden">{marker.label}: </span>
+                <span className="calendar-event__title">{evt.title}</span>
+              </button>
+            );
+          })}
+          {hiddenCount > 0 && <span className="calendar-more">+{hiddenCount} weitere</span>}
+        </div>
+      </div>
+    </td>
+  );
+};
+
+function useCalendarMutations(modal: ModalState) {
+  const queryClient = useQueryClient();
+  const invalidate = () => queryClient.invalidateQueries({ queryKey: queryKeys.calendar.all });
+
+  const save = useMutation({
+    mutationFn: (data: CalendarEventCreate | CalendarEventUpdate) =>
+      modal.mode === 'edit'
+        ? calendarApi.updateEvent(modal.event.id, data as CalendarEventUpdate)
+        : calendarApi.createEvent(data as CalendarEventCreate),
+    onSuccess: invalidate,
+  });
+
+  const remove = useMutation({
+    mutationFn: (id: number) => calendarApi.deleteEvent(id),
+    onSuccess: invalidate,
+  });
+
+  return { save, remove };
+}
 
 export const CalendarPage: React.FC = () => {
   const navigate = useNavigate();
-  const today = new Date();
-
-  const [currentYear, setCurrentYear] = useState(today.getFullYear());
-  const [currentMonth, setCurrentMonth] = useState(today.getMonth());
-
-  // Merged list of stored events + deadline virtual events
-  const [events, setEvents] = useState<AnyCalendarEvent[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
+  const [month, setMonth] = useState(() => {
+    const now = new Date();
+    return { year: now.getFullYear(), month: now.getMonth() };
+  });
   const [modal, setModal] = useState<ModalState>({ mode: 'closed' });
 
-  const grid = useMemo(
-    () => buildCalendarGrid(currentYear, currentMonth),
-    [currentYear, currentMonth]
-  );
+  const grid = useMemo(() => buildCalendarGrid(month.year, month.month), [month]);
+  const range = useMemo(() => gridRange(grid), [grid]);
 
-  // Build a map from YYYY-MM-DD → events for fast lookup
-  const eventsByDate = useMemo(() => {
-    const map: Record<string, AnyCalendarEvent[]> = {};
-    for (const evt of events) {
-      const dateKey = evt.start_datetime.substring(0, 10);
-      if (!map[dateKey]) map[dateKey] = [];
-      map[dateKey].push(evt);
-    }
-    return map;
-  }, [events]);
+  const calendarQuery = useQuery({
+    queryKey: queryKeys.calendar.events(range),
+    queryFn: () => fetchCalendar(range),
+  });
+  const eventsByDate = useMemo(() => groupByDate(calendarQuery.data ?? []), [calendarQuery.data]);
+  const { save, remove } = useCalendarMutations(modal);
 
-  // ---------------------------------------------------------------------------
-  // Data fetching
-  // ---------------------------------------------------------------------------
-
-  const fetchData = useCallback(async () => {
-    try {
-      setIsLoading(true);
-      setError(null);
-
-      const firstCell = grid[0][0];
-      const lastWeek = grid[grid.length - 1];
-      const lastCell = lastWeek[lastWeek.length - 1];
-      const start = toDateString(firstCell.date);
-      const end = toDateString(lastCell.date);
-
-      // Fetch stored events and deadline virtual events in parallel
-      const [storedEvents, deadlines] = await Promise.all([
-        calendarApi.getEvents(start, end).catch(() => [] as CalendarEvent[]),
-        calendarApi.getDeadlines(start, end).catch(() => [] as CalendarDeadlineEvent[]),
-      ]);
-
-      // Merge and sort by start_datetime ascending
-      const merged: AnyCalendarEvent[] = [...storedEvents, ...deadlines];
-      merged.sort((a, b) =>
-        a.start_datetime.localeCompare(b.start_datetime)
-      );
-
-      setEvents(merged);
-    } catch (err: any) {
-      setError(
-        err?.response?.data?.detail ?? 'Fehler beim Laden der Kalender-Daten'
-      );
-    } finally {
-      setIsLoading(false);
-    }
-  }, [grid]);
-
-  useEffect(() => {
-    fetchData();
-  }, [fetchData]);
-
-  // ---------------------------------------------------------------------------
-  // Navigation
-  // ---------------------------------------------------------------------------
-
-  const goToPrevMonth = () => {
-    if (currentMonth === 0) {
-      setCurrentMonth(11);
-      setCurrentYear((y) => y - 1);
-    } else {
-      setCurrentMonth((m) => m - 1);
-    }
-  };
-
-  const goToNextMonth = () => {
-    if (currentMonth === 11) {
-      setCurrentMonth(0);
-      setCurrentYear((y) => y + 1);
-    } else {
-      setCurrentMonth((m) => m + 1);
-    }
-  };
-
+  const shiftMonth = (delta: number) =>
+    setMonth(({ year, month: m }) => {
+      const next = new Date(year, m + delta, 1);
+      return { year: next.getFullYear(), month: next.getMonth() };
+    });
   const goToToday = () => {
     const now = new Date();
-    setCurrentMonth(now.getMonth());
-    setCurrentYear(now.getFullYear());
+    setMonth({ year: now.getFullYear(), month: now.getMonth() });
   };
 
-  // ---------------------------------------------------------------------------
-  // Event handlers (modal)
-  // ---------------------------------------------------------------------------
-
-  const handleEventClick = (evt: AnyCalendarEvent) => {
+  const openEvent = (evt: AnyCalendarEvent) => {
     if (isDeadlineEvent(evt)) {
-      // Deadline virtual events: navigate to the order instead of editing
+      // Deadline events belong to an order: open the order instead of editing.
       navigate(`/orders/${evt.order_id}`);
       return;
     }
-    if (isStoredEvent(evt)) {
-      setModal({ mode: 'edit', event: evt });
-    }
+    if (isStoredEvent(evt)) setModal({ mode: 'edit', event: evt });
   };
 
-  const handleDayClick = (dateKey: string) => {
-    setModal({ mode: 'create', defaultDate: dateKey });
+  const handleSave = async (data: CalendarEventCreate | CalendarEventUpdate): Promise<void> => {
+    await save.mutateAsync(data);
   };
-
-  const handleSave = async (
-    data: CalendarEventCreate | CalendarEventUpdate
-  ) => {
-    if (modal.mode === 'create') {
-      await calendarApi.createEvent(data as CalendarEventCreate);
-    } else if (modal.mode === 'edit') {
-      await calendarApi.updateEvent(modal.event.id, data as CalendarEventUpdate);
-    }
-    await fetchData();
+  const handleDelete = async (): Promise<void> => {
+    if (modal.mode === 'edit') await remove.mutateAsync(modal.event.id);
   };
-
-  const handleDelete = async () => {
-    if (modal.mode !== 'edit') return;
-    await calendarApi.deleteEvent(modal.event.id);
-    await fetchData();
-  };
-
   const closeModal = () => setModal({ mode: 'closed' });
 
-  // ---------------------------------------------------------------------------
-  // Render
-  // ---------------------------------------------------------------------------
+  const state: PageStateValue = calendarQuery.isError
+    ? {
+        status: 'error',
+        error: getErrorMessage(calendarQuery.error, 'Kalender konnte nicht geladen werden'),
+        retry: () => void calendarQuery.refetch(),
+      }
+    : { status: 'ready' };
+  const monthLabel = `${MONTH_NAMES[month.month]} ${month.year}`;
 
   return (
     <div className="calendar-page">
-      {/* Header */}
-      <header className="calendar-header">
-        <h1>Kalender</h1>
-        <div className="calendar-header-actions">
-          <button
-            className="btn btn-primary calendar-new-btn"
-            onClick={() =>
-              setModal({ mode: 'create', defaultDate: toDateString(new Date()) })
-            }
+      <PageHeader
+        title="Kalender"
+        meta={calendarQuery.isFetching ? 'Wird geladen…' : undefined}
+        primaryAction={
+          <Button
+            icon="plus"
+            onClick={() => setModal({ mode: 'create', defaultDate: toDateString(new Date()) })}
           >
-            + Neuer Termin
-          </button>
-          <div className="calendar-nav">
-            <button className="calendar-nav-btn" onClick={goToPrevMonth}>
-              &lsaquo; Zurück
-            </button>
-            <button className="calendar-nav-btn" onClick={goToToday}>
-              Heute
-            </button>
-            <span className="calendar-month-label">
-              {MONTH_NAMES[currentMonth]} {currentYear}
+            Termin anlegen
+          </Button>
+        }
+      />
+
+      <nav className="calendar-nav" aria-label="Monat wählen">
+        <Button variant="secondary" icon="arrow-left" onClick={() => shiftMonth(-1)}>
+          Zurück
+        </Button>
+        <Button variant="ghost" onClick={goToToday}>
+          Heute
+        </Button>
+        <h2 className="calendar-month-label" aria-live="polite">
+          {monthLabel}
+        </h2>
+        <Button variant="secondary" onClick={() => shiftMonth(1)}>
+          Weiter
+        </Button>
+      </nav>
+
+      <ul className="calendar-legend" aria-label="Legende">
+        {LEGEND_MARKERS.map((marker) => (
+          <li key={marker.label} className="legend-item">
+            <span className={`calendar-marker calendar-marker--${marker.tone}`} aria-hidden="true">
+              {marker.symbol}
             </span>
-            <button className="calendar-nav-btn" onClick={goToNextMonth}>
-              Weiter &rsaquo;
-            </button>
-          </div>
-        </div>
-      </header>
+            {marker.label}
+          </li>
+        ))}
+      </ul>
 
-      {/* Legend */}
-      <div className="calendar-legend">
-        {/* Traffic light legend for deadlines */}
-        <div className="legend-item">
-          <span className="traffic-dot traffic-green" />
-          Mehr als 5 Tage
-        </div>
-        <div className="legend-item">
-          <span className="traffic-dot traffic-yellow" />
-          2–5 Tage
-        </div>
-        <div className="legend-item">
-          <span className="traffic-dot traffic-red" />
-          Weniger als 2 Tage
-        </div>
-        <div className="legend-item">
-          <span className="traffic-dot traffic-grey" />
-          Abgeschlossen
-        </div>
-        {/* Fixed event type colours */}
-        <div className="legend-item">
-          <span className="traffic-dot event-blue" />
-          {EVENT_TYPE_LABELS.workshop_task}
-        </div>
-        <div className="legend-item">
-          <span className="traffic-dot event-purple" />
-          {EVENT_TYPE_LABELS.appointment}
-        </div>
-        <div className="legend-item">
-          <span className="traffic-dot event-yellow" />
-          {EVENT_TYPE_LABELS.reminder}
-        </div>
-      </div>
-
-      {/* Status bar */}
-      {isLoading && (
-        <div className="calendar-status-bar">Lade Kalender...</div>
-      )}
-      {error && (
-        <div className="calendar-status-bar calendar-status-bar--error">
-          {error}
-        </div>
-      )}
-
-      {/* Calendar Grid */}
-      <div className="calendar-grid">
-        <table className="calendar-table">
-          <thead>
-            <tr>
-              {DAY_NAMES.map((name, i) => (
-                <th key={name} title={DAY_NAMES_FULL[i]}>
-                  {name}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {grid.map((week, wi) => (
-              <tr key={wi}>
-                {week.map((cell) => {
-                  const dateKey = toDateString(cell.date);
-                  const dayEvents = eventsByDate[dateKey] || [];
-                  const visibleEvents = dayEvents.slice(0, MAX_EVENTS_PER_CELL);
-                  const hiddenCount = dayEvents.length - visibleEvents.length;
-
-                  const cellClass = [
-                    'calendar-day',
-                    cell.isCurrentMonth ? 'current-month' : 'other-month',
-                    cell.isToday ? 'today' : '',
-                  ]
-                    .filter(Boolean)
-                    .join(' ');
-
-                  return (
-                    <td key={dateKey}>
-                      <div className={cellClass}>
-                        {/* Clicking the day number opens a new-event modal */}
-                        <div
-                          className="calendar-day-number"
-                          onClick={() =>
-                            cell.isCurrentMonth && handleDayClick(dateKey)
-                          }
-                          title={
-                            cell.isCurrentMonth ? 'Neuer Termin' : undefined
-                          }
-                          style={
-                            cell.isCurrentMonth ? { cursor: 'pointer' } : undefined
-                          }
-                          role={cell.isCurrentMonth ? 'button' : undefined}
-                          tabIndex={cell.isCurrentMonth ? 0 : undefined}
-                          onKeyDown={(e) => {
-                            if (
-                              cell.isCurrentMonth &&
-                              (e.key === 'Enter' || e.key === ' ')
-                            )
-                              handleDayClick(dateKey);
-                          }}
-                        >
-                          {cell.day}
-                        </div>
-
-                        <div className="calendar-day-orders">
-                          {visibleEvents.map((evt) => {
-                            const trafficLight = isDeadlineEvent(evt)
-                              ? evt.traffic_light
-                              : undefined;
-                            const dotClass = getEventTypeClass(
-                              evt.event_type,
-                              trafficLight
-                            );
-
-                            return (
-                              <div
-                                key={`${evt.event_type}-${evt.id}`}
-                                className={`calendar-order-item calendar-event-item--${evt.event_type.toLowerCase()}`}
-                                onClick={() => handleEventClick(evt)}
-                                title={
-                                  isDeadlineEvent(evt)
-                                    ? `${evt.title} — ${evt.days_until_deadline} Tag(e) verbleibend`
-                                    : evt.title
-                                }
-                                role="button"
-                                tabIndex={0}
-                                onKeyDown={(e) => {
-                                  if (e.key === 'Enter' || e.key === ' ')
-                                    handleEventClick(evt);
-                                }}
-                              >
-                                <span className={`traffic-dot ${dotClass}`} />
-                                <span className="order-title">{evt.title}</span>
-                              </div>
-                            );
-                          })}
-                          {hiddenCount > 0 && (
-                            <div className="calendar-more">
-                              +{hiddenCount} weitere
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    </td>
-                  );
-                })}
+      <PageState state={state}>
+        <div className="calendar-grid">
+          <table className="calendar-table">
+            <caption className="ui-visually-hidden">Kalender {monthLabel}</caption>
+            <thead>
+              <tr>
+                {DAY_NAMES.map((name, i) => (
+                  <th key={name} scope="col">
+                    <abbr title={DAY_NAMES_FULL[i]}>{name}</abbr>
+                  </th>
+                ))}
               </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+            </thead>
+            <tbody>
+              {grid.map((week) => (
+                <tr key={toDateString(week[0].date)}>
+                  {week.map((cell) => (
+                    <DayCell
+                      key={toDateString(cell.date)}
+                      cell={cell}
+                      events={eventsByDate[toDateString(cell.date)] ?? []}
+                      onCreate={(defaultDate) => setModal({ mode: 'create', defaultDate })}
+                      onOpenEvent={openEvent}
+                    />
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </PageState>
 
-      {/* Event modal */}
       {modal.mode !== 'closed' && (
         <CalendarEventModal
           event={modal.mode === 'edit' ? modal.event : undefined}
-          defaultDate={
-            modal.mode === 'create' ? modal.defaultDate : undefined
-          }
+          defaultDate={modal.mode === 'create' ? modal.defaultDate : undefined}
           onSave={handleSave}
           onDelete={modal.mode === 'edit' ? handleDelete : undefined}
           onClose={closeModal}

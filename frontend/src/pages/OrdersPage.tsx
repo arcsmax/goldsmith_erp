@@ -44,6 +44,20 @@ const PAGE_SIZE_OPTIONS = [25, 50, 100] as const;
 /** Backend `q` accepts 1-100 characters. */
 const MAX_SEARCH_LENGTH = 100;
 
+/**
+ * Sort options, restoring the control removed in W3-03 now that the backend
+ * has a `sort` parameter (whitelist: created_at, deadline, status, title —
+ * see ORDER_SORT_FIELDS in services/list_queries.py). Empty value = the
+ * backend default (newest first), so "Standard" never sends `sort` at all.
+ */
+const SORT_OPTIONS = [
+  { value: '', label: 'Neueste zuerst (Standard)' },
+  { value: 'deadline', label: 'Frist: nächste zuerst' },
+  { value: '-deadline', label: 'Frist: späteste zuerst' },
+  { value: 'title', label: 'Titel: A–Z' },
+  { value: '-title', label: 'Titel: Z–A' },
+] as const;
+
 function parseStatus(value: string | null): OrderStatus | '' {
   return value && VALID_ORDER_STATUS.has(value as OrderStatus) ? (value as OrderStatus) : '';
 }
@@ -65,6 +79,7 @@ function toOrderType(row: OrderPageItem): OrderType {
 function useOrdersPage(params: {
   status: OrderStatus | '';
   q: string;
+  sort: string;
   pageIndex: number;
   pageSize: number;
 }) {
@@ -73,6 +88,7 @@ function useOrdersPage(params: {
     offset: params.pageIndex * params.pageSize,
     status: params.status || undefined,
     q: params.q || undefined,
+    sort: params.sort || undefined,
   }) as Parameters<typeof pagedApi.orders>[0];
   return useQuery({
     queryKey: queryKeys.orders.page(pageParams),
@@ -162,18 +178,25 @@ export const OrdersPage: React.FC = () => {
   const debouncedSearch = normaliseSearch(useDebouncedValue(searchInput));
   const [pageIndex, setPageIndex] = useState(0);
   const [pageSize, setPageSize] = useState<number>(DEFAULT_PAGE_SIZE);
+  const [sort, setSort] = useState<string>('');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedOrder, setSelectedOrder] = useState<OrderType | null>(null);
 
-  // A new filter or search starts on the first page.
-  const [lastFilterKey, setLastFilterKey] = useState(`${filterStatus}|${debouncedSearch}`);
-  const filterKey = `${filterStatus}|${debouncedSearch}`;
+  // A new filter, search or sort starts on the first page.
+  const [lastFilterKey, setLastFilterKey] = useState(`${filterStatus}|${debouncedSearch}|${sort}`);
+  const filterKey = `${filterStatus}|${debouncedSearch}|${sort}`;
   if (filterKey !== lastFilterKey) {
     setLastFilterKey(filterKey);
     setPageIndex(0);
   }
 
-  const query = useOrdersPage({ status: filterStatus, q: debouncedSearch, pageIndex, pageSize });
+  const query = useOrdersPage({
+    status: filterStatus,
+    q: debouncedSearch,
+    sort,
+    pageIndex,
+    pageSize,
+  });
 
   const closeModal = () => {
     setIsModalOpen(false);
@@ -287,6 +310,21 @@ export const OrdersPage: React.FC = () => {
           >
             <option value="">Alle</option>
             {STATUS_FILTER_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="filter-group">
+          <label htmlFor="orders-sort">Sortieren:</label>
+          <select
+            id="orders-sort"
+            value={sort}
+            onChange={(e) => setSort(e.target.value)}
+          >
+            {SORT_OPTIONS.map((option) => (
               <option key={option.value} value={option.value}>
                 {option.label}
               </option>

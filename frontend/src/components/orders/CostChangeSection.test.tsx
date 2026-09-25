@@ -14,9 +14,10 @@
 //   (e) write actions are hidden AND listCostChanges is never called for a
 //       VIEWER (COST_CHANGE_VIEW 403s backend-side for that role).
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { CostChange } from '../../api/customer-updates';
+import { renderWithQuery } from '../../test/queryWrapper';
 
 // ---------------------------------------------------------------------------
 // Mocks
@@ -112,14 +113,14 @@ describe('CostChangeSection', () => {
       }),
     ]);
 
-    render(<CostChangeSection orderId={5} />);
+    renderWithQuery(<CostChangeSection orderId={5} />);
 
     const items = await screen.findAllByRole('listitem');
     expect(items).toHaveLength(2);
     expect(within(items[0]).getByText('Neuerer Eintrag')).toBeInTheDocument();
     expect(within(items[0]).getByText('Abgelehnt')).toBeInTheDocument();
     expect(within(items[1]).getByText('Älterer Eintrag')).toBeInTheDocument();
-    expect(within(items[1]).getByText('Genehmigt')).toBeInTheDocument();
+    expect(within(items[1]).getByText('Zugestimmt')).toBeInTheDocument();
     expect(mockListCostChanges).toHaveBeenCalledWith(5);
   });
 
@@ -131,7 +132,7 @@ describe('CostChangeSection', () => {
     mockCreateCostChange.mockResolvedValue(makeCostChange({ id: 10, status: 'draft' }));
     const onChanged = vi.fn();
 
-    render(<CostChangeSection orderId={7} onChanged={onChanged} />);
+    renderWithQuery(<CostChangeSection orderId={7} onChanged={onChanged} />);
     await waitFor(() => expect(mockListCostChanges).toHaveBeenCalledWith(7));
 
     await userEvent.type(screen.getByLabelText(/Neuer Betrag/), '1200');
@@ -156,10 +157,11 @@ describe('CostChangeSection', () => {
     mockUseAuth.mockReturnValue(manageAuth());
     mockListCostChanges.mockResolvedValue([]);
     mockCreateCostChange.mockRejectedValue({
-      response: { data: { detail: 'Kein Kostenvoranschlag' } },
+      isAxiosError: true,
+      response: { status: 409, data: { detail: 'Kein Kostenvoranschlag' } },
     });
 
-    render(<CostChangeSection orderId={8} />);
+    renderWithQuery(<CostChangeSection orderId={8} />);
     await waitFor(() => expect(mockListCostChanges).toHaveBeenCalledWith(8));
 
     await userEvent.type(screen.getByLabelText(/Neuer Betrag/), '1200');
@@ -190,7 +192,7 @@ describe('CostChangeSection', () => {
     );
     const onChanged = vi.fn();
 
-    render(<CostChangeSection orderId={3} onChanged={onChanged} />);
+    renderWithQuery(<CostChangeSection orderId={3} onChanged={onChanged} />);
 
     const item = (await screen.findAllByRole('listitem'))[0];
     await userEvent.click(within(item).getByRole('button', { name: 'Antwort erfassen' }));
@@ -226,7 +228,7 @@ describe('CostChangeSection', () => {
     const sentChange = makeCostChange({ id: 43, status: 'sent' });
     mockListCostChanges.mockResolvedValue([sentChange]);
 
-    render(<CostChangeSection orderId={3} />);
+    renderWithQuery(<CostChangeSection orderId={3} />);
 
     const item = (await screen.findAllByRole('listitem'))[0];
     await userEvent.click(within(item).getByRole('button', { name: 'Antwort erfassen' }));
@@ -249,7 +251,7 @@ describe('CostChangeSection', () => {
       method: 'email',
     });
 
-    render(<CostChangeSection orderId={4} />);
+    renderWithQuery(<CostChangeSection orderId={4} />);
 
     const item = (await screen.findAllByRole('listitem'))[0];
     await userEvent.click(within(item).getByRole('button', { name: 'Senden' }));
@@ -267,7 +269,7 @@ describe('CostChangeSection', () => {
     mockListCostChanges.mockResolvedValue([draftChange]);
     mockShowConfirm.mockResolvedValue(false);
 
-    render(<CostChangeSection orderId={4} />);
+    renderWithQuery(<CostChangeSection orderId={4} />);
 
     const item = (await screen.findAllByRole('listitem'))[0];
     await userEvent.click(within(item).getByRole('button', { name: 'Senden' }));
@@ -279,7 +281,7 @@ describe('CostChangeSection', () => {
   it('hides write actions and never calls listCostChanges for a VIEWER', async () => {
     mockUseAuth.mockReturnValue(viewerAuth());
 
-    render(<CostChangeSection orderId={11} />);
+    renderWithQuery(<CostChangeSection orderId={11} />);
 
     expect(screen.getByText(/Keine Berechtigung/)).toBeInTheDocument();
     expect(

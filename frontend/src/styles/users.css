@@ -1,0 +1,28 @@
+/* UsersPage (W4-03): layout only; table, buttons and dialog come from src/ui. */
+
+.users-page-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+.users-active-state {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--color-text);
+}
+
+.user-form-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-4);
+}
+
+@media (max-width: 600px) {
+  .user-form-row {
+    grid-template-columns: 1fr;
+    gap: 0;
+  }
+}

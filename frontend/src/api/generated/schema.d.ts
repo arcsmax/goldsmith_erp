@@ -722,7 +722,14 @@ export interface paths {
         };
         /**
          * List Customers
-         * @description List all customers with optional filtering.
+         * @description List customers with optional filtering.
+         *
+         *     With ``offset``: a ``Page`` {items, total, limit, offset, next_offset}
+         *     with ``q`` (full-email blind-index search) and ``sort``. Without it
+         *     (deprecated, one release): the legacy plain list, flagged
+         *     ``X-Deprecated-List: true``, with the existing fuzzy ``search`` (name /
+         *     company / email fragment, decrypted in Python — see
+         *     ``CustomerService.get_customers``).
          *
          *     Permissions: Requires CUSTOMER_VIEW permission.
          */
@@ -10490,6 +10497,25 @@ export interface components {
              */
             total: number;
         };
+        /** Page[CustomerListItem] */
+        Page_CustomerListItem_: {
+            /** Items */
+            items: components["schemas"]["CustomerListItem"][];
+            /** Limit */
+            limit: number;
+            /**
+             * Next Offset
+             * @description Offset der nächsten Seite; null auf der letzten
+             */
+            next_offset?: number | null;
+            /** Offset */
+            offset: number;
+            /**
+             * Total
+             * @description Anzahl aller Treffer über alle Seiten
+             */
+            total: number;
+        };
         /** Page[MaterialRead] */
         Page_MaterialRead_: {
             /** Items */
@@ -14315,12 +14341,21 @@ export interface operations {
                 customer_type?: string | null;
                 /** @description Filter by active status */
                 is_active?: boolean | null;
-                /** @description Max records to return */
-                limit?: number;
-                /** @description Search in name, company, email */
+                /** @description Seitengröße (Standard 50, maximal 200 mit offset) */
+                limit?: number | null;
+                /** @description Offset der Seite. Wenn gesetzt, antwortet der Endpunkt mit einer Page-Hülle {items, total, limit, offset, next_offset}. */
+                offset?: number | null;
+                /** @description Volle E-Mail-Adresse, exakter Treffer über den email_hash Blind-Index (nur mit offset). Name/Firma sind verschlüsselt und daher hier nicht durchsuchbar — dafür ``search`` ohne offset verwenden. */
+                q?: string | null;
+                /** @description Search in name, company, email (nur ohne offset) */
                 search?: string | null;
-                /** @description Number of records to skip */
+                /**
+                 * @deprecated
+                 * @description Veraltet: nur ohne offset (Listenantwort).
+                 */
                 skip?: number;
+                /** @description Sortierung (nur mit offset): kommagetrennte Feldnamen, absteigend mit vorangestelltem '-' (z. B. '-created_at'). Erlaubte Felder: created_at, customer_type, is_active. Ein unbekanntes Feld ergibt 422 (code pagination.invalid_sort_field). */
+                sort?: string | null;
                 /** @description Filter by tag */
                 tag?: string | null;
             };
@@ -14338,7 +14373,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["CustomerListItem"][];
+                    "application/json": components["schemas"]["Page_CustomerListItem_"] | components["schemas"]["CustomerListItem"][];
                 };
             };
             /** @description Validation Error */
@@ -16002,6 +16037,8 @@ export interface operations {
                  * @description Veraltet: nur ohne offset (Listenantwort).
                  */
                 skip?: number;
+                /** @description Sortierung (nur mit offset): kommagetrennte Feldnamen, absteigend mit vorangestelltem '-' (z. B. '-name'). Erlaubte Felder: name, stock, supplier. Ein unbekanntes Feld ergibt 422 (code pagination.invalid_sort_field). */
+                sort?: string | null;
             };
             header?: never;
             path?: never;
@@ -17397,6 +17434,8 @@ export interface operations {
                  * @description Veraltet: nur ohne offset (Listenantwort).
                  */
                 skip?: number;
+                /** @description Sortierung (nur mit offset): kommagetrennte Feldnamen, absteigend mit vorangestelltem '-' (z. B. '-created_at'). Erlaubte Felder: created_at, severity, notification_type, is_read. Ein unbekanntes Feld ergibt 422 (code pagination.invalid_sort_field). */
+                sort?: string | null;
                 /** @description When true, return only unread notifications */
                 unread_only?: boolean;
             };
@@ -17611,6 +17650,8 @@ export interface operations {
                  * @description Veraltet: nur ohne offset (Listenantwort).
                  */
                 skip?: number;
+                /** @description Sortierung (nur mit offset): kommagetrennte Feldnamen, absteigend mit vorangestelltem '-' (z. B. '-created_at'). Erlaubte Felder: created_at, deadline, status, title. Ein unbekanntes Feld ergibt 422 (code pagination.invalid_sort_field). */
+                sort?: string | null;
                 /** @description Nach Status filtern (nur mit offset) */
                 status?: components["schemas"]["OrderStatusEnum"] | null;
             };
@@ -19296,6 +19337,8 @@ export interface operations {
                  * @description Veraltet: nur ohne offset (Listenantwort).
                  */
                 skip?: number;
+                /** @description Sortierung (nur mit offset): kommagetrennte Feldnamen, absteigend mit vorangestelltem '-' (z. B. '-created_at'). Erlaubte Felder: created_at, status, valid_until, quote_number. Ein unbekanntes Feld ergibt 422 (code pagination.invalid_sort_field). */
+                sort?: string | null;
                 /** @description Filter by quote status (draft, sent, approved, rejected, expired, converted) */
                 status?: components["schemas"]["QuoteStatus"] | null;
             };
@@ -19781,6 +19824,8 @@ export interface operations {
                  * @description Veraltet: nur ohne offset (Listenantwort).
                  */
                 skip?: number;
+                /** @description Sortierung (nur mit offset): kommagetrennte Feldnamen, absteigend mit vorangestelltem '-' (z. B. '-created_at'). Erlaubte Felder: created_at, status, estimated_completion_date, repair_number. Ein unbekanntes Feld ergibt 422 (code pagination.invalid_sort_field). */
+                sort?: string | null;
                 /** @description Nach Status filtern */
                 status?: components["schemas"]["RepairJobStatus"] | null;
             };
@@ -21514,6 +21559,8 @@ export interface operations {
                  * @description Veraltet: nur ohne offset (Listenantwort).
                  */
                 skip?: number;
+                /** @description Sortierung (nur mit offset): kommagetrennte Feldnamen, absteigend mit vorangestelltem '-' (z. B. '-start_time'). Erlaubte Felder: start_time, end_time. Ein unbekanntes Feld ergibt 422 (code pagination.invalid_sort_field). */
+                sort?: string | null;
             };
             header?: never;
             path: {
@@ -21696,6 +21743,8 @@ export interface operations {
                  * @description Veraltet: nur ohne offset (Listenantwort).
                  */
                 skip?: number;
+                /** @description Sortierung (nur mit offset): kommagetrennte Feldnamen, absteigend mit vorangestelltem '-' (z. B. '-start_time'). Erlaubte Felder: start_time, end_time. Ein unbekanntes Feld ergibt 422 (code pagination.invalid_sort_field). */
+                sort?: string | null;
                 /** @description Filter by start date */
                 start_date?: string | null;
             };

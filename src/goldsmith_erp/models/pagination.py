@@ -14,16 +14,28 @@ Legacy mode (one release only)
     for quotes the old ``QuoteListResponse``) and the old ``skip``/``limit``
     semantics, now capped at 500 (SEC-16). Such responses carry the header
     ``X-Deprecated-List: true`` so the frontend can migrate page by page.
+    ``sort`` (below) is accepted but ignored in this mode — the legacy
+    ordering stays exactly what it was before W3-sort.
 
     The trigger is ``offset`` rather than "any of limit/offset" because the
     current frontend already sends ``limit`` (and ``skip``) on every list
     call; switching on ``limit`` would break those screens today.
+
+Sort (paged mode only, W3-sort)
+    ``sort`` is a comma-separated list of ``field`` (ascending) or
+    ``-field`` (descending), e.g. ``-created_at,status``. Each endpoint
+    whitelists its own sortable fields (see the per-endpoint
+    ``*_SORT_FIELDS`` mapping in ``services/list_queries.py``); an unknown
+    field is a 422 ``DomainValidationError`` with code
+    ``pagination.invalid_sort_field`` rather than being silently ignored or
+    guessed at. Encrypted PII columns (e.g. customer name) are never
+    whitelisted — Fernet ciphertext has no stable sort order.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Callable, Generic, Iterable, List, Optional, TypeVar
+from typing import Any, Callable, Generic, Iterable, List, Optional, Sequence, TypeVar
 
 from fastapi import Query
 from fastapi.encoders import jsonable_encoder
@@ -59,6 +71,7 @@ class PageParams:
     limit: int
     offset: int
     is_paged: bool
+    sort: Optional[str] = None
 
     def next_offset(self, total: int) -> Optional[int]:
         following = self.offset + self.limit
@@ -68,8 +81,25 @@ class PageParams:
 def make_page_params(
     legacy_default_limit: int = 100,
     legacy_max_limit: int = LEGACY_MAX_LIMIT,
+    sort_fields: Sequence[str] = (),
 ) -> Callable[..., PageParams]:
-    """Build a ``Depends`` callable that keeps an endpoint's legacy defaults."""
+    """Build a ``Depends`` callable that keeps an endpoint's legacy defaults.
+
+    ``sort_fields`` only documents the endpoint's whitelist in OpenAPI; the
+    whitelist itself — and the 422 on an unknown field — is enforced where
+    ``PageParams.sort`` is consumed (``services/list_queries.apply_sort``).
+    """
+
+    if sort_fields:
+        sort_description = (
+            "Sortierung (nur mit offset): kommagetrennte Feldnamen, "
+            "absteigend mit vorangestelltem '-' (z. B. '-"
+            f"{sort_fields[0]}'). Erlaubte Felder: {', '.join(sort_fields)}. "
+            "Ein unbekanntes Feld ergibt 422 (code "
+            "pagination.invalid_sort_field)."
+        )
+    else:
+        sort_description = "Sortierung (nur mit offset)."
 
     def page_params(
         offset: Optional[int] = Query(
@@ -95,12 +125,18 @@ def make_page_params(
             deprecated=True,
             description="Veraltet: nur ohne offset (Listenantwort).",
         ),
+        sort: Optional[str] = Query(
+            None,
+            max_length=200,
+            description=sort_description,
+        ),
     ) -> PageParams:
         if offset is None:
             return PageParams(
                 limit=limit if limit is not None else legacy_default_limit,
                 offset=skip,
                 is_paged=False,
+                sort=sort,
             )
         effective = limit if limit is not None else DEFAULT_PAGE_LIMIT
         if effective > MAX_PAGE_LIMIT:
@@ -109,7 +145,7 @@ def make_page_params(
                 code="pagination.limit_too_large",
                 extra={"max_limit": MAX_PAGE_LIMIT},
             )
-        return PageParams(limit=effective, offset=offset, is_paged=True)
+        return PageParams(limit=effective, offset=offset, is_paged=True, sort=sort)
 
     return page_params
 

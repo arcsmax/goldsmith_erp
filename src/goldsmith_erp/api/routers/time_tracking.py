@@ -147,7 +147,12 @@ async def _time_entries_response(db: AsyncSession, page: PageParams, stmt, legac
 @require_permission(Permission.TIME_VIEW_ALL)
 async def get_time_entries_for_order(
     order_id: int,
-    page: PageParams = Depends(make_page_params(legacy_default_limit=100)),
+    page: PageParams = Depends(
+        make_page_params(
+            legacy_default_limit=100,
+            sort_fields=tuple(list_queries.TIME_ENTRY_SORT_FIELDS),
+        )
+    ),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -155,7 +160,7 @@ async def get_time_entries_for_order(
     return await _time_entries_response(
         db,
         page,
-        list_queries.time_entries_statement(order_id=order_id),
+        list_queries.time_entries_statement(order_id=order_id, sort=page.sort),
         lambda: TimeTrackingService.get_time_entries_for_order(
             db, order_id, page.offset, page.limit
         ),
@@ -179,7 +184,12 @@ async def get_time_entries_for_user(
     user_id: int,
     start_date: Optional[datetime] = Query(None, description="Filter by start date"),
     end_date: Optional[datetime] = Query(None, description="Filter by end date"),
-    page: PageParams = Depends(make_page_params(legacy_default_limit=100)),
+    page: PageParams = Depends(
+        make_page_params(
+            legacy_default_limit=100,
+            sort_fields=tuple(list_queries.TIME_ENTRY_SORT_FIELDS),
+        )
+    ),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -198,7 +208,10 @@ async def get_time_entries_for_user(
         db,
         page,
         list_queries.time_entries_statement(
-            user_id=user_id, start_date=start_date, end_date=end_date
+            user_id=user_id,
+            start_date=start_date,
+            end_date=end_date,
+            sort=page.sort,
         ),
         lambda: TimeTrackingService.get_time_entries_for_user(
             db, user_id, start_date, end_date, page.offset, page.limit

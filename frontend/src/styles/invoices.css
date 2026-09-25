@@ -1,574 +1,197 @@
-/* Invoice Page Styles — Rechnungsverwaltung */
+/* Rechnungen (W4-03). Layout only: buttons, fields, dialogs, tables, badges,
+   empty and loading states come from src/ui (styles/ui.css).
+   Semantic tokens only (brand-tokens.css); breakpoints 600px and 1024px. */
 
-/* ==================== INVOICE CONTROLS ==================== */
-
-.invoices-controls {
+.invoice-filters {
   display: flex;
-  gap: 1rem;
-  margin-bottom: 1.5rem;
   flex-wrap: wrap;
+  gap: var(--space-3);
   align-items: flex-end;
 }
 
-/* ==================== INVOICE TABLE ==================== */
-
-/*
- * Override the global `.table-container { overflow: hidden }` for the
- * invoices view: with 7 columns + the chunky badge / amount cells the
- * natural table width (~1080px) exceeds the container on narrower
- * desktop layouts. With `overflow: hidden` the rightmost cells (Status
- * badge tail, Aktionen buttons) silently disappear — exactly the
- * "renders incorrectly" symptom the user reported. `overflow-x: auto`
- * lets the user scroll the row horizontally on mid-size screens, while
- * the existing `@media (max-width: 640px)` mobile rules below take over
- * on small screens with their own card layout.
- */
-.invoices-controls + .table-container,
-.page-container > .table-container {
-  overflow-x: auto;
-  overflow-y: visible;
+.invoice-filters .ui-field {
+  flex: 1 1 12rem;
+  margin-bottom: var(--space-3);
 }
 
-.invoices-table {
-  width: 100%;
-  border-collapse: collapse;
-  /* Stop the 7-col header from squeezing under 800px before mobile
-     card layout kicks in at 640px. */
-  min-width: 720px;
+.invoice-filters > .ui-button {
+  margin-bottom: var(--space-3);
 }
 
-.invoices-table th {
-  background: #f8f9fa;
-  padding: 1rem;
-  text-align: left;
-  font-weight: 600;
-  color: #666;
-  border-bottom: 2px solid #e9ecef;
-  font-size: 0.9rem;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
+.invoice-summary-bar {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+  gap: var(--space-3);
+  margin: 0 0 var(--space-4);
 }
 
-.invoices-table td {
-  padding: 1rem;
-  border-bottom: 1px solid #e9ecef;
-  color: #333;
+.invoice-summary-bar > div {
+  padding: var(--space-3);
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
 }
 
-.invoices-table tbody tr {
-  cursor: pointer;
-  transition: background 0.2s;
+.invoice-summary-bar dt {
+  font-size: var(--type-sm);
+  color: var(--color-text-muted);
 }
 
-.invoices-table tbody tr:hover {
-  background: #f8f9fa;
-}
-
-.invoices-table tbody tr:last-child td {
-  border-bottom: none;
-}
-
-/* ==================== INVOICE NUMBER ==================== */
-
-.invoice-number {
-  font-family: 'Courier New', Courier, monospace;
+.invoice-summary-bar dd {
+  margin: 0;
+  font-size: var(--type-lg);
   font-weight: 700;
-  color: #1e40af;
-  letter-spacing: 0.5px;
-  font-size: 0.95rem;
 }
 
-/* ==================== INVOICE STATUS BADGES ==================== */
-
-/*
- * Color strategy: shape (border + icon prefix in label) is the primary
- * differentiator — color is secondary — so colorblind users can always
- * distinguish status by the label text prefix alone.
- *
- * DRAFT      → gray, dashed border
- * SENT       → blue, solid border
- * PAID       → green, solid border, checkmark prefix
- * OVERDUE    → red, solid border, warning prefix
- * CANCELLED  → gray, strikethrough text, dotted border
- */
-
-.invoice-status-badge {
-  padding: 0.3rem 0.75rem;
-  border-radius: 10px;
-  font-size: 0.8rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  display: inline-block;
-  border: 2px solid transparent;
-  white-space: nowrap;
+.invoice-due {
+  color: var(--color-text-muted);
 }
 
-/*
- * Modifier classes use the LOWERCASE backend enum value (`draft`, `sent`,
- * `paid`, `overdue`, `cancelled`) — see types.ts and InvoicesPage.tsx
- * STATUS_LABELS. Earlier these were uppercase and silently never matched
- * the runtime class, leaving badges unstyled.
- */
-
-/* DRAFT — neutral gray, dashed border (not yet sent) */
-.invoice-status-badge.status-draft {
-  background: #f3f4f6;
-  color: #6b7280;
-  border-color: #d1d5db;
-  border-style: dashed;
+.invoice-due--overdue {
+  color: var(--color-danger-fg);
 }
 
-/* SENT — informational blue */
-.invoice-status-badge.status-sent {
-  background: #dbeafe;
-  color: #1e40af;
-  border-color: #93c5fd;
+.invoice-due--soon {
+  color: var(--tone-waiting-fg);
 }
 
-/* PAID — success green */
-.invoice-status-badge.status-paid {
-  background: #d1fae5;
-  color: #065f46;
-  border-color: #6ee7b7;
+/* ---- Detail ------------------------------------------------------------ */
+
+.invoice-detail-panel {
+  margin-top: var(--space-5);
+  padding: var(--space-5);
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-1);
 }
 
-/* OVERDUE — danger red */
-.invoice-status-badge.status-overdue {
-  background: #fee2e2;
-  color: #991b1b;
-  border-color: #fca5a5;
+.invoice-detail__header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
 }
 
-/* CANCELLED — strikethrough, neutral */
-.invoice-status-badge.status-cancelled {
-  background: #f9fafb;
-  color: #9ca3af;
-  border-color: #e5e7eb;
-  border-style: dotted;
-  text-decoration: line-through;
+.invoice-detail__header h2 {
+  margin: 0;
+  font-size: var(--type-lg);
 }
 
-/* ==================== FINANCIAL AMOUNTS ==================== */
-
-.amount-display {
-  font-weight: 700;
-  color: #059669;
-  font-size: 1rem;
-  white-space: nowrap;
+.invoice-detail__link,
+.invoice-detail__notes {
+  margin: 0 0 var(--space-3);
 }
-
-.amount-overdue {
-  font-weight: 700;
-  color: #dc2626;
-}
-
-/* ==================== INVOICE ACTIONS ==================== */
 
 .invoice-actions {
   display: flex;
-  gap: 0.5rem;
   flex-wrap: wrap;
-}
-
-/* "Als bezahlt markieren" — primary action on SENT invoices */
-.btn-mark-paid {
-  background: #059669;
-  border: 2px solid #059669;
-  color: white;
-  padding: 0.55rem 0.875rem;
-  border-radius: 6px;
-  cursor: pointer;
-  font-size: 0.85rem;
-  font-weight: 600;
-  transition: all 0.2s;
-  min-height: 44px;
-  white-space: nowrap;
-}
-
-.btn-mark-paid:hover {
-  background: #047857;
-  border-color: #047857;
-}
-
-.btn-mark-paid:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-/* "Stornieren" — destructive action on DRAFT invoices */
-.btn-cancel-invoice {
-  background: white;
-  border: 2px solid #e5e7eb;
-  color: #dc2626;
-  padding: 0.55rem 0.875rem;
-  border-radius: 6px;
-  cursor: pointer;
-  font-size: 0.85rem;
-  font-weight: 600;
-  transition: all 0.2s;
-  min-height: 44px;
-  white-space: nowrap;
-}
-
-.btn-cancel-invoice:hover {
-  background: #fee2e2;
-  border-color: #fca5a5;
-}
-
-/* ==================== CREATE INVOICE MODAL ==================== */
-
-/*
- * Inline error banner — rendered when the backend rejects invoice
- * creation (e.g. order not in completed/delivered status, duplicate
- * active invoice). Replaces the previous toast-only feedback that
- * tended to be missed by users with the modal still open.
- */
-.invoice-create-error {
-  background: #fee2e2;
-  border: 2px solid #fca5a5;
-  border-left: 4px solid #dc2626;
-  border-radius: 8px;
-  color: #991b1b;
-  padding: 0.875rem 1rem;
-  margin-bottom: 1.25rem;
-  font-size: 0.95rem;
-  line-height: 1.4;
-  font-weight: 500;
-}
-
-.create-invoice-modal .form-group {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  margin-bottom: 1.25rem;
-}
-
-.create-invoice-modal .form-group label {
-  font-weight: 600;
-  color: #374151;
-  font-size: 0.9rem;
-}
-
-.create-invoice-modal .form-group input,
-.create-invoice-modal .form-group select,
-.create-invoice-modal .form-group textarea {
-  padding: 0.75rem 1rem;
-  border: 2px solid #e5e7eb;
-  border-radius: 8px;
-  font-size: 1rem;
-  transition: border-color 0.2s, box-shadow 0.2s;
-  background: white;
-}
-
-.create-invoice-modal .form-group input:focus,
-.create-invoice-modal .form-group select:focus,
-.create-invoice-modal .form-group textarea:focus {
-  outline: none;
-  border-color: var(--color-border-focus);
-  box-shadow: 0 0 0 3px rgba(217, 119, 6, 0.1);
-}
-
-.create-invoice-modal .modal-footer {
-  display: flex;
-  justify-content: flex-end;
-  gap: 1rem;
-  padding-top: 1.5rem;
-  border-top: 1px solid #e5e7eb;
-  margin-top: 1.5rem;
-}
-
-/* ==================== INVOICE DETAIL PANEL ==================== */
-
-.invoice-detail-panel {
-  background: white;
-  border-radius: 12px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-  padding: 1.5rem;
-  margin-top: 1rem;
-}
-
-.invoice-detail-panel .detail-header {
-  display: flex;
   justify-content: space-between;
-  align-items: flex-start;
-  margin-bottom: 1.5rem;
-  gap: 1rem;
-  flex-wrap: wrap;
+  gap: var(--space-3);
+  margin: var(--space-4) 0;
 }
 
-.invoice-detail-panel .detail-meta {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-  gap: 1rem;
-  margin-bottom: 1.5rem;
-}
-
-.detail-meta-item {
+.invoice-actions__main,
+.invoice-actions__danger {
   display: flex;
-  flex-direction: column;
-  gap: 0.2rem;
+  flex-wrap: wrap;
+  gap: var(--space-2);
 }
 
-.detail-meta-item .meta-label {
-  font-size: 0.75rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  color: #9ca3af;
+.invoice-meta {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+  gap: var(--space-3);
+  margin: 0 0 var(--space-4);
 }
 
-.detail-meta-item .meta-value {
-  font-size: 0.95rem;
-  color: #333;
-  font-weight: 500;
+.invoice-meta__item dt {
+  font-size: var(--type-sm);
+  color: var(--color-text-muted);
 }
 
-/* ==================== LINE ITEMS TABLE ==================== */
-
-.line-items-table {
-  width: 100%;
-  border-collapse: collapse;
-  margin-top: 1rem;
+.invoice-meta__item dd {
+  margin: 0;
 }
-
-.line-items-table th {
-  background: #f8f9fa;
-  padding: 0.75rem 1rem;
-  text-align: left;
-  font-weight: 600;
-  color: #666;
-  font-size: 0.85rem;
-  text-transform: uppercase;
-  letter-spacing: 0.4px;
-  border-bottom: 2px solid #e9ecef;
-}
-
-.line-items-table th:last-child,
-.line-items-table td:last-child {
-  text-align: right;
-}
-
-.line-items-table td {
-  padding: 0.75rem 1rem;
-  border-bottom: 1px solid #f3f4f6;
-  color: #374151;
-  font-size: 0.95rem;
-}
-
-.line-items-table tbody tr:last-child td {
-  border-bottom: none;
-}
-
-/* ==================== TOTALS BLOCK ==================== */
 
 .invoice-totals {
-  margin-top: 1rem;
-  border-top: 2px solid #e5e7eb;
-  padding-top: 1rem;
+  margin: var(--space-4) 0 0 auto;
+  max-width: 24rem;
+}
+
+.invoice-totals__row {
   display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 0.4rem;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-1) 0;
 }
 
-.totals-row {
-  display: flex;
-  gap: 2rem;
-  font-size: 0.95rem;
-  color: #374151;
+.invoice-totals__row dd {
+  margin: 0;
 }
 
-.totals-row .totals-label {
-  min-width: 160px;
-  text-align: right;
-  color: #6b7280;
-}
-
-.totals-row .totals-value {
-  min-width: 100px;
-  text-align: right;
-  font-weight: 500;
-}
-
-.totals-row.totals-grand {
-  font-size: 1.1rem;
+.invoice-totals__row--grand {
+  border-top: 1px solid var(--color-border-strong);
+  margin-top: var(--space-1);
+  padding-top: var(--space-2);
   font-weight: 700;
-  color: #111827;
-  border-top: 1px solid #e5e7eb;
-  padding-top: 0.5rem;
-  margin-top: 0.25rem;
+  font-size: var(--type-md);
 }
 
-.totals-row.totals-grand .totals-value {
-  color: #059669;
+/* ---- Dialogs ----------------------------------------------------------- */
+
+.invoice-form__error {
+  margin: 0 0 var(--space-4);
+  padding: var(--space-3);
+  color: var(--color-danger-fg);
+  background: var(--color-danger-bg);
+  border: 1px solid var(--color-danger);
+  border-radius: var(--radius-sm);
 }
 
-/* ==================== DUE DATE WARNING ==================== */
+.invoice-summary {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-4);
+  padding: var(--space-3);
+  background: var(--color-surface-sunken);
+  border-radius: var(--radius-sm);
+}
 
-.due-date-overdue {
-  color: #dc2626;
+.invoice-summary div {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.invoice-summary dd {
+  margin: 0;
   font-weight: 600;
 }
 
-.due-date-soon {
-  color: #d97706;
-  font-weight: 600;
-}
-
-/* ==================== MARK AS PAID MODAL ==================== */
-
-.mark-paid-modal .payment-summary {
-  background: #f0fdf4;
-  border: 1px solid #6ee7b7;
-  border-radius: 8px;
-  padding: 1rem 1.25rem;
-  margin-bottom: 1.25rem;
-}
-
-.mark-paid-modal .payment-summary .summary-amount {
-  font-size: 1.5rem;
-  font-weight: 700;
-  color: #065f46;
-}
-
-/* ==================== SUMMARY STATS BAR ==================== */
-
-.invoice-summary-bar {
-  display: flex;
-  gap: 1rem;
-  margin-bottom: 1.5rem;
-  flex-wrap: wrap;
-}
-
-.invoice-summary-card {
-  background: white;
-  border-radius: 8px;
-  padding: 0.875rem 1.25rem;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
-  display: flex;
-  flex-direction: column;
-  gap: 0.2rem;
-  flex: 1;
-  min-width: 140px;
-}
-
-.invoice-summary-card .summary-label {
-  font-size: 0.75rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  color: #9ca3af;
-}
-
-.invoice-summary-card .summary-value {
-  font-size: 1.25rem;
-  font-weight: 700;
-  color: #111827;
-}
-
-.invoice-summary-card.card-overdue .summary-value {
-  color: #dc2626;
-}
-
-.invoice-summary-card.card-paid .summary-value {
-  color: #059669;
-}
-
-/* ==================== RESPONSIVE — TABLET ==================== */
-
-@media (max-width: 1024px) {
-  .invoices-controls {
-    flex-wrap: wrap;
-  }
-
-  .invoice-summary-bar {
-    flex-wrap: wrap;
-  }
-
-  .invoice-summary-card {
-    flex: 1 1 calc(50% - 0.5rem);
+@media (max-width: 600px) {
+  .invoice-detail-panel {
+    padding: var(--space-3);
   }
 }
 
-/* ==================== RESPONSIVE — MOBILE ==================== */
+/* ---- Print: only the open invoice ------------------------------------- */
 
-@media (max-width: 768px) {
-  .invoice-detail-panel .detail-header {
-    flex-direction: column;
-  }
-
-  .invoices-controls {
-    flex-direction: column;
-  }
-
-  .invoice-actions {
-    flex-direction: column;
-    width: 100%;
-  }
-
-  .btn-mark-paid,
-  .btn-cancel-invoice {
-    width: 100%;
-    justify-content: center;
-  }
-
-  .create-invoice-modal .modal-footer {
-    flex-direction: column-reverse;
-  }
-
-  .invoice-totals {
-    align-items: stretch;
-  }
-
-  .totals-row {
-    justify-content: space-between;
-  }
-
-  .invoice-summary-card {
-    flex: 1 1 100%;
-  }
-}
-
-/* ==================== PRINT STYLESHEET ==================== */
-
-/*
- * On `window.print()` we want ONLY the open detail panel to be visible —
- * the list table, app chrome, controls, summary bar, and pagination are
- * all noise. Since the detail panel is rendered as a regular block sibling
- * outside the table (see InvoicesPage.tsx — InvoiceDetailPanel JSDoc),
- * the print rules can simply hide everything else and let the panel flow
- * naturally. No `:has()` or table-flattening hacks required.
- *
- * Browser-compat note: this avoids the `:has()` selector, which is not
- * supported on Chromium ≤105 / Safari ≤15.4. The previous fix relied on
- * `tr:not(:has(.invoice-detail-panel))`, which would silently no-op on
- * older field-test devices and fall back to printing the entire page.
- */
 @media print {
-  /* Hide app chrome & non-invoice controls */
   .main-header,
   .main-sidebar,
   .sidebar-overlay,
-  .page-header,
-  .invoices-controls,
-  .invoice-summary-bar,
   .toast-container,
   .timer-widget,
-  .pagination-controls,
   .main-footer,
-  .btn-print,
-  .btn-download-pdf,
-  .btn-close-detail,
   .scan-fab,
-  .invoices-table,
-  .invoices-table thead,
-  .invoices-table tbody,
-  .invoices-table tr {
+  .invoice-no-print,
+  .invoice-summary-bar,
+  .invoice-list,
+  .pagination-controls {
     display: none !important;
   }
 
-  /* Reset the page layout so the panel can flow full-width */
   .main-layout,
   .main-content-wrapper,
   .main-content,
@@ -579,7 +202,6 @@
     padding: 0 !important;
   }
 
-  /* Strip panel decoration for print */
   .invoice-detail-panel {
     box-shadow: none !important;
     border: none !important;
@@ -588,75 +210,8 @@
     margin: 0 !important;
   }
 
-  /* Typography adjustments for print */
   body {
     font-size: 11pt;
-    color: #000;
-  }
-
-  .invoice-number {
-    color: #000;
-  }
-
-  /* Keep totals block legible on white paper */
-  .totals-row.totals-grand .totals-value {
-    color: #000;
-  }
-}
-
-@media (max-width: 640px) {
-  .invoices-table,
-  .invoices-table thead,
-  .invoices-table tbody,
-  .invoices-table tr,
-  .invoices-table td {
-    display: block;
-  }
-
-  .invoices-table thead {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip: rect(0 0 0 0);
-    white-space: nowrap;
-  }
-
-  .invoices-table tbody tr {
-    background: white;
-    border-radius: 10px;
-    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
-    margin-bottom: 0.875rem;
-    padding: 0.75rem 1rem;
-    border-left: 3px solid #e5e7eb;
-    cursor: pointer;
-  }
-
-  .invoices-table td {
-    display: flex;
-    justify-content: space-between;
-    align-items: flex-start;
-    padding: 0.4rem 0;
-    border-bottom: 1px solid #f3f4f6;
-    font-size: 0.9rem;
-    min-height: 40px;
-  }
-
-  .invoices-table td:last-child {
-    border-bottom: none;
-    padding-top: 0.6rem;
-  }
-
-  .invoices-table td::before {
-    content: attr(data-label);
-    font-size: 0.75rem;
-    font-weight: 600;
-    color: #9ca3af;
-    text-transform: uppercase;
-    letter-spacing: 0.4px;
-    white-space: nowrap;
-    margin-right: 0.75rem;
-    flex-shrink: 0;
-    padding-top: 0.1rem;
+    color: var(--color-text);
   }
 }

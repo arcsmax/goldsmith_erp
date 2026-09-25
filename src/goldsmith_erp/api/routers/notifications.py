@@ -49,7 +49,11 @@ async def list_notifications(
         False, description="When true, return only unread notifications"
     ),
     page: PageParams = Depends(
-        make_page_params(legacy_default_limit=50, legacy_max_limit=200)
+        make_page_params(
+            legacy_default_limit=50,
+            legacy_max_limit=200,
+            sort_fields=tuple(list_queries.NOTIFICATION_SORT_FIELDS),
+        )
     ),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -63,7 +67,7 @@ async def list_notifications(
     """
     if page.is_paged:
         stmt = list_queries.notifications_statement(
-            user_id=current_user.id, unread_only=unread_only
+            user_id=current_user.id, unread_only=unread_only, sort=page.sort
         )
         result = await list_queries.fetch_page(db, stmt, page)
         return page_response(_notification_rows(result.items), result.total, page)

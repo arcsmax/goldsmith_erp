@@ -6,9 +6,10 @@
 //   delivered → "Übergabe dokumentieren?" links to the handover step on the
 //               Kunde tab; W2-11 adds the Abholprotokoll PDF and the
 //               Wertgutachten as `children` (DeliveredActions).
-import { useId, type ReactNode } from 'react';
+import type { ReactNode } from 'react';
 import type { CustomerUpdateKind } from '../../api/customer-updates';
 import type { OrderPhoto, OrderType } from '../../types';
+import { Button, Card } from '../../ui';
 
 export type Milestone = 'completed' | 'delivered';
 
@@ -81,26 +82,18 @@ const COPY: Record<Milestone, { title: string; body: string; action: string }> =
 };
 
 export function MilestonePrompt({ milestone, onAction, onDismiss, children }: MilestonePromptProps) {
-  const titleId = useId();
   const copy = COPY[milestone];
   return (
-    <section className="milestone-prompt" aria-labelledby={titleId}>
-      <div className="milestone-prompt-text">
-        <h2 id={titleId} className="milestone-prompt-title">
-          {copy.title}
-        </h2>
-        <p>{copy.body}</p>
-        {children}
-      </div>
+    <Card title={copy.title} tone="done" className="milestone-prompt">
+      <p>{copy.body}</p>
+      {children}
       <div className="milestone-prompt-actions">
-        <button type="button" className="btn btn-primary milestone-prompt-action" onClick={onAction}>
-          {copy.action}
-        </button>
-        <button type="button" className="btn btn-secondary milestone-prompt-action" onClick={onDismiss}>
+        <Button onClick={onAction}>{copy.action}</Button>
+        <Button variant="secondary" onClick={onDismiss}>
           Später
-        </button>
+        </Button>
       </div>
-    </section>
+    </Card>
   );
 }
 

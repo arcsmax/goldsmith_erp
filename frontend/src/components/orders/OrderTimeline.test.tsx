@@ -1,7 +1,8 @@
 // OrderTimeline — GET /orders/{id}/timeline as a vertical history (W2-08, DOM-16).
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { render, screen, within } from '@testing-library/react';
+import { act, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import type { ReactElement } from 'react';
 
 const mockGetTimeline = vi.fn();
 vi.mock('../../api', () => ({
@@ -13,7 +14,11 @@ vi.mock('../../lib/logError', () => ({
   logError: (...a: unknown[]) => mockLogError(...a),
 }));
 
+import { renderWithQuery } from '../../test/queryWrapper';
+import { invalidateForChannel } from '../../lib/realtimeInvalidation';
 import { OrderTimeline, formatRelativeGerman, parseBackendDate } from './OrderTimeline';
+
+const render = (ui: ReactElement) => renderWithQuery(ui, { route: null });
 
 const NOW = new Date('2026-09-25T12:00:00Z');
 
@@ -108,11 +113,11 @@ describe('OrderTimeline', () => {
     expect(await screen.findByText('Angelegt: Entwurf')).toBeInTheDocument();
   });
 
-  it('reloads when refreshKey changes', async () => {
+  it('reloads on an order_updates realtime hint (W4-03: query key under the order)', async () => {
     mockGetTimeline.mockResolvedValue({ order_id: 7, items: [] });
-    const { rerender } = render(<OrderTimeline orderId={7} now={NOW} refreshKey={0} />);
+    const { client } = render(<OrderTimeline orderId={7} now={NOW} />);
     await screen.findByText('Noch kein Verlauf');
-    rerender(<OrderTimeline orderId={7} now={NOW} refreshKey={1} />);
+    await act(() => invalidateForChannel(client, 'order_updates'));
     await vi.waitFor(() => expect(mockGetTimeline).toHaveBeenCalledTimes(2));
   });
 });
