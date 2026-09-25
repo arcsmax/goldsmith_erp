@@ -36587,6 +36587,19 @@
             "title": "Location",
             "description": "Storage location (1-50 characters)"
           },
+          "location_id": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Location Id",
+            "description": "Configured workshop location (Standort) id"
+          },
           "notes": {
             "anyOf": [
               {

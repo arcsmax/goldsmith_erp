@@ -12097,6 +12097,11 @@ export interface components {
              */
             location?: string | null;
             /**
+             * Location Id
+             * @description Configured workshop location (Standort) id
+             */
+            location_id?: number | null;
+            /**
              * Notes
              * @description Notes (max 2000 characters)
              */
