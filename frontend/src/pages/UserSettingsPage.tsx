@@ -36,7 +36,7 @@ export const UserSettingsPage: React.FC = () => {
           id="bench-mode-toggle"
           label="Werkbank-Station-Modus aktivieren"
           description={
-            'Aktiviert den USB-HID-Scanner fuer die Werkbank. ' +
+            'Aktiviert den USB-HID-Scanner für die Werkbank. ' +
             'Tastatureingaben werden als Scans interpretiert, wenn kein ' +
             'Eingabefeld fokussiert ist.'
           }

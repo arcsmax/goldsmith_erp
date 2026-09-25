@@ -117,6 +117,21 @@ const CreateQuoteModal: React.FC<CreateQuoteModalProps> = ({
     onClose();
   };
 
+  // LV2-07: Escape did not close this dialog even though it carries
+  // role="dialog" aria-modal="true" — the backdrop only closed on click.
+  useEffect(() => {
+    if (!isOpen) return undefined;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        handleClose();
+      }
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- handleClose/reset/onClose are re-created every render; only isOpen should re-arm the listener.
+  }, [isOpen]);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!customerId) return;
@@ -155,7 +170,7 @@ const CreateQuoteModal: React.FC<CreateQuoteModalProps> = ({
           </button>
         </div>
 
-        <form onSubmit={handleSubmit}>
+        <form onSubmit={handleSubmit} className="create-quote-form">
           {/* LV-02: search instead of loading every customer (the list
               endpoint caps limit at 100 and answered 422 to limit=500). */}
           <div className="form-group">

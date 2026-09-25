@@ -125,7 +125,7 @@ function Lightbox({ photos, startIndex, onClose }: LightboxProps) {
             <div className="photo-lightbox-no-preview">
               <span style={{ fontSize: '3rem' }}>&#128247;</span>
               <p>{photo.notes ?? photo.file_path.split('/').pop()}</p>
-              <p style={{ fontSize: '0.8rem', opacity: 0.6 }}>Vorschau nicht verfuegbar</p>
+              <p style={{ fontSize: '0.8rem', opacity: 0.6 }}>Vorschau nicht verfügbar</p>
             </div>
           )}
         </div>

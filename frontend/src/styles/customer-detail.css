@@ -268,9 +268,26 @@
   word-break: break-word;
 }
 
+/* LV-12: mail/tel links measured 18px tall (line-height only) — below the
+ * 44px touch target. inline-flex + min-height/align-items grows the tap
+ * target without changing the text size or the dt/dd label. */
 .cdetail-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--touch-min);
   color: var(--color-interactive-primary);
   text-decoration: none;
+}
+
+/* LV-12: the Einwilligungen checkbox (ConsentPanel) measured 24x24 — below
+ * the 44px touch target. Scoped to this page rather than the shared
+ * .checkbox-group class (also used by CustomerFormModal/TimeEntryFormModal,
+ * where several checkboxes sit close together and a global bump would
+ * change their layout). The label stays the natural click target too via
+ * the surrounding <label>. */
+.cdetail-section .checkbox-group input[type='checkbox'] {
+  width: var(--touch-min);
+  height: var(--touch-min);
 }
 
 .cdetail-link:hover {

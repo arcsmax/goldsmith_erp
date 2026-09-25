@@ -571,10 +571,24 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* On tablets the description is the lowest-value column (phones show
- * rows as cards, where it stays). */
-@media (min-width: 600px) and (max-width: 1024px) {
+/* LV-19 (live2): still clipped at 1280 with the description column shown —
+ * ADMIN/GOLDSMITH get Foto/ID/Titel/Beschreibung/Status/Preis/Frist/
+ * Erstellt/Aktionen (9 columns), wide enough that AKTIONEN ran past the
+ * viewport. Beschreibung is the lowest-value column at any desktop-or-up
+ * width (only two clamped lines, no unique data), so it now stays hidden
+ * from tablet up, not just in the 600-1024 band; phones keep it in the
+ * card layout. Only the 600px breakpoint is used (playbook: 600/1024 only). */
+@media (min-width: 600px) {
   .orders-col-description {
     display: none;
   }
+}
+
+/* LV-19 (live2): the fixed ScanFab (bottom-right, --touch-comfort ~56px
+ * button + --fab-bottom ~1.5rem margin) sat directly on top of the last
+ * row's Erstellt/Aktionen cells whenever the page's content was short
+ * enough to fit the viewport without scrolling. Reserve the FAB's
+ * footprint as empty space below the table/pagination instead. */
+.orders-page {
+  padding-bottom: calc(var(--touch-comfort, 56px) + var(--fab-bottom, 1.5rem) + 1rem);
 }

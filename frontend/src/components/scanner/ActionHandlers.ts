@@ -323,14 +323,14 @@ async function handleSwitchTimer(ctx: ActionHandlerContext): Promise<void> {
 }
 
 async function handleChangeStatus(ctx: ActionHandlerContext): Promise<void> {
-  const id = requireOrderId(ctx, 'Status aendern ist hier nur fuer Auftraege moeglich.');
+  const id = requireOrderId(ctx, 'Status ändern ist hier nur für Aufträge möglich.');
   // Picker lives on the order detail page (A11.13 — no nested views).
   ctx.hooks.navigate(`/orders/${id}?edit=status`);
   ctx.hooks.closeOverlay();
 }
 
 async function handleChangeLocation(ctx: ActionHandlerContext): Promise<void> {
-  const id = requireOrderId(ctx, 'Ort aendern ist hier nur fuer Auftraege moeglich.');
+  const id = requireOrderId(ctx, 'Ort ändern ist hier nur für Aufträge möglich.');
   ctx.hooks.navigate(`/orders/${id}?edit=location`);
   ctx.hooks.closeOverlay();
 }
@@ -378,14 +378,14 @@ async function handleTakePhoto(ctx: ActionHandlerContext): Promise<void> {
     return;
   }
   const base = detailBasePath(ctx);
-  if (base === null) throw new Error('Foto fuer diesen Code nicht moeglich.');
+  if (base === null) throw new Error('Foto für diesen Code nicht möglich.');
   ctx.hooks.navigate(`${base}?action=take-photo`);
   ctx.hooks.closeOverlay();
 }
 
 async function handlePrintLabel(ctx: ActionHandlerContext): Promise<void> {
   const base = detailBasePath(ctx);
-  if (base === null) throw new Error('Etikett fuer diesen Code nicht verfuegbar.');
+  if (base === null) throw new Error('Etikett für diesen Code nicht verfügbar.');
   ctx.hooks.navigate(`${base}?action=print-label`);
   ctx.hooks.closeOverlay();
 }
@@ -402,7 +402,7 @@ async function handleOpenEntity(ctx: ActionHandlerContext): Promise<void> {
     material: `/materials/${id}`,
   };
   const path = pathByType[type];
-  if (!path) throw new Error('Ziel nicht verfuegbar.');
+  if (!path) throw new Error('Ziel nicht verfügbar.');
   ctx.hooks.navigate(path);
   ctx.hooks.closeOverlay();
 }

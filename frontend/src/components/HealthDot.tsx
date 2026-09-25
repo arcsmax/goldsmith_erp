@@ -16,8 +16,13 @@ const statusLabel: Record<HealthStatus, string> = {
   degraded: 'Warnung',
   unhealthy: 'Kritisch',
   loading: '…',
-  error: 'Fehler',
+  error: 'unbekannt',
 };
+
+const KNOWN_STATUSES: ReadonlyArray<HealthStatus> = ['healthy', 'degraded', 'unhealthy'];
+
+const isKnownStatus = (value: unknown): value is HealthStatus =>
+  typeof value === 'string' && (KNOWN_STATUSES as ReadonlyArray<string>).includes(value);
 
 /** Inner component — only rendered when the user IS an admin. */
 const HealthDotInner: React.FC = () => {
@@ -27,7 +32,10 @@ const HealthDotInner: React.FC = () => {
   const fetchHealth = async () => {
     try {
       const data = await getHealth();
-      setHealthStatus(data.status as HealthStatus);
+      // A proxy miss (e.g. /health falling through to the SPA's index.html)
+      // returns 200 with an unrelated body — never trust the shape, and
+      // never surface a raw "undefined" status to the user.
+      setHealthStatus(isKnownStatus(data?.status) ? data.status : 'error');
     } catch {
       setHealthStatus('error');
     }
@@ -48,7 +56,10 @@ const HealthDotInner: React.FC = () => {
       style={{ background: 'none', border: 'none' }}
     >
       <span
-        className={`health-dot ${healthStatus === 'error' ? 'unhealthy' : healthStatus}`}
+        // Unknown/failed fetch means we don't actually know the backend is
+        // down — show the warning (amber) colour, not the critical (red)
+        // one reserved for a confirmed "unhealthy" response.
+        className={`health-dot ${healthStatus === 'error' ? 'degraded' : healthStatus}`}
         aria-hidden="true"
       />
       <span className="health-dot-label">System</span>

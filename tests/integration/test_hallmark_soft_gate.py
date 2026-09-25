@@ -25,7 +25,7 @@ from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from goldsmith_erp.db.models import Customer, Order, OrderStatusEnum
+from goldsmith_erp.db.models import Customer, Order, OrderStatusEnum, User
 from goldsmith_erp.services.order_service import OrderService, PunzierungRequiredError
 
 
@@ -228,14 +228,14 @@ class TestAdditionalMarkAloneIsInsufficient:
 
 class TestServiceLayerSoftGate:
     async def test_advance_status_with_reason_marks_succeeds(
-        self, db_session: AsyncSession, sample_customer: Customer
+        self, db_session: AsyncSession, sample_customer: Customer, sample_user: User
     ):
         order = await _make_order(db_session, sample_customer, alloy="333")
         updated = await OrderService.advance_status(
             db_session,
             order.id,
             OrderStatusEnum.COMPLETED,
-            user_id=1,
+            user_id=sample_user.id,
             punzierung_verified_marks=["nicht punziert: Stein zu klein"],
         )
         assert updated is not None
@@ -243,22 +243,22 @@ class TestServiceLayerSoftGate:
         assert updated.punzierung_verified_marks == ["nicht punziert: Stein zu klein"]
 
     async def test_advance_status_without_marks_raises_hallmark_required(
-        self, db_session: AsyncSession, sample_customer: Customer
+        self, db_session: AsyncSession, sample_customer: Customer, sample_user: User
     ):
         order = await _make_order(db_session, sample_customer, alloy="900")
         with pytest.raises(PunzierungRequiredError) as excinfo:
             await OrderService.advance_status(
-                db_session, order.id, OrderStatusEnum.COMPLETED, user_id=1
+                db_session, order.id, OrderStatusEnum.COMPLETED, user_id=sample_user.id
             )
         assert excinfo.value.code == "order.hallmark_required"
         assert excinfo.value.detail["code"] == "PUNZIERUNG_REQUIRED"
 
     async def test_orders_without_alloy_are_exempt(
-        self, db_session: AsyncSession, sample_customer: Customer
+        self, db_session: AsyncSession, sample_customer: Customer, sample_user: User
     ):
         order = await _make_order(db_session, sample_customer, alloy=None)
         updated = await OrderService.advance_status(
-            db_session, order.id, OrderStatusEnum.COMPLETED, user_id=1
+            db_session, order.id, OrderStatusEnum.COMPLETED, user_id=sample_user.id
         )
         assert updated is not None
         assert updated.status == OrderStatusEnum.COMPLETED

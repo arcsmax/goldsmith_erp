@@ -373,7 +373,13 @@
   text-align: center;
 }
 
+/* LV-12: mail/tel links measured 24px tall (line-height only) — below the
+ * 44px touch target. inline-flex + min-height grows the tap target without
+ * changing the text size or surrounding layout. */
 .detail-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--touch-min);
   color: white;
   text-decoration: underline;
   transition: opacity 0.3s;

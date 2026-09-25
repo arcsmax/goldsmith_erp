@@ -245,7 +245,7 @@ export const OrdersPage: React.FC = () => {
   const totalRevenue = filteredOrders.reduce((sum, o) => sum + (o.price || 0), 0);
 
   return (
-    <div className="page-container">
+    <div className="page-container orders-page">
       <header className="page-header">
         <div>
           <h1>Aufträge</h1>
