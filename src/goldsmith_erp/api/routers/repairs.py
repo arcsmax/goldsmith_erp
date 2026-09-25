@@ -115,7 +115,12 @@ def _media_type_from_ext(suffix: str) -> str:
 )
 @require_permission(Permission.REPAIR_VIEW)
 async def list_repairs(
-    page: PageParams = Depends(make_page_params(legacy_default_limit=100)),
+    page: PageParams = Depends(
+        make_page_params(
+            legacy_default_limit=100,
+            sort_fields=tuple(list_queries.REPAIR_SORT_FIELDS),
+        )
+    ),
     status: Optional[RepairJobStatus] = Query(None, description="Nach Status filtern"),
     customer_id: Optional[int] = Query(None, gt=0, description="Nach Kunde filtern"),
     search: Optional[str] = Query(
@@ -143,7 +148,11 @@ async def list_repairs(
     excludes = _repair_excludes(current_user)
     if page.is_paged:
         stmt = await list_queries.repairs_statement(
-            db, status=status, customer_id=customer_id, q=q or search
+            db,
+            status=status,
+            customer_id=customer_id,
+            q=q or search,
+            sort=page.sort,
         )
         result = await list_queries.fetch_page(
             db, stmt, page, list_queries.REPAIR_LIST_OPTIONS
