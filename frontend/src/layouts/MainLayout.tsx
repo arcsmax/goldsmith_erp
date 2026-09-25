@@ -17,7 +17,8 @@ import { GlobalSearch } from '../components/GlobalSearch';
 import { ErrorBoundary } from '../components/ErrorBoundary';
 import { Icon, IconButton, TabBar } from '../ui';
 import { canAdministerSystem } from '../lib/roles';
-import { navGroupsFor, tabBarItems, type NavGroup } from './navigation';
+import { useBenchMode } from '../lib/benchMode';
+import { navGroupsFor, tabBarItems, benchTabBarItems, type NavGroup } from './navigation';
 import '../styles/layout.css';
 import '../styles/components/GlobalSearch.css';
 
@@ -60,6 +61,7 @@ const SidebarNav: React.FC<SidebarNavProps> = ({ groups, onNavigate }) => (
 export const MainLayout: React.FC = () => {
   const { user, logout } = useAuth();
   const { runningEntry, refreshRunningEntry, pauseTracking, resumeTracking } = useTimeTracking();
+  const { isBenchMode, toggleBenchMode } = useBenchMode();
   const navigate = useNavigate();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const hamburgerRef = useRef<HTMLButtonElement>(null);
@@ -91,22 +93,24 @@ export const MainLayout: React.FC = () => {
   const displayName = user?.first_name || user?.email;
 
   return (
-    <div className="main-layout">
+    <div className={`main-layout${isBenchMode ? ' main-layout--bench' : ''}`}>
       <OfflineIndicator />
 
       <header className="main-header">
         <div className="header-content">
-          <button
-            ref={hamburgerRef}
-            type="button"
-            className="header-action header-action--menu"
-            onClick={openSidebar}
-            aria-label="Navigation öffnen"
-            aria-expanded={isSidebarOpen}
-            aria-controls="main-sidebar"
-          >
-            <Icon name="menu" />
-          </button>
+          {!isBenchMode && (
+            <button
+              ref={hamburgerRef}
+              type="button"
+              className="header-action header-action--menu"
+              onClick={openSidebar}
+              aria-label="Navigation öffnen"
+              aria-expanded={isSidebarOpen}
+              aria-controls="main-sidebar"
+            >
+              <Icon name="menu" />
+            </button>
+          )}
 
           <Link to="/dashboard" className="logo">
             Goldsmith ERP
@@ -121,6 +125,17 @@ export const MainLayout: React.FC = () => {
               <Icon name="scan" />
               Scanner
             </Link>
+            {/* Werkbank-Modus (5.5): stays reachable at every width, even
+                when bench mode hides the drawer that would otherwise carry
+                this control on a narrow screen. */}
+            <IconButton
+              icon={isBenchMode ? 'check' : 'hammer'}
+              label={isBenchMode ? 'Werkbank-Modus ausschalten' : 'Werkbank-Modus einschalten'}
+              aria-pressed={isBenchMode}
+              onClick={toggleBenchMode}
+              className="header-action"
+              data-testid="bench-mode-header-toggle"
+            />
             <NotificationBell />
             <span className="user-name header-desktop-only">{displayName}</span>
             <button
@@ -134,38 +149,45 @@ export const MainLayout: React.FC = () => {
         </div>
       </header>
 
-      <div
-        className={`sidebar-overlay${isSidebarOpen ? ' open' : ''}`}
-        onClick={closeSidebar}
-        aria-hidden="true"
-      />
+      {!isBenchMode && (
+        <div
+          className={`sidebar-overlay${isSidebarOpen ? ' open' : ''}`}
+          onClick={closeSidebar}
+          aria-hidden="true"
+        />
+      )}
 
       <div className="main-content-wrapper">
-        <aside id="main-sidebar" className={`main-sidebar${isSidebarOpen ? ' open' : ''}`}>
-          <div className="sidebar-close-row">
-            <IconButton icon="close" label="Navigation schließen" onClick={closeSidebar} />
-          </div>
-
-          <SidebarNav groups={groups} onNavigate={handleNavClick} />
-
-          {/* Account block: the mobile home of the header user menu (LV-01). */}
-          <div className="sidebar-account" data-testid="sidebar-account">
-            <span className="sidebar-account__name">{displayName}</span>
-            <Link to="/scanner" className="nav-link" onClick={handleNavClick}>
-              <Icon name="scan" className="nav-icon" />
-              Scanner
-            </Link>
-            <button type="button" onClick={handleLogout} className="sidebar-account__logout">
-              Abmelden
-            </button>
-          </div>
-
-          {canAdministerSystem(role) && (
-            <div className="sidebar-health">
-              <HealthDot />
+        {/* Werkbank-Modus (5.5): the tab bar below is the only navigation
+            left, so the secondary navigation (drawer/sidebar) is dropped
+            rather than just hidden with CSS. */}
+        {!isBenchMode && (
+          <aside id="main-sidebar" className={`main-sidebar${isSidebarOpen ? ' open' : ''}`}>
+            <div className="sidebar-close-row">
+              <IconButton icon="close" label="Navigation schließen" onClick={closeSidebar} />
             </div>
-          )}
-        </aside>
+
+            <SidebarNav groups={groups} onNavigate={handleNavClick} />
+
+            {/* Account block: the mobile home of the header user menu (LV-01). */}
+            <div className="sidebar-account" data-testid="sidebar-account">
+              <span className="sidebar-account__name">{displayName}</span>
+              <Link to="/scanner" className="nav-link" onClick={handleNavClick}>
+                <Icon name="scan" className="nav-icon" />
+                Scanner
+              </Link>
+              <button type="button" onClick={handleLogout} className="sidebar-account__logout">
+                Abmelden
+              </button>
+            </div>
+
+            {canAdministerSystem(role) && (
+              <div className="sidebar-health">
+                <HealthDot />
+              </div>
+            )}
+          </aside>
+        )}
 
         <main className="main-content">
           {/* Page-level ErrorBoundary (A5): a page crash leaves header,
@@ -176,11 +198,17 @@ export const MainLayout: React.FC = () => {
         </main>
       </div>
 
-      <footer className="main-footer">
-        <p>&copy; {new Date().getFullYear()} Goldsmith ERP. Alle Rechte vorbehalten.</p>
-      </footer>
+      {!isBenchMode && (
+        <footer className="main-footer">
+          <p>&copy; {new Date().getFullYear()} Goldsmith ERP. Alle Rechte vorbehalten.</p>
+        </footer>
+      )}
 
-      <TabBar label="Schnellzugriff" items={tabBarItems(role)} className="main-tab-bar" />
+      <TabBar
+        label="Schnellzugriff"
+        items={isBenchMode ? benchTabBarItems() : tabBarItems(role)}
+        className={`main-tab-bar${isBenchMode ? ' main-tab-bar--bench' : ''}`}
+      />
 
       <TimerWidget
         runningEntry={runningEntry}
