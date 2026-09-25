@@ -1,22 +1,25 @@
-// CustomerDetailPage — VIEWER role-projection regression (SEC-09/GDPR-04).
+// CustomerDetailPage — VIEWER role-projection regression (SEC-09/GDPR-04)
+// and the W2-01 first_photo_id fix for the Auftragshistorie tab.
 //
-// The Auftragshistorie tab fetches a thumbnail per order via
+// The Auftragshistorie tab used to fetch a thumbnail per order via
 // photosApi.getForOrder — GET /orders/{id}/photos 403s for a caller without
-// DESIGN_VIEW (VIEWER). The previous code called it for every order
-// regardless of role and swallowed the resulting 403 in a catch block, so
-// it never crashed but did fire a doomed request per order. This pins that
-// the call is skipped outright for VIEWER and still made for GOLDSMITH.
+// DESIGN_VIEW (VIEWER), and even for a caller who CAN view it, that was one
+// extra request per order. The fix reads `first_photo_id` straight off the
+// orders-list response (added in W2-01) and renders it through the
+// authenticated `/photos/{id}/thumbnail` route, so photosApi.getForOrder is
+// never called from this tab any more — for VIEWER or for GOLDSMITH.
 //
 // Note: /customers/:id is currently ADMIN/GOLDSMITH-only at the router
 // level (App.tsx ProtectedRoute) and in the sidebar nav (MainLayout.tsx) —
-// both out of scope here — so this guard is defense-in-depth against a
-// direct render (as this test does) or a future routing change, not a
-// presently reachable path for VIEWER.
+// both out of scope here — so the VIEWER case below is defense-in-depth
+// against a direct render (as this test does) or a future routing change,
+// not a presently reachable path for VIEWER.
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import userEvent from '@testing-library/user-event';
-import type { Customer, OrderType } from '../types';
+import type { Customer } from '../types';
+import type { OrderListItem } from '../api/orders';
 
 const mockGetById = vi.fn();
 const mockOrdersGetAll = vi.fn();
@@ -28,6 +31,16 @@ vi.mock('../api', () => ({
 const mockGetForOrder = vi.fn();
 vi.mock('../api/photos', () => ({
   photosApi: { getForOrder: (...a: unknown[]) => mockGetForOrder(...a) },
+  photoThumbnailPath: (photoId: string) => `/photos/${photoId}/thumbnail`,
+}));
+
+// Thumbnails go through an authenticated fetch; render the requested src
+// so the test can assert the URL without an HTTP mock (same pattern as
+// OrderDetailPage.photos.test.tsx).
+vi.mock('../components/AuthenticatedImage', () => ({
+  default: ({ src, alt }: { src: string; alt: string }) => (
+    <img data-testid="auth-img" data-src={src} alt={alt} />
+  ),
 }));
 
 const mockUseAuth = vi.fn();
@@ -72,7 +85,7 @@ function makeCustomer(): Customer {
   };
 }
 
-function makeOrder(id: number): OrderType {
+function makeOrder(id: number, firstPhotoId: string | null = null): OrderListItem {
   return {
     id,
     title: `Auftrag ${id}`,
@@ -82,7 +95,8 @@ function makeOrder(id: number): OrderType {
     customer_id: 1,
     created_at: '2026-01-01T00:00:00Z',
     updated_at: '2026-01-01T00:00:00Z',
-  } as OrderType;
+    first_photo_id: firstPhotoId,
+  } as OrderListItem;
 }
 
 function renderPage() {
@@ -103,7 +117,7 @@ describe('CustomerDetailPage — VIEWER role projection (Auftragshistorie tab)',
   it('never calls photosApi.getForOrder for VIEWER', async () => {
     mockUseAuth.mockReturnValue({ user: { role: 'VIEWER' } });
     mockGetById.mockResolvedValue(makeCustomer());
-    mockOrdersGetAll.mockResolvedValue([makeOrder(1), makeOrder(2)]);
+    mockOrdersGetAll.mockResolvedValue([makeOrder(1), makeOrder(2, 'photo-2')]);
 
     renderPage();
     await screen.findByText('anna@example.com');
@@ -112,13 +126,18 @@ describe('CustomerDetailPage — VIEWER role projection (Auftragshistorie tab)',
 
     expect(await screen.findByText('Auftrag 1')).toBeInTheDocument();
     expect(mockGetForOrder).not.toHaveBeenCalled();
+    // VIEWER never gets a thumbnail rendered, even when the (hypothetical)
+    // list response carried a first_photo_id — canDesign gates it client-side too.
+    expect(screen.queryByTestId('auth-img')).not.toBeInTheDocument();
   });
 
-  it('calls photosApi.getForOrder per order for GOLDSMITH', async () => {
+  it('never calls photosApi.getForOrder for GOLDSMITH and renders thumbnails from first_photo_id', async () => {
     mockUseAuth.mockReturnValue({ user: { role: 'GOLDSMITH' } });
     mockGetById.mockResolvedValue(makeCustomer());
-    mockOrdersGetAll.mockResolvedValue([makeOrder(1)]);
-    mockGetForOrder.mockResolvedValue({ data: [] });
+    mockOrdersGetAll.mockResolvedValue([
+      makeOrder(1, 'photo-abc'),
+      makeOrder(2, null),
+    ]);
 
     renderPage();
     await screen.findByText('anna@example.com');
@@ -126,6 +145,18 @@ describe('CustomerDetailPage — VIEWER role projection (Auftragshistorie tab)',
     await userEvent.click(screen.getByRole('tab', { name: 'Auftragshistorie' }));
 
     expect(await screen.findByText('Auftrag 1')).toBeInTheDocument();
-    expect(mockGetForOrder).toHaveBeenCalledWith(1);
+    expect(screen.getByText('Auftrag 2')).toBeInTheDocument();
+
+    // No per-order photo list request — the thumbnail comes straight off
+    // the orders-list response (W2-01's `first_photo_id`).
+    expect(mockGetForOrder).not.toHaveBeenCalled();
+
+    // Order 1 has a photo: rendered via AuthenticatedImage against the
+    // authenticated thumbnail route, not the old `/orders/{id}/photos/{id}/file` URL.
+    const thumb = screen.getByTestId('auth-img');
+    expect(thumb).toHaveAttribute('data-src', '/photos/photo-abc/thumbnail');
+
+    // Order 2 has no photo: placeholder, not a thumbnail request.
+    expect(screen.getAllByLabelText('Kein Foto vorhanden')).toHaveLength(1);
   });
 });

@@ -2,14 +2,15 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { customersApi, ordersApi } from '../api';
+import type { OrderListItem } from '../api/orders';
 import apiClient from '../api/client';
-import { photosApi } from '../api/photos';
+import { photoThumbnailPath } from '../api/photos';
 import AuthenticatedImage from '../components/AuthenticatedImage';
 import { CustomerFormModal } from '../components/CustomerFormModal';
 import { useAuth } from '../contexts';
 import { canViewDesign } from '../lib/roles';
 import { ConsentPanel } from '../components/customers/ConsentPanel';
-import { Customer, CustomerCreateInput, CustomerUpdateInput, OrderType } from '../types';
+import { Customer, CustomerCreateInput, CustomerUpdateInput } from '../types';
 import '../styles/customer-detail.css';
 // Pulls the `.invoice-status-badge.status-{draft|sent|paid|overdue|cancelled}`
 // rules used by the Rechnungen tab below. Without this the badges render
@@ -209,20 +210,18 @@ export const MasseTab: React.FC<{ customer: Customer }> = ({ customer }) => (
 
 // ============================================================
 
-// Maps order.id -> first photo URL path (or null if no photos)
-type PhotoMap = Record<number, string | null>;
-
 const AuftraegeTab: React.FC<{ customerId: number }> = ({ customerId }) => {
   const navigate = useNavigate();
   const { user } = useAuth();
-  // DESIGN_VIEW (SEC-09/GDPR-04): GET /orders/{id}/photos 403s for a caller
-  // without it — skip the per-order photo fetch entirely instead of
-  // triggering (and swallowing) a 403 for every order in the list.
+  // DESIGN_VIEW (SEC-09/GDPR-04): thumbnails are design IP. The backend
+  // already nulls out `first_photo_id` on the orders list for a caller
+  // without DESIGN_VIEW (W2-01), so this is defense in depth — it also
+  // skips rendering AuthenticatedImage (and its authenticated fetch)
+  // outright for VIEWER instead of relying solely on the null id.
   const canDesign = canViewDesign(user?.role);
-  const [orders, setOrders] = useState<OrderType[]>([]);
+  const [orders, setOrders] = useState<OrderListItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [photoMap, setPhotoMap] = useState<PhotoMap>({});
 
   useEffect(() => {
     const load = async () => {
@@ -235,29 +234,6 @@ const AuftraegeTab: React.FC<{ customerId: number }> = ({ customerId }) => {
           (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
         );
         setOrders(customerOrders);
-
-        if (!canDesign) {
-          return;
-        }
-
-        // Fetch first photo for each order lazily (fire-and-forget per order)
-        customerOrders.forEach(async (order) => {
-          try {
-            const resp = await photosApi.getForOrder(order.id);
-            const photos: any[] = Array.isArray(resp.data)
-              ? resp.data
-              : (resp.data as any)?.items ?? [];
-            const firstPhoto = photos[0] ?? null;
-            // Prefer a pre-built file URL; fall back to constructed path
-            const photoSrc: string | null = firstPhoto
-              ? (firstPhoto.file_url ?? `/orders/${order.id}/photos/${firstPhoto.id}/file`)
-              : null;
-            setPhotoMap((prev) => ({ ...prev, [order.id]: photoSrc }));
-          } catch {
-            // Backend may not implement this endpoint yet — show placeholder
-            setPhotoMap((prev) => ({ ...prev, [order.id]: null }));
-          }
-        });
       } catch {
         setError('Fehler beim Laden der Auftragshistorie');
       } finally {
@@ -265,7 +241,7 @@ const AuftraegeTab: React.FC<{ customerId: number }> = ({ customerId }) => {
       }
     };
     load();
-  }, [customerId, canDesign]);
+  }, [customerId]);
 
   if (isLoading) return <div className="cdetail-loading">Lade Aufträge...</div>;
   if (error) return <div className="cdetail-error">{error}</div>;
@@ -282,7 +258,6 @@ const AuftraegeTab: React.FC<{ customerId: number }> = ({ customerId }) => {
       ) : (
         <div className="cdetail-timeline">
           {orders.map((order) => {
-            const photoSrc = photoMap[order.id];
             return (
               <div
                 key={order.id}
@@ -293,23 +268,23 @@ const AuftraegeTab: React.FC<{ customerId: number }> = ({ customerId }) => {
                 onKeyDown={(e) => e.key === 'Enter' && navigate(`/orders/${order.id}`)}
               >
                 <div className="cdetail-timeline-marker" />
-                {/* Thumbnail — shown once photo map entry resolves */}
-                {order.id in photoMap ? (
-                  photoSrc ? (
-                    <AuthenticatedImage
-                      src={photoSrc}
-                      alt={`Foto für Auftrag #${order.id}`}
-                    />
-                  ) : (
-                    <div
-                      className="cdetail-timeline-thumb-placeholder"
-                      aria-label="Kein Foto vorhanden"
-                      role="img"
-                    >
-                      &#128247;
-                    </div>
-                  )
-                ) : null}
+                {/* Thumbnail — from the orders-list `first_photo_id`
+                    (W2-01): no per-order photo request, rendered through
+                    the authenticated thumbnail route. */}
+                {canDesign && order.first_photo_id ? (
+                  <AuthenticatedImage
+                    src={photoThumbnailPath(order.first_photo_id)}
+                    alt={`Foto für Auftrag #${order.id}`}
+                  />
+                ) : (
+                  <div
+                    className="cdetail-timeline-thumb-placeholder"
+                    aria-label="Kein Foto vorhanden"
+                    role="img"
+                  >
+                    &#128247;
+                  </div>
+                )}
                 <div className="cdetail-timeline-content">
                   <div className="cdetail-timeline-header">
                     <span className="cdetail-timeline-id">#{order.id}</span>
