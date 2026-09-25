@@ -63,6 +63,7 @@ from typing import Any, Dict, List, Optional, cast
 
 from sqlalchemy import select
 from sqlalchemy import update as sa_update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from goldsmith_erp.core.config import settings
@@ -157,6 +158,29 @@ class MissingCustomerUpdateContentError(CustomerUpdateValidationError):
             "Fuer kind='custom' muessen subject und body angegeben werden "
             "— kein Template vorhanden"
         )
+
+
+class DuplicateDedupeKeyError(ValueError):
+    """
+    A LIVE ``customer_updates`` row already carries this ``dedupe_key``
+    (C2.2 partial unique index) — a concurrent automated-sender run
+    already claimed (or already sent) this exact occurrence.
+
+    Raised from INSIDE a SAVEPOINT (``db.begin_nested()``) rather than
+    letting the underlying ``IntegrityError`` reach ``transactional()``'s
+    catch-all: ``Session.rollback()`` (what that generic handler calls)
+    always rolls back to the ROOT transaction and expires every object in
+    the session (SQLAlchemy invariant — see ``Session.rollback()``'s
+    ``_to_root=True``), which would leave the caller (e.g.
+    ``automated_customer_email._create_and_send``, which still holds the
+    ``Order`` it was passed) with expired attributes that raise
+    ``MissingGreenlet`` on the next plain (non-awaited) attribute access.
+    A SAVEPOINT-scoped rollback only reverts this insert.
+    """
+
+    def __init__(self, dedupe_key: str) -> None:
+        super().__init__(f"dedupe_key {dedupe_key!r} already claimed by a live row")
+        self.dedupe_key = dedupe_key
 
 
 class CostChangeKindNotAllowedError(CustomerUpdateValidationError):
@@ -537,8 +561,10 @@ class CustomerUpdateService:
         Create a DRAFT CustomerUpdate for exactly one target.
 
         ``dedupe_key`` is set only by the automated sender (C2.2); a second
-        live row with the same key raises ``IntegrityError`` from the partial
-        unique index ``uq_customer_updates_dedupe_key``.
+        LIVE row with the same key raises ``DuplicateDedupeKeyError`` (the
+        partial unique index ``uq_customer_updates_dedupe_key`` rejects the
+        insert; see that exception's docstring for why it is raised from
+        inside a SAVEPOINT instead of a bare ``IntegrityError``).
 
         Raises:
             ValueError: target (order/repair) does not exist, or exactly-one
@@ -547,6 +573,8 @@ class CustomerUpdateService:
             InvalidUpdatePhotoError / PhotosNotAllowedForRepairError /
                 MissingCustomerUpdateContentError /
                 CostChangeKindNotAllowedError: malformed input (422).
+            DuplicateDedupeKeyError: ``dedupe_key`` collided with a live row
+                (automated-sender path only).
         """
         if (order_id is None) == (repair_job_id is None):
             raise ValueError("Exakt eines von order_id/repair_job_id muss gesetzt sein")
@@ -594,19 +622,39 @@ class CustomerUpdateService:
             subject = subject or default_subject
             body = body or default_body
 
-        async with transactional(db):
-            update = CustomerUpdate(
-                order_id=order_id,
-                repair_job_id=repair_job_id,
-                kind=data.kind,
-                subject=subject,
-                body=body,
-                photo_ids=data.photo_ids or None,
-                status=CustomerUpdateStatus.DRAFT,
-                sent_by=user_id,
-                dedupe_key=dedupe_key,
-            )
-            db.add(update)
+        update = CustomerUpdate(
+            order_id=order_id,
+            repair_job_id=repair_job_id,
+            kind=data.kind,
+            subject=subject,
+            body=body,
+            photo_ids=data.photo_ids or None,
+            status=CustomerUpdateStatus.DRAFT,
+            sent_by=user_id,
+            dedupe_key=dedupe_key,
+        )
+
+        if dedupe_key is not None:
+            # Automated-sender path (C2.2) — see DuplicateDedupeKeyError's
+            # docstring for why this insert is scoped to its OWN SAVEPOINT
+            # instead of going through transactional(): a collision here is
+            # an expected, routine outcome (a concurrent tick), not the
+            # unexpected-error case transactional()'s broad except/rollback
+            # is designed for, and that broad rollback would expire every
+            # object in the caller's session.
+            try:
+                async with db.begin_nested():
+                    db.add(update)
+                    await db.flush()
+                await db.commit()
+            except IntegrityError as exc:
+                # The nested block above already rolled back to the
+                # SAVEPOINT (session + all other objects are untouched);
+                # nothing further to undo here.
+                raise DuplicateDedupeKeyError(dedupe_key) from exc
+        else:
+            async with transactional(db):
+                db.add(update)
 
         await db.refresh(update)
         _log_financial_access("draft_created", cast(int, update.id), order_id, user_id)
