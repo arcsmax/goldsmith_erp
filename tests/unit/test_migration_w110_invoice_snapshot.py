@@ -207,8 +207,13 @@ def test_backfill_layout_matches_the_service_snapshot(sqlite_engine):
     service = InvoiceSnapshotService.build(invoice, [], None, None)  # type: ignore[arg-type]
 
     assert set(service) <= set(backfilled)
+    # Snapshot version 2 (W2-04) added the Storno reference to the invoice
+    # header; the v1 layout the migration writes is otherwise identical and
+    # still renders (InvoiceSnapshotService.render reads those keys with get).
+    v2_header_keys = {"cancels_invoice_number", "cancels_invoice_date", "storno_reason"}
     for section in ("recipient", "seller", "invoice", "totals"):
-        assert set(service[section]) == set(backfilled[section]), section
+        extra = v2_header_keys if section == "invoice" else set()
+        assert set(service[section]) - extra == set(backfilled[section]), section
 
 
 def test_orm_create_all_has_the_snapshot_columns(tmp_path):

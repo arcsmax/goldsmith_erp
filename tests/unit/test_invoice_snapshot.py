@@ -20,6 +20,7 @@ import hashlib
 from datetime import datetime, timedelta
 
 import pytest
+from fastapi import HTTPException
 from sqlalchemy import text
 
 from goldsmith_erp.db.models import InvoiceStatus, OrderStatusEnum
@@ -146,9 +147,12 @@ class TestFreezeOnIssue:
         frozen_hash = sent.issued_pdf_sha256
         frozen_snapshot = sent.snapshot
 
-        await InvoiceService.update_invoice(
-            db_session, invoice.id, InvoiceUpdate(notes="nachträglich"), admin_user
-        )
+        # W2-04: an issued invoice is locked; the edit is refused outright.
+        with pytest.raises(HTTPException) as exc_info:
+            await InvoiceService.update_invoice(
+                db_session, invoice.id, InvoiceUpdate(notes="nachträglich"), admin_user
+            )
+        assert exc_info.value.status_code == 409
         paid = await InvoiceService.mark_as_paid(
             db_session, invoice.id, MarkPaidRequest(payment_method="Bar"), admin_user
         )

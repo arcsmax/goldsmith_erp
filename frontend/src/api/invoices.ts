@@ -74,4 +74,16 @@ export const invoicesApi = {
     const response = await apiClient.post<Invoice>(`/invoices/${id}/cancel`);
     return response.data;
   },
+
+  /**
+   * Stornorechnung erstellen (W2-04): reverses an issued (also a paid)
+   * invoice with a negative invoice that links to it. Returns the Storno.
+   * POST /invoices/{id}/storno
+   */
+  createStorno: async (id: number, reason?: string): Promise<Invoice> => {
+    const response = await apiClient.post<Invoice>(`/invoices/${id}/storno`, {
+      reason: reason?.trim() || null,
+    });
+    return response.data;
+  },
 };

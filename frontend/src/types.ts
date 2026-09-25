@@ -751,6 +751,9 @@ export interface Invoice {
   issue_date: string;   // ISO datetime
   due_date: string;     // ISO datetime
   paid_date?: string | null;
+  service_date?: string | null; // Leistungsdatum (§14 Abs. 4 Nr. 6 UStG)
+  cancels_invoice_id?: number | null; // set on a Stornorechnung (W2-04)
+  cancelled_by_invoice_id?: number | null; // set on the cancelled original
   subtotal: number;     // Zwischensumme (net)
   tax_rate: number;     // MwSt-Satz in Prozent
   tax_amount: number;   // MwSt-Betrag

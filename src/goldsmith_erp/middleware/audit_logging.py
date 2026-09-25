@@ -189,6 +189,16 @@ _RESOURCE_ROUTES: dict[str, Tuple[str, str, str, bool]] = {
     # entry); this entry covers the bare ``/measurements/{id}`` get/update/
     # delete routes. Legal basis overridden to Art. 6(1)(b) contract.
     "measurements": ("measurement", "accessed", "list_accessed", False),
+    # W2-04: Werkstatt-Stammdaten (seller data printed on every Rechnung).
+    # Two-segment key: only this admin route is audited, not every
+    # ``/admin/*`` endpoint. ``False`` = reads AND writes are audited here
+    # (the service logs only the changed field names on top).
+    "admin/workshop-settings": (
+        "workshop_settings",
+        "accessed",
+        "list_accessed",
+        False,
+    ),
 }
 
 # Legal-basis overrides for audited families that are neither customer PII
@@ -205,6 +215,9 @@ _LEGAL_BASIS_OVERRIDES: dict[str, str] = {
     ),
     "order_photo": "GDPR Article 6(1)(b) - Contract (order design documentation)",
     "measurement": "GDPR Article 6(1)(b) - Contract (customer measurement records)",
+    "workshop_settings": (
+        "GDPR Article 6(1)(c) - Legal obligation (§14 Abs. 4 UStG seller data)"
+    ),
 }
 
 
@@ -396,6 +409,12 @@ class AuditLoggingMiddleware(BaseHTTPMiddleware):
         parts = [p for p in path.split("/") if p]
         if len(parts) < 3 or parts[0] != "api" or parts[1] != "v1":
             return None
+        if len(parts) >= 4:
+            # Two-segment families (e.g. "admin/workshop-settings") win over
+            # a one-segment one.
+            nested = _RESOURCE_ROUTES.get(f"{parts[2]}/{parts[3]}")
+            if nested is not None:
+                return nested
         return _RESOURCE_ROUTES.get(parts[2])
 
     @staticmethod

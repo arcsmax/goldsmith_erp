@@ -3,7 +3,10 @@
 Invoice/billing service (Rechnungswesen).
 
 Handles:
-- Sequential invoice number generation (RE-YYYY-NNNN)
+- Sequential invoice number generation (RE-YYYY-NNNN), gap-free per
+  Europe/Berlin year from ``number_sequences`` (W2-04, BE-16)
+- Stornorechnung: an issued invoice is never edited; cancelling it emits a
+  negative invoice with its own number that links to it (W2-04, DOM-24b)
 - Auto-generation of line items from order data (material, labor, gemstones)
 - Total calculation (subtotal, 19% MwSt, Gesamtbetrag)
 - Status transitions (DRAFT -> SENT -> PAID / OVERDUE / CANCELLED)
@@ -18,6 +21,7 @@ from decimal import ROUND_HALF_UP, Decimal
 from typing import Any, Dict, Iterable, List, Optional
 
 from sqlalchemy import extract, func
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy.orm import selectinload
@@ -38,8 +42,14 @@ from goldsmith_erp.models.invoice import (
     InvoiceLineItemCreate,
     InvoiceUpdate,
     MarkPaidRequest,
+    StornoRequest,
 )
 from goldsmith_erp.services.invoice_snapshot_service import InvoiceSnapshotService
+from goldsmith_erp.services.number_sequence_service import (
+    INVOICE_KIND,
+    NumberSequenceService,
+)
+from goldsmith_erp.services.workshop_settings_service import WorkshopSettingsService
 
 logger = logging.getLogger(__name__)
 
@@ -61,6 +71,29 @@ def net_from_gross(gross: float | Decimal, vat_rate_percent: float) -> Decimal:
     """
     divisor = Decimal("1") + Decimal(str(vat_rate_percent)) / Decimal("100")
     return (Decimal(str(gross)) / divisor).quantize(_CENT, rounding=ROUND_HALF_UP)
+
+
+def _http_error(status_code: int, detail: str) -> Exception:
+    from fastapi import HTTPException
+
+    return HTTPException(status_code=status_code, detail=detail)
+
+
+def _role(user: UserModel) -> str:
+    return user.role.value if hasattr(user.role, "value") else str(user.role)
+
+
+def _is_storno(invoice: InvoiceModel) -> bool:
+    return invoice.cancels_invoice_id is not None
+
+
+def _require_not_storno(invoice: InvoiceModel) -> None:
+    if _is_storno(invoice):
+        raise _http_error(
+            422,
+            "Eine Stornorechnung ist endgültig und kann nicht geändert, "
+            "bezahlt oder storniert werden.",
+        )
 
 
 def _log_financial_access(
@@ -102,35 +135,15 @@ class InvoiceService:
     @staticmethod
     async def generate_invoice_number(db: AsyncSession) -> str:
         """
-        Generate the next sequential invoice number for the current year.
+        Next sequential invoice number for the current Europe/Berlin year.
 
-        Format: RE-YYYY-NNNN (e.g. RE-2026-0001)
+        Format: RE-YYYY-NNNN (e.g. RE-2026-0001; RE-2026-10000 after 9999).
 
-        Uses a SELECT MAX query inside the current transaction to determine
-        the highest existing sequence number for this year, then increments it.
-        This is safe for low-concurrency ERP usage; a DB sequence would be
-        preferable for high-throughput scenarios.
+        W2-04 (BE-16): drawn from the row-locked ``number_sequences`` counter
+        inside the caller's transaction, so concurrent creates get distinct
+        numbers and a rolled back create gives its number back.
         """
-        year = datetime.utcnow().year
-        prefix = f"RE-{year}-"
-
-        result = await db.execute(
-            select(func.max(InvoiceModel.invoice_number)).where(
-                InvoiceModel.invoice_number.like(f"{prefix}%")
-            )
-        )
-        last_number: Optional[str] = result.scalar_one_or_none()
-
-        if last_number:
-            # Extract the sequence portion: "RE-2026-0042" -> 42
-            try:
-                seq = int(last_number.split("-")[-1]) + 1
-            except (ValueError, IndexError):
-                seq = 1
-        else:
-            seq = 1
-
-        return f"{prefix}{seq:04d}"
+        return await NumberSequenceService.next_number(db, INVOICE_KIND)
 
     # -------------------------------------------------------------------------
     # Total calculation
@@ -316,15 +329,35 @@ class InvoiceService:
         by_order: Dict[Any, List[ScrapGoldModel]] = {}
         for record in result.scalars().all():
             by_order.setdefault(record.order_id, []).append(record)
+        storno_of = await InvoiceService._storno_ids_for(
+            db, [inv.id for inv in invoices]
+        )
         for invoice in invoices:
+            # A Stornorechnung carries no Altgold credit: the credit belongs
+            # to the order's live invoice (W2-04).
             credit = (
                 Decimal("0.00")
-                if invoice.status == InvoiceStatus.CANCELLED
+                if invoice.status == InvoiceStatus.CANCELLED or _is_storno(invoice)
                 else InvoiceService._scrap_gold_credit_amount(
                     by_order.get(invoice.order_id, [])
                 )
             )
             InvoiceService._set_payment_summary(invoice, credit)
+            setattr(invoice, "cancelled_by_invoice_id", storno_of.get(invoice.id))
+
+    @staticmethod
+    async def _storno_ids_for(
+        db: AsyncSession, invoice_ids: List[Any]
+    ) -> Dict[Any, int]:
+        """Map original invoice id -> id of its Stornorechnung (one query)."""
+        if not invoice_ids:
+            return {}
+        rows = await db.execute(
+            select(InvoiceModel.cancels_invoice_id, InvoiceModel.id).where(
+                InvoiceModel.cancels_invoice_id.in_(invoice_ids)
+            )
+        )
+        return {original: storno for original, storno in rows.all()}
 
     # -------------------------------------------------------------------------
     # CRUD
@@ -385,11 +418,14 @@ class InvoiceService:
                 f"Aktueller Status: {order.status.value}",
             )
 
-        # Guard: no duplicate invoices per order
+        # Guard: no duplicate invoices per order (Stornorechnungen do not
+        # count; the partial unique index uq_invoices_one_active_per_order
+        # backs this check against races).
         existing = await db.execute(
             select(InvoiceModel.id).where(
                 InvoiceModel.order_id == invoice_in.order_id,
                 InvoiceModel.status != InvoiceStatus.CANCELLED,
+                InvoiceModel.cancels_invoice_id.is_(None),
             )
         )
         if existing.scalar_one_or_none():
@@ -425,9 +461,64 @@ class InvoiceService:
 
         all_line_items = auto_items + (invoice_in.additional_line_items or [])
 
-        # Calculate totals
-        totals = InvoiceService.calculate_totals(all_line_items, invoice_in.tax_rate)
+        # W2-04: default rate from the Werkstatt-Stammdaten; 0 for a
+        # Kleinunternehmer (§19 UStG).
+        tax_rate = await WorkshopSettingsService.vat_rate_for_new_invoice(
+            db, invoice_in.tax_rate
+        )
+        seller = await WorkshopSettingsService.seller_block(db)
+        totals = InvoiceService.calculate_totals(all_line_items, tax_rate)
 
+        try:
+            db_invoice = await InvoiceService._persist_new_invoice(
+                db,
+                invoice_in,
+                order,
+                current_user,
+                all_line_items,
+                totals,
+                tax_rate,
+                seller,
+                scrap_golds,
+            )
+        except IntegrityError as exc:
+            logger.warning(
+                "Concurrent invoice create for the same order rejected",
+                extra={"order_id": invoice_in.order_id},
+            )
+            raise _http_error(
+                409,
+                f"Fuer Auftrag {invoice_in.order_id} existiert bereits eine "
+                "aktive Rechnung",
+            ) from exc
+
+        # Audit log AFTER successful commit
+        _log_financial_access(
+            action="created",
+            invoice_id=db_invoice.id,
+            user_id=current_user.id,
+            user_role=_role(current_user),
+            extra={
+                "invoice_number": db_invoice.invoice_number,
+                "total": totals["total"],
+            },
+        )
+
+        return await InvoiceService.get_invoice(db, db_invoice.id, current_user)
+
+    @staticmethod
+    async def _persist_new_invoice(
+        db: AsyncSession,
+        invoice_in: InvoiceCreate,
+        order: OrderModel,
+        current_user: UserModel,
+        all_line_items: List[InvoiceLineItemCreate],
+        totals: dict,
+        tax_rate: float,
+        seller: Dict[str, Any],
+        scrap_golds: List[ScrapGoldModel],
+    ) -> InvoiceModel:
+        """Insert invoice + lines + snapshot in one transaction."""
         async with transactional(db):
             invoice_number = await InvoiceService.generate_invoice_number(db)
 
@@ -439,8 +530,9 @@ class InvoiceService:
                 status=InvoiceStatus.DRAFT,
                 issue_date=datetime.utcnow(),
                 due_date=invoice_in.due_date,
+                service_date=invoice_in.service_date or order.completed_at,
                 subtotal=totals["subtotal"],
-                tax_rate=invoice_in.tax_rate,
+                tax_rate=tax_rate,
                 tax_amount=totals["tax_amount"],
                 total=totals["total"],
                 notes=invoice_in.notes,
@@ -477,6 +569,7 @@ class InvoiceService:
                     scrap_gold_credit=InvoiceService._scrap_gold_credit_amount(
                         scrap_golds
                     ),
+                    seller=seller,
                 )
             )
 
@@ -486,21 +579,7 @@ class InvoiceService:
                 if scrap_gold.status != ScrapGoldStatus.CREDITED:
                     scrap_gold.status = ScrapGoldStatus.CREDITED
                     db.add(scrap_gold)
-
-        # Audit log AFTER successful commit
-        _log_financial_access(
-            action="created",
-            invoice_id=db_invoice.id,
-            user_id=current_user.id,
-            user_role=(
-                current_user.role.value
-                if hasattr(current_user.role, "value")
-                else str(current_user.role)
-            ),
-            extra={"invoice_number": invoice_number, "total": totals["total"]},
-        )
-
-        return await InvoiceService.get_invoice(db, db_invoice.id, current_user)
+        return db_invoice
 
     @staticmethod
     async def get_invoice(
@@ -609,7 +688,8 @@ class InvoiceService:
 
         Status is NOT editable here (BE-05); use send / mark-paid / cancel.
         Returns None if invoice not found.
-        Raises 409 if the invoice is PAID or CANCELLED (final documents).
+        Raises 409 unless the invoice is a DRAFT: an issued Rechnung is
+        locked (W2-04, §14 UStG / GoBD); corrections go through a Storno.
         """
         result = await db.execute(
             select(InvoiceModel).where(InvoiceModel.id == invoice_id)
@@ -618,15 +698,11 @@ class InvoiceService:
         if not invoice:
             return None
 
-        if invoice.status in (InvoiceStatus.PAID, InvoiceStatus.CANCELLED):
-            from fastapi import HTTPException
-
-            raise HTTPException(
-                status_code=409,
-                detail=(
-                    "Bezahlte oder stornierte Rechnungen koennen nicht "
-                    "bearbeitet werden"
-                ),
+        if invoice.status != InvoiceStatus.DRAFT:
+            raise _http_error(
+                409,
+                "Ausgestellte, bezahlte oder stornierte Rechnungen koennen nicht "
+                "bearbeitet werden. Bitte stattdessen stornieren.",
             )
 
         update_data = invoice_in.model_dump(exclude_unset=True)
@@ -721,6 +797,7 @@ class InvoiceService:
         if not invoice:
             return None
 
+        _require_not_storno(invoice)
         allowed_transitions = {
             InvoiceStatus.DRAFT,
             InvoiceStatus.SENT,
@@ -774,8 +851,12 @@ class InvoiceService:
         """
         Cancel (stornieren) an invoice.
 
-        PAID invoices cannot be cancelled — a credit note (Storno) process
-        would be needed; that is out of scope for this implementation.
+        - DRAFT: voided (never issued, so no Storno document is needed).
+        - SENT / OVERDUE: a Stornorechnung is emitted (W2-04, DOM-24b); the
+          original moves to CANCELLED and is otherwise untouched.
+        - PAID: refused (422); a paid invoice is reversed explicitly with
+          ``create_storno`` (POST /invoices/{id}/storno) so the refund is a
+          deliberate step.
         """
         result = await db.execute(
             select(InvoiceModel).where(InvoiceModel.id == invoice_id)
@@ -783,6 +864,7 @@ class InvoiceService:
         invoice = result.scalar_one_or_none()
         if not invoice:
             return None
+        _require_not_storno(invoice)
 
         if invoice.status == InvoiceStatus.PAID:
             from fastapi import HTTPException
@@ -800,6 +882,12 @@ class InvoiceService:
                 status_code=422, detail="Rechnung ist bereits storniert"
             )
 
+        if invoice.status in (InvoiceStatus.SENT, InvoiceStatus.OVERDUE):
+            await InvoiceService.create_storno(
+                db, invoice_id, StornoRequest(reason=None), current_user
+            )
+            return await InvoiceService.get_invoice(db, invoice_id, current_user)
+
         async with transactional(db):
             invoice.status = InvoiceStatus.CANCELLED
 
@@ -815,3 +903,134 @@ class InvoiceService:
         )
 
         return await InvoiceService.get_invoice(db, invoice_id, current_user)
+
+    # -------------------------------------------------------------------------
+    # Storno (W2-04, DOM-24b)
+    # -------------------------------------------------------------------------
+
+    @staticmethod
+    async def create_storno(
+        db: AsyncSession,
+        invoice_id: int,
+        request: StornoRequest,
+        current_user: UserModel,
+    ) -> Optional[InvoiceModel]:
+        """
+        Reverse an issued invoice with a Stornorechnung.
+
+        The original is never edited: its frozen PDF stays as issued and only
+        its status moves to CANCELLED. The Storno is a new invoice with its
+        own RE number, the same recipient (from the original's snapshot, not
+        the live customer), the negated lines and totals, a link
+        ``cancels_invoice_id`` and the current seller data. It is issued
+        (SENT, PDF frozen) at once.
+
+        Returns None if not found. 422 for a DRAFT (void it with cancel), an
+        already cancelled invoice, or a Stornorechnung itself.
+        """
+        original = (
+            await db.execute(
+                select(InvoiceModel)
+                .options(selectinload(InvoiceModel.line_items))
+                .where(InvoiceModel.id == invoice_id)
+                .with_for_update()
+            )
+        ).scalar_one_or_none()
+        if original is None:
+            return None
+        InvoiceService._require_reversible(original)
+
+        async with transactional(db):
+            # The issued original keeps exactly the document it was issued as.
+            await InvoiceSnapshotService.freeze(db, original)
+            storno = await InvoiceService._build_storno(
+                db, original, request, current_user
+            )
+            original.status = InvoiceStatus.CANCELLED
+            await InvoiceSnapshotService.freeze(db, storno)
+
+        _log_financial_access(
+            action="storno_created",
+            invoice_id=storno.id,
+            user_id=current_user.id,
+            user_role=_role(current_user),
+            extra={
+                "cancels_invoice_id": original.id,
+                "invoice_number": storno.invoice_number,
+                "total": storno.total,
+            },
+        )
+        return await InvoiceService.get_invoice(db, storno.id, current_user)
+
+    @staticmethod
+    def _require_reversible(invoice: InvoiceModel) -> None:
+        _require_not_storno(invoice)
+        if invoice.status == InvoiceStatus.DRAFT:
+            raise _http_error(
+                422,
+                "Ein Entwurf wurde nie ausgestellt und wird nicht storniert, "
+                "sondern verworfen (Stornieren ohne Stornorechnung).",
+            )
+        if invoice.status == InvoiceStatus.CANCELLED:
+            raise _http_error(422, "Rechnung ist bereits storniert")
+
+    @staticmethod
+    async def _build_storno(
+        db: AsyncSession,
+        original: InvoiceModel,
+        request: StornoRequest,
+        current_user: UserModel,
+    ) -> InvoiceModel:
+        """Insert the negated copy of ``original`` (flush only)."""
+        original_snapshot = InvoiceSnapshotService.load(original) or {}
+        header = original_snapshot.get("invoice", {})
+        now = datetime.utcnow()
+        storno = InvoiceModel(
+            invoice_number=await InvoiceService.generate_invoice_number(db),
+            order_id=original.order_id,
+            customer_id=original.customer_id,
+            created_by=current_user.id,
+            status=InvoiceStatus.SENT,
+            issue_date=now,
+            due_date=now,
+            service_date=(
+                datetime.fromisoformat(header["service_date"])
+                if header.get("service_date")
+                else original.service_date or original.issue_date
+            ),
+            subtotal=-float(original.subtotal or 0.0),
+            tax_rate=original.tax_rate,
+            tax_amount=-float(original.tax_amount or 0.0),
+            total=-float(original.total or 0.0),
+            notes=request.reason,
+            cancels_invoice_id=original.id,
+        )
+        db.add(storno)
+        await db.flush()
+        lines = [
+            InvoiceLineItemModel(
+                invoice_id=storno.id,
+                line_type=line.line_type,
+                description=line.description,
+                quantity=line.quantity,
+                unit_price=-float(line.unit_price or 0.0),
+                total=-float(line.total or 0.0),
+            )
+            for line in original.line_items
+        ]
+        db.add_all(lines)
+        snapshot = InvoiceSnapshotService.build(
+            storno,
+            lines,
+            None,
+            None,
+            seller=await WorkshopSettingsService.seller_block(db),
+            cancels=original,
+            storno_reason=request.reason,
+        )
+        if original_snapshot.get("recipient"):
+            snapshot["recipient"] = original_snapshot["recipient"]
+        snapshot["invoice"]["order_title"] = header.get("order_title")
+        storno.snapshot = InvoiceSnapshotService.dump(snapshot)
+        await db.flush()
+        return storno

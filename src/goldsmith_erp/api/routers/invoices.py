@@ -14,7 +14,9 @@ Endpoints:
   PUT    /api/v1/invoices/{invoice_id}         - Update due date/notes (no status)
   POST   /api/v1/invoices/{invoice_id}/send        - Mark DRAFT as sent
   POST   /api/v1/invoices/{invoice_id}/mark-paid   - Mark as paid
-  POST   /api/v1/invoices/{invoice_id}/cancel      - Cancel invoice
+  POST   /api/v1/invoices/{invoice_id}/cancel      - Cancel (DRAFT: void;
+                                                   SENT/OVERDUE: Storno)
+  POST   /api/v1/invoices/{invoice_id}/storno      - Stornorechnung (W2-04)
   GET    /api/v1/invoices/{invoice_id}/pdf         - Download invoice as PDF
 
 IMPORTANT: The /export/* routes MUST be registered before /{invoice_id} routes
@@ -41,6 +43,7 @@ from goldsmith_erp.models.invoice import (
     InvoiceResponse,
     InvoiceUpdate,
     MarkPaidRequest,
+    StornoRequest,
 )
 from goldsmith_erp.services.accounting_export_service import (
     AccountingExportError,
@@ -73,8 +76,17 @@ def _partition_invoices_for_accounting_export(
     CANCELLED invoices get a Storno reversal booking. DRAFT invoices are
     excluded entirely — no legal document was ever issued, so there is
     nothing to book or reverse (BE-13).
+
+    W2-04: a Stornorechnung (``cancels_invoice_id`` set) is not booked as
+    revenue; the cancelled original's reversal row already books it, so
+    including it would reverse the sale twice.
     """
-    issued = [inv for inv in invoices if inv.status in _ISSUED_INVOICE_STATUSES]
+    issued = [
+        inv
+        for inv in invoices
+        if inv.status in _ISSUED_INVOICE_STATUSES
+        and getattr(inv, "cancels_invoice_id", None) is None
+    ]
     cancelled = [inv for inv in invoices if inv.status == InvoiceStatus.CANCELLED]
     return issued, cancelled
 
@@ -413,10 +425,11 @@ async def cancel_invoice(
     current_user: User = Depends(get_current_user),
 ):
     """
-    Rechnung stornieren (Cancel/void an invoice).
+    Rechnung stornieren (Cancel an invoice).
 
-    Sets status to CANCELLED. PAID invoices cannot be cancelled —
-    a credit note process is required.
+    DRAFT: voided (status CANCELLED, no document was issued). SENT/OVERDUE:
+    a Stornorechnung is emitted (W2-04); the response is the original with
+    ``cancelled_by_invoice_id``. PAID: 422, use ``POST /{id}/storno``.
 
     Requires INVOICE_DELETE permission (ADMIN only).
     """
@@ -427,6 +440,38 @@ async def cancel_invoice(
             detail=f"Rechnung {invoice_id} nicht gefunden",
         )
     return invoice
+
+
+@router.post(
+    "/{invoice_id}/storno",
+    response_model=InvoiceResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+@require_permission(Permission.INVOICE_DELETE)
+async def create_storno_invoice(
+    invoice_id: int,
+    request: Optional[StornoRequest] = None,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Stornorechnung erstellen (W2-04, DOM-24b).
+
+    Reverses an issued invoice (SENT, OVERDUE or PAID) with a negative
+    invoice that has its own number and links to the original; the
+    original is not edited, only set to CANCELLED. Returns the Storno.
+
+    Requires INVOICE_DELETE permission (ADMIN only).
+    """
+    storno = await InvoiceService.create_storno(
+        db, invoice_id, request or StornoRequest(reason=None), current_user
+    )
+    if not storno:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Rechnung {invoice_id} nicht gefunden",
+        )
+    return storno
 
 
 @router.get("/{invoice_id}/pdf")
