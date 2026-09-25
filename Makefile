@@ -335,3 +335,6 @@ install-timers: ## OPS-07 — install + enable + start all compliance systemd us
 
 timers-status: ## OPS-07 — show status of the installed compliance timers (systemctl --user list-timers)
 	@bash scripts/install-timers.sh --status
+
+worktree-status: ## OPS-14 — report stale git worktrees/branches (read-only, never removes anything)
+	@bash scripts/list-stale-worktrees.sh
