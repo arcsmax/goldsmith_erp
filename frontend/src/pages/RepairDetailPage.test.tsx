@@ -116,3 +116,27 @@ describe('RepairDetailPage — VIEWER role projection', () => {
     expect(screen.getByRole('tab', { name: 'Fotos (0)', selected: true })).toBeInTheDocument();
   });
 });
+
+describe('RepairDetailPage — Annahmeschein (W2-12)', () => {
+  it('offers the Annahmeschein reprint to GOLDSMITH', async () => {
+    mockUseAuth.mockReturnValue(goldsmithAuth());
+    mockGetById.mockResolvedValue(makeRepair());
+
+    renderPage();
+
+    await screen.findByText('R-2026-0001');
+    expect(screen.getByRole('button', { name: 'Annahmeschein drucken' })).toBeInTheDocument();
+  });
+
+  it('hides the Annahmeschein from VIEWER (the PDF carries photos)', async () => {
+    mockUseAuth.mockReturnValue(viewerAuth());
+    const repair = makeRepair();
+    delete (repair as any).photos;
+    mockGetById.mockResolvedValue(repair);
+
+    renderPage();
+
+    await screen.findByText('R-2026-0001');
+    expect(screen.queryByRole('button', { name: 'Annahmeschein drucken' })).not.toBeInTheDocument();
+  });
+});
