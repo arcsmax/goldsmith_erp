@@ -80,6 +80,9 @@ export const queryKeys = {
   invoices: {
     all: ['invoices'] as const,
     recent: (limit: number) => [...queryKeys.invoices.all, 'recent', { limit }] as const,
+    /** GET /invoices/?skip=… (legacy envelope; the backend has no Page envelope yet). */
+    list: (params: object) => [...queryKeys.invoices.all, 'list', params] as const,
+    detail: (id: number) => [...queryKeys.invoices.all, 'detail', id] as const,
   },
   timer: {
     all: ['timer'] as const,
@@ -89,6 +92,13 @@ export const queryKeys = {
     all: ['notifications'] as const,
     unreadCount: () => [...queryKeys.notifications.all, 'unread-count'] as const,
     list: (limit: number) => [...queryKeys.notifications.all, 'list', { limit }] as const,
+  },
+  quotes: {
+    all: ['quotes'] as const,
+    lists: () => [...queryKeys.quotes.all, 'list'] as const,
+    /** GET /quotes/?offset=… (Page envelope, status filter and `q`). */
+    page: (params: object) => [...queryKeys.quotes.lists(), 'page', params] as const,
+    detail: (id: number) => [...queryKeys.quotes.all, 'detail', id] as const,
   },
   metalInventory: {
     all: ['metal-inventory'] as const,

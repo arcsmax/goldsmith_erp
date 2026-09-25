@@ -1,5 +1,7 @@
 // Quotes API Service — Kostenvoranschlag
 import apiClient from './client';
+import { fetchPage, type PageParams } from './paged';
+import type { components } from './generated';
 import {
   Quote,
   QuoteListItem,
@@ -39,7 +41,20 @@ export interface QuoteFilterParams {
   limit?: number;
 }
 
+/** GET /quotes/?offset=… params (W3-08 Page envelope, server-side filters and `q`). */
+export type QuotePageParams = PageParams<'/api/v1/quotes/'>;
+/** The paged variant of the /quotes/ answer (the legacy envelope has no next_offset). */
+export type QuotesPage = components['schemas']['Page_QuoteListItem_'];
+
 export const quotesApi = {
+  /**
+   * One page of quotes (W4-03). Always sends `offset`, so the backend answers
+   * with the Page envelope; fetchPage throws if it does not.
+   * GET /quotes/?offset=…
+   */
+  getQuotesPage: async (params: QuotePageParams, signal?: AbortSignal): Promise<QuotesPage> =>
+    (await fetchPage('/api/v1/quotes/', params, signal)) as QuotesPage,
+
   /**
    * Create a new quote (Kostenvoranschlag erstellen).
    * POST /quotes
