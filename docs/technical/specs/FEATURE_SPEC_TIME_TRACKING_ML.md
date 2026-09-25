@@ -154,6 +154,14 @@ Wartezeit:
 - Grund auswählen
 - Automatischer Restart
 
+> ℹ️ **Stand 2026-09-25:** Der frühere "Pause"-Button widersprach dieser Spec —
+> er fror nur die Anzeige ein, während der Server im Hintergrund
+> weiterzählte, ohne einen Grund zu erfassen. Er wurde deshalb ersatzlos
+> entfernt (FE-10, `docs/review/2026-09-25/`). Eine echte, dieser Spec
+> entsprechende manuelle Pause (Grund erfassen, als Unterbrechung im Server
+> speichern, danach neu berechnen) ist als offener Punkt W2-14 in
+> [MASTER-FIX-PLAN.md](../../review/2026-09-25/MASTER-FIX-PLAN.md) verzeichnet.
+
 ---
 
 ## 3. Quick-Action-Menü (nach QR/NFC-Scan)

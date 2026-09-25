@@ -1,3 +1,12 @@
+> ⚠️ **SUPERSEDED.** This 2026-04-23 review (and its
+> [FIX-PLAN.md](../../fix-plan/2026-04-23/TRACKER.md)) has been superseded by
+> the 2026-09-25 audit:
+> [docs/review/2026-09-25/00-SUMMARY.md](../2026-09-25/00-SUMMARY.md) and
+> [MASTER-FIX-PLAN.md](../2026-09-25/MASTER-FIX-PLAN.md), which re-audited the
+> codebase from scratch and track what is fixed vs. still open in
+> [PROGRESS.md](../2026-09-25/PROGRESS.md). Kept here for history, not
+> deleted; do not use this bundle's open items as a current work queue.
+
 # Code Review Summary — Goldsmith ERP
 **Date:** 2026-04-23 · **Target:** main @ `1feae6d` · **Method:** 8 parallel specialist agents + 2 helpers
 

@@ -1,3 +1,7 @@
+> ⚠️ **SUPERSEDED.** See [SUMMARY.md](SUMMARY.md) for the current pointer:
+> [docs/review/2026-09-25/MASTER-FIX-PLAN.md](../2026-09-25/MASTER-FIX-PLAN.md)
+> is the current fix plan. Kept here for history, not deleted.
+
 # Prioritized Fix Plan — Goldsmith ERP
 **Source:** `SUMMARY.md` + 8 agent reports in this directory · **Target:** main @ `1feae6d` · **Date:** 2026-04-23
 
