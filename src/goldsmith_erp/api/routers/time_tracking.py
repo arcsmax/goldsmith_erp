@@ -67,6 +67,22 @@ async def _get_owned_entry(
     return entry
 
 
+async def _with_pause_state(db: AsyncSession, entry: TimeEntryModel) -> TimeEntryRead:
+    """D-15: ``TimeEntryRead`` with ``is_paused`` set explicitly.
+
+    Queried fresh via ``TimeTrackingService._has_open_interruption`` rather
+    than trusted off ``entry.interruptions`` — that relationship can be
+    stale within one request/session (e.g. ``_get_owned_entry`` loads the
+    entry before a mutation; SQLAlchemy does not re-run a `selectinload`
+    for an already-populated collection on the identity-mapped object).
+    Never a raw ORM attribute — that would need a db/models.py change,
+    out of scope here.
+    """
+    is_paused = await TimeTrackingService._has_open_interruption(db, entry.id)
+    read = TimeEntryRead.model_validate(entry)
+    return read.model_copy(update={"is_paused": is_paused})
+
+
 @router.post("/start", response_model=TimeEntryRead)
 @require_permission(Permission.TIME_TRACK)
 async def start_time_tracking(
@@ -122,7 +138,10 @@ async def get_running_entry(
     current_user: User = Depends(get_current_user),
 ):
     """Holt die aktuell laufende Zeiterfassung für den aktuellen User."""
-    return await TimeTrackingService.get_running_entry(db, current_user.id)
+    entry = await TimeTrackingService.get_running_entry(db, current_user.id)
+    if entry is None:
+        return None
+    return await _with_pause_state(db, entry)
 
 
 _TIME_ENTRY_LIST_MODEL = Union[Page[TimeEntryRead], List[TimeEntryRead]]
@@ -266,7 +285,7 @@ async def get_time_entry(
     entry = await TimeTrackingService.get_time_entry(db, entry_id)
     if not entry:
         raise HTTPException(status_code=404, detail="Time entry not found")
-    return entry
+    return await _with_pause_state(db, entry)
 
 
 @router.put("/{entry_id}", response_model=TimeEntryRead)
@@ -319,6 +338,40 @@ async def add_interruption(
         return await TimeTrackingService.add_interruption(db, interruption_in)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.post("/{entry_id}/pause", response_model=TimeEntryRead)
+@require_permission(Permission.TIME_TRACK)
+async def pause_time_tracking(
+    entry_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """D-15: manually pause a running entry (owner or ADMIN).
+
+    Opens a new Interruption (``reason="pause"``). 409 if the entry is
+    already stopped or already paused.
+    """
+    await _get_owned_entry(db, entry_id, current_user)
+    entry = await TimeTrackingService.pause_time_entry(db, entry_id)
+    return await _with_pause_state(db, entry)
+
+
+@router.post("/{entry_id}/resume", response_model=TimeEntryRead)
+@require_permission(Permission.TIME_TRACK)
+async def resume_time_tracking(
+    entry_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """D-15: end the current manual pause (owner or ADMIN).
+
+    Closes the open Interruption (sets ``resumed_at`` + measured minutes).
+    409 if the entry is stopped or is not currently paused.
+    """
+    await _get_owned_entry(db, entry_id, current_user)
+    entry = await TimeTrackingService.resume_time_entry(db, entry_id)
+    return await _with_pause_state(db, entry)
 
 
 # ==================================================================

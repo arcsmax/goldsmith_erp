@@ -246,3 +246,137 @@ class TestServiceArithmetic:
         await db_session.refresh(first)
         assert first.resumed_at is not None
         assert first.duration_minutes == 10
+
+
+@pytest.mark.asyncio
+class TestManualPauseResume:
+    """D-15: ``pause_time_entry`` / ``resume_time_entry`` (server-side timer
+    pause). Ownership (owner-or-ADMIN) and HTTP status codes are covered at
+    the router level in ``tests/integration/test_time_tracking_permissions.py``
+    — this class covers the service-level state machine and the resulting
+    duration arithmetic.
+    """
+
+    async def test_pause_opens_an_interruption(
+        self, db_session, sample_order, sample_user, sample_activity
+    ):
+        entry = await _running_entry(
+            db_session, sample_order, sample_user, sample_activity
+        )
+
+        paused = await TimeTrackingService.pause_time_entry(db_session, entry.id)
+
+        assert paused.id == entry.id
+        intr = (
+            await db_session.execute(
+                select(Interruption).where(Interruption.time_entry_id == entry.id)
+            )
+        ).scalar_one()
+        assert intr.reason == "pause"
+        assert intr.resumed_at is None
+        assert intr.duration_minutes == 0
+
+    async def test_pause_twice_raises_409(
+        self, db_session, sample_order, sample_user, sample_activity
+    ):
+        from goldsmith_erp.core.errors import ConflictError
+
+        entry = await _running_entry(
+            db_session, sample_order, sample_user, sample_activity
+        )
+        await TimeTrackingService.pause_time_entry(db_session, entry.id)
+
+        with pytest.raises(ConflictError) as exc_info:
+            await TimeTrackingService.pause_time_entry(db_session, entry.id)
+        assert exc_info.value.code == "time_entry.already_paused"
+
+    async def test_pause_a_stopped_entry_raises_409(
+        self, db_session, sample_order, sample_user, sample_activity
+    ):
+        from goldsmith_erp.core.errors import ConflictError
+
+        entry = await _running_entry(
+            db_session, sample_order, sample_user, sample_activity
+        )
+        await TimeTrackingService.stop_time_entry(
+            db_session, entry.id, TimeEntryStop(), end_time=T0 + timedelta(hours=1)
+        )
+
+        with pytest.raises(ConflictError) as exc_info:
+            await TimeTrackingService.pause_time_entry(db_session, entry.id)
+        assert exc_info.value.code == "time_entry.not_running"
+
+    async def test_resume_without_a_pause_raises_409(
+        self, db_session, sample_order, sample_user, sample_activity
+    ):
+        from goldsmith_erp.core.errors import ConflictError
+
+        entry = await _running_entry(
+            db_session, sample_order, sample_user, sample_activity
+        )
+
+        with pytest.raises(ConflictError) as exc_info:
+            await TimeTrackingService.resume_time_entry(db_session, entry.id)
+        assert exc_info.value.code == "time_entry.not_paused"
+
+    async def test_resume_closes_the_interruption_with_measured_minutes(
+        self, db_session, sample_order, sample_user, sample_activity
+    ):
+        entry = await _running_entry(
+            db_session, sample_order, sample_user, sample_activity
+        )
+        await TimeTrackingService.pause_time_entry(db_session, entry.id)
+
+        resumed = await TimeTrackingService.resume_time_entry(db_session, entry.id)
+
+        intr = (
+            await db_session.execute(
+                select(Interruption).where(Interruption.time_entry_id == entry.id)
+            )
+        ).scalar_one()
+        assert intr.resumed_at is not None
+        assert resumed.id == entry.id
+
+    async def test_pause_resume_cycle_excludes_the_pause_from_net_hours(
+        self, db_session, sample_order, sample_user, sample_activity
+    ):
+        """A 2h entry with a 20-minute manual pause nets to 1h40 (D-15)."""
+        entry = await _running_entry(
+            db_session, sample_order, sample_user, sample_activity
+        )
+        await _open_interruption(db_session, entry, T0 + timedelta(hours=1))
+        # Simulate the pause lasting 20 minutes by closing it directly at the
+        # right timestamp (pause/resume always use "now"; the arithmetic is
+        # the same one `_close_open_interruptions` applies either way).
+        await TimeTrackingService._close_open_interruptions(
+            db_session, entry.id, T0 + timedelta(hours=1, minutes=20)
+        )
+        await db_session.commit()
+        await TimeTrackingService.stop_time_entry(
+            db_session, entry.id, TimeEntryStop(), end_time=T0 + timedelta(hours=2)
+        )
+
+        hours = await MLDataService.auto_calculate_actual_hours(
+            db_session, sample_order.id
+        )
+        assert hours == pytest.approx(1 + 40 / 60, abs=0.01)
+
+    async def test_pause_then_stop_closes_the_open_interruption_too(
+        self, db_session, sample_order, sample_user, sample_activity
+    ):
+        """Stopping a paused entry must not leave a dangling open marker."""
+        entry = await _running_entry(
+            db_session, sample_order, sample_user, sample_activity
+        )
+        await TimeTrackingService.pause_time_entry(db_session, entry.id)
+
+        await TimeTrackingService.stop_time_entry(
+            db_session, entry.id, TimeEntryStop(), end_time=T0 + timedelta(hours=1)
+        )
+
+        intr = (
+            await db_session.execute(
+                select(Interruption).where(Interruption.time_entry_id == entry.id)
+            )
+        ).scalar_one()
+        assert intr.resumed_at is not None

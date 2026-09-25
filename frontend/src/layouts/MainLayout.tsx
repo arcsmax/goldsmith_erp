@@ -22,7 +22,8 @@ import '../styles/components/GlobalSearch.css';
 
 export const MainLayout: React.FC = () => {
   const { user, logout, hasRole } = useAuth();
-  const { runningEntry, stopTracking, refreshRunningEntry } = useTimeTracking();
+  const { runningEntry, stopTracking, refreshRunningEntry, pauseTracking, resumeTracking } =
+    useTimeTracking();
   const navigate = useNavigate();
   const location = useLocation();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
@@ -309,6 +310,8 @@ export const MainLayout: React.FC = () => {
         runningEntry={runningEntry}
         onStop={handleTimerStop}
         onRefresh={refreshRunningEntry}
+        onPause={pauseTracking}
+        onResume={resumeTracking}
       />
 
       {/* Scanner FAB (Slice 10). Stacks above TimerWidget when a timer runs

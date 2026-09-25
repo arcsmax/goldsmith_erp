@@ -106,6 +106,7 @@ export const mockTimeEntries: TimeEntry[] = [
     notes: 'Polierarbeiten abgeschlossen',
     extra_metadata: null,
     created_at: '2025-01-09T09:00:00Z',
+    is_paused: false,
   },
   {
     id: '123e4567-e89b-12d3-a456-426614174001',
@@ -122,6 +123,7 @@ export const mockTimeEntries: TimeEntry[] = [
     notes: 'Stein erfolgreich gefasst',
     extra_metadata: null,
     created_at: '2025-01-08T14:00:00Z',
+    is_paused: false,
   },
 ];
 
@@ -140,6 +142,7 @@ export const mockRunningEntry: TimeEntry = {
   notes: null,
   extra_metadata: null,
   created_at: new Date().toISOString(),
+  is_paused: false,
 };
 
 export const mockTimeTrackingStats: TimeTrackingStats = {
@@ -238,6 +241,7 @@ export const handlers = [
       notes: null,
       extra_metadata: null,
       created_at: new Date().toISOString(),
+      is_paused: false,
     };
     return HttpResponse.json(newEntry, { status: 201 });
   }),

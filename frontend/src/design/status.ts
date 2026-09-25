@@ -49,7 +49,8 @@ export type StatusKind =
   | 'handoff'
   | 'hallmark'
   | 'scrapGold'
-  | 'customerUpdate';
+  | 'customerUpdate'
+  | 'timeEntry';
 
 type CostChangeStatus = Schema<'CostChangeStatus'>;
 type CustomerUpdateStatus = Schema<'CustomerUpdateStatus'>;
@@ -153,6 +154,21 @@ export const CUSTOMER_UPDATE_STATUS: StatusTable<CustomerUpdateStatus> = {
   send_failed: meta('Versand fehlgeschlagen', 'danger', 'triangle-alert'),
 };
 
+/**
+ * D-15: the running-timer's manual-pause state (TimerWidget). Not backed by
+ * a real backend enum — `TimeEntry.is_paused` is a boolean, derived from
+ * whether an Interruption is open — so this table (unlike every other one
+ * here) has no matching entry in `ENUM_FOR_KIND` in status.test.ts; it gets
+ * its own literal-list completeness check there instead, the same way
+ * `scrapGold` does. Only the "paused" state gets a badge — the plain
+ * "⏱️ Läuft" text already communicates the running state.
+ */
+export type TimeEntryPauseStatus = 'paused';
+
+export const TIME_ENTRY_STATUS: StatusTable<TimeEntryPauseStatus> = {
+  paused: meta('Pausiert', 'waiting', 'pause', 'dashed'),
+};
+
 export const STATUS_MAP: Readonly<Record<StatusKind, Readonly<Record<string, StatusMeta>>>> = {
   order: ORDER_STATUS,
   repair: REPAIR_STATUS,
@@ -164,6 +180,7 @@ export const STATUS_MAP: Readonly<Record<StatusKind, Readonly<Record<string, Sta
   hallmark: HALLMARK_STATUS,
   scrapGold: SCRAP_GOLD_STATUS,
   customerUpdate: CUSTOMER_UPDATE_STATUS,
+  timeEntry: TIME_ENTRY_STATUS,
 };
 
 /**
