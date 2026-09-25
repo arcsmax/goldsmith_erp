@@ -84,6 +84,7 @@ export const ConfirmDialog: React.FC = () => {
   const Icon = isDanger ? TrashIcon : QuestionIcon;
 
   return (
+    // eslint-disable-next-line jsx-a11y/click-events-have-key-events -- backdrop dismiss is mouse-only by convention; Escape is handled by the effect above
     <div
       className="confirm-dialog-overlay"
       role="dialog"
@@ -125,7 +126,6 @@ export const ConfirmDialog: React.FC = () => {
             type="button"
             className={`confirm-dialog-confirm confirm-dialog-confirm--${variant}`}
             onClick={() => resolveConfirm(true)}
-            autoFocus={!isDanger}
           >
             {resolvedConfirmLabel}
           </button>

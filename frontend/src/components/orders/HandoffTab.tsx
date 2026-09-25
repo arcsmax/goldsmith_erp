@@ -186,7 +186,6 @@ const HandoffCard: React.FC<HandoffCardProps> = ({
                 placeholder="Begründung für die Ablehnung..."
                 rows={3}
                 required
-                autoFocus
               />
               <div className="handoff-decline-form__actions">
                 <button

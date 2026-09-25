@@ -20,7 +20,7 @@ import { formatCurrency, formatPercentage } from '../../utils/formatters';
 // the € sign) down to a single regular space — so the *expected* string must
 // be normalized the same way, or an exact-match NBSP never matches.
 function normalizeSpace(value: string): string {
-  return value.replace(/ /g, ' ');
+  return value.replace(/\u00a0/g, ' ');
 }
 
 // ---------------------------------------------------------------------------

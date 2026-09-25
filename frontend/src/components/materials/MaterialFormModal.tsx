@@ -138,6 +138,7 @@ export const MaterialFormModal: React.FC<MaterialFormModalProps> = ({
   }
 
   return (
+    // eslint-disable-next-line jsx-a11y/click-events-have-key-events -- backdrop dismiss is mouse-only by convention
     <div
       className="modal-overlay"
       role="dialog"
@@ -145,6 +146,7 @@ export const MaterialFormModal: React.FC<MaterialFormModalProps> = ({
       aria-labelledby="material-modal-title"
       onClick={onClose}
     >
+      {/* eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions -- stops the backdrop's onClose from firing when clicking inside the dialog; not itself interactive */}
       <div className="modal-content" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <h2 id="material-modal-title">{material ? 'Material bearbeiten' : 'Neues Material'}</h2>
@@ -327,6 +329,7 @@ export const MaterialFormModal: React.FC<MaterialFormModalProps> = ({
             {/* Stock Value (calculated, read-only) */}
             {formData.unit_price && formData.stock && (
               <div className="form-group">
+                {/* eslint-disable-next-line jsx-a11y/label-has-associated-control -- labels a calculated read-only value, not an editable control */}
                 <label>Gesamtwert</label>
                 <div className="calculated-value">
                   {(parseFloat(formData.unit_price) * parseFloat(formData.stock)).toFixed(

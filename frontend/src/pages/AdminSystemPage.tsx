@@ -776,8 +776,9 @@ const ThemeConfigSection: React.FC = () => {
 
           {/* Workshop name + logo */}
           <div className="theme-field">
-            <label className="theme-field-label">Name der Werkstatt</label>
+            <label className="theme-field-label" htmlFor="admin-workshop-name">Name der Werkstatt</label>
             <input
+              id="admin-workshop-name"
               type="text"
               className="theme-text-input"
               value={draft.workshop_name}
@@ -789,8 +790,9 @@ const ThemeConfigSection: React.FC = () => {
           </div>
 
           <div className="theme-field">
-            <label className="theme-field-label">Logo-URL (optional)</label>
+            <label className="theme-field-label" htmlFor="admin-logo-url">Logo-URL (optional)</label>
             <input
+              id="admin-logo-url"
               type="url"
               className="theme-text-input"
               value={draft.logo_url ?? ''}

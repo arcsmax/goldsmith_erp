@@ -51,6 +51,7 @@ export const ActivityPickerModal: React.FC<ActivityPickerModalProps> = ({
   }, [reject]);
 
   return (
+    // eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions -- backdrop dismiss is mouse-only by convention; Escape is handled by the effect above; the actual dialog role is on the panel below
     <div
       style={BACKDROP_STYLE}
       data-testid="activity-picker-modal"

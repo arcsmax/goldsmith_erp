@@ -127,7 +127,7 @@ export const CustomerStep: React.FC<CustomerStepProps> = ({
     <div className="customer-step">
       {!selectedCustomer && (
         <>
-          <CustomerTypeahead onSelect={handleTypeaheadSelect} autoFocus />
+          <CustomerTypeahead onSelect={handleTypeaheadSelect} />
           <button
             type="button"
             className="btn-secondary customer-step-quick-create"

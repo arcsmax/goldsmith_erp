@@ -277,7 +277,7 @@ export const GlobalSearch: React.FC = () => {
               aria-label="Suchergebnisse"
             >
               {!hasResults && !isLoading && (
-                <p className="global-search__empty">Keine Ergebnisse für "{query}"</p>
+                <p className="global-search__empty">Keine Ergebnisse für &quot;{query}&quot;</p>
               )}
 
               {groupedWithIndex.map(({ groupKey, items }) => (

@@ -78,6 +78,7 @@ export const PhotoStep: React.FC<WizardStepProps> = ({ consultation, refresh }) 
   return (
     <div className="photo-step">
       <div className="wizard-field">
+        {/* eslint-disable-next-line jsx-a11y/label-has-associated-control -- labels the radiogroup below via aria-labelledby, not a single control */}
         <label id="photo-kind-label">Art</label>
         <div className="chip-group" role="radiogroup" aria-labelledby="photo-kind-label">
           {PHOTO_KIND_KEYS.map((key) => (

@@ -326,9 +326,9 @@ describe('InvoicesPage — Bug #5 (status case-mismatch)', () => {
     render(<InvoicesPage />);
     await waitFor(() => expect(mockGetInvoices).toHaveBeenCalled());
 
-    // The status filter dropdown
-    const statusSelect = screen.getByRole('combobox', { name: '' }) ||
-      screen.getByDisplayValue('Alle Status');
+    // The status filter dropdown (now has a proper accessible name via
+    // `<label htmlFor>`, fixed alongside jsx-a11y/label-has-associated-control).
+    const statusSelect = screen.getByRole('combobox', { name: 'Status:' });
     // Pick the German "Entwurf" option — its underlying value MUST be the
     // lowercase enum value the backend understands.
     fireEvent.change(statusSelect, { target: { value: 'draft' } });

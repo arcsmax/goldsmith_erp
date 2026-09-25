@@ -151,6 +151,7 @@ const CreateInvoiceModal: React.FC<CreateInvoiceModalProps> = ({
   };
 
   return (
+    // eslint-disable-next-line jsx-a11y/click-events-have-key-events -- backdrop dismiss is mouse-only by convention
     <div
       className="modal-overlay"
       role="dialog"
@@ -208,7 +209,7 @@ const CreateInvoiceModal: React.FC<CreateInvoiceModalProps> = ({
               {eligibleOrders.length === 0 && (
                 <p className="form-helper-text" style={{ color: '#6b7280', fontSize: '0.85rem', marginTop: '0.25rem' }}>
                   Keine abrechenbaren Aufträge vorhanden. Aufträge müssen den
-                  Status "Abgeschlossen" oder "Ausgeliefert" haben.
+                  Status &quot;Abgeschlossen&quot; oder &quot;Ausgeliefert&quot; haben.
                 </p>
               )}
             </div>
@@ -329,6 +330,7 @@ const MarkPaidModal: React.FC<MarkPaidModalProps> = ({
   };
 
   return (
+    // eslint-disable-next-line jsx-a11y/click-events-have-key-events -- backdrop dismiss is mouse-only by convention
     <div
       className="modal-overlay"
       role="dialog"
@@ -925,8 +927,9 @@ export const InvoicesPage: React.FC = () => {
       {/* Filters */}
       <div className="invoices-controls">
         <div className="filter-group">
-          <label>Status:</label>
+          <label htmlFor="invoices-filter-status">Status:</label>
           <select
+            id="invoices-filter-status"
             value={filterStatus}
             onChange={(e) => {
               setFilterStatus(e.target.value as InvoiceStatus | '');
@@ -943,8 +946,9 @@ export const InvoicesPage: React.FC = () => {
         </div>
 
         <div className="filter-group">
-          <label>Von:</label>
+          <label htmlFor="invoices-filter-from">Von:</label>
           <input
+            id="invoices-filter-from"
             type="date"
             value={filterFrom}
             onChange={(e) => {
@@ -956,8 +960,9 @@ export const InvoicesPage: React.FC = () => {
         </div>
 
         <div className="filter-group">
-          <label>Bis:</label>
+          <label htmlFor="invoices-filter-to">Bis:</label>
           <input
+            id="invoices-filter-to"
             type="date"
             value={filterTo}
             onChange={(e) => {
@@ -970,7 +975,8 @@ export const InvoicesPage: React.FC = () => {
 
         {(filterStatus || filterFrom || filterTo) && (
           <div className="filter-group">
-            <label>&nbsp;</label>
+            {/* eslint-disable-next-line jsx-a11y/label-has-associated-control -- decorative alignment spacer to match the other filter-group columns, not a real label */}
+            <label aria-hidden="true">&nbsp;</label>
             <button
               className="btn-secondary"
               onClick={resetFilters}
@@ -1042,6 +1048,7 @@ export const InvoicesPage: React.FC = () => {
                       <StatusBadge kind="invoice" status={invoice.status} />
                     </td>
                     <td data-label="Aktionen">
+                      {/* eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions -- stops the row's onClick from firing when using the action buttons inside; not itself interactive */}
                       <div
                         className="invoice-actions"
                         onClick={(e) => e.stopPropagation()}
