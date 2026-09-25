@@ -1,15 +1,25 @@
 # src/goldsmith_erp/services/quote_delivery.py
 """
-Quote delivery (Kostenvoranschlag versenden) — DOM-11, W2-05.
+Quote delivery (Kostenvoranschlag versenden) — DOM-11, W2-05, W6B-01.
 
 "Versenden" used to flip the status to SENT and nothing else. It now:
 
 - emails the quote PDF via ``EmailService.send_quote`` when SMTP is
-  configured and the customer has an email address;
+  configured, the customer has an email address, and the customer has not
+  objected to email (Art. 21 — ``CustomerMessageService.is_opted_out``);
 - otherwise records the quote as handed over manually (``PDF_MANUAL``); the
   frontend then downloads the PDF for staff;
 - on an SMTP failure keeps the quote a DRAFT, records ``SEND_FAILED`` and
   raises 502 so the UI shows the error (never silent).
+
+The quote's own content is routed through ``CustomerMessageService``'s
+shared policy table with kind ``quote_sent`` (contractual basis, Art.
+6(1)(b); prices allowed for this kind — ``check_send_allowed``) and a
+successful delivery is audited the same way every other Kundeninfo message
+is, via ``CustomerMessageService.record_quote_delivery`` (closes GDPR
+review 07 §E items E6/E16 for quotes). The PDF attachment and email
+template stay quote-specific (``render_quote_pdf_bytes`` /
+``EmailService.send_quote``, not the generic Kundeninfo mail).
 
 Recording reuses the Kundeninfo outbox (``CustomerUpdate``), like
 ``automated_customer_email`` does: each delivery attempt is one row with
@@ -17,7 +27,11 @@ Recording reuses the Kundeninfo outbox (``CustomerUpdate``), like
 ``sent_at`` column and ``db/models.py`` is out of scope for this fix, so
 the row is found again by its fixed subject ``Kostenvoranschlag <number>``
 (quote numbers are unique). When the quote is linked to an order the row
-carries that ``order_id`` and shows up in the order's Kundeninfo.
+carries that ``order_id`` and shows up in the order's Kundeninfo. The same
+schema constraint means the stored row's ``kind`` is ``CUSTOM`` (no
+dedicated ``CustomerUpdateKind`` for a quote without a migration); the
+``MessageKind.QUOTE_SENT`` tag used for the policy check and the audit row
+is passed explicitly at call time instead of being re-derived from the row.
 
 Log lines carry IDs only (CLAUDE.md PII rule): no recipient, no subject.
 """
@@ -42,6 +56,10 @@ from goldsmith_erp.db.models import (
 )
 from goldsmith_erp.db.models import Quote as QuoteModel
 from goldsmith_erp.db.models import UpdateDeliveryMethod
+from goldsmith_erp.services.customer_message_service import (
+    CustomerMessageService,
+    MessageKind,
+)
 from goldsmith_erp.services.email_service import EmailService
 from goldsmith_erp.services.pdf_service import PDFService
 
@@ -180,3 +198,61 @@ async def get_delivery(db: AsyncSession, quote: QuoteModel) -> Optional[QuoteDel
     if row is None or row.delivery_method is None or row.sent_at is None:
         return None
     return QuoteDelivery(delivery_method=row.delivery_method, sent_at=row.sent_at)
+
+
+# ---------------------------------------------------------------------------
+# CustomerMessageService routing (W6B-01)
+# ---------------------------------------------------------------------------
+
+
+async def check_send_allowed(
+    db: AsyncSession, quote: QuoteModel, customer: CustomerModel
+) -> None:
+    """Route the quote's content through the shared price/consent policy.
+
+    ``quote_sent`` allows prices and needs no photo consent (quotes never
+    carry photos), so this is a no-op today given the current policy table —
+    it exists so quote sending stays correct if that policy ever changes,
+    the same as every other Kundeninfo message kind. Raises
+    ``CustomerMessageError`` (422) if it ever does not.
+    """
+    await CustomerMessageService.check_content(
+        db,
+        kind=MessageKind.QUOTE_SENT,
+        customer_id=int(customer.id),
+        subject=record_subject(str(quote.quote_number)),
+        body=None,
+        photo_ids=None,
+    )
+
+
+async def resolve_delivery_recipient(
+    db: AsyncSession, customer: CustomerModel
+) -> Optional[str]:
+    """The email address to send the quote to, or None for a PDF_MANUAL
+    hand-over (SMTP disabled, no customer email, or an Art. 21 email
+    opt-out — the same three reasons every other Kundeninfo message falls
+    back to PDF_MANUAL)."""
+    if not email_delivery_enabled():
+        return None
+    recipient = customer_email(customer)
+    if recipient is None:
+        return None
+    if await CustomerMessageService.is_opted_out(db, int(customer.id)):
+        return None
+    return recipient
+
+
+async def record_delivery_audit(
+    db: AsyncSession,
+    update: CustomerUpdate,
+    user_id: int,
+    customer_id: int,
+    method: UpdateDeliveryMethod,
+) -> None:
+    """Stage the CustomerAuditLog row for a delivered quote (E16). Only for
+    a successful delivery (EMAIL or PDF_MANUAL) — a SEND_FAILED attempt
+    never reached the customer and is not audited. Caller commits."""
+    await CustomerMessageService.record_quote_delivery(
+        db, update, user_id, customer_id=customer_id, method=method
+    )
