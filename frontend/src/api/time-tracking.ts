@@ -42,6 +42,28 @@ export const timeTrackingApi = {
   },
 
   /**
+   * D-15: manually pause a running entry (opens an Interruption).
+   * 409 if already paused or not running.
+   */
+  pause: async (entryId: string): Promise<TimeEntry> => {
+    const response = await apiClient.post<TimeEntry>(
+      `/time-tracking/${entryId}/pause`
+    );
+    return response.data;
+  },
+
+  /**
+   * D-15: end the current manual pause (closes the open Interruption).
+   * 409 if not paused or not running.
+   */
+  resume: async (entryId: string): Promise<TimeEntry> => {
+    const response = await apiClient.post<TimeEntry>(
+      `/time-tracking/${entryId}/resume`
+    );
+    return response.data;
+  },
+
+  /**
    * Get all time entries for a specific order
    */
   getForOrder: async (

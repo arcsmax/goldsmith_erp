@@ -28,6 +28,7 @@ describe('TimerWidget', () => {
     rework_required: false,
     notes: null,
     extra_metadata: null,
+    is_paused: false,
     created_at: new Date(Date.now() - 1800000).toISOString(),
     ...overrides,
   });
@@ -112,22 +113,22 @@ describe('TimerWidget', () => {
     });
   });
 
-  describe('Pause (FE-10)', () => {
-    it('renders no Pause control — the timer only ever shows the running state', () => {
-      // FE-10: "Pause" was a local display toggle only — the server kept
-      // counting the whole time, so the booked hours silently included
-      // breaks. Removed entirely (D-15 default); a real pause returns in
-      // W2-14 as a server-side interruption.
+  describe('Pause (FE-10 / D-15)', () => {
+    it('renders no Pause control without an onPause handler (FE-10 default)', () => {
+      // FE-10: a client-side-only "Pause" was removed because it never
+      // touched the server, so booked hours silently included breaks.
+      // D-15 brings a real, server-backed pause back — but only when the
+      // caller wires it up (MainLayout passes TimeTrackingContext's
+      // pauseTracking/resumeTracking); a widget rendered without those
+      // props (as in most tests here) still shows no pause control.
       renderWidget(makeEntry());
       expand();
 
       expect(screen.getByText('⏱️ Läuft')).toBeInTheDocument();
       expect(screen.queryByText('⏸️ Pause')).not.toBeInTheDocument();
-      expect(screen.queryByText('⏸️ Pausiert')).not.toBeInTheDocument();
-      expect(screen.queryByText('▶️ Fortsetzen')).not.toBeInTheDocument();
     });
 
-    it('keeps advancing the elapsed time — nothing in the UI can freeze it', () => {
+    it('keeps advancing the elapsed time — nothing in the UI freezes the ticker', () => {
       vi.useFakeTimers();
       vi.setSystemTime(new Date('2025-01-01T12:00:00Z'));
       renderWidget(makeEntry({ start_time: '2025-01-01T11:59:00Z' }));
@@ -140,6 +141,44 @@ describe('TimerWidget', () => {
       });
 
       expect(document.querySelector('.timer-time')?.textContent).toBe('2:00');
+    });
+
+    it('D-15: shows a Pause button that calls onPause when provided', async () => {
+      const user = userEvent.setup();
+      const onPause = vi.fn().mockResolvedValue(undefined);
+      render(
+        <TimerWidget
+          runningEntry={makeEntry()}
+          onStop={mockOnStop}
+          onPause={onPause}
+        />
+      );
+      expand();
+
+      const pauseButton = screen.getByText('⏸️ Pause');
+      await user.click(pauseButton);
+
+      expect(onPause).toHaveBeenCalledTimes(1);
+    });
+
+    it('D-15: shows a "Pausiert" badge and a Weiter button when is_paused is true', async () => {
+      const user = userEvent.setup();
+      const onResume = vi.fn().mockResolvedValue(undefined);
+      render(
+        <TimerWidget
+          runningEntry={makeEntry({ is_paused: true })}
+          onStop={mockOnStop}
+          onResume={onResume}
+        />
+      );
+      expand();
+
+      expect(screen.getByText('Pausiert')).toBeInTheDocument();
+      expect(screen.queryByText('⏸️ Pause')).not.toBeInTheDocument();
+      const resumeButton = screen.getByText('▶️ Weiter');
+      await user.click(resumeButton);
+
+      expect(onResume).toHaveBeenCalledTimes(1);
     });
   });
 

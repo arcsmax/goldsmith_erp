@@ -772,6 +772,100 @@ class TimeTrackingService:
         return closed
 
     @staticmethod
+    async def _has_open_interruption(db: AsyncSession, entry_id: str) -> bool:
+        """True when ``entry_id`` has an unresumed interruption marker.
+
+        A direct query — same ``resumed_at IS NULL AND duration_minutes ==
+        0`` shape ``_close_open_interruptions`` uses — rather than trusting
+        ``entry.interruptions`` from a possibly-stale identity-mapped
+        object, since ``pause_time_entry``/``resume_time_entry`` call this
+        right after a previous write in the same session.
+        """
+        result = await db.execute(
+            select(InterruptionModel).where(
+                InterruptionModel.time_entry_id == entry_id,
+                InterruptionModel.resumed_at.is_(None),
+                InterruptionModel.duration_minutes == 0,
+            )
+        )
+        return result.scalars().first() is not None
+
+    @staticmethod
+    async def pause_time_entry(db: AsyncSession, entry_id: str) -> TimeEntryModel:
+        """D-15: manually pause a running entry by opening an Interruption.
+
+        Ownership (owner or ADMIN) is gated by the router's
+        ``_get_owned_entry`` before this is called — no per-user check here,
+        matching how ``add_interruption`` delegates without re-checking.
+        409 if the entry is already stopped or already paused.
+        """
+        entry = await TimeTrackingService.get_time_entry(db, entry_id)
+        if entry is None:
+            raise NotFoundError(
+                "Time entry not found",
+                code="time_entry.not_found",
+                extra={"entry_id": entry_id},
+            )
+        if entry.end_time is not None:
+            raise ConflictError(
+                "Zeiterfassung ist bereits gestoppt.",
+                code="time_entry.not_running",
+                extra={"entry_id": entry_id},
+            )
+        if await TimeTrackingService._has_open_interruption(db, entry_id):
+            raise ConflictError(
+                "Zeiterfassung ist bereits pausiert.",
+                code="time_entry.already_paused",
+                extra={"entry_id": entry_id},
+            )
+        db.add(
+            InterruptionModel(
+                time_entry_id=entry_id,
+                reason="pause",
+                duration_minutes=0,
+                timestamp=datetime.utcnow(),
+            )
+        )
+        await db.commit()
+        return await TimeTrackingService.get_time_entry(db, entry_id)
+
+    @staticmethod
+    async def resume_time_entry(db: AsyncSession, entry_id: str) -> TimeEntryModel:
+        """D-15: end the current manual pause (sets ``resumed_at`` + measured
+        minutes on the open Interruption via ``_close_open_interruptions``).
+
+        Ownership gated by the router, as in ``pause_time_entry``. 409 if
+        the entry is stopped or is not currently paused — unlike
+        ``resume_interruptions`` (the scan-driven flow, where "nothing was
+        open" is a silent no-op), an explicit resume call must fail loudly
+        when there is nothing to resume.
+        """
+        entry = await TimeTrackingService.get_time_entry(db, entry_id)
+        if entry is None:
+            raise NotFoundError(
+                "Time entry not found",
+                code="time_entry.not_found",
+                extra={"entry_id": entry_id},
+            )
+        if entry.end_time is not None:
+            raise ConflictError(
+                "Zeiterfassung ist bereits gestoppt.",
+                code="time_entry.not_running",
+                extra={"entry_id": entry_id},
+            )
+        if not await TimeTrackingService._has_open_interruption(db, entry_id):
+            raise ConflictError(
+                "Zeiterfassung ist nicht pausiert.",
+                code="time_entry.not_paused",
+                extra={"entry_id": entry_id},
+            )
+        await TimeTrackingService._close_open_interruptions(
+            db, entry_id, datetime.utcnow()
+        )
+        await db.commit()
+        return await TimeTrackingService.get_time_entry(db, entry_id)
+
+    @staticmethod
     async def _recompute_actual_hours(db: AsyncSession, order_id: Any) -> None:
         """W2-14: keep ``Order.actual_hours`` current once it is measured.
 

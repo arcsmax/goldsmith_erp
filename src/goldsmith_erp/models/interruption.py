@@ -24,5 +24,9 @@ class InterruptionRead(InterruptionBase):
     id: int
     time_entry_id: str
     timestamp: datetime
+    # D-15 / W2-14: set once work resumes (see migration
+    # 20260925_w214_interrupt_resume). ``None`` with ``duration_minutes ==
+    # 0`` means the interruption is still open (the timer is paused).
+    resumed_at: Optional[datetime] = None
 
     model_config = ConfigDict(from_attributes=True)

@@ -136,8 +136,29 @@ class TestRawMarkForms:
 
     def test_unrelated_string_is_not_a_feingehalt_mark(self):
         assert not is_feingehalt_mark("feingehalt_666")
-        assert not is_feingehalt_mark("935")
         assert not is_feingehalt_mark("meisterzeichen")
+
+
+class TestExtraFeingehaltMarks:
+    """Silver 935 and Palladium 950/500 (fix-w2-09-hallmark.md open item #1;
+    fix-w2-06-14-16-11.md open item #3): no backing ``AlloyType`` member
+    (would need a Postgres enum migration, out of scope), but the mark
+    itself must still validate since ``Order.alloy`` is a free string."""
+
+    @pytest.mark.parametrize("mark", ["935", "Ag935", "500", "Pd500", "Pd950"])
+    def test_extra_marks_are_valid_feingehalt_marks(self, mark):
+        assert is_feingehalt_mark(mark)
+        assert is_valid_mark(mark)
+
+    def test_normalize_alloy_still_does_not_know_these(self):
+        # No AlloyType member backs them — normalize_alloy stays None,
+        # exactly like before this fix (see TestNormalizeAlloy above).
+        assert normalize_alloy("935") is None
+        assert normalize_alloy("Pd500") is None
+
+    def test_satisfies_hallmark_requirement(self):
+        assert satisfies_hallmark_requirement(["935"])
+        assert satisfies_hallmark_requirement(["Pd950"])
 
 
 class TestNichtPunziertReasonPath:
@@ -178,7 +199,7 @@ class TestIsValidMark:
         assert is_valid_mark(mark)
 
     @pytest.mark.parametrize(
-        "mark", ["feingehalt_666", "935", "", "nicht punziert:", "quatsch"]
+        "mark", ["feingehalt_666", "", "nicht punziert:", "quatsch"]
     )
     def test_rejects_unknown_marks(self, mark):
         assert not is_valid_mark(mark)

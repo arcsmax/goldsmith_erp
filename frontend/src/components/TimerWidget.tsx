@@ -3,12 +3,18 @@ import { TimeEntry, TimeEntryStopInput, OrderType, Activity } from '../types';
 import { timeTrackingApi } from '../api/time-tracking';
 import { ordersApi } from '../api/orders';
 import { activitiesApi } from '../api/activities';
+import { StatusBadge } from '../ui/StatusBadge';
 import '../styles/components/TimerWidget.css';
 
 interface TimerWidgetProps {
   runningEntry: TimeEntry | null;
   onStop: () => void;
   onRefresh?: () => void;
+  /** D-15: manually pause the running entry. Optional so existing callers
+   *  (and tests) keep working; the Pause button is hidden without it. */
+  onPause?: () => Promise<void> | void;
+  /** D-15: end the manual pause. */
+  onResume?: () => Promise<void> | void;
 }
 
 interface StopDialogData {
@@ -22,6 +28,8 @@ const TimerWidget: React.FC<TimerWidgetProps> = ({
   runningEntry,
   onStop,
   onRefresh,
+  onPause,
+  onResume,
 }) => {
   const [elapsedTime, setElapsedTime] = useState(0);
   const [isCollapsed, setIsCollapsed] = useState(true);
@@ -50,8 +58,11 @@ const TimerWidget: React.FC<TimerWidgetProps> = ({
   const [error, setError] = useState<string | null>(null);
 
   // Calculate elapsed time. There is no client-side pause (FE-10): the
-  // displayed time always tracks wall-clock time from start_time, matching
-  // what the server actually records.
+  // displayed time always tracks wall-clock time from start_time — it does
+  // NOT freeze while D-15's server-side pause is active. The "Pausiert"
+  // badge is the source of truth for pause state; the ticker keeps
+  // counting gross wall-clock time exactly as before (the server excludes
+  // the paused interval from net hours, not this display).
   useEffect(() => {
     if (!runningEntry) return;
 
@@ -143,6 +154,34 @@ const TimerWidget: React.FC<TimerWidgetProps> = ({
   const handleStopCancel = () => {
     setShowStopDialog(false);
     setError(null);
+  };
+
+  const handlePauseClick = async () => {
+    if (!onPause) return;
+    try {
+      setLoading(true);
+      setError(null);
+      await onPause();
+    } catch (err: any) {
+      const detail = err.response?.data?.detail;
+      setError((typeof detail === 'string' && detail) || err.message || 'Pausieren fehlgeschlagen');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleResumeClick = async () => {
+    if (!onResume) return;
+    try {
+      setLoading(true);
+      setError(null);
+      await onResume();
+    } catch (err: any) {
+      const detail = err.response?.data?.detail;
+      setError((typeof detail === 'string' && detail) || err.message || 'Fortsetzen fehlgeschlagen');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const renderStars = (count: number, value: number, onChange: (val: number) => void) => {
@@ -309,6 +348,9 @@ const TimerWidget: React.FC<TimerWidgetProps> = ({
         <div className="timer-widget-content">
           <div className="timer-info">
             <div className="timer-label">⏱️ Läuft</div>
+            {runningEntry.is_paused && (
+              <StatusBadge kind="timeEntry" status="paused" />
+            )}
             <div className="timer-time">{formatTime(elapsedTime)}</div>
             <div className="timer-activity">
               Auftrag #{runningEntry.order_id}
@@ -316,6 +358,25 @@ const TimerWidget: React.FC<TimerWidgetProps> = ({
           </div>
 
           <div className="timer-controls">
+            {runningEntry.is_paused
+              ? onResume && (
+                  <button
+                    onClick={handleResumeClick}
+                    className="timer-button"
+                    disabled={loading}
+                  >
+                    ▶️ Weiter
+                  </button>
+                )
+              : onPause && (
+                  <button
+                    onClick={handlePauseClick}
+                    className="timer-button"
+                    disabled={loading}
+                  >
+                    ⏸️ Pause
+                  </button>
+                )}
             <button
               onClick={handleStopClick}
               className="timer-button timer-button-stop"

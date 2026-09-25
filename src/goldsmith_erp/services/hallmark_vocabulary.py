@@ -104,12 +104,34 @@ RAW_FEINGEHALT_MARKS: Dict[AlloyType, FrozenSet[str]] = {
     member: _raw_marks_for(member) for member in AlloyType
 }
 
+#: Feingehalt marks for alloys the domain expert lists (silver 935,
+#: Palladium 950/500) that ``AlloyType`` itself has no member for. Silver
+#: 935 and Palladium are not in ``AlloyType`` because it is a native
+#: Postgres enum (``SAEnum(AlloyType)`` with no ``native_enum=False``) —
+#: adding a member needs an ``ALTER TYPE ... ADD VALUE`` migration, which
+#: is out of scope for this fix (``db/models.py``/``alembic/`` excluded;
+#: see fix-w2-09-hallmark.md open item #1). ``Order.alloy`` itself is a
+#: free-text ``String(20)`` column (unlike ``ScrapGoldItem.alloy``, which
+#: IS bound to ``AlloyType``), so an order can already be recorded with
+#: alloy ``"935"``/``"Pd500"``/``"Pd950"`` via the order form — this table
+#: only needs to let the matching hallmark stamp be recognised as valid.
+#: "950"/"Pt950" already validate via ``AlloyType.PLATINUM_950``, so
+#: Palladium only strictly needs its own "950" spelling for symmetry plus
+#: "500". ``normalize_alloy``/``feingehalt_mark_for_alloy`` deliberately
+#: keep returning ``None`` for these (no backing ``AlloyType`` member) —
+#: only the accept-list below widens.
+EXTRA_FEINGEHALT_MARKS: FrozenSet[str] = frozenset(
+    {"935", "Ag935", "500", "Pd500", "Pd950"}
+)
+
 #: Every accepted Feingehalt mark string, legacy code or plain, across all
 #: alloys — the Pydantic validator's allow-list. Case-insensitive lookup is
 #: applied by :func:`is_feingehalt_mark`; this set holds the canonical case.
-ALL_FEINGEHALT_MARKS: FrozenSet[str] = frozenset(
-    LEGACY_FEINGEHALT_CODE.values()
-) | frozenset().union(*RAW_FEINGEHALT_MARKS.values())
+ALL_FEINGEHALT_MARKS: FrozenSet[str] = (
+    frozenset(LEGACY_FEINGEHALT_CODE.values())
+    | frozenset().union(*RAW_FEINGEHALT_MARKS.values())
+    | EXTRA_FEINGEHALT_MARKS
+)
 
 _ALL_FEINGEHALT_MARKS_CASEFOLD: FrozenSet[str] = frozenset(
     m.casefold() for m in ALL_FEINGEHALT_MARKS

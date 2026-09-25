@@ -23,13 +23,14 @@ import pytest
 from fastapi import HTTPException
 from sqlalchemy import text
 
-from goldsmith_erp.db.models import InvoiceStatus, OrderStatusEnum
+from goldsmith_erp.db.models import Gemstone, InvoiceStatus, OrderStatusEnum
 from goldsmith_erp.models.invoice import InvoiceCreate, InvoiceUpdate, MarkPaidRequest
 from goldsmith_erp.services.invoice_service import InvoiceService
 from goldsmith_erp.services.invoice_snapshot_service import (
     SNAPSHOT_VERSION,
     InvoiceSnapshotService,
 )
+from goldsmith_erp.services.pdf_service import PDFService
 
 pytestmark = pytest.mark.asyncio
 
@@ -120,6 +121,73 @@ class TestSnapshotAtCreation:
         assert snap["recipient"]["name"] == "Max Mustermann"
         # DRAFT: the invoice's own editable fields follow the edit
         assert snap["invoice"]["notes"] == "neue Notiz"
+
+    async def test_snapshot_includes_order_gemstones(
+        self, db_session, sample_order, sample_customer, admin_user
+    ) -> None:
+        """W2-06-14-16-11 open item #1: the invoice PDF's "Steine" block was
+        never fed — the snapshot must carry the order's gemstones so the
+        frozen PDF (rendered from the snapshot alone, W1-10) can print them."""
+        order = await _completed_order(db_session, sample_order, sample_customer)
+        gem = Gemstone(
+            order_id=order.id,
+            type="Diamant",
+            cost=50.0,
+            quantity=2,
+            carat=0.2,
+            is_customer_stone=True,
+        )
+        db_session.add(gem)
+        await db_session.commit()
+
+        invoice = await _create(db_session, order.id, admin_user)
+        snap = InvoiceSnapshotService.load(invoice)
+
+        assert snap["gemstones"] == [
+            {
+                "type": "Diamant",
+                "quantity": 2,
+                "carat": 0.2,
+                "color": None,
+                "quality": None,
+                "cut": None,
+                "shape": None,
+                "setting_type": None,
+                "is_customer_stone": True,
+            }
+        ]
+
+    async def test_snapshot_has_no_gemstones_when_order_has_none(
+        self, db_session, sample_order, sample_customer, admin_user
+    ) -> None:
+        order = await _completed_order(db_session, sample_order, sample_customer)
+        invoice = await _create(db_session, order.id, admin_user)
+        assert InvoiceSnapshotService.load(invoice)["gemstones"] == []
+
+    async def test_render_passes_gemstones_to_pdf_service(
+        self, db_session, sample_order, sample_customer, admin_user, monkeypatch
+    ) -> None:
+        """The wiring, not the drawing (pdf_service's own gemstone drawing
+        is covered by tests/unit/test_pdf_gemstones.py)."""
+        order = await _completed_order(db_session, sample_order, sample_customer)
+        gem = Gemstone(order_id=order.id, type="Saphir", cost=10.0, quantity=1)
+        db_session.add(gem)
+        await db_session.commit()
+        invoice = await _create(db_session, order.id, admin_user)
+
+        captured: dict = {}
+        original = PDFService.render_invoice_pdf
+
+        def spy(**kwargs):
+            captured.update(kwargs)
+            return original(**kwargs)
+
+        monkeypatch.setattr(PDFService, "render_invoice_pdf", staticmethod(spy))
+
+        InvoiceSnapshotService.render(invoice)
+
+        assert captured["gemstones"] is not None
+        assert captured["gemstones"][0].type == "Saphir"
 
 
 class TestFreezeOnIssue:

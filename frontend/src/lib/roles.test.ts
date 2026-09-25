@@ -5,6 +5,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   canCreateOrders,
+  canCreateRepairs,
   canDeleteOrders,
   canEditOrders,
   canDownloadValuationPdf,
@@ -91,5 +92,20 @@ describe('order write permissions', () => {
     expect(canCreateOrders(role)).toBe(create);
     expect(canEditOrders(role)).toBe(edit);
     expect(canDeleteOrders(role)).toBe(remove);
+  });
+});
+
+// Mirrors Permission.REPAIR_CREATE (ADMIN + GOLDSMITH) in core/permissions.py;
+// VIEWER holds only REPAIR_VIEW and previously got a 403 on submit because
+// the "Neue Reparatur" button was shown to every role.
+describe('canCreateRepairs', () => {
+  it.each([
+    ['ADMIN', true],
+    ['GOLDSMITH', true],
+    ['VIEWER', false],
+    ['goldsmith', true],
+    [null, false],
+  ] as const)('%s: %s', (role, expected) => {
+    expect(canCreateRepairs(role)).toBe(expected);
   });
 });

@@ -82,6 +82,16 @@ export function canDeleteOrders(role?: UserRole | string | null): boolean {
 }
 
 /**
+ * True when the caller may create a repair intake. Mirrors
+ * `Permission.REPAIR_CREATE` (ADMIN + GOLDSMITH; VIEWER holds only
+ * REPAIR_VIEW — front-desk read access, not intake).
+ */
+export function canCreateRepairs(role?: UserRole | string | null): boolean {
+  const normalized = normalizeRole(role);
+  return normalized === 'ADMIN' || normalized === 'GOLDSMITH';
+}
+
+/**
  * True when the caller may create a quote (Kostenvoranschlag). Mirrors
  * `Permission.QUOTE_CREATE` (ADMIN + GOLDSMITH; VIEWER does not hold it —
  * the /quotes route itself is gated the same way in App.tsx). LV2-04: the

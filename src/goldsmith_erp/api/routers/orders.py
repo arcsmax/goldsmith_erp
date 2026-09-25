@@ -427,9 +427,19 @@ async def change_order_status(
 
     Validated by the transition table in ``services/order_workflow.py``:
     409 ``INVALID_STATUS_TRANSITION`` with a German message and the allowed
-    next statuses, 422 when ``on_hold`` / ``cancelled`` have no ``reason``,
-    409 ``PUNZIERUNG_REQUIRED`` for an unverified alloyed piece. The status
-    change and its ``order_events`` row are committed together.
+    next statuses, 422 when ``on_hold`` / ``cancelled`` have no ``reason``.
+
+    Advancing an alloyed order to COMPLETED is soft-gated (D-10,
+    ``order_workflow.PunzierungRequiredError``): 409 with top-level
+    ``code == "order.hallmark_required"`` (``legacy_detail.code`` keeps the
+    older ``PUNZIERUNG_REQUIRED`` string for callers written against the
+    hard-gate era) unless the order already has, or this request records, a
+    real Feingehalt mark for its alloy OR a documented
+    ``"nicht punziert: <Grund>"`` reason (see
+    ``services/hallmark_vocabulary.satisfies_hallmark_requirement`` —
+    hallmarking is voluntary under German law, but the decision not to must
+    be on record). The status change and its ``order_events`` row are
+    committed together.
     """
     order = await OrderService.get_order(db, order_id)
     if not order:

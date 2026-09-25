@@ -841,7 +841,10 @@ class QuoteService:
         if recipient is not None:
             method = UpdateDeliveryMethod.EMAIL
         if recipient is not None and not queue_email:
-            if not await quote_delivery.email_quote(quote, customer, recipient):
+            gemstones = await quote_delivery.load_order_gemstones(db, quote.order_id)
+            if not await quote_delivery.email_quote(
+                quote, customer, recipient, gemstones=gemstones
+            ):
                 await QuoteService._record_send_failure(db, quote, current_user)
                 raise UpstreamError(
                     quote_delivery.SMTP_FAILED_DETAIL,

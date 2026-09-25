@@ -82,6 +82,10 @@ class InvoiceSubject:
     completed_at: Optional[datetime]
     reference: Optional[str] = None
     reference_label: Optional[str] = None
+    # W2-06-14-16-11 open item #1: the order's gemstones, carried through so
+    # InvoiceSnapshotService.build() can capture them into the frozen
+    # snapshot. Empty for a repair-billed invoice (repairs have none).
+    gemstones: Any = None
 
     @staticmethod
     def for_order(order: Any) -> "InvoiceSubject":
@@ -91,6 +95,7 @@ class InvoiceSubject:
             customer=order.customer,
             title=order.title,
             completed_at=order.completed_at,
+            gemstones=getattr(order, "gemstones", None),
         )
 
 

@@ -206,7 +206,12 @@ def test_backfill_layout_matches_the_service_snapshot(sqlite_engine):
     )
     service = InvoiceSnapshotService.build(invoice, [], None, None)  # type: ignore[arg-type]
 
-    assert set(service) <= set(backfilled)
+    # Snapshot version 3 (W2-06-14-16-11) added a top-level "gemstones" key;
+    # the migration's fixed backfill layout predates it and never writes it.
+    # render() reads it with .get(...) or [], same graceful-degradation
+    # contract as the version-2 additions below, so this is not a regression.
+    v3_top_level_keys = {"gemstones"}
+    assert set(service) - v3_top_level_keys <= set(backfilled)
     # Snapshot version 2 (W2-04) added the Storno reference to the invoice
     # header; the v1 layout the migration writes is otherwise identical and
     # still renders (InvoiceSnapshotService.render reads those keys with get).

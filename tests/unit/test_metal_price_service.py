@@ -301,6 +301,51 @@ class TestPlatinumFineness:
 
 
 @pytest.mark.asyncio
+class TestPalladiumTracksPlatinum:
+    """Item 3 (fix-w2-09-hallmark.md open item #1): Palladium has no spot
+    feed of its own — ``_ALLOY_RATIOS[MetalType.PALLADIUM]`` derives it from
+    the platinum spot price at ratio 1.0. This locks in that
+    ``get_price_for_metal_type(PALLADIUM)`` always resolves through that
+    derivation (never 0, never a bare KeyError) as long as the platinum
+    spot price is available — which the 4-tier fallback chain guarantees."""
+
+    async def test_palladium_price_derives_from_platinum_spot(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        pure_platinum_spot = 28.0
+        now = datetime.utcnow()
+
+        async def _fake_get_spot_prices(db: Any = None) -> dict:
+            return {
+                MetalType.GOLD_24K: (75.0, MetalPriceSource.API, now),
+                MetalType.SILVER_999: (0.9, MetalPriceSource.API, now),
+                MetalType.PLATINUM_950: (
+                    pure_platinum_spot,
+                    MetalPriceSource.API,
+                    now,
+                ),
+            }
+
+        monkeypatch.setattr(MetalPriceService, "get_spot_prices", _fake_get_spot_prices)
+
+        price, _source, _updated_at = await MetalPriceService.get_price_for_metal_type(
+            MetalType.PALLADIUM
+        )
+
+        assert price == pytest.approx(pure_platinum_spot, rel=1e-9)
+        assert price > 0
+
+    async def test_palladium_price_is_never_zero_via_hardcoded_fallback(self) -> None:
+        # No monkeypatching: exercises the real 4-tier chain with no Redis/DB/
+        # API available in the unit-test environment, landing on tier 4
+        # (hardcoded defaults) — still never 0 for palladium.
+        price, _source, _updated_at = await MetalPriceService.get_price_for_metal_type(
+            MetalType.PALLADIUM
+        )
+        assert price > 0
+
+
+@pytest.mark.asyncio
 class TestPersistPricesNeverStoresNonPositive:
     async def test_zero_or_negative_price_is_not_persisted(self) -> None:
         """Defence in depth: even if a bad price ever reaches the persist

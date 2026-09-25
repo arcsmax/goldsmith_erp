@@ -23,9 +23,16 @@ export const ALLOY_CHOICES: readonly AlloyChoice[] = [
   { key: '585-rose', label: '585 Roségold', metal_type: 'rose_gold_14k', alloy: '585' },
   { key: '375-gelb', label: '375 Gelbgold', metal_type: 'gold_9k', alloy: '375' },
   { key: 'ag925', label: 'Silber 925 (Sterling)', metal_type: 'silver_925', alloy: 'Ag925' },
+  // Silber 935: no dedicated MetalType member exists (the enum only has
+  // 999/925/800 — adding one is the same Postgres-enum-migration problem
+  // as AlloyType, out of scope, see fix-w2-09-hallmark.md open item #1).
+  // 'silver_925' is the closest built-in MetalType for grouping purposes;
+  // `alloy: 'Ag935'` is what is actually stored on the order and shown.
+  { key: 'ag935', label: 'Silber 935', metal_type: 'silver_925', alloy: 'Ag935' },
   { key: 'ag800', label: 'Silber 800', metal_type: 'silver_800', alloy: 'Ag800' },
   { key: 'pt950', label: 'Platin 950', metal_type: 'platinum_950', alloy: 'Pt950' },
   { key: 'pd950', label: 'Palladium 950', metal_type: 'palladium', alloy: 'Pd950' },
+  { key: 'pd500', label: 'Palladium 500', metal_type: 'palladium', alloy: 'Pd500' },
 ];
 
 /** The picker entry for a stored order; '' when the pair is not a known combination. */

@@ -41,6 +41,10 @@ interface TimeTrackingContextType {
   refreshRunningEntry: () => Promise<TimeEntry | null>;
   refreshActivities: () => Promise<void>;
   clearError: () => void;
+  /** D-15: manually pause the running entry. 409 if already paused. */
+  pauseTracking: () => Promise<void>;
+  /** D-15: end the manual pause. 409 if not paused. */
+  resumeTracking: () => Promise<void>;
 }
 
 const POLL_INTERVAL_MS = 5000;
@@ -154,6 +158,45 @@ export const TimeTrackingProvider: React.FC<TimeTrackingProviderProps> = ({ chil
     } catch (err: any) {
       console.error('Failed to stop tracking:', err);
       setError(err.message || 'Zeiterfassung konnte nicht gestoppt werden');
+      throw err;
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  /**
+   * D-15: manually pause the running entry (opens an Interruption).
+   * Keeps polling running — the timer is still "active", just paused.
+   */
+  const pauseTracking = async (): Promise<void> => {
+    if (!runningEntry) return;
+    try {
+      setIsLoading(true);
+      setError(null);
+      const entry = await timeTrackingApi.pause(runningEntry.id);
+      setRunningEntry(entry);
+    } catch (err: any) {
+      console.error('Failed to pause tracking:', err);
+      setError(err.response?.data?.detail || err.message || 'Pausieren fehlgeschlagen');
+      throw err;
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  /**
+   * D-15: end the current manual pause.
+   */
+  const resumeTracking = async (): Promise<void> => {
+    if (!runningEntry) return;
+    try {
+      setIsLoading(true);
+      setError(null);
+      const entry = await timeTrackingApi.resume(runningEntry.id);
+      setRunningEntry(entry);
+    } catch (err: any) {
+      console.error('Failed to resume tracking:', err);
+      setError(err.response?.data?.detail || err.message || 'Fortsetzen fehlgeschlagen');
       throw err;
     } finally {
       setIsLoading(false);
@@ -354,6 +397,8 @@ export const TimeTrackingProvider: React.FC<TimeTrackingProviderProps> = ({ chil
     refreshRunningEntry,
     refreshActivities,
     clearError,
+    pauseTracking,
+    resumeTracking,
   };
 
   return (

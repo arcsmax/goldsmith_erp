@@ -326,8 +326,16 @@ export const OrderFormModal: React.FC<OrderFormModalProps> = ({
       aria-modal="true"
       aria-labelledby="order-modal-title"
       onClick={onClose}
+      onKeyDown={(e) => {
+        if (e.key === 'Escape') onClose();
+      }}
     >
-      <div className="modal-content modal-large" onClick={(e) => e.stopPropagation()}>
+      <div
+        className="modal-content modal-large"
+        role="presentation"
+        onClick={(e) => e.stopPropagation()}
+        onKeyDown={(e) => e.stopPropagation()}
+      >
         <div className="modal-header">
           <h2 id="order-modal-title">{order ? 'Auftrag bearbeiten' : 'Neuer Auftrag'}</h2>
           <button className="modal-close" onClick={onClose} type="button" aria-label="Modal schließen">
@@ -611,7 +619,7 @@ export const OrderFormModal: React.FC<OrderFormModalProps> = ({
                   />
                   {!formData.fitting_date && (
                     <small className="form-hint" style={{ color: '#888' }}>
-                      Ohne Anprobe-Datum wird der Status nach Bestätigung auf "Warten auf Anprobe" gesetzt.
+                      Ohne Anprobe-Datum wird der Status nach Bestätigung auf &quot;Warten auf Anprobe&quot; gesetzt.
                     </small>
                   )}
                 </div>

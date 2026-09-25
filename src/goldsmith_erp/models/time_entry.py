@@ -170,6 +170,12 @@ class TimeEntryRead(TimeEntryBase):
     rework_required: bool
     extra_metadata: Optional[Dict[str, Any]] = None
     created_at: datetime
+    # D-15: true while an Interruption is open (resumed_at IS NULL,
+    # duration_minutes == 0) — never derived from an ORM attribute (that
+    # would need a db/models.py change); the service/router compute it
+    # explicitly from the already-loaded ``interruptions`` relationship
+    # and set it via ``.model_copy(update={"is_paused": ...})``.
+    is_paused: bool = False
 
     model_config = ConfigDict(from_attributes=True)
 

@@ -62,7 +62,10 @@ from goldsmith_erp.models.quote import (
     RejectQuoteRequest,
 )
 from goldsmith_erp.services import list_queries
-from goldsmith_erp.services.quote_delivery import render_quote_pdf_bytes
+from goldsmith_erp.services.quote_delivery import (
+    load_order_gemstones,
+    render_quote_pdf_bytes,
+)
 from goldsmith_erp.services.quote_service import (
     QuoteNotEditableError,
     QuoteNotFoundError,
@@ -530,8 +533,10 @@ async def download_quote_pdf(
             detail=f"Kunde {quote.customer_id} nicht gefunden",
         )
 
+    gemstones = await load_order_gemstones(db, quote.order_id)
+
     try:
-        pdf_bytes = render_quote_pdf_bytes(quote, customer)
+        pdf_bytes = render_quote_pdf_bytes(quote, customer, gemstones=gemstones)
     except Exception:
         logger.exception(
             "PDF generation failed for quote",

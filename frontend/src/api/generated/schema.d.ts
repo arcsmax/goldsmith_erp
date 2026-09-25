@@ -3575,9 +3575,19 @@ export interface paths {
          *
          *     Validated by the transition table in ``services/order_workflow.py``:
          *     409 ``INVALID_STATUS_TRANSITION`` with a German message and the allowed
-         *     next statuses, 422 when ``on_hold`` / ``cancelled`` have no ``reason``,
-         *     409 ``PUNZIERUNG_REQUIRED`` for an unverified alloyed piece. The status
-         *     change and its ``order_events`` row are committed together.
+         *     next statuses, 422 when ``on_hold`` / ``cancelled`` have no ``reason``.
+         *
+         *     Advancing an alloyed order to COMPLETED is soft-gated (D-10,
+         *     ``order_workflow.PunzierungRequiredError``): 409 with top-level
+         *     ``code == "order.hallmark_required"`` (``legacy_detail.code`` keeps the
+         *     older ``PUNZIERUNG_REQUIRED`` string for callers written against the
+         *     hard-gate era) unless the order already has, or this request records, a
+         *     real Feingehalt mark for its alloy OR a documented
+         *     ``"nicht punziert: <Grund>"`` reason (see
+         *     ``services/hallmark_vocabulary.satisfies_hallmark_requirement`` —
+         *     hallmarking is voluntary under German law, but the decision not to must
+         *     be on record). The status change and its ``order_events`` row are
+         *     committed together.
          */
         patch: operations["change_order_status_api_v1_orders__order_id__status_patch"];
         trace?: never;
@@ -5098,6 +5108,52 @@ export interface paths {
          * @description Fügt eine Unterbrechung zu einer Zeiterfassung hinzu.
          */
         post: operations["add_interruption_api_v1_time_tracking__entry_id__interruptions_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/time-tracking/{entry_id}/pause": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Pause Time Tracking
+         * @description D-15: manually pause a running entry (owner or ADMIN).
+         *
+         *     Opens a new Interruption (``reason="pause"``). 409 if the entry is
+         *     already stopped or already paused.
+         */
+        post: operations["pause_time_tracking_api_v1_time_tracking__entry_id__pause_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/time-tracking/{entry_id}/resume": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Resume Time Tracking
+         * @description D-15: end the current manual pause (owner or ADMIN).
+         *
+         *     Closes the open Interruption (sets ``resumed_at`` + measured minutes).
+         *     409 if the entry is stopped or is not currently paused.
+         */
+        post: operations["resume_time_tracking_api_v1_time_tracking__entry_id__resume_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -8404,6 +8460,8 @@ export interface components {
             id: number;
             /** Reason */
             reason: string;
+            /** Resumed At */
+            resumed_at?: string | null;
             /** Time Entry Id */
             time_entry_id: string;
             /**
@@ -12063,6 +12121,14 @@ export interface components {
             gold_price_per_g?: number | null;
             /** Id */
             id: number;
+            /** Id Checked At */
+            id_checked_at?: string | null;
+            /** Id Document Number */
+            id_document_number?: string | null;
+            /** Id Document Type */
+            id_document_type?: string | null;
+            /** Id Issuing Authority */
+            id_issuing_authority?: string | null;
             /** Items */
             items?: components["schemas"]["ScrapGoldItemExport"][];
             /** Order Id */
@@ -12495,6 +12561,11 @@ export interface components {
             } | null;
             /** Id */
             id: string;
+            /**
+             * Is Paused
+             * @default false
+             */
+            is_paused: boolean;
             /**
              * Location
              * @description Storage location (1-50 characters)
@@ -22186,6 +22257,72 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["InterruptionRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    pause_time_tracking_api_v1_time_tracking__entry_id__pause_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                entry_id: string;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TimeEntryRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    resume_time_tracking_api_v1_time_tracking__entry_id__resume_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                entry_id: string;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TimeEntryRead"];
                 };
             };
             /** @description Validation Error */

@@ -3282,7 +3282,7 @@
           "orders"
         ],
         "summary": "Change Order Status",
-        "description": "Status wechseln (W2-07).\n\nValidated by the transition table in ``services/order_workflow.py``:\n409 ``INVALID_STATUS_TRANSITION`` with a German message and the allowed\nnext statuses, 422 when ``on_hold`` / ``cancelled`` have no ``reason``,\n409 ``PUNZIERUNG_REQUIRED`` for an unverified alloyed piece. The status\nchange and its ``order_events`` row are committed together.",
+        "description": "Status wechseln (W2-07).\n\nValidated by the transition table in ``services/order_workflow.py``:\n409 ``INVALID_STATUS_TRANSITION`` with a German message and the allowed\nnext statuses, 422 when ``on_hold`` / ``cancelled`` have no ``reason``.\n\nAdvancing an alloyed order to COMPLETED is soft-gated (D-10,\n``order_workflow.PunzierungRequiredError``): 409 with top-level\n``code == \"order.hallmark_required\"`` (``legacy_detail.code`` keeps the\nolder ``PUNZIERUNG_REQUIRED`` string for callers written against the\nhard-gate era) unless the order already has, or this request records, a\nreal Feingehalt mark for its alloy OR a documented\n``\"nicht punziert: <Grund>\"`` reason (see\n``services/hallmark_vocabulary.satisfies_hallmark_requirement`` —\nhallmarking is voluntary under German law, but the decision not to must\nbe on record). The status change and its ``order_events`` row are\ncommitted together.",
         "operationId": "change_order_status_api_v1_orders__order_id__status_patch",
         "security": [
           {
@@ -6862,6 +6862,134 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/InterruptionRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/time-tracking/{entry_id}/pause": {
+      "post": {
+        "tags": [
+          "time-tracking"
+        ],
+        "summary": "Pause Time Tracking",
+        "description": "D-15: manually pause a running entry (owner or ADMIN).\n\nOpens a new Interruption (``reason=\"pause\"``). 409 if the entry is\nalready stopped or already paused.",
+        "operationId": "pause_time_tracking_api_v1_time_tracking__entry_id__pause_post",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "entry_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Entry Id"
+            }
+          },
+          {
+            "name": "access_token",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Access Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TimeEntryRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/time-tracking/{entry_id}/resume": {
+      "post": {
+        "tags": [
+          "time-tracking"
+        ],
+        "summary": "Resume Time Tracking",
+        "description": "D-15: end the current manual pause (owner or ADMIN).\n\nCloses the open Interruption (sets ``resumed_at`` + measured minutes).\n409 if the entry is stopped or is not currently paused.",
+        "operationId": "resume_time_tracking_api_v1_time_tracking__entry_id__resume_post",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "entry_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Entry Id"
+            }
+          },
+          {
+            "name": "access_token",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Access Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TimeEntryRead"
                 }
               }
             }
@@ -27314,6 +27442,18 @@
             "type": "string",
             "format": "date-time",
             "title": "Timestamp"
+          },
+          "resumed_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resumed At"
           }
         },
         "type": "object",
@@ -36286,6 +36426,50 @@
             "type": "boolean",
             "title": "Receipt Pdf Present"
           },
+          "id_document_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Id Document Type"
+          },
+          "id_document_number": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Id Document Number"
+          },
+          "id_issuing_authority": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Id Issuing Authority"
+          },
+          "id_checked_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Id Checked At"
+          },
           "created_at": {
             "anyOf": [
               {
@@ -37316,6 +37500,11 @@
             "type": "string",
             "format": "date-time",
             "title": "Created At"
+          },
+          "is_paused": {
+            "type": "boolean",
+            "title": "Is Paused",
+            "default": false
           }
         },
         "type": "object",

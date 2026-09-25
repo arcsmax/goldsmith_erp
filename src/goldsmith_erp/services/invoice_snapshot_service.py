@@ -27,6 +27,11 @@ Decision D-06 / assumption A4 (docs/review/2026-09-25/MASTER-FIX-PLAN.md):
    seller address/tax/bank fields, ``service_date`` (Leistungsdatum) and,
    on a Stornorechnung, the cancelled invoice's number and date. Version 1
    snapshots still render (missing fields are simply not printed).
+6. **Gemstones (W2-06-14-16-11 open item #1).** Version 3 adds a top-level
+   ``gemstones`` list captured from the order at snapshot-build time (never
+   read live — same immutability rule as everything else here). Older
+   snapshots (migration-backfilled or pre-v3) simply have no such key;
+   ``render()`` treats that the same as an empty list (no "Steine" block).
 
 §14 Abs. 4 UStG / §146 Abs. 4 AO: an issued invoice must not change after
 the fact; GDPR Art. 17(3)(b) lets it be retained after an erasure request.
@@ -45,6 +50,7 @@ from typing import Any, Dict, Iterable, List, Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
+from sqlalchemy.orm import selectinload
 
 from goldsmith_erp.core.config import settings
 from goldsmith_erp.core.timeutil import ensure_utc
@@ -62,7 +68,7 @@ from goldsmith_erp.services.workshop_settings_service import (
 
 logger = logging.getLogger(__name__)
 
-SNAPSHOT_VERSION = 2
+SNAPSHOT_VERSION = 3
 
 # The ORM models use legacy ``Column()`` declarations, which mypy types as
 # ``Column[...]`` rather than the runtime value; handle rows as ``Any``.
@@ -129,6 +135,32 @@ def _warn_if_seller_incomplete(invoice: InvoiceRow, seller: Dict[str, Any]) -> N
         )
 
 
+def _gemstones(order: Optional[OrderRow]) -> List[Dict[str, Any]]:
+    """The order's gemstones for the invoice PDF's "Steine" block (W2-06).
+
+    Captured into the snapshot at build time (not read live) so an issued
+    invoice's PDF stays reproducible from ``invoice.snapshot`` alone, same
+    as every other section here (W1-10). ``[]`` when there is no order or
+    no gemstones — ``render()`` below treats that as "no block".
+    """
+    if order is None or not getattr(order, "gemstones", None):
+        return []
+    return [
+        {
+            "type": stone.type,
+            "quantity": stone.quantity,
+            "carat": _money(stone.carat) if stone.carat is not None else None,
+            "color": stone.color,
+            "quality": stone.quality,
+            "cut": stone.cut,
+            "shape": stone.shape,
+            "setting_type": stone.setting_type,
+            "is_customer_stone": bool(getattr(stone, "is_customer_stone", False)),
+        }
+        for stone in order.gemstones
+    ]
+
+
 def _lines(line_items: Iterable[Any]) -> List[Dict[str, Any]]:
     return [
         {
@@ -175,6 +207,7 @@ class InvoiceSnapshotService:
             "captured_at": datetime.now(timezone.utc).isoformat(),
             "recipient": _recipient(customer),
             "seller": dict(seller) if seller is not None else _legacy_seller(),
+            "gemstones": _gemstones(order),
             "invoice": {
                 "invoice_number": invoice.invoice_number,
                 "order_id": invoice.order_id,
@@ -283,7 +316,9 @@ class InvoiceSnapshotService:
         ).scalar_one_or_none()
         order = (
             await db.execute(
-                select(OrderModel).where(OrderModel.id == invoice.order_id)
+                select(OrderModel)
+                .options(selectinload(OrderModel.gemstones))
+                .where(OrderModel.id == invoice.order_id)
             )
         ).scalar_one_or_none()
         # Explicit query: callers may hold the invoice without line_items
@@ -372,6 +407,9 @@ class InvoiceSnapshotService:
         totals = snapshot["totals"]
         recipient = snapshot["recipient"]
         seller = dict(seller_override or snapshot.get("seller") or {})
+        gemstones = [
+            SimpleNamespace(**stone) for stone in snapshot.get("gemstones") or []
+        ]
         city = " ".join(
             part
             for part in (recipient.get("postal_code"), recipient.get("city"))
@@ -407,6 +445,7 @@ class InvoiceSnapshotService:
             workshop_name=seller.get("name") or settings.WORKSHOP_NAME,
             seller=seller,
             altgold_credit=float(totals.get("scrap_gold_credit") or 0.0),
+            gemstones=gemstones or None,
         )
 
     @staticmethod
