@@ -693,6 +693,63 @@ for name, fg, bg in pairs:
 ```
 The script reproduces the design-investigation baseline values (3.19 for white on `#d97706`, 2.15 for `#f59e0b` on white), which cross-checks the formula.
 
+### B.1 Dark theme (W4-05, computed)
+Dark values live under `:root.dark` in `frontend/src/styles/brand-tokens.css`, repeated inside `@media (prefers-color-scheme: dark)` for the first paint before JS (the two blocks must stay identical). `frontend/src/test/themeTokens.test.ts` parses the token file, fails if a light `--color-*` or `--tone-*` token with a literal value has no dark value, and runs this formula over every pair below in both themes (`yarn vitest run src/test/themeTokens.test.ts --reporter=verbose` prints each ratio). Primary fills, feedback fills and the header carry dark text `#1c1917` in dark mode; the admin primary colour is checked against that text colour and dropped with a console warning when it fails (`hooks/useTheme.ts`).
+
+Lowest dark pairs: text 5.48 (`--color-danger` on raised), UI 3.97 (`--color-border-strong` on raised).
+
+| Foreground (dark) | Background (dark) | Ratio | Minimum |
+|---|---|---|---|
+| `--color-accent-strong` `#e0c580` | `--color-surface-raised` `#292524` | 9.01 | 4.5 |
+| `--color-border-strong` `#8a8178` | `--color-surface-raised` `#292524` | 3.97 | 3 |
+| `--color-border-strong` `#8a8178` | `--color-surface` `#1c1917` | 4.57 | 3 |
+| `--color-danger-contrast` `#1c1917` | `--color-danger` `#f87171` | 6.32 | 4.5 |
+| `--color-danger-fg` `#fca5a5` | `--color-danger-bg` `#450a0a` | 8.51 | 4.5 |
+| `--color-danger` `#f87171` | `--color-surface-raised` `#292524` | 5.48 | 4.5 |
+| `--color-danger` `#f87171` | `--color-surface` `#1c1917` | 6.32 | 4.5 |
+| `--color-focus-on-dark` `#1c1917` | `--color-surface-header-end` `#d97706` | 5.49 | 3 |
+| `--color-focus-on-dark` `#1c1917` | `--color-surface-header-start` `#f59e0b` | 8.14 | 3 |
+| `--color-focus` `#fde68a` | `--color-surface-raised` `#292524` | 12.18 | 3 |
+| `--color-focus` `#fde68a` | `--color-surface` `#1c1917` | 14.04 | 3 |
+| `--color-info-600` `#93c5fd` | `--color-info-bg` `#172554` | 8.15 | 4.5 |
+| `--color-info-contrast` `#1c1917` | `--color-info` `#60a5fa` | 6.88 | 4.5 |
+| `--color-info-fg` `#93c5fd` | `--color-info-bg` `#172554` | 8.15 | 4.5 |
+| `--color-primary-contrast` `#1c1917` | `--color-primary-hover` `#fbbf24` | 10.48 | 4.5 |
+| `--color-primary-contrast` `#1c1917` | `--color-primary` `#f59e0b` | 8.14 | 4.5 |
+| `--color-primary-contrast` `#1c1917` | `--color-surface-header-end` `#d97706` | 5.49 | 4.5 |
+| `--color-primary-contrast` `#1c1917` | `--color-surface-header-start` `#f59e0b` | 8.14 | 4.5 |
+| `--color-primary-hover` `#fbbf24` | `--color-primary-subtle` `#451a03` | 8.97 | 4.5 |
+| `--color-primary` `#f59e0b` | `--color-surface-raised` `#292524` | 7.06 | 4.5 |
+| `--color-primary` `#f59e0b` | `--color-surface` `#1c1917` | 8.14 | 4.5 |
+| `--color-success-contrast` `#1c1917` | `--color-success` `#4ade80` | 10.04 | 4.5 |
+| `--color-success-fg` `#86efac` | `--color-success-bg` `#052e16` | 10.62 | 4.5 |
+| `--color-text-body` `#e7e5e4` | `--color-surface-raised` `#292524` | 12.08 | 4.5 |
+| `--color-text-heading` `#fafaf9` | `--color-surface-raised` `#292524` | 14.52 | 4.5 |
+| `--color-text-muted` `#a8a29e` | `--color-surface-raised` `#292524` | 6.01 | 4.5 |
+| `--color-text-muted` `#a8a29e` | `--color-surface-sunken` `#0c0a09` | 7.83 | 4.5 |
+| `--color-text-muted` `#a8a29e` | `--color-surface` `#1c1917` | 6.93 | 4.5 |
+| `--color-text` `#f5f5f4` | `--color-surface-raised` `#292524` | 13.90 | 4.5 |
+| `--color-text` `#f5f5f4` | `--color-surface-sunken` `#0c0a09` | 18.11 | 4.5 |
+| `--color-text` `#f5f5f4` | `--color-surface` `#1c1917` | 16.03 | 4.5 |
+| `--color-warning-600` `#fdba74` | `--color-warning-bg` `#431407` | 9.28 | 4.5 |
+| `--color-warning-contrast` `#1c1917` | `--color-warning` `#fb923c` | 7.73 | 4.5 |
+| `--tone-check-border` `#a78bfa` | `--tone-check-bg` `#2e1065` | 5.60 | 3 |
+| `--tone-check-fg` `#ddd6fe` | `--tone-check-bg` `#2e1065` | 10.97 | 4.5 |
+| `--tone-danger-border` `#ef4444` | `--tone-danger-bg` `#450a0a` | 4.29 | 3 |
+| `--tone-danger-fg` `#fecaca` | `--tone-danger-bg` `#450a0a` | 11.16 | 4.5 |
+| `--tone-done-border` `#22c55e` | `--tone-done-bg` `#052e16` | 6.54 | 3 |
+| `--tone-done-fg` `#bbf7d0` | `--tone-done-bg` `#052e16` | 12.30 | 4.5 |
+| `--tone-handover-border` `#94a3b8` | `--tone-handover-bg` `#1e293b` | 5.71 | 3 |
+| `--tone-handover-fg` `#e2e8f0` | `--tone-handover-bg` `#1e293b` | 11.87 | 4.5 |
+| `--tone-info-border` `#3b82f6` | `--tone-info-bg` `#172554` | 4.00 | 3 |
+| `--tone-info-fg` `#bfdbfe` | `--tone-info-bg` `#172554` | 10.34 | 4.5 |
+| `--tone-neutral-border` `#9ca3af` | `--tone-neutral-bg` `#1f2937` | 5.78 | 3 |
+| `--tone-neutral-fg` `#e5e7eb` | `--tone-neutral-bg` `#1f2937` | 11.86 | 4.5 |
+| `--tone-progress-border` `#14b8a6` | `--tone-progress-bg` `#042f2e` | 5.81 | 3 |
+| `--tone-progress-fg` `#99f6e4` | `--tone-progress-bg` `#042f2e` | 11.48 | 4.5 |
+| `--tone-waiting-border` `#f97316` | `--tone-waiting-bg` `#431407` | 5.58 | 3 |
+| `--tone-waiting-fg` `#fed7aa` | `--tone-waiting-bg` `#431407` | 11.56 | 4.5 |
+
 ## Appendix C. Open questions
 1. **Tailwind or plain CSS.** The design-investigation (I-25) recommends removing the Tailwind import because the team writes plain CSS and the layer conflict caused invisible buttons (`buttons.css:4-23`). This playbook keeps the `@theme static` block because it is what exists; if Tailwind is removed, the primitives move to `:root` unchanged and nothing else in the playbook changes. Owner: Max.
 2. **Typeface.** IBM Plex (OFL, tabular figures, good German glyphs) is proposed as a "technical workshop ledger" direction. Confirm with Anne, or keep system fonts for legibility.
