@@ -121,6 +121,14 @@
   margin: 0.4rem 0 0;
 }
 
+/* Health-data consent gate (No-Go step "Einwilligung Gesundheitsdaten") */
+.consent-block--pending { border-left: 4px solid var(--tone-waiting-border); padding-left: 1rem; }
+.consent-block__error {
+  color: var(--tone-danger-fg);
+  font-size: 0.9rem;
+  margin: 0.4rem 0;
+}
+
 /* No-Go entries — deliberately alarm-toned */
 .no-go-item {
   display: flex;
