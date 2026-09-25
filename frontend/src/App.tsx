@@ -59,7 +59,7 @@ const PageLoader: React.FC = () => (
     alignItems: 'center',
     minHeight: '60vh',
     fontSize: '1.2rem',
-    color: '#666'
+    color: 'var(--color-text-muted)'
   }}>
     <div>Laden...</div>
   </div>
