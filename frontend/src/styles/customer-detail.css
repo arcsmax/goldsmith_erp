@@ -634,3 +634,121 @@
     padding: 1rem;
   }
 }
+
+/* ============================================================
+   VERLAUF — customer 360 activity list (W2-12, DOM-38)
+   ============================================================ */
+
+.cactivity-count {
+  color: var(--color-text-muted);
+  font-size: var(--type-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.cactivity-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.cactivity-row {
+  display: grid;
+  grid-template-columns: 9rem 1fr auto auto auto;
+  align-items: center;
+  gap: var(--space-4);
+  min-height: var(--touch-comfort);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-raised);
+  color: var(--color-text);
+  text-decoration: none;
+  transition: border-color var(--duration-fast) var(--ease-standard);
+}
+
+.cactivity-row:hover {
+  border-color: var(--color-border-strong);
+}
+
+.cactivity-row:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+.cactivity-row__kind {
+  color: var(--color-text-muted);
+  font-size: var(--type-sm);
+  font-weight: 600;
+}
+
+.cactivity-row__main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.cactivity-row__title {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cactivity-row__ref,
+.cactivity-row__date {
+  color: var(--color-text-muted);
+  font-size: var(--type-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.cactivity-row__amount {
+  text-align: end;
+  font-weight: 600;
+}
+
+.cactivity-state {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-5);
+}
+
+.cactivity-state h3 {
+  margin: 0;
+  font-size: var(--type-md);
+}
+
+.cactivity-state .btn-primary,
+.cactivity-state .btn-secondary,
+.cactivity-more {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--touch-min);
+  padding: 0 var(--space-5);
+  text-decoration: none;
+}
+
+.cactivity-more {
+  margin-top: var(--space-4);
+}
+
+.cactivity-error {
+  color: var(--color-danger-fg);
+  font-weight: 600;
+}
+
+@media (max-width: 600px) {
+  .cactivity-row {
+    grid-template-columns: 1fr auto;
+    gap: var(--space-2);
+  }
+
+  .cactivity-row__kind,
+  .cactivity-row__main {
+    grid-column: 1 / -1;
+  }
+}
