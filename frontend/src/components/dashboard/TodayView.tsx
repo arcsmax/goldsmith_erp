@@ -5,10 +5,14 @@
 // and today's timers. Every row links to its next action. Refetches on
 // live order and time-tracking hints (refetch bus) and never shows
 // "alles erledigt" when loading failed.
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+//
+// W3-03: one useQuery per mount (['dashboard', 'today']). Live order and
+// time-tracking hints invalidate ['dashboard'] in lib/realtimeInvalidation.
+import React from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { dashboardApi, type DashboardToday } from '../../api/dashboard';
+import { queryKeys } from '../../api/queryKeys';
 import { logError } from '../../lib/logError';
-import { useRefetchOn } from '../../lib/refetchBus';
 import { TodayLane, TodayRow } from './TodayLane';
 import {
   PENDING_KIND_LABEL,
@@ -28,38 +32,17 @@ interface TodayViewProps {
   role?: string | null;
 }
 
-type LoadState =
-  | { status: 'loading' }
-  | { status: 'error' }
-  | { status: 'ready'; data: DashboardToday };
+async function fetchToday(): Promise<DashboardToday> {
+  try {
+    return await dashboardApi.getToday();
+  } catch (err) {
+    logError('Heute-Übersicht konnte nicht geladen werden', err);
+    throw err;
+  }
+}
 
-function useTodaySummary(): { state: LoadState; reload: () => void } {
-  const [state, setState] = useState<LoadState>({ status: 'loading' });
-  const requestId = useRef(0);
-
-  const load = useCallback(async () => {
-    const current = ++requestId.current;
-    try {
-      const data = await dashboardApi.getToday();
-      if (current === requestId.current) setState({ status: 'ready', data });
-    } catch (err) {
-      logError('Heute-Übersicht konnte nicht geladen werden', err);
-      if (current === requestId.current) setState({ status: 'error' });
-    }
-  }, []);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
-  useRefetchOn('orders', () => void load());
-  useRefetchOn('time_tracking', () => void load());
-
-  const reload = useCallback(() => {
-    setState({ status: 'loading' });
-    void load();
-  }, [load]);
-
-  return { state, reload };
+function useTodaySummary() {
+  return useQuery({ queryKey: queryKeys.dashboard.today(), queryFn: fetchToday });
 }
 
 const SummaryTiles: React.FC<{ data: DashboardToday }> = ({ data }) => {
@@ -190,23 +173,23 @@ function Lanes({ data, role }: { data: DashboardToday; role?: string | null }) {
 }
 
 export const TodayView: React.FC<TodayViewProps> = ({ role }) => {
-  const { state, reload } = useTodaySummary();
+  const { data, isPending, isRefetching, refetch } = useTodaySummary();
 
-  if (state.status === 'loading') {
+  // A failed background refetch keeps the summary on screen.
+  if (isPending || (!data && isRefetching)) {
     return <div className="deadlines-loading" role="status">Heute-Übersicht wird geladen…</div>;
   }
-  if (state.status === 'error') {
+  if (!data) {
     return (
       <div className="deadlines-error" role="alert">
         <p>Die Heute-Übersicht konnte nicht geladen werden.</p>
-        <button type="button" className="btn btn-primary" onClick={reload}>
+        <button type="button" className="btn btn-primary" onClick={() => void refetch()}>
           Übersicht neu laden
         </button>
       </div>
     );
   }
 
-  const { data } = state;
   return (
     <div className="today-view">
       <p className="dashboard-timestamp">

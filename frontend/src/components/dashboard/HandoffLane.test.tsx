@@ -1,8 +1,8 @@
 // LV-08: the "Übergaben an mich" lane showed the raw enum
 // ("Übergabe: request_review"); it must show the German handoff type.
 import { describe, expect, it, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { screen } from '@testing-library/react';
+import { renderWithQuery } from '../../test/queryWrapper';
 
 const mockGetPending = vi.fn();
 vi.mock('../../api/handoffs', () => ({
@@ -20,11 +20,7 @@ describe('HandoffLane', () => {
       data: [{ id: 1, order_id: 13, handoff_type: 'request_review', notes: null }],
     });
 
-    render(
-      <MemoryRouter>
-        <HandoffLane />
-      </MemoryRouter>,
-    );
+    renderWithQuery(<HandoffLane />);
 
     expect(await screen.findByText('Übergabe: Prüfung anfordern')).toBeInTheDocument();
     expect(screen.queryByText(/request_review/)).not.toBeInTheDocument();
