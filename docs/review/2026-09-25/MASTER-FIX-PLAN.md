@@ -3,7 +3,8 @@
 - **Baseline:** `main` @ `73fff19`. Green: 1805 backend tests pass (6 skipped, 1 xfailed), 485 frontend tests pass; mypy (under a 96-module baseline), black, isort, bandit and `tsc --noEmit` exit 0. Backend line coverage 68%.
 - **Inputs:** the eight reviews in this folder, the three verifier reports (62 confirmed, 1 partial, 0 refuted), and [FINDINGS-REGISTER.md](FINDINGS-REGISTER.md) (212 findings).
 - **Output of this plan:** 83 fix items in 7 waves. Every finding in the register maps to exactly one wave; a few findings are split across two items and the register names both.
-- **Companion documents:** [00-SUMMARY.md](00-SUMMARY.md) (verdict and decisions), `docs/design/UI-UX-PLAYBOOK.md` (design rules and the migration order Wave 4 follows).
+- **Companion documents:** [00-SUMMARY.md](00-SUMMARY.md) (verdict and decisions), `docs/design/UI-UX-PLAYBOOK.md` (design rules and the migration order Wave 4 follows), [PROGRESS.md](PROGRESS.md) (dated changelog, decisions taken, open follow-ups, how to verify locally).
+- **Integration branch:** `audit/2026-09-fixes` (created off `main` @ `73fff19`, ~21 fix branches merged in as of 2026-09-25). **Wave 1 is complete except the items marked `partial` below** (W1-04, W1-05, W1-07, W1-08, W1-10, W1-12, W1-14, W1-15, W1-18); every other Wave 1 item is `done`. Wave 2 has landed only for W2-13 (partial) and W2-15 (done); W2-01, W2-02, W2-03, W2-05 and W2-07 have agents still running (`in progress`); the rest of Wave 2 has not started. Wave 5 has W5-01, W5-02 and W5-03 `in progress`; the rest of Wave 5 has not started. Waves 3, 4, 6 and 7 have not started except for a few findings fixed as side effects of Wave 1/2 work (tracked in the findings register, not below, since this section only covers W1/W2/W5 status per the plan's own scope).
 
 ---
 
@@ -103,6 +104,29 @@ Legend: `[money]`, `[auth]`, `[gdpr]` tag items that need the adversarial round.
 | W1-19 `[auth]` | Credential changes need the current password; roles assignable by ADMIN | SEC-11, SEC-F6 | `api/routers/users.py`, `models/user.py`, `services/user_service.py`, `services/email_service.py`, `frontend/src/pages/UsersPage.tsx`, `frontend/src/api/users.ts` | S | none | parallel-safe | `poetry run pytest -q tests/integration/test_users_me_reauth.py tests/integration/test_role_assignment.py` exit 0 | `current_password` required for any email or password change (bcrypt verify), audit row, notice to the old address. ADMIN-only role field on the admin update endpoint, audit-logged, cannot demote the last admin. UsersPage gets a role select. |
 | W1-20 `[gdpr]` | No PII or tokens in request logs | SEC-05, GDPR-10 | `src/goldsmith_erp/middleware/logging.py`, `tests/unit/test_logging_redaction.py` | S | none | parallel-safe | `poetry run pytest -q tests/unit/test_logging_redaction.py` exit 0 | Log `request.url.path` plus an allow-list of query keys (for example `limit`, `offset`, `status`); mask `/portal/status/{token}` as `/portal/status/***`. |
 
+**Status (as of 2026-09-25, integration branch `audit/2026-09-fixes`).** The table has no room for a Status column, so it is recorded here, one line per item; see [PROGRESS.md](PROGRESS.md) for the evidence behind each line.
+
+- **W1-01** — done. SEC-02, SEC-08 (`948ddf5`; SEC-02's placeholder-bypass loophole found by the adversarial round closed by `e121bfb`).
+- **W1-02** — done. SEC-F1, SEC-03, SEC-06, SEC-F2, OPS-15 (`29fab2f`, `4518e2f`, `948ddf5`).
+- **W1-03** — done. SEC-04, SEC-10, SEC-17 (`b315d25`, `8940316`, `ec46dd6`).
+- **W1-04** — partial (financial-read audit logging for repairs, materials and metal-inventory reads not added; SEC-15 stays open). SEC-01, SEC-09, GDPR-03, GDPR-04, GDPR-09's gating done (`fd15807`, `90fe1b5`, `083b1f9`).
+- **W1-05** — partial (create-with-allergies for a brand-new customer isn't fully wired — the consent can't be granted before the customer has an id; photo_use/marketing/email_contact consents are recorded but nothing enforces them yet). GDPR-02, GDPR-11, DOM-07's capture UI done (`996703f`, `f976482`).
+- **W1-06** — done. BE-05, BE-04 (`41c1a4f`).
+- **W1-07** — partial (BE-25's duplicate, cost-based quote line builder was not consolidated into the planned shared `LineItemBuilder`; the adversarial round found a zero-price quote conversion, a concurrent double-conversion race and an unrechecked customer-reassignment gap, all routed to W2-05). BE-01, BE-02 done (`6cecd9e`, `41c1a4f`).
+- **W1-08** — partial (DOM-20's per-metal gram breakdown, `total_fine_gold_g` still aggregates across metals, needs a schema change; out of this item's scope). BE-03, BE-11, DOM-19 done (`41c1a4f`, `33ddd44`, `17adb24`, `9639f64`).
+- **W1-09** — done. BE-13 (`4e7b77f`); 7%/0% VAT-rate DATEV accounts still await the Steuerberater's mapping (D-02), and storno detection is a conservative heuristic until W1-10's `issued_at`/`cancelled_at` data exists.
+- **W1-10** — partial (§14 UStG seller fields deferred to W2-04; Art. 15 export of the snapshot deferred to W5-08; the retention sweep itself is W5-07). GDPR-01, BE-23's live-customer-render bug fixed (`996703f`, `1230e8f`).
+- **W1-11** — done. BE-07, BE-08 (`d07b769`); the PG-only concurrency test was not executed live this session (same locking code, unchanged).
+- **W1-12** — partial (BE-21's shared-session-per-monitor-scan not fixed; no per-order opt-out; the adversarial round's C1.2 finding — a second completion after reopening an order sends no second mail — is routed to W2-02). BE-09, DOM-10, GDPR-13, VER-01, VER-02 done (`4fb66d7`, `22612fb`, `9af6d05`).
+- **W1-13** — done. FE-01 (`405bf6c`).
+- **W1-14** — partial (FE-09's "disable submit buttons while offline" half needs per-form wiring across pages out of this item's scope). FE-07, FE-10, FE-11, FE-19 done (`775c3c0`, `4208877`, `1d57dc8`).
+- **W1-15** — partial (FE-04's unhandled quick-action IDs and unread `?action=`/`?edit=` deep-link params are not done — overlaps W2-01). FE-02, FE-03 done (`3cf39de`, `d1c82a3`).
+- **W1-16** — done. BE-10 (`27ea4f4`).
+- **W1-17** — done. BE-12, BE-18, SEC-13 (`d5f4b22`); the PG two-session race test was not written.
+- **W1-18** — partial (F-3's label print-script CSP block is still in place, deliberately not relaxed; the "labels print initials unless a setting enables full names" behaviour was not implemented; `api/routers/materials.py`'s separate photo-upload path was not hardened). SEC-18, GDPR-19's EXIF stripping done (`77c7a35`).
+- **W1-19** — done. SEC-11, SEC-F6 (`467bc3b`, `61dc5a3`); the adversarial round's admin-self-edit reauthentication bypass (B3) closed by `e121bfb`.
+- **W1-20** — done. SEC-05, GDPR-10 (`b315d25`, `4518e2f`, `54c0815`).
+
 **Wave 1 exit criteria (before CP-1):** all 20 items merged; the adversarial rounds for the 17 tagged items closed; `poetry run pytest -q`, the PG integration job, `migration-smoke`, Vitest, `tsc` and the Playwright specs green on the integration tip; register rows for Wave 1 set to fixed; a scratch production install from `setup.sh` boots and serves the SPA with security headers; `EMAIL_NOTIFICATIONS_ENABLED=true` on the demo stack for one simulated day produces one pickup email per order.
 
 ### Wave 2: Make the product work for the goal
@@ -125,6 +149,25 @@ Legend: `[money]`, `[auth]`, `[gdpr]` tag items that need the adversarial round.
 | W2-14 `[money]` | Interruptions reduce time; actual hours recomputed | BE-19 | `services/time_tracking_service.py`, `services/ml_data_service.py`, `services/order_service.py`, migration (`Interruption.resumed_at`), `frontend/src/components/TimerWidget.tsx` (server pause, optional) | M | W1-17, W1-14 | serialize: migration | `poetry run pytest -q tests/unit/test_time_tracking_service.py tests/integration/test_order_completion_accuracy.py` exit 0: a 3 h entry with a 45 min interruption counts 2.25 h; rework after completion updates `actual_hours` | Resume scan closes the interruption; recompute on every stop or edit. If the owner wants Pause back (D-15), implement it here as an interruption. |
 | W2-15 `[money]` | Metal price feed correct and visible | BE-22, DOM-11c | `services/metal_price_service.py`, `services/metal_inventory_service.py`, `frontend/src/components/estimator/EstimatorPanel.tsx` | S | none | parallel-safe | `poetry run pytest -q tests/unit/test_metal_price_service.py` and `cd frontend && yarn vitest run src/components/estimator` exit 0 | Raise when EUR is missing (fallback chain takes over); apply fineness per metal (Pt950 = 0.95 x XPT); do not truncate `price_per_gram` to cents (Numeric in W3-11). Show "Kurs vom <Datum>, Quelle"; red warning on hardcoded defaults. |
 | W2-16 `[gdpr]` `[money]` | Altgold Ankaufsbuch and optional ID capture | DOM-21 | `db/models.py`, migration (encrypted ID fields), `models/scrap_gold.py`, `frontend/src/components/scrap-gold/ScrapGoldTab.tsx`, export | M | W1-08, W1-05 | serialize: `db/models.py`, migration | `poetry run pytest -q tests/integration/test_scrap_gold_ankaufsbuch.py` exit 0: above the configured cash threshold ID fields are required; values stored as EncryptedString; export lists purchases | ID type, number (EncryptedString), checked-by; threshold from settings (D-16); 5-year retention per GDPR-01; included in Art. 15 export. |
+
+**Status (as of 2026-09-25).** Only W2-13, W2-15 and (as fix-item metadata) the still-running items below have any evidence; everything else in Wave 2 is unstarted.
+
+- **W2-01** (order photo upload, deep links) — in progress; the fix agent is still running, no report yet.
+- **W2-02** (repair customer updates) — in progress; the fix agent is still running, no report yet.
+- **W2-03** ("Heute" dashboard) — in progress; the fix agent is still running, no report yet.
+- **W2-04** (§14 invoice, Storno, numbering) — open.
+- **W2-05** (quote Versenden, data carry-through) — in progress; the fix agent is still running, no report yet. It also inherits the adversarial round's BE-17 gaps (zero-price conversion, concurrent double-conversion, customer-reassignment) from W1-07.
+- **W2-06** (order intake: type, alloy, gemstones) — open.
+- **W2-07** (order lifecycle, statuses, history) — in progress; the fix agent is still running, no report yet.
+- **W2-08** (order page tabs, timeline) — open.
+- **W2-09** (hallmarks) — open.
+- **W2-10** (customers without email) — open.
+- **W2-11** (handover PDF, valuation button) — open.
+- **W2-12** (repair intake, customer 360) — open.
+- **W2-13** (live updates) — partial. The hub, notifications and time-tracking realtime wiring landed (`c8065f8`, `faa106e`), closing FE-08, BE-20 (partly) and, as a side effect, the adversarial round's CRITICAL D.1 `/ws/orders` price leak. Still open: Dashboard/Orders/OrderDetail/Repairs pages don't yet call `useRefetchOn`, and `repair_updates`, `material_updates`, `consultation_updates`, `metal_price_updates` and `anomaly_alerts` have no subscriber.
+- **W2-14** (interruptions reduce time) — open.
+- **W2-15** (metal price feed) — done. BE-22, DOM-11c (`60a8289`); minor open item: the estimator's alloy-override input has no debounce.
+- **W2-16** (Altgold Ankaufsbuch) — open.
 
 **Wave 2 exit criteria (before CP-2):** each domain top-15 definition of done in 05 §F is demonstrated on the demo stack on a tablet (photo in 3 taps, overdue first, one pickup mail, §14 fields on the PDF, conversion without retyping, on-hold lane, 333 order completable); new endpoints carry `@require_permission`, audit logging and `selectinload`; register rows for Wave 2 set to fixed.
 
@@ -182,6 +225,13 @@ Order and rules follow `docs/design/UI-UX-PLAYBOOK.md` section 9 (phases 1 to 5)
 | W5-11 | Engineering docs, ADRs, operator warnings | ARCH-16, OPS-08, SEC-F8, SEC-F10 | `docs/adr/`, `docs/DEPLOYMENT.md`, `docs/technical/infrastructure/PRODUCTION_DEPLOYMENT.md`, C4 model, `CLAUDE.md` | S | none | parallel-safe | links checked; no doc references migrations that do not exist | Archive `ARCHITECTURE_REVIEW.md`; ADRs (single box, cookie auth, price semantics, services own queries); app rollback procedure; do not co-host web apps; rotate demo accounts; refresh stale CLAUDE.md guidance (01 §F.7). |
 | W5-12 | Observability and a one-shot migrate service | ARCH-12, ARCH-14 | `podman-compose.prod.yml`, `main.py` or `core/logging.py` (Sentry/GlitchTip init), `frontend/src/components/ErrorBoundary.tsx` | S | W3-10 | serialize: `main.py`, `podman-compose.prod.yml` | staged error appears in the tracker with PII scrubbed; failed migration does not crash-loop the API | Self-hosted GlitchTip preferred (D-18); journald log driver; `migrate` service runs `scripts/backup.sh` first, `depends_on: service_completed_successfully`. |
 | W5-13 | Repository hygiene | OPS-14 | `.claude/worktrees/`, `alembic_backup/` | S | none | parallel-safe | `git worktree list` shows only active worktrees | Diff each stale worktree for uncommitted work before `git worktree remove`. |
+
+**Status (as of 2026-09-25).** No Wave 5 item has landed; three have agents running.
+
+- **W5-01** (dependency backlog) — in progress; the fix agent is still running, no report yet.
+- **W5-02** (CI pipeline: E2E, coverage, audits, ruff, caching, mypy ratchet) — in progress; the fix agent is still running, no report yet.
+- **W5-03** (make targets and timer installer) — in progress; the fix agent is still running, no report yet.
+- **W5-04** through **W5-13** — open; no evidence any of them has started.
 
 **Wave 5 exit criteria:** no runtime-reachable high or critical advisory; CI runs all E2E specs, frontend coverage, dependency audits and ruff; timers installed by one command and visible in `make prod-status`; an encrypted backup restored in a drill with the erasure ledger replayed; retention sweep signed off; Art. 30 record, TOMs, Art. 13 notice, AVV list and breach runbook exist.
 

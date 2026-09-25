@@ -16,74 +16,83 @@ This is the tracking artifact for the September 2026 audit. One row per finding.
 
 **Totals:** 212 findings. CRITICAL 8, HIGH 67, MEDIUM 91, LOW 46. By wave: W1 60, W2 43, W3 23, W4 30, W5 30, W6 10, W7 16.
 
+## Status legend (updated 2026-09-25, after wave 1 landed on `audit/2026-09-fixes`)
+
+- **`fixed (<sha1>[, <sha2>...])`** — a fix-item scratch report or a commit message on `audit/2026-09-fixes` states this finding is resolved; the short SHA(s) are the commits that did it (in landing order). Commit hashes are from `git log --oneline main..HEAD`.
+- **`partial: <what's left>`** — a report explicitly describes the finding as only partly closed, or closes the finding's primary defect while leaving a sub-part (named in the clause) for a later wave. The clause names the residual gap and, where relevant, the wave item that owns it.
+- **`open`** — no scratch report or commit claims this finding was touched. This includes findings whose owning fix item is still running (see [MASTER-FIX-PLAN.md](MASTER-FIX-PLAN.md) section 0 for the in-progress list) as well as findings in waves 2-7 that have not started.
+- This pass covers waves 1-3 only where evidence exists (see [PROGRESS.md](PROGRESS.md) for the full changelog and the 21 fix branches read to build it). No row was set to `fixed`/`partial` on the strength of a commit message alone where a scratch report contradicted it; per this task's method, the report is the source of truth on any disagreement. Severities and wave/fix-item assignments are unchanged from the original synthesis.
+
+**Post-wave-1 counts:** fixed 51, partial 14, open 147.
+
 ## Register
 
 | ID | Severity | Title | Source | Verified | Wave | Status | Fix item |
 |---|---|---|---|---|---|---|---|
-| SEC-02 | CRITICAL | Placeholder SECRET_KEY accepted with DEBUG=False: admin JWT forgery | 02 | Y | 1 | open | W1-01 |
-| BE-01 | CRITICAL | Quote conversion stores gross; invoice adds 19% VAT again | 03 | Y | 1 | open | W1-07 |
-| BE-02 | CRITICAL | Invoice bills purchase cost, ignores margin and agreed price | 03 | Y | 1 | open | W1-07 |
-| BE-05 | CRITICAL | PUT /invoices cancels PAID invoice; bypasses INVOICE_DELETE | 03 | Y | 1 | open | W1-06 |
-| FE-01 | CRITICAL | Customer portal redirects every visitor to staff login | 04 | Y | 1 | open | W1-13 |
-| FE-02 | CRITICAL | QR timer start dead-ends: no activity ever chosen | 04 | Y | 1 | open | W1-15 |
-| GDPR-01 | CRITICAL | Erasure destroys tax/AML records; no immutable invoice copy | 07 | Y | 1 | open | W1-10 |
-| GDPR-02 | CRITICAL | Allergy health data without consent, readable by all roles | 07 | Y | 1 | open | W1-05 |
-| SEC-01 | HIGH | VIEWER reads financial data on 11 endpoints | 02 | Y | 1 | open | W1-04 |
-| SEC-08 | HIGH | Dev compose exposes unauthenticated Redis and HTTP backend | 02 | Y | 1 | open | W1-01 |
-| SEC-F1 | HIGH † | setup.sh writes a .env.production that cannot boot | 02 | N | 1 | open | W1-02 |
-| BE-03 | HIGH | Altgold credit crashes invoice creation; VAT treatment likely wrong | 03 | Y | 1 | open | W1-08 |
-| BE-04 | HIGH | Soll/Ist "Rechnung erstellen" always 500 (aware due_date) | 03 | Y | 1 | open | W1-06 |
-| BE-07 | HIGH | Second metal consumption overwrites order material cost and weight | 03 | Y | 1 | open | W1-11 |
-| BE-08 | HIGH | AVERAGE costing draws whole weight from first batch | 03 | Y | 1 | open | W1-11 |
-| BE-09 | HIGH | Reminder scans re-fire every 5 min, emailing customers | 03 | Y | 1 | open | W1-12 |
-| BE-10 | HIGH | Estimator prices labor from summed medians, not shown median | 03 | Y | 1 | open | W1-16 |
-| BE-11 | HIGH | Signed scrap gold mutable; mixed metals valued at gold price | 03 | Y | 1 | open | W1-08 |
-| BE-12 | HIGH | Double-tap Start creates two running timers, permanent 500 | 03 | Y | 1 | open | W1-17 |
-| BE-13 | HIGH | DATEV export books drafts/cancelled invoices to 19% account | 03 | Y | 1 | open | W1-09 |
-| FE-03 | HIGH | Repair scans open or book against order with same ID | 04 | Y | 1 | open | W1-15 |
+| SEC-02 | CRITICAL | Placeholder SECRET_KEY accepted with DEBUG=False: admin JWT forgery | 02 | Y | 1 | fixed (b315d25, e121bfb) | W1-01 |
+| BE-01 | CRITICAL | Quote conversion stores gross; invoice adds 19% VAT again | 03 | Y | 1 | fixed (6cecd9e) | W1-07 |
+| BE-02 | CRITICAL | Invoice bills purchase cost, ignores margin and agreed price | 03 | Y | 1 | fixed (41c1a4f) | W1-07 |
+| BE-05 | CRITICAL | PUT /invoices cancels PAID invoice; bypasses INVOICE_DELETE | 03 | Y | 1 | fixed (41c1a4f, b9bc5fa) | W1-06 |
+| FE-01 | CRITICAL | Customer portal redirects every visitor to staff login | 04 | Y | 1 | fixed (405bf6c) | W1-13 |
+| FE-02 | CRITICAL | QR timer start dead-ends: no activity ever chosen | 04 | Y | 1 | fixed (3cf39de) | W1-15 |
+| GDPR-01 | CRITICAL | Erasure destroys tax/AML records; no immutable invoice copy | 07 | Y | 1 | fixed (996703f, 1230e8f) | W1-10 |
+| GDPR-02 | CRITICAL | Allergy health data without consent, readable by all roles | 07 | Y | 1 | fixed (996703f, f976482) | W1-05 |
+| SEC-01 | HIGH | VIEWER reads financial data on 11 endpoints | 02 | Y | 1 | fixed (fd15807, 083b1f9, c8065f8) | W1-04 |
+| SEC-08 | HIGH | Dev compose exposes unauthenticated Redis and HTTP backend | 02 | Y | 1 | fixed (948ddf5) | W1-01 |
+| SEC-F1 | HIGH † | setup.sh writes a .env.production that cannot boot | 02 | N | 1 | fixed (29fab2f) | W1-02 |
+| BE-03 | HIGH | Altgold credit crashes invoice creation; VAT treatment likely wrong | 03 | Y | 1 | fixed (41c1a4f) | W1-08 |
+| BE-04 | HIGH | Soll/Ist "Rechnung erstellen" always 500 (aware due_date) | 03 | Y | 1 | fixed (41c1a4f) | W1-06 |
+| BE-07 | HIGH | Second metal consumption overwrites order material cost and weight | 03 | Y | 1 | fixed (d07b769) | W1-11 |
+| BE-08 | HIGH | AVERAGE costing draws whole weight from first batch | 03 | Y | 1 | fixed (d07b769) | W1-11 |
+| BE-09 | HIGH | Reminder scans re-fire every 5 min, emailing customers | 03 | Y | 1 | fixed (4fb66d7, 22612fb, 9af6d05) | W1-12 |
+| BE-10 | HIGH | Estimator prices labor from summed medians, not shown median | 03 | Y | 1 | fixed (27ea4f4) | W1-16 |
+| BE-11 | HIGH | Signed scrap gold mutable; mixed metals valued at gold price | 03 | Y | 1 | fixed (33ddd44, 17adb24) | W1-08 |
+| BE-12 | HIGH | Double-tap Start creates two running timers, permanent 500 | 03 | Y | 1 | fixed (d5f4b22) | W1-17 |
+| BE-13 | HIGH | DATEV export books drafts/cancelled invoices to 19% account | 03 | Y | 1 | fixed (4e7b77f) | W1-09 |
+| FE-03 | HIGH | Repair scans open or book against order with same ID | 04 | Y | 1 | fixed (3cf39de, d1c82a3) | W1-15 |
 | FE-04 | HIGH | Half the quick actions unhandled; deep links go nowhere | 04 | Y | 1 | open | W1-15 (deep links W2-01) |
-| FE-07 | HIGH | TimeTrackingProvider initialises before login and never again | 04 | Y | 1 | open | W1-14 |
-| FE-09 | HIGH | Offline banner promises sync that does not exist | 04 | Y | 1 | open | W1-14 |
-| FE-10 | HIGH | Timer "Pause" is cosmetic; server keeps counting | 04 | Y | 1 | open | W1-14 |
-| FE-11 | HIGH | Service worker caches PII/prices, survives logout | 04 | Y | 1 | open | W1-14 |
-| DOM-10 | HIGH | Customer emails sent per staff user and repeated | 05 | Y | 1 | open | W1-12 |
-| DOM-19 | HIGH | Altgold add-item sends number; API wants string; 925 maps to 0 | 05 | Y | 1 | open | W1-08 |
-| DOM-20 | HIGH | Mixed-metal Altgold valued entirely at gold price | 05 | Y | 1 | open | W1-08 |
-| GDPR-03 | HIGH | VIEWER reads repair costs, insurance values, revenue, prices | 07 | Y | 1 | open | W1-04 |
-| GDPR-04 | HIGH | Design IP and photos readable by VIEWER | 07 | Y | 1 | open | W1-04 |
-| VER-01 | HIGH | Repair-ready notification sends customer name to every user incl. VIEWER | VFD | Y (new) | 1 | open | W1-12 |
-| SEC-03 | MEDIUM | Shipped env files set 7-8 day token lifetime | 02 | N | 1 | open | W1-02 |
-| SEC-04 | MEDIUM | Rate limits key on nginx IP: global login lockout | 02 | N | 1 | open | W1-03 |
-| SEC-05 | MEDIUM | Customer PII written to logs via request URLs | 02 | N | 1 | open | W1-20 |
-| SEC-06 | MEDIUM | SPA served without CSP, frame protection or HSTS | 02 | N | 1 | open | W1-02 |
-| SEC-07 | MEDIUM | Stored HTML injection in printable labels (incl. F-3) | 02 | N | 1 | open | W1-18 |
-| SEC-09 | MEDIUM | Design IP visible to VIEWER | 02 | N | 1 | open | W1-04 |
-| SEC-10 | MEDIUM | Public portal mounted despite "no live portal" decision | 02 | N | 1 | open | W1-03 |
-| SEC-11 | MEDIUM | PUT /users/me changes email/password without re-authentication | 02 | N | 1 | open | W1-19 |
-| SEC-F2 | MEDIUM † | nginx 1 MB body limit breaks 8-10 MB uploads | 02 | N | 1 | open | W1-02 |
-| SEC-F6 | MEDIUM † | No API to assign roles; new users default VIEWER | 02 | N | 1 | open | W1-19 |
-| BE-17 | MEDIUM | Quotes: cross-customer, duplicate orders on convert, expired approvals | 03 | N | 1 | open | W1-07 |
-| BE-18 | MEDIUM | Editing a time entry can store negative durations | 03 | N | 1 | open | W1-17 |
+| FE-07 | HIGH | TimeTrackingProvider initialises before login and never again | 04 | Y | 1 | fixed (775c3c0) | W1-14 |
+| FE-09 | HIGH | Offline banner promises sync that does not exist | 04 | Y | 1 | fixed (1d57dc8) | W1-14 |
+| FE-10 | HIGH | Timer "Pause" is cosmetic; server keeps counting | 04 | Y | 1 | fixed (4208877) | W1-14 |
+| FE-11 | HIGH | Service worker caches PII/prices, survives logout | 04 | Y | 1 | fixed (775c3c0, 1d57dc8) | W1-14 |
+| DOM-10 | HIGH | Customer emails sent per staff user and repeated | 05 | Y | 1 | fixed (4fb66d7, 9af6d05) | W1-12 |
+| DOM-19 | HIGH | Altgold add-item sends number; API wants string; 925 maps to 0 | 05 | Y | 1 | fixed (9639f64, 33ddd44) | W1-08 |
+| DOM-20 | HIGH | Mixed-metal Altgold valued entirely at gold price | 05 | Y | 1 | partial: valuation now per-metal-price-correct (33ddd44); total_fine_gold_g still aggregates across metals, no per-metal breakdown (needs schema change) | W1-08 |
+| GDPR-03 | HIGH | VIEWER reads repair costs, insurance values, revenue, prices | 07 | Y | 1 | fixed (fd15807, 083b1f9) | W1-04 |
+| GDPR-04 | HIGH | Design IP and photos readable by VIEWER | 07 | Y | 1 | fixed (fd15807, 083b1f9) | W1-04 |
+| VER-01 | HIGH | Repair-ready notification sends customer name to every user incl. VIEWER | VFD | Y (new) | 1 | fixed (4fb66d7) | W1-12 |
+| SEC-03 | MEDIUM | Shipped env files set 7-8 day token lifetime | 02 | N | 1 | fixed (29fab2f) | W1-02 |
+| SEC-04 | MEDIUM | Rate limits key on nginx IP: global login lockout | 02 | N | 1 | fixed (b315d25) | W1-03 |
+| SEC-05 | MEDIUM | Customer PII written to logs via request URLs | 02 | N | 1 | fixed (b315d25, 4518e2f) | W1-20 |
+| SEC-06 | MEDIUM | SPA served without CSP, frame protection or HSTS | 02 | N | 1 | fixed (4518e2f) | W1-02 |
+| SEC-07 | MEDIUM | Stored HTML injection in printable labels (incl. F-3) | 02 | N | 1 | partial: label HTML escaping done (e9cfca8); F-3 print-script still blocked by CSP, not relaxed | W1-18 |
+| SEC-09 | MEDIUM | Design IP visible to VIEWER | 02 | N | 1 | fixed (fd15807, 083b1f9) | W1-04 |
+| SEC-10 | MEDIUM | Public portal mounted despite "no live portal" decision | 02 | N | 1 | fixed (8940316) | W1-03 |
+| SEC-11 | MEDIUM | PUT /users/me changes email/password without re-authentication | 02 | N | 1 | fixed (467bc3b, e121bfb) | W1-19 |
+| SEC-F2 | MEDIUM † | nginx 1 MB body limit breaks 8-10 MB uploads | 02 | N | 1 | fixed (948ddf5) | W1-02 |
+| SEC-F6 | MEDIUM † | No API to assign roles; new users default VIEWER | 02 | N | 1 | fixed (61dc5a3) | W1-19 |
+| BE-17 | MEDIUM | Quotes: cross-customer, duplicate orders on convert, expired approvals | 03 | N | 1 | partial: convert_quote now reuses the linked order and writes net (6cecd9e); adversarial round found zero-price conversion, a concurrent double-conversion race and a customer-reassignment gap still open, routed to W2-05 | W1-07 |
+| BE-18 | MEDIUM | Editing a time entry can store negative durations | 03 | N | 1 | fixed (d5f4b22) | W1-17 |
 | BE-21 | MEDIUM | Monitor loop shares one session; one error aborts later steps | 03 | N | 1 | open | W1-12 |
-| BE-23 | MEDIUM | Invoice PDF rendered from live customer; lacks §14 fields | 03 | N | 1 | open | W1-10 |
-| FE-19 | MEDIUM | Timer polling continues after logout and when idle | 04 | N | 1 | open | W1-14 |
-| DOM-07 | MEDIUM | No consent capture for photos, marketing, AGB | 05 | N | 1 | open | W1-05 |
-| GDPR-09 | MEDIUM | Valuation PDF not ADMIN-only; repair insurance value plain, unaudited | 07 | N | 1 | open | W1-04 (encryption W5-06) |
-| GDPR-10 | MEDIUM | Customer names/emails in request logs via query strings | 07 | N | 1 | open | W1-20 |
-| GDPR-11 | MEDIUM | No consent or objection management at all | 07 | N | 1 | open | W1-05 |
-| GDPR-13 | MEDIUM | Internal staff text sent to customers in automatic emails | 07 | N | 1 | open | W1-12 |
-| VER-02 | MEDIUM | Repair-ready notifications skip WebSocket publish | VFD | Y (new) | 1 | open | W1-12 |
-| SEC-13 | LOW | Time-entry stop/edit/interrupt lack owner check | 02 | N | 1 | open | W1-17 |
+| BE-23 | MEDIUM | Invoice PDF rendered from live customer; lacks §14 fields | 03 | N | 1 | partial: PDF now renders from the immutable snapshot, not the live customer row (1230e8f); §14 UStG seller fields still missing, deferred to W2-04 | W1-10 |
+| FE-19 | MEDIUM | Timer polling continues after logout and when idle | 04 | N | 1 | fixed (775c3c0) | W1-14 |
+| DOM-07 | MEDIUM | No consent capture for photos, marketing, AGB | 05 | N | 1 | partial: consent purposes (photo_use, marketing, email_contact) exist and can be granted via ConsentPanel (996703f, f976482); nothing yet enforces them before use | W1-05 |
+| GDPR-09 | MEDIUM | Valuation PDF not ADMIN-only; repair insurance value plain, unaudited | 07 | N | 1 | partial: valuation PDF export restricted to ADMIN (90fe1b5); repair_jobs.estimated_value still plaintext and unaudited (deferred to W5-06) | W1-04 (encryption W5-06) |
+| GDPR-10 | MEDIUM | Customer names/emails in request logs via query strings | 07 | N | 1 | fixed (b315d25, 54c0815) | W1-20 |
+| GDPR-11 | MEDIUM | No consent or objection management at all | 07 | N | 1 | partial: consent store and capture UI built (996703f, f976482); no self-service objection/withdrawal beyond staff-initiated revoke, no enforcement yet | W1-05 |
+| GDPR-13 | MEDIUM | Internal staff text sent to customers in automatic emails | 07 | N | 1 | fixed (4fb66d7) | W1-12 |
+| VER-02 | MEDIUM | Repair-ready notifications skip WebSocket publish | VFD | Y (new) | 1 | fixed (4fb66d7) | W1-12 |
+| SEC-13 | LOW | Time-entry stop/edit/interrupt lack owner check | 02 | N | 1 | fixed (d5f4b22) | W1-17 |
 | SEC-15 | LOW | Remaining audit-log gaps for financial reads | 02 | N | 1 | open | W1-04 |
-| SEC-17 | LOW | Login timing oracle for account enumeration | 02 | N | 1 | open | W1-03 |
-| SEC-18 | LOW | Image decompression bomb headroom vs 512 MB container | 02 | N | 1 | open | W1-18 |
+| SEC-17 | LOW | Login timing oracle for account enumeration | 02 | N | 1 | fixed (ec46dd6) | W1-03 |
+| SEC-18 | LOW | Image decompression bomb headroom vs 512 MB container | 02 | N | 1 | fixed (77c7a35) | W1-18 |
 | BE-25 | LOW | Duplicate invoice/quote line builders with hardcoded 75.0 rate | 03 | N | 1 | open | W1-07 |
-| OPS-15 | LOW | AUTH_REVOCATION_FAIL_CLOSED undocumented in .env.example | 06 | N | 1 | open | W1-02 |
-| GDPR-19 | LOW | Photo originals keep EXIF; labels print full names (incl. F-9) | 07 | N | 1 | open | W1-18 |
+| OPS-15 | LOW | AUTH_REVOCATION_FAIL_CLOSED undocumented in .env.example | 06 | N | 1 | fixed (948ddf5) | W1-02 |
+| GDPR-19 | LOW | Photo originals keep EXIF; labels print full names (incl. F-9) | 07 | N | 1 | partial: EXIF stripped from stored originals (77c7a35); labels still print full names, initials-only setting not implemented | W1-18 |
 | ARCH-01 | HIGH | Order lifecycle unmodelled; status history never written | 01 | Y | 2 | open | W2-07 |
 | BE-06 | HIGH | Order status not a state machine; no history | 03 | Y | 2 | open | W2-07 |
 | FE-05 | HIGH | Dashboard drops overdue orders; failure shows "alles erledigt" | 04 | Y | 2 | open | W2-03 |
-| FE-08 | HIGH | Frontend never subscribes to channels the backend publishes | 04 | Y | 2 | open | W2-13 |
+| FE-08 | HIGH | Frontend never subscribes to channels the backend publishes | 04 | Y | 2 | fixed (c8065f8, faa106e) | W2-13 |
 | FE-13 | HIGH | No order-photo upload; gallery uses unservable URLs | 04 | Y | 2 | open | W2-01 |
 | DOM-01 | HIGH | No way to upload order photos; scanner photo goes nowhere | 05 | Y | 2 | open | W2-01 |
 | DOM-02 | HIGH | Walk-in customers without email cannot be created | 05 | Y | 2 | open | W2-10 |
@@ -99,15 +108,15 @@ This is the tracking artifact for the September 2026 audit. One row per finding.
 | DOM-24 | HIGH | Invoice PDF lacks §14 UStG seller data and Leistungsdatum | 05 | Y | 2 | open | W2-04 |
 | BE-16 | MEDIUM | Sequential numbers use unlocked MAX+1; break at 10,000 | 03 | N | 2 | open | W2-04 |
 | BE-19 | MEDIUM | Interruptions never reduce time; actual_hours frozen at completion | 03 | N | 2 | open | W2-14 |
-| BE-20 | MEDIUM | Events published to unsubscribed channels; Redis lacks timeouts | 03 | N | 2 | open | W2-13 |
-| BE-22 | MEDIUM | Metal price feed treats USD as EUR; Pt priced at 999 | 03 | N | 2 | open | W2-15 |
+| BE-20 | MEDIUM | Events published to unsubscribed channels; Redis lacks timeouts | 03 | N | 2 | partial: fan-out hub with Redis timeouts and bool return landed (c8065f8, faa106e); repair_updates, material_updates, consultation_updates, metal_price_updates and anomaly_alerts still have no subscriber | W2-13 |
+| BE-22 | MEDIUM | Metal price feed treats USD as EUR; Pt priced at 999 | 03 | N | 2 | fixed (60a8289) | W2-15 |
 | FE-17 | MEDIUM | Walk-in repair intake takes customer as numeric ID | 04 | N | 2 | open | W2-12 |
 | FE-18 | MEDIUM | Cross-page hand-offs pass query params nobody reads | 04 | N | 2 | open | W2-05 |
 | DOM-05 | MEDIUM | Ring-size requirement triggered by substring "ring" (Ohrring) | 05 | N | 2 | open | W2-06 |
 | DOM-06 | MEDIUM | Metal and alloy entered twice and can contradict | 05 | N | 2 | open | W2-06 |
 | DOM-08 | MEDIUM | Repair intake has no signed receipt or conditions | 05 | N | 2 | open | W2-12 |
 | DOM-09 | MEDIUM | Order form never sets order_type; estimator exact tier starves | 05 | N | 2 | open | W2-06 |
-| DOM-11c | MEDIUM | Metal price source not shown when quoting | 05 | N | 2 | open | W2-15 |
+| DOM-11c | MEDIUM | Metal price source not shown when quoting | 05 | N | 2 | fixed (60a8289) | W2-15 |
 | DOM-15b | MEDIUM | Dashboard widgets truncated at 100 orders | 05 | N | 2 | open | W2-03 |
 | DOM-16 | MEDIUM | Order history tab does not show status history | 05 | N | 2 | open | W2-08 |
 | DOM-17 | MEDIUM | 13 tabs on the order page | 05 | N | 2 | open | W2-08 |
@@ -124,21 +133,21 @@ This is the tracking artifact for the September 2026 audit. One row per finding.
 | DOM-44 | LOW † | Two unconnected hallmark systems (OrderHallmark register unused) | 05 | N | 2 | open | W2-09 |
 | DOM-46 | LOW † | Legacy NEW status still default and in labels | 05 | N | 2 | open | W2-07 |
 | ARCH-03 | HIGH | Repository layer is 1.8k LOC dead code; routers run SQL | 01 | Y | 3 | open | W3-09 |
-| ARCH-04 | HIGH | Background work in web process; 2 workers duplicate it | 01 | Y | 3 | open | W3-10 (outbox W6-01) |
-| BE-14 | HIGH | Float money and round() cause cent errors on documents | 03 | Y | 3 | open | W3-11 |
+| ARCH-04 | HIGH | Background work in web process; 2 workers duplicate it | 01 | Y | 3 | partial: advisory-lock leader election for the system monitor landed (22612fb), effective only on PostgreSQL (documented no-op on other engines); lifespan management and the durable outbox remain open (W3-10, W6-01) | W3-10 (outbox W6-01) |
+| BE-14 | HIGH | Float money and round() cause cent errors on documents | 03 | Y | 3 | partial: invoice calculate_totals now Decimal/ROUND_HALF_UP (f827746); quote_service.calculate_totals and the full Numeric-column migration (~70 Float money columns) still pending (W3-11) | W3-11 |
 | FE-06 | HIGH | Lists, pickers, dashboards silently cap at 100/200 rows | 04 | Y | 3 | open | W3-08 |
 | ARCH-06 | MEDIUM | No frontend server-state layer; lists truncate, never refresh | 01 | N | 3 | open | W3-03 |
 | ARCH-07 | MEDIUM | API types hand-maintained on both sides, no generated contract | 01 | N | 3 | open | W3-02 |
 | ARCH-08 | MEDIUM | Inconsistent pagination, error envelope, prefixes, exception mapping | 01 | N | 3 | open | W3-07 (pagination W3-08) |
-| ARCH-11 | MEDIUM | Real-time fan-out per socket, no lifecycle, partly unused | 01 | N | 3 | open | W3-10 |
-| BE-15 | MEDIUM | Timezone-aware inputs reach naive columns (fails on PG) | 03 | N | 3 | open | W3-11 |
+| ARCH-11 | MEDIUM | Real-time fan-out per socket, no lifecycle, partly unused | 01 | N | 3 | partial: one Redis subscriber per process (was per-socket) via the new RealtimeHub (c8065f8); lifespan-managed task cancellation still pending (W3-10) | W3-10 |
+| BE-15 | MEDIUM | Timezone-aware inputs reach naive columns (fails on PG) | 03 | N | 3 | partial: UtcNaiveDatetime normalisation applied to invoice due_date/paid_date and time-entry end_time; app-wide sweep of ~98 naive DateTime columns still pending (W3-11) | W3-11 |
 | FE-12 | MEDIUM | Role enum casing drift hides admin metal-type manager | 04 | N | 3 | open | W3-02 |
 | FE-14 | MEDIUM | ErrorBoundary retry never reloads; resets on every re-render | 04 | N | 3 | open | W3-01 |
 | FE-15 | MEDIUM | No ESLint at all; hooks rules unenforced | 04 | N | 3 | open | W3-06 |
 | FE-16 | MEDIUM | Forms: mixed validation, raw axios errors, no dirty guard | 04 | N | 3 | open | W3-05 |
 | FE-20 | MEDIUM | No cancellation or dedupe; 54 copies of loading boilerplate | 04 | N | 3 | open | W3-03 |
 | SEC-F5 | MEDIUM † | PUT /admin/email-config changes one worker only, lost on restart | 02 | N | 3 | open | W3-10 |
-| SEC-12 | LOW | WebSocket auth skips revocation and is_active; accepts ?token= | 02 | N | 3 | open | W3-10 |
+| SEC-12 | LOW | WebSocket auth skips revocation and is_active; accepts ?token= | 02 | N | 3 | partial: /ws/events now checks token revocation (c8065f8); ?token= query auth still accepted and is_active/Origin checks still pending (W3-10) | W3-10 |
 | SEC-16 | LOW | Unbounded limit on 7 list endpoints | 02 | N | 3 | open | W3-08 |
 | BE-24 | LOW | Dead repository layer references non-existent columns | 03 | N | 3 | open | W3-09 |
 | BE-26 | LOW | Unlimited list endpoints; stray test DBs in repo root | 03 | N | 3 | open | W3-08 |
