@@ -167,6 +167,9 @@ class RepairPhoto(Base):
     Photos are grouped by phase (INTAKE / DURING_REPAIR / COMPLETED) so the
     customer can see before/after documentation and the workshop has a visual
     audit trail for each step.
+
+    DEPRECATED (ARCH phase 4): superseded by ``media_assets`` (MediaAsset).
+    Still dual-written for one release; read new code from media_assets.
     """
 
     __tablename__ = "repair_photos"

@@ -2092,6 +2092,66 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/media": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Media
+         * @description Medien eines Auftrags / einer Reparatur / Beratung auflisten.
+         */
+        get: operations["list_media_api_v1_media_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/media/{media_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Media File
+         * @description Originaldatei eines Mediums ausliefern.
+         */
+        get: operations["get_media_file_api_v1_media__media_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/media/{media_id}/thumbnail": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Media Thumbnail
+         * @description Miniaturansicht ausliefern (Fallback: Original).
+         */
+        get: operations["get_media_thumbnail_api_v1_media__media_id__thumbnail_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/metal-inventory/allocate-preview": {
         parameters: {
             query?: never;
@@ -9213,6 +9273,57 @@ export interface components {
             /** Value */
             value?: number | null;
         };
+        /**
+         * MediaAssetRead
+         * @description Metadata of one media asset.
+         */
+        MediaAssetRead: {
+            /** Bytes */
+            bytes?: number | null;
+            /** Caption */
+            caption?: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Customer Visible */
+            customer_visible: boolean;
+            /** Height */
+            height?: number | null;
+            /** Id */
+            id: string;
+            kind: components["schemas"]["MediaKind"];
+            /** Legacy Id */
+            legacy_id?: string | null;
+            /** Mime */
+            mime: string;
+            /** Owner Id */
+            owner_id: number;
+            owner_type: components["schemas"]["MediaOwnerType"];
+            /** Sort Order */
+            sort_order: number;
+            /** Tag */
+            tag?: string | null;
+            /** Taken At */
+            taken_at?: string | null;
+            /** Uploaded By */
+            uploaded_by?: number | null;
+            /** Width */
+            width?: number | null;
+        };
+        /**
+         * MediaKind
+         * @description What a media asset is.
+         * @enum {string}
+         */
+        MediaKind: "photo" | "signature" | "document";
+        /**
+         * MediaOwnerType
+         * @description What a media asset belongs to.
+         * @enum {string}
+         */
+        MediaOwnerType: "order" | "repair" | "consultation" | "customer_update";
         /**
          * MetalAllocation
          * @description Represents allocation of metal from specific purchase for order
@@ -16499,6 +16610,106 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_media_api_v1_media_get: {
+        parameters: {
+            query: {
+                owner_id: number;
+                owner_type: components["schemas"]["MediaOwnerType"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MediaAssetRead"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_media_file_api_v1_media__media_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                media_id: string;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_media_thumbnail_api_v1_media__media_id__thumbnail_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                media_id: string;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
             };
             /** @description Validation Error */
             422: {

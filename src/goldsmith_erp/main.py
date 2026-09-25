@@ -36,10 +36,9 @@ from goldsmith_erp.api.routers import (
     health,
 )
 from goldsmith_erp.api.routers import imports as imports_router
+from goldsmith_erp.api.routers import invoices, materials, measurements
+from goldsmith_erp.api.routers import media as media_router
 from goldsmith_erp.api.routers import (
-    invoices,
-    materials,
-    measurements,
     metal_inventory,
     metal_prices,
     metal_types,
@@ -301,6 +300,9 @@ app.include_router(
 app.include_router(
     gemstones.router, prefix=settings.API_V1_STR, tags=["gemstones"]
 )  # W2-06: /orders/{id}/gemstones + /gemstones/{id}
+app.include_router(
+    media_router.router, prefix=f"{settings.API_V1_STR}/media", tags=["media"]
+)  # ARCH phase 4: unified media_assets (ADR-2026-09-25-media)
 
 
 async def _authenticate_websocket(websocket: WebSocket) -> int | None:

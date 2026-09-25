@@ -5,9 +5,10 @@ Photo upload service for order documentation.
 Handles file validation (JPEG / PNG / WEBP via magic bytes), size checking,
 filesystem storage, thumbnail generation (Pillow), and OrderPhoto DB records.
 
-Storage layout:
-  {PHOTO_STORAGE_PATH}/{order_id}/{uuid}.{ext}
-  {PHOTO_STORAGE_PATH}/{order_id}/thumbs/{uuid}.jpg
+Storage layout (content-addressed via MediaStore since ARCH phase 4; rows
+written before that keep the old {order_id}/{uuid}.{ext} paths):
+  {PHOTO_STORAGE_PATH}/{order_id}/{sha256[:2]}/{sha256}.{ext}
+  {PHOTO_STORAGE_PATH}/{order_id}/{sha256[:2]}/thumbs/{sha256}.jpg
 
 Thumbnail width is fixed at THUMBNAIL_WIDTH px (height auto-scaled).
 
@@ -20,16 +21,17 @@ Security notes:
 
 import logging
 import uuid
+from datetime import datetime
 from pathlib import Path
-from typing import Optional
+from typing import Optional, cast
 
 from fastapi import UploadFile
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from goldsmith_erp.core.config import settings
-from goldsmith_erp.db.models import OrderPhoto
-from goldsmith_erp.services.image_validation import (
+from goldsmith_erp.db.models import MediaOwnerType, OrderPhoto
+from goldsmith_erp.services.image_validation import (  # noqa: F401 (re-exports)
     _MAX_MAGIC_BYTES,
     THUMBNAIL_WIDTH,
     PhotoValidationError,
@@ -38,10 +40,11 @@ from goldsmith_erp.services.image_validation import (
 from goldsmith_erp.services.image_validation import (
     detect_image_type as _detect_image_type,
 )
-from goldsmith_erp.services.image_validation import (
+from goldsmith_erp.services.image_validation import (  # noqa: F401 (re-exports)
     read_validated_image,
     store_processed_original,
 )
+from goldsmith_erp.services.media_service import MediaService, unlink_with_thumbnail
 
 logger = logging.getLogger(__name__)
 
@@ -71,16 +74,6 @@ ALLOWED_MIME_TYPES: dict[bytes, str] = {
 def _storage_root() -> Path:
     """Return the resolved photo storage root as a Path."""
     return Path(settings.PHOTO_STORAGE_PATH).resolve()
-
-
-def _order_dir(order_id: int) -> Path:
-    """Return the directory for a specific order's photos."""
-    return _storage_root() / str(order_id)
-
-
-def _thumb_dir(order_id: int) -> Path:
-    """Return the thumbnail subdirectory for a specific order."""
-    return _order_dir(order_id) / "thumbs"
 
 
 # ─── Public service ──────────────────────────────────────────────────────────
@@ -127,52 +120,43 @@ class PhotoService:
         Raises:
             PhotoValidationError: If file type is unsupported or size exceeds limit.
         """
-        raw, ext = await read_validated_image(file, settings.PHOTO_MAX_SIZE_MB)
-
-        # Build storage paths
-        file_uuid = str(uuid.uuid4())
-        order_dir = _order_dir(order_id)
-        order_dir.mkdir(parents=True, exist_ok=True)
-        photo_path = order_dir / f"{file_uuid}.{ext}"
-        thumb_path = _thumb_dir(order_id) / f"{file_uuid}.jpg"
-
-        # Write the original — EXIF stripped (GDPR-19), orientation applied,
-        # off the event loop and time-bounded (SEC-18). Unlike thumbnail
-        # generation below, a failure here is FATAL: storing the raw,
-        # unprocessed bytes instead would defeat the EXIF-stripping
-        # guarantee, so the upload must fail rather than silently fall back.
-        await store_processed_original(raw, ext, photo_path)
+        # Storage, EXIF stripping, content addressing and the thumbnail are
+        # MediaService's job (ARCH phase 4). A failure there is FATAL: the
+        # raw, unprocessed bytes are never stored (GDPR-19).
+        stored = await MediaService.store_upload(file, MediaOwnerType.ORDER, order_id)
         logger.info(
             "Photo saved",
             extra={
                 "order_id": order_id,
                 "user_id": user_id,
-                "path": str(photo_path),
-                "size_bytes": len(raw),
+                "size_bytes": stored.size,
             },
         )
 
-        # Generate thumbnail (non-fatal — log warning if it fails)
-        try:
-            await create_thumbnail_bounded(photo_path, thumb_path)
-        except Exception:
-            logger.warning(
-                "Thumbnail generation failed — photo still stored",
-                extra={"photo_path": str(photo_path)},
-                exc_info=True,
-            )
-
-        # Persist DB record
+        # Legacy row (deprecated, dual-written for one release) plus the
+        # media_assets row sharing its uuid.
+        file_uuid = str(uuid.uuid4())
         photo = OrderPhoto(
             id=file_uuid,
             order_id=order_id,
-            file_path=str(photo_path),
+            file_path=str(stored.path),
             taken_by=user_id,
             notes=notes,
             time_entry_id=time_entry_id,
         )
         db.add(photo)
         await db.flush()  # get the ID without committing — caller owns the transaction
+        await MediaService.record_asset(
+            db,
+            stored,
+            owner_type=MediaOwnerType.ORDER,
+            owner_id=order_id,
+            user_id=user_id,
+            caption=notes,
+            legacy_id=file_uuid,
+            media_id=file_uuid,
+            taken_at=cast(Optional[datetime], photo.timestamp),
+        )
         return photo
 
     @staticmethod
@@ -240,24 +224,15 @@ class PhotoService:
         if not photo:
             return False
 
-        # Remove original file
-        photo_path = Path(photo.file_path)
-        if photo_path.exists():
-            photo_path.unlink()
+        # Files of a media-backed photo are refcounted by MediaService (two
+        # rows can share one content-addressed file); pre-media rows keep the
+        # old direct unlink.
+        if await MediaService.delete_for_legacy(db, MediaOwnerType.ORDER, photo_id):
             logger.info(
-                "Photo file deleted",
-                extra={"photo_id": photo_id, "user_id": user_id},
+                "Photo deleted", extra={"photo_id": photo_id, "user_id": user_id}
             )
         else:
-            logger.warning(
-                "Photo file not found on disk during deletion",
-                extra={"photo_id": photo_id, "path": str(photo_path)},
-            )
-
-        # Remove thumbnail (derive path from original location)
-        thumb_path = get_thumbnail_path(photo)
-        if thumb_path and thumb_path.exists():
-            thumb_path.unlink()
+            unlink_with_thumbnail(Path(cast(str, photo.file_path)), photo_id, "Photo")
 
         await db.delete(photo)
         await db.flush()

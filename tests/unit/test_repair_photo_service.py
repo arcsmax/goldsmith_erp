@@ -78,7 +78,8 @@ async def test_upload_and_list(db_session, tmp_path, monkeypatch, repair, sample
     # id is a DB-assigned integer, NOT the uuid4 filename stem.
     assert isinstance(photo.id, int)
     assert (tmp_path / "repairs" / str(repair.id)).exists()
-    assert (tmp_path / "repairs" / str(repair.id) / "thumbs").exists()
+    # Content-addressed layout (ARCH phase 4): <owner>/<sha[:2]>/thumbs/.
+    assert list((tmp_path / "repairs" / str(repair.id)).glob("*/thumbs"))
 
 
 @pytest.mark.asyncio

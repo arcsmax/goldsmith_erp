@@ -308,7 +308,11 @@ class OrderComment(Base):
 
 
 class OrderPhoto(Base):
-    """Foto-Dokumentation für Aufträge"""
+    """Foto-Dokumentation für Aufträge
+
+    DEPRECATED (ARCH phase 4): superseded by ``media_assets`` (MediaAsset).
+    Still dual-written for one release; read new code from media_assets.
+    """
 
     __tablename__ = "order_photos"
 
