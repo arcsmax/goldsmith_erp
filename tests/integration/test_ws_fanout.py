@@ -152,6 +152,25 @@ def _timer_event(user_id: int) -> dict[str, Any]:
     }
 
 
+REPAIR_EVENT = {
+    "action": "status_changed",
+    "repair_id": 99,
+    "repair_number": "REP-2026-0099",
+    "new_status": "quoted",
+    "estimated_cost": "120.00",
+    "diagnosis_notes": "Kette gerissen",
+}
+
+JOB_EVENT = {
+    "job_id": 12,
+    "kind": "repair",
+    "status": "awaiting_approval",
+    "timestamp": "2026-09-25T10:00:00+00:00",
+    "customer_id": 7,
+    "title": "Kette Weissgold",
+}
+
+
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
@@ -277,8 +296,49 @@ class TestFanOut:
             assert a.receive_json()["channel"] == "order_updates"
             assert b.receive_json()["channel"] == "order_updates"
             assert ws_manager.realtime_hub.subscriber_starts == 1
-        assert broker.channels == {"order_updates", "time_tracking_updates"}
+        assert broker.channels == {
+            "order_updates",
+            "time_tracking_updates",
+            "repair_updates",
+            "job_updates",
+        }
         assert broker.patterns == {"notifications:*"}
+
+    def test_repair_update_reaches_socket_as_hint_without_financials(
+        self, ws_client, broker, goldsmith_user
+    ):
+        with ws_client.websocket_connect(
+            "/ws/events", headers=_cookie(goldsmith_user.id)
+        ) as ws:
+            broker.publish("repair_updates", REPAIR_EVENT)
+            message = ws.receive_json()
+
+        assert message["channel"] == "repair_updates"
+        assert message["data"] == {
+            "action": "status_changed",
+            "repair_id": 99,
+            "repair_number": "REP-2026-0099",
+            "new_status": "quoted",
+        }
+        assert "estimated_cost" not in json.dumps(message)
+        assert "diagnosis_notes" not in json.dumps(message)
+
+    def test_job_update_reaches_socket_as_hint(self, ws_client, broker, goldsmith_user):
+        with ws_client.websocket_connect(
+            "/ws/events", headers=_cookie(goldsmith_user.id)
+        ) as ws:
+            broker.publish("job_updates", JOB_EVENT)
+            message = ws.receive_json()
+
+        assert message["channel"] == "job_updates"
+        assert message["data"] == {
+            "job_id": 12,
+            "kind": "repair",
+            "status": "awaiting_approval",
+            "timestamp": "2026-09-25T10:00:00+00:00",
+        }
+        assert "customer_id" not in json.dumps(message)
+        assert "title" not in json.dumps(message)
 
 
 class TestNoFinancialDataOnTheWire:
@@ -334,6 +394,39 @@ class TestNoFinancialDataOnTheWire:
         assert message["data"]["status"] == "completed"
         assert message["data"]["action"] == "create"
         for needle in self.FORBIDDEN:
+            assert needle not in raw, f"{needle!r} leaked over the WebSocket"
+
+    def test_viewer_socket_gets_repair_hint_without_financial_fields(
+        self, ws_client, broker, viewer_user
+    ):
+        payload = {
+            "action": "status_changed",
+            "repair_id": 4242,
+            "repair_number": "REP-2026-4242",
+            "new_status": "quoted",
+            "estimated_cost": "120.00",
+            "actual_cost": "115.00",
+            "diagnosis_notes": "Kette gerissen, Loetstelle undicht",
+            "customer_id": 7,
+        }
+        with ws_client.websocket_connect(
+            "/ws/events", headers=_cookie(viewer_user.id)
+        ) as ws:
+            broker.publish("repair_updates", payload)
+            raw = ws.receive_text()
+
+        message = json.loads(raw)
+        assert message["data"]["repair_id"] == 4242
+        assert message["data"]["new_status"] == "quoted"
+        for needle in (
+            "estimated_cost",
+            "actual_cost",
+            "120.00",
+            "115.00",
+            "diagnosis_notes",
+            "Loetstelle",
+            "customer_id",
+        ):
             assert needle not in raw, f"{needle!r} leaked over the WebSocket"
 
     def test_notification_event_is_a_hint_without_text(

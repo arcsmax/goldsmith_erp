@@ -16,10 +16,20 @@ same transaction (no DB triggers):
 ``sync_*`` is an idempotent upsert: a row that has no job yet (created by
 old code, the seed script or a test fixture) gets one on its next sync.
 Nothing here commits; the caller's ``transactional(db)`` does.
+
+Every sync also publishes a reduced ``job_updates`` hint (job id, kind,
+status, timestamp — see ``core/ws_manager.py``) so the Werkstatt board
+refreshes live. Unlike ``repair_updates`` in ``repair_service.py``, this
+fires from INSIDE the caller's still-open transaction (``sync_*`` never
+owns the transaction boundary — its many callers do, and are out of this
+module's scope), so it is a best-effort, slightly-early hint rather than a
+strict post-commit publish; ``publish_event`` never raises, so it cannot
+fail the sync itself.
 """
 
 from __future__ import annotations
 
+import json
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -32,6 +42,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from goldsmith_erp.core import pubsub
 from goldsmith_erp.core.config import settings
 from goldsmith_erp.db.models import (
     ORDER_NUMBER_KIND,
@@ -238,7 +249,37 @@ class JobService:
                 "Job created",
                 extra={"job_id": job.id, "kind": snap.kind.value, "row_id": row.id},
             )
+        await JobService._publish_job_event(job, snap)
         return job  # type: ignore[no-any-return]
+
+    @staticmethod
+    async def _publish_job_event(job: Any, snap: JobSnapshot) -> None:
+        """Publish a reduced ``job_updates`` hint — job id, kind, status,
+        timestamp only (see ``core/ws_manager.py``'s ``_JOB_HINT_KEYS``).
+
+        ``publish_event`` never raises, but the call is still wrapped so a
+        future change to that contract can never fail a job sync.
+        """
+        try:
+            await pubsub.publish_event(
+                "job_updates",
+                json.dumps(
+                    {
+                        "job_id": job.id,
+                        "kind": snap.kind.value,
+                        "status": snap.status.value,
+                        "timestamp": (
+                            job.updated_at.isoformat() if job.updated_at else None
+                        ),
+                    }
+                ),
+            )
+        except Exception:
+            logger.error(
+                "Failed to publish job_updates event",
+                extra={"job_id": job.id},
+                exc_info=True,
+            )
 
     @staticmethod
     async def _loaded(db: AsyncSession, row: Any) -> Any:

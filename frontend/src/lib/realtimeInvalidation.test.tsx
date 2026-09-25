@@ -45,6 +45,27 @@ describe('realtimeInvalidation', () => {
     expect(REALTIME_INVALIDATIONS.notifications).toContainEqual(['notifications']);
   });
 
+  it('maps repair and job hints to ["repairs"] / ["jobs"]', () => {
+    expect(REALTIME_INVALIDATIONS.repair_updates).toContainEqual(['repairs']);
+    expect(REALTIME_INVALIDATIONS.repair_updates).toContainEqual(['jobs']);
+    expect(REALTIME_INVALIDATIONS.job_updates).toContainEqual(['jobs']);
+  });
+
+  it('invalidates ["repairs"] and ["jobs"] on a repair_updates hint', () => {
+    const { invalidatedRoots } = renderBridge();
+    act(() => FakeWebSocket.latest().open());
+    act(() =>
+      FakeWebSocket.latest().serverSend({ channel: 'repair_updates', data: { repair_id: 1 } }),
+    );
+    expect(invalidatedRoots()).toEqual([['repairs'], ['jobs']]);
+  });
+
+  it('invalidates ["jobs"] on a job_updates hint', () => {
+    const { invalidatedRoots } = renderBridge();
+    act(() => FakeWebSocket.latest().serverSend({ channel: 'job_updates', data: { job_id: 1 } }));
+    expect(invalidatedRoots()).toEqual([['jobs']]);
+  });
+
   it('invalidates ["orders"] (and the dashboard and handoffs) on an order_updates hint', () => {
     const { invalidatedRoots } = renderBridge();
     act(() => FakeWebSocket.latest().open());
