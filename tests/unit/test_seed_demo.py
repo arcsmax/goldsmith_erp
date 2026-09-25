@@ -473,3 +473,41 @@ async def test_seed_demo_order_photos_have_files_on_disk(seeded_e2e_db) -> None:
         assert (
             thumb is not None and thumb.exists()
         ), f"OrderPhoto {photo.id} has no thumbnail on disk: {thumb}"
+
+
+@pytest.mark.asyncio
+async def test_seed_demo_customer_notified_at_requires_sent_update(
+    seeded_e2e_db,
+) -> None:
+    """LV-18: RepairJob.customer_notified_at may only be set alongside a
+    SENT CustomerUpdate (mirrors RepairService.send_customer_update) — a
+    repair must never claim the customer was notified while its Kundeninfo
+    is still a draft.
+    """
+    from sqlalchemy import select
+
+    from goldsmith_erp.db.models import CustomerUpdate, CustomerUpdateStatus, RepairJob
+
+    async with seeded_e2e_db() as verify_db:
+        repairs = (await verify_db.execute(select(RepairJob))).scalars().all()
+        notified = [r for r in repairs if r.customer_notified_at is not None]
+        assert notified, "expected at least one notified repair in the seed"
+
+        for repair in notified:
+            sent_updates = (
+                (
+                    await verify_db.execute(
+                        select(CustomerUpdate).where(
+                            CustomerUpdate.repair_job_id == repair.id,
+                            CustomerUpdate.status == CustomerUpdateStatus.SENT,
+                        )
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            assert sent_updates, (
+                f"RepairJob {repair.id} has customer_notified_at set but no "
+                "SENT CustomerUpdate — LV-18 regression"
+            )
+            assert all(u.sent_at is not None for u in sent_updates)

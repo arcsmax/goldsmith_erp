@@ -3264,7 +3264,13 @@ async def seed_customer_updates(db, orders, repairs, users) -> list:
                 sent_at=_days_ago(5),
             )
         )
-    if len(repairs) > 3:
+    # LV-18: RepairJob.customer_notified_at may only be stamped once the
+    # matching Kundeninfo was actually SENT (see
+    # RepairService.send_customer_update) — a DRAFT update must never sit
+    # next to a repair whose customer_notified_at is already set. repairs[3]
+    # and repairs[4] (see seed_repair_jobs) both carry customer_notified_at,
+    # so their updates seed as SENT with that same timestamp instead of DRAFT.
+    if len(repairs) > 3 and repairs[3].customer_notified_at is not None:
         updates.append(
             dict(
                 repair_job_id=repairs[3].id,
@@ -3272,7 +3278,22 @@ async def seed_customer_updates(db, orders, repairs, users) -> list:
                 subject="Ihre Reparatur ist abholbereit",
                 body="Ihr Schmuckstueck ist fertig und kann abgeholt werden.",
                 sent_by=sender.id,
-                status=CustomerUpdateStatus.DRAFT,
+                status=CustomerUpdateStatus.SENT,
+                delivery_method=UpdateDeliveryMethod.EMAIL,
+                sent_at=repairs[3].customer_notified_at,
+            )
+        )
+    if len(repairs) > 4 and repairs[4].customer_notified_at is not None:
+        updates.append(
+            dict(
+                repair_job_id=repairs[4].id,
+                kind=CustomerUpdateKind.READY_FOR_PICKUP,
+                subject="Ihre Reparatur ist abholbereit",
+                body="Ihr Schmuckstueck ist fertig und kann abgeholt werden.",
+                sent_by=sender.id,
+                status=CustomerUpdateStatus.SENT,
+                delivery_method=UpdateDeliveryMethod.EMAIL,
+                sent_at=repairs[4].customer_notified_at,
             )
         )
 
