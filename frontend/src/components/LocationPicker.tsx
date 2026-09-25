@@ -145,4 +145,41 @@ export const LocationPicker: React.FC<LocationPickerProps> = ({
   );
 };
 
-export default LocationPicker;
+export interface NameLocationPickerProps {
+  currentLocation: string | null;
+  onSelectLocation: (location: string) => void;
+  onCancel?: () => void;
+}
+
+/**
+ * Name-based adapter (default export) for callers that store only the
+ * Standort name, e.g. the running-timer edit sheet. Same dropdown; hands
+ * back the chosen location's name.
+ */
+export const NameLocationPicker: React.FC<NameLocationPickerProps> = ({
+  currentLocation,
+  onSelectLocation,
+  onCancel,
+}) => {
+  const locations = useQuery(activeLocationsQuery());
+  const wanted = currentLocation?.trim().toLowerCase();
+  const match = wanted ? locations.data?.find((loc) => loc.name.toLowerCase() === wanted) : undefined;
+  return (
+    <>
+      <LocationPicker
+        value={match?.id ?? null}
+        currentName={currentLocation}
+        onChange={(location) => {
+          if (location) onSelectLocation(location.name);
+        }}
+      />
+      {onCancel && (
+        <Button variant="secondary" onClick={onCancel}>
+          Abbrechen
+        </Button>
+      )}
+    </>
+  );
+};
+
+export default NameLocationPicker;

@@ -25,7 +25,7 @@ vi.mock('../api/locations', async (importOriginal) => {
 });
 
 import { renderWithQuery } from '../test/queryWrapper';
-import { LocationPicker } from './LocationPicker';
+import { LocationPicker, NameLocationPicker } from './LocationPicker';
 
 const loc = (id: number, name: string) => ({
   id,
@@ -96,5 +96,19 @@ describe('LocationPicker', () => {
 
     await screen.findByRole('option', { name: 'Werkbank 1' });
     expect(screen.queryByRole('button', { name: 'Standort hinzufügen' })).not.toBeInTheDocument();
+  });
+});
+
+describe('NameLocationPicker (running-timer edit adapter)', () => {
+  it('preselects by name and returns the chosen name', async () => {
+    mockGetActive.mockResolvedValue([loc(1, 'Werkbank 1'), loc(2, 'Tresor')]);
+    const onSelect = vi.fn();
+    renderWithQuery(<NameLocationPicker currentLocation="werkbank 1" onSelectLocation={onSelect} />);
+
+    await screen.findByRole('option', { name: 'Tresor' });
+    const select = screen.getByLabelText('Standort') as HTMLSelectElement;
+    await waitFor(() => expect(select.value).toBe('1'));
+    await userEvent.selectOptions(select, '2');
+    expect(onSelect).toHaveBeenCalledWith('Tresor');
   });
 });
