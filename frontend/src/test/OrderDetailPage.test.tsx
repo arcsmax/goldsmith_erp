@@ -224,6 +224,25 @@ describe('OrderDetailPage — five tabs (DOM-17)', () => {
   });
 });
 
+describe('OrderDetailPage — "Angebot erstellen" role gate (LV2-04)', () => {
+  it('shows "Angebot erstellen" for GOLDSMITH', async () => {
+    asRole('GOLDSMITH');
+    mockGetById.mockResolvedValue(makeOrder('in_progress'));
+    renderPage();
+
+    expect(await screen.findByRole('button', { name: 'Angebot erstellen' })).toBeInTheDocument();
+  });
+
+  it('hides "Angebot erstellen" for VIEWER — it used to navigate to /quotes and get silently bounced to /dashboard by the route guard', async () => {
+    asRole('VIEWER');
+    mockGetById.mockResolvedValue(makeOrder('in_progress'));
+    renderPage();
+
+    await screen.findAllByText('Trauringe Meier');
+    expect(screen.queryByRole('button', { name: 'Angebot erstellen' })).not.toBeInTheDocument();
+  });
+});
+
 describe('OrderDetailPage — Weiter button (DOM-18)', () => {
   it('labels the primary button with the next status and PATCHes it', async () => {
     asRole('GOLDSMITH');

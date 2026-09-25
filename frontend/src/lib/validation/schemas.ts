@@ -113,7 +113,7 @@ export const OrderCreateSchema = z
     profit_margin_percent: z.number().min(0).max(100, 'Maximal 100 %').optional(),
     vat_rate: z.number().min(0).max(100, 'Maximal 100 %').optional(),
 
-    // Goldsmith Intake Fields (Pflichtfelder fuer Auftragsbestaetigung)
+    // Goldsmith Intake Fields (Pflichtfelder für Auftragsbestätigung)
     alloy: z.string().max(20, 'Maximal 20 Zeichen erlaubt').optional(),
     ring_size_mm: z.number().min(30, 'Mindestens 30 mm').max(100, 'Maximal 100 mm').optional(),
     surface_finish: z.string().max(50, 'Maximal 50 Zeichen erlaubt').optional(),

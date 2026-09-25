@@ -1,6 +1,7 @@
 // formatEur: one German money format everywhere (LV-10).
+// formatPreferenceKey: never show a raw Customer.preferences dict key (LV-20).
 import { describe, expect, it } from 'vitest';
-import { formatEur, MONEY_CLASS } from './format';
+import { formatEur, formatPreferenceKey, MONEY_CLASS } from './format';
 
 // Intl puts a no-break space (U+00A0) between amount and "€", so the sign
 // never wraps onto its own line.
@@ -35,5 +36,21 @@ describe('formatEur', () => {
 
   it('exposes the tabular-nums styling hook', () => {
     expect(MONEY_CLASS).toBe('money');
+  });
+});
+
+describe('formatPreferenceKey', () => {
+  it('maps the known db/models.py keys to a German label', () => {
+    expect(formatPreferenceKey('bevorzugt')).toBe('Bevorzugtes Material');
+    expect(formatPreferenceKey('style')).toBe('Stil');
+  });
+
+  it('humanizes an unrecognized key instead of showing the raw dict key', () => {
+    expect(formatPreferenceKey('no_gos')).toBe('No gos');
+    expect(formatPreferenceKey('ring-groesse')).toBe('Ring groesse');
+  });
+
+  it('falls back to the key itself when it has no readable content', () => {
+    expect(formatPreferenceKey('')).toBe('');
   });
 });

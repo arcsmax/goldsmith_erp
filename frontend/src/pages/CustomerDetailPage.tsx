@@ -11,7 +11,7 @@ import { useAuth } from '../contexts';
 import { canViewDesign } from '../lib/roles';
 import { ConsentPanel } from '../components/customers/ConsentPanel';
 import { CustomerActivityList } from '../components/customers/CustomerActivityList';
-import { formatEur, MONEY_CLASS } from '../lib/format';
+import { formatEur, formatPreferenceKey, MONEY_CLASS } from '../lib/format';
 import { logError } from '../lib/logError';
 import { StatusBadge } from '../ui/StatusBadge';
 import { Customer, CustomerCreateInput, CustomerUpdateInput } from '../types';
@@ -131,7 +131,7 @@ const StammdatenTab: React.FC<{ customer: Customer; onEdit: () => void }> = ({ c
             <>
               {Object.entries(customer.preferences).map(([key, value]) => (
                 <React.Fragment key={key}>
-                  <dt>{key}</dt>
+                  <dt>{formatPreferenceKey(key)}</dt>
                   <dd>{String(value)}</dd>
                 </React.Fragment>
               ))}
