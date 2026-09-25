@@ -14,7 +14,10 @@ export default defineConfig({
     include: ['src/**/*.{test,spec}.{ts,tsx}'],
     coverage: {
       provider: 'v8',
-      reporter: ['text', 'json', 'html'],
+      // Thresholds are intentionally not set yet (OPS-02): this wires the
+      // tool up and records a baseline number first. text = terminal
+      // summary; lcov = machine-readable report for CI/editor tooling.
+      reporter: ['text', 'lcov'],
       exclude: [
         'node_modules/',
         'src/test/',

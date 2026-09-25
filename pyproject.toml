@@ -29,9 +29,12 @@ email-validator = "^2.3.0"
 python-jose = {extras = ["cryptography"], version = "^3.5.0"}
 slowapi = "^0.1.9"
 python-json-logger = "^2.0.7"
-cryptography = "^48.0.1"
+cryptography = "^50.0.0"
 ecdsa = "^0.19.1"
 starlette = "^1.3.1"
+# Pinned directly (not just a transitive pull from starlette/httpx) to force
+# the GHSA-fixed version — CVE/Dependabot critical alert (OPS-06, W5-01).
+anyio = ">=4.14.2,<5.0.0"
 fpdf2 = "^2.8.7"
 jinja2 = "^3.1.6"
 pillow = "^12.1.1"
@@ -39,8 +42,8 @@ aiosmtplib = "^5.1.0"
 segno = "^1.6.1"
 
 [tool.poetry.group.dev.dependencies]
-pytest = "^8.0.0"
-pytest-asyncio = "^0.23.0"
+pytest = "^9.0.3"
+pytest-asyncio = "^1.0.0"
 black = "^26.3.1"
 isort = "^5.13.0"
 pylint = "^3.0.0"
@@ -53,6 +56,12 @@ httpx = "^0.28.1"
 factory-boy = "^3.3.3"
 aiosqlite = "^0.22.1"
 greenlet = "^3.3.2"
+# Not imported directly; pulled in transitively by pip-audit -> pip-api.
+# Pinned to force the Dependabot-flagged medium fix (OPS-06, W5-01).
+pip = ">=26.2.0"
+# Not imported directly; pulled in transitively by black/uvicorn. Pinned to
+# force the PYSEC-2026-2132 fix surfaced by `pip-audit` (OPS-06, W5-01).
+click = ">=8.3.3"
 
 [tool.poetry.extras]
 ml = [
