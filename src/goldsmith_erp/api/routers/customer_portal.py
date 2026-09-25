@@ -37,6 +37,8 @@ from goldsmith_erp.db.models import (
     RepairJobStatus,
 )
 from goldsmith_erp.db.session import get_db
+from goldsmith_erp.models.workshop_settings import WorkshopPublicContact
+from goldsmith_erp.services.workshop_settings_service import WorkshopSettingsService
 
 logger = logging.getLogger(__name__)
 
@@ -465,3 +467,25 @@ async def portal_status_by_token(
 
     # Do not include a new token on token-based lookups (use the same link again)
     return data
+
+
+@router.get(
+    "/workshop-contact",
+    response_model=WorkshopPublicContact,
+    summary="Kontaktdaten der Werkstatt (oeffentlich)",
+    description=(
+        "Oeffentlicher Endpunkt — kein Login erforderlich. Liefert nur "
+        "Name, Telefon und E-Mail der Werkstatt (kein Kundendaten, keine "
+        "Bank- oder Steuerdaten) fuer den Fusszeilen-Kontakt des Portals."
+    ),
+)
+async def portal_workshop_contact(
+    db: AsyncSession = Depends(get_db),
+) -> WorkshopPublicContact:
+    """Public subset of the Werkstatt-Stammdaten (name/phone/email only).
+
+    Replaces the hardcoded placeholder contact that used to be baked into
+    the frontend (open item, W7 hygiene) — the footer now reflects
+    whatever an ADMIN saved under Werkstatt-Einstellungen.
+    """
+    return await WorkshopSettingsService.public_contact(db)

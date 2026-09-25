@@ -149,3 +149,19 @@ class WorkshopSettingsRead(BaseModel):
     # §14 Abs. 4 UStG fields still missing, German labels (empty = complete).
     missing_fields: List[str] = Field(default_factory=list)
     is_complete: bool = False
+
+
+class WorkshopPublicContact(BaseModel):
+    """Public subset of the workshop settings (customer portal footer).
+
+    Only the workshop's own name and how to reach it — never the bank
+    details, tax IDs or invoice footer text that ride along on
+    ``WorkshopSettingsRead``. This is the workshop's own business contact
+    data, not customer PII, and is served to logged-out portal visitors.
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    name: str
+    phone: Optional[str] = None
+    email: Optional[str] = None

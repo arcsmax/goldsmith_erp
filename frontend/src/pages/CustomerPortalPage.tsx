@@ -10,14 +10,47 @@
  * Customer-facing: formal "Sie", plain language, large type, same tokens as
  * the app, only customer-safe data (see PortalStatusResult).
  */
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { PortalStatusResult, type PortalStatusResponse } from '../components/portal/PortalStatusResult';
+import { logError } from '../lib/logError';
 import { Button, Field } from '../ui';
 import '../styles/portal.css';
 
-/** Shown until workshop branding is available to logged-out visitors (open item). */
-const WORKSHOP_NAME = 'Goldschmiede';
+/** Fallback name while the workshop-contact fetch is in flight or fails —
+ * the real name/phone/email come from the public workshop-contact endpoint
+ * (W7 hygiene: this used to be a hardcoded placeholder, "Goldschmiede" /
+ * info@goldschmiede.de / +49 0 000 000, that never matched any real shop). */
+const FALLBACK_WORKSHOP_NAME = 'Goldschmiede';
 const LOOKUP_URL = '/api/v1/portal/lookup';
+const WORKSHOP_CONTACT_URL = '/api/v1/portal/workshop-contact';
+
+interface WorkshopContact {
+  name: string;
+  phone: string | null;
+  email: string | null;
+}
+
+/** `tel:` hrefs only tolerate digits, leading "+", and a few separators —
+ * strip everything else out of a free-text phone number for the href
+ * while keeping the original, human-formatted text as the link's label. */
+function telHref(phone: string): string {
+  return phone.replace(/[^\d+]/g, '');
+}
+
+async function fetchWorkshopContact(): Promise<WorkshopContact | null> {
+  try {
+    const response = await fetch(WORKSHOP_CONTACT_URL, {
+      // A6: same rule as the lookup request — never send a staff session
+      // cookie to a public, logged-out page.
+      credentials: 'omit',
+    });
+    if (!response.ok) return null;
+    return (await response.json()) as WorkshopContact;
+  } catch (err) {
+    logError('CustomerPortalPage.loadWorkshopContact', err);
+    return null;
+  }
+}
 
 const MESSAGES = {
   notFound:
@@ -51,6 +84,17 @@ export const CustomerPortalPage: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<PortalStatusResponse | null>(null);
+  const [contact, setContact] = useState<WorkshopContact | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchWorkshopContact().then((data) => {
+      if (!cancelled) setContact(data);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -80,7 +124,7 @@ export const CustomerPortalPage: React.FC = () => {
   return (
     <div className="portal-page">
       <header className="portal-header">
-        <p className="portal-workshop-name">{WORKSHOP_NAME}</p>
+        <p className="portal-workshop-name">{contact?.name || FALLBACK_WORKSHOP_NAME}</p>
         <p className="portal-tagline">Auftragsstatus</p>
       </header>
 
@@ -139,11 +183,22 @@ export const CustomerPortalPage: React.FC = () => {
       </main>
 
       <footer className="portal-footer">
-        <p>
-          Fragen? Schreiben Sie uns an{' '}
-          <a href="mailto:info@goldschmiede.de">info@goldschmiede.de</a> oder rufen Sie uns an:{' '}
-          <a href="tel:+4900000000">+49 0 000 000</a>
-        </p>
+        {contact?.email || contact?.phone ? (
+          <p>
+            Fragen?
+            {contact.email && (
+              <>
+                {' '}
+                Schreiben Sie uns an <a href={`mailto:${contact.email}`}>{contact.email}</a>
+              </>
+            )}
+            {contact.email && contact.phone && ' oder rufen Sie uns an: '}
+            {!contact.email && contact.phone && ' Rufen Sie uns an: '}
+            {contact.phone && <a href={`tel:${telHref(contact.phone)}`}>{contact.phone}</a>}
+          </p>
+        ) : (
+          <p>Fragen? Wenden Sie sich an Ihre Werkstatt.</p>
+        )}
       </footer>
     </div>
   );
