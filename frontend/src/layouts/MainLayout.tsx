@@ -15,6 +15,7 @@ import { NotificationBell } from '../components/NotificationBell';
 import { HealthDot } from '../components/HealthDot';
 import { GlobalSearch } from '../components/GlobalSearch';
 import { ErrorBoundary } from '../components/ErrorBoundary';
+import { ThemeToggle } from '../components/ThemeToggle';
 import { Icon, IconButton, TabBar } from '../ui';
 import { canAdministerSystem } from '../lib/roles';
 import { useBenchMode } from '../lib/benchMode';
@@ -136,6 +137,7 @@ export const MainLayout: React.FC = () => {
               className="header-action"
               data-testid="bench-mode-header-toggle"
             />
+            <ThemeToggle variant="header" className="header-desktop-only" />
             <NotificationBell />
             <span className="user-name header-desktop-only">{displayName}</span>
             <button

@@ -30,6 +30,7 @@ import {
   type Column,
   type SortState,
 } from '../../ui';
+import { ThemeToggle } from '../../components/ThemeToggle';
 
 const DEMO_NOW = new Date(2026, 8, 25, 10, 0);
 
@@ -434,6 +435,10 @@ export const UiDemoPage: React.FC = () => (
       meta="Entwicklungsansicht: alle Bausteine aus src/ui in allen Zuständen"
       primaryAction={<Button icon="plus">Neuer Auftrag</Button>}
     />
+    {/* W4-05: switch the colour scheme to screenshot every state in both themes. */}
+    <Section id="theme" title="Farbschema">
+      <ThemeToggle showLegend />
+    </Section>
     <ButtonsDemo />
     <CardsDemo />
     <OverlaysDemo />
