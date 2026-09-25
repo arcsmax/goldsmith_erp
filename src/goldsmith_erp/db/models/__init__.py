@@ -74,6 +74,13 @@ from goldsmith_erp.db.models.scrap_gold import (
     ScrapGold,
     ScrapGoldItem,
 )
+from goldsmith_erp.db.models.system import (
+    BarcodeAlias,
+    CalendarEvent,
+    CalendarEventType,
+    LabelTemplate,
+    ScanLog,
+)
 from goldsmith_erp.db.models.invoices import (
     Invoice,
     InvoiceLineItem,
@@ -85,6 +92,22 @@ from goldsmith_erp.db.models.quotes import (
     QuoteLineItem,
     QuoteLineType,
     QuoteStatus,
+)
+from goldsmith_erp.db.models.comms import (
+    CostChangeRequest,
+    CostChangeResponseMethod,
+    CostChangeStatus,
+    CustomerUpdate,
+    CustomerUpdateKind,
+    CustomerUpdateStatus,
+    Notification,
+    NotificationPreference,
+    NotificationSeverityEnum,
+    NotificationTypeEnum,
+    OUTBOX_STATUS_VALUES,
+    OutboxMessage,
+    OutboxStatus,
+    UpdateDeliveryMethod,
 )
 from goldsmith_erp.db.models.repairs import (
     RepairItemType,
@@ -101,27 +124,6 @@ from goldsmith_erp.db.models.consultations import (
     ConsultationStatus,
     CustomerNoGo,
     NoGoCategory,
-)
-from goldsmith_erp.db.models._remaining import (
-    BarcodeAlias,
-    CalendarEvent,
-    CalendarEventType,
-    CostChangeRequest,
-    CostChangeResponseMethod,
-    CostChangeStatus,
-    CustomerUpdate,
-    CustomerUpdateKind,
-    CustomerUpdateStatus,
-    LabelTemplate,
-    Notification,
-    NotificationPreference,
-    NotificationSeverityEnum,
-    NotificationTypeEnum,
-    OUTBOX_STATUS_VALUES,
-    OutboxMessage,
-    OutboxStatus,
-    ScanLog,
-    UpdateDeliveryMethod,
 )
 from goldsmith_erp.db.models.time_tracking import (
     Activity,
