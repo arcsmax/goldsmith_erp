@@ -343,7 +343,14 @@ async def events_websocket_endpoint(websocket: WebSocket) -> None:
 
 @app.on_event("startup")
 async def start_background_tasks() -> None:
-    """Register long-running background tasks on application startup."""
+    """Register long-running background tasks on application startup.
+
+    With OUTBOX_MODE=worker the worker process (python -m goldsmith_erp.worker)
+    runs the monitor and sends mail, so the web process starts no loops.
+    """
+    if settings.outbox_mode == "worker":
+        logger.info("OUTBOX_MODE=worker: system monitor runs in the worker")
+        return
     asyncio.create_task(system_monitor_loop())
     logger.info("System monitor background task registered")
 
