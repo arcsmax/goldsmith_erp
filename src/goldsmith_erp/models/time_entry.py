@@ -157,6 +157,33 @@ class TimeEntryUpdate(BaseModel):
         return self
 
 
+class RunningTimeEntryEdit(BaseModel):
+    """PATCH body for a RUNNING entry (edit a timer while it runs).
+
+    Every field is optional; only the fields sent are changed. ``location``
+    may be sent as ``null`` to clear it. ``start_time`` bounds (not in the
+    future, not before the previous entry's end, within 24 h) need the
+    database and run in the service (422).
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    activity_id: Optional[int] = Field(None, gt=0)
+    order_id: Optional[int] = Field(None, gt=0)
+    location: Optional[str] = Field(None, min_length=1, max_length=50)
+    notes: Optional[str] = Field(None, max_length=2000)
+    start_time: Optional[UtcDatetime] = None
+
+    @model_validator(mode="after")
+    def _at_least_one_field(self) -> "RunningTimeEntryEdit":
+        if not self.model_fields_set:
+            raise ValueError("Bitte mindestens ein Feld ändern.")
+        for key in ("activity_id", "order_id", "start_time"):
+            if key in self.model_fields_set and getattr(self, key) is None:
+                raise ValueError(f"{key} darf nicht leer sein.")
+        return self
+
+
 class TimeEntryRead(TimeEntryBase):
     """Schema für TimeEntry-Anzeige."""
 
@@ -182,6 +209,14 @@ class TimeEntryRead(TimeEntryBase):
 
 # Nested schemas für relationships
 from .activity import ActivityRead
+
+
+class RunningTimeEntryRead(TimeEntryRead):
+    """The running timer with display names, so a widget can show the
+    current activity and job without a second request."""
+
+    activity_name: Optional[str] = None
+    order_title: Optional[str] = None
 
 
 class TimeEntryWithDetails(TimeEntryRead):
