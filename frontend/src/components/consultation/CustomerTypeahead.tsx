@@ -5,6 +5,7 @@ import React, { useEffect, useState } from 'react';
 import { customersApi } from '../../api/customers';
 import { CustomerListItem } from '../../types';
 import { logError } from '../../lib/logError';
+import { Field } from '../../ui';
 
 const SEARCH_DEBOUNCE_MS = 300;
 const MIN_QUERY_LENGTH = 2;
@@ -98,21 +99,26 @@ export const CustomerTypeahead: React.FC<CustomerTypeaheadProps> = ({
 
   return (
     <div className="typeahead">
-      <input
-        id={inputId}
-        type="search"
-        role="combobox"
-        aria-expanded={isOpen}
-        aria-label="Kundin suchen"
-        aria-controls={LISTBOX_ID}
-        aria-autocomplete="list"
-        aria-activedescendant={activeOptionId}
-        placeholder="Name oder E-Mail suchen..."
-        value={query}
-        onChange={(e) => setQuery(e.target.value)}
-        onKeyDown={handleKeyDown}
-      />
-      {isSearching && <span className="typeahead-hint">Suche...</span>}
+      <Field label="Kundin suchen" name="customer-typeahead" inputMode="search">
+        <input
+          id={inputId}
+          type="search"
+          role="combobox"
+          aria-expanded={isOpen}
+          aria-controls={LISTBOX_ID}
+          aria-autocomplete="list"
+          aria-activedescendant={activeOptionId}
+          placeholder="Name oder E-Mail …"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          onKeyDown={handleKeyDown}
+        />
+      </Field>
+      {isSearching && (
+        <span className="typeahead-hint" role="status">
+          Suche läuft …
+        </span>
+      )}
       {isOpen && (
         <ul className="typeahead-results" role="listbox" id={LISTBOX_ID}>
           {results.length === 0 && (

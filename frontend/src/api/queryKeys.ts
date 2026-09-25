@@ -82,6 +82,12 @@ export const queryKeys = {
     priceHistory: (metalType: string, days: number) =>
       [...queryKeys.metalInventory.all, 'price-history', { metalType, days }] as const,
   },
+  consultations: {
+    all: ['consultations'] as const,
+    /** GET /consultations/ (legacy plain list; no Page envelope yet). */
+    list: (status: string | undefined) => [...queryKeys.consultations.all, 'list', { status }] as const,
+    detail: (id: number) => [...queryKeys.consultations.all, 'detail', id] as const,
+  },
   scrapGold: {
     all: ['scrap-gold'] as const,
     /** GET /orders/{id}/scrap-gold (null when the order has no Altgold yet). */

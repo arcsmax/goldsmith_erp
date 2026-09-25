@@ -9,6 +9,7 @@
 //     to the wizard shell via onDraftCreated.
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
+import { Button } from '../../ui';
 import { customersApi } from '../../api/customers';
 import { consultationsApi } from '../../api/consultations';
 import {
@@ -118,8 +119,8 @@ export const CustomerStep: React.FC<CustomerStepProps> = ({
   };
 
   if (existingCustomerId) {
-    if (isLoadingExisting) return <p className="page-loading">Lade Kundendaten...</p>;
-    if (!selectedCustomer) return <p className="page-error">Kundin konnte nicht geladen werden</p>;
+    if (isLoadingExisting) return <p role="status">Kundendaten werden geladen …</p>;
+    if (!selectedCustomer) return <p role="alert">Kundin konnte nicht geladen werden</p>;
     return <CustomerCard customer={selectedCustomer} readOnly />;
   }
 
@@ -128,13 +129,14 @@ export const CustomerStep: React.FC<CustomerStepProps> = ({
       {!selectedCustomer && (
         <>
           <CustomerTypeahead onSelect={handleTypeaheadSelect} />
-          <button
-            type="button"
-            className="btn-secondary customer-step-quick-create"
+          <Button
+            variant="secondary"
+            icon="plus"
+            className="customer-step-quick-create"
             onClick={() => setIsModalOpen(true)}
           >
-            + Neue Kundin
-          </button>
+            Kundin anlegen
+          </Button>
         </>
       )}
 
@@ -142,22 +144,12 @@ export const CustomerStep: React.FC<CustomerStepProps> = ({
         <>
           <CustomerCard customer={selectedCustomer} />
           <div className="customer-step-actions">
-            <button
-              type="button"
-              className="btn-secondary"
-              onClick={() => setSelectedCustomer(null)}
-              disabled={isCreatingDraft}
-            >
+            <Button variant="secondary" onClick={() => setSelectedCustomer(null)} disabled={isCreatingDraft}>
               Andere Kundin wählen
-            </button>
-            <button
-              type="button"
-              className="btn-primary"
-              onClick={handleStartConsultation}
-              disabled={isCreatingDraft}
-            >
-              {isCreatingDraft ? 'Wird gestartet...' : 'Beratung starten'}
-            </button>
+            </Button>
+            <Button onClick={handleStartConsultation} loading={isCreatingDraft}>
+              Beratung starten
+            </Button>
           </div>
         </>
       )}
