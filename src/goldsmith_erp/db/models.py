@@ -929,6 +929,10 @@ class Interruption(Base):
     reason = Column(String(100), nullable=False)  # customer_call, material_fetch, etc.
     duration_minutes = Column(Integer, nullable=False)
     timestamp = Column(DateTime, default=datetime.utcnow)
+    # W2-14 / BE-19: set when work resumes; duration_minutes then holds the
+    # measured minutes. NULL with duration 0 = still open. Migration
+    # 20260925_w214_interrupt_resume.
+    resumed_at = Column(DateTime, nullable=True)
 
     # Beziehungen
     time_entry = relationship("TimeEntry", back_populates="interruptions")
