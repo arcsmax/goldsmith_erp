@@ -1,105 +1,140 @@
-// Main Layout Component - Layout for authenticated pages
-import React, { useState, useCallback } from 'react';
-import { Outlet, Link, useNavigate, useLocation } from 'react-router-dom';
+// Main layout for authenticated pages (UI-UX-PLAYBOOK 4.11, W4-03).
+//
+// Desktop (>=1024px): header plus the grouped sidebar from navigation.ts.
+// Below 1024px: the sidebar becomes a drawer (hamburger, Escape closes and
+// returns focus) and the app TabBar holds the five most-used entries.
+// Timer, scan FAB/overlay, HID nudge and the notification bell stay mounted.
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { useAuth, useTimeTracking } from '../contexts';
 import TimerWidget from '../components/TimerWidget';
-// Slice 10 — global scanner FAB + overlay, reachable from every
-// authenticated page. Stacks cleanly above TimerWidget via the
-// --fab-bottom CSS token (see styles/components/ScanFab.css).
 import { ScanFab, ScanOverlay } from '../components/scanner';
-// Slice 12 / A12.1 — one-time toast nudge when a likely USB-HID scanner
-// burst is detected while Werkbank-Modus is off. Default-OFF HID is
-// invisible; the nudge is Lena's killer #2 mitigation.
 import { HidBurstNudge } from '../components/HidBurstNudge';
 import { OfflineIndicator } from '../components/OfflineIndicator';
 import { NotificationBell } from '../components/NotificationBell';
 import { HealthDot } from '../components/HealthDot';
 import { GlobalSearch } from '../components/GlobalSearch';
 import { ErrorBoundary } from '../components/ErrorBoundary';
+import { Icon, IconButton, TabBar } from '../ui';
+import { canAdministerSystem } from '../lib/roles';
+import { navGroupsFor, tabBarItems, type NavGroup } from './navigation';
 import '../styles/layout.css';
 import '../styles/admin.css';
 import '../styles/components/GlobalSearch.css';
 
+interface SidebarNavProps {
+  groups: NavGroup[];
+  onNavigate: () => void;
+}
+
+const SidebarNav: React.FC<SidebarNavProps> = ({ groups, onNavigate }) => (
+  <nav className="sidebar-nav" aria-label="Hauptnavigation">
+    {groups.map((group) => (
+      <div key={group.id} className="nav-group">
+        {group.label && (
+          <h2 className="nav-group__label" id={`nav-group-${group.id}`}>
+            {group.label}
+          </h2>
+        )}
+        <ul
+          className="nav-group__list"
+          aria-labelledby={group.label ? `nav-group-${group.id}` : undefined}
+        >
+          {group.entries.map((entry) => (
+            <li key={entry.to}>
+              <NavLink
+                to={entry.to}
+                className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`}
+                onClick={onNavigate}
+              >
+                <Icon name={entry.icon} className="nav-icon" />
+                {entry.label}
+              </NavLink>
+            </li>
+          ))}
+        </ul>
+      </div>
+    ))}
+  </nav>
+);
+
 export const MainLayout: React.FC = () => {
-  const { user, logout, hasRole } = useAuth();
-  const { runningEntry, stopTracking, refreshRunningEntry, pauseTracking, resumeTracking } =
-    useTimeTracking();
+  const { user, logout } = useAuth();
+  const { runningEntry, refreshRunningEntry, pauseTracking, resumeTracking } = useTimeTracking();
   const navigate = useNavigate();
-  const location = useLocation();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const hamburgerRef = useRef<HTMLButtonElement>(null);
 
   const handleLogout = () => {
     logout();
     navigate('/login');
   };
 
-  const handleTimerStop = () => {
-    // Timer stopped successfully, refresh will happen via context
-    refreshRunningEntry();
-  };
-
   const openSidebar = useCallback(() => setIsSidebarOpen(true), []);
-  const closeSidebar = useCallback(() => setIsSidebarOpen(false), []);
-
-  const isActivePath = (path: string) => {
-    return location.pathname === path || location.pathname.startsWith(path + '/');
-  };
-
-  // Nav link that closes sidebar on mobile after navigation
-  const handleNavClick = useCallback(() => {
+  const closeSidebar = useCallback(() => {
     setIsSidebarOpen(false);
+    hamburgerRef.current?.focus();
   }, []);
+  const handleNavClick = useCallback(() => setIsSidebarOpen(false), []);
 
-  // Role helpers used to conditionally render nav items
-  const canManageCustomers = hasRole(['ADMIN', 'GOLDSMITH']);
-  const canManageMaterials = hasRole(['ADMIN', 'GOLDSMITH']);
-  const canManageUsers = hasRole(['ADMIN']);
-  const canManageInvoices = hasRole(['ADMIN', 'GOLDSMITH']);
-  const isAdmin = hasRole(['ADMIN']);
+  // Playbook 4.11: the drawer closes on Escape and returns focus.
+  useEffect(() => {
+    if (!isSidebarOpen) return undefined;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') closeSidebar();
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [isSidebarOpen, closeSidebar]);
+
+  const role = user?.role;
+  const groups = navGroupsFor(role);
   const displayName = user?.first_name || user?.email;
 
   return (
     <div className="main-layout">
-      {/* Offline status indicator — fixed banner, non-blocking */}
       <OfflineIndicator />
 
-      {/* Header */}
       <header className="main-header">
         <div className="header-content">
-          {/* Hamburger button — visible on mobile only via CSS */}
           <button
-            className="btn-hamburger"
+            ref={hamburgerRef}
+            type="button"
+            className="header-action header-action--menu"
             onClick={openSidebar}
             aria-label="Navigation öffnen"
             aria-expanded={isSidebarOpen}
             aria-controls="main-sidebar"
           >
-            ☰
+            <Icon name="menu" />
           </button>
 
-          <h1 className="logo">Goldsmith ERP</h1>
+          <Link to="/dashboard" className="logo">
+            Goldsmith ERP
+          </Link>
 
           <GlobalSearch />
 
           {/* LV-01: below 600px only the bell stays in the header; Scanner,
               name and "Abmelden" move into the drawer (.sidebar-account). */}
           <div className="user-menu">
-            <Link to="/scanner" className="btn-scanner header-desktop-only">
-              📷 Scanner
+            <Link to="/scanner" className="header-action header-desktop-only">
+              <Icon name="scan" />
+              Scanner
             </Link>
             <NotificationBell />
-            <span className="user-name header-desktop-only">
-              {displayName}
-            </span>
-            <button onClick={handleLogout} className="btn-logout header-desktop-only">
+            <span className="user-name header-desktop-only">{displayName}</span>
+            <button
+              type="button"
+              onClick={handleLogout}
+              className="header-action header-desktop-only"
+            >
               Abmelden
             </button>
           </div>
         </div>
       </header>
 
-
-      {/* Overlay backdrop for mobile sidebar */}
       <div
         className={`sidebar-overlay${isSidebarOpen ? ' open' : ''}`}
         onClick={closeSidebar}
@@ -107,174 +142,18 @@ export const MainLayout: React.FC = () => {
       />
 
       <div className="main-content-wrapper">
-        {/* Sidebar Navigation */}
-        <aside
-          id="main-sidebar"
-          className={`main-sidebar${isSidebarOpen ? ' open' : ''}`}
-        >
-          {/* Close button row — visible on mobile */}
+        <aside id="main-sidebar" className={`main-sidebar${isSidebarOpen ? ' open' : ''}`}>
           <div className="sidebar-close-row">
-            <button
-              className="btn-sidebar-close"
-              onClick={closeSidebar}
-              aria-label="Navigation schließen"
-            >
-              ✕
-            </button>
+            <IconButton icon="close" label="Navigation schließen" onClick={closeSidebar} />
           </div>
 
-          <nav className="sidebar-nav">
-            {/* Dashboard — alle Rollen */}
-            <Link
-              to="/dashboard"
-              className={`nav-link ${isActivePath('/dashboard') ? 'active' : ''}`}
-              onClick={handleNavClick}
-            >
-              <span className="nav-icon">📊</span>
-              Dashboard
-            </Link>
+          <SidebarNav groups={groups} onNavigate={handleNavClick} />
 
-            {/* Kunden — ADMIN und GOLDSMITH */}
-            {canManageCustomers && (
-              <Link
-                to="/customers"
-                className={`nav-link ${isActivePath('/customers') ? 'active' : ''}`}
-                onClick={handleNavClick}
-              >
-                <span className="nav-icon">📇</span>
-                Kunden
-              </Link>
-            )}
-
-            {/* Aufträge — alle Rollen */}
-            <Link
-              to="/orders"
-              className={`nav-link ${isActivePath('/orders') ? 'active' : ''}`}
-              onClick={handleNavClick}
-            >
-              <span className="nav-icon">📋</span>
-              Aufträge
-            </Link>
-
-            {/* Reparaturen — ADMIN und GOLDSMITH */}
-            {canManageCustomers && (
-              <Link
-                to="/repairs"
-                className={`nav-link ${isActivePath('/repairs') ? 'active' : ''}`}
-                onClick={handleNavClick}
-              >
-                <span className="nav-icon">🔧</span>
-                Reparaturen
-              </Link>
-            )}
-
-            {/* Beratung — ADMIN und GOLDSMITH */}
-            {canManageCustomers && (
-              <Link to="/consultations" className={`nav-link ${isActivePath('/consultations') ? 'active' : ''}`} onClick={handleNavClick}>
-                <span className="nav-icon">💍</span>
-                Beratung
-              </Link>
-            )}
-
-            {/* Materialien — ADMIN und GOLDSMITH */}
-            {canManageMaterials && (
-              <Link
-                to="/materials"
-                className={`nav-link ${isActivePath('/materials') ? 'active' : ''}`}
-                onClick={handleNavClick}
-              >
-                <span className="nav-icon">💎</span>
-                Materialien
-              </Link>
-            )}
-
-            {/* Metallinventar — ADMIN und GOLDSMITH */}
-            {canManageMaterials && (
-              <Link
-                to="/metal-inventory"
-                className={`nav-link ${isActivePath('/metal-inventory') ? 'active' : ''}`}
-                onClick={handleNavClick}
-              >
-                <span className="nav-icon">🥇</span>
-                Metallinventar
-              </Link>
-            )}
-
-            {/* Zeiterfassung — alle Rollen */}
-            <Link
-              to="/time-tracking"
-              className={`nav-link ${isActivePath('/time-tracking') ? 'active' : ''}`}
-              onClick={handleNavClick}
-            >
-              <span className="nav-icon">⏱️</span>
-              Zeiterfassung
-            </Link>
-
-            {/* Kalender — alle Rollen */}
-            <Link
-              to="/calendar"
-              className={`nav-link ${isActivePath('/calendar') ? 'active' : ''}`}
-              onClick={handleNavClick}
-            >
-              <span className="nav-icon">📅</span>
-              Kalender
-            </Link>
-
-            {/* Rechnungen — ADMIN und GOLDSMITH */}
-            {canManageInvoices && (
-              <Link
-                to="/invoices"
-                className={`nav-link ${isActivePath('/invoices') ? 'active' : ''}`}
-                onClick={handleNavClick}
-              >
-                <span className="nav-icon">🧾</span>
-                Rechnungen
-              </Link>
-            )}
-
-            {/* Angebote (Kostenvoranschlag) — ADMIN und GOLDSMITH */}
-            {canManageInvoices && (
-              <Link
-                to="/quotes"
-                className={`nav-link ${isActivePath('/quotes') ? 'active' : ''}`}
-                onClick={handleNavClick}
-              >
-                <span className="nav-icon">📝</span>
-                Angebote
-              </Link>
-            )}
-
-            {/* Benutzerverwaltung — nur ADMIN */}
-            {canManageUsers && (
-              <Link
-                to="/users"
-                className={`nav-link ${isActivePath('/users') ? 'active' : ''}`}
-                onClick={handleNavClick}
-              >
-                <span className="nav-icon">👥</span>
-                Benutzer
-              </Link>
-            )}
-
-            {/* Systemübersicht — nur ADMIN */}
-            {isAdmin && (
-              <Link
-                to="/admin/system"
-                className={`nav-link ${isActivePath('/admin/system') ? 'active' : ''}`}
-                onClick={handleNavClick}
-              >
-                <span className="nav-icon">⚙️</span>
-                System
-              </Link>
-            )}
-          </nav>
-
-          {/* Account block: the mobile home of the header user menu (LV-01).
-              Hidden by CSS at 600px and up, where the header shows it. */}
+          {/* Account block: the mobile home of the header user menu (LV-01). */}
           <div className="sidebar-account" data-testid="sidebar-account">
             <span className="sidebar-account__name">{displayName}</span>
             <Link to="/scanner" className="nav-link" onClick={handleNavClick}>
-              <span className="nav-icon">📷</span>
+              <Icon name="scan" className="nav-icon" />
               Scanner
             </Link>
             <button type="button" onClick={handleLogout} className="sidebar-account__logout">
@@ -282,52 +161,37 @@ export const MainLayout: React.FC = () => {
             </button>
           </div>
 
-          {/* Sidebar footer: HealthDot for ADMIN — shows live system status */}
-          {isAdmin && (
-            <div style={{ padding: '0.75rem 0.5rem', borderTop: '1px solid #f0f0f0', marginTop: 'auto' }}>
+          {canAdministerSystem(role) && (
+            <div className="sidebar-health">
               <HealthDot />
             </div>
           )}
         </aside>
 
-        {/* Main Content */}
         <main className="main-content">
-          {/* Page-level ErrorBoundary (A5): a single page crash is caught
-              here, leaving header, sidebar, timer, scan FAB and bell alive. */}
+          {/* Page-level ErrorBoundary (A5): a page crash leaves header,
+              sidebar, timer, scan FAB and bell alive. */}
           <ErrorBoundary variant="page">
             <Outlet />
           </ErrorBoundary>
         </main>
       </div>
 
-      {/* Footer */}
       <footer className="main-footer">
         <p>&copy; {new Date().getFullYear()} Goldsmith ERP. Alle Rechte vorbehalten.</p>
       </footer>
 
-      {/* Timer Widget - Sticky, always visible when tracking */}
+      <TabBar label="Schnellzugriff" items={tabBarItems(role)} className="main-tab-bar" />
+
       <TimerWidget
         runningEntry={runningEntry}
-        onStop={handleTimerStop}
+        onStop={() => refreshRunningEntry()}
         onRefresh={refreshRunningEntry}
         onPause={pauseTracking}
         onResume={resumeTracking}
       />
-
-      {/* Scanner FAB (Slice 10). Stacks above TimerWidget when a timer runs
-          via .scan-fab--stacked. Hidden on /login + /register via ScanFab's
-          own route guard. */}
       <ScanFab />
-
-      {/* Scanner overlay (Slice 10). Mounted here so every authenticated
-          page renders over it. The overlay is position:fixed with
-          z-index 1500 — above TimerWidget (1050) and ScanFab (1060). */}
       <ScanOverlay />
-
-      {/* HID burst-detection nudge (A12.1). Invisible — attaches a
-          document-level keydown listener and triggers a one-time toast
-          when a suspected USB scanner burst fires while Werkbank-Modus
-          is off and the user is a goldsmith. */}
       <HidBurstNudge />
     </div>
   );
