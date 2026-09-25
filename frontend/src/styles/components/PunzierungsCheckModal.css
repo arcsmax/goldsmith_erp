@@ -123,6 +123,52 @@
   accent-color: var(--color-brand-cta-500);
 }
 
+.punz-checkbox input[type='checkbox']:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+/* W2-09: the Feingehalt option matching the order's alloy — a hint, not a
+ * pre-selection (D-10: the goldsmith confirms what they see on the piece). */
+.punz-checkbox--suggested {
+  background-color: var(--color-surface-card);
+  border: 1px dashed var(--color-brand-cta-500);
+}
+
+.punz-suggested-hint {
+  color: var(--color-text-muted);
+  font-size: 13px;
+}
+
+.punz-group--nicht-punziert {
+  padding-top: 12px;
+}
+
+.punz-reason-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 8px;
+}
+
+.punz-reason-field label {
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--color-text-heading);
+}
+
+.punz-reason-field textarea {
+  padding: 8px 10px;
+  font-size: 15px;
+  font-family: inherit;
+  color: var(--color-text-body);
+  background-color: var(--color-surface-card);
+  border: 1px solid var(--color-border-default);
+  border-radius: 8px;
+  resize: vertical;
+  min-height: 44px;
+}
+
 .punz-divider {
   border-top: 1px solid var(--color-border-default);
   margin: 12px 20px;
