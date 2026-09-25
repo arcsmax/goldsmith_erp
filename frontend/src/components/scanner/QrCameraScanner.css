@@ -13,8 +13,8 @@
 .qrs-root {
   display: block;
   width: 100%;
-  color: var(--color-text-body, #374151);
-  background: var(--color-surface-card, #ffffff);
+  color: var(--color-text-body);
+  background: var(--color-surface-card);
   border-radius: 16px;
   overflow: hidden;
 }
@@ -34,7 +34,7 @@
   position: relative;
   width: 100%;
   aspect-ratio: 4 / 3;
-  background: #0b0d11;
+  background: var(--color-text);
   border-radius: 12px;
   overflow: hidden;
 }
@@ -49,18 +49,18 @@
 }
 
 /* Scan region indicator — 70% of viewport, centered, amber border.
- * Jason A: amber (#E08020), NOT red; red = blocker semantics. */
+ * Jason A: amber (warning tone), NOT red; red = blocker semantics. */
 .qrs-finder {
   position: absolute;
   top: 15%;
   left: 15%;
   width: 70%;
   height: 70%;
-  border: 3px solid var(--color-warning-500, #e08020);
+  border: 3px solid var(--color-warning-500);
   border-radius: 12px;
   box-shadow:
-    0 0 0 9999px rgba(0, 0, 0, 0.35),
-    inset 0 0 0 1px rgba(255, 255, 255, 0.25);
+    0 0 0 9999px color-mix(in srgb, var(--color-text) 35%, transparent),
+    inset 0 0 0 1px color-mix(in srgb, var(--color-primary-contrast) 25%, transparent);
   pointer-events: none;
   animation: qrs-finder-pulse 1.6s ease-in-out infinite;
 }
@@ -91,9 +91,9 @@
   min-height: var(--touch-comfort, 56px);
   min-width: var(--touch-comfort, 56px);
   padding: 10px 14px;
-  background: rgba(17, 19, 24, 0.72);
-  color: #ffffff;
-  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: color-mix(in srgb, var(--color-text) 72%, transparent);
+  color: var(--color-primary-contrast);
+  border: 1px solid color-mix(in srgb, var(--color-primary-contrast) 18%, transparent);
   border-radius: 999px;
   font-size: 13px;
   font-weight: 600;
@@ -105,15 +105,15 @@
 
 .qrs-ctrl:hover,
 .qrs-ctrl:focus-visible {
-  background: rgba(17, 19, 24, 0.92);
-  outline: 2px solid var(--color-brand-cta-500, #f59e0b);
+  background: color-mix(in srgb, var(--color-text) 92%, transparent);
+  outline: 2px solid var(--color-brand-cta-500);
   outline-offset: 2px;
 }
 
 .qrs-ctrl.is-on {
-  background: var(--color-warning-500, #e08020);
-  color: #ffffff;
-  border-color: var(--color-warning-600, #b8651a);
+  background: var(--color-warning-500);
+  color: var(--color-primary-contrast);
+  border-color: var(--color-warning-600);
 }
 
 .qrs-loading {
@@ -121,7 +121,7 @@
   align-items: center;
   justify-content: center;
   height: 100%;
-  color: #cbd5e1;
+  color: color-mix(in srgb, var(--color-primary-contrast) 85%, transparent);
   font-size: 14px;
 }
 
@@ -140,27 +140,27 @@
 
 .qrs-state--denied,
 .qrs-state--unavailable {
-  background: var(--color-warning-bg, #fff4e6);
-  color: var(--color-text-heading, #1a1a2e);
+  background: var(--color-warning-bg);
+  color: var(--color-text-heading);
 }
 
 .qrs-state-icon {
-  color: var(--color-warning-600, #b8651a);
+  color: var(--color-warning-600);
   display: inline-flex;
   align-items: center;
   justify-content: center;
   width: 64px;
   height: 64px;
   border-radius: 50%;
-  background: #ffffff;
-  box-shadow: 0 2px 6px rgba(17, 19, 24, 0.08);
+  background: var(--color-surface-card);
+  box-shadow: var(--shadow-1);
 }
 
 .qrs-state-title {
   margin: 0;
   font-size: 20px;
   font-weight: 600;
-  color: var(--color-text-heading, #1a1a2e);
+  color: var(--color-text-heading);
 }
 
 .qrs-state-body {
@@ -168,13 +168,13 @@
   font-size: 15px;
   line-height: 1.5;
   max-width: 420px;
-  color: var(--color-text-body, #374151);
+  color: var(--color-text-body);
 }
 
 .qrs-state-help {
   margin: 4px 0 0 0;
   font-size: 13px;
-  color: var(--color-text-muted, #6b7280);
+  color: var(--color-text-muted);
   max-width: 420px;
 }
 
@@ -184,21 +184,20 @@
   padding: 14px 28px;
   font-size: 16px;
   font-weight: 600;
-  color: #ffffff;
-  background: var(--color-surface-header-gradient,
-    linear-gradient(135deg, #d97706, #92400e));
+  color: var(--color-primary-contrast);
+  background: var(--color-surface-header-gradient);
   border: none;
   border-radius: 12px;
   cursor: pointer;
-  box-shadow: 0 2px 8px rgba(217, 119, 6, 0.3);
+  box-shadow: var(--shadow-1);
   transition: transform 120ms ease, box-shadow 120ms ease;
 }
 
 .qrs-manual-cta:hover,
 .qrs-manual-cta:focus-visible {
   transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(217, 119, 6, 0.4);
-  outline: 2px solid var(--color-brand-cta-500, #f59e0b);
+  box-shadow: var(--shadow-2);
+  outline: 2px solid var(--color-brand-cta-500);
   outline-offset: 2px;
 }
 
@@ -217,7 +216,7 @@
 .qrs-manual-label {
   font-size: 13px;
   font-weight: 600;
-  color: var(--color-text-heading, #1a1a2e);
+  color: var(--color-text-heading);
   text-align: left;
 }
 
@@ -231,17 +230,17 @@
   min-height: var(--touch-min, 44px);
   padding: 10px 14px;
   font-size: 16px; /* 16px avoids iOS auto-zoom on focus */
-  border: 1px solid var(--color-border-default, #e5e7eb);
+  border: 1px solid var(--color-border-default);
   border-radius: 10px;
-  background: #ffffff;
-  color: var(--color-text-body, #374151);
+  background: var(--color-surface-card);
+  color: var(--color-text-body);
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 
 .qrs-manual-input:focus-visible {
-  outline: 2px solid var(--color-brand-cta-500, #f59e0b);
+  outline: 2px solid var(--color-brand-cta-500);
   outline-offset: 2px;
-  border-color: var(--color-brand-cta-500, #f59e0b);
+  border-color: var(--color-brand-cta-500);
 }
 
 .qrs-manual-submit {
@@ -249,8 +248,8 @@
   padding: 10px 18px;
   font-size: 14px;
   font-weight: 600;
-  color: #ffffff;
-  background: var(--color-interactive-primary, #d97706);
+  color: var(--color-primary-contrast);
+  background: var(--color-interactive-primary);
   border: none;
   border-radius: 10px;
   cursor: pointer;
@@ -259,8 +258,8 @@
 
 .qrs-manual-submit:hover:not(:disabled),
 .qrs-manual-submit:focus-visible {
-  background: var(--color-interactive-primary-hover, #b45309);
-  outline: 2px solid var(--color-brand-cta-500, #f59e0b);
+  background: var(--color-interactive-primary-hover);
+  outline: 2px solid var(--color-brand-cta-500);
   outline-offset: 2px;
 }
 

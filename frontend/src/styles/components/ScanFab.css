@@ -21,7 +21,7 @@
   position: fixed;
   bottom: var(--fab-bottom);
   right: var(--fab-bottom);
-  z-index: 1060;
+  z-index: var(--z-fab);
 
   /* Sizing: >= --touch-comfort (56px). Uses min-width/height so the icon
    * slot stays square on all breakpoints. */
@@ -39,15 +39,12 @@
    * We reuse --color-brand-cta-* (gold) for CTAs; hover moves toward the
    * warning-500 amber as a subtle "you're about to do something active"
    * signal without turning the button into a warning surface. */
-  background: linear-gradient(
-    135deg,
-    var(--color-brand-cta-500, #f59e0b) 0%,
-    var(--color-brand-cta-600, #d97706) 100%
-  );
-  color: #ffffff;
+  /* W4-03: primary CTA token (the gold of the playbook), no gradient. */
+  background: var(--color-primary);
+  color: var(--color-primary-contrast);
   border: none;
   border-radius: 50%;
-  box-shadow: 0 6px 18px rgba(217, 119, 6, 0.35);
+  box-shadow: var(--shadow-2);
 
   cursor: pointer;
   transition:
@@ -61,22 +58,18 @@
 
 .scan-fab:hover {
   transform: translateY(-2px);
-  box-shadow: 0 10px 24px rgba(224, 128, 32, 0.45);
-  background: linear-gradient(
-    135deg,
-    var(--color-brand-cta-500, #f59e0b) 0%,
-    var(--color-warning-500, #e08020) 100%
-  );
+  box-shadow: var(--shadow-3);
+  background: var(--color-primary-hover);
 }
 
 .scan-fab:focus-visible {
-  outline: 3px solid var(--color-warning-500, #e08020);
+  outline: 3px solid var(--color-focus);
   outline-offset: 3px;
 }
 
 .scan-fab:active {
   transform: translateY(0);
-  box-shadow: 0 4px 10px rgba(217, 119, 6, 0.3);
+  box-shadow: var(--shadow-1);
 }
 
 /* Stacked — a timer is currently running, TimerWidget FAB/widget occupies

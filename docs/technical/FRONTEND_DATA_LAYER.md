@@ -90,7 +90,7 @@ const remove = useMutation({
 | Channel | Invalidated roots |
 |---|---|
 | `order_updates` | `['orders']`, `['dashboard']`, `['handoffs']`, `['calendar']` |
-| `time_tracking_updates` | `['timer']`, `['dashboard']` |
+| `time_tracking_updates` | `['timer']` (running timer, entry lists, activities, summary), `['dashboard']` |
 | `notifications` | `['notifications']`, `['handoffs']` |
 
 After a reconnect the provider sends a `resync` per channel, so every root is invalidated.
@@ -109,6 +109,15 @@ Keep a React context for client state that isn't a copy of the server: `AuthCont
 customers, time entries, notifications) belongs in queries. Once `TimeTrackingContext` and
 `OrderContext` are migrated, they keep only UI state, or they go away. Don't copy query data into
 a context or into `useState`. Derive it during render.
+
+`TimeTrackingContext` (W4-03) is kept as a thin wrapper for the cross-page timer: the running
+timer is the query `runningEntryQuery(userId)` and activities are `activitiesQuery()`
+(`api/timeTrackingQueries.ts`, keys under `['timer']`); start, stop, switch, pause and resume are
+`useMutation`s that write the returned entry into the cache and invalidate `['timer']` and
+`['dashboard']`. It registers no socket handler (the bridge invalidates `['timer']`), polls every
+5 s only while a timer runs, and keeps only the last command error as state. The time-entry lists
+(`userEntriesQuery`, `orderEntriesQuery`) use the paged `/time-tracking/user|order/{id}` endpoints.
+The scan history is `scanHistoryQuery` (`['scan-log']`, invalidated after a scan).
 
 ## Testing
 
@@ -132,6 +141,6 @@ await act(() => invalidateForChannel(client, 'order_updates')); // realtime hint
 5. Wrap the page's tests in `renderWithQuery`.
 
 Still to migrate: RepairsPage, RepairDetailPage, OrderDetailPage, QuotesPage, InvoicesPage,
-MaterialsPage, MetalInventoryPage, TimeTrackingPage and TimeTrackingContext, CustomerDetailPage,
+MaterialsPage, MetalInventoryPage, CustomerDetailPage,
 AdminSystemPage, ConsultationsPage, and the unused
 `DeadlinesWidget`.

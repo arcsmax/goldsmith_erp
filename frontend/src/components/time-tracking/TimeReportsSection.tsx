@@ -1,324 +1,243 @@
-// Time Reports Section Component with Recharts
-import React, { useEffect, useState } from 'react';
-import { timeTrackingApi, activitiesApi } from '../../api';
-import apiClient from '../../api/client';
-import { TimeEntry, Activity, ActivityBreakdownData } from '../../types';
-import { parseUTC } from '../../utils/formatters';
-import { format, subDays, startOfWeek, getDay } from 'date-fns';
-import { de } from 'date-fns/locale';
+// Berichte (W4-03): charts over the signed-in user's last 30 days.
+//
+// Data: one page (at most 200 rows) of GET /time-tracking/user/{id} filtered to
+// the last 30 days, as a query under ['timer'] (refreshes on timer events),
+// plus the shared activities query. The aggregation runs during render
+// (useMemo), never copied into state. Chart colours are semantic tokens.
+import React, { useMemo, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { format, getDay, startOfWeek, subDays } from 'date-fns';
 import {
-  LineChart,
-  Line,
-  BarChart,
   Bar,
-  PieChart,
-  Pie,
+  BarChart,
+  CartesianGrid,
   Cell,
+  Legend,
+  Line,
+  LineChart,
+  Pie,
+  PieChart,
+  ResponsiveContainer,
+  Tooltip,
   XAxis,
   YAxis,
-  CartesianGrid,
-  Tooltip,
-  Legend,
-  ResponsiveContainer,
 } from 'recharts';
+
+import { activitiesQuery, userEntriesQuery } from '../../api/timeTrackingQueries';
+import { useAuth } from '../../contexts/AuthContext';
+import { getErrorMessage } from '../../lib/errors';
+import { Button, PageState, type PageStateValue } from '../../ui';
+import { parseUTC } from '../../utils/formatters';
+import type { Activity, ActivityBreakdownData, TimeEntry } from '../../types';
 import '../../styles/time-tracking.css';
 
 type ChartType = 'weekly' | 'activity' | 'daily';
 
+const REPORT_DAYS = 30;
+const REPORT_WEEKS = 4;
+const REPORT_ROW_LIMIT = 200;
+const CHART_HEIGHT = 320;
+const DAY_NAMES = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];
+const MONDAY_FIRST = [1, 2, 3, 4, 5, 6, 0];
+const WEEK_OPTIONS = { weekStartsOn: 1 } as const;
+
 const CHART_COLORS = [
-  '#3498db', // Blue
-  '#2ecc71', // Green
-  '#e74c3c', // Red
-  '#f39c12', // Orange
-  '#9b59b6', // Purple
-  '#1abc9c', // Turquoise
-  '#34495e', // Dark Gray
-  '#e67e22', // Carrot
+  'var(--tone-info-fg)',
+  'var(--tone-done-fg)',
+  'var(--tone-waiting-fg)',
+  'var(--tone-progress-fg)',
+  'var(--tone-check-fg)',
+  'var(--tone-handover-fg)',
+  'var(--tone-danger-fg)',
+  'var(--tone-neutral-fg)',
+];
+const AXIS = 'var(--chart-label-color)';
+const GRID = 'var(--chart-grid-color)';
+const LINE = 'var(--chart-line-color)';
+const TOOLTIP_STYLE = {
+  background: 'var(--color-surface-raised)',
+  border: '1px solid var(--color-border)',
+  borderRadius: 'var(--radius-md)',
+};
+
+const CHARTS: ReadonlyArray<{ id: ChartType; label: string; title: string }> = [
+  { id: 'weekly', label: 'Wochenverlauf', title: 'Stundenverlauf (letzte 4 Wochen)' },
+  { id: 'activity', label: 'Aktivitäten', title: 'Zeit nach Aktivität (letzte 30 Tage)' },
+  { id: 'daily', label: 'Tagesverteilung', title: 'Ø Stunden pro Wochentag (letzte 30 Tage)' },
 ];
 
+const round1 = (value: number): number => Math.round(value * 10) / 10;
+const hoursOf = (entry: TimeEntry): number => (entry.duration_minutes || 0) / 60;
+
+function weeklyTrend(entries: TimeEntry[], now: Date) {
+  const buckets = new Map<string, number>();
+  for (let i = REPORT_WEEKS - 1; i >= 0; i--) {
+    buckets.set(format(startOfWeek(subDays(now, i * 7), WEEK_OPTIONS), 'dd.MM'), 0);
+  }
+  for (const entry of entries) {
+    const key = format(startOfWeek(parseUTC(entry.start_time), WEEK_OPTIONS), 'dd.MM');
+    const current = buckets.get(key);
+    if (current !== undefined) buckets.set(key, current + hoursOf(entry));
+  }
+  return Array.from(buckets, ([week, hours]) => ({ week, hours: round1(hours) }));
+}
+
+function activityBreakdown(entries: TimeEntry[], activities: Activity[]): ActivityBreakdownData[] {
+  const byId = new Map(activities.map((a) => [a.id, a]));
+  const minutes = new Map<number, number>();
+  let total = 0;
+  for (const entry of entries) {
+    const mins = entry.duration_minutes || 0;
+    minutes.set(entry.activity_id, (minutes.get(entry.activity_id) || 0) + mins);
+    total += mins;
+  }
+  return Array.from(minutes, ([activityId, mins]) => {
+    const activity = byId.get(activityId);
+    return {
+      activity_name: activity ? activity.name : `Aktivität #${activityId}`,
+      hours: round1(mins / 60),
+      percentage: total > 0 ? (mins / total) * 100 : 0,
+      // Runtime value from the activity record (the user picks it).
+      color: activity?.color || '',
+    };
+  }).sort((a, b) => b.hours - a.hours);
+}
+
+function dailyAverage(entries: TimeEntry[]) {
+  const totals = new Array<number>(7).fill(0);
+  const days = Array.from({ length: 7 }, () => new Set<string>());
+  for (const entry of entries) {
+    const date = parseUTC(entry.start_time);
+    const index = getDay(date);
+    totals[index] += hoursOf(entry);
+    days[index].add(format(date, 'yyyy-MM-dd'));
+  }
+  return MONDAY_FIRST.map((i) => ({
+    day: DAY_NAMES[i],
+    hours: round1(days[i].size > 0 ? totals[i] / days[i].size : 0),
+  }));
+}
+
 export const TimeReportsSection: React.FC = () => {
+  const { user } = useAuth();
+  const userId = user?.id ?? null;
   const [activeChart, setActiveChart] = useState<ChartType>('weekly');
-  const [weeklyData, setWeeklyData] = useState<any[]>([]);
-  const [activityData, setActivityData] = useState<ActivityBreakdownData[]>([]);
-  const [dailyData, setDailyData] = useState<any[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [now] = useState(() => new Date());
+  const params = useMemo(
+    () => ({
+      limit: REPORT_ROW_LIMIT,
+      offset: 0,
+      sort: '-start_time',
+      start_date: format(subDays(now, REPORT_DAYS), 'yyyy-MM-dd'),
+    }),
+    [now],
+  );
+  const entriesQuery = useQuery({
+    ...userEntriesQuery(userId ?? 0, params),
+    enabled: userId !== null,
+  });
+  const activities = useQuery(activitiesQuery(false));
 
-  useEffect(() => {
-    fetchAllChartData();
-  }, []);
+  const completed = useMemo(
+    () => (entriesQuery.data?.items ?? []).filter((e) => e.end_time && e.duration_minutes),
+    [entriesQuery.data],
+  );
+  const weekly = useMemo(() => weeklyTrend(completed, now), [completed, now]);
+  const breakdown = useMemo(
+    () => activityBreakdown(completed, activities.data ?? []),
+    [completed, activities.data],
+  );
+  const daily = useMemo(() => dailyAverage(completed), [completed]);
 
-  const fetchAllChartData = async () => {
-    try {
-      setIsLoading(true);
-      setError(null);
-
-      // Get current user ID and their entries
-      const meResponse = await apiClient.get('/users/me');
-      const userId = meResponse.data.id;
-      const entries: TimeEntry[] = await timeTrackingApi.getForUser(userId);
-      const allActivities: Activity[] = await activitiesApi.getAll();
-      const activityMap = new Map(allActivities.map(a => [a.id, a]));
-
-      // Only use completed entries with duration
-      const completed = entries.filter(e => e.end_time && e.duration_minutes);
-
-      // --- Weekly trend (last 4 weeks) ---
-      const weekBuckets = new Map<string, { hours: number; entries: number }>();
-      for (let i = 3; i >= 0; i--) {
-        const weekStart = startOfWeek(subDays(new Date(), i * 7), { weekStartsOn: 1 });
-        const key = format(weekStart, 'dd.MM');
-        weekBuckets.set(key, { hours: 0, entries: 0 });
-      }
-      for (const e of completed) {
-        const entryDate = parseUTC(e.start_time);
-        const weekStart = startOfWeek(entryDate, { weekStartsOn: 1 });
-        const key = format(weekStart, 'dd.MM');
-        const bucket = weekBuckets.get(key);
-        if (bucket) {
-          bucket.hours += (e.duration_minutes || 0) / 60;
-          bucket.entries += 1;
-        }
-      }
-      setWeeklyData(
-        Array.from(weekBuckets.entries()).map(([week, data]) => ({
-          week,
-          hours: parseFloat(data.hours.toFixed(1)),
-          entries: data.entries,
-        }))
-      );
-
-      // --- Activity breakdown (last 30 days) ---
-      const thirtyDaysAgo = subDays(new Date(), 30);
-      const actHours = new Map<number, number>();
-      let totalMinutes = 0;
-      for (const e of completed) {
-        if (parseUTC(e.start_time) >= thirtyDaysAgo) {
-          const mins = e.duration_minutes || 0;
-          actHours.set(e.activity_id, (actHours.get(e.activity_id) || 0) + mins);
-          totalMinutes += mins;
-        }
-      }
-      const actBreakdown = Array.from(actHours.entries()).map(([actId, mins]) => {
-        const act = activityMap.get(actId);
-        return {
-          activity_name: act ? `${act.icon || ''} ${act.name}`.trim() : `Aktivität #${actId}`,
-          hours: parseFloat((mins / 60).toFixed(1)),
-          percentage: totalMinutes > 0 ? (mins / totalMinutes) * 100 : 0,
-          color: act?.color || '#8884d8',
-        };
-      }).sort((a, b) => b.hours - a.hours);
-      setActivityData(actBreakdown);
-
-      // --- Daily distribution (average hours per weekday) ---
-      const dayNames = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];
-      const dayTotals = new Array(7).fill(0);
-      const dayCounts = new Array(7).fill(0);
-      const seenWeekDays = new Set<string>();
-      for (const e of completed) {
-        if (parseUTC(e.start_time) >= thirtyDaysAgo) {
-          const d = parseUTC(e.start_time);
-          const dayIdx = getDay(d); // 0=Sun
-          dayTotals[dayIdx] += (e.duration_minutes || 0) / 60;
-          const weekKey = `${dayIdx}-${format(d, 'yyyy-ww')}`;
-          if (!seenWeekDays.has(weekKey)) {
-            seenWeekDays.add(weekKey);
-            dayCounts[dayIdx] += 1;
+  const state: PageStateValue =
+    entriesQuery.isPending
+      ? { status: 'loading' }
+      : entriesQuery.isError
+        ? {
+            status: 'error',
+            error: getErrorMessage(entriesQuery.error, 'Berichte konnten nicht geladen werden.'),
+            retry: () => void entriesQuery.refetch(),
           }
-        }
-      }
-      // Start from Monday
-      const orderedDays = [1, 2, 3, 4, 5, 6, 0];
-      setDailyData(
-        orderedDays.map(i => ({
-          day: dayNames[i],
-          hours: parseFloat((dayCounts[i] > 0 ? dayTotals[i] / dayCounts[i] : 0).toFixed(1)),
-        }))
-      );
-
-    } catch (err: any) {
-      console.error('Failed to compute reports:', err);
-      setError('Berichte konnten nicht geladen werden');
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const renderWeeklyChart = () => (
-    <ResponsiveContainer width="100%" height={350}>
-      <LineChart data={weeklyData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
-        <CartesianGrid strokeDasharray="3 3" stroke="#e0e0e0" />
-        <XAxis dataKey="week" stroke="#666" />
-        <YAxis stroke="#666" label={{ value: 'Stunden', angle: -90, position: 'insideLeft' }} />
-        <Tooltip
-          contentStyle={{ background: '#fff', border: '1px solid #ccc', borderRadius: '8px' }}
-          labelStyle={{ fontWeight: 'bold' }}
-        />
-        <Legend />
-        <Line
-          type="monotone"
-          dataKey="hours"
-          name="Stunden"
-          stroke="#3498db"
-          strokeWidth={3}
-          dot={{ fill: '#3498db', r: 5 }}
-          activeDot={{ r: 7 }}
-        />
-      </LineChart>
-    </ResponsiveContainer>
-  );
-
-  const renderActivityChart = () => (
-    <ResponsiveContainer width="100%" height={350}>
-      <PieChart>
-        <Pie
-          data={activityData}
-          cx="50%"
-          cy="50%"
-          labelLine={false}
-          label={(entry) => {
-            const d = entry as unknown as ActivityBreakdownData;
-            return `${d.activity_name}: ${d.percentage.toFixed(1)}%`;
-          }}
-          outerRadius={120}
-          fill="#8884d8"
-          dataKey="hours"
-        >
-          {activityData.map((entry, index) => (
-            <Cell
-              key={`cell-${index}`}
-              fill={entry.color || CHART_COLORS[index % CHART_COLORS.length]}
-            />
-          ))}
-        </Pie>
-        <Tooltip
-          contentStyle={{ background: '#fff', border: '1px solid #ccc', borderRadius: '8px' }}
-          formatter={(value: any) => `${parseFloat(value).toFixed(1)}h`}
-        />
-        <Legend />
-      </PieChart>
-    </ResponsiveContainer>
-  );
-
-  const renderDailyChart = () => (
-    <ResponsiveContainer width="100%" height={350}>
-      <BarChart data={dailyData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
-        <CartesianGrid strokeDasharray="3 3" stroke="#e0e0e0" />
-        <XAxis dataKey="day" stroke="#666" />
-        <YAxis stroke="#666" label={{ value: 'Stunden', angle: -90, position: 'insideLeft' }} />
-        <Tooltip
-          contentStyle={{ background: '#fff', border: '1px solid #ccc', borderRadius: '8px' }}
-          formatter={(value: any) => `${value}h`}
-        />
-        <Legend />
-        <Bar dataKey="hours" name="Stunden" fill="#2ecc71" />
-      </BarChart>
-    </ResponsiveContainer>
-  );
-
-  if (isLoading) {
-    return <div className="time-reports-loading">Lade Berichte...</div>;
-  }
-
-  if (error) {
-    return <div className="time-reports-error">❌ {error}</div>;
-  }
+        : { status: completed.length > 0 ? 'ready' : 'empty' };
+  const chart = CHARTS.find((c) => c.id === activeChart) ?? CHARTS[0];
+  const busiest = daily.reduce((max, day) => (day.hours > max.hours ? day : max), daily[0]);
 
   return (
-    <div className="time-reports-container">
-      <div className="time-reports-header">
-        <h2>Berichte & Analysen</h2>
-        <div className="chart-selector">
-          <button
-            className={`chart-btn ${activeChart === 'weekly' ? 'active' : ''}`}
-            onClick={() => setActiveChart('weekly')}
-          >
-            📈 Wochenverlauf
-          </button>
-          <button
-            className={`chart-btn ${activeChart === 'activity' ? 'active' : ''}`}
-            onClick={() => setActiveChart('activity')}
-          >
-            🎯 Aktivitäten
-          </button>
-          <button
-            className={`chart-btn ${activeChart === 'daily' ? 'active' : ''}`}
-            onClick={() => setActiveChart('daily')}
-          >
-            📊 Tagesverteilung
-          </button>
+    <section className="time-reports" aria-labelledby="time-reports-title">
+      <div className="time-reports__header">
+        <h2 id="time-reports-title">Berichte</h2>
+        <div className="time-reports__tabs" role="group" aria-label="Diagramm">
+          {CHARTS.map((c) => (
+            <Button
+              key={c.id}
+              variant={activeChart === c.id ? 'primary' : 'secondary'}
+              aria-pressed={activeChart === c.id}
+              onClick={() => setActiveChart(c.id)}
+            >
+              {c.label}
+            </Button>
+          ))}
         </div>
       </div>
 
-      <div className="chart-container">
-        {activeChart === 'weekly' && (
-          <div className="chart-wrapper">
-            <h3>Stundenverlauf (letzte 4 Wochen)</h3>
-            {weeklyData.length > 0 ? (
-              renderWeeklyChart()
+      <PageState
+        state={state}
+        skeleton="detail"
+        empty={{
+          icon: 'clock',
+          title: 'Noch keine abgeschlossenen Zeiteinträge',
+          body: 'Starten Sie einen Timer über „Zeiterfassung starten“ unten rechts.',
+          headingLevel: 3,
+        }}
+      >
+        <figure className="time-reports__chart">
+          <figcaption>{chart.title}</figcaption>
+          <ResponsiveContainer width="100%" height={CHART_HEIGHT}>
+            {activeChart === 'weekly' ? (
+              <LineChart data={weekly}>
+                <CartesianGrid strokeDasharray="3 3" stroke={GRID} />
+                <XAxis dataKey="week" stroke={AXIS} />
+                <YAxis stroke={AXIS} label={{ value: 'Stunden', angle: -90, position: 'insideLeft' }} />
+                <Tooltip contentStyle={TOOLTIP_STYLE} />
+                <Legend />
+                <Line type="monotone" dataKey="hours" name="Stunden" stroke={LINE} strokeWidth={3} />
+              </LineChart>
+            ) : activeChart === 'activity' ? (
+              <PieChart>
+                <Pie data={breakdown} dataKey="hours" nameKey="activity_name" outerRadius={120} label>
+                  {breakdown.map((row, index) => (
+                    <Cell key={row.activity_name} fill={row.color || CHART_COLORS[index % CHART_COLORS.length]} />
+                  ))}
+                </Pie>
+                <Tooltip
+                  contentStyle={TOOLTIP_STYLE}
+                  formatter={(value) => `${Number(value).toLocaleString('de-DE')} h`}
+                />
+                <Legend />
+              </PieChart>
             ) : (
-              <div className="chart-empty">Keine Daten für Wochenverlauf vorhanden</div>
+              <BarChart data={daily}>
+                <CartesianGrid strokeDasharray="3 3" stroke={GRID} />
+                <XAxis dataKey="day" stroke={AXIS} />
+                <YAxis stroke={AXIS} label={{ value: 'Stunden', angle: -90, position: 'insideLeft' }} />
+                <Tooltip contentStyle={TOOLTIP_STYLE} formatter={(value) => `${String(value)} h`} />
+                <Legend />
+                <Bar dataKey="hours" name="Stunden" fill={LINE} />
+              </BarChart>
             )}
-          </div>
-        )}
-
-        {activeChart === 'activity' && (
-          <div className="chart-wrapper">
-            <h3>Zeitverteilung nach Aktivität (letzte 30 Tage)</h3>
-            {activityData.length > 0 ? (
-              renderActivityChart()
-            ) : (
-              <div className="chart-empty">Keine Daten für Aktivitäten vorhanden</div>
-            )}
-          </div>
-        )}
-
-        {activeChart === 'daily' && (
-          <div className="chart-wrapper">
-            <h3>Durchschnittliche Stunden pro Wochentag (letzte 30 Tage)</h3>
-            {dailyData.length > 0 ? (
-              renderDailyChart()
-            ) : (
-              <div className="chart-empty">Keine Daten für Tagesverteilung vorhanden</div>
-            )}
-          </div>
-        )}
-      </div>
-
-      <div className="chart-insights">
-        {activeChart === 'weekly' && weeklyData.length > 0 && (
-          <div className="insight">
-            <span className="insight-icon">💡</span>
-            <span className="insight-text">
-              Diese Woche: {weeklyData[weeklyData.length - 1]?.hours || 0}h erfasst
-            </span>
-          </div>
-        )}
-        {activeChart === 'activity' && activityData.length > 0 && (
-          <div className="insight">
-            <span className="insight-icon">💡</span>
-            <span className="insight-text">
-              Meiste Zeit: {activityData[0]?.activity_name} (
-              {activityData[0]?.hours.toFixed(1)}h)
-            </span>
-          </div>
-        )}
-        {activeChart === 'daily' && dailyData.length > 0 && (
-          <div className="insight">
-            <span className="insight-icon">💡</span>
-            <span className="insight-text">
-              Produktivster Tag:{' '}
-              {dailyData.reduce((max, day) => (day.hours > max.hours ? day : max), dailyData[0])
-                ?.day}{' '}
-              (
-              {dailyData
-                .reduce((max, day) => (day.hours > max.hours ? day : max), dailyData[0])
-                ?.hours.toFixed(1)}
-              h)
-            </span>
-          </div>
-        )}
-      </div>
-    </div>
+          </ResponsiveContainer>
+        </figure>
+        <p className="time-reports__insight">
+          {activeChart === 'weekly' &&
+            `Diese Woche: ${(weekly[weekly.length - 1]?.hours ?? 0).toLocaleString('de-DE')} h erfasst`}
+          {activeChart === 'activity' &&
+            breakdown[0] &&
+            `Meiste Zeit: ${breakdown[0].activity_name} (${breakdown[0].hours.toLocaleString('de-DE')} h)`}
+          {activeChart === 'daily' &&
+            busiest &&
+            `Stärkster Tag: ${busiest.day} (${busiest.hours.toLocaleString('de-DE')} h)`}
+        </p>
+      </PageState>
+    </section>
   );
 };

@@ -1,13 +1,15 @@
-// Time Entry Form Modal Component
-import React, { useState, useEffect } from 'react';
-import {
-  TimeEntry,
-  TimeEntryCreateInput,
-  TimeEntryUpdateInput,
-  OrderType,
-  Activity,
-} from '../../types';
-import { ordersApi, activitiesApi } from '../../api';
+// Time entry form (manual entry and edit) on the src/ui Modal + Field (W4-03).
+//
+// Orders and activities come from the shared picker queries. In edit mode
+// the destructive "Eintrag löschen" sits in the footer, away from the
+// frequent "Eintrag speichern" (playbook P4), and asks via ConfirmDialog
+// in the page.
+import React, { useEffect, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+
+import { activitiesQuery, orderPickerQuery } from '../../api/timeTrackingQueries';
+import { Button, Field, Modal } from '../../ui';
+import type { TimeEntry, TimeEntryCreateInput, TimeEntryUpdateInput } from '../../types';
 import '../../styles/time-tracking.css';
 
 interface TimeEntryFormModalProps {
@@ -16,6 +18,8 @@ interface TimeEntryFormModalProps {
   onSubmit: (data: TimeEntryCreateInput | TimeEntryUpdateInput) => Promise<void>;
   entry?: TimeEntry | null;
   isLoading?: boolean;
+  /** Edit mode only: delete this entry (the page confirms first). */
+  onDelete?: (entry: TimeEntry) => void;
 }
 
 interface FormData {
@@ -32,11 +36,83 @@ interface FormData {
   rework_required: boolean;
 }
 
-interface FormErrors {
-  order_id?: string;
-  activity_id?: string;
-  start_time?: string;
-  end_time?: string;
+type FormErrors = Partial<Record<'order_id' | 'activity_id' | 'start_time' | 'end_time', string>>;
+
+const COMPLEXITY_OPTIONS = ['Sehr einfach', 'Einfach', 'Mittel', 'Komplex', 'Sehr komplex'];
+const QUALITY_OPTIONS = ['Schlecht', 'Unterdurchschnittlich', 'Durchschnittlich', 'Gut', 'Exzellent'];
+
+function emptyForm(now = new Date()): FormData {
+  return {
+    order_id: '',
+    activity_id: '',
+    start_date: now.toISOString().split('T')[0],
+    start_time: now.toTimeString().slice(0, 5),
+    end_date: now.toISOString().split('T')[0],
+    end_time: '',
+    location: '',
+    notes: '',
+    complexity_rating: '',
+    quality_rating: '',
+    rework_required: false,
+  };
+}
+
+function formFromEntry(entry: TimeEntry): FormData {
+  const startDate = new Date(entry.start_time);
+  const endDate = entry.end_time ? new Date(entry.end_time) : new Date();
+  return {
+    order_id: entry.order_id.toString(),
+    activity_id: entry.activity_id.toString(),
+    start_date: startDate.toISOString().split('T')[0],
+    start_time: startDate.toTimeString().slice(0, 5),
+    end_date: endDate.toISOString().split('T')[0],
+    end_time: entry.end_time ? endDate.toTimeString().slice(0, 5) : '',
+    location: entry.location || '',
+    notes: entry.notes || '',
+    complexity_rating: entry.complexity_rating?.toString() || '',
+    quality_rating: entry.quality_rating?.toString() || '',
+    rework_required: entry.rework_required || false,
+  };
+}
+
+const combineDateTime = (date: string, time: string): string => `${date}T${time}:00`;
+
+function durationMinutes(form: FormData): number | null {
+  if (!form.end_time) return null;
+  const start = new Date(combineDateTime(form.start_date, form.start_time));
+  const end = new Date(combineDateTime(form.end_date, form.end_time));
+  return Math.floor((end.getTime() - start.getTime()) / 60000);
+}
+
+function formatDuration(minutes: number | null): string {
+  if (minutes === null) return '–';
+  return `${Math.floor(minutes / 60)} h ${minutes % 60} min`;
+}
+
+function validate(form: FormData): FormErrors {
+  const errors: FormErrors = {};
+  if (!form.order_id) errors.order_id = 'Auftrag fehlt. Bitte einen Auftrag wählen.';
+  if (!form.activity_id) errors.activity_id = 'Aktivität fehlt. Bitte eine Aktivität wählen.';
+  if (!form.start_time) errors.start_time = 'Startzeit fehlt.';
+  const duration = durationMinutes(form);
+  if (duration !== null && duration < 0) errors.end_time = 'Endzeit muss nach der Startzeit liegen.';
+  return errors;
+}
+
+function toSubmitData(form: FormData): TimeEntryCreateInput | TimeEntryUpdateInput {
+  const endDateTime = form.end_time ? combineDateTime(form.end_date, form.end_time) : undefined;
+  return {
+    order_id: parseInt(form.order_id, 10),
+    activity_id: parseInt(form.activity_id, 10),
+    start_time: combineDateTime(form.start_date, form.start_time),
+    end_time: endDateTime,
+    duration_minutes: endDateTime ? durationMinutes(form) || undefined : undefined,
+    location: form.location || undefined,
+    notes: form.notes || undefined,
+    complexity_rating: form.complexity_rating ? parseInt(form.complexity_rating, 10) : undefined,
+    quality_rating: form.quality_rating ? parseInt(form.quality_rating, 10) : undefined,
+    rework_required: form.rework_required || undefined,
+  };
 }
 
 export const TimeEntryFormModal: React.FC<TimeEntryFormModalProps> = ({
@@ -45,419 +121,158 @@ export const TimeEntryFormModal: React.FC<TimeEntryFormModalProps> = ({
   onSubmit,
   entry,
   isLoading = false,
+  onDelete,
 }) => {
   const isEditMode = Boolean(entry);
-
-  const [orders, setOrders] = useState<OrderType[]>([]);
-  const [activities, setActivities] = useState<Activity[]>([]);
-  const [formData, setFormData] = useState<FormData>({
-    order_id: '',
-    activity_id: '',
-    start_date: new Date().toISOString().split('T')[0],
-    start_time: new Date().toTimeString().slice(0, 5),
-    end_date: new Date().toISOString().split('T')[0],
-    end_time: '',
-    location: '',
-    notes: '',
-    complexity_rating: '',
-    quality_rating: '',
-    rework_required: false,
-  });
+  const orders = useQuery({ ...orderPickerQuery(), enabled: isOpen });
+  const activities = useQuery({ ...activitiesQuery(false), enabled: isOpen });
+  const [form, setForm] = useState<FormData>(() => emptyForm());
+  const [initial, setInitial] = useState<FormData>(form);
   const [errors, setErrors] = useState<FormErrors>({});
 
   useEffect(() => {
-    if (isOpen) {
-      fetchOrders();
-      fetchActivities();
-
-      if (entry) {
-        // Edit mode: populate form with entry data
-        const startDate = new Date(entry.start_time);
-        const endDate = entry.end_time ? new Date(entry.end_time) : new Date();
-
-        setFormData({
-          order_id: entry.order_id.toString(),
-          activity_id: entry.activity_id.toString(),
-          start_date: startDate.toISOString().split('T')[0],
-          start_time: startDate.toTimeString().slice(0, 5),
-          end_date: endDate.toISOString().split('T')[0],
-          end_time: entry.end_time ? endDate.toTimeString().slice(0, 5) : '',
-          location: entry.location || '',
-          notes: entry.notes || '',
-          complexity_rating: entry.complexity_rating?.toString() || '',
-          quality_rating: entry.quality_rating?.toString() || '',
-          rework_required: entry.rework_required || false,
-        });
-      } else {
-        // Create mode: reset form
-        resetForm();
-      }
-      setErrors({});
-    }
+    if (!isOpen) return;
+    const next = entry ? formFromEntry(entry) : emptyForm();
+    setForm(next);
+    setInitial(next);
+    setErrors({});
   }, [isOpen, entry]);
 
-  const fetchOrders = async () => {
-    try {
-      const ordersList = await ordersApi.getAll({ limit: 100 }); // dropdown — 100 is ample for picker UI
-      setOrders(ordersList);
-    } catch (err: any) {
-      console.error('Failed to fetch orders:', err);
-    }
-  };
-
-  const fetchActivities = async () => {
-    try {
-      const data = await activitiesApi.getAll();
-      setActivities(data);
-    } catch (err: any) {
-      console.error('Failed to fetch activities:', err);
-    }
-  };
-
-  const resetForm = () => {
-    const now = new Date();
-    setFormData({
-      order_id: '',
-      activity_id: '',
-      start_date: now.toISOString().split('T')[0],
-      start_time: now.toTimeString().slice(0, 5),
-      end_date: now.toISOString().split('T')[0],
-      end_time: '',
-      location: '',
-      notes: '',
-      complexity_rating: '',
-      quality_rating: '',
-      rework_required: false,
-    });
-  };
-
   const handleChange = (
-    e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>
+    e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>,
   ) => {
     const { name, value, type } = e.target;
     const checked = (e.target as HTMLInputElement).checked;
-
-    setFormData((prev) => ({
-      ...prev,
-      [name]: type === 'checkbox' ? checked : value,
-    }));
-
-    // Clear error for this field
-    if (errors[name as keyof FormErrors]) {
-      setErrors((prev) => ({ ...prev, [name]: undefined }));
-    }
-  };
-
-  const combineDateTime = (date: string, time: string): string => {
-    return `${date}T${time}:00`;
-  };
-
-  const calculateDuration = (): number | null => {
-    if (!formData.end_time) return null;
-
-    const startDateTime = combineDateTime(formData.start_date, formData.start_time);
-    const endDateTime = combineDateTime(formData.end_date, formData.end_time);
-
-    const start = new Date(startDateTime);
-    const end = new Date(endDateTime);
-
-    const diffMs = end.getTime() - start.getTime();
-    return Math.floor(diffMs / 1000 / 60); // minutes
-  };
-
-  const formatDuration = (minutes: number | null): string => {
-    if (minutes === null) return '-';
-    const hrs = Math.floor(minutes / 60);
-    const mins = minutes % 60;
-    return `${hrs}h ${mins}m`;
-  };
-
-  const validate = (): boolean => {
-    const newErrors: FormErrors = {};
-
-    if (!formData.order_id) {
-      newErrors.order_id = 'Auftrag ist erforderlich';
-    }
-
-    if (!formData.activity_id) {
-      newErrors.activity_id = 'Aktivität ist erforderlich';
-    }
-
-    if (!formData.start_time) {
-      newErrors.start_time = 'Startzeit ist erforderlich';
-    }
-
-    if (formData.end_time) {
-      const duration = calculateDuration();
-      if (duration !== null && duration < 0) {
-        newErrors.end_time = 'Endzeit muss nach Startzeit liegen';
-      }
-    }
-
-    setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
+    setForm((prev) => ({ ...prev, [name]: type === 'checkbox' ? checked : value }));
+    setErrors((prev) => ({ ...prev, [name]: undefined }));
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-
-    if (!validate()) return;
-
-    const startDateTime = combineDateTime(formData.start_date, formData.start_time);
-    const endDateTime = formData.end_time
-      ? combineDateTime(formData.end_date, formData.end_time)
-      : undefined;
-
-    const submitData: TimeEntryCreateInput | TimeEntryUpdateInput = {
-      order_id: parseInt(formData.order_id),
-      activity_id: parseInt(formData.activity_id),
-      start_time: startDateTime,
-      end_time: endDateTime,
-      duration_minutes: endDateTime ? calculateDuration() || undefined : undefined,
-      location: formData.location || undefined,
-      notes: formData.notes || undefined,
-      complexity_rating: formData.complexity_rating
-        ? parseInt(formData.complexity_rating)
-        : undefined,
-      quality_rating: formData.quality_rating ? parseInt(formData.quality_rating) : undefined,
-      rework_required: formData.rework_required || undefined,
-    };
-
-    await onSubmit(submitData);
+    const nextErrors = validate(form);
+    setErrors(nextErrors);
+    if (Object.keys(nextErrors).length > 0) return;
+    await onSubmit(toSubmitData(form));
   };
 
-  if (!isOpen) return null;
-
-  const duration = calculateDuration();
+  const isDirty = JSON.stringify(form) !== JSON.stringify(initial);
+  const duration = durationMinutes(form);
+  const formId = 'time-entry-form';
 
   return (
-    // eslint-disable-next-line jsx-a11y/click-events-have-key-events -- backdrop dismiss is mouse-only by convention
-    <div
-      className="modal-overlay"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="time-entry-modal-title"
-      onClick={onClose}
+    <Modal
+      open={isOpen}
+      onClose={onClose}
+      isDirty={isDirty && !isLoading}
+      title={isEditMode ? 'Zeiteintrag bearbeiten' : 'Manueller Zeiteintrag'}
+      size="lg"
+      className="time-entry-modal"
+      footer={
+        <>
+          {isEditMode && entry && onDelete && (
+            <Button
+              variant="danger"
+              icon="trash"
+              className="time-entry-modal__delete"
+              onClick={() => onDelete(entry)}
+              disabled={isLoading}
+            >
+              Eintrag löschen
+            </Button>
+          )}
+          <Button variant="secondary" size="lg" onClick={onClose} disabled={isLoading}>
+            Abbrechen
+          </Button>
+          <Button type="submit" size="lg" form={formId} loading={isLoading}>
+            {isEditMode ? 'Eintrag speichern' : 'Eintrag anlegen'}
+          </Button>
+        </>
+      }
     >
-      {/* eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions -- stops the backdrop's onClose from firing when clicking inside the dialog; not itself interactive */}
-      <div
-        className="modal-content time-entry-modal"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="modal-header">
-          <h2 id="time-entry-modal-title">{isEditMode ? 'Zeiterfassung bearbeiten' : 'Manuelle Zeiterfassung'}</h2>
-          <button className="modal-close" onClick={onClose}>
-            ×
-          </button>
+      <form id={formId} onSubmit={(e) => void handleSubmit(e)} noValidate>
+        <div className="time-entry-form-grid">
+          <Field label="Auftrag" name="order_id" required error={errors.order_id}>
+            <select id="order_id" value={form.order_id} onChange={handleChange}>
+              <option value="">{orders.isPending ? 'Wird geladen…' : 'Auftrag wählen'}</option>
+              {(orders.data ?? []).map((order) => (
+                <option key={order.id} value={order.id}>
+                  #{order.id} – {order.title}
+                </option>
+              ))}
+            </select>
+          </Field>
+
+          <Field label="Aktivität" name="activity_id" required error={errors.activity_id}>
+            <select id="activity_id" value={form.activity_id} onChange={handleChange}>
+              <option value="">{activities.isPending ? 'Wird geladen…' : 'Aktivität wählen'}</option>
+              {(activities.data ?? []).map((activity) => (
+                <option key={activity.id} value={activity.id}>
+                  {activity.name}
+                </option>
+              ))}
+            </select>
+          </Field>
+
+          <Field label="Startdatum" name="start_date" required>
+            <input type="date" id="start_date" value={form.start_date} onChange={handleChange} />
+          </Field>
+          <Field label="Startzeit" name="start_time" required error={errors.start_time}>
+            <input type="time" id="start_time" value={form.start_time} onChange={handleChange} />
+          </Field>
+          <Field label="Enddatum" name="end_date">
+            <input type="date" id="end_date" value={form.end_date} onChange={handleChange} />
+          </Field>
+          <Field label="Endzeit" name="end_time" error={errors.end_time}>
+            <input type="time" id="end_time" value={form.end_time} onChange={handleChange} />
+          </Field>
+
+          {form.end_time && (
+            <p className="time-entry-duration" aria-live="polite">
+              Dauer: <strong>{formatDuration(duration)}</strong>
+            </p>
+          )}
+
+          <Field label="Standort" name="location" help="z. B. Werkbank 1, Tresor">
+            <input type="text" id="location" value={form.location} onChange={handleChange} />
+          </Field>
+
+          <Field label="Komplexität (1-5)" name="complexity_rating">
+            <select id="complexity_rating" value={form.complexity_rating} onChange={handleChange}>
+              <option value="">Nicht bewertet</option>
+              {COMPLEXITY_OPTIONS.map((label, index) => (
+                <option key={label} value={index + 1}>
+                  {index + 1} – {label}
+                </option>
+              ))}
+            </select>
+          </Field>
+
+          <Field label="Qualität (1-5)" name="quality_rating">
+            <select id="quality_rating" value={form.quality_rating} onChange={handleChange}>
+              <option value="">Nicht bewertet</option>
+              {QUALITY_OPTIONS.map((label, index) => (
+                <option key={label} value={index + 1}>
+                  {index + 1} – {label}
+                </option>
+              ))}
+            </select>
+          </Field>
+
+          <label className="time-entry-check">
+            <input
+              type="checkbox"
+              name="rework_required"
+              checked={form.rework_required}
+              onChange={handleChange}
+            />
+            Nacharbeit erforderlich
+          </label>
         </div>
 
-        <form onSubmit={handleSubmit} className="modal-form">
-          <div className="form-grid">
-            {/* Order Selection */}
-            <div className="form-group">
-              <label htmlFor="order_id">
-                Auftrag <span className="required">*</span>
-              </label>
-              <select
-                id="order_id"
-                name="order_id"
-                value={formData.order_id}
-                onChange={handleChange}
-                required
-                className={errors.order_id ? 'error' : ''}
-              >
-                <option value="">-- Auftrag wählen --</option>
-                {orders.map((order) => (
-                  <option key={order.id} value={order.id}>
-                    #{order.id} - {order.title}
-                  </option>
-                ))}
-              </select>
-              {errors.order_id && <span className="error-text">{errors.order_id}</span>}
-            </div>
-
-            {/* Activity Selection */}
-            <div className="form-group">
-              <label htmlFor="activity_id">
-                Aktivität <span className="required">*</span>
-              </label>
-              <select
-                id="activity_id"
-                name="activity_id"
-                value={formData.activity_id}
-                onChange={handleChange}
-                required
-                className={errors.activity_id ? 'error' : ''}
-              >
-                <option value="">-- Aktivität wählen --</option>
-                {activities.map((activity) => (
-                  <option key={activity.id} value={activity.id}>
-                    {activity.icon && `${activity.icon} `}
-                    {activity.name}
-                  </option>
-                ))}
-              </select>
-              {errors.activity_id && <span className="error-text">{errors.activity_id}</span>}
-            </div>
-
-            {/* Start Date */}
-            <div className="form-group">
-              <label htmlFor="start_date">
-                Startdatum <span className="required">*</span>
-              </label>
-              <input
-                type="date"
-                id="start_date"
-                name="start_date"
-                value={formData.start_date}
-                onChange={handleChange}
-                required
-              />
-            </div>
-
-            {/* Start Time */}
-            <div className="form-group">
-              <label htmlFor="start_time">
-                Startzeit <span className="required">*</span>
-              </label>
-              <input
-                type="time"
-                id="start_time"
-                name="start_time"
-                value={formData.start_time}
-                onChange={handleChange}
-                required
-                className={errors.start_time ? 'error' : ''}
-              />
-              {errors.start_time && <span className="error-text">{errors.start_time}</span>}
-            </div>
-
-            {/* End Date */}
-            <div className="form-group">
-              <label htmlFor="end_date">Enddatum</label>
-              <input
-                type="date"
-                id="end_date"
-                name="end_date"
-                value={formData.end_date}
-                onChange={handleChange}
-              />
-            </div>
-
-            {/* End Time */}
-            <div className="form-group">
-              <label htmlFor="end_time">Endzeit</label>
-              <input
-                type="time"
-                id="end_time"
-                name="end_time"
-                value={formData.end_time}
-                onChange={handleChange}
-                className={errors.end_time ? 'error' : ''}
-              />
-              {errors.end_time && <span className="error-text">{errors.end_time}</span>}
-            </div>
-
-            {/* Calculated Duration */}
-            {formData.end_time && (
-              <div className="form-group calculated-field">
-                {/* eslint-disable-next-line jsx-a11y/label-has-associated-control -- labels a calculated read-only value, not an editable control */}
-                <label>Dauer</label>
-                <div className="calculated-value">{formatDuration(duration)}</div>
-              </div>
-            )}
-
-            {/* Location */}
-            <div className="form-group">
-              <label htmlFor="location">Standort</label>
-              <input
-                type="text"
-                id="location"
-                name="location"
-                value={formData.location}
-                onChange={handleChange}
-                placeholder="z.B. Werkbank 1, Tresor"
-              />
-            </div>
-
-            {/* Complexity Rating */}
-            <div className="form-group">
-              <label htmlFor="complexity_rating">Komplexität (1-5)</label>
-              <select
-                id="complexity_rating"
-                name="complexity_rating"
-                value={formData.complexity_rating}
-                onChange={handleChange}
-              >
-                <option value="">-- Nicht bewertet --</option>
-                <option value="1">1 - Sehr einfach</option>
-                <option value="2">2 - Einfach</option>
-                <option value="3">3 - Mittel</option>
-                <option value="4">4 - Komplex</option>
-                <option value="5">5 - Sehr komplex</option>
-              </select>
-            </div>
-
-            {/* Quality Rating */}
-            <div className="form-group">
-              <label htmlFor="quality_rating">Qualität (1-5)</label>
-              <select
-                id="quality_rating"
-                name="quality_rating"
-                value={formData.quality_rating}
-                onChange={handleChange}
-              >
-                <option value="">-- Nicht bewertet --</option>
-                <option value="1">1 - Schlecht</option>
-                <option value="2">2 - Unterdurchschnittlich</option>
-                <option value="3">3 - Durchschnittlich</option>
-                <option value="4">4 - Gut</option>
-                <option value="5">5 - Exzellent</option>
-              </select>
-            </div>
-
-            {/* Rework Required */}
-            <div className="form-group checkbox-group">
-              <label>
-                <input
-                  type="checkbox"
-                  name="rework_required"
-                  checked={formData.rework_required}
-                  onChange={handleChange}
-                />
-                Nacharbeit erforderlich
-              </label>
-            </div>
-          </div>
-
-          {/* Notes */}
-          <div className="form-group full-width">
-            <label htmlFor="notes">Notizen</label>
-            <textarea
-              id="notes"
-              name="notes"
-              value={formData.notes}
-              onChange={handleChange}
-              rows={3}
-              placeholder="Detaillierte Notizen zur durchgeführten Arbeit..."
-            />
-          </div>
-
-          {/* Form Actions */}
-          <div className="modal-actions">
-            <button type="button" className="btn-secondary" onClick={onClose} disabled={isLoading}>
-              Abbrechen
-            </button>
-            <button type="submit" className="btn-primary" disabled={isLoading}>
-              {isLoading
-                ? 'Wird gespeichert...'
-                : isEditMode
-                ? 'Speichern'
-                : 'Zeiterfassung erstellen'}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
+        <Field label="Notizen" name="notes" className="time-entry-notes">
+          <textarea id="notes" value={form.notes} onChange={handleChange} rows={3} />
+        </Field>
+      </form>
+    </Modal>
   );
 };

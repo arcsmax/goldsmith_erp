@@ -37,6 +37,7 @@ vi.mock('../hooks/useWebSocket', () => ({ useWebSocket: () => undefined }));
 
 import { AuthProvider, useAuth } from './AuthContext';
 import { TimeTrackingProvider, useTimeTracking } from './TimeTrackingContext';
+import { QueryWrapper, createTestQueryClient } from '../test/queryWrapper';
 
 const USER = { id: 5, email: 'g@example.test', role: 'goldsmith' };
 const ENTRY = { id: 'e-1', order_id: 3, activity_id: 2, user_id: 5 };
@@ -49,12 +50,15 @@ const Probe: React.FC = () => {
 };
 
 function renderTree() {
+  // W4-03: the timer is a query; the app mounts one QueryClient per session.
   return render(
-    <AuthProvider>
-      <TimeTrackingProvider>
-        <Probe />
-      </TimeTrackingProvider>
-    </AuthProvider>,
+    <QueryWrapper client={createTestQueryClient()}>
+      <AuthProvider>
+        <TimeTrackingProvider>
+          <Probe />
+        </TimeTrackingProvider>
+      </AuthProvider>
+    </QueryWrapper>,
   );
 }
 

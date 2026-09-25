@@ -29,6 +29,14 @@ export interface MetalPurchaseListParams {
   include_depleted?: boolean;
 }
 
+export interface TimeEntryPageParams {
+  limit: number;
+  offset: number;
+  sort?: string;
+  start_date?: string;
+  end_date?: string;
+}
+
 export interface DateRange {
   start_date: string;
   end_date: string;
@@ -92,6 +100,26 @@ export const queryKeys = {
   timer: {
     all: ['timer'] as const,
     summary: (range: DateRange) => [...queryKeys.timer.all, 'summary', range] as const,
+    // W4-03 bench UI. All under ['timer'], so a time_tracking_updates hint
+    // refreshes the running timer, the entry lists and the activity usage.
+    /** GET /time-tracking/running for one signed-in user. */
+    running: (userId: number | null) => [...queryKeys.timer.all, 'running', userId] as const,
+    /** GET /time-tracking/user/{id}?offset=… (Page envelope). */
+    userEntries: (userId: number, params: TimeEntryPageParams) =>
+      [...queryKeys.timer.all, 'user-entries', userId, params] as const,
+    /** GET /time-tracking/order/{id}?offset=… (Page envelope). */
+    orderEntries: (orderId: number, params: TimeEntryPageParams) =>
+      [...queryKeys.timer.all, 'order-entries', orderId, params] as const,
+    /** GET /activities/ (usage counts change when a timer stops). */
+    activities: (sortByUsage: boolean) =>
+      [...queryKeys.timer.all, 'activities', { sortByUsage }] as const,
+    mostUsedActivities: (limit: number) =>
+      [...queryKeys.timer.all, 'activities', 'most-used', { limit }] as const,
+  },
+  scanLog: {
+    all: ['scan-log'] as const,
+    /** GET /scan/log?user_id=me (the "Letzte Scans" list). */
+    history: (limit: number) => [...queryKeys.scanLog.all, 'history', { limit }] as const,
   },
   notifications: {
     all: ['notifications'] as const,

@@ -9,7 +9,10 @@
 // interface (they're convenience surface on top of the backend router), so
 // they use apiClient directly.
 
+import { queryOptions } from '@tanstack/react-query';
+
 import apiClient from './client';
+import { queryKeys } from './queryKeys';
 import { NetworkTransport } from '../lib/network-transport';
 import type {
   BatchLogResponse,
@@ -81,6 +84,14 @@ export async function getScanLogHistory(
     params: { user_id: 'me', limit },
   });
   return data;
+}
+
+/** W4-03: the "Letzte Scans" list as a query (ScannerPage). */
+export function scanHistoryQuery(limit: number = 20) {
+  return queryOptions({
+    queryKey: queryKeys.scanLog.history(limit),
+    queryFn: () => getScanLogHistory(limit),
+  });
 }
 
 /**
