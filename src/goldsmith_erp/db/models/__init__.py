@@ -86,24 +86,33 @@ from goldsmith_erp.db.models.quotes import (
     QuoteLineType,
     QuoteStatus,
 )
-from goldsmith_erp.db.models._remaining import (
-    BarcodeAlias,
-    CalendarEvent,
-    CalendarEventType,
+from goldsmith_erp.db.models.repairs import (
+    RepairItemType,
+    RepairJob,
+    RepairJobStatus,
+    RepairPhoto,
+    RepairPhotoPhase,
+)
+from goldsmith_erp.db.models.consultations import (
     Consultation,
     ConsultationOccasion,
     ConsultationPhoto,
     ConsultationPhotoKind,
     ConsultationStatus,
+    CustomerNoGo,
+    NoGoCategory,
+)
+from goldsmith_erp.db.models._remaining import (
+    BarcodeAlias,
+    CalendarEvent,
+    CalendarEventType,
     CostChangeRequest,
     CostChangeResponseMethod,
     CostChangeStatus,
-    CustomerNoGo,
     CustomerUpdate,
     CustomerUpdateKind,
     CustomerUpdateStatus,
     LabelTemplate,
-    NoGoCategory,
     Notification,
     NotificationPreference,
     NotificationSeverityEnum,
@@ -111,11 +120,6 @@ from goldsmith_erp.db.models._remaining import (
     OUTBOX_STATUS_VALUES,
     OutboxMessage,
     OutboxStatus,
-    RepairItemType,
-    RepairJob,
-    RepairJobStatus,
-    RepairPhoto,
-    RepairPhotoPhase,
     ScanLog,
     UpdateDeliveryMethod,
 )
