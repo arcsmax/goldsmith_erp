@@ -237,32 +237,80 @@ The 30-day erasure grace window is shorter than the ~3-month backup horizon,
 so this window of exposure is real and expected — not a bug in the backup
 rotation.
 
-### 4.2 Policy: re-run the erasure job after every restore
+### 4.2 Policy: replay the erasure ledger after every restore (GDPR-07, 2026-09)
 
-**After _any_ restore that predates an erasure, re-run the cleanup job.** It is
-idempotent (per-customer transactions; already-anonymised rows are handled by
-the same disposition logic) and re-applies both the hard-delete and the
-in-place anonymisation to the restored rows:
+**Correction.** Earlier versions of this section said that re-running the
+cleanup job after a restore "guarantees" re-erasure. That was wrong: the job
+only selects rows with `deletion_scheduled_at <= now`, and a dump taken
+*before* the erasure request has neither that flag nor the `gdpr_requests`
+row. The restored customer is active again and the job finds nothing.
 
-```bash
-# From the project root, against the running (prod) stack:
-COMPOSE_FILE=podman-compose.prod.yml scripts/gdpr-cleanup.sh
-#   …or via the installed user unit (§3):
-systemctl --user start goldsmith-gdpr-cleanup.service
-```
+**Mechanism now in place:**
 
-`scripts/restore.sh` **prints this reminder automatically** as the last thing
-it does, pointing back to this section — so an operator following the restore
-runbook cannot miss it. The reminder is advisory (an `echo`): it does not run
-the job for you, because a restore is often followed by manual verification
-before the stack is considered live.
+1. **Erasure ledger outside the database.** `scripts/backup.sh` appends every
+   executed erasure (`gdpr_requests` rows of type `erasure`,
+   `erasure_cleanup`, `erasure_replay`, `erasure_user` with status
+   `completed` / `PARTIAL_FILE_ERASURE`) to
+   `ERASURE_LEDGER_FILE` (default `$BACKUP_DIR/erasure-ledger/erasure-ledger.jsonl`,
+   mode 0600). One JSON line per request: row id, type, status, customer or
+   user id, timestamps. No names, no e-mail addresses. The file is **not**
+   touched by the dump rotation and must be copied off-site together with the
+   dumps.
+2. **Last-minute capture.** `scripts/restore.sh` exports the ledger once more
+   from the live database *before* it drops it, so erasures made since the
+   last backup are not lost (skipped with a warning if the live DB is gone).
+3. **Replay before go-live.** After the dump is restored and migrated,
+   `restore.sh` runs
+   `python -m goldsmith_erp.cli.gdpr_replay_erasures replay --ledger - --since <backup time>`
+   first as a dry-run, asks for confirmation, then with `--execute`, all
+   **before** `podman-compose up -d`. For each customer in a ledger entry
+   newer than the backup (minus a 24 h safety margin) it deactivates the row,
+   restores the original grace date, scrubs free-text PII, erases files,
+   records the legal hold, and writes a `gdpr_requests` row of type
+   `erasure_replay`. A customer whose grace period had already run out is
+   finalised (anonymised or hard-deleted) immediately. Employee erasures are
+   re-run through `anonymize_user`.
+4. **Fail closed.** If the replay fails or the operator declines it,
+   `restore.sh` exits 2 and does **not** start the stack. It prints the
+   manual replay command.
 
-> **Why not scrub the dumps directly?** Rewriting historical `.sql.gz` dumps in
-> place would (a) break the integrity check (`gzip -t`) that `backup.sh` relies
-> on, (b) risk corrupting the one artifact you restore from in a disaster, and
-> (c) still miss any off-site copy already synced by `backup-sync.sh`. Re-applying
-> erasure *after* restore is the robust, auditable path — every re-run writes the
-> same `customer_audit_logs` / `gdpr_requests` rows as the original erasure.
+Replay is idempotent: an entry the dump already reflects is re-applied
+harmlessly. Code: `src/goldsmith_erp/services/gdpr_erasure_ledger.py`,
+`src/goldsmith_erp/cli/gdpr_replay_erasures.py`; tests:
+`tests/integration/test_gdpr_erasure_replay.py`,
+`tests/scripts/test_backup_restore_scripts.py`.
+
+**Remaining gap:** an erasure executed after the last `backup.sh` run, on a
+host whose live database is lost entirely (disk failure), is only in the
+ledger if the ledger was exported after it. Mitigation: run `backup.sh`
+daily (timer or cron) and copy the ledger off-site with the dumps.
+
+> **Why not scrub the dumps directly?** Rewriting historical dumps in place
+> would (a) break the integrity check that `backup.sh` relies on, (b) risk
+> corrupting the one artifact you restore from in a disaster, and (c) still
+> miss any off-site copy already synced by `backup-sync.sh`. Replaying the
+> ledger after a restore is the robust, auditable path.
+
+### 4.2a Backup encryption (GDPR-06, 2026-09)
+
+`scripts/backup.sh` encrypts every dump (Art. 32 Abs. 1 lit. a DSGVO) and
+refuses to write a plain dump unless `--unencrypted` is passed (development
+only). Keys are read from files named in `.env.production`, never from the
+command line:
+
+| Variable | Use |
+|---|---|
+| `BACKUP_AGE_RECIPIENTS_FILE` | age public key: the server can encrypt but not decrypt (recommended) |
+| `BACKUP_AGE_IDENTITY_FILE` | age private key: only on the restore host, otherwise offline |
+| `BACKUP_PASSPHRASE_FILE` | gpg `--symmetric` AES256 passphrase file, mode 0600 (fallback when age is not installed) |
+
+Files are written as `*.sql.gz.age` / `*.sql.gz.gpg` with mode 0600 in a 0700
+directory. `restore.sh` picks the method from the file name and checks the
+key file's permissions. **Key escrow:** print the age private key (or gpg
+passphrase), `ENCRYPTION_KEY` and `ANONYMIZATION_SALT` and keep them in
+Anne's safe; without them every backup is unreadable. **Restore drill:** once
+per quarter restore the newest dump on a test host (`restore.sh --dry-run`
+proves decryptability; a full restore proves the replay).
 
 ### 4.3 Retention window vs. the 30-day grace window
 
@@ -270,8 +318,8 @@ The backup retention (~3 months) deliberately **exceeds** the 30-day erasure
 grace window. That is an operational disaster-recovery requirement (a fault or
 ransomware event discovered weeks later must still be recoverable), not an
 oversight. The mismatch is reconciled by policy, not by shortening retention:
-the re-run in § 4.2 guarantees that an erasure is re-applied to any older state
-that a restore brings back. Shortening backup retention to ≤ 30 days would
+the ledger replay in § 4.2 re-applies every erasure to any older state that a
+restore brings back. Shortening backup retention to ≤ 30 days would
 weaken disaster recovery and is **not** the chosen trade-off.
 
 ### 4.4 Legal basis for keeping the backups themselves — Art. 17(3)
@@ -283,7 +331,7 @@ German supervisory authorities is that erasure of backups is discharged on the
 **normal backup cycle** — a record erased from the live system is removed from
 backups as those backups age out and are overwritten (here: within the 7d/4w/3m
 rotation), provided the backups are not restored into production in the interim
-without re-applying the erasure (which § 4.2 enforces). During the retention
+without re-applying the erasure (which the § 4.2 ledger replay enforces). During the retention
 window the dumps are held under **Art. 17(3)(b)** (data integrity / security of
 processing and the legal-obligation carve-out that already governs the §147 AO
 financial records) and serve only disaster recovery — they are not used for any
