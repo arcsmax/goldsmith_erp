@@ -138,6 +138,7 @@ from goldsmith_erp.services.image_validation import (  # noqa: E402
     create_thumbnail_bounded,
     store_processed_original,
 )
+from goldsmith_erp.services.job_service import JobService  # noqa: E402
 
 logger = logging.getLogger("seed_demo")
 
@@ -3439,6 +3440,16 @@ async def seed():
         # ── Phase 12: V1.2 Customer updates & cost-change requests ────
         customer_updates = await seed_customer_updates(db, orders, repairs, users)
         cost_change_requests = await seed_cost_change_requests(db, orders, users)
+
+        # ── Phase 13: Jobs spine (ARCH-02) ────────────────────────────
+        # The phases above insert orders and repairs directly, bypassing the
+        # service sync rules, so every one of them gets its job here.
+        job_counts = await JobService.backfill_missing(db)
+        logger.info("seed jobs backfilled", extra={"jobs_created": job_counts})
+        print(
+            f"  Jobs: {job_counts['orders']} Aufträge, "
+            f"{job_counts['repairs']} Reparaturen verknüpft"
+        )
 
         # ── Commit everything ─────────────────────────────────────────
         await db.commit()

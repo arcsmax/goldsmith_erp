@@ -24,6 +24,7 @@ const ENUM_FOR_KIND: Readonly<
   handoff: 'HandoffStatusEnum',
   hallmark: 'HallmarkStatus',
   customerUpdate: 'CustomerUpdateStatus',
+  job: 'JobStatus',
 };
 
 const enumValues = enums as unknown as Record<string, string[]>;

@@ -23,14 +23,16 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Mapping, Optional
+from typing import Any, Callable, Mapping, Optional
 
 from sqlalchemy import Select, func
 from sqlalchemy import inspect as sa_inspect
-from sqlalchemy import select
+from sqlalchemy import select, text
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from goldsmith_erp.core.config import settings
 from goldsmith_erp.db.models import (
     ORDER_NUMBER_KIND,
     Job,
@@ -46,6 +48,8 @@ from goldsmith_erp.services.number_sequence_service import NumberSequenceService
 logger = logging.getLogger(__name__)
 
 TITLE_MAX_LENGTH = 200
+#: pg_advisory_xact_lock key for the startup backfill ("JOBS" in ASCII).
+_BACKFILL_LOCK_KEY = 0x4A4F4253
 
 _O = OrderStatusEnum
 _R = RepairJobStatus
@@ -321,6 +325,36 @@ class JobService:
         for repair in repairs:
             await JobService.sync_repair(db, repair)
         return {"orders": len(orders), "repairs": len(repairs)}
+
+    @staticmethod
+    async def backfill_on_startup(
+        session_factory: Callable[[], Any],
+    ) -> Optional[dict[str, int]]:
+        """Run :meth:`backfill_missing` once in its own transaction.
+
+        Gated by ``settings.JOBS_BACKFILL_ON_STARTUP``. On PostgreSQL an
+        advisory transaction lock serialises concurrent workers, so two
+        processes starting together cannot both create a job for one row.
+        A failure is logged with its traceback and does not stop the app:
+        the sync rules repair a missing job on the row's next write.
+        """
+        if not settings.JOBS_BACKFILL_ON_STARTUP:
+            return None
+        async with session_factory() as db:
+            try:
+                if db.get_bind().dialect.name == "postgresql":
+                    await db.execute(
+                        text("SELECT pg_advisory_xact_lock(:key)"),
+                        {"key": _BACKFILL_LOCK_KEY},
+                    )
+                counts = await JobService.backfill_missing(db)
+                await db.commit()
+            except SQLAlchemyError:
+                await db.rollback()
+                logger.exception("jobs_backfill_on_startup_failed")
+                return None
+        logger.info("jobs_backfill_on_startup", extra={"jobs_created": counts})
+        return counts
 
 
 __all__ = [

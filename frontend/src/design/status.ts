@@ -51,7 +51,8 @@ export type StatusKind =
   | 'scrapGold'
   | 'customerUpdate'
   | 'timeEntry'
-  | 'user';
+  | 'user'
+  | 'job';
 
 /** Not a backend enum (``User.is_active`` is a plain boolean) — the two
  * wire values a caller passes are the literal strings below. */
@@ -61,6 +62,7 @@ type CostChangeStatus = Schema<'CostChangeStatus'>;
 type CustomerUpdateStatus = Schema<'CustomerUpdateStatus'>;
 type HallmarkStatus = Schema<'HallmarkStatus'>;
 type HandoffStatus = Schema<'HandoffStatusEnum'>;
+type JobStatus = Schema<'JobStatus'>;
 
 type StatusTable<S extends string> = Readonly<Record<S, StatusMeta>>;
 
@@ -181,6 +183,21 @@ export const USER_STATUS: StatusTable<UserActiveStatus> = {
   inactive: meta('Inaktiv', 'neutral', 'circle-x'),
 };
 
+/** Unified job lifecycle over orders and repairs (ARCH-02, Werkstatt board).
+ * Labels match the backend's JOB_STATUS_LABELS (services/job_service.py). */
+export const JOB_STATUS: StatusTable<JobStatus> = {
+  draft: meta('Entwurf', 'neutral', 'pencil', 'dashed'),
+  intake: meta('Eingang', 'info', 'inbox'),
+  awaiting_approval: meta('Wartet auf Freigabe', 'waiting', 'hourglass'),
+  confirmed: meta('Bestätigt', 'info', 'clipboard-check'),
+  in_progress: meta('In Arbeit', 'progress', 'hammer'),
+  quality_check: meta('Qualitätskontrolle', 'check', 'scan-search'),
+  ready: meta('Fertig', 'done', 'circle-check'),
+  delivered: meta('Ausgeliefert', 'handover', 'package-check', 'double'),
+  on_hold: meta('Pausiert', 'waiting', 'pause', 'dashed'),
+  cancelled: meta('Storniert', 'danger', 'circle-x', 'struck'),
+};
+
 export const STATUS_MAP: Readonly<Record<StatusKind, Readonly<Record<string, StatusMeta>>>> = {
   order: ORDER_STATUS,
   repair: REPAIR_STATUS,
@@ -194,6 +211,7 @@ export const STATUS_MAP: Readonly<Record<StatusKind, Readonly<Record<string, Sta
   customerUpdate: CUSTOMER_UPDATE_STATUS,
   timeEntry: TIME_ENTRY_STATUS,
   user: USER_STATUS,
+  job: JOB_STATUS,
 };
 
 /**

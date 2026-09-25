@@ -5,7 +5,7 @@
  * `resync` event per channel after a reconnect). This module maps each
  * channel to the query roots it makes stale:
  *
- *   order_updates          → ['orders'], ['dashboard'], ['handoffs'], ['calendar']
+ *   order_updates          → ['orders'], ['dashboard'], ['handoffs'], ['calendar'], ['jobs']
  *   time_tracking_updates  → ['timer'], ['dashboard']
  *   notifications          → ['notifications'], ['handoffs']
  *
@@ -29,6 +29,8 @@ export const REALTIME_INVALIDATIONS: Readonly<Record<RealtimeChannel, readonly Q
     queryKeys.handoffs.all,
     // Calendar deadlines are derived from order delivery dates.
     queryKeys.calendar.all,
+    // The Werkstatt board (jobs spine) mirrors order status and deadline.
+    queryKeys.jobs.all,
   ],
   time_tracking_updates: [queryKeys.timer.all, queryKeys.dashboard.all],
   notifications: [queryKeys.notifications.all, queryKeys.handoffs.all],

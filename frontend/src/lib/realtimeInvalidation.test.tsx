@@ -51,7 +51,13 @@ describe('realtimeInvalidation', () => {
     act(() =>
       FakeWebSocket.latest().serverSend({ channel: 'order_updates', data: { order_id: 1 } }),
     );
-    expect(invalidatedRoots()).toEqual([['orders'], ['dashboard'], ['handoffs'], ['calendar']]);
+    expect(invalidatedRoots()).toEqual([
+      ['orders'],
+      ['dashboard'],
+      ['handoffs'],
+      ['calendar'],
+      ['jobs'],
+    ]);
   });
 
   it('invalidates ["timer"] on a time_tracking_updates hint', () => {
