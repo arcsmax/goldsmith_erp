@@ -81,6 +81,10 @@ services:
                --workers 2
                --no-access-log"
     env_file: .env.production
+    environment:
+      # ARCH-04: mail goes through outbox_messages and the worker service
+      # below; the web process starts no background loops.
+      - OUTBOX_MODE=worker
     volumes:
       - ./uploads:/app/uploads:Z
       - ./logs:/app/logs:Z
@@ -113,6 +117,51 @@ services:
         limits:
           memory: 512M
           cpus: "1.0"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ARCH-04 / ADR-2026-09-25-outbox: sends queued customer mail
+  # (outbox_messages) and runs the system monitor under the leader lock.
+  # Same build as the backend; starts after the backend has migrated.
+  worker:
+    build:
+      context: .
+      dockerfile: Containerfile
+    container_name: goldsmith-worker-prod
+    command: >
+      bash -c "cd /app/src && poetry run python -m goldsmith_erp.worker"
+    env_file: .env.production
+    environment:
+      - OUTBOX_MODE=worker
+    volumes:
+      - ./uploads:/app/uploads:Z
+      - ./logs:/app/logs:Z
+    healthcheck:
+      test:
+        - "CMD-SHELL"
+        - "cd /app/src && python -m goldsmith_erp.worker --healthcheck"
+      interval: 60s
+      timeout: 20s
+      start_period: 60s
+      retries: 3
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: "0.5"
     logging:
       driver: json-file
       options:

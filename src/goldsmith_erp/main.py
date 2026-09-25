@@ -17,6 +17,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from goldsmith_erp.api.routers import (
     activities,
     admin_email,
+    admin_outbox,
     admin_scan_metrics,
     admin_workshop,
     analytics,
@@ -262,6 +263,9 @@ app.include_router(
     admin_workshop.router, prefix=settings.API_V1_STR, tags=["admin-workshop"]
 )  # W2-04: Werkstatt-Stammdaten (ADMIN)
 app.include_router(
+    admin_outbox.router, prefix=settings.API_V1_STR, tags=["admin-outbox"]
+)  # W6 outbox: Nachrichten-Warteschlange (ADMIN)
+app.include_router(
     admin_scan_metrics.router,
     prefix=f"{settings.API_V1_STR}",
     tags=["admin-scan-metrics"],
@@ -343,7 +347,14 @@ async def events_websocket_endpoint(websocket: WebSocket) -> None:
 
 @app.on_event("startup")
 async def start_background_tasks() -> None:
-    """Register long-running background tasks on application startup."""
+    """Register long-running background tasks on application startup.
+
+    With OUTBOX_MODE=worker the worker process (python -m goldsmith_erp.worker)
+    runs the monitor and sends mail, so the web process starts no loops.
+    """
+    if settings.outbox_mode == "worker":
+        logger.info("OUTBOX_MODE=worker: system monitor runs in the worker")
+        return
     asyncio.create_task(system_monitor_loop())
     logger.info("System monitor background task registered")
 

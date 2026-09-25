@@ -177,3 +177,38 @@ def test_no_latest_image_tags(any_compose: dict[str, Any]):
         assert ":" in last_segment, (
             f"{name} image {image!r} has no explicit tag (implicit :latest)"
         )
+
+
+# ---------------------------------------------------------------------------
+# ARCH-04 worker service (ADR-2026-09-25-outbox)
+# ---------------------------------------------------------------------------
+
+WORKER_COMPOSE_FILES = (REPO_ROOT / "docker-compose.yml", PROD_COMPOSE_FILE)
+
+
+@pytest.fixture(scope="module", params=WORKER_COMPOSE_FILES, ids=lambda p: p.name)
+def worker_compose(request: pytest.FixtureRequest) -> dict[str, Any]:
+    return _load(request.param)
+
+
+def test_worker_uses_backend_build_and_runs_worker_module(
+    worker_compose: dict[str, Any],
+):
+    services = _services(worker_compose)
+    worker, backend = services["worker"], services["backend"]
+    assert worker["build"] == backend["build"]
+    assert "python -m goldsmith_erp.worker" in worker["command"]
+    assert "--healthcheck" in " ".join(worker["healthcheck"]["test"])
+    assert worker["restart"] == "unless-stopped"
+    assert worker["depends_on"]["backend"]["condition"] == "service_healthy"
+    assert "ports" not in worker
+
+
+def test_prod_worker_shares_backend_env_and_both_run_worker_mode(
+    prod_compose: dict[str, Any],
+):
+    services = _services(prod_compose)
+    worker, backend = services["worker"], services["backend"]
+    assert worker["env_file"] == backend["env_file"]
+    assert "OUTBOX_MODE=worker" in worker["environment"]
+    assert "OUTBOX_MODE=worker" in backend["environment"]

@@ -50,6 +50,7 @@ from goldsmith_erp.services.number_sequence_service import (
     QUOTE_KIND,
     NumberSequenceService,
 )
+from goldsmith_erp.services.outbox_service import is_worker_mode
 
 logger = logging.getLogger(__name__)
 
@@ -820,8 +821,10 @@ class QuoteService:
         await quote_delivery.check_send_allowed(db, quote, customer)
         recipient = await quote_delivery.resolve_delivery_recipient(db, customer)
         method = UpdateDeliveryMethod.PDF_MANUAL
+        queue_email = recipient is not None and is_worker_mode()
         if recipient is not None:
             method = UpdateDeliveryMethod.EMAIL
+        if recipient is not None and not queue_email:
             if not await quote_delivery.email_quote(quote, customer, recipient):
                 await QuoteService._record_send_failure(db, quote, current_user)
                 raise UpstreamError(
@@ -835,18 +838,24 @@ class QuoteService:
                 raise QuoteNotFoundError(quote_id)
             QuoteService._require_draft_for_send(locked)
             locked.status = QuoteStatus.SENT
-            record = quote_delivery.build_record(
-                locked,
-                int(current_user.id),
-                CustomerUpdateStatus.SENT,
-                method,
-                datetime.utcnow(),
-            )
-            db.add(record)
-            await db.flush()  # populate record.id for the audit row (E16)
-            await quote_delivery.record_delivery_audit(
-                db, record, int(current_user.id), int(customer.id), method
-            )
+            if queue_email:  # ARCH-04: the mail job commits with SENT
+                # Audited by the worker once the mail is delivered (E16).
+                await quote_delivery.enqueue_quote_email(
+                    db, locked, int(current_user.id)
+                )
+            else:
+                record = quote_delivery.build_record(
+                    locked,
+                    int(current_user.id),
+                    CustomerUpdateStatus.SENT,
+                    method,
+                    datetime.utcnow(),
+                )
+                db.add(record)
+                await db.flush()  # populate record.id for the audit row (E16)
+                await quote_delivery.record_delivery_audit(
+                    db, record, int(current_user.id), int(customer.id), method
+                )
 
         _log_quote_access(
             action="sent",

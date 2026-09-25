@@ -108,6 +108,11 @@ from goldsmith_erp.services.image_validation import (
     create_email_variant,
     resolve_within_root,
 )
+from goldsmith_erp.services.outbox_service import (
+    KIND_CUSTOMER_UPDATE,
+    OutboxService,
+    is_worker_mode,
+)
 from goldsmith_erp.services.pdf_service import PDFService
 
 logger = logging.getLogger(__name__)
@@ -663,6 +668,7 @@ class CustomerMessageService:
         if early is not None:
             return early
 
+        claimed_at = datetime.utcnow()
         async with transactional(db):
             claim_result = await db.execute(
                 sa_update(CustomerUpdate)
@@ -672,13 +678,27 @@ class CustomerMessageService:
                         [CustomerUpdateStatus.DRAFT, CustomerUpdateStatus.SEND_FAILED]
                     ),
                 )
-                .values(status=CustomerUpdateStatus.SENT, sent_at=datetime.utcnow())
+                .values(status=CustomerUpdateStatus.SENT, sent_at=claimed_at)
                 .returning(CustomerUpdate.id)
             )
             claimed_id = claim_result.scalar_one_or_none()
+            if claimed_id is not None and is_worker_mode():
+                # ARCH-04: the mail job commits with the claim or not at all.
+                await OutboxService.enqueue(
+                    db,
+                    kind=KIND_CUSTOMER_UPDATE,
+                    payload={
+                        "update_id": update_id,
+                        "user_id": user_id,
+                        "message_kind": kind.value,
+                    },
+                    dedupe_key=f"customer_update:{update_id}:{claimed_at.isoformat()}",
+                )
         if claimed_id is None:
             raise InvalidUpdateStateError(update_id, update.status.value)
         await db.refresh(update)
+        if is_worker_mode():
+            return CustomerMessageService._queued_result(update, user_id, kind)
 
         delivered = await CustomerMessageService._dispatch_email(
             db, update, recipient, photo_variants
@@ -715,6 +735,31 @@ class CustomerMessageService:
             update=CustomerUpdateRead.model_validate(update),
             delivered=delivered,
             method=method,
+        )
+
+    @staticmethod
+    def _queued_result(
+        update: CustomerUpdate, user_id: int, kind: MessageKind
+    ) -> CustomerUpdateSendResult:
+        """Result for a mail handed to the outbox worker (OUTBOX_MODE=worker).
+
+        ``delivered=True`` means "accepted for delivery": the row is SENT with
+        ``delivery_method`` still NULL until the worker's SMTP send succeeds.
+        If the worker gives up, the row flips to SEND_FAILED and the sender
+        gets the same in-app notice as an inline failure.
+        """
+        _log_message_event(
+            "send_queued",
+            cast(int, update.id),
+            cast(Optional[int], update.order_id),
+            user_id,
+            extra={"message_kind": kind.value},
+        )
+        return CustomerUpdateSendResult(
+            update=CustomerUpdateRead.model_validate(update),
+            delivered=True,
+            method=UpdateDeliveryMethod.EMAIL,
+            reason="queued",
         )
 
     @staticmethod
@@ -1030,3 +1075,106 @@ class CustomerMessageService:
             photos=photos,
             workshop_name=settings.WORKSHOP_NAME,
         )
+
+
+# ----------------------------------------------------------------------
+# Outbox worker side (OUTBOX_MODE=worker, ADR-2026-09-25-outbox)
+# ----------------------------------------------------------------------
+
+
+async def _load_update(db: AsyncSession, update_id: int) -> Optional[CustomerUpdate]:
+    return (
+        await db.execute(select(CustomerUpdate).where(CustomerUpdate.id == update_id))
+    ).scalar_one_or_none()
+
+
+async def deliver_queued_update(db: AsyncSession, payload: Dict[str, Any]) -> bool:
+    """Outbox handler: send a claimed CustomerUpdate. True = done, False = retry.
+
+    Idempotent: a row that already has ``delivery_method=EMAIL`` is not sent
+    again (e.g. an admin retry after a successful manual resend). Recipient,
+    opt-out and photos are re-read at send time, so an Art. 21 objection or
+    an erasure that happened while the mail was queued is honoured.
+    """
+    update_id = int(payload["update_id"])
+    user_id = int(payload["user_id"])
+    update = await _load_update(db, update_id)
+    if update is None:
+        logger.info(
+            "Queued customer update gone; skipping", extra={"update_id": update_id}
+        )
+        return True
+    if update.delivery_method == UpdateDeliveryMethod.EMAIL:
+        return True
+    photo_ids = cast(Optional[List[str]], update.photo_ids) or []
+    kind_value = payload.get("message_kind")
+    kind = (
+        MessageKind(kind_value)
+        if kind_value
+        else message_kind_for(cast(CustomerUpdateKind, update.kind), bool(photo_ids))
+    )
+    recipient = await resolve_recipient(
+        db,
+        order_id=cast(Optional[int], update.order_id),
+        repair_job_id=cast(Optional[int], update.repair_job_id),
+    )
+    has_email = recipient.customer is None or bool(recipient.customer.email)
+    if not has_email or await CustomerMessageService.is_opted_out(
+        db, recipient.customer_id
+    ):
+        # Nothing may be mailed any more; reopen the draft for the PDF hand-over.
+        async with transactional(db):
+            update.status = cast(Any, CustomerUpdateStatus.DRAFT)
+            update.sent_at = cast(Any, None)
+        _log_message_event(
+            "send_skipped",
+            update_id,
+            cast(Optional[int], update.order_id),
+            user_id,
+            extra={"reason": "no_email" if not has_email else "opted_out"},
+        )
+        return True
+    photo_variants = await load_photo_attachments(
+        db, cast(Optional[int], update.order_id), photo_ids
+    )
+    delivered = await CustomerMessageService._dispatch_email(
+        db, update, recipient, photo_variants
+    )
+    if not delivered:
+        return False
+    async with transactional(db):
+        update.status = cast(Any, CustomerUpdateStatus.SENT)
+        update.delivery_method = cast(Any, UpdateDeliveryMethod.EMAIL)
+        CustomerMessageService._add_audit_row(
+            db,
+            update=update,
+            customer_id=recipient.customer_id,
+            user_id=user_id,
+            kind=kind,
+            method=UpdateDeliveryMethod.EMAIL,
+            photo_count=len(photo_variants),
+        )
+    _log_message_event(
+        "send_attempted",
+        update_id,
+        cast(Optional[int], update.order_id),
+        user_id,
+        extra={"delivered": True, "message_kind": kind.value, "via": "outbox"},
+    )
+    return True
+
+
+async def fail_queued_update(db: AsyncSession, payload: Dict[str, Any]) -> None:
+    """Outbox dead-letter hook: SEND_FAILED + in-app notice (never silent)."""
+    from goldsmith_erp.services.customer_update_service import (  # noqa: PLC0415
+        CustomerUpdateService,
+    )
+
+    update_id = int(payload["update_id"])
+    user_id = int(payload["user_id"])
+    update = await _load_update(db, update_id)
+    if update is None or update.delivery_method == UpdateDeliveryMethod.EMAIL:
+        return
+    async with transactional(db):
+        update.status = cast(Any, CustomerUpdateStatus.SEND_FAILED)
+    await CustomerUpdateService._notify_send_failure(db, update, user_id)

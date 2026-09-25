@@ -46,6 +46,7 @@ from typing import Any, Optional, cast
 from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from goldsmith_erp.core.config import settings
 from goldsmith_erp.db.models import Customer as CustomerModel
@@ -55,12 +56,14 @@ from goldsmith_erp.db.models import (
     CustomerUpdateStatus,
 )
 from goldsmith_erp.db.models import Quote as QuoteModel
-from goldsmith_erp.db.models import UpdateDeliveryMethod
+from goldsmith_erp.db.models import QuoteStatus, UpdateDeliveryMethod
+from goldsmith_erp.db.transaction import transactional
 from goldsmith_erp.services.customer_message_service import (
     CustomerMessageService,
     MessageKind,
 )
 from goldsmith_erp.services.email_service import EmailService
+from goldsmith_erp.services.outbox_service import KIND_QUOTE_EMAIL, OutboxService
 from goldsmith_erp.services.pdf_service import PDFService
 
 logger = logging.getLogger(__name__)
@@ -256,3 +259,98 @@ async def record_delivery_audit(
     await CustomerMessageService.record_quote_delivery(
         db, update, user_id, customer_id=customer_id, method=method
     )
+
+
+# ----------------------------------------------------------------------
+# Outbox (OUTBOX_MODE=worker, ADR-2026-09-25-outbox)
+# ----------------------------------------------------------------------
+
+
+async def enqueue_quote_email(
+    db: AsyncSession, quote: QuoteModel, user_id: int
+) -> CustomerUpdate:
+    """Stage the delivery record + outbox job in the caller's transaction.
+
+    The record is SENT with ``delivery_method=NULL`` ("queued") until the
+    worker's SMTP send succeeds, so ``get_delivery`` reports nothing yet.
+    """
+    record = build_record(quote, user_id, CustomerUpdateStatus.SENT, None, None)
+    db.add(record)
+    await db.flush()
+    await OutboxService.enqueue(
+        db,
+        kind=KIND_QUOTE_EMAIL,
+        payload={"quote_id": quote.id, "record_id": record.id, "user_id": user_id},
+        dedupe_key=f"quote_email:{quote.id}:{record.id}",
+    )
+    return record
+
+
+async def _load_queued(
+    db: AsyncSession, payload: dict[str, Any]
+) -> tuple[Optional[QuoteModel], Optional[CustomerUpdate]]:
+    quote = (
+        await db.execute(
+            select(QuoteModel)
+            .options(selectinload(QuoteModel.line_items))
+            .where(QuoteModel.id == int(payload["quote_id"]))
+        )
+    ).scalar_one_or_none()
+    record = (
+        await db.execute(
+            select(CustomerUpdate).where(CustomerUpdate.id == int(payload["record_id"]))
+        )
+    ).scalar_one_or_none()
+    return quote, record
+
+
+async def deliver_queued_quote(db: AsyncSession, payload: dict[str, Any]) -> bool:
+    """Outbox handler: email the quote PDF. True = done, False = retry."""
+    quote, record = await _load_queued(db, payload)
+    if quote is None or record is None:
+        logger.info("Queued quote email target gone; skipping", extra=payload)
+        return True
+    if record.delivery_method == UpdateDeliveryMethod.EMAIL:
+        return True
+    customer = await load_customer(db, int(quote.customer_id))
+    user_id = int(payload["user_id"])
+    # Re-resolved at send time: SMTP off, address gone or an Art. 21 opt-out
+    # while queued -> recorded as a PDF hand-over, never mailed.
+    recipient = await resolve_delivery_recipient(db, customer)
+    if recipient is None:
+        async with transactional(db):
+            record.delivery_method = cast(Any, UpdateDeliveryMethod.PDF_MANUAL)
+            record.sent_at = cast(Any, datetime.utcnow())
+            await record_delivery_audit(
+                db, record, user_id, int(customer.id), UpdateDeliveryMethod.PDF_MANUAL
+            )
+        logger.info(
+            "Queued quote email: no recipient, recorded PDF_MANUAL", extra=payload
+        )
+        return True
+    if not await email_quote(quote, customer, recipient):
+        return False
+    async with transactional(db):
+        record.delivery_method = cast(Any, UpdateDeliveryMethod.EMAIL)
+        record.sent_at = cast(Any, datetime.utcnow())
+        await record_delivery_audit(
+            db, record, user_id, int(customer.id), UpdateDeliveryMethod.EMAIL
+        )
+    logger.info("Queued quote email sent", extra={"quote_id": quote.id})
+    return True
+
+
+async def fail_queued_quote(db: AsyncSession, payload: dict[str, Any]) -> None:
+    """Dead-letter hook: same outcome as an inline SMTP failure.
+
+    The record becomes SEND_FAILED and a quote still SENT goes back to DRAFT,
+    so staff can send it again or hand the PDF over.
+    """
+    quote, record = await _load_queued(db, payload)
+    if record is None or record.delivery_method == UpdateDeliveryMethod.EMAIL:
+        return
+    async with transactional(db):
+        record.status = cast(Any, CustomerUpdateStatus.SEND_FAILED)
+        if quote is not None and quote.status == QuoteStatus.SENT:
+            quote.status = cast(Any, QuoteStatus.DRAFT)
+    logger.error("Queued quote email dead-lettered; quote back to DRAFT", extra=payload)

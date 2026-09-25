@@ -5,7 +5,7 @@ import json
 import logging
 import secrets
 from pathlib import Path
-from typing import Annotated, Any, Optional
+from typing import Annotated, Any, Literal, Optional
 
 from pydantic import Field, PostgresDsn, RedisDsn, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
@@ -649,6 +649,30 @@ class Settings(BaseSettings):
     # incident. Only usage at or above this percentage flips the overall
     # status to "unhealthy" (503), the same as a down database or Redis.
     HEALTH_DISK_CRITICAL_PERCENT: float = 95.0
+
+    # ── Outbox (ARCH-04 / ARCH-05, ADR-2026-09-25-outbox) ────────────────────
+    # Appended at the end of Settings on purpose (merge-safety, see above).
+    # "inline": customer mails are sent in the request (dev/tests, the old
+    # behaviour). "worker": they are written to ``outbox_messages`` in the
+    # same transaction as the business change and sent by
+    # ``python -m goldsmith_erp.worker``, which also runs the system monitor.
+    # Unset -> "inline" when DEBUG=true, "worker" otherwise.
+    OUTBOX_MODE: Optional[Literal["inline", "worker"]] = None
+    OUTBOX_MAX_ATTEMPTS: int = Field(default=6, ge=1, le=50)
+    OUTBOX_BACKOFF_BASE_SECONDS: float = Field(default=30.0, gt=0)
+    OUTBOX_BACKOFF_MAX_SECONDS: float = Field(default=6 * 3600.0, gt=0)
+    OUTBOX_POLL_INTERVAL_SECONDS: float = Field(default=5.0, gt=0)
+    OUTBOX_BATCH_SIZE: int = Field(default=20, ge=1, le=500)
+    # A leased row is invisible to other workers for this long; a worker that
+    # dies mid-send leaves it to be picked up again after the lease expires.
+    OUTBOX_LEASE_SECONDS: float = Field(default=300.0, gt=0)
+
+    @property
+    def outbox_mode(self) -> str:
+        """Effective outbox mode (explicit setting, else by DEBUG)."""
+        if self.OUTBOX_MODE is not None:
+            return self.OUTBOX_MODE
+        return "inline" if self.DEBUG else "worker"
 
 
 # Instantiate once per process

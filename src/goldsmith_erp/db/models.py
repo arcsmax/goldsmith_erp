@@ -3531,3 +3531,55 @@ Index(
 Index("idx_orders_retention_class", Order.retention_class)
 Index("idx_material_usage_retention_class", MaterialUsage.retention_class)
 Index("idx_time_entries_retention_class", TimeEntry.retention_class)
+
+
+# ============================================================================
+# OUTBOX (ARCH-04 / ARCH-05, ADR-2026-09-25-outbox)
+# ============================================================================
+
+
+class OutboxStatus(str, enum.Enum):
+    """Lifecycle of an outbox row: pending -> sent | failed -> ... | dead."""
+
+    PENDING = "pending"  # waiting for its first attempt
+    SENT = "sent"  # delivered (SMTP accepted)
+    FAILED = "failed"  # last attempt failed, will be retried at next_attempt_at
+    DEAD = "dead"  # gave up after OUTBOX_MAX_ATTEMPTS; needs an admin retry
+
+
+OUTBOX_STATUS_VALUES = tuple(s.value for s in OutboxStatus)
+
+
+class OutboxMessage(Base):
+    """Durable side-effect job written in the same transaction as the change.
+
+    ``payload`` carries ids only (never recipient, subject or body): the
+    worker re-loads the business rows when it sends, so PII stays encrypted
+    in its own tables and an erasure also empties pending messages.
+    """
+
+    __tablename__ = "outbox_messages"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('pending', 'sent', 'failed', 'dead')",
+            name="ck_outbox_messages_status",
+        ),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    kind = Column(String(50), nullable=False)
+    payload = Column(JSON, nullable=False, default=dict)
+    dedupe_key = Column(String(200), nullable=True, unique=True)
+    status = Column(String(20), nullable=False, default=OutboxStatus.PENDING.value)
+    attempts = Column(Integer, nullable=False, default=0)
+    next_attempt_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    last_error = Column(String(500), nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    sent_at = Column(DateTime, nullable=True)
+
+
+Index(
+    "ix_outbox_messages_status_next_attempt",
+    OutboxMessage.status,
+    OutboxMessage.next_attempt_at,
+)
