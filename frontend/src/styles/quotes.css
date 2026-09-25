@@ -257,6 +257,14 @@
 
 /* ==================== CREATE QUOTE MODAL ==================== */
 
+/* LV2-07: the form (and the footer buttons inside it) sat flush against
+ * .modal-content's left/right edges — only .modal-header had its own
+ * horizontal padding. Match that same 1.5rem here, plus bottom padding
+ * so the footer doesn't touch the modal's bottom edge either. */
+.create-quote-form {
+  padding: 1.25rem 1.5rem 1.5rem;
+}
+
 .create-quote-modal .form-group {
   display: flex;
   flex-direction: column;
