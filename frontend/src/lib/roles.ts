@@ -81,6 +81,16 @@ export function canDeleteOrders(role?: UserRole | string | null): boolean {
   return normalizeRole(role) === 'ADMIN';
 }
 
+/**
+ * True when the caller may create a repair intake. Mirrors
+ * `Permission.REPAIR_CREATE` (ADMIN + GOLDSMITH; VIEWER holds only
+ * REPAIR_VIEW — front-desk read access, not intake).
+ */
+export function canCreateRepairs(role?: UserRole | string | null): boolean {
+  const normalized = normalizeRole(role);
+  return normalized === 'ADMIN' || normalized === 'GOLDSMITH';
+}
+
 /** Short German hint shown where hiding a financial section would
  *  otherwise leave a confusing empty gap. */
 export const FINANCIAL_HIDDEN_HINT = 'Keine Berechtigung für Finanzdaten';

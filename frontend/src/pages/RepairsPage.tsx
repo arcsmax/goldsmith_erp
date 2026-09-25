@@ -6,7 +6,7 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { repairsApi } from '../api/repairs';
 import { RepairIntakeScreen } from '../components/repairs/RepairIntakeScreen';
 import { useAuth } from '../contexts';
-import { canViewFinancials } from '../lib/roles';
+import { canCreateRepairs, canViewFinancials } from '../lib/roles';
 import { logError } from '../lib/logError';
 import type { RepairItemType, RepairJobListItem, RepairJobStatus } from '../types';
 import { REPAIR_STATUS, statusLabelsFor } from '../design/status';
@@ -62,6 +62,7 @@ export function RepairsPage() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const showPrice = canViewFinancials(user?.role);
+  const canCreate = canCreateRepairs(user?.role);
   const [searchParams, setSearchParams] = useSearchParams();
   const [repairs, setRepairs] = useState<RepairJobListItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -108,9 +109,11 @@ export function RepairsPage() {
     <div className="repairs-page">
       <div className="repairs-header">
         <h1>Reparaturen</h1>
-        <button type="button" className="btn-new-repair" onClick={openIntake}>
-          Neue Reparatur
-        </button>
+        {canCreate && (
+          <button type="button" className="btn-new-repair" onClick={openIntake}>
+            Neue Reparatur
+          </button>
+        )}
       </div>
 
       <div className="repairs-toolbar">
@@ -154,9 +157,11 @@ export function RepairsPage() {
               ? 'Passen Sie die Filter an oder suchen Sie nach einem anderen Begriff.'
               : 'Nehmen Sie die erste Reparatur an der Theke an.'}
           </p>
-          <button type="button" className="btn-primary" onClick={openIntake}>
-            Neue Reparatur annehmen
-          </button>
+          {canCreate && (
+            <button type="button" className="btn-primary" onClick={openIntake}>
+              Neue Reparatur annehmen
+            </button>
+          )}
         </div>
       ) : (
         <div className="repairs-table-wrapper">

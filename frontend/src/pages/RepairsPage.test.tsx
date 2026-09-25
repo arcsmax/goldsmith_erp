@@ -100,4 +100,27 @@ describe('RepairsPage intake', () => {
     await screen.findByRole('link', { name: 'REP-2026-0003' });
     expect(screen.queryByRole('columnheader', { name: 'KVA' })).not.toBeInTheDocument();
   });
+
+  it('hides "Neue Reparatur" for viewers (REPAIR_CREATE is ADMIN + GOLDSMITH only)', async () => {
+    mockRole.mockReturnValue('VIEWER');
+    mockGetAll.mockResolvedValue([]);
+    renderAt('/repairs');
+
+    await screen.findByText('Keine Reparaturen gefunden');
+    expect(screen.queryByRole('button', { name: 'Neue Reparatur' })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: 'Neue Reparatur annehmen' }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('shows "Neue Reparatur" for goldsmiths and admins', async () => {
+    mockRole.mockReturnValue('GOLDSMITH');
+    mockGetAll.mockResolvedValue([]);
+    renderAt('/repairs');
+    expect(await screen.findByRole('button', { name: 'Neue Reparatur' })).toBeInTheDocument();
+
+    mockRole.mockReturnValue('ADMIN');
+    renderAt('/repairs');
+    expect(await screen.findAllByRole('button', { name: 'Neue Reparatur' })).not.toHaveLength(0);
+  });
 });
