@@ -63,6 +63,18 @@ def test_care_text_depends_on_metal_and_stone():
     assert care_texts(None, []) == []
 
 
+def test_workshop_care_text_overrides_the_built_in_care_section():
+    """W7 followup: WorkshopSettings.care_text replaces the auto-derived
+    per-metal/stone Pflegehinweise when the workshop set one."""
+    sections = dict(compose_handover_sections(_data(care_text="Bitte trocken lagern.")))
+    assert sections["Pflegehinweise"] == ["Bitte trocken lagern."]
+
+
+def test_no_workshop_care_text_falls_back_to_the_built_in_text():
+    sections = dict(compose_handover_sections(_data(care_text=None)))
+    assert sections["Pflegehinweise"] == care_texts("white_gold_18k", ["Diamant"])
+
+
 def test_render_embeds_the_photo_and_returns_a_pdf():
     buf = io.BytesIO()
     Image.new("RGB", (400, 300), color=(120, 60, 10)).save(buf, format="JPEG")

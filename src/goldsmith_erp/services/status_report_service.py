@@ -77,6 +77,9 @@ logger = logging.getLogger(__name__)
 PHOTO_MAX_PX = 1200
 MAX_REPORT_PHOTOS = 6
 
+# Fallback chain (W7 followup): an explicit `next_steps` call argument wins,
+# else the workshop's own WorkshopSettings.care_text default, else this
+# built-in text.
 _NEXT_STEPS_DEFAULT = "Wir melden uns, sobald es Neuigkeiten zu Ihrem Auftrag gibt."
 
 _METAL_LABELS: Dict[str, str] = {
@@ -417,7 +420,7 @@ async def build_order_status_report(
         gemstones=_gemstone_labels(order.gemstones),
         events=events,
         photos=photos,
-        next_steps=next_steps or _NEXT_STEPS_DEFAULT,
+        next_steps=next_steps or workshop.get("care_text") or _NEXT_STEPS_DEFAULT,
         customer_name=recipient.display_name,
         workshop=workshop,
     )
@@ -446,7 +449,7 @@ async def build_repair_status_report(
         gemstones=[],
         events=events,
         photos=photos,
-        next_steps=next_steps or _NEXT_STEPS_DEFAULT,
+        next_steps=next_steps or workshop.get("care_text") or _NEXT_STEPS_DEFAULT,
         customer_name=recipient.display_name,
         workshop=workshop,
     )

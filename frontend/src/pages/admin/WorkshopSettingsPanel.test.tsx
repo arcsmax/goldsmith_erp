@@ -41,6 +41,7 @@ const EMPTY = {
   is_kleinunternehmer: false,
   default_vat_rate: 19,
   invoice_footer: null,
+  care_text: null,
   updated_at: null,
   missing_fields: ['Straße und Hausnummer', 'PLZ', 'Ort', 'Steuernummer oder USt-IdNr.'],
   is_complete: false,
@@ -121,6 +122,22 @@ describe('WorkshopSettingsPanel', () => {
     expect(screen.getByText(/zwischen 0 und 100/)).toBeInTheDocument();
     expect(screen.getByLabelText(/Name der Werkstatt/)).toHaveAttribute('aria-invalid', 'true');
     expect(mockUpdate).not.toHaveBeenCalled();
+  });
+
+  it('saves a custom Pflegehinweise text (W7 followup)', async () => {
+    mockGet.mockResolvedValue(EMPTY);
+    mockUpdate.mockResolvedValue({ ...EMPTY, care_text: 'Bitte trocken lagern.' });
+    renderWithQuery(<WorkshopSettingsPanel />);
+    await screen.findByLabelText('Pflegehinweise (Standardtext)');
+
+    await userEvent.type(
+      screen.getByLabelText('Pflegehinweise (Standardtext)'),
+      'Bitte trocken lagern.',
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Stammdaten speichern' }));
+
+    await waitFor(() => expect(mockUpdate).toHaveBeenCalledTimes(1));
+    expect(mockUpdate.mock.calls[0][0]).toMatchObject({ care_text: 'Bitte trocken lagern.' });
   });
 
   it('accepts a comma as decimal separator for the VAT rate', async () => {

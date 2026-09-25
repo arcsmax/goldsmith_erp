@@ -241,6 +241,11 @@ class WorkshopSettings(Base):
     is_kleinunternehmer = Column(Boolean, nullable=False, default=False)  # §19 UStG
     default_vat_rate = Column(PERCENT_NUMERIC, nullable=False, default=Decimal("19.0"))
     invoice_footer = Column(Text, nullable=True)
+    # W7 followup: workshop-editable care/next-steps text (Pflegehinweise).
+    # Used by the handover PDF's "Pflegehinweise" section and the status
+    # report's "next steps" paragraph, both falling back to a built-in
+    # default when this is empty. Not §14 UStG business data.
+    care_text = Column(Text, nullable=True)
     updated_at = Column(UtcDateTime, default=utcnow, onupdate=utcnow, nullable=False)
     updated_by = Column(
         Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
