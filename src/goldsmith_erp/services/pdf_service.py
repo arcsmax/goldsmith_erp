@@ -1633,13 +1633,24 @@ class PDFService:
         return render_ankaufsbuch_pdf(rows, date_from, date_to, workshop_name)
 
     @staticmethod
-    def render_handover_pdf(data: Any, workshop_name: str) -> bytes:
-        """W2-11: Abholprotokoll for a delivered order (services/pdf_reports.py)."""
+    def render_handover_pdf(
+        data: Any, workshop_name: str, care_text: Optional[str] = None
+    ) -> bytes:
+        """W2-11: Abholprotokoll for a delivered order (services/pdf_reports.py).
+
+        ``care_text``: the workshop's own Pflegehinweise default (Werkstatt-
+        Stammdaten, W7 followup); falls back to the built-in per-metal/stone
+        text (``care_texts()``) in ``pdf_reports.py`` when empty.
+        """
+        from dataclasses import replace  # noqa: PLC0415
+
         from goldsmith_erp.services.pdf_reports import (  # noqa: PLC0415
             render_handover_pdf,
         )
 
         logger.info("Rendering handover PDF", extra={"order_id": data.order_id})
+        if care_text:
+            data = replace(data, care_text=care_text)
         return render_handover_pdf(data, workshop_name)
 
     @staticmethod

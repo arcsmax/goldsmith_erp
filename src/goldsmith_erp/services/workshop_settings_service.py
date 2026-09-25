@@ -56,6 +56,7 @@ _FIELDS = (
     "is_kleinunternehmer",
     "default_vat_rate",
     "invoice_footer",
+    "care_text",
 )
 
 

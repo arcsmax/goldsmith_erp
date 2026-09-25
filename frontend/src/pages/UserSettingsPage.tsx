@@ -11,6 +11,7 @@
 import React from 'react';
 
 import { useScannerContext } from '../contexts/ScannerContext';
+import { useBenchMode } from '../lib/benchMode';
 import { ToggleSetting } from '../components/ToggleSetting';
 import { ThemeToggle } from '../components/ThemeToggle';
 import { Card, PageHeader } from '../ui';
@@ -18,10 +19,25 @@ import '../styles/user-settings.css';
 
 export const UserSettingsPage: React.FC = () => {
   const { benchModeEnabled, toggleBenchMode } = useScannerContext();
+  const { isBenchMode, setBenchMode } = useBenchMode();
 
   return (
     <div className="user-settings-container" data-testid="user-settings-page">
       <PageHeader title="Einstellungen" stickyPrimary={false} />
+
+      <Card title="Anzeige" className="user-settings-section">
+        <ToggleSetting
+          id="bench-layout-mode-toggle"
+          label="Werkbank-Modus aktivieren"
+          description={
+            'Zeigt nur noch Scanner, Zeiterfassung, Aufträge und Heute in einer ' +
+            'unteren Leiste; Seitennavigation und Fußzeile werden ausgeblendet. ' +
+            'Eine Geräte-Einstellung, die den Login übersteht.'
+          }
+          checked={isBenchMode}
+          onChange={setBenchMode}
+        />
+      </Card>
 
       {/* W4-05: colour scheme per device; "System" follows the device setting. */}
       <Card title="Darstellung" className="user-settings-section">

@@ -113,12 +113,15 @@ def _rows(engine, sql: str) -> list:
         return list(conn.execute(text(sql)).mappings())
 
 
-def test_revision_is_the_single_head_on_top_of_arch4():
+def test_revision_is_on_top_of_arch4():
+    # Not necessarily *the* head any more — W7's care_text migration now
+    # sits on top of this one (single-head check lives in that test).
     module = _load_migration()
     assert module.revision == _REVISION
     assert module.down_revision == "20260925_arch4_media"
     script = ScriptDirectory.from_config(Config(str(_ROOT / "alembic.ini")))
-    assert script.get_heads() == [_REVISION]
+    assert len(script.get_heads()) == 1
+    assert _REVISION in {rev.revision for rev in script.walk_revisions()}
 
 
 def test_status_maps_cover_every_enum_value():

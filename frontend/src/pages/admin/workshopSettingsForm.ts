@@ -36,6 +36,11 @@ export const TEXT_FIELDS: TextFieldSpec[] = [
   { key: 'bic', label: 'BIC' },
   { key: 'bank_name', label: 'Bank' },
   { key: 'invoice_footer', label: 'Fußzeile der Rechnung', help: 'z. B. Dank oder Zahlungsbedingungen.' },
+  {
+    key: 'care_text',
+    label: 'Pflegehinweise (Standardtext)',
+    help: 'Erscheint im Abholprotokoll und im Statusbericht; leer lässt den eingebauten Text stehen.',
+  },
 ];
 
 const optionalText = z.string();
@@ -63,6 +68,7 @@ export const workshopSettingsSchema = z.object({
   bic: optionalText,
   bank_name: optionalText,
   invoice_footer: optionalText,
+  care_text: optionalText,
   is_kleinunternehmer: z.boolean(),
   default_vat_rate: z
     .string()
@@ -90,6 +96,7 @@ export const toFormValues = (s: WorkshopSettings): WorkshopSettingsValues => ({
   bic: s.bic ?? '',
   bank_name: s.bank_name ?? '',
   invoice_footer: s.invoice_footer ?? '',
+  care_text: s.care_text ?? '',
   is_kleinunternehmer: s.is_kleinunternehmer,
   default_vat_rate: String(s.default_vat_rate ?? DEFAULT_VAT_RATE),
 });
@@ -112,6 +119,7 @@ export const toPayload = (v: WorkshopSettingsValues): WorkshopSettingsInput => {
     bic: text(v.bic),
     bank_name: text(v.bank_name),
     invoice_footer: text(v.invoice_footer),
+    care_text: text(v.care_text),
     is_kleinunternehmer: v.is_kleinunternehmer,
     default_vat_rate: Number(v.default_vat_rate.replace(',', '.')),
   };
