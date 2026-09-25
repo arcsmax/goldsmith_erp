@@ -41,6 +41,7 @@ Entities created (in dependency order):
 """
 
 import asyncio
+import io
 import logging
 import os
 import sys
@@ -53,8 +54,10 @@ _project_root = Path(__file__).resolve().parent.parent
 _src_dir = _project_root / "src"
 sys.path.insert(0, str(_src_dir))
 
+from PIL import Image  # noqa: E402
 from sqlalchemy import select  # noqa: E402
 
+from goldsmith_erp.core.config import settings  # noqa: E402
 from goldsmith_erp.core.security import get_password_hash  # noqa: E402
 from goldsmith_erp.db import _seed_helpers  # noqa: E402
 from goldsmith_erp.db.models import (  # noqa: E402
@@ -131,6 +134,10 @@ from goldsmith_erp.db.seed_credentials import (  # noqa: E402
     SENTINEL_EMAIL,
 )
 from goldsmith_erp.db.session import AsyncSessionLocal, engine  # noqa: E402
+from goldsmith_erp.services.image_validation import (  # noqa: E402
+    create_thumbnail_bounded,
+    store_processed_original,
+)
 
 logger = logging.getLogger("seed_demo")
 
@@ -158,6 +165,34 @@ def _hours_ago(n: int) -> datetime:
 
 def _uuid() -> str:
     return str(uuid.uuid4())
+
+
+# LV-16: solid-colour palette for the demo order photos — just enough
+# variety that six thumbnails in a row don't look identical.
+_DEMO_PHOTO_COLORS: tuple[tuple[int, int, int], ...] = (
+    (196, 154, 58),  # gold
+    (192, 192, 192),  # silver
+    (139, 94, 60),  # workbench brown
+    (74, 104, 128),  # steel blue
+    (150, 111, 51),  # bronze
+    (90, 90, 90),  # graphite
+)
+
+
+def _demo_photo_jpeg_bytes(color: tuple[int, int, int]) -> bytes:
+    """Render a 600x400 solid-colour JPEG in memory (Pillow).
+
+    LV-16: the seed used to write OrderPhoto rows pointing at files that
+    were never created, so ``/api/v1/photos/<id>/thumbnail`` 404'd for
+    every demo photo. These bytes are EXIF-free by construction (Pillow
+    never writes EXIF unless explicitly asked to) and are still run
+    through the real ``store_processed_original`` / ``create_thumbnail_bounded``
+    pipeline below so the on-disk layout matches a real upload exactly.
+    """
+    image = Image.new("RGB", (600, 400), color)
+    buffer = io.BytesIO()
+    image.save(buffer, format="JPEG", quality=85)
+    return buffer.getvalue()
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -3123,14 +3158,36 @@ async def seed_order_photos(db, orders, time_entries, users) -> list:
     for te in time_entries or []:
         te_for_order.setdefault(te.order_id, te.id)
 
+    # LV-16: write real files through the same storage layout and pipeline
+    # (image_validation.store_processed_original / create_thumbnail_bounded)
+    # a genuine upload uses, so the photos + orders list actually has
+    # working thumbnails instead of a broken-image icon.
+    storage_root = Path(settings.PHOTO_STORAGE_PATH).resolve()
+
     photos = []
     for idx, order in enumerate(orders[:6]):
+        file_uuid = _uuid()
+        order_dir = storage_root / str(order.id)
+        photo_path = order_dir / f"{file_uuid}.jpg"
+        thumb_path = order_dir / "thumbs" / f"{file_uuid}.jpg"
+
+        raw = _demo_photo_jpeg_bytes(_DEMO_PHOTO_COLORS[idx % len(_DEMO_PHOTO_COLORS)])
+        await store_processed_original(raw, "jpg", photo_path)
+        try:
+            await create_thumbnail_bounded(photo_path, thumb_path)
+        except Exception:
+            logger.warning(
+                "Demo-Thumbnail-Erstellung fehlgeschlagen — Foto bleibt gespeichert",
+                extra={"photo_path": str(photo_path)},
+                exc_info=True,
+            )
+
         payload = _seed_helpers.filter_model_fields(
             OrderPhoto,
             dict(
-                id=_uuid(),
+                id=file_uuid,
                 order_id=order.id,
-                file_path=f"/uploads/orders/demo_order_{order.id}_{idx + 1}.jpg",
+                file_path=str(photo_path),
                 taken_by=goldsmith.id,
                 notes="Demo-Fortschrittsfoto.",
                 time_entry_id=te_for_order.get(order.id),

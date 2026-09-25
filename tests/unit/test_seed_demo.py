@@ -447,3 +447,29 @@ async def test_seed_demo_no_legacy_new_order_status(seeded_e2e_db) -> None:
         f"seed wrote {len(legacy_new)} order(s) with legacy status 'new' — "
         "LV-05 regression"
     )
+
+
+@pytest.mark.asyncio
+async def test_seed_demo_order_photos_have_files_on_disk(seeded_e2e_db) -> None:
+    """LV-16: every seeded OrderPhoto's original file and thumbnail must
+    actually exist on disk — otherwise /api/v1/photos/<id>/thumbnail 404s
+    and the orders list shows a broken-image icon.
+    """
+    from sqlalchemy import select
+
+    from goldsmith_erp.db.models import OrderPhoto
+    from goldsmith_erp.services.photo_service import get_thumbnail_path
+
+    async with seeded_e2e_db() as verify_db:
+        photos = (await verify_db.execute(select(OrderPhoto))).scalars().all()
+
+    assert photos, "expected the seed to create order photos"
+    for photo in photos:
+        original = Path(photo.file_path)
+        assert (
+            original.exists()
+        ), f"OrderPhoto {photo.id} file_path missing on disk: {original}"
+        thumb = get_thumbnail_path(photo)
+        assert (
+            thumb is not None and thumb.exists()
+        ), f"OrderPhoto {photo.id} has no thumbnail on disk: {thumb}"
