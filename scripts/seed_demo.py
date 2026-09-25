@@ -41,6 +41,7 @@ Entities created (in dependency order):
 """
 
 import asyncio
+import io
 import logging
 import os
 import sys
@@ -53,8 +54,10 @@ _project_root = Path(__file__).resolve().parent.parent
 _src_dir = _project_root / "src"
 sys.path.insert(0, str(_src_dir))
 
+from PIL import Image  # noqa: E402
 from sqlalchemy import select  # noqa: E402
 
+from goldsmith_erp.core.config import settings  # noqa: E402
 from goldsmith_erp.core.security import get_password_hash  # noqa: E402
 from goldsmith_erp.db import _seed_helpers  # noqa: E402
 from goldsmith_erp.db.models import (  # noqa: E402
@@ -98,6 +101,7 @@ from goldsmith_erp.db.models import (  # noqa: E402
     NotificationTypeEnum,
     Order,
     OrderComment,
+    OrderEvent,
     OrderHallmark,
     OrderHandoff,
     OrderPhoto,
@@ -130,6 +134,10 @@ from goldsmith_erp.db.seed_credentials import (  # noqa: E402
     SENTINEL_EMAIL,
 )
 from goldsmith_erp.db.session import AsyncSessionLocal, engine  # noqa: E402
+from goldsmith_erp.services.image_validation import (  # noqa: E402
+    create_thumbnail_bounded,
+    store_processed_original,
+)
 
 logger = logging.getLogger("seed_demo")
 
@@ -157,6 +165,34 @@ def _hours_ago(n: int) -> datetime:
 
 def _uuid() -> str:
     return str(uuid.uuid4())
+
+
+# LV-16: solid-colour palette for the demo order photos — just enough
+# variety that six thumbnails in a row don't look identical.
+_DEMO_PHOTO_COLORS: tuple[tuple[int, int, int], ...] = (
+    (196, 154, 58),  # gold
+    (192, 192, 192),  # silver
+    (139, 94, 60),  # workbench brown
+    (74, 104, 128),  # steel blue
+    (150, 111, 51),  # bronze
+    (90, 90, 90),  # graphite
+)
+
+
+def _demo_photo_jpeg_bytes(color: tuple[int, int, int]) -> bytes:
+    """Render a 600x400 solid-colour JPEG in memory (Pillow).
+
+    LV-16: the seed used to write OrderPhoto rows pointing at files that
+    were never created, so ``/api/v1/photos/<id>/thumbnail`` 404'd for
+    every demo photo. These bytes are EXIF-free by construction (Pillow
+    never writes EXIF unless explicitly asked to) and are still run
+    through the real ``store_processed_original`` / ``create_thumbnail_bounded``
+    pipeline below so the on-disk layout matches a real upload exactly.
+    """
+    image = Image.new("RGB", (600, 400), color)
+    buffer = io.BytesIO()
+    image.save(buffer, format="JPEG", quality=85)
+    return buffer.getvalue()
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -1065,12 +1101,14 @@ async def seed_orders(db, customers, users, metal_purchases) -> list:
             special_instructions="Gravur 'H+R 1975' nachstechen und Ring polieren.",
             created_at=_days_ago(14),
         ),
-        # 8 - Goldkette 750 Anker 50cm (NEW / RUSH ORDER)
+        # 8 - Goldkette 750 Anker 50cm (CONFIRMED / RUSH ORDER)
+        # LV-05: the W2-07 order-lifecycle migration maps legacy "new" rows
+        # away; a priced order seeds as "confirmed" (see OrderEvent below).
         dict(
             title="Goldkette 750 Anker 50cm EILAUFTRAG",
             description="Ankerkette Gelbgold 750, 50cm, 2mm Breite. EILAUFTRAG fuer Geschenk!",
             price=2100.00,
-            status="new",
+            status="confirmed",
             customer_id=customers[9].id,  # Klaus Mueller
             deadline=_days_from_now(2),  # RUSH: only 2 days!
             current_location="Eingang",
@@ -1145,12 +1183,13 @@ async def seed_orders(db, customers, users, metal_purchases) -> list:
             special_instructions="Perle vorsichtig aus alter Fassung loesen. Neue Zargenfassung.",
             created_at=_days_ago(18),
         ),
-        # 11 - Manschettenknuepfe Gold 585 (NEW)
+        # 11 - Manschettenknuepfe Gold 585 (CONFIRMED)
+        # LV-05: same legacy-"new" fix as order 8 above.
         dict(
             title="Manschettenknopf-Paar Gold 585",
             description="Manschettenknuepfe Gold 585, rund, 15mm Durchmesser, mit Monogramm 'MB'.",
             price=980.00,
-            status="new",
+            status="confirmed",
             customer_id=customers[7].id,  # Dr. Bauer
             deadline=_days_from_now(21),
             current_location="Eingang",
@@ -1256,6 +1295,25 @@ async def seed_orders(db, customers, users, metal_purchases) -> list:
         db.add(o)
         orders.append(o)
     await db.flush()
+
+    # LV-05: orders 8 and 11 above seed directly at "confirmed" instead of
+    # the legacy "new" status. This loop bulk-inserts Order rows and
+    # bypasses services/order_workflow.transition by design, so it has to
+    # add the matching order_events rows itself — otherwise their Historie
+    # timeline would be empty even though the order is already confirmed.
+    for idx in (8, 11):
+        confirmed_order = orders[idx]
+        db.add(
+            OrderEvent(
+                order_id=confirmed_order.id,
+                from_status=None,
+                to_status=confirmed_order.status,
+                user_id=admin.id,
+                created_at=confirmed_order.created_at,
+            )
+        )
+    await db.flush()
+
     print(f"  Auftraege: {len(orders)} erstellt")
     return orders
 
@@ -3100,14 +3158,36 @@ async def seed_order_photos(db, orders, time_entries, users) -> list:
     for te in time_entries or []:
         te_for_order.setdefault(te.order_id, te.id)
 
+    # LV-16: write real files through the same storage layout and pipeline
+    # (image_validation.store_processed_original / create_thumbnail_bounded)
+    # a genuine upload uses, so the photos + orders list actually has
+    # working thumbnails instead of a broken-image icon.
+    storage_root = Path(settings.PHOTO_STORAGE_PATH).resolve()
+
     photos = []
     for idx, order in enumerate(orders[:6]):
+        file_uuid = _uuid()
+        order_dir = storage_root / str(order.id)
+        photo_path = order_dir / f"{file_uuid}.jpg"
+        thumb_path = order_dir / "thumbs" / f"{file_uuid}.jpg"
+
+        raw = _demo_photo_jpeg_bytes(_DEMO_PHOTO_COLORS[idx % len(_DEMO_PHOTO_COLORS)])
+        await store_processed_original(raw, "jpg", photo_path)
+        try:
+            await create_thumbnail_bounded(photo_path, thumb_path)
+        except Exception:
+            logger.warning(
+                "Demo-Thumbnail-Erstellung fehlgeschlagen — Foto bleibt gespeichert",
+                extra={"photo_path": str(photo_path)},
+                exc_info=True,
+            )
+
         payload = _seed_helpers.filter_model_fields(
             OrderPhoto,
             dict(
-                id=_uuid(),
+                id=file_uuid,
                 order_id=order.id,
-                file_path=f"/uploads/orders/demo_order_{order.id}_{idx + 1}.jpg",
+                file_path=str(photo_path),
                 taken_by=goldsmith.id,
                 notes="Demo-Fortschrittsfoto.",
                 time_entry_id=te_for_order.get(order.id),
@@ -3184,7 +3264,13 @@ async def seed_customer_updates(db, orders, repairs, users) -> list:
                 sent_at=_days_ago(5),
             )
         )
-    if len(repairs) > 3:
+    # LV-18: RepairJob.customer_notified_at may only be stamped once the
+    # matching Kundeninfo was actually SENT (see
+    # RepairService.send_customer_update) — a DRAFT update must never sit
+    # next to a repair whose customer_notified_at is already set. repairs[3]
+    # and repairs[4] (see seed_repair_jobs) both carry customer_notified_at,
+    # so their updates seed as SENT with that same timestamp instead of DRAFT.
+    if len(repairs) > 3 and repairs[3].customer_notified_at is not None:
         updates.append(
             dict(
                 repair_job_id=repairs[3].id,
@@ -3192,7 +3278,22 @@ async def seed_customer_updates(db, orders, repairs, users) -> list:
                 subject="Ihre Reparatur ist abholbereit",
                 body="Ihr Schmuckstueck ist fertig und kann abgeholt werden.",
                 sent_by=sender.id,
-                status=CustomerUpdateStatus.DRAFT,
+                status=CustomerUpdateStatus.SENT,
+                delivery_method=UpdateDeliveryMethod.EMAIL,
+                sent_at=repairs[3].customer_notified_at,
+            )
+        )
+    if len(repairs) > 4 and repairs[4].customer_notified_at is not None:
+        updates.append(
+            dict(
+                repair_job_id=repairs[4].id,
+                kind=CustomerUpdateKind.READY_FOR_PICKUP,
+                subject="Ihre Reparatur ist abholbereit",
+                body="Ihr Schmuckstueck ist fertig und kann abgeholt werden.",
+                sent_by=sender.id,
+                status=CustomerUpdateStatus.SENT,
+                delivery_method=UpdateDeliveryMethod.EMAIL,
+                sent_at=repairs[4].customer_notified_at,
             )
         )
 

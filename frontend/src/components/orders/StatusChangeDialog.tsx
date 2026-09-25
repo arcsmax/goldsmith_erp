@@ -5,7 +5,7 @@
 // toast.css so no new modal styles are added before the Wave 4 <Modal>.
 // Form modal rules: no close on backdrop click, Escape and "Abbrechen"
 // close, focus goes to the reason field and returns to the trigger.
-import { useEffect, useId, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
+import { useEffect, useId, useRef, useState, type FormEvent } from 'react';
 import type { OrderStatus } from '../../types';
 import '../../styles/toast.css';
 
@@ -80,6 +80,37 @@ export function StatusChangeDialog({
     return () => previouslyFocused?.focus?.();
   }, []);
 
+  // Escape closes; Tab stays inside the dialog. Bound to `document` (not a
+  // JSX onKeyDown on the overlay div) so the overlay stays a non-interactive
+  // static element for jsx-a11y — matches ui/Modal.tsx's focus-trap pattern.
+  // Must run unconditionally (before the `!copy` early return) per the Rules
+  // of Hooks.
+  useEffect(() => {
+    const handleKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.stopPropagation();
+        onCancel();
+        return;
+      }
+      if (event.key !== 'Tab' || !dialogRef.current) return;
+      const focusable = Array.from(
+        dialogRef.current.querySelectorAll<HTMLElement>('textarea, input, button:not([disabled])')
+      );
+      if (focusable.length === 0) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [onCancel]);
+
   if (!copy) return null;
 
   const handleSubmit = (event: FormEvent) => {
@@ -95,32 +126,9 @@ export function StatusChangeDialog({
     onConfirm(target === 'on_hold' && resumeDate ? { ...request, resume_date: resumeDate } : request);
   };
 
-  // Escape closes; Tab stays inside the dialog.
-  const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-    if (event.key === 'Escape') {
-      event.stopPropagation();
-      onCancel();
-      return;
-    }
-    if (event.key !== 'Tab' || !dialogRef.current) return;
-    const focusable = Array.from(
-      dialogRef.current.querySelectorAll<HTMLElement>('textarea, input, button:not([disabled])')
-    );
-    if (focusable.length === 0) return;
-    const first = focusable[0];
-    const last = focusable[focusable.length - 1];
-    if (event.shiftKey && document.activeElement === first) {
-      event.preventDefault();
-      last.focus();
-    } else if (!event.shiftKey && document.activeElement === last) {
-      event.preventDefault();
-      first.focus();
-    }
-  };
-
   const isDanger = target === 'cancelled';
   return (
-    <div className="confirm-dialog-overlay" onKeyDown={handleKeyDown}>
+    <div className="confirm-dialog-overlay">
       <div
         ref={dialogRef}
         className="confirm-dialog status-change-dialog"

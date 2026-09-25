@@ -12,7 +12,7 @@
 // logError for all failures. The PUT response is a full RepairJobRead
 // (photos + checklist), so the parent just replaces its whole `repair`
 // state via onUpdated — no local patching.
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { repairsApi, repairPhotoThumbPath } from '../../api/repairs';
 import { IntakeChecklistItem, RepairJob } from '../../types';
 import { useAuth, useToast } from '../../contexts';
@@ -82,12 +82,20 @@ function IntakeChecklistRow({
   onSubmitReason,
   canViewPhoto,
 }: IntakeChecklistRowProps) {
+  const reasonInputRef = useRef<HTMLInputElement>(null);
+
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     e.target.value = '';
     if (!file) return;
     onPhotoCapture(file);
   };
+
+  // Move focus into the reason field when it appears, without the
+  // jsx-a11y/no-autofocus-flagged `autoFocus` prop.
+  useEffect(() => {
+    if (reasonOpen) reasonInputRef.current?.focus();
+  }, [reasonOpen]);
 
   return (
     <li className={`intake-checklist-row intake-checklist-row--${item.status}`}>
@@ -126,13 +134,13 @@ function IntakeChecklistRow({
       {item.status === 'open' && reasonOpen && (
         <div className="intake-checklist-reason-form">
           <input
+            ref={reasonInputRef}
             type="text"
             className="form-input"
             placeholder="Begründung (mind. 3 Zeichen)"
             value={reasonDraft}
             onChange={(e) => onReasonDraftChange(e.target.value)}
             disabled={locked}
-            autoFocus
           />
           <div className="intake-checklist-reason-actions">
             <button

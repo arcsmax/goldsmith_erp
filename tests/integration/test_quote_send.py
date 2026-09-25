@@ -24,6 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from goldsmith_erp.core.config import settings
 from goldsmith_erp.db.models import (
     Customer,
+    CustomerAuditLog,
     CustomerUpdate,
     CustomerUpdateStatus,
     Quote,
@@ -32,6 +33,7 @@ from goldsmith_erp.db.models import (
     UpdateDeliveryMethod,
 )
 from goldsmith_erp.services import email_service as email_service_module
+from goldsmith_erp.services.customer_message_service import CustomerMessageService
 
 pytestmark = pytest.mark.asyncio
 
@@ -267,6 +269,129 @@ async def test_send_twice_is_rejected(
         f"{QUOTES_URL}{quote['id']}/send", headers=admin_auth_headers
     )
     assert second.status_code == 422
+
+
+async def _audit_rows_for(
+    db: AsyncSession, order_by: str = "id"
+) -> list[CustomerAuditLog]:
+    db.expire_all()
+    rows = (
+        (
+            await db.execute(
+                select(CustomerAuditLog)
+                .where(CustomerAuditLog.action == "customer_message_sent")
+                .order_by(getattr(CustomerAuditLog, order_by))
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return list(rows)
+
+
+async def test_send_with_smtp_writes_quote_sent_audit_row(
+    client: AsyncClient,
+    db_session: AsyncSession,
+    admin_auth_headers: dict,
+    test_customer: Customer,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """W6B-01: quote mail is routed through CustomerMessageService (kind
+    quote_sent, contractual basis, prices allowed) and produces the same
+    CustomerAuditLog row every other customer-facing message produces."""
+    _enable_smtp(monkeypatch)
+    _install_smtp_double(monkeypatch)
+    customer_id = test_customer.id
+    quote = await _create_quote(client, admin_auth_headers, customer_id)
+
+    resp = await client.post(
+        f"{QUOTES_URL}{quote['id']}/send", headers=admin_auth_headers
+    )
+    assert resp.status_code == 200, resp.text
+
+    rows = await _audit_rows_for(db_session)
+    assert len(rows) == 1
+    row = rows[0]
+    assert row.customer_id == customer_id
+    assert row.entity == "customer_update"
+    assert row.details["message_kind"] == "quote_sent"
+    assert row.details["delivery_method"] == "email"
+    assert row.details["legal_basis"].startswith("Art. 6(1)(b)")
+    assert quote["quote_number"] not in str(row.details)  # ids only, no body
+
+
+async def test_send_without_smtp_writes_pdf_manual_audit_row(
+    client: AsyncClient,
+    db_session: AsyncSession,
+    admin_auth_headers: dict,
+    test_customer: Customer,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _disable_smtp(monkeypatch)
+    _install_smtp_double(monkeypatch)
+    quote = await _create_quote(client, admin_auth_headers, test_customer.id)
+
+    resp = await client.post(
+        f"{QUOTES_URL}{quote['id']}/send", headers=admin_auth_headers
+    )
+    assert resp.status_code == 200, resp.text
+
+    rows = await _audit_rows_for(db_session)
+    assert len(rows) == 1
+    assert rows[0].details["delivery_method"] == "pdf_manual"
+    assert rows[0].details["message_kind"] == "quote_sent"
+
+
+async def test_send_with_failing_smtp_writes_no_audit_row(
+    client: AsyncClient,
+    db_session: AsyncSession,
+    admin_auth_headers: dict,
+    test_customer: Customer,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A failed attempt never reached the customer: no audit row (matches
+    the generic CustomerMessageService.send_update behaviour)."""
+    _enable_smtp(monkeypatch)
+    _install_smtp_double(monkeypatch, should_raise=True)
+    quote = await _create_quote(client, admin_auth_headers, test_customer.id)
+
+    resp = await client.post(
+        f"{QUOTES_URL}{quote['id']}/send", headers=admin_auth_headers
+    )
+    assert resp.status_code == 502, resp.text
+
+    rows = await _audit_rows_for(db_session)
+    assert rows == []
+
+
+async def test_send_with_email_opt_out_falls_back_to_pdf_manual(
+    client: AsyncClient,
+    db_session: AsyncSession,
+    admin_auth_headers: dict,
+    admin_user,
+    test_customer: Customer,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Art. 21 objection ("Keine E-Mail-Updates") blocks quote mail too, the
+    same as every other message kind through CustomerMessageService."""
+    _enable_smtp(monkeypatch)
+    capture = _install_smtp_double(monkeypatch)
+    await CustomerMessageService.set_email_opt_out(
+        db_session, test_customer.id, opted_out=True, user_id=admin_user.id
+    )
+    quote = await _create_quote(client, admin_auth_headers, test_customer.id)
+
+    resp = await client.post(
+        f"{QUOTES_URL}{quote['id']}/send", headers=admin_auth_headers
+    )
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["delivery_method"] == "pdf_manual"
+    assert capture.calls == 0
+
+    rows = await _audit_rows_for(db_session)
+    assert len(rows) == 1
+    assert rows[0].details["delivery_method"] == "pdf_manual"
 
 
 async def test_approve_requires_response_method(
