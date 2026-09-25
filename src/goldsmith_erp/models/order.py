@@ -1,7 +1,7 @@
 # src/goldsmith_erp/models/order.py
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
-from typing import TYPE_CHECKING, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -208,7 +208,20 @@ class OrderUpdate(BaseModel):
         None, ge=0, description="New agreed order price, NET excl. VAT"
     )
     status: Optional[OrderStatusEnum] = Field(
-        None, description="Order status (new, in_progress, completed, delivered)"
+        None,
+        description=(
+            "Target status; validated by the W2-07 transition table "
+            "(services/order_workflow.py). 409 when not allowed."
+        ),
+    )
+    # W2-07 / DOM-13: inputs for the status change, not Order columns.
+    status_reason: Optional[str] = Field(
+        None,
+        max_length=500,
+        description="Grund; required when status is on_hold or cancelled",
+    )
+    resume_date: Optional[date] = Field(
+        None, description="Expected resume date when status is on_hold"
     )
     deadline: Optional[datetime] = Field(
         None, description="Order deadline for calendar"
@@ -365,6 +378,10 @@ class OrderRead(OrderBase):
 
     id: int
     status: OrderStatusEnum
+    # W2-07 / DOM-13: set while on_hold / after cancelled.
+    hold_reason: Optional[str] = None
+    resume_date: Optional[date] = None
+    cancel_reason: Optional[str] = None
     customer_id: int
     customer: Optional["CustomerRead"] = (
         None  # Optional - populated when explicitly requested
@@ -425,6 +442,52 @@ class OrderListRead(OrderRead):
     """
 
     first_photo_id: Optional[str] = None
+
+
+class OrderStatusChange(BaseModel):
+    """Body of ``PATCH /orders/{id}/status`` (W2-07)."""
+
+    status: OrderStatusEnum = Field(..., description="Target status")
+    reason: Optional[str] = Field(
+        None,
+        max_length=500,
+        description="Grund; required for on_hold and cancelled",
+    )
+    resume_date: Optional[date] = Field(
+        None, description="Expected resume date (on_hold only)"
+    )
+
+    @field_validator("reason")
+    @classmethod
+    def strip_reason(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return None
+        return v.strip() or None
+
+
+TimelineKind = Literal["status", "customer_update", "photo", "time_entry"]
+
+
+class OrderTimelineItem(BaseModel):
+    """One entry of ``GET /orders/{id}/timeline`` (W2-07).
+
+    ``data`` is already role-projected by the service: no prices, no
+    customer free text, no design files.
+    """
+
+    kind: TimelineKind
+    id: str
+    at: datetime
+    user_id: Optional[int] = None
+    summary: str
+    data: Dict[str, Any] = Field(default_factory=dict)
+
+
+class OrderTimelineRead(BaseModel):
+    """Merged, chronologically ascending order history."""
+
+    order_id: int
+    items: List[OrderTimelineItem]
 
 
 class LocationChangeRequest(BaseModel):

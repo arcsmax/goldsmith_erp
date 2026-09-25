@@ -19,75 +19,21 @@ from goldsmith_erp.db.models import OrderStatusEnum, TimeEntry
 from goldsmith_erp.db.transaction import transactional
 from goldsmith_erp.models.order import OrderCreate, OrderUpdate
 
+# Slice 5 Punzierungs-Check guard (M4 / R8 / A5.3) and the W2-07 transition
+# table live in services/order_workflow.py so every status-write path runs
+# them; both guard names stay importable from here for existing callers.
+from goldsmith_erp.services import order_workflow
+from goldsmith_erp.services.order_workflow import (  # noqa: F401
+    _PUNZIERUNG_REQUIRED_TARGETS,
+    PunzierungRequiredError,
+    _check_punzierung_requirement,
+)
+
 logger = logging.getLogger(__name__)
 
 
-# ---------------------------------------------------------------------------
-# Slice 5 — Punzierungs-Check guard constants (M4 / R8 / A5.3).
-#
-# The Feingehaltsgesetz / DIN 8238 require that any piece bearing a
-# Feingehalts-Punze be verified before final handover. The ERP enforces
-# this at the state-machine boundary: a transition to COMPLETED on an
-# order with a declared alloy and no verified marks is refused.
-#
-# Orders without an alloy (e.g. silver sample pieces, gemstone-only
-# repairs) are allowed through — the hallmark law doesn't apply.
-# ---------------------------------------------------------------------------
-_PUNZIERUNG_REQUIRED_TARGETS: frozenset[OrderStatusEnum] = frozenset(
-    {OrderStatusEnum.COMPLETED}
-)
-
-
-class PunzierungRequiredError(HTTPException):
-    """Raised when advancing to COMPLETED without a verified Punzierung (M4).
-
-    409 with structured detail so the frontend can open the
-    PunzierungsCheckModal directly from the error response instead of
-    requiring a separate endpoint probe.
-    """
-
-    def __init__(self, *, order_id: int, alloy: str) -> None:
-        super().__init__(
-            status_code=409,
-            detail={
-                "code": "PUNZIERUNG_REQUIRED",
-                "order_id": order_id,
-                "alloy": alloy,
-                "message": (
-                    "Feingehalts-Punze muss vor Status COMPLETED geprueft werden."
-                ),
-            },
-        )
-
-
-def _check_punzierung_requirement(
-    order: OrderModel,
-    new_status: Optional[OrderStatusEnum],
-    pending_marks: Optional[list],
-) -> None:
-    """Enforce the A5.3 guard at every status-write path.
-
-    ``pending_marks`` carries the punzierung_verified_marks value that
-    the same PATCH is about to apply, so a caller can complete-and-verify
-    in a single request (used by the scan flow: scan ORDER:42, complete
-    Punzierung + advance to COMPLETED in one round-trip).
-    """
-    if new_status not in _PUNZIERUNG_REQUIRED_TARGETS:
-        return
-    # Orders without an alloy are exempt — hallmark law only applies
-    # to pieces that carry a Feingehalts-Punze.
-    if not order.alloy:
-        return
-
-    # A piece counts as verified if EITHER the existing row has marks
-    # OR the same update supplies them.
-    existing_marks = order.punzierung_verified_marks or []
-    pending = pending_marks or []
-    if len(existing_marks) == 0 and len(pending) == 0:
-        raise PunzierungRequiredError(
-            order_id=order.id,
-            alloy=order.alloy,
-        )
+# Fields on OrderUpdate that steer the transition but are not Order columns.
+_TRANSITION_INPUT_FIELDS = ("status", "status_reason", "resume_date")
 
 
 class OrderService:
@@ -179,12 +125,21 @@ class OrderService:
         return result.scalar_one_or_none()
 
     @staticmethod
-    async def create_order(db: AsyncSession, order_in: OrderCreate) -> OrderModel:
+    async def create_order(
+        db: AsyncSession,
+        order_in: OrderCreate,
+        *,
+        user_id: Optional[int] = None,
+    ) -> OrderModel:
         """
         Erstellt einen neuen Auftrag mit transaktionaler Integrität.
 
         All database operations are wrapped in a transaction to ensure ACID properties.
         Event publishing happens after successful commit.
+
+        W2-07: the order starts as DRAFT (ORM default, DOM-46) and its first
+        ``order_events`` row (``from_status`` NULL) is written in the same
+        transaction.
         """
         async with transactional(db):
             order_data = order_in.dict(exclude={"materials", "costing_method"})
@@ -211,6 +166,9 @@ class OrderService:
             db.add(db_order)
             # Flush to get the ID before commit
             await db.flush()
+            await order_workflow.record_creation(
+                db, db_order, user_id, meta={"origin": "manual"}
+            )
 
         # Re-fetch with eager loading after commit so relationships are available
         # for response serialization without requiring an active greenlet
@@ -268,18 +226,21 @@ class OrderService:
         user_id: Optional[int] = None,
         *,
         punzierung_verified_marks: Optional[List[str]] = None,
+        reason: Optional[str] = None,
     ) -> Optional[OrderModel]:
         """Status-transition entry point used by the scan flow (Slice 5).
 
-        This is a thin wrapper over :meth:`update_order` — the guard
-        logic (``_check_punzierung_requirement``) lives inside
-        ``update_order`` so every status-write path, scan or admin,
-        goes through the same check. ``advance_status`` exists as a
-        clear name for the scan router to call and to pass the
-        goldsmith's ``user_id`` as ``punzierung_verified_by`` when marks
-        are supplied.
+        This is a thin wrapper over :meth:`update_order`, which hands the
+        status change to ``order_workflow.transition`` (W2-07 transition
+        table, Punzierungs-Check, ``order_events`` row), so every
+        status-write path, scan or admin, goes through the same checks.
+        ``advance_status`` exists as a clear name for the scan router to
+        call and to pass the goldsmith's ``user_id`` as
+        ``punzierung_verified_by`` when marks are supplied.
         """
         payload: Dict[str, Any] = {"status": target_status}
+        if reason is not None:
+            payload["status_reason"] = reason
         if punzierung_verified_marks is not None:
             payload["punzierung_verified_marks"] = list(punzierung_verified_marks)
             payload["punzierung_verified_at"] = datetime.utcnow()
@@ -327,16 +288,29 @@ class OrderService:
         if order_in.costing_method is not None:
             update_data["costing_method_used"] = order_in.costing_method
 
-        new_status = update_data.get("status")
+        # W2-07: the status is never written as a plain column value. It is
+        # handed to order_workflow.transition (table + guards + event row)
+        # inside the same transaction as the other field changes.
+        requested_status = update_data.pop("status", None)
+        status_reason = update_data.pop("status_reason", None)
+        resume_date = update_data.pop("resume_date", None)
+        new_status = (
+            requested_status
+            if requested_status is not None and requested_status != order.status
+            else None
+        )
+        if new_status is not None:
+            # Fail before any write: 409 (table) / 422 (reason, resume date).
+            order_workflow.check_transition(
+                order.status, new_status, reason=status_reason, resume_date=resume_date
+            )
 
         # ------------------------------------------------------------------
         # Slice 5 / M4 / R8 / A5.3 — Punzierungs-Check guard.
         #
-        # This guard fires for EVERY call into update_order, regardless of
-        # whether the caller is a scan flow, the admin PATCH endpoint, or
-        # an import/bulk tool that lands here. Status-write paths that
-        # bypass OrderService.update_order are enumerated in the Slice 5
-        # report; any new path MUST also call _check_punzierung_requirement.
+        # Checked here (early, with the marks this same update supplies) and
+        # again inside order_workflow.transition, which every status-write
+        # path goes through.
         # ------------------------------------------------------------------
         pending_marks = update_data.get("punzierung_verified_marks")
         _check_punzierung_requirement(order, new_status, pending_marks)
@@ -391,14 +365,26 @@ class OrderService:
             update_data["completed_at"] = datetime.utcnow()
 
         async with transactional(db):
-            # Update durchführen
-            await db.execute(
-                update(OrderModel)
-                .where(OrderModel.id == order_id)
-                .values(**update_data)
-            )
-            # Flush to ensure update is visible in same transaction
-            await db.flush()
+            if update_data:
+                await db.execute(
+                    update(OrderModel)
+                    .where(OrderModel.id == order_id)
+                    .values(**update_data)
+                )
+                # Flush to ensure update is visible in same transaction
+                await db.flush()
+
+            if new_status is not None:
+                await order_workflow.transition(
+                    db,
+                    order,
+                    new_status,
+                    verified_by_user_id,
+                    status_reason,
+                    resume_date=resume_date,
+                    meta={"origin": origin},
+                    pending_marks=pending_marks,
+                )
 
             # Auto-calculate actual_hours from time entries inside the same transaction.
             # Import here to avoid circular dependency at module level.

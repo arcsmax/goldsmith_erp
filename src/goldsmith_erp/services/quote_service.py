@@ -38,6 +38,7 @@ from goldsmith_erp.models.quote import (
     QuoteLineItemCreate,
     QuoteUpdate,
 )
+from goldsmith_erp.services import order_workflow
 
 logger = logging.getLogger(__name__)
 
@@ -955,7 +956,13 @@ class QuoteService:
                     OrderStatusEnum.DRAFT,
                     OrderStatusEnum.NEW,
                 ):
-                    target_order.status = OrderStatusEnum.CONFIRMED
+                    await order_workflow.transition(  # W2-07: table + event
+                        db,
+                        target_order,
+                        OrderStatusEnum.CONFIRMED,
+                        current_user,
+                        meta={"origin": "quote_conversion", "quote_id": quote.id},
+                    )
             else:
                 target_order = OrderModel(
                     title=f"Auftrag aus {quote.quote_number}",

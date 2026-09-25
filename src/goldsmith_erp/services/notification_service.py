@@ -43,6 +43,7 @@ from goldsmith_erp.db.models import (
 )
 from goldsmith_erp.models.notification import NotificationCreate, NotificationRead
 from goldsmith_erp.services.automated_customer_email import send_customer_mail_once
+from goldsmith_erp.services.order_workflow import NO_DEADLINE_STATUSES
 
 logger = logging.getLogger(__name__)
 
@@ -242,7 +243,8 @@ class NotificationService:
         Rules:
         - Warn at 1 day and 3 days before deadline (hard-coded for MVP; can
           be overridden per-user via NotificationPreference.advance_days).
-        - Skip orders that are COMPLETED or DELIVERED.
+        - Skip orders that are COMPLETED, DELIVERED, ON_HOLD or CANCELLED
+          (``order_workflow.NO_DEADLINE_STATUSES``, W2-07).
         - Skip if a DEADLINE_WARNING notification (read or unread) already
           exists for the same user and order today (deduplication).
         - Notify all ADMIN and GOLDSMITH users.
@@ -260,12 +262,9 @@ class NotificationService:
                     Order.deadline.isnot(None),
                     Order.deadline >= now,
                     Order.deadline <= now + timedelta(days=4),
-                    Order.status.notin_(
-                        [
-                            OrderStatusEnum.COMPLETED,
-                            OrderStatusEnum.DELIVERED,
-                        ]
-                    ),
+                    # W2-07: finished, paused and cancelled orders raise no
+                    # deadline alarm (order_workflow.counts_for_deadline).
+                    Order.status.notin_(sorted(NO_DEADLINE_STATUSES)),
                     Order.is_deleted.is_(False),
                 )
             )

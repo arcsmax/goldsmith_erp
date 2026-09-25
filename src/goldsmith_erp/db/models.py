@@ -60,7 +60,16 @@ class OrderStatusEnum(str, enum.Enum):
     QUALITY_CHECK = "quality_check"
     COMPLETED = "completed"
     DELIVERED = "delivered"
-    NEW = "new"  # Legacy backward compatibility
+    # W2-07 / DOM-13: paused (waiting for stone, customer, casting service)
+    # with Order.hold_reason + Order.resume_date; out of deadline alarms.
+    ON_HOLD = "on_hold"
+    # W2-07 / DOM-13: Storniert, with Order.cancel_reason; out of all
+    # active counts. Terminal except for a reopen to DRAFT.
+    CANCELLED = "cancelled"
+    # Legacy (DOM-46): display only, never set by new code. The W2-07 data
+    # migration maps existing rows to draft/confirmed. Transitions live in
+    # services/order_workflow.py.
+    NEW = "new"
 
 
 class UserRole(str, enum.Enum):
@@ -466,9 +475,17 @@ class Order(Base):
     title = Column(String)
     description = Column(String)
     price = Column(Float)  # Final customer price (can be manually set)
+    # W2-07: every status write goes through services/order_workflow.transition
+    # (transition table + an OrderEvent row in the same transaction).
+    # DOM-46: new orders start as DRAFT, never the legacy NEW.
     status = Column(
-        SAEnum(OrderStatusEnum), default=OrderStatusEnum.NEW, nullable=False
+        SAEnum(OrderStatusEnum), default=OrderStatusEnum.DRAFT, nullable=False
     )
+    # W2-07 / DOM-13: set by the workflow on ON_HOLD / CANCELLED; the hold
+    # fields are cleared again when the order resumes.
+    hold_reason = Column(String(500), nullable=True)
+    resume_date = Column(Date, nullable=True)
+    cancel_reason = Column(String(500), nullable=True)
     customer_id = Column(
         Integer,
         ForeignKey("customers.id", ondelete="SET NULL"),
@@ -618,6 +635,49 @@ class Order(Base):
     status_history = relationship(
         "OrderStatusHistory", back_populates="order", cascade="all, delete-orphan"
     )
+    events = relationship(
+        "OrderEvent",
+        back_populates="order",
+        cascade="all, delete-orphan",
+        order_by="OrderEvent.created_at",
+    )
+
+
+class OrderEvent(Base):
+    """One order lifecycle event (W2-07, ARCH-01, BE-06).
+
+    Written by ``services/order_workflow.py`` in the SAME transaction as the
+    status change it records (or at creation, ``from_status`` NULL). The
+    W2-07 migration backfilled one synthetic row per pre-existing order
+    (``reason = 'backfill'``). Statuses are stored as the plain enum value
+    strings so a later enum change never rewrites history.
+
+    ``meta`` holds non-financial context only (origin, resume_date,
+    quote_id, backfill flags); the timeline endpoint serves it to every
+    ORDER_VIEW role.
+    """
+
+    __tablename__ = "order_events"
+    __table_args__ = (Index("ix_order_events_order_created", "order_id", "created_at"),)
+
+    id = Column(Integer, primary_key=True, index=True)
+    order_id = Column(
+        Integer,
+        ForeignKey("orders.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    from_status = Column(String(30), nullable=True)
+    to_status = Column(String(30), nullable=False)
+    user_id = Column(
+        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    reason = Column(String(500), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    meta = Column(JSON, nullable=True)
+
+    order = relationship("Order", back_populates="events")
+    user = relationship("User", foreign_keys=[user_id])
 
 
 class OrderComment(Base):
