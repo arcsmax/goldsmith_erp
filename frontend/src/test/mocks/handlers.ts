@@ -156,6 +156,9 @@ export const mockTimeTrackingStats: TimeTrackingStats = {
 // Request handlers
 export const handlers = [
   // Activities endpoints
+  // Media assets (ARCH phase 4): the photo tab reads customer_visible flags.
+  http.get(`${API_BASE}/media`, () => HttpResponse.json([])),
+
   http.get(`${API_BASE}/activities/`, ({ request }) => {
     const url = new URL(request.url);
     const category = url.searchParams.get('category');

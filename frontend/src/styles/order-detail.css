@@ -88,6 +88,23 @@
   object-fit: cover;
 }
 
+/* "Für Kunden sichtbar" checkbox under each thumbnail (media customer_visible) */
+.order-photo-grid__visible {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--touch-min);
+  font-size: var(--type-sm);
+  color: var(--color-text);
+  cursor: pointer;
+}
+
+.order-photo-grid__error {
+  margin: var(--space-3) 0 0;
+  color: var(--color-danger-fg);
+  font-size: var(--type-sm);
+}
+
 .order-photo-viewer__image {
   display: block;
   max-width: 100%;

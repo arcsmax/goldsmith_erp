@@ -2129,7 +2129,14 @@ export interface paths {
         delete?: never;
         options?: never;
         head?: never;
-        patch?: never;
+        /**
+         * Update Media
+         * @description „Für Kunden sichtbar“ setzen oder entfernen (GOLDSMITH/ADMIN).
+         *
+         *     Flagged photos are what the status report and a photo Kundeninfo
+         *     without ticked photos send to the customer.
+         */
+        patch: operations["update_media_api_v1_media__media_id__patch"];
         trace?: never;
     };
     "/api/v1/media/{media_id}/thumbnail": {
@@ -9311,6 +9318,14 @@ export interface components {
             uploaded_by?: number | null;
             /** Width */
             width?: number | null;
+        };
+        /**
+         * MediaAssetUpdate
+         * @description ``PATCH /media/{id}``: only the customer-visibility flag is editable.
+         */
+        MediaAssetUpdate: {
+            /** Customer Visible */
+            customer_visible: boolean;
         };
         /**
          * MediaKind
@@ -16676,6 +16691,43 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_media_api_v1_media__media_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                media_id: string;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MediaAssetUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MediaAssetRead"];
                 };
             };
             /** @description Validation Error */

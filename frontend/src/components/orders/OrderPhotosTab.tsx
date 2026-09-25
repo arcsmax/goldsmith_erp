@@ -4,9 +4,18 @@
 // the tab label count), the grid is a list of thumbnail buttons and the
 // viewer is the src/ui Modal (focus trap, Escape, focus return, full screen
 // below 600px) instead of the hand-rolled PhotoCompare lightbox.
+//
+// ARCH phase 4: each photo has a "Für Kunden sichtbar" checkbox
+// (media_assets.customer_visible). Flagged photos are what the status report
+// and a photo Kundeninfo without ticked photos send to the customer. Order
+// photos are media assets with the same id.
 import { useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { OrderPhoto } from '../../types';
 import { photoFilePath, photoThumbnailPath } from '../../api/photos';
+import { mediaApi, type MediaAsset } from '../../api/media';
+import { queryKeys } from '../../api/queryKeys';
+import { logError } from '../../lib/logError';
 import AuthenticatedImage from '../AuthenticatedImage';
 import { Button, EmptyState, Modal } from '../../ui';
 import { PhotoUpload } from './PhotoUpload';
@@ -72,8 +81,35 @@ interface OrderPhotosTabProps {
   onAutoCaptureDone: () => void;
 }
 
+const orderMediaKey = (orderId: number) => [...queryKeys.orders.photos(orderId), 'media'] as const;
+
+function useCustomerVisibility(orderId: number) {
+  const queryClient = useQueryClient();
+  const key = orderMediaKey(orderId);
+  const media = useQuery({
+    queryKey: key,
+    queryFn: () => mediaApi.listForOwner('order', orderId),
+  });
+  const toggle = useMutation({
+    mutationFn: ({ id, visible }: { id: string; visible: boolean }) =>
+      mediaApi.setCustomerVisible(id, visible),
+    onSuccess: (updated: MediaAsset) => {
+      queryClient.setQueryData<MediaAsset[]>(key, (current) =>
+        (current ?? []).map((asset) => (asset.id === updated.id ? updated : asset))
+      );
+    },
+    onError: (err: unknown) => logError('OrderPhotosTab.setCustomerVisible', err),
+  });
+  const visibleIds = new Set(
+    (media.data ?? []).filter((asset) => asset.customer_visible).map((asset) => asset.id)
+  );
+  const knownIds = new Set((media.data ?? []).map((asset) => asset.id));
+  return { visibleIds, knownIds, toggle };
+}
+
 export function OrderPhotosTab({ orderId, photos, autoCapture, onAutoCaptureDone }: OrderPhotosTabProps) {
   const [viewerIndex, setViewerIndex] = useState<number | null>(null);
+  const { visibleIds, knownIds, toggle } = useCustomerVisibility(orderId);
 
   return (
     <div className="order-tab-body order-photos-panel">
@@ -102,9 +138,28 @@ export function OrderPhotosTab({ orderId, photos, autoCapture, onAutoCaptureDone
                   className="order-photo-grid__thumb"
                 />
               </button>
+              {knownIds.has(photo.id) && (
+                <label className="order-photo-grid__visible">
+                  <input
+                    type="checkbox"
+                    checked={visibleIds.has(photo.id)}
+                    disabled={toggle.isPending}
+                    onChange={(event) =>
+                      toggle.mutate({ id: photo.id, visible: event.target.checked })
+                    }
+                    aria-label={`Foto ${index + 1} für Kunden sichtbar`}
+                  />
+                  <span aria-hidden="true">Für Kunden sichtbar</span>
+                </label>
+              )}
             </li>
           ))}
         </ul>
+      )}
+      {toggle.isError && (
+        <p className="order-photo-grid__error" role="alert">
+          Sichtbarkeit konnte nicht gespeichert werden. Bitte erneut versuchen.
+        </p>
       )}
       {viewerIndex !== null && photos[viewerIndex] && (
         <PhotoViewer

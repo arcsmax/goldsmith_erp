@@ -6,6 +6,7 @@ Endpoints:
   GET    /api/v1/media?owner_type=order&owner_id=42   - list an owner's media
   GET    /api/v1/media/{media_id}                     - serve the original
   GET    /api/v1/media/{media_id}/thumbnail           - serve the thumbnail
+  PATCH  /api/v1/media/{media_id}                     - toggle customer_visible
 
 Authorization is owner based and mirrors the photo routers: every read
 needs DESIGN_VIEW (design IP, SEC-09 / GDPR-04 — VIEWER gets 403) plus the
@@ -29,7 +30,7 @@ from goldsmith_erp.core.permissions import (
 )
 from goldsmith_erp.db.models import MediaAsset, MediaOwnerType, User
 from goldsmith_erp.db.session import get_db
-from goldsmith_erp.models.media_asset import MediaAssetRead
+from goldsmith_erp.models.media_asset import MediaAssetRead, MediaAssetUpdate
 from goldsmith_erp.services.media_service import (
     OWNER_PERMISSIONS,
     MediaNotFoundError,
@@ -105,3 +106,33 @@ async def get_media_thumbnail(
     return FileResponse(
         path=str(path), media_type=mime_for_suffix(path.suffix), filename=path.name
     )
+
+
+@router.patch("/{media_id}", response_model=MediaAssetRead)
+@require_permission(Permission.DESIGN_VIEW)  # type: ignore[misc]
+async def update_media(
+    media_id: str,
+    payload: MediaAssetUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> MediaAsset:
+    """„Für Kunden sichtbar“ setzen oder entfernen (GOLDSMITH/ADMIN).
+
+    Flagged photos are what the status report and a photo Kundeninfo
+    without ticked photos send to the customer.
+    """
+    asset = await _viewable_asset(db, media_id, current_user)
+    if not MediaService.can_edit(current_user, asset):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=_FORBIDDEN)
+    await MediaService.set_customer_visible(db, asset, payload.customer_visible)
+    await db.commit()
+    await db.refresh(asset)
+    logger.info(
+        "Media customer visibility changed",
+        extra={
+            "media_id": media_id,
+            "user_id": current_user.id,
+            "customer_visible": payload.customer_visible,
+        },
+    )
+    return asset

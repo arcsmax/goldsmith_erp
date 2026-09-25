@@ -49,6 +49,7 @@ from goldsmith_erp.core.config import settings
 from goldsmith_erp.db.models import (
     CustomerUpdate,
     CustomerUpdateStatus,
+    MediaOwnerType,
     Order,
     OrderEvent,
     RepairJob,
@@ -65,6 +66,7 @@ from goldsmith_erp.services.image_validation import (
     create_email_variant,
     resolve_within_root,
 )
+from goldsmith_erp.services.media_service import MediaService
 from goldsmith_erp.services.order_workflow import label_for
 from goldsmith_erp.services.pdf_service import PDFService
 from goldsmith_erp.services.workshop_settings_service import WorkshopSettingsService
@@ -260,7 +262,20 @@ async def _sent_update_events(
     return events
 
 
+async def _flagged_legacy_ids(
+    db: AsyncSession, owner_type: MediaOwnerType, owner_id: int
+) -> List[str]:
+    """Newest-first legacy ids of the owner's ``customer_visible`` photos."""
+    flagged = await MediaService.customer_visible_legacy_ids(db, owner_type, owner_id)
+    return list(reversed(flagged))[:MAX_REPORT_PHOTOS]
+
+
 async def _order_photos(db: AsyncSession, order_id: int) -> List[bytes]:
+    # Photos flagged "für Kunden sichtbar" win; without any flag the report
+    # keeps showing the photos already sent to the customer (pre-flag rule).
+    flagged = await _flagged_legacy_ids(db, MediaOwnerType.ORDER, order_id)
+    if flagged:
+        return await load_photo_attachments(db, order_id, flagged)
     rows = (
         (
             await db.execute(
@@ -293,13 +308,15 @@ async def _has_photo_consent(db: AsyncSession, customer_id: Optional[int]) -> bo
 
 
 async def _repair_photos(db: AsyncSession, repair_job_id: int) -> List[bytes]:
+    # Flagged photos win; without any flag, the latest photos (pre-flag rule).
+    stmt = select(RepairPhoto).where(RepairPhoto.repair_job_id == repair_job_id)
+    flagged = await _flagged_legacy_ids(db, MediaOwnerType.REPAIR, repair_job_id)
+    if flagged:
+        stmt = stmt.where(RepairPhoto.id.in_([int(pid) for pid in flagged]))
     rows = (
         (
             await db.execute(
-                select(RepairPhoto)
-                .where(RepairPhoto.repair_job_id == repair_job_id)
-                .order_by(RepairPhoto.timestamp.desc())
-                .limit(MAX_REPORT_PHOTOS)
+                stmt.order_by(RepairPhoto.timestamp.desc()).limit(MAX_REPORT_PHOTOS)
             )
         )
         .scalars()

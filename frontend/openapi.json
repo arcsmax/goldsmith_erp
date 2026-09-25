@@ -19985,6 +19985,78 @@
             }
           }
         }
+      },
+      "patch": {
+        "tags": [
+          "media"
+        ],
+        "summary": "Update Media",
+        "description": "„Für Kunden sichtbar“ setzen oder entfernen (GOLDSMITH/ADMIN).\n\nFlagged photos are what the status report and a photo Kundeninfo\nwithout ticked photos send to the customer.",
+        "operationId": "update_media_api_v1_media__media_id__patch",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "media_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Media Id"
+            }
+          },
+          {
+            "name": "access_token",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Access Token"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MediaAssetUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MediaAssetRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/media/{media_id}/thumbnail": {
@@ -29024,6 +29096,21 @@
         ],
         "title": "MediaAssetRead",
         "description": "Metadata of one media asset."
+      },
+      "MediaAssetUpdate": {
+        "properties": {
+          "customer_visible": {
+            "type": "boolean",
+            "title": "Customer Visible"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "customer_visible"
+        ],
+        "title": "MediaAssetUpdate",
+        "description": "``PATCH /media/{id}``: only the customer-visibility flag is editable."
       },
       "MediaKind": {
         "type": "string",
