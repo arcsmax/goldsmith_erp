@@ -90,6 +90,7 @@ describe('MainLayout grouped navigation (W4-03)', () => {
     }
     expect(within(nav).getByRole('link', { name: 'Heute' })).toHaveAttribute('aria-current', 'page');
     expect(within(nav).getByRole('link', { name: 'System' })).toHaveAttribute('href', '/admin/system');
+    expect(within(nav).getByRole('link', { name: 'Werkstatt-Board' })).toHaveAttribute('href', '/werkstatt');
   });
 
   it('hides financial, customer and admin entries from VIEWER', () => {

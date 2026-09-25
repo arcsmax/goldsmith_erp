@@ -44,6 +44,7 @@ export const NAV_GROUPS: NavGroup[] = [
     id: 'werkstatt',
     label: 'Werkstatt',
     entries: [
+      { to: '/werkstatt', label: 'Werkstatt-Board', icon: 'hammer' },
       { to: '/scanner', label: 'Scanner', icon: 'scan' },
       { to: '/time-tracking', label: 'Zeiterfassung', icon: 'hourglass' },
     ],
