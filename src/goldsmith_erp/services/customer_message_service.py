@@ -148,6 +148,11 @@ class MessageKind(str, Enum):
     QUOTE_SENT = "quote_sent"
     COST_CHANGE = "cost_change"
     APPOINTMENT = "appointment"
+    # W6: "Statusbericht anhängen" in the composer — a contractual-basis
+    # attachment (services/status_report_service.py), never persisted as a
+    # distinct stored CustomerUpdateKind (see send_update's
+    # attach_status_report param).
+    STATUS_REPORT = "status_report"
 
 
 @dataclass(frozen=True)
@@ -184,6 +189,9 @@ MESSAGE_POLICIES: Dict[MessageKind, MessagePolicy] = {
         ConsentPurpose.PHOTO_USE,
         False,
         CustomerUpdateKind.PROGRESS,
+    ),
+    MessageKind.STATUS_REPORT: MessagePolicy(
+        LegalBasis.CONTRACT, None, False, CustomerUpdateKind.PROGRESS
     ),
 }
 
@@ -612,6 +620,7 @@ class CustomerMessageService:
         user_id: int,
         *,
         message_kind: Optional[MessageKind] = None,
+        attach_status_report: bool = False,
     ) -> CustomerUpdateSendResult:
         """
         Deliver (or re-attempt) an existing CustomerUpdate by email.
@@ -647,6 +656,11 @@ class CustomerMessageService:
         kind = message_kind or message_kind_for(
             cast(CustomerUpdateKind, update.kind), bool(photo_ids)
         )
+        if attach_status_report:
+            # W6 "Statusbericht anhaengen": classified for content rules /
+            # audit as its own contractual-basis kind, whatever the
+            # underlying stored CustomerUpdateKind (see MessageKind docstring).
+            kind = MessageKind.STATUS_REPORT
         recipient = await resolve_recipient(
             db,
             order_id=order_id,
@@ -661,6 +675,22 @@ class CustomerMessageService:
             photo_ids=photo_ids,
         )
         photo_variants = await load_photo_attachments(db, order_id, photo_ids)
+
+        extra_attachment: Optional[tuple[str, bytes]] = None
+        if attach_status_report:
+            from goldsmith_erp.services.status_report_service import (  # noqa: PLC0415
+                render_order_status_report_pdf,
+                render_repair_status_report_pdf,
+            )
+
+            report_bytes = (
+                await render_order_status_report_pdf(db, order_id)
+                if order_id is not None
+                else await render_repair_status_report_pdf(
+                    db, cast(int, update.repair_job_id)
+                )
+            )
+            extra_attachment = ("Statusbericht.pdf", report_bytes)
 
         early = await CustomerMessageService._pre_dispatch_result(
             db, update, recipient, user_id
@@ -701,7 +731,7 @@ class CustomerMessageService:
             return CustomerMessageService._queued_result(update, user_id, kind)
 
         delivered = await CustomerMessageService._dispatch_email(
-            db, update, recipient, photo_variants
+            db, update, recipient, photo_variants, extra_attachment=extra_attachment
         )
 
         method: Optional[UpdateDeliveryMethod] = None
@@ -803,6 +833,8 @@ class CustomerMessageService:
         update: CustomerUpdate,
         recipient: Recipient,
         photo_variants: List[bytes],
+        *,
+        extra_attachment: Optional[tuple[str, bytes]] = None,
     ) -> bool:
         if recipient.customer is None or not recipient.customer.email:
             return False  # a data gap the sender must act on
@@ -811,6 +843,8 @@ class CustomerMessageService:
         attachments = [
             (f"foto-{i + 1}.jpg", data) for i, data in enumerate(photo_variants)
         ]
+        if extra_attachment is not None:
+            attachments.append(extra_attachment)
         return await EmailService.send_customer_update(
             to=cast(str, recipient.customer.email),
             subject=cast(str, update.subject),

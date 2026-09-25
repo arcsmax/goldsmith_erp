@@ -45,6 +45,10 @@ from goldsmith_erp.services.label_service import LabelService
 from goldsmith_erp.services.order_service import OrderService
 from goldsmith_erp.services.order_timeline import build_order_timeline
 from goldsmith_erp.services.order_workflow import counts_for_deadline
+from goldsmith_erp.services.status_report_service import (
+    StatusReportNotFoundError,
+    render_order_status_report_pdf,
+)
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -476,6 +480,46 @@ async def get_order_timeline(
             endpoint=f"/api/v1/orders/{order_id}/timeline",
         )
     return timeline
+
+
+@router.get("/{order_id}/status-report.pdf", response_class=Response)
+@require_permission(Permission.CUSTOMER_UPDATE_SEND)
+async def get_order_status_report(
+    order_id: int,
+    next_steps: Optional[str] = Query(None, max_length=2000),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> Response:
+    """Statusbericht (Kundenbericht) als PDF (W6, DOM section D Option 2).
+
+    Werkstatt-Kopf, Schmuckstueck (Titel, Material, Steine), Verlauf aus
+    Status-Ereignissen und tatsaechlich verschickten Kundeninfos, die
+    zuletzt mit der Kundin/dem Kunden geteilten Fotos, ein "Wie geht es
+    weiter"-Text und die Kontaktzeile. Nie Preise, Kosten, interne Notizen
+    oder Mitarbeiternamen (CLAUDE.md). GOLDSMITH/ADMIN only (VIEWER: 403);
+    jeder Abruf wird protokolliert.
+    """
+    try:
+        pdf_bytes = await render_order_status_report_pdf(
+            db, order_id, next_steps=next_steps
+        )
+    except StatusReportNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    logger.info(
+        "Status report PDF served",
+        extra={
+            "audit": True,
+            "action": "order_status_report_pdf",
+            "order_id": order_id,
+            "user_id": current_user.id,
+        },
+    )
+    filename = f"Statusbericht_Auftrag_{order_id}.pdf"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="{filename}"'},
+    )
 
 
 @router.post("/{order_id}/location", response_model=OrderRead)

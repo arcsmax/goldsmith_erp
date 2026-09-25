@@ -3448,6 +3448,33 @@ export interface paths {
         patch: operations["change_order_status_api_v1_orders__order_id__status_patch"];
         trace?: never;
     };
+    "/api/v1/orders/{order_id}/status-report.pdf": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Order Status Report
+         * @description Statusbericht (Kundenbericht) als PDF (W6, DOM section D Option 2).
+         *
+         *     Werkstatt-Kopf, Schmuckstueck (Titel, Material, Steine), Verlauf aus
+         *     Status-Ereignissen und tatsaechlich verschickten Kundeninfos, die
+         *     zuletzt mit der Kundin/dem Kunden geteilten Fotos, ein "Wie geht es
+         *     weiter"-Text und die Kontaktzeile. Nie Preise, Kosten, interne Notizen
+         *     oder Mitarbeiternamen (CLAUDE.md). GOLDSMITH/ADMIN only (VIEWER: 403);
+         *     jeder Abruf wird protokolliert.
+         */
+        get: operations["get_order_status_report_api_v1_orders__order_id__status_report_pdf_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/orders/{order_id}/timeline": {
         parameters: {
             query?: never;
@@ -4364,6 +4391,32 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/repairs/{repair_id}/status-report.pdf": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Repair Status Report
+         * @description Statusbericht (Kundenbericht) als PDF (W6, DOM section D Option 2).
+         *
+         *     Werkstatt-Kopf, Schmuckstueck, Verlauf (aktueller Status, tatsaechlich
+         *     verschickte Kundeninfos), die neuesten Reparaturfotos, ein "Wie geht es
+         *     weiter"-Text und die Kontaktzeile. Nie Preise, Kosten, Diagnosenotizen
+         *     oder Mitarbeiternamen (CLAUDE.md). GOLDSMITH/ADMIN only (VIEWER: 403);
+         *     jeder Abruf wird protokolliert.
+         */
+        get: operations["get_repair_status_report_api_v1_repairs__repair_id__status_report_pdf_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/repairs/photos/{photo_id}": {
         parameters: {
             query?: never;
@@ -5138,7 +5191,9 @@ export interface paths {
          *     Liefert IMMER 200 — auch bei fehlgeschlagenem Versand oder wenn SMTP
          *     nicht konfiguriert ist (``delivered=false``); der Entwurf bleibt in
          *     jedem Fall erhalten. Ein bereits verschicktes Update (Status "sent")
-         *     kann nicht erneut verschickt werden (409).
+         *     kann nicht erneut verschickt werden (409). Optionaler Body
+         *     ``{"attach_status_report": true}`` haengt den aktuellen Statusbericht
+         *     als PDF an die E-Mail an (W6, "Statusbericht anhaengen").
          */
         post: operations["send_update_api_v1_updates__update_id__send_post"];
         delete?: never;
@@ -5921,6 +5976,29 @@ export interface components {
              * @description Base64-encoded PNG of the customer's signature (optional)
              */
             signature_data?: string | null;
+        };
+        /**
+         * AttachStatusReportRequest
+         * @description Optional body of ``POST /updates/{id}/send``.
+         *
+         *     "Statusbericht anhängen" in the Kundeninfo composer (W6, DOM section D
+         *     Option 2): when true, the live Statusbericht PDF
+         *     (``status_report_service``) is generated fresh and attached to the
+         *     outgoing email, and the message is classified as
+         *     ``MessageKind.STATUS_REPORT`` (contractual basis) for the content-rule
+         *     and audit-log checks. Never persisted — there is no DB column for it
+         *     (see the model's docstring); a PDF-manual fallback caused by this same
+         *     send instead relies on the frontend calling the standalone
+         *     ``GET /orders/{id}/status-report.pdf`` / ``.../repairs/{id}/...``
+         *     endpoint directly, since the flag itself cannot be looked up later from
+         *     the stored CustomerUpdate row.
+         */
+        AttachStatusReportRequest: {
+            /**
+             * Attach Status Report
+             * @default false
+             */
+            attach_status_report: boolean;
         };
         /**
          * BatchLogResponse
@@ -18754,6 +18832,39 @@ export interface operations {
             };
         };
     };
+    get_order_status_report_api_v1_orders__order_id__status_report_pdf_get: {
+        parameters: {
+            query?: {
+                next_steps?: string | null;
+            };
+            header?: never;
+            path: {
+                order_id: number;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_order_timeline_api_v1_orders__order_id__timeline_get: {
         parameters: {
             query?: never;
@@ -20289,6 +20400,39 @@ export interface operations {
             };
         };
     };
+    get_repair_status_report_api_v1_repairs__repair_id__status_report_pdf_get: {
+        parameters: {
+            query?: {
+                next_steps?: string | null;
+            };
+            header?: never;
+            path: {
+                repair_id: number;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_repair_photo_file_api_v1_repairs_photos__photo_id__get: {
         parameters: {
             query?: never;
@@ -21666,7 +21810,11 @@ export interface operations {
                 access_token?: string | null;
             };
         };
-        requestBody?: never;
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["AttachStatusReportRequest"] | null;
+            };
+        };
         responses: {
             /** @description Successful Response */
             200: {

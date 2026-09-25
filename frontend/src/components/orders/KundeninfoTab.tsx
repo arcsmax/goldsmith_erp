@@ -120,6 +120,9 @@ export function KundeninfoTab({ orderId, customerName, initialDraft }: Kundeninf
   const [form, setForm] = useState<ComposeForm>(initialDraft ?? EMPTY_FORM);
   const [messageContext, setMessageContext] = useState<CustomerMessageContext | null>(null);
   const [preview, setPreview] = useState<CustomerMessagePreview | null>(null);
+  // W6 "Statusbericht anhängen" — transient, applies to the next send only
+  // (there is no DB column for it; see AttachStatusReportRequest docstring).
+  const [attachStatusReport, setAttachStatusReport] = useState(false);
 
   // A preview describes one exact form state; any edit makes it stale.
   useEffect(() => {
@@ -325,7 +328,24 @@ export function KundeninfoTab({ orderId, customerName, initialDraft }: Kundeninf
     [form]
   );
 
-  const resetForm = useCallback(() => setForm(EMPTY_FORM), []);
+  const resetForm = useCallback(() => {
+    setForm(EMPTY_FORM);
+    setAttachStatusReport(false);
+  }, []);
+
+  const handleDownloadStatusReport = useCallback(async () => {
+    if (actionLoading) return;
+    setActionLoading(true);
+    try {
+      const blob = await customerUpdatesApi.downloadOrderStatusReportPdf(orderId);
+      downloadBlob(blob, `statusbericht_auftrag_${orderId}.pdf`);
+    } catch (err) {
+      logError('KundeninfoTab.downloadStatusReport', err);
+      showToast('Statusbericht konnte nicht erstellt werden.', 'error');
+    } finally {
+      setActionLoading(false);
+    }
+  }, [actionLoading, orderId, showToast]);
 
   const handleSaveDraft = useCallback(async () => {
     if (actionLoading) return;
@@ -348,7 +368,7 @@ export function KundeninfoTab({ orderId, customerName, initialDraft }: Kundeninf
     setActionLoading(true);
     try {
       const created = await customerUpdatesApi.createUpdate(orderId, buildInput());
-      const result = await customerUpdatesApi.sendUpdate(created.id);
+      const result = await customerUpdatesApi.sendUpdate(created.id, attachStatusReport);
       await handleSendResult(result);
       resetForm();
       await loadHistory(orderId);
@@ -361,7 +381,16 @@ export function KundeninfoTab({ orderId, customerName, initialDraft }: Kundeninf
     } finally {
       setActionLoading(false);
     }
-  }, [actionLoading, buildInput, handleSendResult, loadHistory, orderId, resetForm, showToast]);
+  }, [
+    actionLoading,
+    attachStatusReport,
+    buildInput,
+    handleSendResult,
+    loadHistory,
+    orderId,
+    resetForm,
+    showToast,
+  ]);
 
   const handlePreview = useCallback(async () => {
     if (actionLoading) return;
@@ -472,7 +501,17 @@ export function KundeninfoTab({ orderId, customerName, initialDraft }: Kundeninf
       </section>
 
       <section className="kundeninfo-compose">
-        <h3>Neue Kundeninfo</h3>
+        <div className="kundeninfo-item-header">
+          <h3>Neue Kundeninfo</h3>
+          <button
+            type="button"
+            className="btn btn-secondary btn-sm"
+            onClick={() => void handleDownloadStatusReport()}
+            disabled={actionLoading}
+          >
+            Statusbericht (PDF)
+          </button>
+        </div>
 
         {isAdmin && smtpConfigured === false && (
           <p className="kundeninfo-smtp-note" role="status">
@@ -539,6 +578,19 @@ export function KundeninfoTab({ orderId, customerName, initialDraft }: Kundeninf
         />
 
         {preview && <MessagePreviewBox preview={preview} onClose={() => setPreview(null)} />}
+
+        <div className="form-group">
+          <label htmlFor="kundeninfo-attach-status-report">
+            <input
+              id="kundeninfo-attach-status-report"
+              type="checkbox"
+              checked={attachStatusReport}
+              onChange={(e) => setAttachStatusReport(e.target.checked)}
+              disabled={actionLoading}
+            />{' '}
+            Statusbericht anhängen
+          </label>
+        </div>
 
         <div className="kundeninfo-compose-actions">
           <button
