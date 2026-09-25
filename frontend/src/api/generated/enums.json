@@ -152,6 +152,13 @@
     "on_hold",
     "cancelled"
   ],
+  "LocationKindEnum": [
+    "bench",
+    "safe",
+    "showroom",
+    "external",
+    "other"
+  ],
   "MeasurementType": [
     "ring_size",
     "chain_length",

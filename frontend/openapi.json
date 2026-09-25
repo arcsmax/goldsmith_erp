@@ -17973,6 +17973,335 @@
         }
       }
     },
+    "/api/v1/locations": {
+      "get": {
+        "tags": [
+          "locations"
+        ],
+        "summary": "List Locations",
+        "description": "Standorte für die Auswahlliste.",
+        "operationId": "list_locations_api_v1_locations_get",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "active",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "description": "Nur aktive Standorte",
+              "default": true,
+              "title": "Active"
+            },
+            "description": "Nur aktive Standorte"
+          },
+          {
+            "name": "access_token",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Access Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/LocationRead"
+                  },
+                  "title": "Response List Locations Api V1 Locations Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/locations": {
+      "get": {
+        "tags": [
+          "locations"
+        ],
+        "summary": "Admin List Locations",
+        "description": "Alle Standorte inkl. deaktivierter (nur ADMIN).",
+        "operationId": "admin_list_locations_api_v1_admin_locations_get",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "access_token",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Access Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/LocationRead"
+                  },
+                  "title": "Response Admin List Locations Api V1 Admin Locations Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "locations"
+        ],
+        "summary": "Create Location",
+        "description": "Standort anlegen (nur ADMIN).",
+        "operationId": "create_location_api_v1_admin_locations_post",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "access_token",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Access Token"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LocationCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LocationRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/locations/{location_id}": {
+      "patch": {
+        "tags": [
+          "locations"
+        ],
+        "summary": "Update Location",
+        "description": "Standort umbenennen, sortieren oder (re)aktivieren (nur ADMIN).",
+        "operationId": "update_location_api_v1_admin_locations__location_id__patch",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "location_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Location Id"
+            }
+          },
+          {
+            "name": "access_token",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Access Token"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LocationUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LocationRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "locations"
+        ],
+        "summary": "Deactivate Location",
+        "description": "Standort deaktivieren (nur ADMIN) — bleibt im Verlauf erhalten.",
+        "operationId": "deactivate_location_api_v1_admin_locations__location_id__delete",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "location_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Location Id"
+            }
+          },
+          {
+            "name": "access_token",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Access Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LocationRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/admin/outbox": {
       "get": {
         "tags": [
@@ -28805,19 +29134,69 @@
       "LocationChangeRequest": {
         "properties": {
           "location": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 50,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Location",
+            "description": "Target workshop location (e.g. Werkbank 1, Tresor)"
+          },
+          "location_id": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Location Id",
+            "description": "Configured workshop location (Standort) id"
+          }
+        },
+        "type": "object",
+        "title": "LocationChangeRequest",
+        "description": "Schema for changing an order's current location."
+      },
+      "LocationCreate": {
+        "properties": {
+          "name": {
             "type": "string",
             "maxLength": 50,
             "minLength": 1,
-            "title": "Location",
-            "description": "Target workshop location (e.g. Werkbank 1, Tresor)"
+            "title": "Name"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/LocationKindEnum",
+            "default": "other"
+          },
+          "sort_order": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 100000.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sort Order"
           }
         },
         "type": "object",
         "required": [
-          "location"
+          "name"
         ],
-        "title": "LocationChangeRequest",
-        "description": "Schema for changing an order's current location."
+        "title": "LocationCreate",
+        "description": "New Standort (ADMIN)."
       },
       "LocationHistoryRead": {
         "properties": {
@@ -28853,6 +29232,111 @@
         ],
         "title": "LocationHistoryRead",
         "description": "Schema for a single location history entry."
+      },
+      "LocationKindEnum": {
+        "type": "string",
+        "enum": [
+          "bench",
+          "safe",
+          "showroom",
+          "external",
+          "other"
+        ],
+        "title": "LocationKindEnum",
+        "description": "API mirror of ``db.models.LocationKind``."
+      },
+      "LocationRead": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/LocationKindEnum"
+          },
+          "is_active": {
+            "type": "boolean",
+            "title": "Is Active"
+          },
+          "sort_order": {
+            "type": "integer",
+            "title": "Sort Order"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "kind",
+          "is_active",
+          "sort_order",
+          "created_at"
+        ],
+        "title": "LocationRead",
+        "description": "A Standort as returned by the API."
+      },
+      "LocationUpdate": {
+        "properties": {
+          "name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 50,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "kind": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LocationKindEnum"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "sort_order": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 100000.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sort Order"
+          },
+          "is_active": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Is Active"
+          }
+        },
+        "type": "object",
+        "title": "LocationUpdate",
+        "description": "Rename / re-kind / reorder / (re)activate a Standort (ADMIN)."
       },
       "LogInterruptionRequest": {
         "properties": {
@@ -31815,6 +32299,17 @@
             ],
             "title": "Current Location"
           },
+          "location_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Location Id"
+          },
           "estimated_weight_g": {
             "anyOf": [
               {
@@ -32352,6 +32847,17 @@
               }
             ],
             "title": "Current Location"
+          },
+          "location_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Location Id"
           },
           "estimated_weight_g": {
             "anyOf": [
@@ -32981,6 +33487,19 @@
             ],
             "title": "Current Location",
             "description": "Current storage location"
+          },
+          "location_id": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Location Id",
+            "description": "Configured workshop location (Standort) id"
           },
           "estimated_weight_g": {
             "anyOf": [
@@ -36068,6 +36587,19 @@
             "title": "Location",
             "description": "Storage location (1-50 characters)"
           },
+          "location_id": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Location Id",
+            "description": "Configured workshop location (Standort) id"
+          },
           "notes": {
             "anyOf": [
               {
@@ -37581,6 +38113,19 @@
             "title": "Location",
             "description": "Storage location (1-50 characters)"
           },
+          "location_id": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Location Id",
+            "description": "Configured workshop location (Standort) id"
+          },
           "notes": {
             "anyOf": [
               {
@@ -37720,6 +38265,19 @@
             ],
             "title": "Location",
             "description": "Storage location (1-50 characters)"
+          },
+          "location_id": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Location Id",
+            "description": "Configured workshop location (Standort) id"
           },
           "notes": {
             "anyOf": [
@@ -37873,6 +38431,19 @@
             "title": "Location",
             "description": "Storage location"
           },
+          "location_id": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Location Id",
+            "description": "Configured workshop location (Standort) id"
+          },
           "extra_metadata": {
             "anyOf": [
               {
@@ -37984,6 +38555,19 @@
             ],
             "title": "Location",
             "description": "Storage location"
+          },
+          "location_id": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Location Id",
+            "description": "Configured workshop location (Standort) id"
           },
           "complexity_rating": {
             "anyOf": [

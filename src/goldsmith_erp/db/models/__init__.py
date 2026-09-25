@@ -141,6 +141,11 @@ from goldsmith_erp.db.models.jobs import (
     ORDER_NUMBER_KIND,
     REPAIR_NUMBER_KIND,
 )
+from goldsmith_erp.db.models.locations import (
+    LOCATION_KIND_VALUES,
+    LocationKind,
+    WorkshopLocation,
+)
 from goldsmith_erp.db.models.time_tracking import (
     Activity,
     EstimateAccuracy,
@@ -159,6 +164,9 @@ _install_numeric_coercion()
 _install_utc_coercion()
 
 __all__ = [
+    "LOCATION_KIND_VALUES",
+    "LocationKind",
+    "WorkshopLocation",
     "Activity",
     "AlloyType",
     "BarcodeAlias",

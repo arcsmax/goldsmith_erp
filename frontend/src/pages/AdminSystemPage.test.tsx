@@ -26,6 +26,11 @@ vi.mock('../api/admin', () => ({
   importCustomersCsv: vi.fn(),
   downloadCustomerCsvTemplate: vi.fn(),
 }));
+vi.mock('../api/locations', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../api/locations')>()),
+  getAllLocations: () => Promise.resolve([]),
+}));
+vi.mock('../contexts/ToastContext', () => ({ useConfirm: () => ({ showConfirm: vi.fn() }) }));
 vi.mock('../hooks/useTheme', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../hooks/useTheme')>()),
   fetchTheme: api.fetchTheme,
@@ -78,7 +83,7 @@ describe('AdminSystemPage', () => {
     renderWithQuery(<AdminSystemPage />);
 
     expect(screen.getByRole('heading', { level: 1, name: 'Systemübersicht' })).toBeInTheDocument();
-    for (const title of ['Systemstatus', 'Werkstatt-Stammdaten', 'Nachrichten-Warteschlange', 'E-Mail-Konfiguration', 'Benutzer', 'Kunden-Import (CSV)', 'Erscheinungsbild']) {
+    for (const title of ['Systemstatus', 'Werkstatt-Stammdaten', 'Standorte', 'Nachrichten-Warteschlange', 'E-Mail-Konfiguration', 'Benutzer', 'Kunden-Import (CSV)', 'Erscheinungsbild']) {
       expect(screen.getByRole('heading', { level: 2, name: title })).toBeInTheDocument();
     }
 

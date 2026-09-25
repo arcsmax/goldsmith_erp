@@ -35,6 +35,8 @@ export interface OrderFormValues {
   deadline: string;
   status: OrderStatus;
   current_location: string;
+  /** W8 Standort id as a string ('' = none / legacy text only). */
+  location_id: string;
   order_type: string;
   metal_type: MetalType | '';
   estimated_weight_g: string;
@@ -80,6 +82,7 @@ export function toFormValues(order?: OrderType | null): OrderFormValues {
     deadline: dateOnly(order?.deadline),
     status: order?.status ?? 'new',
     current_location: order?.current_location ?? '',
+    location_id: order?.location_id != null ? String(order.location_id) : '',
     order_type: order?.order_type ?? '',
     metal_type: (order?.metal_type ?? '') as MetalType | '',
     estimated_weight_g: text(order?.estimated_weight_g),
@@ -167,6 +170,7 @@ export const orderFormSchema = z
     deadline: z.string(),
     status: z.string(),
     current_location: z.string(),
+    location_id: z.string(),
     order_type: z.string(),
     metal_type: z.string(),
     estimated_weight_g: z.string(),
@@ -206,6 +210,12 @@ export function toOrderPayload(
     costing_method_used: costing_method,
     // DOM-09: not in the Zod schema; an edit may clear it, a new order omits it.
     order_type: values.order_type || (isEdit ? null : undefined),
+    // W8: the Standort id travels next to its name (not in the Zod schema).
+    location_id: values.location_id
+      ? Number.parseInt(values.location_id, 10)
+      : isEdit
+        ? null
+        : undefined,
   } as OrderCreateInput | OrderUpdateInput;
 }
 

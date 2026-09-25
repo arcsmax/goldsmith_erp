@@ -13,6 +13,7 @@ from sqlalchemy.orm import selectinload
 # goldsmith_erp.core.pubsub.publish_event actually intercepts our calls (see
 # services/consultation_service.py for the pattern this follows).
 from goldsmith_erp.core import pubsub
+from goldsmith_erp.core.errors import DomainValidationError
 from goldsmith_erp.db.models import Customer, LocationHistory, Material
 from goldsmith_erp.db.models import Order as OrderModel
 from goldsmith_erp.db.models import OrderStatusEnum, TimeEntry
@@ -24,6 +25,7 @@ from goldsmith_erp.models.order import OrderCreate, OrderUpdate
 # them; both guard names stay importable from here for existing callers.
 from goldsmith_erp.services import order_workflow
 from goldsmith_erp.services.job_service import JobService
+from goldsmith_erp.services.location_service import LocationService
 from goldsmith_erp.services.order_workflow import (  # noqa: F401
     _PUNZIERUNG_REQUIRED_TARGETS,
     OrderConfirmationFieldsMissingError,
@@ -285,6 +287,15 @@ class OrderService:
             return None
 
         update_data = order_in.dict(exclude_unset=True, exclude={"costing_method"})
+        if "current_location" in update_data or "location_id" in update_data:
+            update_data["location_id"], update_data["current_location"] = (
+                await LocationService.resolve(
+                    db,
+                    update_data.get("location_id"),
+                    update_data.get("current_location"),
+                    keep_id=order.location_id,
+                )
+            )
 
         # OrderUpdate uses 'costing_method' but the ORM column is 'costing_method_used'
         if order_in.costing_method is not None:
@@ -621,8 +632,9 @@ class OrderService:
     async def change_location(
         db: AsyncSession,
         order_id: int,
-        location: str,
+        location: Optional[str],
         user_id: int,
+        location_id: Optional[int] = None,
     ) -> Optional[OrderModel]:
         """
         Setzt den aktuellen Lagerort eines Auftrags und schreibt einen Verlaufseintrag.
@@ -635,12 +647,22 @@ class OrderService:
         if not order:
             return None
 
+        resolved_id, resolved_name = await LocationService.resolve(
+            db, location_id, location
+        )
+        if resolved_name is None:
+            raise DomainValidationError(
+                "Bitte einen Standort angeben.", code="location.required"
+            )
+        location = resolved_name
         async with transactional(db):
             await db.execute(
                 update(OrderModel)
                 .where(OrderModel.id == order_id)
                 .values(
-                    current_location=location, updated_at=datetime.now(timezone.utc)
+                    current_location=location,
+                    location_id=resolved_id,
+                    updated_at=datetime.now(timezone.utc),
                 )
             )
             history_entry = LocationHistory(
