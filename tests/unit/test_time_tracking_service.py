@@ -19,6 +19,7 @@ import pytest
 from fastapi import HTTPException
 
 from goldsmith_erp.db.models import TimeEntry as TimeEntryModel
+from goldsmith_erp.db.models import WorkshopLocation
 from goldsmith_erp.models.interruption import InterruptionCreate
 from goldsmith_erp.models.time_entry import (
     TimeEntryCreate,
@@ -314,6 +315,11 @@ class TestActiveTimeTracking:
         self, db_session, sample_order, sample_activity, sample_user
     ):
         """Test starting a new time entry"""
+        loc = WorkshopLocation(name="Werkbank 1", kind="bench", is_active=True)
+        db_session.add(loc)
+        await db_session.commit()
+        await db_session.refresh(loc)
+
         entry_start = TimeEntryStart(
             order_id=sample_order.id,
             user_id=sample_user.id,
@@ -329,6 +335,8 @@ class TestActiveTimeTracking:
         assert entry.start_time is not None
         assert entry.end_time is None
         assert entry.duration_minutes is None
+        assert entry.location == "Werkbank 1"
+        assert entry.location_id == loc.id
 
     async def test_start_time_entry_prevents_multiple_active(
         self, db_session, active_time_entry, sample_order, sample_activity, sample_user

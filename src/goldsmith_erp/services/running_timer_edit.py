@@ -33,6 +33,7 @@ from goldsmith_erp.db.models import Order as OrderModel
 from goldsmith_erp.db.models import TimeEntry as TimeEntryModel
 from goldsmith_erp.db.models import User as UserModel
 from goldsmith_erp.models.time_entry import RunningTimeEntryEdit
+from goldsmith_erp.services.location_service import LocationService
 
 logger = logging.getLogger(__name__)
 
@@ -114,6 +115,34 @@ async def _require_order(db: AsyncSession, order_id: int) -> None:
         )
 
 
+async def resolve_location(
+    db: AsyncSession,
+    location_id: Optional[int],
+    location_name: Optional[str],
+    *,
+    keep_id: Optional[int] = None,
+) -> Tuple[Optional[int], Optional[str]]:
+    """Resolve a Standort for the timer start/edit flows (German 422).
+
+    Delegates to :meth:`LocationService.resolve` for the id lookup (already
+    422s on an unknown/inactive id). Unlike that shared resolver -- which
+    still tolerates a free-text name for legacy order/scanner callers -- a
+    name sent here that matches no configured Standort is itself a client
+    error: the start form and the edit sheet are both dropdown-backed, so
+    an unmatched name means a stale or invalid Standort was submitted.
+    """
+    resolved_id, resolved_name = await LocationService.resolve(
+        db, location_id, location_name, keep_id=keep_id
+    )
+    name_given = location_name is not None and location_name.strip() != ""
+    if location_id is None and name_given and resolved_id is None:
+        raise DomainValidationError(
+            f"Standort „{location_name.strip()}“ nicht gefunden.",
+            code="location.unknown_name",
+        )
+    return resolved_id, resolved_name
+
+
 async def _previous_end(db: AsyncSession, entry: TimeEntryModel) -> Optional[datetime]:
     """End of the user's latest other (stopped) entry."""
     result = await db.execute(
@@ -181,8 +210,19 @@ async def _collect_changes(
     if "order_id" in sent and sent["order_id"] != entry.order_id:
         await _require_order(db, sent["order_id"])
         changes["order_id"] = sent["order_id"]
-    if "location" in sent and sent["location"] != entry.location:
-        changes["location"] = sent["location"]
+    if "location_id" in sent or "location" in sent:
+        new_location_id, new_location = await resolve_location(
+            db,
+            sent.get("location_id"),
+            sent.get("location"),
+            keep_id=entry.location_id,
+        )
+        if new_location_id != entry.location_id or new_location != entry.location:
+            changes["location"] = new_location
+            # Not a logged/"changed_fields" entry of its own -- see
+            # ``_log_line`` and ``edit_running_entry`` -- just the FK that
+            # travels alongside the name into the same DB write.
+            changes["_location_id"] = new_location_id
     if "start_time" in sent:
         new_start = await validate_start_time(db, entry, sent["start_time"])
         if new_start != ensure_utc(cast(datetime, entry.start_time)):
@@ -199,6 +239,7 @@ def _log_line(user: UserModel, entry: TimeEntryModel, changes: Dict[str, Any]) -
     parts: List[str] = [
         _describe(field, getattr(entry, field), value)
         for field, value in changes.items()
+        if not field.startswith("_")
     ]
     stamp = format_local(utcnow())
     # A user id, never a name: the log must not carry PII (CLAUDE.md).
@@ -223,7 +264,10 @@ async def edit_running_entry(
     if "notes" in changes:
         user_text = changes["notes"]
     new_log = f"{edit_log}\n{line}" if edit_log else line
-    values = {k: v for k, v in changes.items() if k != "notes"}
+    public_fields = tuple(sorted(f for f in changes if not f.startswith("_")))
+    values = {k: v for k, v in changes.items() if k not in ("notes", "_location_id")}
+    if "_location_id" in changes:
+        values["location_id"] = changes["_location_id"]
     values["notes"] = join_notes(user_text, new_log)
 
     await db.execute(
@@ -235,11 +279,11 @@ async def edit_running_entry(
         extra={
             "entry_id": entry_id,
             "user_id": user.id,
-            "fields": sorted(changes),
+            "fields": public_fields,
         },
     )
     return RunningEditResult(
         entry_id=entry_id,
         changes=(line,),
-        changed_fields=tuple(sorted(changes)),
+        changed_fields=public_fields,
     )

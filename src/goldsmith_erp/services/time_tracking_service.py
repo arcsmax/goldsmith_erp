@@ -200,7 +200,10 @@ class TimeTrackingService:
         if running_entry:
             raise TimerAlreadyRunningError(running_entry.id)
 
-        location_id, location_name = await LocationService.resolve(
+        # Strict resolve (not LocationService.resolve directly): the start
+        # form is dropdown-backed, so an unmatched name is a 422, not a
+        # legacy free-text fallback (see services.running_timer_edit).
+        location_id, location_name = await running_timer_edit.resolve_location(
             db, entry_in.location_id, entry_in.location
         )
         # Erstelle neue TimeEntry

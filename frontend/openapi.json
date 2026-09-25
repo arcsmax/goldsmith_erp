@@ -37085,6 +37085,19 @@
             ],
             "title": "Location"
           },
+          "location_id": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Location Id",
+            "description": "Configured workshop location (Standort) id"
+          },
           "notes": {
             "anyOf": [
               {
@@ -37113,7 +37126,7 @@
         "additionalProperties": false,
         "type": "object",
         "title": "RunningTimeEntryEdit",
-        "description": "PATCH body for a RUNNING entry (edit a timer while it runs).\n\nEvery field is optional; only the fields sent are changed. ``location``\nmay be sent as ``null`` to clear it. ``start_time`` bounds (not in the\nfuture, not before the previous entry's end, within 24 h) need the\ndatabase and run in the service (422)."
+        "description": "PATCH body for a RUNNING entry (edit a timer while it runs).\n\nEvery field is optional; only the fields sent are changed. ``location``\nmay be sent as ``null`` to clear it. ``location_id`` (the Standort\ndropdown) or ``location`` (a name) is resolved through\n``LocationService.resolve``; a name that matches no configured Standort\nis a 422 (see ``services.running_timer_edit.resolve_location``).\n``start_time`` bounds (not in the future, not before the previous\nentry's end, within 24 h) need the database and run in the service\n(422)."
       },
       "RunningTimeEntryRead": {
         "properties": {
