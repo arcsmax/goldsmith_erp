@@ -19,6 +19,7 @@ from datetime import datetime, timedelta
 from sqlalchemy.orm import Session
 
 from goldsmith_erp.core.security import get_password_hash
+from goldsmith_erp.db.seed_credentials import DEMO_ADMIN, DEMO_PASSWORD, DEMO_USERS
 
 from .models import (
     Activity,
@@ -102,35 +103,19 @@ STANDARD_ACTIVITIES = [
 # USERS (3 roles)
 # ============================================================================
 
-# Seed user credentials are NOT hardcoded. Each role's password is read from an
-# env var; the fallback is a deliberately weak, low-entropy placeholder that must
-# never be relied on outside local development (this script is DEVELOPMENT ONLY).
-# Override in any shared environment via SEED_ADMIN_PASSWORD / SEED_GOLDSMITH_PASSWORD
-# / SEED_VIEWER_PASSWORD, or set SEED_FALLBACK_PASSWORD to change the shared default.
-_SEED_PW_FALLBACK = os.getenv("SEED_FALLBACK_PASSWORD", "dev-only-change-me")
-
+# Credentials come from db.seed_credentials — the single source of truth
+# shared by every seed path (scripts/seed_demo.py, scripts/seed_data.py, and
+# this module used to each define their own demo email/password convention;
+# see that module's docstring for why that was a problem).
 STANDARD_USERS = [
     {
-        "email": "admin@goldschmiede.de",
-        "password": os.getenv("SEED_ADMIN_PASSWORD", _SEED_PW_FALLBACK),
-        "first_name": "Thomas",
-        "last_name": "Brenner",
-        "role": UserRole.ADMIN,
-    },
-    {
-        "email": "goldschmied@goldschmiede.de",
-        "password": os.getenv("SEED_GOLDSMITH_PASSWORD", _SEED_PW_FALLBACK),
-        "first_name": "Maria",
-        "last_name": "Hofmann",
-        "role": UserRole.GOLDSMITH,
-    },
-    {
-        "email": "empfang@goldschmiede.de",
-        "password": os.getenv("SEED_VIEWER_PASSWORD", _SEED_PW_FALLBACK),
-        "first_name": "Lisa",
-        "last_name": "Weber",
-        "role": UserRole.VIEWER,
-    },
+        "email": demo_user.email,
+        "password": DEMO_PASSWORD,
+        "first_name": demo_user.first_name,
+        "last_name": demo_user.last_name,
+        "role": UserRole(demo_user.role),
+    }
+    for demo_user in DEMO_USERS
 ]
 
 
@@ -378,7 +363,12 @@ def _build_metal_purchases() -> list:
 
 
 def seed_users(db: Session) -> dict:
-    """Create standard users. Returns dict of name→id for reference."""
+    """Create standard users. Returns dict of email→id for reference.
+
+    Keyed by email, not name: two of the three canonical demo staff
+    (db.seed_credentials.DEMO_ADMIN and DEMO_GOLDSMITH) share the surname
+    "Goldmann", so a name-keyed dict would silently collide.
+    """
     created = 0
     skipped = 0
     user_ids = {}
@@ -386,7 +376,7 @@ def seed_users(db: Session) -> dict:
     for data in STANDARD_USERS:
         existing = db.query(User).filter(User.email == data["email"]).first()
         if existing:
-            user_ids[data["last_name"]] = existing.id
+            user_ids[data["email"]] = existing.id
             skipped += 1
             continue
 
@@ -401,7 +391,7 @@ def seed_users(db: Session) -> dict:
         )
         db.add(user)
         db.flush()
-        user_ids[data["last_name"]] = user.id
+        user_ids[data["email"]] = user.id
         created += 1
 
     db.commit()
@@ -576,7 +566,7 @@ def main():
         customer_ids = seed_customers(db)
         seed_materials(db)
 
-        admin_id = user_ids.get("Brenner", 1)
+        admin_id = user_ids.get(DEMO_ADMIN.email, 1)
         seed_orders(db, customer_ids, admin_id)
         seed_metal_purchases(db)
 

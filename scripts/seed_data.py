@@ -41,6 +41,7 @@ from goldsmith_erp.db.models import (
     Gemstone,
 )
 from goldsmith_erp.core.security import get_password_hash
+from goldsmith_erp.db.seed_credentials import DEMO_ADMIN, DEMO_PASSWORD, DEMO_USERS
 
 # Optional GDPR models — present only after GDPR schema migration
 try:
@@ -62,37 +63,29 @@ async def seed_users(session: AsyncSession):
     """
     print("Creating users (staff)...")
 
+    # Credentials come from db.seed_credentials — the single source of truth
+    # shared by every seed path (this script used to hardcode its own weak,
+    # per-role passwords at a fourth email domain; see that module's
+    # docstring for why that was a problem). "Maria Klein" is a
+    # supplementary second goldsmith account, not part of the canonical
+    # roster, but still uses the shared demo password for consistency.
     users_data = [
         {
-            "email": "admin@goldsmith-werkstatt.de",
-            "hashed_password": get_password_hash("admin123"),
-            "first_name": "Admin",
-            "last_name": "User",
-            "role": "admin",
+            "email": demo_user.email,
+            "hashed_password": get_password_hash(DEMO_PASSWORD),
+            "first_name": demo_user.first_name,
+            "last_name": demo_user.last_name,
+            "role": demo_user.role,
             "is_active": True,
-        },
+        }
+        for demo_user in DEMO_USERS
+    ] + [
         {
-            "email": "goldsmith@goldsmith-werkstatt.de",
-            "hashed_password": get_password_hash("goldsmith123"),
-            "first_name": "Johann",
-            "last_name": "Schmidt",
-            "role": "goldsmith",
-            "is_active": True,
-        },
-        {
-            "email": "goldsmith2@goldsmith-werkstatt.de",
-            "hashed_password": get_password_hash("goldsmith123"),
+            "email": "demo-goldschmied2@werkstatt.de",
+            "hashed_password": get_password_hash(DEMO_PASSWORD),
             "first_name": "Maria",
             "last_name": "Klein",
             "role": "goldsmith",
-            "is_active": True,
-        },
-        {
-            "email": "viewer@goldsmith-werkstatt.de",
-            "hashed_password": get_password_hash("viewer123"),
-            "first_name": "Thomas",
-            "last_name": "Müller",
-            "role": "viewer",
             "is_active": True,
         },
     ]
@@ -113,9 +106,7 @@ async def seed_users(session: AsyncSession):
     print(f"✓ Users: {created} new / {len(users_data) - created} already existed")
 
     # Return admin user for relationships
-    result = await session.execute(
-        select(User).where(User.email == "admin@goldsmith-werkstatt.de")
-    )
+    result = await session.execute(select(User).where(User.email == DEMO_ADMIN.email))
     return result.scalar_one()
 
 
@@ -1097,10 +1088,10 @@ async def main():
             print("✓ Database seeding completed successfully!")
             print("=" * 70)
             print("\n📋 Sample Credentials (Staff):")
-            print("  Admin:        admin@goldsmith-werkstatt.de / admin123")
-            print("  Goldsmith:    goldsmith@goldsmith-werkstatt.de / goldsmith123")
-            print("  Goldsmith 2:  goldsmith2@goldsmith-werkstatt.de / goldsmith123")
-            print("  Viewer:       viewer@goldsmith-werkstatt.de / viewer123")
+            print(f"  Goldsmith:    {DEMO_USERS[0].email} / {DEMO_PASSWORD}")
+            print(f"  Admin:        {DEMO_USERS[1].email} / {DEMO_PASSWORD}")
+            print(f"  Viewer:       {DEMO_USERS[2].email} / {DEMO_PASSWORD}")
+            print(f"  Goldsmith 2:  demo-goldschmied2@werkstatt.de / {DEMO_PASSWORD}")
 
             print("\n👥 Sample Customers:")
             print("  Max Mustermann   (CUST-202511-0001) - VIP, active")

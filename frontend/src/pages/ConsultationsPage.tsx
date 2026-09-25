@@ -11,22 +11,19 @@ import { consultationsApi } from '../api/consultations';
 import { ConsultationListItem, ConsultationStatus } from '../types';
 import { OCCASION_LABELS, PIECE_TYPE_LABELS } from '../components/consultation/labels';
 import { logError } from '../lib/logError';
+import { CONSULTATION_STATUS, statusLabelsFor } from '../design/status';
+import { StatusBadge } from '../ui/StatusBadge';
 import '../styles/pages.css';
 import '../styles/consultations.css';
 
-const STATUS_LABELS: Record<ConsultationStatus, string> = {
-  draft: 'Entwurf',
-  completed: 'Abgeschlossen',
-  converted: 'Überführt',
-  archived: 'Archiviert',
-};
+const STATUS_LABELS = statusLabelsFor(CONSULTATION_STATUS);
 
 const STATUS_FILTERS: { label: string; value: ConsultationStatus | undefined }[] = [
   { label: 'Alle', value: undefined },
-  { label: 'Entwurf', value: 'draft' },
-  { label: 'Abgeschlossen', value: 'completed' },
-  { label: 'Überführt', value: 'converted' },
-  { label: 'Archiviert', value: 'archived' },
+  ...(Object.keys(STATUS_LABELS) as ConsultationStatus[]).map((value) => ({
+    label: STATUS_LABELS[value],
+    value,
+  })),
 ];
 
 /** Card click target: drafts resume at the wizard step where editing left
@@ -122,9 +119,7 @@ export const ConsultationsPage: React.FC = () => {
                 onClick={() => handleCardClick(item)}
               >
                 <div className="consultation-list-card-header">
-                  <span className={`consultation-status-badge status-${item.status}`}>
-                    {STATUS_LABELS[item.status]}
-                  </span>
+                  <StatusBadge kind="consultation" status={item.status} />
                   <span className="consultation-list-card-date">
                     {format(new Date(item.created_at), 'dd.MM.yyyy')}
                   </span>

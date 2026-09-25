@@ -3,7 +3,6 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useToast, useConfirm } from '../contexts';
 import { quotesApi, QuoteApprovalMethod, QuoteWithDelivery } from '../api/quotes';
-import { customersApi } from '../api/customers';
 import { ordersApi } from '../api/orders';
 import {
   QuoteListItem,
@@ -13,34 +12,23 @@ import {
   QuoteLineItem,
   QuoteLineItemInput,
   QuoteLineType,
-  Customer,
   OrderType,
 } from '../types';
 import { logError } from '../lib/logError';
 import { SignatureCanvas } from '../components/SignatureCanvas';
 import { EstimatorPanel } from '../components/estimator/EstimatorPanel';
+import { StatusBadge } from '../ui/StatusBadge';
+import { QUOTE_STATUS } from '../design/status';
+import { CustomerTypeahead } from '../components/consultation/CustomerTypeahead';
+// pages.css: shared .page-header layout (LV-15); consultations.css: the
+// .typeahead dropdown styles used by CustomerTypeahead (LV-02).
+import '../styles/pages.css';
+import '../styles/consultations.css';
 import '../styles/quotes.css';
 
 // ---------------------------------------------------------------------------
 // Status helpers
 // ---------------------------------------------------------------------------
-
-const STATUS_LABELS: Record<QuoteStatus, string> = {
-  draft: 'Entwurf',
-  sent: 'Gesendet',
-  approved: 'Genehmigt',
-  rejected: 'Abgelehnt',
-  expired: 'Abgelaufen',
-  converted: 'Umgewandelt',
-};
-
-function StatusBadge({ status }: { status: QuoteStatus }) {
-  return (
-    <span className={`quote-status-badge status-${status}`}>
-      {STATUS_LABELS[status] ?? status}
-    </span>
-  );
-}
 
 function formatDate(iso: string): string {
   return new Date(iso).toLocaleDateString('de-DE');
@@ -81,7 +69,6 @@ const APPROVAL_METHOD_OPTIONS: { value: QuoteApprovalMethod; label: string }[] =
 
 interface CreateQuoteModalProps {
   isOpen: boolean;
-  customers: Customer[];
   isLoading: boolean;
   onClose: () => void;
   onSubmit: (data: QuoteCreateInput) => Promise<void>;
@@ -92,14 +79,15 @@ interface CreateQuoteModalProps {
 
 const CreateQuoteModal: React.FC<CreateQuoteModalProps> = ({
   isOpen,
-  customers,
   isLoading,
   onClose,
   onSubmit,
   initialCustomerId,
   initialOrderId,
 }) => {
+  const { showToast } = useToast();
   const [customerId, setCustomerId] = useState<string>('');
+  const [customerLabel, setCustomerLabel] = useState<string>('');
   const [orderId, setOrderId] = useState<string>('');
   const [validDays, setValidDays] = useState<string>('14');
   const [taxRate, setTaxRate] = useState<string>('19');
@@ -108,12 +96,16 @@ const CreateQuoteModal: React.FC<CreateQuoteModalProps> = ({
 
   useEffect(() => {
     if (!isOpen) return;
-    if (initialCustomerId) setCustomerId(initialCustomerId);
+    if (initialCustomerId) {
+      setCustomerId(initialCustomerId);
+      setCustomerLabel(`Kunde #${initialCustomerId}`);
+    }
     if (initialOrderId) setOrderId(initialOrderId);
   }, [isOpen, initialCustomerId, initialOrderId]);
 
   const reset = () => {
     setCustomerId('');
+    setCustomerLabel('');
     setOrderId('');
     setValidDays('14');
     setTaxRate('19');
@@ -156,29 +148,47 @@ const CreateQuoteModal: React.FC<CreateQuoteModalProps> = ({
       >
         <div className="modal-header">
           <h2 id="create-quote-title" className="modal-title">Neues Angebot erstellen</h2>
-          <button className="modal-close" onClick={handleClose} aria-label="Schliessen">
+          <button className="modal-close" onClick={handleClose} aria-label="Schließen">
             &#x2715;
           </button>
         </div>
 
         <form onSubmit={handleSubmit}>
+          {/* LV-02: search instead of loading every customer (the list
+              endpoint caps limit at 100 and answered 422 to limit=500). */}
           <div className="form-group">
-            <label htmlFor="quote-customer">Kunde *</label>
-            <select
-              id="quote-customer"
-              value={customerId}
-              onChange={e => setCustomerId(e.target.value)}
-              required
-              disabled={isLoading}
-            >
-              <option value="">Kunde auswaehlen...</option>
-              {customers.map(c => (
-                <option key={c.id} value={c.id}>
-                  {c.first_name} {c.last_name}
-                  {c.company_name ? ` — ${c.company_name}` : ''}
-                </option>
-              ))}
-            </select>
+            <label htmlFor="quote-customer">Kunde (Pflichtfeld)</label>
+            {customerId ? (
+              <div className="quote-customer-selected">
+                <span>{customerLabel}</span>
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={() => {
+                    setCustomerId('');
+                    setCustomerLabel('');
+                  }}
+                  disabled={isLoading}
+                >
+                  Kunde ändern
+                </button>
+              </div>
+            ) : (
+              <CustomerTypeahead
+                inputId="quote-customer"
+                onSelect={(customer) => {
+                  setCustomerId(String(customer.id));
+                  setCustomerLabel(
+                    `${customer.first_name} ${customer.last_name}${
+                      customer.company_name ? ` — ${customer.company_name}` : ''
+                    }`,
+                  );
+                }}
+                onError={() =>
+                  showToast('Kundensuche fehlgeschlagen. Bitte erneut versuchen.', 'error')
+                }
+              />
+            )}
           </div>
 
           <div className="form-group">
@@ -187,7 +197,7 @@ const CreateQuoteModal: React.FC<CreateQuoteModalProps> = ({
               id="quote-order"
               type="number"
               min="1"
-              placeholder="z.B. 42 — leer lassen fuer manuelles Angebot"
+              placeholder="z. B. 42 – leer lassen für ein manuelles Angebot"
               value={orderId}
               onChange={e => setOrderId(e.target.value)}
             />
@@ -198,7 +208,7 @@ const CreateQuoteModal: React.FC<CreateQuoteModalProps> = ({
 
           <div className="form-row">
             <div className="form-group">
-              <label htmlFor="quote-valid-days">Gueltig fuer (Tage)</label>
+              <label htmlFor="quote-valid-days">Gültig für (Tage)</label>
               <input
                 id="quote-valid-days"
                 type="number"
@@ -228,7 +238,7 @@ const CreateQuoteModal: React.FC<CreateQuoteModalProps> = ({
               id="quote-notes"
               rows={3}
               maxLength={2000}
-              placeholder="Besondere Hinweise oder Konditionen..."
+              placeholder="Besondere Hinweise oder Konditionen…"
               value={notes}
               onChange={e => setNotes(e.target.value)}
             />
@@ -243,7 +253,7 @@ const CreateQuoteModal: React.FC<CreateQuoteModalProps> = ({
               className="btn btn-primary"
               disabled={submitting || !customerId}
             >
-              {submitting ? 'Wird erstellt...' : 'Angebot erstellen'}
+              {submitting ? 'Wird erstellt…' : 'Angebot erstellen'}
             </button>
           </div>
         </form>
@@ -292,7 +302,7 @@ const ApproveModal: React.FC<ApproveModalProps> = ({ quote, onClose, onApprove }
           <h2 id="approve-quote-title" className="modal-title">
             Angebot genehmigen
           </h2>
-          <button className="modal-close" onClick={onClose} aria-label="Schliessen">
+          <button className="modal-close" onClick={onClose} aria-label="Schließen">
             &#x2715;
           </button>
         </div>
@@ -307,7 +317,7 @@ const ApproveModal: React.FC<ApproveModalProps> = ({ quote, onClose, onApprove }
             <span className="summary-value summary-total">{formatAmount(quote.total)}</span>
           </div>
           <div className="summary-row">
-            <span className="summary-label">Gueltig bis:</span>
+            <span className="summary-label">Gültig bis:</span>
             <span className="summary-value">{formatDate(quote.valid_until)}</span>
           </div>
         </div>
@@ -359,7 +369,7 @@ const ApproveModal: React.FC<ApproveModalProps> = ({ quote, onClose, onApprove }
             onClick={handleApprove}
             disabled={submitting || !method}
           >
-            {submitting ? 'Wird genehmigt...' : 'Angebot genehmigen'}
+            {submitting ? 'Wird genehmigt…' : 'Angebot genehmigen'}
           </button>
         </div>
       </div>
@@ -683,7 +693,7 @@ const QuoteDetailPanel: React.FC<QuoteDetailPanelProps> = ({
       <div className="detail-header">
         <div>
           <span className="quote-number">{quote.quote_number}</span>
-          <StatusBadge status={quote.status} />
+          <StatusBadge kind="quote" status={quote.status} />
         </div>
         <div className="quote-actions">
           <button
@@ -732,7 +742,7 @@ const QuoteDetailPanel: React.FC<QuoteDetailPanelProps> = ({
           <span className="meta-value">{formatDate(quote.created_at)}</span>
         </div>
         <div className="detail-meta-item">
-          <span className="meta-label">Gueltig bis</span>
+          <span className="meta-label">Gültig bis</span>
           <span className={`meta-value ${validUntilClass(quote.valid_until, quote.status)}`}>
             {formatDate(quote.valid_until)}
           </span>
@@ -860,7 +870,6 @@ export const QuotesPage: React.FC = () => {
   const { showConfirm } = useConfirm();
   const [quotes, setQuotes] = useState<QuoteListItem[]>([]);
   const [selectedQuote, setSelectedQuote] = useState<Quote | null>(null);
-  const [customers, setCustomers] = useState<Customer[]>([]);
   const [statusFilter, setStatusFilter] = useState<QuoteStatus | ''>('');
   const [total, setTotal] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
@@ -889,22 +898,9 @@ export const QuotesPage: React.FC = () => {
     }
   }, [statusFilter, showToast]);
 
-  const loadCustomers = useCallback(async () => {
-    try {
-      const resp = await customersApi.getAll({ limit: 500 });
-      setCustomers(resp as Customer[]);
-    } catch {
-      // customers is optional for the filter — fail silently
-    }
-  }, []);
-
   useEffect(() => {
     loadQuotes();
   }, [loadQuotes]);
-
-  useEffect(() => {
-    loadCustomers();
-  }, [loadCustomers]);
 
   // FE-18: `/quotes?order_id=…&customer_id=…` (from the order page) opens the
   // create modal pre-filled; `/quotes?quote_id=…` (from the consultation
@@ -1207,10 +1203,13 @@ export const QuotesPage: React.FC = () => {
 
   return (
     <div className="page-container">
-      <div className="page-header">
+      {/* LV-15: same page-header layout as /orders (pages.css). */}
+      <header className="page-header">
         <div>
-          <h1 className="page-title">Angebote</h1>
-          <p className="page-subtitle">{total} Kostenvoranschlag{total !== 1 ? 'e' : ''}</p>
+          <h1>Angebote</h1>
+          <p className="quotes-page-summary">
+            {total} {total === 1 ? 'Kostenvoranschlag' : 'Kostenvoranschläge'}
+          </p>
         </div>
         <button
           className="btn btn-primary"
@@ -1218,7 +1217,7 @@ export const QuotesPage: React.FC = () => {
         >
           Neues Angebot
         </button>
-      </div>
+      </header>
 
       {/* Status filter */}
       <div className="quotes-controls">
@@ -1230,12 +1229,11 @@ export const QuotesPage: React.FC = () => {
             onChange={e => setStatusFilter(e.target.value as QuoteStatus | '')}
           >
             <option value="">Alle</option>
-            <option value="draft">Entwurf</option>
-            <option value="sent">Gesendet</option>
-            <option value="approved">Genehmigt</option>
-            <option value="rejected">Abgelehnt</option>
-            <option value="expired">Abgelaufen</option>
-            <option value="converted">Umgewandelt</option>
+            {(Object.keys(QUOTE_STATUS) as QuoteStatus[]).map((value) => (
+              <option key={value} value={value}>
+                {QUOTE_STATUS[value].label}
+              </option>
+            ))}
           </select>
         </div>
       </div>
@@ -1243,7 +1241,7 @@ export const QuotesPage: React.FC = () => {
       {/* Table */}
       <div className="table-container">
         {isLoading ? (
-          <div className="loading-state">Angebote werden geladen...</div>
+          <div className="loading-state">Angebote werden geladen…</div>
         ) : quotes.length === 0 ? (
           <div className="empty-state">
             <p>Keine Angebote gefunden.</p>
@@ -1258,7 +1256,7 @@ export const QuotesPage: React.FC = () => {
                 <th>KV-Nummer</th>
                 <th>Kunde (ID)</th>
                 <th>Erstellt</th>
-                <th>Gueltig bis</th>
+                <th>Gültig bis</th>
                 <th style={{ textAlign: 'right' }}>Betrag</th>
                 <th>Status</th>
                 <th>Aktionen</th>
@@ -1276,7 +1274,7 @@ export const QuotesPage: React.FC = () => {
                   </td>
                   <td data-label="Kunde">#{q.customer_id}</td>
                   <td data-label="Erstellt">{formatDate(q.created_at)}</td>
-                  <td data-label="Gueltig bis">
+                  <td data-label="Gültig bis">
                     <span className={validUntilClass(q.valid_until, q.status)}>
                       {formatDate(q.valid_until)}
                     </span>
@@ -1285,7 +1283,7 @@ export const QuotesPage: React.FC = () => {
                     <span className="amount-display">{formatAmount(q.total)}</span>
                   </td>
                   <td data-label="Status">
-                    <StatusBadge status={q.status} />
+                    <StatusBadge kind="quote" status={q.status} />
                   </td>
                   <td data-label="Aktionen" onClick={e => e.stopPropagation()}>
                     <div className="quote-row-actions">
@@ -1350,7 +1348,6 @@ export const QuotesPage: React.FC = () => {
       {/* Create modal */}
       <CreateQuoteModal
         isOpen={isCreateModalOpen}
-        customers={customers}
         isLoading={isLoading}
         onClose={() => {
           setIsCreateModalOpen(false);

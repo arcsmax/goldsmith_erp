@@ -42,6 +42,11 @@ const ConsultationWizardPage = lazy(() =>
 const ConsultationsPage = lazy(() =>
   import('./pages/ConsultationsPage').then((m) => ({ default: m.ConsultationsPage }))
 );
+// W4-02: /dev/ui primitives gallery, development builds only. The ternary on
+// import.meta.env.DEV lets Vite drop the chunk from production builds.
+const UiDemoPage = import.meta.env.DEV
+  ? lazy(() => import('./pages/dev/UiDemoPage').then((m) => ({ default: m.UiDemoPage })))
+  : null;
 
 // Loading fallback component
 const PageLoader: React.FC = () => (
@@ -259,6 +264,7 @@ export const AppRoutes: React.FC = () => (
       <Routes>
         {/* Customer self-service portal — public, no login, no auth providers (FE-01) */}
         <Route path="/portal" element={<CustomerPortalPage />} />
+        {UiDemoPage && <Route path="/dev/ui" element={<UiDemoPage />} />}
         <Route path="*" element={<StaffApp />} />
       </Routes>
     </Suspense>

@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-from jose import JWTError, jwt
+import jwt
 from passlib.context import CryptContext
 
 from goldsmith_erp.core.config import settings
@@ -79,8 +79,8 @@ def decode_token_allowing_grace_window(token: str) -> dict:
     without being forced to re-authenticate with credentials.
 
     Raises:
-        JWTError: if the token is structurally invalid, has a bad signature,
-                  or has been expired for longer than the grace window.
+        jwt.InvalidTokenError: if the token is structurally invalid, has a bad
+                  signature, or has been expired for longer than the grace window.
     """
     # Decode without expiry enforcement so we can apply the grace window ourselves.
     payload = jwt.decode(
@@ -92,11 +92,11 @@ def decode_token_allowing_grace_window(token: str) -> dict:
 
     exp = payload.get("exp")
     if exp is None:
-        raise JWTError("Token has no expiry claim (exp)")
+        raise jwt.InvalidTokenError("Token has no expiry claim (exp)")
 
     now_utc = datetime.now(timezone.utc).timestamp()
     if now_utc > exp + REFRESH_GRACE_SECONDS:
-        raise JWTError(
+        raise jwt.InvalidTokenError(
             f"Token expired more than {REFRESH_GRACE_SECONDS // 60} minutes ago "
             "and cannot be refreshed"
         )

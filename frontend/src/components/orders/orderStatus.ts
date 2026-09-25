@@ -1,29 +1,17 @@
 // Order status vocabulary for the order page (W2-08; DOM-17, DOM-18).
 //
-// Labels follow UI-UX-PLAYBOOK 3.2 and the backend's single label source
-// (services/order_workflow.py ORDER_STATUS_LABELS). This module is the
-// stopgap until src/design/status.ts exists (Wave 4); when it lands, move
-// ORDER_STATUS_LABELS there and re-export it from here.
+// Labels live in the single status map src/design/status.ts (UI-UX-PLAYBOOK
+// 3.2, matching services/order_workflow.py ORDER_STATUS_LABELS);
+// ORDER_STATUS_LABELS is re-exported from there for existing imports.
 //
 // ALLOWED_TRANSITIONS mirrors order_workflow.ALLOWED_TRANSITIONS so the
 // "Weiter" button only offers moves the backend accepts. The backend stays
 // the authority: a 409 carries its German message, which the page shows.
+import { ORDER_STATUS, statusLabelsFor } from '../../design/status';
 import type { OrderStatus } from '../../types';
 
-export const ORDER_STATUS_LABELS: Readonly<Record<OrderStatus, string>> = {
-  draft: 'Entwurf',
-  new: 'Neu',
-  confirmed: 'Bestätigt',
-  in_progress: 'In Bearbeitung',
-  waiting_for_fitting: 'Wartet auf Anprobe',
-  fitting_done: 'Anprobe abgeschlossen',
-  ready_for_setting: 'Bereit zum Fassen',
-  quality_check: 'Qualitätskontrolle',
-  completed: 'Fertiggestellt',
-  delivered: 'Ausgeliefert',
-  on_hold: 'Pausiert',
-  cancelled: 'Storniert',
-};
+export const ORDER_STATUS_LABELS: Readonly<Record<OrderStatus, string>> =
+  statusLabelsFor(ORDER_STATUS);
 
 /** Enum declaration order of the backend (OrderStatusEnum). */
 const STATUS_ORDER: readonly OrderStatus[] = [

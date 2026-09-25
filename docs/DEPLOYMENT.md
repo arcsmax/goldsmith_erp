@@ -1,5 +1,17 @@
 # Deployment Guide - Goldsmith ERP
 
+> ⚠️ **SUPERSEDED (2026-09-25, OPS-08).** This guide is from 2025-11 (Phase 1.6)
+> and is stale: the "Available Migrations" and rollback commands below name
+> `001_initial_schema` / `002_gdpr_compliance`, migration files that no longer
+> exist (the real chain under `alembic/versions/` is date-prefixed, 25 files as
+> of this note, e.g. `20260401_v1_initial_schema.py`). It also predates the
+> Podman/Caddy production stack. **Do not follow this document for a real
+> deployment.** Use
+> [PRODUCTION_DEPLOYMENT.md](technical/infrastructure/PRODUCTION_DEPLOYMENT.md)
+> instead, which covers `setup.sh`, `podman-compose.prod.yml`, TLS, backups,
+> compliance timers, and rollback. Kept here for historical reference only, not
+> deleted.
+
 ## Table of Contents
 
 1. [Overview](#overview)

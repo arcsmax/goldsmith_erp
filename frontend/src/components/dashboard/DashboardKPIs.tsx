@@ -84,12 +84,12 @@ export const DashboardKPIs: React.FC = () => {
 
   // Memoize formatted values to avoid recalculation on every render
   const formattedMonthlyRevenue = useMemo(
-    () => stats ? formatCurrency(stats.monthlyRevenue, 0) : '€0',
+    () => stats ? formatCurrency(stats.monthlyRevenue, 0) : formatCurrency(0, 0),
     [stats]
   );
 
   const formattedInventoryValue = useMemo(
-    () => stats ? formatCurrency(stats.inventoryValue, 0) : '€0',
+    () => stats ? formatCurrency(stats.inventoryValue, 0) : formatCurrency(0, 0),
     [stats]
   );
 

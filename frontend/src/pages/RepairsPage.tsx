@@ -9,21 +9,16 @@ import type {
   RepairJobListItem,
   RepairJobStatus,
 } from '../types';
+import { REPAIR_STATUS, statusLabelsFor } from '../design/status';
+import { StatusBadge } from '../ui/StatusBadge';
+import { formatEur, MONEY_CLASS } from '../lib/format';
 import '../styles/repairs.css';
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
-const STATUS_LABELS: Record<RepairJobStatus, string> = {
-  received: 'Eingang',
-  diagnosed: 'Diagnose',
-  quoted: 'Angebot',
-  approved: 'Genehmigt',
-  in_repair: 'In Arbeit',
-  quality_check: 'Qualitätskontrolle',
-  ready: 'Fertig',
-  picked_up: 'Abgeholt',
-  cancelled: 'Storniert',
-};
+// Labels come from the single status map (LV-05).
+const STATUS_LABELS: Readonly<Record<RepairJobStatus, string>> =
+  statusLabelsFor(REPAIR_STATUS);
 
 const ITEM_TYPE_LABELS: Record<RepairItemType, string> = {
   ring: 'Ring',
@@ -34,14 +29,6 @@ const ITEM_TYPE_LABELS: Record<RepairItemType, string> = {
   brooch: 'Brosche',
   other: 'Sonstiges',
 };
-
-function StatusBadge({ status }: { status: RepairJobStatus }) {
-  return (
-    <span className={`status-badge ${status}`}>
-      {STATUS_LABELS[status] ?? status}
-    </span>
-  );
-}
 
 function deadlineClass(dateStr: string | null | undefined): string {
   if (!dateStr) return '';
@@ -387,18 +374,14 @@ export function RepairsPage() {
                     )}
                   </td>
                   <td>
-                    <StatusBadge status={r.status} />
+                    <StatusBadge kind="repair" status={r.status} />
                   </td>
                   <td
                     className={`repair-deadline-cell ${deadlineClass(r.estimated_completion_date)}`}
                   >
                     {formatDate(r.estimated_completion_date)}
                   </td>
-                  <td>
-                    {r.estimated_cost != null
-                      ? `${r.estimated_cost.toFixed(2)} EUR`
-                      : '—'}
-                  </td>
+                  <td className={MONEY_CLASS}>{formatEur(r.estimated_cost)}</td>
                   <td>
                     <div className="repair-actions" onClick={e => e.stopPropagation()}>
                       <button

@@ -1,8 +1,8 @@
 from typing import Optional
 
+import jwt
 from fastapi import Cookie, Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer
-from jose import JWTError, jwt
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
@@ -73,7 +73,7 @@ async def get_current_user(
             user_id = int(user_id_raw)
         except (ValueError, TypeError):
             raise credentials_exception
-    except JWTError:
+    except jwt.InvalidTokenError:
         raise credentials_exception
 
     # Revocation check (finding 2.1): reject tokens blocklisted at logout or

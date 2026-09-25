@@ -300,6 +300,7 @@ class TestAdvanceStatusService:
         self,
         db_session: AsyncSession,
         test_customer: Customer,
+        goldsmith_user: User,
     ):
         order = await _make_order(db_session, test_customer, alloy="585")
         with pytest.raises(PunzierungRequiredError) as excinfo:
@@ -307,7 +308,7 @@ class TestAdvanceStatusService:
                 db_session,
                 order.id,
                 OrderStatusEnum.COMPLETED,
-                user_id=1,
+                user_id=goldsmith_user.id,
             )
         assert excinfo.value.status_code == 409
         assert excinfo.value.detail["code"] == "PUNZIERUNG_REQUIRED"
@@ -337,13 +338,14 @@ class TestAdvanceStatusService:
         self,
         db_session: AsyncSession,
         test_customer: Customer,
+        goldsmith_user: User,
     ):
         order = await _make_order(db_session, test_customer, alloy=None)
         updated = await OrderService.advance_status(
             db_session,
             order.id,
             OrderStatusEnum.COMPLETED,
-            user_id=1,
+            user_id=goldsmith_user.id,
         )
         assert updated is not None
         assert updated.status == OrderStatusEnum.COMPLETED
@@ -366,6 +368,7 @@ class TestAllPathsAgree:
         admin_auth_headers: dict,
         db_session: AsyncSession,
         test_customer: Customer,
+        goldsmith_user: User,
     ):
         # Build 4 equivalent orders.
         orders = []
@@ -405,7 +408,7 @@ class TestAllPathsAgree:
                 db_session,
                 orders[3].id,
                 OrderStatusEnum.COMPLETED,
-                user_id=1,
+                user_id=goldsmith_user.id,
             )
 
 

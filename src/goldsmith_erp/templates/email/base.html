@@ -122,6 +122,14 @@
         <strong>{{ workshop_name }}</strong><br>
         {% block footer_note %}Diese E-Mail wurde automatisch versandt. Bitte antworten Sie direkt in der Werkstatt.{% endblock %}<br>
         {% if workshop_contact %}{{ workshop_contact }}<br>{% endif %}
+      </p>
+      <p>
+        {# W6 / E2 + E4: Art. 13 short notice (docs/legal/DATENSCHUTZHINWEISE-KUNDEN.md, "Kurzfassung für den E-Mail-Fuß") #}
+        {% block privacy_footer %}Datenschutz: Wir verarbeiten Ihre Daten zur Durchführung Ihres Auftrags (Art. 6 Abs. 1 lit. b DSGVO).<br>
+        Unsere Datenschutzhinweise zu Ihren Rechten und zur Speicherdauer liegen in der Werkstatt aus; auf Anfrage senden wir sie Ihnen gern per E-Mail.<br>
+        Sie möchten keine weiteren Informations-Mails? Antworten Sie einfach mit „Abmelden“.{% endblock %}
+      </p>
+      <p>
         &copy; {{ workshop_name }} — Alle Rechte vorbehalten.
       </p>
     </div>

@@ -5,8 +5,8 @@ Requires valid JWT for all endpoints except whitelisted paths.
 
 import logging
 
+import jwt
 from fastapi import Request, Response
-from jose import JWTError, jwt
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse
 
@@ -91,7 +91,7 @@ class AuthRequiredMiddleware(BaseHTTPMiddleware):
         # Validate token
         try:
             payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[ALGORITHM])
-        except JWTError as e:
+        except jwt.InvalidTokenError as e:
             logger.warning(
                 "Invalid JWT token",
                 extra={"path": path, "error": str(e)},

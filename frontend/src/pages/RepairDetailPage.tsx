@@ -17,31 +17,17 @@ import { RepairCustomerUpdatePanel } from '../components/repairs/RepairCustomerU
 import { useAuth, useConfirm, useToast } from '../contexts';
 import { logError } from '../lib/logError';
 import { canViewDesign } from '../lib/roles';
+import { StatusBadge } from '../ui/StatusBadge';
+import { formatEur, MONEY_CLASS } from '../lib/format';
 import '../styles/repairs.css';
 
 // ─── helpers ────────────────────────────────────────────────────────────────
-
-const STATUS_LABELS: Record<RepairJobStatus, string> = {
-  received: 'Eingang',
-  diagnosed: 'Diagnose',
-  quoted: 'Angebot',
-  approved: 'Genehmigt',
-  in_repair: 'In Arbeit',
-  quality_check: 'Qualitätskontrolle',
-  ready: 'Fertig',
-  picked_up: 'Abgeholt',
-  cancelled: 'Storniert',
-};
 
 const PHASE_LABELS: Record<RepairPhotoPhase, string> = {
   intake: 'Eingang',
   during_repair: 'Während der Reparatur',
   completed: 'Fertiggestellt',
 };
-
-function StatusBadge({ status }: { status: RepairJobStatus }) {
-  return <span className={`status-badge ${status}`}>{STATUS_LABELS[status] ?? status}</span>;
-}
 
 function formatDate(dateStr: string | null | undefined): string {
   if (!dateStr) return '—';
@@ -61,11 +47,6 @@ function formatDateShort(dateStr: string | null | undefined): string {
     month: '2-digit',
     year: 'numeric',
   });
-}
-
-function formatEur(amount: number | null | undefined): string {
-  if (amount == null) return '—';
-  return amount.toFixed(2) + ' EUR';
 }
 
 // ─── Status action buttons ───────────────────────────────────────────────────
@@ -300,7 +281,7 @@ function CompleteModal({ repairId, estimatedCost, onClose, onDone }: CompleteMod
             </p>
             {estimatedCost != null && (
               <p style={{ fontSize: '0.875rem', color: 'var(--color-text-muted)' }}>
-                Kostenvoranschlag: <strong>{estimatedCost.toFixed(2)} EUR</strong>
+                Kostenvoranschlag: <strong className={MONEY_CLASS}>{formatEur(estimatedCost)}</strong>
               </p>
             )}
             <div className="form-group">
@@ -564,11 +545,11 @@ function DiagnosisTab({ repair }: { repair: RepairJob }) {
       <div className="cost-comparison">
         <div className="cost-card">
           <div className="cost-card-label">Kostenvoranschlag</div>
-          <div className="cost-card-value">{formatEur(repair.estimated_cost)}</div>
+          <div className={`cost-card-value ${MONEY_CLASS}`}>{formatEur(repair.estimated_cost)}</div>
         </div>
         <div className="cost-card">
           <div className="cost-card-label">Tatsächliche Kosten</div>
-          <div className="cost-card-value">{formatEur(repair.actual_cost)}</div>
+          <div className={`cost-card-value ${MONEY_CLASS}`}>{formatEur(repair.actual_cost)}</div>
         </div>
       </div>
     </div>
@@ -600,7 +581,7 @@ function DetailsTab({ repair }: { repair: RepairJob }) {
         </div>
         <div className="repair-detail-field">
           <span className="repair-detail-field-label">Versicherungswert</span>
-          <span className="repair-detail-field-value">{formatEur(repair.estimated_value)}</span>
+          <span className={`repair-detail-field-value ${MONEY_CLASS}`}>{formatEur(repair.estimated_value)}</span>
         </div>
         <div className="repair-detail-field">
           <span className="repair-detail-field-label">Voraussichtliche Fertigstellung</span>
@@ -770,7 +751,7 @@ export function RepairDetailPage() {
       <div className="repair-detail-header">
         <div className="repair-detail-title">
           <h1>{repair.repair_number}</h1>
-          <StatusBadge status={repair.status} />
+          <StatusBadge kind="repair" status={repair.status} />
           <span className="repair-bag-number" title="Tütennummer">
             Tüte: {repair.bag_number}
           </span>
