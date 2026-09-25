@@ -27,11 +27,12 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Optional, cast
+from typing import Any, List, Optional, cast
 
 from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from goldsmith_erp.core.config import settings
 from goldsmith_erp.db.models import Customer as CustomerModel
@@ -40,6 +41,8 @@ from goldsmith_erp.db.models import (
     CustomerUpdateKind,
     CustomerUpdateStatus,
 )
+from goldsmith_erp.db.models import Gemstone as GemstoneModel
+from goldsmith_erp.db.models import Order as OrderModel
 from goldsmith_erp.db.models import Quote as QuoteModel
 from goldsmith_erp.db.models import UpdateDeliveryMethod
 from goldsmith_erp.services.email_service import EmailService
@@ -112,22 +115,54 @@ async def load_customer(db: AsyncSession, customer_id: int) -> CustomerModel:
     return customer
 
 
-def render_quote_pdf_bytes(quote: QuoteModel, customer: CustomerModel) -> bytes:
+async def load_order_gemstones(
+    db: AsyncSession, order_id: Optional[int]
+) -> Optional[List[GemstoneModel]]:
+    """Gemstones of the order linked to a quote, for the PDF's "Steine" block.
+
+    ``None`` for a standalone quote (no ``order_id`` yet) or an order with
+    no gemstones — ``PDFService.render_quote_pdf`` / ``_draw_gemstones``
+    already no-op on a falsy ``gemstones`` argument (W2-06-14-16-11 open
+    item #1: the renderer accepted ``gemstones=`` but no caller passed it).
+    """
+    if order_id is None:
+        return None
+    order = (
+        await db.execute(
+            select(OrderModel)
+            .options(selectinload(OrderModel.gemstones))
+            .where(OrderModel.id == order_id)
+        )
+    ).scalar_one_or_none()
+    if order is None or not order.gemstones:
+        return None
+    return list(order.gemstones)
+
+
+def render_quote_pdf_bytes(
+    quote: QuoteModel,
+    customer: CustomerModel,
+    gemstones: Optional[List[GemstoneModel]] = None,
+) -> bytes:
     """Render the Kostenvoranschlag PDF (shared by download and email)."""
     return PDFService.render_quote_pdf(
         quote=quote,
         customer=QuoteCustomerAdapter(customer),
         line_items=list(quote.line_items),
         workshop_name=settings.WORKSHOP_NAME,
+        gemstones=gemstones,
     )
 
 
 async def email_quote(
-    quote: QuoteModel, customer: CustomerModel, recipient: str
+    quote: QuoteModel,
+    customer: CustomerModel,
+    recipient: str,
+    gemstones: Optional[List[GemstoneModel]] = None,
 ) -> bool:
     """Send the quote PDF by email. Returns True only if SMTP accepted it."""
     try:
-        pdf_bytes = render_quote_pdf_bytes(quote, customer)
+        pdf_bytes = render_quote_pdf_bytes(quote, customer, gemstones=gemstones)
     except Exception:
         logger.exception(
             "Quote PDF rendering failed before email send",
