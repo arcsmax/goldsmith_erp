@@ -9,8 +9,9 @@ time a staff member read the bell entry. The customer got N mails per tick
 (N = staff users) and more mails every day.
 
 Customer mail is now a separate step, called once per order per scan, and it
-goes through the regular Kundeninfo path (``CustomerUpdateService.create_draft``
-+ ``send``). As a result:
+goes through ``CustomerMessageService.send_message`` (W6-01), the single
+outbound path for customer messages (consent / price rules, Art. 21 opt-out,
+Art. 13 footer, audit row). As a result:
 
 - every automated mail is a ``CustomerUpdate`` row that staff can see in
   Kundeninfo;
@@ -78,7 +79,10 @@ from goldsmith_erp.db.models import (
     User,
     UserRole,
 )
-from goldsmith_erp.models.customer_update import CustomerUpdateCreate
+from goldsmith_erp.services.customer_message_service import (
+    CustomerMessageService,
+    MessageKind,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -88,6 +92,7 @@ class _EventMail:
     """How one automated event maps onto a CustomerUpdate."""
 
     kind: CustomerUpdateKind
+    message_kind: MessageKind
     subject_template: str
     body: str
     # Attribute name on ``Order`` holding this event's per-occurrence
@@ -142,12 +147,14 @@ _FITTING_BODY = (
 _EVENT_MAILS: dict[NotificationTypeEnum, _EventMail] = {
     NotificationTypeEnum.PICKUP_READY: _EventMail(
         kind=CustomerUpdateKind.READY_FOR_PICKUP,
+        message_kind=MessageKind.PICKUP_READY,
         subject_template=_PICKUP_READY_SUBJECT,
         body=_PICKUP_READY_BODY,
         occurrence_field="completed_at",
     ),
     NotificationTypeEnum.FITTING_REMINDER: _EventMail(
         kind=CustomerUpdateKind.CUSTOM,
+        message_kind=MessageKind.APPOINTMENT,
         subject_template="Anprobe fuer Ihren Auftrag #{order_id}",
         body=_FITTING_BODY,
         # No timestamp column tracks "entered WAITING_FOR_FITTING at" on
@@ -158,7 +165,7 @@ _EVENT_MAILS: dict[NotificationTypeEnum, _EventMail] = {
 
 
 def _email_delivery_enabled() -> bool:
-    """Same gate as CustomerUpdateService.send's ``will_attempt``."""
+    """Same SMTP gate as ``CustomerMessageService.send_update``."""
     return bool(settings.EMAIL_NOTIFICATIONS_ENABLED and settings.SMTP_HOST)
 
 
@@ -264,7 +271,11 @@ async def send_customer_mail_once(
     order_id = int(order.id)
     if mail is None or not _email_delivery_enabled():
         return False
-    if not await _customer_has_email(db, cast(Optional[int], order.customer_id)):
+    customer_id = cast(Optional[int], order.customer_id)
+    if not await _customer_has_email(db, customer_id):
+        return False
+    if await CustomerMessageService.is_opted_out(db, customer_id):
+        # Art. 21 objection: no automated mail and no row (nothing to hand over).
         return False
 
     occurrence = mail.occurrence_marker(order)
@@ -294,21 +305,17 @@ async def _create_and_send(
     # Late import: customer_update_service lazily imports NotificationService,
     # and notification_service lazily imports this module.
     from goldsmith_erp.services.customer_update_service import (  # noqa: PLC0415
-        CustomerUpdateService,
         DuplicateDedupeKeyError,
     )
 
     try:
-        draft = await CustomerUpdateService.create_draft(
+        result = await CustomerMessageService.send_message(
             db,
+            kind=mail.message_kind,
             order_id=order_id,
-            repair_job_id=None,
-            data=CustomerUpdateCreate(
-                kind=mail.kind,
-                subject=mail.subject_for(order_id, occurrence),
-                body=mail.body,
-                photo_ids=None,  # design-IP rule: automated mails attach nothing
-            ),
+            subject=mail.subject_for(order_id, occurrence),
+            body=mail.body,
+            photo_ids=None,  # design-IP rule: automated mails attach nothing
             user_id=actor_id,
             dedupe_key=_dedupe_key(order_id, event, occurrence),
         )
@@ -326,20 +333,6 @@ async def _create_and_send(
             extra={"order_id": order_id, "event": event.value},
         )
         return False
-    except Exception as exc:
-        logger.error(
-            "Automated customer mail failed",
-            extra={
-                "order_id": order_id,
-                "event": event.value,
-                "error_type": type(exc).__name__,
-            },
-            exc_info=True,
-        )
-        return False
-
-    try:
-        result = await CustomerUpdateService.send(db, int(draft.id), actor_id)
     except Exception as exc:
         logger.error(
             "Automated customer mail failed",

@@ -25,6 +25,8 @@ vi.mock('../../contexts', () => ({
 const mockList = vi.fn();
 const mockGrant = vi.fn();
 const mockRevoke = vi.fn();
+const mockGetEmailOptOut = vi.fn();
+const mockSetEmailOptOut = vi.fn();
 vi.mock('../../api/consents', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../api/consents')>();
   return {
@@ -33,6 +35,8 @@ vi.mock('../../api/consents', async (importOriginal) => {
       list: (...args: unknown[]) => mockList(...args),
       grant: (...args: unknown[]) => mockGrant(...args),
       revoke: (...args: unknown[]) => mockRevoke(...args),
+      getEmailOptOut: (...args: unknown[]) => mockGetEmailOptOut(...args),
+      setEmailOptOut: (...args: unknown[]) => mockSetEmailOptOut(...args),
     },
   };
 });
@@ -152,5 +156,53 @@ describe('ConsentPanel', () => {
       })
     );
     await waitFor(() => expect(mockList).toHaveBeenCalledTimes(2));
+  });
+});
+
+// W6: Art. 21 objection "Keine E-Mail-Updates"
+describe('ConsentPanel — Keine E-Mail-Updates', () => {
+  it('shows the switch with the stored state and records the objection', async () => {
+    const user = userEvent.setup();
+    mockUseAuth.mockReturnValue(manageAuth());
+    mockList.mockResolvedValue([]);
+    mockGetEmailOptOut.mockResolvedValue(false);
+    mockSetEmailOptOut.mockResolvedValue(true);
+
+    render(<ConsentPanel customerId={42} />);
+
+    const toggle = await screen.findByLabelText('Keine E-Mail-Updates');
+    expect(toggle).not.toBeChecked();
+    await user.click(toggle);
+
+    await waitFor(() => expect(mockSetEmailOptOut).toHaveBeenCalledWith(42, true));
+    expect(await screen.findByLabelText('Keine E-Mail-Updates')).toBeChecked();
+    expect(mockShowToast).toHaveBeenCalledWith('Keine E-Mail-Updates gespeichert.', 'success');
+  });
+
+  it('lifts the objection when unticked', async () => {
+    const user = userEvent.setup();
+    mockUseAuth.mockReturnValue(manageAuth());
+    mockList.mockResolvedValue([]);
+    mockGetEmailOptOut.mockResolvedValue(true);
+    mockSetEmailOptOut.mockResolvedValue(false);
+
+    render(<ConsentPanel customerId={7} />);
+
+    const toggle = await screen.findByLabelText('Keine E-Mail-Updates');
+    expect(toggle).toBeChecked();
+    await user.click(toggle);
+
+    await waitFor(() => expect(mockSetEmailOptOut).toHaveBeenCalledWith(7, false));
+  });
+
+  it('hides only the switch when the opt-out state cannot be loaded', async () => {
+    mockUseAuth.mockReturnValue(manageAuth());
+    mockList.mockResolvedValue([]);
+    mockGetEmailOptOut.mockRejectedValue(new Error('offline'));
+
+    render(<ConsentPanel customerId={9} />);
+
+    expect(await screen.findByText('Noch keine Einwilligungen erfasst.')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Keine E-Mail-Updates')).not.toBeInTheDocument();
   });
 });

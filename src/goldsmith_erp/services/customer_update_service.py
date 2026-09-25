@@ -58,18 +58,14 @@ from __future__ import annotations
 import asyncio
 import logging
 from datetime import datetime
-from pathlib import Path
 from typing import Any, Dict, List, Optional, cast
 
 from sqlalchemy import select
-from sqlalchemy import update as sa_update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from goldsmith_erp.core.config import settings
 from goldsmith_erp.db.models import (
-    CostChangeRequest,
-    Customer,
     CustomerAuditLog,
     CustomerUpdate,
     CustomerUpdateKind,
@@ -84,14 +80,14 @@ from goldsmith_erp.db.models import (
 from goldsmith_erp.db.transaction import transactional
 from goldsmith_erp.models.customer_update import (
     CustomerUpdateCreate,
-    CustomerUpdateRead,
     CustomerUpdateSendResult,
 )
-from goldsmith_erp.services.email_service import EmailService
-from goldsmith_erp.services.image_validation import (
-    PhotoValidationError,
-    create_email_variant,
-    resolve_within_root,
+from goldsmith_erp.services.customer_message_service import (
+    CustomerMessageService,
+    MessageKind,
+    load_photo_attachments,
+    message_kind_for,
+    resolve_recipient,
 )
 from goldsmith_erp.services.pdf_service import PDFService
 
@@ -231,22 +227,6 @@ def _default_subject_body(kind: CustomerUpdateKind, order_ref: str) -> tuple[str
 
 
 # ---------------------------------------------------------------------------
-# Small formatting helpers (German locale) — duplicated in miniature from
-# pdf_service._fmt_eur rather than importing a private helper cross-module.
-# ---------------------------------------------------------------------------
-
-
-def _format_eur(value: float) -> str:
-    formatted = f"{value:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-    return f"{formatted} €"
-
-
-def _format_percent(value: float) -> str:
-    formatted = f"{value:,.1f}".replace(".", ",")
-    return f"{formatted} %"
-
-
-# ---------------------------------------------------------------------------
 # Financial-data structured audit logging — see module docstring.
 # ---------------------------------------------------------------------------
 
@@ -378,166 +358,9 @@ async def write_financial_audit_row(
         )
 
 
-# ---------------------------------------------------------------------------
-# Target / customer resolution — shared by send() and render_pdf()
-# ---------------------------------------------------------------------------
-
-
-async def _resolve_target(
-    db: AsyncSession, update: CustomerUpdate
-) -> tuple[str, Optional[Customer]]:
-    """Return (order_ref, customer-or-None) for either target kind."""
-    if update.order_id is not None:
-        order = (
-            await db.execute(select(Order).where(Order.id == update.order_id))
-        ).scalar_one_or_none()
-        if order is None:
-            return f"Auftrag #{update.order_id}", None
-        # cast(): mypy sees Column[str] at class level for `title` (classic
-        # Column() style, no Mapped[] here) — at runtime, on a loaded
-        # instance, it is a plain Optional[str] (matches cost_watch_service's
-        # established cast() precedent for this exact false-positive class).
-        order_ref = cast(Optional[str], order.title) or f"Auftrag #{order.id}"
-        customer = None
-        if order.customer_id is not None:
-            customer = (
-                await db.execute(
-                    select(Customer).where(Customer.id == order.customer_id)
-                )
-            ).scalar_one_or_none()
-        return order_ref, customer
-
-    repair = (
-        await db.execute(select(RepairJob).where(RepairJob.id == update.repair_job_id))
-    ).scalar_one_or_none()
-    if repair is None:
-        return f"Reparatur #{update.repair_job_id}", None
-    order_ref = f"Reparatur {repair.repair_number}"
-    customer = None
-    if repair.customer_id is not None:
-        customer = (
-            await db.execute(select(Customer).where(Customer.id == repair.customer_id))
-        ).scalar_one_or_none()
-    return order_ref, customer
-
-
-async def _load_photo_variant_bytes(
-    db: AsyncSession, order_id: Optional[int], photo_ids: List[str]
-) -> List[bytes]:
-    """
-    Load the explicitly-selected OrderPhotos and return EXIF-stripped
-    email-variant JPEG bytes for each one that can be read, in the SAME
-    order as ``photo_ids`` (review fix — a SQL ``IN`` clause does not
-    guarantee result ordering, so without this the goldsmith's chosen
-    photo order could silently scramble in the outgoing email/PDF). A
-    photo whose path is missing/invalid/escapes the storage root is
-    skipped with a logged warning — one bad photo must not block the
-    whole send/PDF (mirrors ``pdf_service._embed_photo_grid``'s graceful
-    degradation).
-    """
-    if not photo_ids or order_id is None:
-        return []
-
-    result = await db.execute(
-        select(OrderPhoto).where(
-            OrderPhoto.id.in_(photo_ids), OrderPhoto.order_id == order_id
-        )
-    )
-    # cast(): mypy sees Column[str] at class level for `id` (classic
-    # Column() style, no Mapped[] here) — at runtime, on a loaded
-    # instance, it is a plain str (established cast() precedent for this
-    # exact false-positive class throughout this module).
-    photos_by_id = {cast(str, photo.id): photo for photo in result.scalars().all()}
-    photos = [photos_by_id[pid] for pid in photo_ids if pid in photos_by_id]
-    storage_root = Path(settings.PHOTO_STORAGE_PATH).resolve()
-
-    variants: List[bytes] = []
-    for photo in photos:
-        resolved = resolve_within_root(cast(str, photo.file_path), storage_root)
-        if resolved is None or not resolved.is_file():
-            logger.warning(
-                "Customer-update photo path invalid or missing",
-                extra={"photo_id": photo.id, "order_id": order_id},
-            )
-            continue
-        try:
-            # CPU-bound (Pillow decode/resize/re-encode) — offloaded to a
-            # thread so it doesn't block the event loop on the request
-            # path (review fix, ml.py asyncio.to_thread precedent).
-            variants.append(await asyncio.to_thread(create_email_variant, resolved))
-        except (PhotoValidationError, OSError):
-            # Review fix: PIL.UnidentifiedImageError (raised by
-            # Image.open() on a corrupt/non-image file) IS an OSError
-            # subclass, and a genuinely truncated/corrupt file can also
-            # raise a plain OSError from Pillow's decoder — neither was
-            # previously caught here, so one bad photo could crash the
-            # whole send()/render_pdf() instead of degrading gracefully
-            # like every other bad-photo case in this loop. IDs only in
-            # the log (never the path — see resolve_within_root's
-            # docstring on why stored paths are untrustworthy).
-            logger.warning(
-                "Customer-update photo failed validation",
-                extra={"photo_id": photo.id, "order_id": order_id},
-                exc_info=True,
-            )
-    return variants
-
-
-async def _send_cost_change_email(
-    db: AsyncSession,
-    update: CustomerUpdate,
-    customer: Customer,
-    order_ref: str,
-    customer_name: str,
-) -> bool:
-    """Render+send the linked CostChangeRequest via the §649 template."""
-    if update.cost_change_request_id is None:
-        logger.error(
-            "cost_change CustomerUpdate missing cost_change_request_id",
-            extra={"update_id": update.id},
-        )
-        return False
-
-    cost_change = (
-        await db.execute(
-            select(CostChangeRequest).where(
-                CostChangeRequest.id == update.cost_change_request_id
-            )
-        )
-    ).scalar_one_or_none()
-    if cost_change is None:
-        logger.error(
-            "Linked CostChangeRequest not found for cost_change update",
-            extra={
-                "update_id": update.id,
-                "cost_change_request_id": update.cost_change_request_id,
-            },
-        )
-        return False
-
-    # cast(): line_items is a nullable JSON column (Column[Any] at class
-    # level); at runtime it's either None or list[dict[str, Any]].
-    raw_line_items = cast(Optional[List[Dict[str, Any]]], cost_change.line_items)
-    line_items = [
-        {
-            "label": item["label"],
-            "amount": _format_eur(item["amount"]),
-            "kind": item["kind"],
-        }
-        for item in (raw_line_items or [])
-    ]
-
-    return await EmailService.send_cost_change(
-        to=cast(str, customer.email),
-        subject=cast(str, update.subject),
-        customer_name=customer_name,
-        order_ref=order_ref,
-        original_amount=_format_eur(cast(float, cost_change.original_amount)),
-        new_amount=_format_eur(cast(float, cost_change.new_amount)),
-        delta_percent=_format_percent(cast(float, cost_change.delta_percent)),
-        reason=cast(str, cost_change.reason),
-        line_items=line_items,
-    )
+# Target resolution, photo loading and the actual dispatch live in
+# ``customer_message_service`` (W6-01): it is the single way a customer
+# message leaves the system. This module keeps the draft lifecycle.
 
 
 class CustomerUpdateService:
@@ -556,9 +379,15 @@ class CustomerUpdateService:
         data: CustomerUpdateCreate,
         user_id: int,
         dedupe_key: Optional[str] = None,
+        message_kind: Optional[MessageKind] = None,
     ) -> CustomerUpdate:
         """
         Create a DRAFT CustomerUpdate for exactly one target.
+
+        W6: the content rules of ``CustomerMessageService.check_content``
+        run before the insert (photos need PHOTO_USE consent, no prices
+        outside quote/cost-change). ``message_kind`` overrides the kind
+        derived from ``data.kind`` + photos (e.g. ``QUOTE_SENT``).
 
         ``dedupe_key`` is set only by the automated sender (C2.2); a second
         LIVE row with the same key raises ``DuplicateDedupeKeyError`` (the
@@ -573,6 +402,7 @@ class CustomerUpdateService:
             InvalidUpdatePhotoError / PhotosNotAllowedForRepairError /
                 MissingCustomerUpdateContentError /
                 CostChangeKindNotAllowedError: malformed input (422).
+            CustomerMessageError: consent / price rule violated (422).
             DuplicateDedupeKeyError: ``dedupe_key`` collided with a live row
                 (automated-sender path only).
         """
@@ -585,6 +415,7 @@ class CustomerUpdateService:
             raise CostChangeKindNotAllowedError()
 
         order_ref: str
+        customer_id: Optional[int]
         if order_id is not None:
             order = (
                 await db.execute(select(Order).where(Order.id == order_id))
@@ -592,6 +423,7 @@ class CustomerUpdateService:
             if order is None:
                 raise ValueError(f"Auftrag #{order_id} nicht gefunden")
             order_ref = cast(Optional[str], order.title) or f"Auftrag #{order.id}"
+            customer_id = cast(Optional[int], order.customer_id)
 
             if data.photo_ids:
                 result = await db.execute(
@@ -611,6 +443,7 @@ class CustomerUpdateService:
             if repair is None:
                 raise ValueError(f"Reparaturauftrag #{repair_job_id} nicht gefunden")
             order_ref = f"Reparatur {repair.repair_number}"
+            customer_id = cast(Optional[int], repair.customer_id)
 
             if data.photo_ids:
                 raise PhotosNotAllowedForRepairError()
@@ -621,6 +454,15 @@ class CustomerUpdateService:
             default_subject, default_body = _default_subject_body(data.kind, order_ref)
             subject = subject or default_subject
             body = body or default_body
+
+        await CustomerMessageService.check_content(
+            db,
+            kind=message_kind or message_kind_for(data.kind, bool(data.photo_ids)),
+            customer_id=customer_id,
+            subject=subject,
+            body=body,
+            photo_ids=data.photo_ids,
+        )
 
         update = CustomerUpdate(
             order_id=order_id,
@@ -711,134 +553,13 @@ class CustomerUpdateService:
             InvalidUpdateStateError: update already SENT, or lost the
                 concurrent CAS race described above (409). DRAFT and
                 SEND_FAILED may both (re-)attempt delivery.
+            CustomerMessageError: photos without PHOTO_USE consent or a
+                price in a kind that must not carry one (422).
         """
-        update = (
-            await db.execute(
-                select(CustomerUpdate).where(CustomerUpdate.id == update_id)
-            )
-        ).scalar_one_or_none()
-        if update is None:
-            raise CustomerUpdateNotFoundError(update_id)
-        if update.status == CustomerUpdateStatus.SENT:
-            raise InvalidUpdateStateError(update_id, update.status.value)
-
-        order_ref, customer = await _resolve_target(db, update)
-        photo_variants = await _load_photo_variant_bytes(
-            db,
-            cast(Optional[int], update.order_id),
-            cast(Optional[List[str]], update.photo_ids) or [],
-        )
-        photo_attachments = [
-            (f"foto-{i + 1}.jpg", data) for i, data in enumerate(photo_variants)
-        ]
-
-        will_attempt = bool(settings.EMAIL_NOTIFICATIONS_ENABLED and settings.SMTP_HOST)
-
-        if not will_attempt:
-            # PDF-only mode — expected, not a failure. Nothing is
-            # dispatched, so there is no race to close here; status is
-            # left untouched (still DRAFT/SEND_FAILED) so a later send()
-            # (once SMTP is configured) can still claim it.
-            await db.refresh(update)
-            _log_financial_access(
-                "send_attempted",
-                update_id,
-                cast(Optional[int], update.order_id),
-                user_id,
-                extra={"delivered": False},
-            )
-            return CustomerUpdateSendResult(
-                update=CustomerUpdateRead.model_validate(update),
-                delivered=False,
-                method=None,
-            )
-
-        if customer is not None and not customer.email:
-            # W2-10 (DOM-02, D-11): the customer has no email address on
-            # file (phone-only walk-in). Expected, not a failure: nothing is
-            # dispatched and no failure notice is raised. The draft stays
-            # open and the result points at the PDF fallback; the hand-over
-            # is recorded as PDF_MANUAL via mark_delivered.
-            await db.refresh(update)
-            _log_financial_access(
-                "send_attempted",
-                update_id,
-                cast(Optional[int], update.order_id),
-                user_id,
-                extra={"delivered": False, "fallback": "pdf_manual"},
-            )
-            return CustomerUpdateSendResult(
-                update=CustomerUpdateRead.model_validate(update),
-                delivered=False,
-                method=UpdateDeliveryMethod.PDF_MANUAL,
-            )
-
-        # CAS claim — see docstring. Runs BEFORE any SMTP dispatch.
-        async with transactional(db):
-            claim_result = await db.execute(
-                sa_update(CustomerUpdate)
-                .where(
-                    CustomerUpdate.id == update_id,
-                    CustomerUpdate.status.in_(
-                        [
-                            CustomerUpdateStatus.DRAFT,
-                            CustomerUpdateStatus.SEND_FAILED,
-                        ]
-                    ),
-                )
-                .values(status=CustomerUpdateStatus.SENT, sent_at=datetime.utcnow())
-                .returning(CustomerUpdate.id)
-            )
-            claimed_id = claim_result.scalar_one_or_none()
-
-        if claimed_id is None:
-            raise InvalidUpdateStateError(update_id, update.status.value)
-
-        await db.refresh(update)
-
-        if customer is None or not customer.email:
-            # A real per-record data gap the sender needs to act on.
-            delivered = False
-        else:
-            customer_name = f"{customer.first_name} {customer.last_name}".strip()
-            if update.kind == CustomerUpdateKind.COST_CHANGE:
-                delivered = await _send_cost_change_email(
-                    db, update, customer, order_ref, customer_name
-                )
-            else:
-                delivered = await EmailService.send_customer_update(
-                    to=cast(str, customer.email),
-                    subject=cast(str, update.subject),
-                    customer_name=customer_name,
-                    body=cast(str, update.body),
-                    order_ref=order_ref,
-                    photo_count=len(photo_variants),
-                    attachments=photo_attachments or None,
-                )
-
-        method: Optional[UpdateDeliveryMethod] = None
-        if delivered:
-            async with transactional(db):
-                update.delivery_method = cast(Any, UpdateDeliveryMethod.EMAIL)
-            method = UpdateDeliveryMethod.EMAIL
-        else:
-            async with transactional(db):
-                update.status = cast(Any, CustomerUpdateStatus.SEND_FAILED)
-            await CustomerUpdateService._notify_send_failure(db, update, user_id)
-
-        await db.refresh(update)
-        _log_financial_access(
-            "send_attempted",
-            update_id,
-            cast(Optional[int], update.order_id),
-            user_id,
-            extra={"delivered": delivered},
-        )
-        return CustomerUpdateSendResult(
-            update=CustomerUpdateRead.model_validate(update),
-            delivered=delivered,
-            method=method,
-        )
+        # W6-01: the dispatch (content rules, opt-out, CAS claim, SMTP,
+        # audit row) lives in CustomerMessageService, the single outbound
+        # path for customer messages.
+        return await CustomerMessageService.send_update(db, update_id, user_id)
 
     @staticmethod
     async def _notify_send_failure(
@@ -891,16 +612,25 @@ class CustomerUpdateService:
         if update is None:
             raise CustomerUpdateNotFoundError(update_id)
 
-        order_ref, customer = await _resolve_target(db, update)
-        customer_name = (
-            f"{customer.first_name} {customer.last_name}".strip()
-            if customer is not None
-            else "Kunde"
-        )
-        photos = await _load_photo_variant_bytes(
+        recipient = await resolve_recipient(
             db,
-            cast(Optional[int], update.order_id),
-            cast(Optional[List[str]], update.photo_ids) or [],
+            order_id=cast(Optional[int], update.order_id),
+            repair_job_id=cast(Optional[int], update.repair_job_id),
+        )
+        photo_ids = cast(Optional[List[str]], update.photo_ids) or []
+        # The PDF reaches the customer too: same consent / price rules.
+        await CustomerMessageService.check_content(
+            db,
+            kind=message_kind_for(
+                cast(CustomerUpdateKind, update.kind), bool(photo_ids)
+            ),
+            customer_id=recipient.customer_id,
+            subject=cast(str, update.subject),
+            body=cast(str, update.body),
+            photo_ids=photo_ids,
+        )
+        photos = await load_photo_attachments(
+            db, cast(Optional[int], update.order_id), photo_ids
         )
 
         # CPU-bound (fpdf2 font subsetting + drawing) — offloaded to a
@@ -909,8 +639,8 @@ class CustomerUpdateService:
         return await asyncio.to_thread(
             PDFService.render_customer_update_pdf,
             update=update,
-            order_ref=order_ref,
-            customer_name=customer_name,
+            order_ref=recipient.order_ref,
+            customer_name=recipient.display_name,
             photos=photos,
             workshop_name=settings.WORKSHOP_NAME,
         )
@@ -949,6 +679,8 @@ class CustomerUpdateService:
             update.status = cast(Any, CustomerUpdateStatus.SENT)
             update.sent_at = cast(Any, datetime.utcnow())
             update.delivery_method = cast(Any, method)
+            # E16: the PDF reached the customer; one audit row per message.
+            await CustomerMessageService.record_manual_delivery(db, update, user_id)
 
         await db.refresh(update)
         _log_financial_access(

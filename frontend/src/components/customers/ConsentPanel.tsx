@@ -4,6 +4,10 @@
 // CostChangeSection.tsx: the backend's CONSENT_MANAGE permission is only
 // granted to those two roles, so the panel skips the fetch entirely (and
 // renders nothing) for anyone else rather than surface a 403.
+//
+// W6: the "Keine E-Mail-Updates" switch records the Art. 21 objection
+// (stored server-side as a revoked "E-Mail-Kontakt" consent). While it is on,
+// Kundeninfos go out only as PDF for manual hand-over.
 import React, { useCallback, useEffect, useState } from 'react';
 import { useAuth, useConfirm, useToast } from '../../contexts';
 import { logError } from '../../lib/logError';
@@ -43,6 +47,8 @@ export const ConsentPanel: React.FC<ConsentPanelProps> = ({ customerId }) => {
   const [newMethod, setNewMethod] = useState<ConsentMethod>('in_person');
   const [newNote, setNewNote] = useState('');
   const [formError, setFormError] = useState<string | null>(null);
+  const [emailOptOut, setEmailOptOut] = useState<boolean | null>(null);
+  const [isSavingOptOut, setIsSavingOptOut] = useState(false);
 
   const load = useCallback(async () => {
     setIsLoading(true);
@@ -57,6 +63,16 @@ export const ConsentPanel: React.FC<ConsentPanelProps> = ({ customerId }) => {
     }
   }, [customerId, showToast]);
 
+  // Loaded on its own: a failure hides only the switch, never the consents.
+  const loadOptOut = useCallback(async () => {
+    try {
+      setEmailOptOut(await consentsApi.getEmailOptOut(customerId));
+    } catch (err) {
+      logError('ConsentPanel.loadEmailOptOut', err);
+      setEmailOptOut(null);
+    }
+  }, [customerId]);
+
   useEffect(() => {
     if (!canManage) {
       setConsents([]);
@@ -64,6 +80,7 @@ export const ConsentPanel: React.FC<ConsentPanelProps> = ({ customerId }) => {
       return;
     }
     void load();
+    void loadOptOut();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [customerId, canManage]);
 
@@ -101,6 +118,28 @@ export const ConsentPanel: React.FC<ConsentPanelProps> = ({ customerId }) => {
     }
   };
 
+  const handleOptOutChange = async (optedOut: boolean) => {
+    if (isSavingOptOut) return;
+    setIsSavingOptOut(true);
+    try {
+      const saved = await consentsApi.setEmailOptOut(customerId, optedOut);
+      setEmailOptOut(saved);
+      showToast(
+        saved ? 'Keine E-Mail-Updates gespeichert.' : 'E-Mail-Updates wieder erlaubt.',
+        'success'
+      );
+      await load();
+    } catch (err) {
+      logError('ConsentPanel.setEmailOptOut', err);
+      showToast(
+        extractErrorDetail(err) ?? 'Widerspruch konnte nicht gespeichert werden.',
+        'error'
+      );
+    } finally {
+      setIsSavingOptOut(false);
+    }
+  };
+
   const handleGrant = async (e: React.FormEvent) => {
     e.preventDefault();
     setFormError(null);
@@ -126,6 +165,25 @@ export const ConsentPanel: React.FC<ConsentPanelProps> = ({ customerId }) => {
   return (
     <section className="cdetail-section cdetail-section--full">
       <h3 className="cdetail-section__title">Einwilligungen</h3>
+
+      {emailOptOut !== null && (
+        <div className="checkbox-group">
+          <label htmlFor="consent-email-opt-out">
+            <input
+              type="checkbox"
+              id="consent-email-opt-out"
+              checked={emailOptOut}
+              onChange={(e) => void handleOptOutChange(e.target.checked)}
+              disabled={isSavingOptOut}
+            />{' '}
+            Keine E-Mail-Updates
+          </label>
+          <p className="form-hint">
+            Widerspruch nach Art. 21 DSGVO: Kundeninfos werden dann nur als PDF zur Übergabe
+            erstellt.
+          </p>
+        </div>
+      )}
 
       {isLoading ? (
         <p>Lade Einwilligungen…</p>
