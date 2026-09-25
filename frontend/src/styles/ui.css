@@ -873,3 +873,25 @@ textarea.ui-field__control {
   color: var(--color-text-muted);
   margin-top: var(--space-1);
 }
+
+/* Legacy button classes still used by CustomerDetailPage (.btn-pdf-download) and the
+   time-tracking / comments tabs (.btn-retry); their rules lived in page CSS that was
+   migrated. Styled like the secondary button until those call sites move to <Button>. */
+.btn-retry,
+.btn-pdf-download {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 44px;
+  padding: var(--space-2) var(--space-4);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-raised);
+  color: var(--color-text);
+  font: inherit;
+  cursor: pointer;
+}
+.btn-retry:hover,
+.btn-pdf-download:hover {
+  background: var(--color-surface-sunken);
+}
