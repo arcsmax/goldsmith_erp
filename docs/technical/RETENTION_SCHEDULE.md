@@ -54,6 +54,8 @@ Legende Spalte „Automatisiert": **ja** = ein Job setzt es heute um, **Art. 17*
 | `notifications` | interne Hinweise (können Kundennamen enthalten) | Art. 6 Abs. 1 lit. f | 12 Monate (DSB) | Hart löschen | **nein** |
 | Redis-Portal-Tokens | Sitzung | Art. 6 Abs. 1 lit. b | 1 Stunde | Ablauf (TTL) | ja |
 
+**Kostenvoranschlag-Mail (`quote_sent`, seit W6B-01):** Der Versand eines Kostenvoranschlags läuft seit diesem Fix über denselben `CustomerMessageService`-Pfad wie jede andere Kundeninfo-Nachricht (Policy-Check und `CustomerAuditLog`-Zeile mit `message_kind: "quote_sent"`); der Versandnachweis wird — wie bisher — als eigene `customer_updates`-Zeile abgelegt (Betreff `Kostenvoranschlag <Nummer>`, da `quotes` keine FK auf `customer_updates` hat und `db/models.py` außerhalb dieses Fixes liegt). Diese Zeile fällt damit unter dieselbe Frist wie oben (`customer_updates`: 3 Jahre nach Auftragsende, Freitext schwärzen, Skelettzeile bleibt, DSB). Der eigentliche Kostenvoranschlag (`quotes`, mit Preisen) ist ein Finanzbeleg und folgt der Aufbewahrungsfrist für Rechnungen/Angebote (Abschnitt 3.3), nicht dieser Zeile.
+
 ### 3.2 Aufträge, Reparaturen, Fotos
 
 | Tabelle | Klasse | Rechtsgrundlage | Frist | Löschen heißt | Automatisiert |

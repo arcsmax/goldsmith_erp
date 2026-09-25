@@ -73,6 +73,12 @@ jobs:
       - name: Install dependencies
         working-directory: ./frontend
         run: yarn install --frozen-lockfile
+      # OPS-13 / FE-15 (issue #33) — ESLint 9 flat config with typescript-eslint,
+      # react-hooks and jsx-a11y. `yarn lint` = `eslint . --max-warnings <baseline>`,
+      # see docs/technical/FRONTEND_LINT.md.
+      - name: Lint
+        working-directory: ./frontend
+        run: yarn lint
       - name: Type check
         working-directory: ./frontend
         run: npx tsc --noEmit

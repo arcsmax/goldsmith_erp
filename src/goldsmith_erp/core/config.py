@@ -641,6 +641,15 @@ class Settings(BaseSettings):
     # threshold and scope are still to be confirmed by the Steuerberater.
     SCRAP_GOLD_ID_THRESHOLD_EUR: float = Field(default=2000.0, ge=0)
 
+    # ── Health check (LV-17) ─────────────────────────────────────────────────
+    # Appended at the end of Settings on purpose (merge-safety, see above).
+    # /health's disk component reports "warning" from 80 % used (informational,
+    # unchanged) but that alone no longer flips the overall status to
+    # "degraded" — a workshop server sitting at 80-94 % is routine, not an
+    # incident. Only usage at or above this percentage flips the overall
+    # status to "unhealthy" (503), the same as a down database or Redis.
+    HEALTH_DISK_CRITICAL_PERCENT: float = 95.0
+
     # ── Outbox (ARCH-04 / ARCH-05, ADR-2026-09-25-outbox) ────────────────────
     # Appended at the end of Settings on purpose (merge-safety, see above).
     # "inline": customer mails are sent in the request (dev/tests, the old

@@ -127,8 +127,9 @@ export const DeadlinesWidget: React.FC = () => {
       </div>
       <div className="deadlines-list">
         {deadlines.map((item) => (
-          <div
+          <button
             key={item.order.id}
+            type="button"
             className={`deadline-item deadline-${item.urgency}`}
             onClick={handleOrderClick(item.order.id)}
           >
@@ -153,7 +154,7 @@ export const DeadlinesWidget: React.FC = () => {
                 )}
               </div>
             </div>
-          </div>
+          </button>
         ))}
       </div>
     </div>

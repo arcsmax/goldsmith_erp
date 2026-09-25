@@ -439,7 +439,6 @@ export const ScannerPage: React.FC = () => {
               onChange={(e) => setScanInput(e.target.value)}
               placeholder="z.B. ORDER:42 oder Auftragsnummer"
               className="scan-input"
-              autoFocus
               disabled={isScanning}
               data-testid="scanner-manual-input"
             />

@@ -217,7 +217,15 @@ export const MetalTypeManager: React.FC<MetalTypeManagerProps> = ({ isOpen, onCl
   const finePercent = parseFloat(formData.fine_content_ratio);
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
+    // eslint-disable-next-line jsx-a11y/click-events-have-key-events -- backdrop dismiss is mouse-only by convention
+    <div
+      className="modal-overlay"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="metal-type-manager-title"
+      onClick={onClose}
+    >
+      {/* eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions -- stops the backdrop's onClose from firing when clicking inside the dialog; not itself interactive */}
       <div
         className="modal-content metal-type-manager-modal"
         style={{ maxWidth: '900px', width: '95vw' }}
@@ -225,7 +233,7 @@ export const MetalTypeManager: React.FC<MetalTypeManagerProps> = ({ isOpen, onCl
       >
         {/* Header */}
         <div className="modal-header">
-          <h2>Metalltypen verwalten</h2>
+          <h2 id="metal-type-manager-title">Metalltypen verwalten</h2>
           <button className="modal-close" onClick={onClose} aria-label="Schliessen">
             x
           </button>

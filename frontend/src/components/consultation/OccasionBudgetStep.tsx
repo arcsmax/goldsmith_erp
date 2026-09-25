@@ -94,8 +94,9 @@ export const OccasionBudgetStep: React.FC<OccasionBudgetStepProps> = ({
   return (
     <div className="occasion-budget-step">
       <div className="wizard-field">
-        <label>Anlass</label>
-        <div className="chip-group" role="radiogroup" aria-label="Anlass">
+        {/* eslint-disable-next-line jsx-a11y/label-has-associated-control -- labels the radiogroup below via aria-labelledby, not a single control */}
+        <label id="occasion-anlass-label">Anlass</label>
+        <div className="chip-group" role="radiogroup" aria-labelledby="occasion-anlass-label">
           {OCCASION_KEYS.map((key) => (
             <button
               key={key}

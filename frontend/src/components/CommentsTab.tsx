@@ -266,7 +266,6 @@ export const CommentsTab: React.FC<CommentsTabProps> = ({ orderId }) => {
                       onChange={(e) => setEditText(e.target.value)}
                       onKeyDown={handleEditKeyDown}
                       rows={3}
-                      autoFocus
                     />
                     <div className="comment-edit-actions">
                       <button

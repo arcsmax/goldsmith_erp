@@ -161,25 +161,38 @@ export const AlertsWidget: React.FC = () => {
         <h2>Benachrichtigungen</h2>
       </div>
       <div className="alerts-list">
-        {alerts.map((alert) => (
-          <div
-            key={alert.id}
-            className={`alert-item alert-${alert.type} ${alert.action ? 'clickable' : ''}`}
-            onClick={alert.action}
-            style={{ cursor: alert.action ? 'pointer' : 'default' }}
-          >
-            <span className="alert-icon">{getAlertIcon(alert.type)}</span>
-            <div className="alert-content">
-              <h4 className="alert-title">{alert.title}</h4>
-              <p className="alert-message">{alert.message}</p>
-              {alert.action && alert.actionLabel && (
-                <span className="alert-action">
-                  {alert.actionLabel} →
-                </span>
-              )}
+        {alerts.map((alert) => {
+          const className = `alert-item alert-${alert.type} ${alert.action ? 'clickable' : ''}`;
+          const content = (
+            <>
+              <span className="alert-icon">{getAlertIcon(alert.type)}</span>
+              <div className="alert-content">
+                <h4 className="alert-title">{alert.title}</h4>
+                <p className="alert-message">{alert.message}</p>
+                {alert.action && alert.actionLabel && (
+                  <span className="alert-action">
+                    {alert.actionLabel} →
+                  </span>
+                )}
+              </div>
+            </>
+          );
+
+          return alert.action ? (
+            <button
+              key={alert.id}
+              type="button"
+              className={className}
+              onClick={alert.action}
+            >
+              {content}
+            </button>
+          ) : (
+            <div key={alert.id} className={className}>
+              {content}
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );

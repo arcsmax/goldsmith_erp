@@ -16,6 +16,7 @@ from sqlalchemy.orm import sessionmaker
 from goldsmith_erp.core.config import settings
 from goldsmith_erp.db.models import (
     Customer,
+    CustomerAuditLog,
     CustomerUpdateStatus,
     OutboxMessage,
     OutboxStatus,
@@ -23,6 +24,7 @@ from goldsmith_erp.db.models import (
     QuoteStatus,
     UpdateDeliveryMethod,
 )
+from goldsmith_erp.services.customer_message_service import AUDIT_ACTION_SENT
 from goldsmith_erp.services.outbox_service import OutboxService
 from tests.integration.test_quote_send import (
     QUOTES_URL,
@@ -78,6 +80,19 @@ async def test_send_queues_then_worker_emails_exactly_once(
     assert len(records) == 1
     assert records[0].delivery_method == UpdateDeliveryMethod.EMAIL
     assert records[0].sent_at is not None
+    audits = (
+        (
+            await db_session.execute(
+                select(CustomerAuditLog).where(
+                    CustomerAuditLog.entity_id == records[0].id,
+                    CustomerAuditLog.action == AUDIT_ACTION_SENT,
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert len(audits) == 1  # audited once, by the worker, on delivery
 
 
 async def test_dead_letter_reverts_quote_to_draft(

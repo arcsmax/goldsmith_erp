@@ -163,6 +163,7 @@ export const CalendarEventModal: React.FC<Props> = ({
   };
 
   return (
+    // eslint-disable-next-line jsx-a11y/click-events-have-key-events -- backdrop dismiss is mouse-only by convention; Escape is handled by the effect above
     <div
       className="modal-backdrop"
       role="dialog"

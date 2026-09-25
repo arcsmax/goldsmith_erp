@@ -224,8 +224,9 @@ export const TimeTrackingPage: React.FC = () => {
         </div>
 
         <div className="filter-group">
-          <label>Aktivität:</label>
+          <label htmlFor="timetracking-filter-activity">Aktivität:</label>
           <select
+            id="timetracking-filter-activity"
             value={filterActivity}
             onChange={(e) => setFilterActivity(Number(e.target.value) || '')}
           >
@@ -240,16 +241,17 @@ export const TimeTrackingPage: React.FC = () => {
         </div>
 
         <div className="filter-group">
-          <label>Sortieren:</label>
-          <select value={sortBy} onChange={(e) => setSortBy(e.target.value as 'date' | 'duration')}>
+          <label htmlFor="timetracking-sort-by">Sortieren:</label>
+          <select id="timetracking-sort-by" value={sortBy} onChange={(e) => setSortBy(e.target.value as 'date' | 'duration')}>
             <option value="date">Datum</option>
             <option value="duration">Dauer</option>
           </select>
         </div>
 
         <div className="filter-group">
-          <label>Pro Seite:</label>
+          <label htmlFor="timetracking-page-size">Pro Seite:</label>
           <select
+            id="timetracking-page-size"
             value={pageSize}
             onChange={(e) => {
               setPageSize(Number(e.target.value));

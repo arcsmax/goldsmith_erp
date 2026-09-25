@@ -1,5 +1,5 @@
 // Reparatur Detailansicht — status actions, photo tabs, diagnosis, history
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useId, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { repairPhotoPath, repairPhotoThumbPath, repairsApi } from '../api/repairs';
 import type {
@@ -146,6 +146,9 @@ function DiagnoseModal({ repairId, onClose, onDone }: DiagnoseModalProps) {
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const diagnosisNotesId = useId();
+  const estimatedCostId = useId();
+  const estimatedCompletionDateId = useId();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -172,7 +175,11 @@ function DiagnoseModal({ repairId, onClose, onDone }: DiagnoseModalProps) {
   };
 
   return (
-    <div className="modal-overlay" onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+    <div
+      className="modal-overlay"
+      role="presentation"
+      onClick={e => { if (e.target === e.currentTarget) onClose(); }}
+    >
       <div className="modal-box">
         <div className="modal-header">
           <h2>Diagnose stellen</h2>
@@ -182,10 +189,11 @@ function DiagnoseModal({ repairId, onClose, onDone }: DiagnoseModalProps) {
           <div className="modal-body">
             {error && <div className="repairs-error">{error}</div>}
             <div className="form-group">
-              <label className="form-label">
+              <label className="form-label" htmlFor={diagnosisNotesId}>
                 Befundbeschreibung <span className="required">*</span>
               </label>
               <textarea
+                id={diagnosisNotesId}
                 className="form-textarea"
                 rows={5}
                 placeholder="Was wurde festgestellt? Welche Arbeiten sind erforderlich?"
@@ -196,10 +204,11 @@ function DiagnoseModal({ repairId, onClose, onDone }: DiagnoseModalProps) {
             </div>
             <div className="form-row">
               <div className="form-group">
-                <label className="form-label">
+                <label className="form-label" htmlFor={estimatedCostId}>
                   Kostenvoranschlag (EUR) <span className="required">*</span>
                 </label>
                 <input
+                  id={estimatedCostId}
                   type="number"
                   min={0}
                   step={0.01}
@@ -210,8 +219,9 @@ function DiagnoseModal({ repairId, onClose, onDone }: DiagnoseModalProps) {
                 />
               </div>
               <div className="form-group">
-                <label className="form-label">Fertigstellung bis</label>
+                <label className="form-label" htmlFor={estimatedCompletionDateId}>Fertigstellung bis</label>
                 <input
+                  id={estimatedCompletionDateId}
                   type="date"
                   className="form-input"
                   value={form.estimated_completion_date
@@ -250,6 +260,7 @@ function CompleteModal({ repairId, estimatedCost, onClose, onDone }: CompleteMod
   const [actualCost, setActualCost] = useState<number>(estimatedCost ?? 0);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const actualCostId = useId();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -267,7 +278,11 @@ function CompleteModal({ repairId, estimatedCost, onClose, onDone }: CompleteMod
   };
 
   return (
-    <div className="modal-overlay" onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+    <div
+      className="modal-overlay"
+      role="presentation"
+      onClick={e => { if (e.target === e.currentTarget) onClose(); }}
+    >
       <div className="modal-box">
         <div className="modal-header">
           <h2>Reparatur fertigmelden</h2>
@@ -286,10 +301,11 @@ function CompleteModal({ repairId, estimatedCost, onClose, onDone }: CompleteMod
               </p>
             )}
             <div className="form-group">
-              <label className="form-label">
+              <label className="form-label" htmlFor={actualCostId}>
                 Tatsächliche Kosten (EUR) <span className="required">*</span>
               </label>
               <input
+                id={actualCostId}
                 type="number"
                 min={0}
                 step={0.01}
@@ -528,7 +544,7 @@ function DiagnosisTab({ repair }: { repair: RepairJob }) {
         <div className="repairs-empty" style={{ padding: '2rem' }}>
           <div className="repairs-empty-icon">&#128269;</div>
           <h3>Noch keine Diagnose</h3>
-          <p>Verwenden Sie die Schaltfläche "Diagnose stellen" oben, um Befund und Kostenvoranschlag zu erfassen.</p>
+          <p>Verwenden Sie die Schaltfläche &bdquo;Diagnose stellen&ldquo; oben, um Befund und Kostenvoranschlag zu erfassen.</p>
         </div>
       </div>
     );

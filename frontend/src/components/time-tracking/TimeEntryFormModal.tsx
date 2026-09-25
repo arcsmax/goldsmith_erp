@@ -231,13 +231,21 @@ export const TimeEntryFormModal: React.FC<TimeEntryFormModalProps> = ({
   const duration = calculateDuration();
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
+    // eslint-disable-next-line jsx-a11y/click-events-have-key-events -- backdrop dismiss is mouse-only by convention
+    <div
+      className="modal-overlay"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="time-entry-modal-title"
+      onClick={onClose}
+    >
+      {/* eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions -- stops the backdrop's onClose from firing when clicking inside the dialog; not itself interactive */}
       <div
         className="modal-content time-entry-modal"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="modal-header">
-          <h2>{isEditMode ? 'Zeiterfassung bearbeiten' : 'Manuelle Zeiterfassung'}</h2>
+          <h2 id="time-entry-modal-title">{isEditMode ? 'Zeiterfassung bearbeiten' : 'Manuelle Zeiterfassung'}</h2>
           <button className="modal-close" onClick={onClose}>
             ×
           </button>
@@ -353,6 +361,7 @@ export const TimeEntryFormModal: React.FC<TimeEntryFormModalProps> = ({
             {/* Calculated Duration */}
             {formData.end_time && (
               <div className="form-group calculated-field">
+                {/* eslint-disable-next-line jsx-a11y/label-has-associated-control -- labels a calculated read-only value, not an editable control */}
                 <label>Dauer</label>
                 <div className="calculated-value">{formatDuration(duration)}</div>
               </div>

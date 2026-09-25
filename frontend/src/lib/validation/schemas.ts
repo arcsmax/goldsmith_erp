@@ -32,7 +32,7 @@ const optionalPhone = z
   .string()
   .optional()
   .refine(
-    (v) => !v || /^[\d\s+\-()\/]+$/.test(v),
+    (v) => !v || /^[\d\s+\-()/]+$/.test(v),
     'Ungültige Telefonnummer – nur Ziffern, +, -, () erlaubt'
   );
 

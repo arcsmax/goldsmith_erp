@@ -254,10 +254,18 @@ export const MetalPurchaseFormModal: React.FC<MetalPurchaseFormModalProps> = ({
       : dynamicGrouped;
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
+    // eslint-disable-next-line jsx-a11y/click-events-have-key-events -- backdrop dismiss is mouse-only by convention
+    <div
+      className="modal-overlay"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="metal-purchase-modal-title"
+      onClick={onClose}
+    >
+      {/* eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions -- stops the backdrop's onClose from firing when clicking inside the dialog; not itself interactive */}
       <div className="modal-content metal-purchase-modal" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
-          <h2>{isEditMode ? 'Metalleinkauf bearbeiten' : 'Neuer Metalleinkauf'}</h2>
+          <h2 id="metal-purchase-modal-title">{isEditMode ? 'Metalleinkauf bearbeiten' : 'Neuer Metalleinkauf'}</h2>
           <button className="modal-close" onClick={onClose}>
             ×
           </button>
@@ -351,6 +359,7 @@ export const MetalPurchaseFormModal: React.FC<MetalPurchaseFormModalProps> = ({
             {/* Price per Gram (calculated) */}
             {pricePerGram !== null && (
               <div className="form-group calculated-field">
+                {/* eslint-disable-next-line jsx-a11y/label-has-associated-control -- labels a calculated read-only value, not an editable control */}
                 <label>Preis pro Gramm</label>
                 <div className="calculated-value highlight">
                   {formatCurrency(pricePerGram)}

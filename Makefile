@@ -2,7 +2,7 @@
 # Makes development easier with simple commands
 
 .PHONY: help install start stop restart logs clean build test test-integration-pg lint format seed-demo seed-production validate-compose \
-        test-backend-local test-frontend-local lint-local types types-check
+        test-backend-local test-frontend-local lint-local lint-frontend types types-check
 
 # Default target
 .DEFAULT_GOAL := help
@@ -178,7 +178,7 @@ lint: ## Run linters (pylint, mypy, black check)
 	@$(COMPOSE) exec backend poetry run pylint src/
 	@$(COMPOSE) exec backend poetry run mypy src/
 
-lint-local: ## OPS-05 — backend lint suite outside containers, same tools as CI's lint job, run from repo root
+lint-local: lint-frontend ## OPS-05 — backend lint suite outside containers, same tools as CI's lint job, run from repo root
 	@echo "$(GREEN)Running lint suite from repo root (same tools as CI's lint job)...$(NC)"
 	@poetry run black --check src/goldsmith_erp/
 	@poetry run isort --check-only src/goldsmith_erp/
@@ -186,6 +186,10 @@ lint-local: ## OPS-05 — backend lint suite outside containers, same tools as C
 	@poetry run mypy src/goldsmith_erp/ --ignore-missing-imports
 	@poetry run pip install --quiet ruff
 	@poetry run ruff check src/goldsmith_erp/ --exit-zero
+
+lint-frontend: ## OPS-13 / FE-15 — ESLint 9 (react-hooks + jsx-a11y), same as CI's lint-frontend job
+	@echo "$(GREEN)Running frontend ESLint...$(NC)"
+	@cd frontend && yarn lint
 
 format: ## Format code with black and isort
 	@echo "$(GREEN)Formatting code...$(NC)"

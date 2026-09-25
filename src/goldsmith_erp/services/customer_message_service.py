@@ -6,8 +6,13 @@ system (W6-01, ARCH-05, decision D-03: email/PDF first, no portal).
 Every Kundeninfo mail goes through here: the staff composer
 (``POST /orders/{id}/updates`` + ``/updates/{id}/send``), the repair
 one-tap send (``RepairService.send_customer_update``), the automated
-pickup/fitting mails (``automated_customer_email``) and the §649 cost-change
-notice (``CostChangeService.send``, via ``CustomerUpdateService.send``).
+pickup/fitting mails (``automated_customer_email``), the §649 cost-change
+notice (``CostChangeService.send``, via ``CustomerUpdateService.send``) and
+the Kostenvoranschlag mail (``services/quote_delivery.py``, via
+``QuoteService.send_quote``). The quote flow keeps its own PDF/email
+dispatch (a different template and attachment than the generic Kundeninfo
+mail) but routes its content check and delivery audit row through here —
+see ``check_content`` (kind ``quote_sent``) and ``record_quote_delivery``.
 Each message is a ``CustomerUpdate`` row (draft -> sent | send_failed),
 deduplicated by ``customer_updates.dedupe_key`` where the caller sets one.
 
@@ -875,6 +880,39 @@ class CustomerMessageService:
             ),
             method=UpdateDeliveryMethod.PDF_MANUAL,
             photo_count=len(photo_ids),
+        )
+
+    @staticmethod
+    async def record_quote_delivery(
+        db: AsyncSession,
+        update: CustomerUpdate,
+        user_id: int,
+        *,
+        customer_id: Optional[int],
+        method: UpdateDeliveryMethod,
+    ) -> None:
+        """Stage the audit row for a delivered quote_sent message.
+
+        ``quote_delivery.py`` keeps its own record (``CustomerUpdate`` row,
+        found again by its fixed subject — ``Quote`` has no FK to it and
+        ``db/models.py`` is out of scope for this fix, same reasoning as
+        ``build_record`` there) and its own PDF/email dispatch, but the
+        customer is already known from ``Quote.customer_id`` — unlike
+        ``record_manual_delivery``/``send_update`` this does not resolve it
+        via ``update.order_id``/``update.repair_job_id`` (a quote need not
+        yet be attached to an order). Never called for a failed attempt: a
+        message that did not reach the customer is not audited (E16),
+        matching ``send_update``. No photos are ever attached to a quote.
+        Caller commits.
+        """
+        CustomerMessageService._add_audit_row(
+            db,
+            update=update,
+            customer_id=customer_id,
+            user_id=user_id,
+            kind=MessageKind.QUOTE_SENT,
+            method=method,
+            photo_count=0,
         )
 
     # ------------------------------------------------------------------

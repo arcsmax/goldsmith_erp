@@ -83,6 +83,7 @@ function Lightbox({ photos, startIndex, onClose }: LightboxProps) {
       photo.file_path.startsWith('http'));
 
   return (
+    // eslint-disable-next-line jsx-a11y/click-events-have-key-events -- backdrop dismiss is mouse-only by convention; Escape is handled by the effect above
     <div
       className="photo-lightbox-overlay"
       onClick={e => { if (e.target === e.currentTarget) onClose(); }}

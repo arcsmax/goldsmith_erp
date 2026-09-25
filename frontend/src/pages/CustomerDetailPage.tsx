@@ -423,8 +423,6 @@ export const CustomerDetailPage: React.FC = () => {
       await customersApi.update(customer.id, data as CustomerUpdateInput);
       setIsEditModalOpen(false);
       await loadCustomer(customer.id);
-    } catch (err: any) {
-      throw err;
     } finally {
       setIsSaving(false);
     }
