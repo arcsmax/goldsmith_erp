@@ -106,7 +106,7 @@
 .qrs-ctrl:hover,
 .qrs-ctrl:focus-visible {
   background: color-mix(in srgb, var(--color-text) 92%, transparent);
-  outline: 2px solid var(--color-brand-cta-500);
+  outline: 2px solid var(--color-primary);
   outline-offset: 2px;
 }
 
@@ -197,7 +197,7 @@
 .qrs-manual-cta:focus-visible {
   transform: translateY(-1px);
   box-shadow: var(--shadow-2);
-  outline: 2px solid var(--color-brand-cta-500);
+  outline: 2px solid var(--color-primary);
   outline-offset: 2px;
 }
 
@@ -238,9 +238,9 @@
 }
 
 .qrs-manual-input:focus-visible {
-  outline: 2px solid var(--color-brand-cta-500);
+  outline: 2px solid var(--color-primary);
   outline-offset: 2px;
-  border-color: var(--color-brand-cta-500);
+  border-color: var(--color-primary);
 }
 
 .qrs-manual-submit {
@@ -259,7 +259,7 @@
 .qrs-manual-submit:hover:not(:disabled),
 .qrs-manual-submit:focus-visible {
   background: var(--color-interactive-primary-hover);
-  outline: 2px solid var(--color-brand-cta-500);
+  outline: 2px solid var(--color-primary);
   outline-offset: 2px;
 }
 

@@ -51,6 +51,14 @@ class WorkshopSettingsUpdate(BaseModel):
     is_kleinunternehmer: bool = False
     default_vat_rate: Percent = Field(19.0, ge=0, le=100, validate_default=True)
     invoice_footer: Optional[str] = Field(None, max_length=1000)
+    care_text: Optional[str] = Field(
+        None,
+        max_length=2000,
+        description=(
+            "Pflegehinweise/next-steps default text; empty falls back to the"
+            " built-in text on the handover PDF and the status report."
+        ),
+    )
 
     @field_validator(
         "owner_name",
@@ -61,6 +69,7 @@ class WorkshopSettingsUpdate(BaseModel):
         "phone",
         "bank_name",
         "invoice_footer",
+        "care_text",
         mode="before",
     )
     @classmethod
@@ -145,6 +154,7 @@ class WorkshopSettingsRead(BaseModel):
     is_kleinunternehmer: bool = False
     default_vat_rate: Percent = number_default(19.0)
     invoice_footer: Optional[str] = None
+    care_text: Optional[str] = None
     updated_at: Optional[datetime] = None
     # §14 Abs. 4 UStG fields still missing, German labels (empty = complete).
     missing_fields: List[str] = Field(default_factory=list)

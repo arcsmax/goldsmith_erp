@@ -10,12 +10,14 @@
  *   order_updates          → orders, dashboard, handoffs, calendar, jobs
  *   time_tracking_updates  → timer, dashboard
  *   notifications          → notifications, handoffs
+ *   repair_updates         → repairs, jobs
  *
  * Never build a key inline in a component; add it here so invalidation
  * stays in sync.
  */
 import type { JobPageParams } from './jobs';
 import type { MaterialPageParams, OrderPageParams } from './paged';
+import type { RepairPageParams } from './repairs';
 
 export interface CustomerListParams {
   skip: number;
@@ -175,6 +177,15 @@ export const queryKeys = {
     all: ['jobs'] as const,
     /** GET /jobs/?offset=… (Page envelope; the Werkstatt board asks per status). */
     page: (params: JobPageParams) => [...queryKeys.jobs.all, 'page', params] as const,
+  },
+  repairs: {
+    all: ['repairs'] as const,
+    lists: () => [...queryKeys.repairs.all, 'list'] as const,
+    /** GET /repairs/?offset=… (Page envelope, status filter, `q`, `sort`). */
+    page: (params: RepairPageParams) => [...queryKeys.repairs.lists(), 'page', params] as const,
+    detail: (id: number) => [...queryKeys.repairs.all, 'detail', id] as const,
+    /** Nested under detail(id): refreshing the repair refreshes its Kundeninfo. */
+    customerUpdates: (id: number) => [...queryKeys.repairs.detail(id), 'customer-updates'] as const,
   },
   calendar: {
     all: ['calendar'] as const,

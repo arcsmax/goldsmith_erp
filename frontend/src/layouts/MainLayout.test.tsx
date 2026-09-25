@@ -4,8 +4,8 @@
 // .header-desktop-only (hidden below 600px in layout.css) and the drawer
 // holds an account block with the same actions. The screenshot loop at 390
 // checks the pixels.
-import { describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 
 const logout = vi.fn();
@@ -33,7 +33,8 @@ vi.mock('../components/HealthDot', () => ({ HealthDot: () => null }));
 vi.mock('../components/GlobalSearch', () => ({ GlobalSearch: () => null }));
 
 import { MainLayout } from './MainLayout';
-import { navGroupsFor, tabBarItems } from './navigation';
+import { navGroupsFor, tabBarItems, benchTabBarItems } from './navigation';
+import { setBenchMode } from '../lib/benchMode';
 
 function renderLayout() {
   return render(
@@ -129,5 +130,59 @@ describe('navigation config', () => {
     expect(navGroupsFor('VIEWER').map((group) => group.id)).not.toContain('buero');
     expect(tabBarItems('viewer')[4].to).toBe('/calendar');
     expect(tabBarItems('goldsmith')[4].to).toBe('/customers');
+  });
+
+  it('benchTabBarItems has exactly Scanner, Zeiterfassung, Aufträge, Heute', () => {
+    expect(benchTabBarItems().map((item) => item.to)).toEqual([
+      '/scanner',
+      '/time-tracking',
+      '/orders',
+      '/dashboard',
+    ]);
+  });
+});
+
+describe('MainLayout Werkbank-Modus (5.5, W7 followup)', () => {
+  afterEach(() => {
+    act(() => setBenchMode(false));
+  });
+
+  it('hides the secondary navigation and footer, keeps the header', () => {
+    act(() => setBenchMode(true));
+    renderLayout();
+    expect(screen.queryByRole('navigation', { name: 'Hauptnavigation' })).not.toBeInTheDocument();
+    expect(screen.queryByTestId('sidebar-account')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Navigation öffnen' })).not.toBeInTheDocument();
+    expect(screen.queryByText(/Alle Rechte vorbehalten/)).not.toBeInTheDocument();
+    expect(screen.getByRole('banner')).toBeInTheDocument();
+  });
+
+  it('shows only the four bench tab bar entries, in order', () => {
+    act(() => setBenchMode(true));
+    renderLayout();
+    const bar = screen.getByRole('navigation', { name: 'Schnellzugriff' });
+    const links = within(bar).getAllByRole('link');
+    expect(links.map((link) => link.textContent)).toEqual(['Scan', 'Zeit', 'Aufträge', 'Heute']);
+    expect(links[0]).toHaveAttribute('href', '/scanner');
+  });
+
+  it('offers a header toggle that switches bench mode on and off', () => {
+    renderLayout();
+    const toggle = screen.getByRole('button', { name: 'Werkbank-Modus einschalten' });
+    expect(toggle).toHaveAttribute('aria-pressed', 'false');
+
+    fireEvent.click(toggle);
+    expect(
+      screen.getByRole('button', { name: 'Werkbank-Modus ausschalten' }),
+    ).toHaveAttribute('aria-pressed', 'true');
+    // The drawer is gone now, but the toggle itself stays reachable.
+    expect(screen.queryByRole('button', { name: 'Navigation öffnen' })).not.toBeInTheDocument();
+  });
+
+  it('keeps the five-entry tab bar and full navigation when bench mode is off', () => {
+    renderLayout();
+    expect(screen.getByRole('navigation', { name: 'Hauptnavigation' })).toBeInTheDocument();
+    const bar = screen.getByRole('navigation', { name: 'Schnellzugriff' });
+    expect(within(bar).getAllByRole('link')).toHaveLength(5);
   });
 });

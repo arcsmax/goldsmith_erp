@@ -226,6 +226,9 @@ class HandoverData:
     stone_types: List[str] = field(default_factory=list)
     photos: List[bytes] = field(default_factory=list)
     footer_note: Optional[str] = None
+    # W7 followup: workshop-editable "Pflegehinweise" default text
+    # (WorkshopSettings.care_text). None/empty falls back to care_texts().
+    care_text: Optional[str] = None
 
 
 def care_texts(metal_type: Optional[str], stone_types: Sequence[str]) -> List[str]:
@@ -267,7 +270,14 @@ def compose_handover_sections(data: HandoverData) -> List[Section]:
         ("Schmuckstück", piece),
         ("Steine", list(data.gemstone_lines)),
         ("Material", list(data.materials)),
-        ("Pflegehinweise", care_texts(data.metal_type, data.stone_types)),
+        (
+            "Pflegehinweise",
+            (
+                [data.care_text]
+                if data.care_text
+                else care_texts(data.metal_type, data.stone_types)
+            ),
+        ),
         ("Gewährleistung", [WARRANTY_TEXT]),
     ]
 

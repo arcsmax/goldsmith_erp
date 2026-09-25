@@ -552,11 +552,11 @@ Efforts are rough estimates for one developer with agent help. Each phase ends w
 
 | Phase | Scope | Acceptance criteria | Effort |
 |---|---|---|---|
-| **1. Tokens only** | Change token values, no refactor: primary to `#b45309`, focus ring to `#1e293b` with the global `:focus-visible` rule, danger to `#b91c1c`, the offline banner above the header (`--z-banner`), add semantic tokens and scales (section 3.4), aliases for the 41 undefined properties, and `--tone-*` rules for all 10 order statuses in the existing `.status-badge` CSS as a stopgap. Fix the about 20 umlaut strings. Add the axe smoke test (login, dashboard, orders, order detail) and the hex ratchet in CI. | No AA text contrast failure from section 2 remains on those four pages; every order status renders styled; axe shows zero serious or critical issues; ratchet recorded. | 2 to 3 days |
-| **2. Primitives** | Build `src/ui`: Button, IconButton, StatusBadge with `status.ts`, DeadlineChip, Modal (and ConfirmDialog on it), Field, DataTable/ListCard, Card, EmptyState, PageState, PageHeader, TabBar, Tabs. Adopt an SVG icon set. Load IBM Plex locally. | Each primitive has tests for its a11y contract; a demo route (dev only) shows all states at 1280 and 390; no page changed yet. | 1.5 to 2 weeks |
-| **3. Pages, highest traffic first** | Migrate one page per pull request in this order: Dashboard ("Heute"), Orders list, Order detail, Scanner and Time tracking, Customers (list and detail). Then Repairs, Quotes, Invoices, Consultations, Materials, Metal inventory, Scrap gold, Calendar, Users, Admin, Portal. Each pull request replaces duplicates and inline styles on that page and switches to the template. Add the app tab bar and grouped navigation with the Dashboard pull request. | Page uses only primitives and semantic tokens; its stylesheet has zero hex values; hex ratchet drops; screenshots attached; no functional regression in Vitest or Playwright. | 1 to 3 days per page |
-| **4. Delete duplicates** | Remove the duplicate `.btn*`, `.modal*`, `.status-badge*`, `.form-group`, table and empty-state rules from all page CSS; delete `utilities.css` `@utility` set, `OrderList.tsx`, legacy aliases and the Vite leftovers in `index.css`. Enable stylelint `color-no-hex` outside `brand-tokens.css`. Decide the Tailwind question (Appendix C). | `grep` finds no definition of those classes outside `src/ui`; stylelint passes; hex count outside `brand-tokens.css` is zero or listed as justified exceptions. | 2 to 4 days |
-| **5. Dark mode and brand pass** | Add dark values for every semantic token under `:root.dark` (sketch in Appendix B: text `#f5f5f4` on `#1c1917` 16.03, primary `#f59e0b` with dark text 8.14), mount ThemeProvider and a toggle in the user menu, compute dark tone pairs, and optionally a "Werkstatt hoher Kontrast" mode. Run the frontend-design skill for portal, emails and PDFs. | Every page passes the section 6 contrast checks in both themes; screenshots in light and dark at both widths; no hard-coded colour left to break dark mode. | 1 to 1.5 weeks |
+| **1. Tokens only — done** | Change token values, no refactor: primary to `#b45309`, focus ring to `#1e293b` with the global `:focus-visible` rule, danger to `#b91c1c`, the offline banner above the header (`--z-banner`), add semantic tokens and scales (section 3.4), aliases for the 41 undefined properties, and `--tone-*` rules for all 10 order statuses in the existing `.status-badge` CSS as a stopgap. Fix the about 20 umlaut strings. Add the axe smoke test (login, dashboard, orders, order detail) and the hex ratchet in CI. | No AA text contrast failure from section 2 remains on those four pages; every order status renders styled; axe shows zero serious or critical issues; ratchet recorded. | 2 to 3 days |
+| **2. Primitives — done** | Build `src/ui`: Button, IconButton, StatusBadge with `status.ts`, DeadlineChip, Modal (and ConfirmDialog on it), Field, DataTable/ListCard, Card, EmptyState, PageState, PageHeader, TabBar, Tabs. Adopt an SVG icon set. Load IBM Plex locally. | Each primitive has tests for its a11y contract; a demo route (dev only) shows all states at 1280 and 390; no page changed yet. | 1.5 to 2 weeks |
+| **3. Pages, highest traffic first — done for all pages** | Migrate one page per pull request in this order: Dashboard ("Heute"), Orders list, Order detail, Scanner and Time tracking, Customers (list and detail). Then Repairs, Quotes, Invoices, Consultations, Materials, Metal inventory, Scrap gold, Calendar, Users, Admin, Portal. Each pull request replaces duplicates and inline styles on that page and switches to the template. Add the app tab bar and grouped navigation with the Dashboard pull request. | Page uses only primitives and semantic tokens; its stylesheet has zero hex values; hex ratchet drops; screenshots attached; no functional regression in Vitest or Playwright. | 1 to 3 days per page |
+| **4. Delete duplicates — mostly done** | Remove the duplicate `.btn*`, `.modal*`, `.status-badge*`, `.form-group`, table and empty-state rules from all page CSS; delete `utilities.css` `@utility` set, `OrderList.tsx`, legacy aliases and the Vite leftovers in `index.css`. Enable stylelint `color-no-hex` outside `brand-tokens.css`. Decide the Tailwind question (Appendix C). | `grep` finds no definition of those classes outside `src/ui`; stylelint passes; hex count outside `brand-tokens.css` is zero or listed as justified exceptions. | 2 to 4 days |
+| **5. Dark mode and brand pass — in progress** | Add dark values for every semantic token under `:root.dark` (sketch in Appendix B: text `#f5f5f4` on `#1c1917` 16.03, primary `#f59e0b` with dark text 8.14), mount ThemeProvider and a toggle in the user menu, compute dark tone pairs, and optionally a "Werkstatt hoher Kontrast" mode. Run the frontend-design skill for portal, emails and PDFs. | Every page passes the section 6 contrast checks in both themes; screenshots in light and dark at both widths; no hard-coded colour left to break dark mode. | 1 to 1.5 weeks |
 
 ## 10. Definition of done for any UI change
 - [ ] Matching page template (section 5); only `src/ui` primitives for buttons, badges, dialogs, fields, lists, cards, empty and loading states; `<StatusBadge>` for every status, `<DeadlineChip>` for every deadline.
@@ -692,6 +692,73 @@ for name, fg, bg in pairs:
     print(f"{ratio(fg, bg):5.2f}  {name}")
 ```
 The script reproduces the design-investigation baseline values (3.19 for white on `#d97706`, 2.15 for `#f59e0b` on white), which cross-checks the formula.
+
+### B.1 Dark theme (W4-05, computed)
+Dark values live under `:root.dark` in `frontend/src/styles/brand-tokens.css`, repeated inside `@media (prefers-color-scheme: dark)` for the first paint before JS (the two blocks must stay identical). `frontend/src/test/themeTokens.test.ts` parses the token file, fails if a light `--color-*` or `--tone-*` token with a literal value has no dark value, and runs this formula over every pair below in both themes (`yarn vitest run src/test/themeTokens.test.ts --reporter=verbose` prints each ratio). Primary fills, feedback fills and the header carry dark text `#1c1917` in dark mode; the admin primary colour is checked against that text colour and dropped with a console warning when it fails (`hooks/useTheme.ts`).
+
+Lowest dark pairs: text 5.48 (`--color-danger` on raised), UI 3.97 (`--color-border-strong` on raised).
+
+| Foreground (dark) | Background (dark) | Ratio | Minimum |
+|---|---|---|---|
+| `--color-accent-strong` `#e0c580` | `--color-surface-raised` `#292524` | 9.01 | 4.5 |
+| `--color-border-strong` `#8a8178` | `--color-surface-raised` `#292524` | 3.97 | 3 |
+| `--color-border-strong` `#8a8178` | `--color-surface` `#1c1917` | 4.57 | 3 |
+| `--color-danger-contrast` `#1c1917` | `--color-danger` `#f87171` | 6.32 | 4.5 |
+| `--color-danger-fg` `#fca5a5` | `--color-danger-bg` `#450a0a` | 8.51 | 4.5 |
+| `--color-danger` `#f87171` | `--color-surface-raised` `#292524` | 5.48 | 4.5 |
+| `--color-danger` `#f87171` | `--color-surface` `#1c1917` | 6.32 | 4.5 |
+| `--color-focus-on-dark` `#1c1917` | `--color-surface-header-end` `#d97706` | 5.49 | 3 |
+| `--color-focus-on-dark` `#1c1917` | `--color-surface-header-start` `#f59e0b` | 8.14 | 3 |
+| `--color-focus` `#fde68a` | `--color-surface-raised` `#292524` | 12.18 | 3 |
+| `--color-focus` `#fde68a` | `--color-surface` `#1c1917` | 14.04 | 3 |
+| `--color-info-600` `#93c5fd` | `--color-info-bg` `#172554` | 8.15 | 4.5 |
+| `--color-info-contrast` `#1c1917` | `--color-info` `#60a5fa` | 6.88 | 4.5 |
+| `--color-info-fg` `#93c5fd` | `--color-info-bg` `#172554` | 8.15 | 4.5 |
+| `--color-primary-contrast` `#1c1917` | `--color-primary-hover` `#fbbf24` | 10.48 | 4.5 |
+| `--color-primary-contrast` `#1c1917` | `--color-primary` `#f59e0b` | 8.14 | 4.5 |
+| `--color-primary-contrast` `#1c1917` | `--color-surface-header-end` `#d97706` | 5.49 | 4.5 |
+| `--color-primary-contrast` `#1c1917` | `--color-surface-header-start` `#f59e0b` | 8.14 | 4.5 |
+| `--color-primary-hover` `#fbbf24` | `--color-primary-subtle` `#451a03` | 8.97 | 4.5 |
+| `--color-primary` `#f59e0b` | `--color-surface-raised` `#292524` | 7.06 | 4.5 |
+| `--color-primary` `#f59e0b` | `--color-surface` `#1c1917` | 8.14 | 4.5 |
+| `--color-success-contrast` `#1c1917` | `--color-success` `#4ade80` | 10.04 | 4.5 |
+| `--color-success-fg` `#86efac` | `--color-success-bg` `#052e16` | 10.62 | 4.5 |
+| `--color-text-body` `#e7e5e4` | `--color-surface-raised` `#292524` | 12.08 | 4.5 |
+| `--color-text-heading` `#fafaf9` | `--color-surface-raised` `#292524` | 14.52 | 4.5 |
+| `--color-text-muted` `#a8a29e` | `--color-surface-raised` `#292524` | 6.01 | 4.5 |
+| `--color-text-muted` `#a8a29e` | `--color-surface-sunken` `#0c0a09` | 7.83 | 4.5 |
+| `--color-text-muted` `#a8a29e` | `--color-surface` `#1c1917` | 6.93 | 4.5 |
+| `--color-text` `#f5f5f4` | `--color-surface-raised` `#292524` | 13.90 | 4.5 |
+| `--color-text` `#f5f5f4` | `--color-surface-sunken` `#0c0a09` | 18.11 | 4.5 |
+| `--color-text` `#f5f5f4` | `--color-surface` `#1c1917` | 16.03 | 4.5 |
+| `--color-warning-600` `#fdba74` | `--color-warning-bg` `#431407` | 9.28 | 4.5 |
+| `--color-warning-contrast` `#1c1917` | `--color-warning` `#fb923c` | 7.73 | 4.5 |
+| `--tone-check-border` `#a78bfa` | `--tone-check-bg` `#2e1065` | 5.60 | 3 |
+| `--tone-check-fg` `#ddd6fe` | `--tone-check-bg` `#2e1065` | 10.97 | 4.5 |
+| `--tone-danger-border` `#ef4444` | `--tone-danger-bg` `#450a0a` | 4.29 | 3 |
+| `--tone-danger-fg` `#fecaca` | `--tone-danger-bg` `#450a0a` | 11.16 | 4.5 |
+| `--tone-done-border` `#22c55e` | `--tone-done-bg` `#052e16` | 6.54 | 3 |
+| `--tone-done-fg` `#bbf7d0` | `--tone-done-bg` `#052e16` | 12.30 | 4.5 |
+| `--tone-handover-border` `#94a3b8` | `--tone-handover-bg` `#1e293b` | 5.71 | 3 |
+| `--tone-handover-fg` `#e2e8f0` | `--tone-handover-bg` `#1e293b` | 11.87 | 4.5 |
+| `--tone-info-border` `#3b82f6` | `--tone-info-bg` `#172554` | 4.00 | 3 |
+| `--tone-info-fg` `#bfdbfe` | `--tone-info-bg` `#172554` | 10.34 | 4.5 |
+| `--tone-neutral-border` `#9ca3af` | `--tone-neutral-bg` `#1f2937` | 5.78 | 3 |
+| `--tone-neutral-fg` `#e5e7eb` | `--tone-neutral-bg` `#1f2937` | 11.86 | 4.5 |
+| `--tone-progress-border` `#14b8a6` | `--tone-progress-bg` `#042f2e` | 5.81 | 3 |
+| `--tone-progress-fg` `#99f6e4` | `--tone-progress-bg` `#042f2e` | 11.48 | 4.5 |
+| `--tone-waiting-border` `#f97316` | `--tone-waiting-bg` `#431407` | 5.58 | 3 |
+| `--tone-waiting-fg` `#fed7aa` | `--tone-waiting-bg` `#431407` | 11.56 | 4.5 |
+
+### B.2 Tokens added in phase 4 (W4-04, computed)
+Phase 4 moved every stylesheet outside `brand-tokens.css` onto semantic tokens (hex ratchet 585 to 35; the 35 left are runtime or generated values, see the allowlist comment in `frontend/scripts/hex-ratchet.mjs`). `frontend/src/test/noColourLiterals.test.ts` fails if any stylesheet other than `brand-tokens.css` holds a hex, `rgb()`, `hsl()`, `white` or `black` literal. Four tokens were added; each has the same role in both themes and is covered by `themeTokens.test.ts`.
+
+| Token | Light | Dark | Use | Pair and ratio (both themes) |
+|---|---|---|---|---|
+| `--color-shadow` | `#1e293b` | `#000000` | ink for `color-mix()` tints and multi-layer shadows (same ink as `--shadow-1..3`) | decorative, no text pair |
+| `--color-overlay-bg` | `#111111` | `#111111` | photo lightbox frame; photos stay dark-framed in both themes | `--color-overlay-fg` on it 18.88 (min 4.5) |
+| `--color-overlay-fg` | `#ffffff` | `#ffffff` | text and icons on photos, scrims and runtime avatar swatches | on `--color-overlay-bg` 18.88; 50% mix on `#111111` 5.33 |
+| `--color-overlay-danger` | `#b91c1c` | `#b91c1c` | delete button hover over a photo | `--color-overlay-fg` on it 6.47 (min 4.5) |
 
 ## Appendix C. Open questions
 1. **Tailwind or plain CSS.** The design-investigation (I-25) recommends removing the Tailwind import because the team writes plain CSS and the layer conflict caused invisible buttons (`buttons.css:4-23`). This playbook keeps the `@theme static` block because it is what exists; if Tailwind is removed, the primitives move to `:root` unchanged and nothing else in the playbook changes. Owner: Max.

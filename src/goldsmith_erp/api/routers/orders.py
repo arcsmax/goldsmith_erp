@@ -656,7 +656,9 @@ async def get_handover_pdf(
     data = await build_handover_data(db, order)
     workshop = await WorkshopSettingsService.read(db)
     try:
-        content = PDFService.render_handover_pdf(data, workshop.name)
+        content = PDFService.render_handover_pdf(
+            data, workshop.name, workshop.care_text
+        )
     except Exception:
         logger.exception("Handover PDF generation failed", extra={"order_id": order_id})
         raise HTTPException(

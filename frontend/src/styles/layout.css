@@ -317,6 +317,32 @@ body.is-offline {
   }
 }
 
+/* ==================== WERKBANK-MODUS (5.5, W7 followup) ==================
+ * The secondary navigation and footer are dropped in JSX (MainLayout.tsx);
+ * only the tab bar (four bench entries) remains, at every width — ui.css
+ * otherwise hides the tab bar at >=1024px, so this reserves the same
+ * bottom space and FAB offset as the <1024px block above, unconditionally
+ * while bench mode is on. */
+
+/* Three class selectors so this outranks ui.css's
+ * `.ui-tab-bar:not(.ui-tab-bar--static)` (specificity 0,2,0) at >=1024px
+ * regardless of stylesheet load order. */
+.main-layout--bench .main-tab-bar.main-tab-bar--bench {
+  display: block;
+}
+
+.main-layout--bench .main-content {
+  padding-bottom: calc(var(--layout-tab-bar-height) + var(--touch-comfort) + var(--space-6));
+}
+
+.main-layout--bench {
+  --fab-bottom: calc(var(--layout-tab-bar-height) + var(--space-3));
+}
+
+.main-layout--bench :is(.timer-fab, .timer-widget, .timer-widget--start-form) {
+  bottom: calc(var(--layout-tab-bar-height) + var(--space-3));
+}
+
 /* ==================== PHONE (<600px) ==================== */
 
 @media (max-width: 600px) {

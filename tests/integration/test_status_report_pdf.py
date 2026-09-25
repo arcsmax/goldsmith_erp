@@ -29,6 +29,7 @@ from goldsmith_erp.db.models import (
     OrderStatusEnum,
     RepairJob,
     RepairJobStatus,
+    WorkshopSettings,
 )
 from goldsmith_erp.services import email_service as email_service_module
 from goldsmith_erp.services.status_report_service import build_order_status_report
@@ -250,6 +251,41 @@ class TestStatusReportContent:
         await _revoke_photo_consent(client, goldsmith_auth_headers, test_customer.id)
         after_revoke = await build_order_status_report(db_session, test_order.id)
         assert after_revoke.photos == []
+
+    async def test_next_steps_defaults_to_the_built_in_text(
+        self, db_session: AsyncSession, test_order
+    ):
+        data = await build_order_status_report(db_session, test_order.id)
+        assert (
+            data.next_steps
+            == "Wir melden uns, sobald es Neuigkeiten zu Ihrem Auftrag gibt."
+        )
+
+    async def test_next_steps_falls_back_to_the_workshop_care_text(
+        self, db_session: AsyncSession, test_order
+    ):
+        """W7 followup: no explicit next_steps → the workshop's own
+        WorkshopSettings.care_text, not the hardcoded default."""
+        db_session.add(
+            WorkshopSettings(id=1, name="Test-Werkstatt", care_text="Bald mehr.")
+        )
+        await db_session.commit()
+
+        data = await build_order_status_report(db_session, test_order.id)
+        assert data.next_steps == "Bald mehr."
+
+    async def test_explicit_next_steps_wins_over_the_workshop_care_text(
+        self, db_session: AsyncSession, test_order
+    ):
+        db_session.add(
+            WorkshopSettings(id=1, name="Test-Werkstatt", care_text="Bald mehr.")
+        )
+        await db_session.commit()
+
+        data = await build_order_status_report(
+            db_session, test_order.id, next_steps="Diese Woche noch."
+        )
+        assert data.next_steps == "Diese Woche noch."
 
     async def test_never_includes_staff_names_or_internal_notes(
         self, db_session: AsyncSession, test_repair

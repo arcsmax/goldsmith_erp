@@ -17,10 +17,11 @@
 
 ## Execution status (2026-09-25)
 
-- **Findings:** 107 fixed, 42 partial, 63 open (of 212 total; see [FINDINGS-REGISTER.md](FINDINGS-REGISTER.md)).
-- **Waves:** 1 and 2 complete (all items landed, several partial); Wave 3 mostly landed (W3-11's Numeric/tz migration still running); Wave 5 mostly landed; Wave 6's outbox, CustomerMessage and status-report items landed; Wave 4 has its design-token and component-primitive foundation only, no page migrated yet; Wave 7 is backlog except for opportunistic hygiene fixes (see [MASTER-FIX-PLAN.md](MASTER-FIX-PLAN.md) section 0).
-- **Latest gate:** backend 4125 tests passed, frontend 918 tests passed, `tsc --noEmit` and `mypy` clean; ESLint has 5 errors remaining, all in `OrderFormModal.tsx` — the sole blocker to a fully green `yarn lint`.
+- **Findings:** 108 fixed, 47 partial, 57 open (of 212 total; see [FINDINGS-REGISTER.md](FINDINGS-REGISTER.md)).
+- **Waves:** W1 done; W2 done/complete; W3 mostly landed; W4 primitive library plus every page group migrated, some follow-ups open; W5 mostly untouched this pass, W5-09's TLS gap open; W6 jobs spine done, media_assets/models-split partial; W7 hygiene partial, W7-01..05 still open (see [MASTER-FIX-PLAN.md](MASTER-FIX-PLAN.md) section 0).
+- **Latest gate:** backend 4408 tests passed, frontend 1092 tests passed, lint 0 errors, hex-literal ratchet 2113 → 612, `types-check` and `lint-imports` clean.
 - Two live click-through verification passes against the running stack (Playwright screenshots, real Postgres/Redis) found and fixed 21 then 8 further UI/backend issues (LV-01..21, LV2-01..08).
+- A third live pass followed: fresh-database migration to head OK, downgrade/upgrade round trip OK, seed OK, and the PostgreSQL integration suite 952 passed (its screenshot portion was interrupted, not a failure — just incomplete).
 - Integration branch `audit/2026-09-fixes`; **PR #51 (draft)** is the review vehicle — run `/code-review ultra` on it before treating this branch as a release candidate.
 - Full changelog, decisions needing sign-off and the open-follow-ups list: [PROGRESS.md](PROGRESS.md).
 

@@ -184,7 +184,7 @@
 .ui-modal-backdrop {
   position: absolute;
   inset: 0;
-  background: color-mix(in srgb, var(--color-text) 55%, transparent);
+  background: var(--color-backdrop);
 }
 
 .ui-modal {
@@ -894,4 +894,12 @@ textarea.ui-field__control {
 .btn-retry:hover,
 .btn-pdf-download:hover {
   background: var(--color-surface-sunken);
+}
+
+/* ---- Dark theme: base elements (W4-05) ---------------------------------- */
+/* index.css paints root, form controls and tables with tokens (W4 phase 4),
+ * so only the OS-light "bare button" fill needs a dark override. :where()
+ * keeps specificity at (0,0,2) so every class still wins. */
+:where(:root.dark) body button {
+  background-color: transparent;
 }

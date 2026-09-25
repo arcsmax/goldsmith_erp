@@ -36,11 +36,7 @@ export const REALTIME_INVALIDATIONS: Readonly<Record<RealtimeChannel, readonly Q
   ],
   time_tracking_updates: [queryKeys.timer.all, queryKeys.dashboard.all],
   notifications: [queryKeys.notifications.all, queryKeys.handoffs.all],
-  // No `queryKeys.repairs` root exists yet (repair pages are still being
-  // migrated onto TanStack Query by other agents) — ['repairs'] is the
-  // literal root they will register under; this stays a plain tuple
-  // rather than `queryKeys.repairs.all` until that root lands.
-  repair_updates: [['repairs'], queryKeys.jobs.all],
+  repair_updates: [queryKeys.repairs.all, queryKeys.jobs.all],
   job_updates: [queryKeys.jobs.all],
 };
 

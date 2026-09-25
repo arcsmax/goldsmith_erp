@@ -250,6 +250,9 @@ export interface WorkshopSettingsInput {
   is_kleinunternehmer: boolean;
   default_vat_rate: number;
   invoice_footer?: string | null;
+  /** Pflegehinweise default text (handover PDF, status report); empty falls
+   * back to the built-in text. */
+  care_text?: string | null;
 }
 
 export interface WorkshopSettings extends WorkshopSettingsInput {

@@ -20,11 +20,7 @@
  * design-investigation F.2). Each selector mirrors the offending rule with a
  * `:root` prefix, so it wins on specificity whatever the load order. The
  * offending rules themselves live in page stylesheets and go in phase 4. */
-:root .theme-color-hex:focus-visible,
-:root .theme-text-input:focus-visible,
 :root .form-group input:focus-visible,
-:root .form-input:focus-visible,
-:root .form-textarea:focus-visible,
 :root .cdetail-masse-form .form-group input:focus-visible,
 :root .cdetail-masse-form .form-group select:focus-visible,
 :root .search-input:focus-visible,
@@ -33,16 +29,13 @@
 :root .form-group select:focus-visible,
 :root .search-box input:focus-visible,
 :root .filter-group select:focus-visible,
-:root .notes-textarea:focus-visible,
 :root .handoff-form .form-group select:focus-visible,
 :root .handoff-form .form-group textarea:focus-visible,
 :root .repairs-search:focus-visible,
-:root .repairs-filter-select:focus-visible,
 :root .scan-input:focus-visible,
 :root .alloy-field input:focus-visible,
 :root .alloy-field select:focus-visible,
 :root .signature-canvas:focus-visible,
-:root .activity-search-input:focus-visible,
 :root .new-comment-form textarea:focus-visible,
 :root .comment-edit-form textarea:focus-visible,
 :root .timer-start-form select:focus-visible,

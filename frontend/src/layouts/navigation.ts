@@ -109,3 +109,18 @@ export function tabBarItems(role?: UserRole | string | null): TabBarItem[] {
     fifth,
   ];
 }
+
+/**
+ * Werkbank-Modus (UI-UX-PLAYBOOK 5.5, W7 followup): when the bench layout
+ * toggle (lib/benchMode.ts) is on, MainLayout hides the secondary
+ * navigation and footer and shows only this four-entry tab bar, at every
+ * width — no fifth/role-dependent slot, scan stays in the centre.
+ */
+export function benchTabBarItems(): TabBarItem[] {
+  return [
+    { to: '/scanner', label: 'Scan', icon: 'scan', prominent: true },
+    { to: '/time-tracking', label: 'Zeit', icon: 'hourglass' },
+    { to: '/orders', label: 'Aufträge', icon: 'clipboard' },
+    { to: '/dashboard', label: 'Heute', icon: 'home' },
+  ];
+}
