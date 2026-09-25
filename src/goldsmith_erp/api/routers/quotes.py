@@ -10,7 +10,7 @@ Endpoints:
   GET    /api/v1/quotes                          - List quotes (with filters)
   GET    /api/v1/quotes/{quote_id}               - Get single quote
   PUT    /api/v1/quotes/{quote_id}               - Update quote fields
-  POST   /api/v1/quotes/{quote_id}/send          - Mark as SENT
+  POST   /api/v1/quotes/{quote_id}/send          - Send (email PDF or PDF_MANUAL)
   POST   /api/v1/quotes/{quote_id}/approve       - Mark as APPROVED (+ signature)
   POST   /api/v1/quotes/{quote_id}/reject        - Mark as REJECTED
   POST   /api/v1/quotes/{quote_id}/convert       - Convert to order (CONVERTED)
@@ -40,7 +40,6 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from goldsmith_erp.api.deps import get_current_user
-from goldsmith_erp.core.config import settings
 from goldsmith_erp.core.permissions import Permission, require_permission
 from goldsmith_erp.db.models import Customer, Quote, QuoteStatus, User
 from goldsmith_erp.db.session import get_db
@@ -53,7 +52,7 @@ from goldsmith_erp.models.quote import (
     QuoteUpdate,
     RejectQuoteRequest,
 )
-from goldsmith_erp.services.pdf_service import PDFService
+from goldsmith_erp.services.quote_delivery import render_quote_pdf_bytes
 from goldsmith_erp.services.quote_service import (
     QuoteNotEditableError,
     QuoteNotFoundError,
@@ -87,34 +86,18 @@ def _raise_quote_error(exc: ValueError) -> NoReturn:
     raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from None
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Customer adapter — mirrors pattern in invoices.py
-# ─────────────────────────────────────────────────────────────────────────────
-
-
-class _CustomerAdapter:
-    """Thin adapter so PDFService sees uniform .name/.address/.city/.email/.phone."""
-
-    name: str
-    address: str
-    city: str
-    email: str
-    phone: str
-
-    def __init__(self, c: Customer) -> None:
-        self.name = f"{c.first_name} {c.last_name}".strip()
-        parts = []
-        if c.street:
-            parts.append(c.street)
-        self.address = ", ".join(parts)
-        city_parts = []
-        if c.postal_code:
-            city_parts.append(c.postal_code)
-        if c.city:
-            city_parts.append(c.city)
-        self.city = " ".join(city_parts)
-        self.email = c.email or ""
-        self.phone = c.phone or ""
+async def _with_delivery(db: AsyncSession, quote: Quote) -> QuoteResponse:
+    """QuoteResponse plus how/when the quote reached the customer (DOM-11)."""
+    response = QuoteResponse.model_validate(quote)
+    delivery = await QuoteService.get_delivery(db, quote)
+    if delivery is None:
+        return response
+    return response.model_copy(
+        update={
+            "delivery_method": delivery.delivery_method,
+            "sent_at": delivery.sent_at,
+        }
+    )
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -192,7 +175,7 @@ async def get_quote(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Kostenvoranschlag {quote_id} nicht gefunden",
         )
-    return quote
+    return await _with_delivery(db, quote)
 
 
 @router.put("/{quote_id}", response_model=QuoteResponse)
@@ -233,17 +216,23 @@ async def send_quote(
     current_user: User = Depends(get_current_user),
 ):
     """
-    Angebot versenden (Mark quote as SENT).
+    Angebot versenden (DOM-11).
 
-    Only DRAFT quotes can be transitioned to SENT.
+    With SMTP configured and a customer email the quote PDF is emailed
+    (delivery_method "email"); otherwise the hand-over is recorded as
+    "pdf_manual" and the client downloads the PDF. Only DRAFT quotes can be
+    sent (422). An SMTP failure returns 502 and the quote stays a DRAFT.
     """
-    quote = await QuoteService.send_quote(db, quote_id, current_user)
+    try:
+        quote = await QuoteService.send_quote(db, quote_id, current_user)
+    except QuoteNotFoundError as exc:
+        _raise_quote_error(exc)
     if not quote:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Kostenvoranschlag {quote_id} nicht gefunden",
         )
-    return quote
+    return await _with_delivery(db, quote)
 
 
 @router.post("/{quote_id}/approve", response_model=QuoteResponse)
@@ -446,12 +435,7 @@ async def download_quote_pdf(
         )
 
     try:
-        pdf_bytes = PDFService.render_quote_pdf(
-            quote=quote,
-            customer=_CustomerAdapter(customer),
-            line_items=quote.line_items,
-            workshop_name=settings.WORKSHOP_NAME,
-        )
+        pdf_bytes = render_quote_pdf_bytes(quote, customer)
     except Exception:
         logger.exception(
             "PDF generation failed for quote",

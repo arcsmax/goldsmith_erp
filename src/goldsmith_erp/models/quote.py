@@ -17,7 +17,12 @@ from typing import List, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from goldsmith_erp.db.models import QuoteLineType, QuoteStatus
+from goldsmith_erp.db.models import (
+    CostChangeResponseMethod,
+    QuoteLineType,
+    QuoteStatus,
+    UpdateDeliveryMethod,
+)
 
 # ============================================================================
 # LINE ITEM SCHEMAS
@@ -125,8 +130,17 @@ class QuoteUpdate(BaseModel):
 
 
 class ApproveQuoteRequest(BaseModel):
-    """Request body for approving a quote with optional customer signature."""
+    """Request body for approving a quote.
 
+    DOM-11d: ``response_method`` records how the customer agreed (in person,
+    by email reply, by phone), the same evidence vocabulary as the section
+    649 BGB cost-change approval. The signature stays optional.
+    """
+
+    response_method: CostChangeResponseMethod = Field(
+        ...,
+        description="Wie hat die Kundin zugestimmt? in_person, email_reply, phone",
+    )
     signature_data: Optional[str] = Field(
         default=None,
         description="Base64-encoded PNG of the customer's signature (optional)",
@@ -165,6 +179,11 @@ class QuoteResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
     line_items: List[QuoteLineItemResponse] = []
+    # DOM-11: how and when the quote reached the customer. Read from the
+    # quote's Kundeninfo delivery record (services/quote_delivery.py);
+    # None while the quote was never sent.
+    delivery_method: Optional[UpdateDeliveryMethod] = None
+    sent_at: Optional[datetime] = None
 
     model_config = ConfigDict(from_attributes=True)
 

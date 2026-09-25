@@ -1,7 +1,8 @@
 // Quotes Page — Kostenvoranschlagsverwaltung
 import React, { useEffect, useState, useCallback } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useToast, useConfirm } from '../contexts';
-import { quotesApi } from '../api/quotes';
+import { quotesApi, QuoteApprovalMethod, QuoteWithDelivery } from '../api/quotes';
 import { customersApi } from '../api/customers';
 import { ordersApi } from '../api/orders';
 import {
@@ -12,7 +13,6 @@ import {
   QuoteLineItem,
   QuoteLineItemInput,
   QuoteLineType,
-  ApproveQuoteInput,
   Customer,
   OrderType,
 } from '../types';
@@ -60,6 +60,21 @@ function validUntilClass(validUntilIso: string, status: QuoteStatus): string {
   return '';
 }
 
+/** DOM-11: German toast for the outcome of "Versenden". */
+export function sendOutcomeMessage(quote: QuoteWithDelivery): string {
+  if (quote.delivery_method === 'email') {
+    return 'Kostenvoranschlag per E-Mail versendet.';
+  }
+  return 'Kostenvoranschlag als versendet vermerkt. Das PDF wurde heruntergeladen, bitte an den Kunden übergeben.';
+}
+
+/** DOM-11d: how the customer agreed (backend CostChangeResponseMethod). */
+const APPROVAL_METHOD_OPTIONS: { value: QuoteApprovalMethod; label: string }[] = [
+  { value: 'in_person', label: 'Persönlich vor Ort' },
+  { value: 'email_reply', label: 'Per E-Mail' },
+  { value: 'phone', label: 'Telefonisch' },
+];
+
 // ---------------------------------------------------------------------------
 // Create Quote Modal
 // ---------------------------------------------------------------------------
@@ -70,6 +85,9 @@ interface CreateQuoteModalProps {
   isLoading: boolean;
   onClose: () => void;
   onSubmit: (data: QuoteCreateInput) => Promise<void>;
+  /** FE-18: prefill from `/quotes?order_id=…&customer_id=…`. */
+  initialCustomerId?: string;
+  initialOrderId?: string;
 }
 
 const CreateQuoteModal: React.FC<CreateQuoteModalProps> = ({
@@ -78,6 +96,8 @@ const CreateQuoteModal: React.FC<CreateQuoteModalProps> = ({
   isLoading,
   onClose,
   onSubmit,
+  initialCustomerId,
+  initialOrderId,
 }) => {
   const [customerId, setCustomerId] = useState<string>('');
   const [orderId, setOrderId] = useState<string>('');
@@ -85,6 +105,12 @@ const CreateQuoteModal: React.FC<CreateQuoteModalProps> = ({
   const [taxRate, setTaxRate] = useState<string>('19');
   const [notes, setNotes] = useState<string>('');
   const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    if (initialCustomerId) setCustomerId(initialCustomerId);
+    if (initialOrderId) setOrderId(initialOrderId);
+  }, [isOpen, initialCustomerId, initialOrderId]);
 
   const reset = () => {
     setCustomerId('');
@@ -233,19 +259,21 @@ const CreateQuoteModal: React.FC<CreateQuoteModalProps> = ({
 interface ApproveModalProps {
   quote: Quote | null;
   onClose: () => void;
-  onApprove: (signatureData: string | null) => Promise<void>;
+  onApprove: (signatureData: string | null, method: QuoteApprovalMethod) => Promise<void>;
 }
 
 const ApproveModal: React.FC<ApproveModalProps> = ({ quote, onClose, onApprove }) => {
   const [signatureData, setSignatureData] = useState<string | null>(null);
+  const [method, setMethod] = useState<QuoteApprovalMethod | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
   if (!quote) return null;
 
   const handleApprove = async () => {
+    if (!method) return;
     setSubmitting(true);
     try {
-      await onApprove(signatureData);
+      await onApprove(signatureData, method);
     } finally {
       setSubmitting(false);
     }
@@ -284,6 +312,22 @@ const ApproveModal: React.FC<ApproveModalProps> = ({ quote, onClose, onApprove }
           </div>
         </div>
 
+        <fieldset className="form-group">
+          <legend>Wie hat der Kunde zugestimmt? *</legend>
+          {APPROVAL_METHOD_OPTIONS.map((option) => (
+            <label key={option.value}>
+              <input
+                type="radio"
+                name="approval-method"
+                value={option.value}
+                checked={method === option.value}
+                onChange={() => setMethod(option.value)}
+              />
+              {option.label}
+            </label>
+          ))}
+        </fieldset>
+
         <div className="signature-section">
           <label className="signature-label">
             Unterschrift des Kunden (optional)
@@ -313,7 +357,7 @@ const ApproveModal: React.FC<ApproveModalProps> = ({ quote, onClose, onApprove }
             type="button"
             className="btn btn-approve"
             onClick={handleApprove}
-            disabled={submitting}
+            disabled={submitting || !method}
           >
             {submitting ? 'Wird genehmigt...' : 'Angebot genehmigen'}
           </button>
@@ -824,6 +868,8 @@ export const QuotesPage: React.FC = () => {
   const [isApproveModalOpen, setIsApproveModalOpen] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
   const [linkedOrder, setLinkedOrder] = useState<OrderType | null>(null);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [prefill, setPrefill] = useState<{ customerId?: string; orderId?: string }>({});
 
   // ------------------------------------------------------------------
   // Data loading
@@ -859,6 +905,29 @@ export const QuotesPage: React.FC = () => {
   useEffect(() => {
     loadCustomers();
   }, [loadCustomers]);
+
+  // FE-18: `/quotes?order_id=…&customer_id=…` (from the order page) opens the
+  // create modal pre-filled; `/quotes?quote_id=…` (from the consultation
+  // wizard) opens that quote. The params are consumed once.
+  useEffect(() => {
+    const orderId = searchParams.get('order_id') ?? undefined;
+    const customerId = searchParams.get('customer_id') ?? undefined;
+    const quoteId = Number(searchParams.get('quote_id'));
+    if (!orderId && !customerId && !quoteId) return;
+    setSearchParams({}, { replace: true });
+    if (quoteId > 0) {
+      quotesApi
+        .getQuote(quoteId)
+        .then(setSelectedQuote)
+        .catch((err) => {
+          logError('quote.openFromLink', err);
+          showToast('Kostenvoranschlag konnte nicht geladen werden.', 'error');
+        });
+      return;
+    }
+    setPrefill({ customerId, orderId });
+    setIsCreateModalOpen(true);
+  }, [searchParams, setSearchParams, showToast]);
 
   // ------------------------------------------------------------------
   // Linked order — when the selected quote references an order, fetch
@@ -938,6 +1007,7 @@ export const QuotesPage: React.FC = () => {
       await quotesApi.createQuote(data);
       showToast('Angebot wurde erstellt.', 'success');
       setIsCreateModalOpen(false);
+      setPrefill({});
       await loadQuotes();
     } catch (err: any) {
       const detail = err?.response?.data?.detail ?? 'Angebot konnte nicht erstellt werden.';
@@ -956,21 +1026,41 @@ export const QuotesPage: React.FC = () => {
     try {
       const updated = await quotesApi.sendQuote(selectedQuote.id);
       setSelectedQuote(updated);
-      showToast('Angebot wurde als "Gesendet" markiert.', 'success');
+      if (updated.delivery_method !== 'email') {
+        try {
+          await quotesApi.downloadPdf(updated.id, updated.quote_number);
+        } catch (downloadErr) {
+          logError('quote.sendDownloadPdf', downloadErr);
+          showToast('Kostenvoranschlag als versendet vermerkt, aber das PDF konnte nicht heruntergeladen werden.', 'error');
+          await loadQuotes();
+          return;
+        }
+      }
+      showToast(sendOutcomeMessage(updated), 'success');
       await loadQuotes();
     } catch (err: any) {
-      showToast(err?.response?.data?.detail ?? 'Fehler beim Versenden.', 'error');
+      logError('quote.send', err);
+      const detail = err?.response?.data?.detail;
+      showToast(
+        typeof detail === 'string' ? detail : 'Kostenvoranschlag konnte nicht versendet werden.',
+        'error'
+      );
     } finally {
       setActionLoading(false);
     }
   }, [selectedQuote, showToast, loadQuotes]);
 
-  const handleApprove = useCallback(async (signatureData: string | null) => {
+  const handleApprove = useCallback(async (
+    signatureData: string | null,
+    method: QuoteApprovalMethod
+  ) => {
     if (!selectedQuote) return;
     setActionLoading(true);
     try {
-      const payload: ApproveQuoteInput = { signature_data: signatureData ?? undefined };
-      const updated = await quotesApi.approveQuote(selectedQuote.id, payload);
+      const updated = await quotesApi.approveQuote(selectedQuote.id, {
+        response_method: method,
+        signature_data: signatureData ?? undefined,
+      });
       setSelectedQuote(updated);
       setIsApproveModalOpen(false);
       showToast('Angebot wurde genehmigt.', 'success');
@@ -1262,8 +1352,13 @@ export const QuotesPage: React.FC = () => {
         isOpen={isCreateModalOpen}
         customers={customers}
         isLoading={isLoading}
-        onClose={() => setIsCreateModalOpen(false)}
+        onClose={() => {
+          setIsCreateModalOpen(false);
+          setPrefill({});
+        }}
         onSubmit={handleCreate}
+        initialCustomerId={prefill.customerId}
+        initialOrderId={prefill.orderId}
       />
 
       {/* Approve modal */}

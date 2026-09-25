@@ -421,7 +421,7 @@ class EmailService:
         attachments = []
         if pdf_bytes:
             attachments.append((f"Kostenvoranschlag-{quote_number}.pdf", pdf_bytes))
-        subject = f"Ihr Kostenvoranschlag KV-{quote_number} — {settings.WORKSHOP_NAME}"
+        subject = f"Ihr Kostenvoranschlag {quote_number} — {settings.WORKSHOP_NAME}"
         return await EmailService.send_email(to, subject, html, attachments)
 
     @staticmethod
