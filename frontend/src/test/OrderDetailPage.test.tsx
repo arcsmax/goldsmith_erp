@@ -67,6 +67,18 @@ vi.mock('../api/photos', async (orig) => {
   return { ...actual, photosApi: { getForOrder: (...a: unknown[]) => mockGetForOrder(...a) } };
 });
 
+// W2-09: handleHallmarkRequired PATCHes punzierung_verified_marks via the
+// raw apiClient (same call the scanner's ActionHandlers.ts makes) before
+// retrying the status change.
+const mockApiPatch = vi.fn();
+vi.mock('../api/client', () => ({
+  default: {
+    get: vi.fn(),
+    post: vi.fn(),
+    patch: (...a: unknown[]) => mockApiPatch(...a),
+  },
+}));
+
 const mockShowToast = vi.fn();
 const mockUseAuth = vi.fn();
 vi.mock('../contexts', () => ({
@@ -299,6 +311,70 @@ describe('OrderDetailPage — Weiter button (DOM-18)', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent(
       'Statuswechsel von „Qualitätskontrolle“ nach „Fertiggestellt“ ist nicht erlaubt.'
     );
+  });
+
+  it('opens the PunzierungsCheckModal on a hallmark-required 409 instead of a toast, and completes after recording a mark (W2-09)', async () => {
+    asRole('GOLDSMITH');
+    mockGetById.mockResolvedValue(makeOrder('quality_check', { alloy: '585' }));
+    mockChangeStatus
+      .mockRejectedValueOnce({
+        response: {
+          status: 409,
+          data: {
+            code: 'order.hallmark_required',
+            extra: { order_id: 42, alloy: '585' },
+            detail: {
+              code: 'PUNZIERUNG_REQUIRED',
+              order_id: 42,
+              alloy: '585',
+              message:
+                'Vor Status „Fertiggestellt“ muss entweder die Feingehalts-Punze bestätigt oder ein Grund für „nicht punziert“ dokumentiert werden.',
+            },
+          },
+        },
+      })
+      .mockResolvedValueOnce(makeOrder('completed', { alloy: '585' }));
+    mockApiPatch.mockResolvedValue({ data: {} });
+    renderPage();
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Weiter: Fertiggestellt' }));
+
+    // The modal opens instead of a raw error banner.
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    const dialog = await screen.findByRole('dialog', { name: 'Punzierungs-Check' });
+    await userEvent.click(
+      within(dialog).getByTestId('punz-option-feingehalt_585').querySelector('input')!
+    );
+    await userEvent.click(within(dialog).getByTestId('punz-confirm'));
+
+    await waitFor(() =>
+      expect(mockApiPatch).toHaveBeenCalledWith('/orders/42', {
+        punzierung_verified_marks: ['feingehalt_585'],
+      })
+    );
+    await waitFor(() => expect(mockChangeStatus).toHaveBeenCalledTimes(2));
+    expect(mockChangeStatus).toHaveBeenNthCalledWith(2, 42, { status: 'completed' });
+    expect(mockShowToast).toHaveBeenCalledWith('Status geändert: Fertiggestellt', 'success');
+  });
+
+  it('shows a message instead of completing when the hallmark modal is cancelled (W2-09)', async () => {
+    asRole('GOLDSMITH');
+    mockGetById.mockResolvedValue(makeOrder('quality_check', { alloy: '585' }));
+    mockChangeStatus.mockRejectedValue({
+      response: {
+        status: 409,
+        data: { code: 'order.hallmark_required', detail: { code: 'PUNZIERUNG_REQUIRED' } },
+      },
+    });
+    renderPage();
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Weiter: Fertiggestellt' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Punzierungs-Check' });
+    await userEvent.click(within(dialog).getByTestId('punz-cancel'));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Punzierungs-Check abgebrochen');
+    expect(mockApiPatch).not.toHaveBeenCalled();
+    expect(mockChangeStatus).toHaveBeenCalledTimes(1);
   });
 
   it('?edit=status opens the status menu on Übersicht', async () => {
