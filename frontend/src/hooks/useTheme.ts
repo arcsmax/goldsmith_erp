@@ -27,7 +27,7 @@ export interface ThemeSettings {
 
 // Defaults match the AA tokens in styles/brand-tokens.css (W4-01): white text
 // on #b45309 is 5.02:1, on the old #d97706 only 3.19:1.
-const DEFAULTS: ThemeSettings = {
+export const THEME_DEFAULTS: ThemeSettings = {
   primary_color: '#b45309',
   primary_dark: '#92400e',
   header_gradient_start: '#b45309',
@@ -91,7 +91,7 @@ function setTextBearingColour(prop: string, hex: string): boolean {
 }
 
 export function applyTheme(partial: Partial<ThemeSettings>): void {
-  const t: ThemeSettings = { ...DEFAULTS, ...partial };
+  const t: ThemeSettings = { ...THEME_DEFAULTS, ...partial };
   const root = document.documentElement;
 
   setTextBearingColour('--color-interactive-primary', t.primary_color);

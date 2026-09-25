@@ -1,4 +1,4 @@
-// OutboxQueueSection — Nachrichten-Warteschlange (ARCH-04 / ARCH-12).
+// OutboxQueuePanel — Nachrichten-Warteschlange (ARCH-04 / ARCH-12).
 //
 // Backend contract (tests/integration/test_admin_outbox_api.py):
 // GET /admin/outbox?status=failed|dead, POST /admin/outbox/{id}/retry.
@@ -8,17 +8,19 @@
 //   (b) "Nachricht erneut senden" calls retry and reloads the lists.
 //   (c) empty lists show an EmptyState.
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 const mockGet = vi.fn();
 const mockRetry = vi.fn();
+vi.mock('../../lib/logError', () => ({ logError: vi.fn() }));
 vi.mock('../../api/admin', () => ({
   getOutbox: (...args: unknown[]) => mockGet(...args),
   retryOutboxMessage: (...args: unknown[]) => mockRetry(...args),
 }));
 
-import { OutboxQueueSection } from './OutboxQueueSection';
+import { renderWithQuery } from '../../test/queryWrapper';
+import { OutboxQueuePanel } from './OutboxQueuePanel';
 
 const COUNTS = { pending: 0, sent: 3, failed: 0, dead: 1 };
 
@@ -40,12 +42,12 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-describe('OutboxQueueSection', () => {
+describe('OutboxQueuePanel', () => {
   it('shows dead rows with kind label and error code', async () => {
     mockGet.mockImplementation((status: string) =>
       Promise.resolve(list(status === 'dead' ? [deadRow] : [])),
     );
-    render(<OutboxQueueSection />);
+    renderWithQuery(<OutboxQueuePanel />);
 
     expect(await screen.findAllByText('Kundeninfo')).not.toHaveLength(0);
     expect(screen.getAllByText('delivery_failed').length).toBeGreaterThan(0);
@@ -59,7 +61,7 @@ describe('OutboxQueueSection', () => {
       Promise.resolve(list(status === 'dead' ? [deadRow] : [])),
     );
     mockRetry.mockResolvedValue({ ...deadRow, status: 'pending', attempts: 0 });
-    render(<OutboxQueueSection />);
+    renderWithQuery(<OutboxQueuePanel />);
 
     const [button] = await screen.findAllByRole('button', { name: 'Nachricht erneut senden' });
     await userEvent.click(button);
@@ -71,7 +73,7 @@ describe('OutboxQueueSection', () => {
 
   it('shows empty states when nothing failed', async () => {
     mockGet.mockResolvedValue(list([]));
-    render(<OutboxQueueSection />);
+    renderWithQuery(<OutboxQueuePanel />);
     expect(await screen.findByText('Keine aufgegebenen Nachrichten')).toBeInTheDocument();
   });
 });

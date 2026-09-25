@@ -19,7 +19,6 @@ import { Icon, IconButton, TabBar } from '../ui';
 import { canAdministerSystem } from '../lib/roles';
 import { navGroupsFor, tabBarItems, type NavGroup } from './navigation';
 import '../styles/layout.css';
-import '../styles/admin.css';
 import '../styles/components/GlobalSearch.css';
 
 interface SidebarNavProps {
