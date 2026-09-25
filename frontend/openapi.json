@@ -17061,7 +17061,7 @@
           "theme"
         ],
         "summary": "Theme-Einstellungen aktualisieren (nur ADMIN)",
-        "description": "Replaces all theme settings.\n\nOnly users with the ADMIN role may call this endpoint.\nThe new settings are validated by Pydantic before being persisted.",
+        "description": "Replaces all theme settings.\n\nOnly users with the ADMIN role may call this endpoint.\nThe new settings are validated by Pydantic before being persisted, and\nevery text-bearing colour (primary_color, primary_dark,\nheader_gradient_start, header_gradient_end) must meet the WCAG AA\nminimum contrast ratio (4.5:1) against white text — the frontend already\nsilently drops a failing colour and falls back to the default token\n(useTheme.ts's setTextBearingColour), so the backend rejects it outright\ninstead of persisting a value the UI would never actually apply.",
         "operationId": "update_theme_api_v1_theme_put",
         "security": [
           {
@@ -17998,6 +17998,352 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/CustomerUpdateRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/orders/{order_id}/message-context": {
+      "get": {
+        "tags": [
+          "customer-updates"
+        ],
+        "summary": "Einwilligungs- und Zustellhinweise fuer die Kundeninfo",
+        "description": "E-Mail vorhanden? Einwilligung Fotonutzung? Widerspruch gegen E-Mails?",
+        "operationId": "get_order_message_context_api_v1_orders__order_id__message_context_get",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "order_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Order Id"
+            }
+          },
+          {
+            "name": "access_token",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Access Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomerMessageContext"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/orders/{order_id}/updates/preview": {
+      "post": {
+        "tags": [
+          "customer-updates"
+        ],
+        "summary": "Kundeninfo-Vorschau (E-Mail-Text)",
+        "description": "Zeigt den E-Mail-Text, den der Kunde erhalten wuerde (inkl. Fusszeile).\nSpeichert nichts. Verstoesse (Fotos ohne Einwilligung, Preise) stehen in\n``blocked_reason`` statt als Fehler.",
+        "operationId": "preview_order_update_api_v1_orders__order_id__updates_preview_post",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "order_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Order Id"
+            }
+          },
+          {
+            "name": "access_token",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Access Token"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CustomerUpdateCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomerMessagePreview"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/orders/{order_id}/updates/preview/pdf": {
+      "post": {
+        "tags": [
+          "customer-updates"
+        ],
+        "summary": "Kundeninfo-Vorschau als PDF",
+        "description": "Liefert den Inhalt des Entwurfs als PDF fuer Kunden ohne E-Mail. Speichert\nnichts und markiert nichts als zugestellt. Fotos nur mit Einwilligung (422).",
+        "operationId": "preview_order_update_pdf_api_v1_orders__order_id__updates_preview_pdf_post",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "order_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Order Id"
+            }
+          },
+          {
+            "name": "access_token",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Access Token"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CustomerUpdateCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/customers/{customer_id}/email-opt-out": {
+      "get": {
+        "tags": [
+          "customer-updates"
+        ],
+        "summary": "Widerspruch gegen E-Mail-Updates abfragen",
+        "description": "``email_opt_out=true``: Kunde erhaelt keine E-Mail-Updates (Art. 21).",
+        "operationId": "get_customer_email_opt_out_api_v1_customers__customer_id__email_opt_out_get",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "customer_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Customer Id"
+            }
+          },
+          {
+            "name": "access_token",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Access Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EmailOptOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "customer-updates"
+        ],
+        "summary": "Widerspruch gegen E-Mail-Updates erfassen oder aufheben",
+        "description": "Erfasst den Widerspruch \"Keine E-Mail-Updates\" (Art. 21 DSGVO) als\nwiderrufene Einwilligung \"E-Mail-Kontakt\", oder hebt ihn auf. Solange er\nbesteht, gehen Kundeninfos nur als PDF (manuelle Uebergabe) raus.",
+        "operationId": "set_customer_email_opt_out_api_v1_customers__customer_id__email_opt_out_put",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "customer_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Customer Id"
+            }
+          },
+          {
+            "name": "access_token",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Access Token"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EmailOptOut"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EmailOptOut"
                 }
               }
             }
@@ -22702,6 +23048,100 @@
         "title": "CustomerMeasurementExport",
         "description": "One entry in the export payload's ``measurements`` list."
       },
+      "CustomerMessageContext": {
+        "properties": {
+          "customer_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Customer Id"
+          },
+          "has_email": {
+            "type": "boolean",
+            "title": "Has Email"
+          },
+          "photo_consent": {
+            "type": "boolean",
+            "title": "Photo Consent"
+          },
+          "email_opt_out": {
+            "type": "boolean",
+            "title": "Email Opt Out"
+          }
+        },
+        "type": "object",
+        "required": [
+          "has_email",
+          "photo_consent",
+          "email_opt_out"
+        ],
+        "title": "CustomerMessageContext",
+        "description": "What the Kundeninfo composer needs for its consent / delivery hints."
+      },
+      "CustomerMessagePreview": {
+        "properties": {
+          "subject": {
+            "type": "string",
+            "title": "Subject"
+          },
+          "text": {
+            "type": "string",
+            "title": "Text"
+          },
+          "delivery_method": {
+            "$ref": "#/components/schemas/UpdateDeliveryMethod"
+          },
+          "photo_count": {
+            "type": "integer",
+            "title": "Photo Count"
+          },
+          "photo_consent": {
+            "type": "boolean",
+            "title": "Photo Consent"
+          },
+          "email_opt_out": {
+            "type": "boolean",
+            "title": "Email Opt Out"
+          },
+          "has_email": {
+            "type": "boolean",
+            "title": "Has Email"
+          },
+          "legal_basis": {
+            "type": "string",
+            "title": "Legal Basis"
+          },
+          "blocked_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Blocked Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "subject",
+          "text",
+          "delivery_method",
+          "photo_count",
+          "photo_consent",
+          "email_opt_out",
+          "has_email",
+          "legal_basis"
+        ],
+        "title": "CustomerMessagePreview",
+        "description": "Plain-text preview of the email a customer would receive."
+      },
       "CustomerOrderExport": {
         "properties": {
           "id": {
@@ -23615,6 +24055,22 @@
                 "type": "null"
               }
             ]
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "smtp_disabled",
+                  "no_email",
+                  "opted_out"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
           }
         },
         "type": "object",
@@ -24072,6 +24528,21 @@
         "type": "object",
         "title": "EmailConfigUpdate",
         "description": "Partial update for SMTP configuration. Omitted fields are left unchanged."
+      },
+      "EmailOptOut": {
+        "properties": {
+          "email_opt_out": {
+            "type": "boolean",
+            "title": "Email Opt Out"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "email_opt_out"
+        ],
+        "title": "EmailOptOut",
+        "description": "Art. 21 objection \"Keine E-Mail-Updates\" (GET/PUT body)."
       },
       "EmailTestRequest": {
         "properties": {
@@ -34210,8 +34681,8 @@
             "type": "string",
             "pattern": "^#[0-9a-fA-F]{6}$",
             "title": "Primary Color",
-            "description": "Hauptfarbe (CSS hex, z. B. #d97706)",
-            "default": "#d97706"
+            "description": "Hauptfarbe (CSS hex, z. B. #b45309)",
+            "default": "#b45309"
           },
           "primary_dark": {
             "type": "string",
@@ -34225,7 +34696,7 @@
             "pattern": "^#[0-9a-fA-F]{6}$",
             "title": "Header Gradient Start",
             "description": "Header-Verlauf Startfarbe",
-            "default": "#d97706"
+            "default": "#b45309"
           },
           "header_gradient_end": {
             "type": "string",
