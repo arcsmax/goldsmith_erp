@@ -30,6 +30,16 @@ from goldsmith_erp.db.models.base import (
     UserRole,
     WEIGHT_NUMERIC,
 )
+from goldsmith_erp.db.models.users import (
+    User,
+)
+from goldsmith_erp.db.models.customers import (
+    Customer,
+    CustomerAuditLog,
+    CustomerConsent,
+    CustomerMeasurement,
+    GDPRRequest,
+)
 from goldsmith_erp.db.models._remaining import (
     BarcodeAlias,
     CalendarEvent,
@@ -43,16 +53,11 @@ from goldsmith_erp.db.models._remaining import (
     CostChangeResponseMethod,
     CostChangeStatus,
     CustomMetalType,
-    Customer,
-    CustomerAuditLog,
-    CustomerConsent,
-    CustomerMeasurement,
     CustomerNoGo,
     CustomerUpdate,
     CustomerUpdateKind,
     CustomerUpdateStatus,
     FinishTypeEnum,
-    GDPRRequest,
     Gemstone,
     HallmarkStatus,
     HallmarkType,
@@ -98,7 +103,6 @@ from goldsmith_erp.db.models._remaining import (
     ScrapGold,
     ScrapGoldItem,
     UpdateDeliveryMethod,
-    User,
     ValuationCertificate,
     WorkshopSettings,
     order_materials,
