@@ -184,7 +184,7 @@
 .ui-modal-backdrop {
   position: absolute;
   inset: 0;
-  background: color-mix(in srgb, var(--color-text) 55%, transparent);
+  background: var(--color-backdrop);
 }
 
 .ui-modal {
@@ -894,4 +894,28 @@ textarea.ui-field__control {
 .btn-retry:hover,
 .btn-pdf-download:hover {
   background: var(--color-surface-sunken);
+}
+
+/* ---- Dark theme: base elements (W4-05) ---------------------------------- */
+/* index.css still paints the root, form controls, tables and bare buttons with
+ * light-theme literals. Re-point them to tokens in dark mode only. The
+ * :where() wrapper keeps the element rules at specificity (0,0,2): they beat
+ * the bare element rules in index.css but lose to every class, so primitives
+ * and page classes keep their own colours. */
+:root.dark {
+  background-color: var(--color-surface);
+  color: var(--color-text);
+}
+
+:where(:root.dark) body :is(input, select, textarea) {
+  background-color: var(--color-surface-raised);
+  color: var(--color-text);
+}
+
+:where(:root.dark) body :is(table, th, td) {
+  color: var(--color-text);
+}
+
+:where(:root.dark) body button {
+  background-color: transparent;
 }
