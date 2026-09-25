@@ -14,6 +14,12 @@ export interface ScanContext {
   device_type: 'mobile' | 'desktop' | 'tablet';
   input_source: 'camera' | 'usb_hid' | 'manual';
   client_version?: string;
+  /** Scan tracking (2026-09): the bench tablet (lib/deviceId.ts). */
+  device_id?: string;
+  /** On an action row: the scan row this action follows up. */
+  parent_scan_id?: string;
+  /** On an action row: how the action ended. */
+  action_result?: 'ok' | 'failed' | 'cancelled';
 }
 
 export interface ResolvedEntity {

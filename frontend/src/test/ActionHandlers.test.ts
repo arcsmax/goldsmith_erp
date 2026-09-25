@@ -472,12 +472,38 @@ describe('navigation-only handlers', () => {
     expect(ctx.hooks.closeOverlay).toHaveBeenCalled();
   });
 
-  it('change_location navigates to /orders/<id>?edit=location', async () => {
+  it('change_location asks for the location and stores it on the order', async () => {
     const ctx = baseContext(orderResponse(42));
-    await ACTION_HANDLERS.change_location(ctx);
-    expect(ctx.hooks.navigate).toHaveBeenCalledWith(
-      '/orders/42?edit=location',
-    );
+    const promptLocation = vi.fn().mockResolvedValue('  Tresor ');
+    ctx.hooks = { ...ctx.hooks, promptLocation };
+    const outcome = await ACTION_HANDLERS.change_location(ctx);
+    expect(promptLocation).toHaveBeenCalled();
+    expect(apiClient.post).toHaveBeenCalledWith('/orders/42/location', { location: 'Tresor' });
+    expect(outcome).toEqual({ location: 'Tresor' });
+    expect(ctx.hooks.closeOverlay).toHaveBeenCalled();
+  });
+
+  it('change_location cancelled writes nothing and reports cancelled', async () => {
+    const ctx = baseContext(orderResponse(42));
+    ctx.hooks = { ...ctx.hooks, promptLocation: vi.fn().mockResolvedValue(null) };
+    const outcome = await ACTION_HANDLERS.change_location(ctx);
+    expect(apiClient.post).not.toHaveBeenCalled();
+    expect(outcome).toEqual({ result: 'cancelled' });
+  });
+
+  it('handover opens the order handoff section', async () => {
+    const ctx = baseContext(orderResponse(42));
+    await ACTION_HANDLERS.handover(ctx);
+    expect(ctx.hooks.navigate).toHaveBeenCalledWith('/orders/42?tab=handoff');
+    expect(ctx.hooks.closeOverlay).toHaveBeenCalled();
+  });
+
+  it('log_only only closes (the scan row is already written)', async () => {
+    const ctx = baseContext(orderResponse(42));
+    await ACTION_HANDLERS.log_only(ctx);
+    expect(apiClient.post).not.toHaveBeenCalled();
+    expect(ctx.hooks.navigate).not.toHaveBeenCalled();
+    expect(ctx.hooks.closeOverlay).toHaveBeenCalled();
   });
 
   it('open_entity routes by entity_type', async () => {

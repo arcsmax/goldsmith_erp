@@ -158,6 +158,39 @@ export const mockTimeTrackingStats: TimeTrackingStats = {
 
 // Request handlers
 export const handlers = [
+  // Scan tracking (2026-09): every decode POSTs a scan_logs row; tests that
+  // assert on it override these with server.use(...).
+  http.post(`${API_BASE}/scan/log`, async ({ request }) => {
+    const body = (await request.json()) as Record<string, unknown>;
+    return HttpResponse.json(
+      {
+        id: crypto.randomUUID(),
+        scanned_at: new Date().toISOString(),
+        user_id: 1,
+        raw_payload: body.raw_payload,
+        resolved_type: body.resolved_type ?? null,
+        resolved_id: body.resolved_id ?? null,
+        resolution_path: body.resolution_path ?? null,
+        action_taken: body.action_taken ?? null,
+        offline_queued: false,
+        synced_at: null,
+      },
+      { status: 201 },
+    );
+  }),
+  http.get(`${API_BASE}/orders/:id/scans`, () =>
+    HttpResponse.json({ items: [], total: 0, limit: 20, offset: 0, next_offset: null }),
+  ),
+  http.get(`${API_BASE}/repairs/:id/scans`, () =>
+    HttpResponse.json({ items: [], total: 0, limit: 20, offset: 0, next_offset: null }),
+  ),
+  http.get(`${API_BASE}/scan/history`, () =>
+    HttpResponse.json({ items: [], total: 0, limit: 25, offset: 0, next_offset: null }),
+  ),
+  http.post(`${API_BASE}/scan/log/batch`, () =>
+    HttpResponse.json({ ingested: 0, deduplicated: 0, rejected: 0, reasons: [] }),
+  ),
+
   // Activities endpoints
   // Media assets (ARCH phase 4): the photo tab reads customer_visible flags.
   http.get(`${API_BASE}/media`, () => HttpResponse.json([])),
