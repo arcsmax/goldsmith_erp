@@ -32,12 +32,12 @@ from goldsmith_erp.models.consultation import (
 )
 from goldsmith_erp.models.customer import (
     CustomerCreate,
-    CustomerGdprExport,
     CustomerListItem,
     CustomerRead,
     CustomerUpdate,
     CustomerWithOrders,
 )
+from goldsmith_erp.models.gdpr_export import CustomerGdprExportFull
 from goldsmith_erp.services.consent_service import (
     ConsentCustomerNotFoundError,
     ConsentService,
@@ -45,6 +45,7 @@ from goldsmith_erp.services.consent_service import (
 )
 from goldsmith_erp.services.customer_service import CustomerService, RetentionHold
 from goldsmith_erp.services.file_erasure_service import FileErasureService
+from goldsmith_erp.services.gdpr_export_service import collect_export_sections
 from goldsmith_erp.services.no_go_service import DuplicateNoGoError, NoGoService
 
 logger = logging.getLogger(__name__)
@@ -322,7 +323,7 @@ async def update_customer(
         )
 
 
-@router.get("/{customer_id}/export", response_model=CustomerGdprExport)
+@router.get("/{customer_id}/export", response_model=CustomerGdprExportFull)
 async def gdpr_export_customer(
     customer_id: int,
     db: AsyncSession = Depends(get_db),
@@ -346,6 +347,16 @@ async def gdpr_export_customer(
     exports without explicit consent. They are deliberately left out of the
     ``orders`` and ``consultations`` lists below; the ``design_data_excluded``
     flag documents that omission for anyone auditing a DPO response.
+
+    GDPR-05 (2026-09): the export also covers invoices, quotes, Altgold,
+    valuations, repairs, customer updates, §649 cost changes, photo
+    metadata, the order status history, the customer's GDPR requests, an
+    access log (what/when, not who) and an Art. 15 Abs. 1 ``meta`` block
+    (``services/gdpr_export_service.py``). Decision D-13: what the customer
+    told us in a consultation (``wishes``, ``source_material``) is disclosed
+    in ``consultation_statements``; the goldsmith's own design work stays
+    withheld (Art. 15 Abs. 4). Every export writes a
+    ``gdpr_requests(request_type='export')`` row.
 
     Permissions: Requires CUSTOMER_DELETE permission (Admin only).
     """
@@ -475,7 +486,13 @@ async def gdpr_export_customer(
             }
         )
 
-    return {
+    admin_user_id = int(current_user.id)
+    sections = await collect_export_sections(
+        db, customer_id, [order.id for order in customer.orders]
+    )
+
+    payload = {
+        **sections,
         "export_date": datetime.utcnow().isoformat(),
         "customer": {
             "id": customer.id,
@@ -527,6 +544,44 @@ async def gdpr_export_customer(
         # materials_discussed/photos.
         "design_data_excluded": True,
     }
+    # After the payload is built: the commit expires the ORM objects above.
+    await _record_export_request(db, customer_id=customer_id, user_id=admin_user_id)
+    return payload
+
+
+async def _record_export_request(
+    db: AsyncSession, *, customer_id: int, user_id: int
+) -> None:
+    """Art. 5 Abs. 2 / Art. 30: record that an Art. 15 export was produced.
+
+    A failure is logged loudly but does not withhold the data subject's
+    copy (Art. 15 is the customer's right; the record is our duty).
+    """
+    try:
+        db.add(
+            GDPRRequest(
+                customer_id=customer_id,
+                request_type="export",
+                status="completed",
+                requested_at=datetime.utcnow(),
+                completed_at=datetime.utcnow(),
+                requested_by=user_id,
+                notes="Art. 15 export produced (GDPR-05 complete export).",
+            )
+        )
+        await db.commit()
+    except Exception:  # noqa: BLE001 — logged, see docstring
+        await db.rollback()
+        logger.error(
+            "Failed to write gdpr_requests export row",
+            extra={
+                "audit": True,
+                "action": "gdpr_export_request_write_failed",
+                "customer_id": customer_id,
+                "user_id": user_id,
+            },
+            exc_info=True,
+        )
 
 
 # ---------------------------------------------------------------------------
