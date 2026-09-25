@@ -36,6 +36,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from goldsmith_erp.core.permissions import Permission, has_permission
+from goldsmith_erp.core.timeutil import ensure_utc
 from goldsmith_erp.db.models import (
     CostChangeRequest,
     CostChangeStatus,
@@ -101,14 +102,14 @@ def berlin_today(now_utc: Optional[datetime] = None) -> date:
 
 
 def _berlin_date(stored_utc: datetime) -> date:
-    """Calendar day in Berlin of a naive-UTC stored timestamp."""
-    return stored_utc.replace(tzinfo=timezone.utc).astimezone(BERLIN).date()
+    """Calendar day in Berlin of a stored UTC timestamp (naive read as UTC)."""
+    return ensure_utc(stored_utc).astimezone(BERLIN).date()
 
 
 def _day_start_utc(day: date) -> datetime:
-    """Naive-UTC instant of Berlin midnight at the start of ``day``."""
+    """Aware-UTC instant of Berlin midnight at the start of ``day``."""
     local_midnight = datetime.combine(day, time.min, tzinfo=BERLIN)
-    return local_midnight.astimezone(timezone.utc).replace(tzinfo=None)
+    return local_midnight.astimezone(timezone.utc)
 
 
 def _customer_name(customer: Optional[OrmRow]) -> Optional[str]:
@@ -510,7 +511,7 @@ class DashboardService:
         )
         return DashboardToday(
             today=today,
-            generated_at=now.astimezone(timezone.utc).replace(tzinfo=None),
+            generated_at=now.astimezone(timezone.utc),
             can_view_financials=has_permission(user, Permission.FINANCIAL_VIEW),
             truncated=lanes.truncated,
             overdue=overdue,

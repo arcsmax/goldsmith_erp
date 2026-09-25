@@ -15,13 +15,15 @@ import io
 import logging
 import os
 import tempfile
-from datetime import datetime
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping, Optional
 
 from fpdf import FPDF
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 from PIL import Image
+
+from goldsmith_erp.core.timeutil import DATE_FORMAT, format_local
 
 logger = logging.getLogger(__name__)
 
@@ -80,10 +82,13 @@ _FONT_B = "DejaVuBold"  # bold weight
 
 def _get_jinja_env() -> Environment:
     """Return a configured Jinja2 environment pointing at the templates dir."""
-    return Environment(
+    env = Environment(
         loader=FileSystemLoader(str(_TEMPLATES_DIR)),
         autoescape=select_autoescape(["html"]),
     )
+    # Documents show Europe/Berlin dates, never raw UTC (BE-15).
+    env.filters["local_date"] = _fmt_date
+    return env
 
 
 def _html_to_pdf_bytes(html_content: str, title: str = "Dokument") -> bytes:
@@ -768,13 +773,12 @@ def _render_scrap_gold_fpdf(
 
 
 def _fmt_date(dt: Any) -> str:
-    """Format a datetime as German dd.mm.YYYY."""
+    """Format as German dd.mm.YYYY; datetimes in Europe/Berlin (BE-15)."""
     if dt is None:
         return ""
-    try:
-        return dt.strftime("%d.%m.%Y")
-    except AttributeError:
-        return str(dt)
+    if isinstance(dt, (datetime, date)):
+        return format_local(dt, DATE_FORMAT, empty="")
+    return str(dt)
 
 
 def _fmt_eur(value: Any) -> str:
@@ -1973,7 +1977,7 @@ def _status_report_header(
         "Kundin/Kunde", _safe_str(getattr(data, "customer_name", None)) or "Kunde"
     )
     pdf.kv_row("Referenz", _safe_str(getattr(data, "reference", None)))
-    pdf.kv_row("Datum", _fmt_date(datetime.utcnow()))
+    pdf.kv_row("Datum", _fmt_date(datetime.now(timezone.utc)))
     pdf.ln(3)
 
 

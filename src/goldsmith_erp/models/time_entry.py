@@ -4,7 +4,7 @@ from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from goldsmith_erp.models._common import UtcNaiveDatetime
+from goldsmith_erp.models._common import UtcDatetime
 from goldsmith_erp.models.time_entry_metadata import TimeEntryMetadata
 
 
@@ -123,7 +123,7 @@ class TimeEntryUpdate(BaseModel):
     in ``TimeTrackingService.update_time_entry`` (422).
     """
 
-    end_time: Optional[UtcNaiveDatetime] = None
+    end_time: Optional[UtcDatetime] = None
     duration_minutes: Optional[int] = Field(
         None, gt=0, le=1440, description="Duration in minutes (1-1440)"  # Max 24 hours
     )

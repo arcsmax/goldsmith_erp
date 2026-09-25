@@ -20,6 +20,8 @@ the label page is served same-origin.
 import html
 import io
 
+from goldsmith_erp.core.timeutil import DATE_FORMAT, format_local
+
 
 def _esc(value: object) -> str:
     """HTML-escape *value* (quotes included) for safe interpolation."""
@@ -247,7 +249,7 @@ class LabelService:
         deadline_str = "—"
         if order.deadline:  # type: ignore[union-attr]
             try:
-                deadline_str = order.deadline.strftime("%d.%m.%Y")  # type: ignore[union-attr]
+                deadline_str = format_local(order.deadline, DATE_FORMAT)
             except AttributeError:
                 deadline_str = str(order.deadline)  # type: ignore[union-attr]
 
@@ -335,7 +337,7 @@ class LabelService:
         )
         if completion_date:
             try:
-                est_completion = completion_date.strftime("%d.%m.%Y")
+                est_completion = format_local(completion_date, DATE_FORMAT)
             except AttributeError:
                 est_completion = str(completion_date)
 

@@ -57,7 +57,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, cast
 
 from sqlalchemy import select
@@ -247,7 +247,7 @@ def _log_financial_access(
             "entity_id": update_id,
             "order_id": order_id,
             "user_id": user_id,
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             **(extra or {}),
         },
     )
@@ -344,7 +344,7 @@ async def write_financial_audit_row(
             entity=entity,
             entity_id=entity_id,
             user_id=user_id,
-            timestamp=datetime.utcnow(),
+            timestamp=datetime.now(timezone.utc),
             details=details,
         )
         db.add(audit_log)
@@ -683,7 +683,7 @@ class CustomerUpdateService:
 
         async with transactional(db):
             update.status = cast(Any, CustomerUpdateStatus.SENT)
-            update.sent_at = cast(Any, datetime.utcnow())
+            update.sent_at = cast(Any, datetime.now(timezone.utc))
             update.delivery_method = cast(Any, method)
             # E16: the PDF reached the customer; one audit row per message.
             await CustomerMessageService.record_manual_delivery(db, update, user_id)

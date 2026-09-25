@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import io
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -72,7 +72,7 @@ async def test_dry_run_reports_but_changes_nothing(
     db_session: AsyncSession, tmp_path: Path
 ) -> None:
     customer = await _restored_customer(db_session)
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     entry = _entry(customer.id, requested_at=now - timedelta(days=2))
 
     report = await replay_erasures(
@@ -111,7 +111,7 @@ async def test_execute_reerases_customer_inside_grace_period(
     db_session: AsyncSession, tmp_path: Path
 ) -> None:
     customer = await _restored_customer(db_session)
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     requested = now - timedelta(days=2)
 
     report = await replay_erasures(
@@ -148,7 +148,7 @@ async def test_execute_finalizes_customer_whose_cleanup_had_run(
 ) -> None:
     customer = await _restored_customer(db_session)
     customer_id = customer.id
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     entries = [
         _entry(customer_id, requested_at=now - timedelta(days=40), request_id=1),
         _entry(
@@ -182,7 +182,7 @@ async def test_entries_older_than_backup_are_skipped_and_missing_rows_reported(
     db_session: AsyncSession, tmp_path: Path
 ) -> None:
     customer = await _restored_customer(db_session)
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     old = _entry(customer.id, requested_at=now - timedelta(days=90), request_id=1)
     absent = _entry(987654, requested_at=now - timedelta(days=1), request_id=2)
 
@@ -206,7 +206,7 @@ async def test_entries_older_than_backup_are_skipped_and_missing_rows_reported(
 async def test_collect_ledger_keeps_only_executed_erasures(
     db_session: AsyncSession,
 ) -> None:
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     db_session.add_all(
         [
             GDPRRequest(
@@ -262,7 +262,7 @@ async def test_collect_ledger_keeps_only_executed_erasures(
 
 
 def test_ledger_round_trip_and_dedupe() -> None:
-    now = datetime(2026, 9, 25, 3, 0, 0)
+    now = datetime(2026, 9, 25, 3, 0, 0, tzinfo=timezone.utc)
     entries = [_entry(1, requested_at=now), _entry(2, requested_at=now, request_id=2)]
     buffer = io.StringIO()
     write_entries(entries, buffer)

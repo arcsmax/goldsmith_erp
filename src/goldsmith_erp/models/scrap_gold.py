@@ -16,7 +16,7 @@ DOM-19 / DOM-20 fix: the alloy contract is now the shared, database-backed
 
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Dict, List, Literal, Optional
+from typing import Dict, List, Literal, Optional, Union
 
 from pydantic import (
     BaseModel,
@@ -29,6 +29,7 @@ from pydantic import (
 
 from goldsmith_erp.core.config import settings
 from goldsmith_erp.db.models import AlloyType, MetalType
+from goldsmith_erp.models._common import Money, Weight
 
 # ---------------------------------------------------------------------------
 # Alloy contract: fineness (Feingehalt) and base metal, keyed by the shared
@@ -95,7 +96,7 @@ class ScrapGoldItemCreate(BaseModel):
     alloy: AlloyType = Field(
         ..., description="Alloy/fineness code, e.g. 585, 750, ag925, pt950"
     )
-    weight_g: float = Field(..., gt=0, description="Total weight in grams")
+    weight_g: Weight = Field(..., gt=0, description="Total weight in grams")
     photo_path: Optional[str] = None
 
 
@@ -104,8 +105,8 @@ class ScrapGoldItemRead(BaseModel):
     scrap_gold_id: int
     description: str
     alloy: str
-    weight_g: float
-    fine_content_g: float
+    weight_g: Weight
+    fine_content_g: Weight
     photo_path: Optional[str] = None
     created_at: datetime
 
@@ -115,7 +116,7 @@ class ScrapGoldItemRead(BaseModel):
 class ScrapGoldCreate(BaseModel):
     order_id: int
     customer_id: int
-    gold_price_per_g: Optional[float] = Field(
+    gold_price_per_g: Optional[Money] = Field(
         None,
         gt=0,
         description=(
@@ -130,7 +131,7 @@ class ScrapGoldCreate(BaseModel):
 
 
 class ScrapGoldUpdate(BaseModel):
-    gold_price_per_g: Optional[float] = Field(None, gt=0)
+    gold_price_per_g: Optional[Money] = Field(None, gt=0)
     price_source: Optional[str] = None
     notes: Optional[str] = None
 
@@ -148,7 +149,7 @@ ID_DOCUMENT_LABELS: Dict[str, str] = {
 }
 
 
-def id_required_for(total_value_eur: Optional[float]) -> bool:
+def id_required_for(total_value_eur: Optional[Union[Decimal, float]]) -> bool:
     """True when a purchase of this value needs ID data before signing (D-16)."""
     return float(total_value_eur or 0.0) > float(settings.SCRAP_GOLD_ID_THRESHOLD_EUR)
 
@@ -192,9 +193,9 @@ class ScrapGoldRead(BaseModel):
     customer_id: int
     created_by: int
     status: str
-    total_fine_gold_g: float
-    total_value_eur: float
-    gold_price_per_g: Optional[float] = None
+    total_fine_gold_g: Weight
+    total_value_eur: Money
+    gold_price_per_g: Optional[Money] = None
     price_source: str
     signature_data: Optional[str] = None
     signed_at: Optional[datetime] = None
@@ -240,6 +241,6 @@ class AlloyCalculation(BaseModel):
     """Response for alloy calculation."""
 
     alloy: str
-    weight_g: float
-    fine_content_g: float
+    weight_g: Weight
+    fine_content_g: Weight
     fine_content_percent: float

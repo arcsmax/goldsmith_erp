@@ -35,7 +35,7 @@ History:
 import json
 import logging
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Callable, Optional, Tuple
 
 from fastapi import Request, Response
@@ -589,7 +589,7 @@ class AuditLoggingMiddleware(BaseHTTPMiddleware):
                     user_id=user_id,
                     user_email=user_email,
                     user_role=user_role,
-                    timestamp=datetime.utcnow(),
+                    timestamp=datetime.now(timezone.utc),
                     ip_address=ip_address,
                     user_agent=user_agent,
                     details=details,

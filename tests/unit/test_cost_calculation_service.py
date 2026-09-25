@@ -40,7 +40,7 @@ class TestMaterialCostCalculation:
             db_session, order_with_metal_type
         )
 
-        assert cost == pytest.approx(1417.50, rel=0.01)
+        assert float(cost) == pytest.approx(1417.50, rel=0.01)
 
     async def test_material_cost_fifo_multiple_batches(
         self, db_session, multiple_metal_purchases, sample_customer
@@ -65,7 +65,7 @@ class TestMaterialCostCalculation:
         # Expected: 100g @ 44 EUR/g + 50g @ 45 EUR/g = 4400 + 2250 = 6650 EUR
         cost = await CostCalculationService._calculate_material_cost(db_session, order)
 
-        assert cost == pytest.approx(6650.00, rel=0.01)
+        assert float(cost) == pytest.approx(6650.00, rel=0.01)
 
     async def test_material_cost_lifo_uses_newest(
         self, db_session, multiple_metal_purchases, sample_customer
@@ -89,7 +89,7 @@ class TestMaterialCostCalculation:
         # Expected: 100g @ 46 EUR/g + 50g @ 45 EUR/g = 4600 + 2250 = 6850 EUR
         cost = await CostCalculationService._calculate_material_cost(db_session, order)
 
-        assert cost == pytest.approx(6850.00, rel=0.01)
+        assert float(cost) == pytest.approx(6850.00, rel=0.01)
 
     async def test_material_cost_average_method(
         self, db_session, multiple_metal_purchases, sample_customer
@@ -114,7 +114,7 @@ class TestMaterialCostCalculation:
         # Expected: 60g * 45.00 = 2700.00 EUR
         cost = await CostCalculationService._calculate_material_cost(db_session, order)
 
-        assert cost == pytest.approx(2700.00, rel=0.01)
+        assert float(cost) == pytest.approx(2700.00, rel=0.01)
 
     async def test_material_cost_specific_batch(
         self, db_session, sample_metal_purchase, order_with_metal_type
@@ -131,7 +131,7 @@ class TestMaterialCostCalculation:
             db_session, order_with_metal_type
         )
 
-        assert cost == pytest.approx(1125.00, rel=0.01)
+        assert float(cost) == pytest.approx(1125.00, rel=0.01)
 
     async def test_material_cost_with_scrap_percentage(
         self, db_session, sample_metal_purchase, order_with_metal_type
@@ -147,7 +147,7 @@ class TestMaterialCostCalculation:
             db_session, order_with_metal_type
         )
 
-        assert cost == pytest.approx(3960.00, rel=0.01)
+        assert float(cost) == pytest.approx(3960.00, rel=0.01)
 
     async def test_material_cost_no_metal_type_returns_zero(
         self, db_session, sample_order
@@ -205,7 +205,7 @@ class TestLaborCostCalculation:
         cost = await CostCalculationService._calculate_labor_cost(sample_order)
 
         # Service defaults to 75.00 EUR/h when no rate is set
-        assert cost == pytest.approx(750.0, rel=0.01)
+        assert float(cost) == pytest.approx(750.0, rel=0.01)
 
     async def test_labor_cost_with_only_rate(self, sample_order):
         """Test labor cost when only rate specified (no hours)"""
@@ -245,7 +245,7 @@ class TestPerActivityLaborCost:
             sample_order, db=db_session, activity_hours={activity.id: 2.0}
         )
 
-        assert cost == pytest.approx(180.0, rel=0.001)
+        assert float(cost) == pytest.approx(180.0, rel=0.001)
 
     async def test_labor_cost_per_activity_falls_back_to_shop_default(
         self, db_session, sample_order
@@ -263,7 +263,9 @@ class TestPerActivityLaborCost:
             sample_order, db=db_session, activity_hours={activity.id: 3.0}
         )
 
-        assert cost == pytest.approx(3.0 * settings.DEFAULT_HOURLY_RATE, rel=0.001)
+        assert float(cost) == pytest.approx(
+            3.0 * settings.DEFAULT_HOURLY_RATE, rel=0.001
+        )
 
     async def test_labor_cost_mixed_per_activity_breakdown_sums_each_at_own_rate(
         self, db_session, sample_order
@@ -290,7 +292,7 @@ class TestPerActivityLaborCost:
         )
 
         expected = (1.5 * 120.0) + (2.0 * settings.DEFAULT_HOURLY_RATE)
-        assert cost == pytest.approx(expected, rel=0.001)
+        assert float(cost) == pytest.approx(expected, rel=0.001)
 
     async def test_labor_cost_per_activity_without_db_raises(self, sample_order):
         """activity_hours without a db session fails loudly (programmer error)."""
@@ -344,25 +346,25 @@ class TestFullOrderCostCalculation:
         )
 
         # Material: 20g * 1.05 = 21g * 45 EUR/g = 945.00 EUR
-        assert result.material_cost == pytest.approx(945.00, rel=0.01)
+        assert float(result.material_cost) == pytest.approx(945.00, rel=0.01)
 
         # Labor: 3h * 75 EUR/h = 225.00 EUR
-        assert result.labor_cost == pytest.approx(225.00, rel=0.01)
+        assert float(result.labor_cost) == pytest.approx(225.00, rel=0.01)
 
         # Subtotal: 945 + 225 = 1170.00 EUR
-        assert result.subtotal == pytest.approx(1170.00, rel=0.01)
+        assert float(result.subtotal) == pytest.approx(1170.00, rel=0.01)
 
         # Profit: 1170 * 0.40 = 468.00 EUR
-        assert result.margin_amount == pytest.approx(468.00, rel=0.01)
+        assert float(result.margin_amount) == pytest.approx(468.00, rel=0.01)
 
         # Total before VAT: 1170 + 468 = 1638.00 EUR
-        assert result.subtotal_with_margin == pytest.approx(1638.00, rel=0.01)
+        assert float(result.subtotal_with_margin) == pytest.approx(1638.00, rel=0.01)
 
         # VAT: 1638 * 0.19 = 311.22 EUR
-        assert result.vat_amount == pytest.approx(311.22, rel=0.01)
+        assert float(result.vat_amount) == pytest.approx(311.22, rel=0.01)
 
         # Final total: service rounds to .00/.99; 1638 + 311.22 = 1949.22 EUR
-        assert result.final_price == pytest.approx(1949.22, rel=0.01)
+        assert float(result.final_price) == pytest.approx(1949.22, rel=0.01)
 
     async def test_calculate_order_cost_material_only(
         self, db_session, sample_metal_purchase, order_with_metal_type
@@ -382,10 +384,10 @@ class TestFullOrderCostCalculation:
         )
 
         # Material: 10g * 45 EUR/g = 450.00 EUR; no margin, no VAT
-        assert result.material_cost == pytest.approx(450.00, rel=0.01)
+        assert float(result.material_cost) == pytest.approx(450.00, rel=0.01)
         assert result.labor_cost == 0.0
-        assert result.subtotal == pytest.approx(450.00, rel=0.01)
-        assert result.final_price == pytest.approx(450.00, rel=0.01)
+        assert float(result.subtotal) == pytest.approx(450.00, rel=0.01)
+        assert float(result.final_price) == pytest.approx(450.00, rel=0.01)
 
     async def test_calculate_order_cost_with_manual_overrides(
         self, db_session, order_with_metal_type
@@ -405,19 +407,19 @@ class TestFullOrderCostCalculation:
         # Material uses override
         assert result.material_cost == 1000.0
         # Labor: 4h * 75 EUR/h = 300 (calculated, no labor override in model)
-        assert result.labor_cost == pytest.approx(300.0, rel=0.01)
+        assert float(result.labor_cost) == pytest.approx(300.0, rel=0.01)
 
         # Subtotal: 1000 + 300 = 1300.00
-        assert result.subtotal == pytest.approx(1300.00, rel=0.01)
+        assert float(result.subtotal) == pytest.approx(1300.00, rel=0.01)
 
         # Profit: 1300 * 0.20 = 260.00
-        assert result.margin_amount == pytest.approx(260.00, rel=0.01)
+        assert float(result.margin_amount) == pytest.approx(260.00, rel=0.01)
 
         # Total before VAT: 1300 + 260 = 1560.00
-        assert result.subtotal_with_margin == pytest.approx(1560.00, rel=0.01)
+        assert float(result.subtotal_with_margin) == pytest.approx(1560.00, rel=0.01)
 
         # VAT: 1560 * 0.19 = 296.40
-        assert result.vat_amount == pytest.approx(296.40, rel=0.01)
+        assert float(result.vat_amount) == pytest.approx(296.40, rel=0.01)
 
     async def test_calculate_order_cost_zero_profit_margin(
         self, db_session, sample_metal_purchase, order_with_metal_type
@@ -439,7 +441,7 @@ class TestFullOrderCostCalculation:
         # Material: 10g * 45 = 450, Labor: 2 * 50 = 100
         # Subtotal: 550, no profit margin, so subtotal_with_margin = 550
         assert result.margin_amount == 0.0
-        assert result.subtotal_with_margin == pytest.approx(550.00, rel=0.01)
+        assert float(result.subtotal_with_margin) == pytest.approx(550.00, rel=0.01)
 
 
 @pytest.mark.asyncio
@@ -460,7 +462,7 @@ class TestCostCalculationEdgeCases:
         )
 
         # 0.5g * 45 EUR/g = 22.50 EUR
-        assert result.material_cost == pytest.approx(22.50, rel=0.01)
+        assert float(result.material_cost) == pytest.approx(22.50, rel=0.01)
 
     async def test_high_scrap_percentage(
         self, db_session, sample_metal_purchase, order_with_metal_type
@@ -476,7 +478,7 @@ class TestCostCalculationEdgeCases:
         )
 
         # 50g * 1.20 = 60g * 45 EUR/g = 2700.00 EUR
-        assert result.material_cost == pytest.approx(2700.00, rel=0.01)
+        assert float(result.material_cost) == pytest.approx(2700.00, rel=0.01)
 
     async def test_no_vat(
         self, db_session, sample_metal_purchase, order_with_metal_type
@@ -511,4 +513,4 @@ class TestCostCalculationEdgeCases:
         )
 
         # 50g * 0.80 EUR/g = 40.00 EUR (silver is cheaper)
-        assert result.material_cost == pytest.approx(40.00, rel=0.01)
+        assert float(result.material_cost) == pytest.approx(40.00, rel=0.01)

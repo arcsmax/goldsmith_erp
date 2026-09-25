@@ -1269,7 +1269,7 @@ def _build_scan_log_row(
     # the partitioned PostgreSQL table requires ``scanned_at`` to be
     # present at INSERT; providing it explicitly avoids a NOT NULL
     # violation on SQLite (where the default is not enforced by DDL).
-    now = datetime.now(tz=timezone.utc).replace(tzinfo=None)
+    now = datetime.now(tz=timezone.utc)
 
     return ScanLogModel(
         scanned_at=now,

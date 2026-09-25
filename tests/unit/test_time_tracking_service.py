@@ -13,7 +13,7 @@ Tests cover:
 """
 
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from fastapi import HTTPException
@@ -37,8 +37,8 @@ class TestTimeEntryCreation:
         self, db_session, sample_order, sample_activity, sample_user
     ):
         """Test creating a manual time entry with all fields"""
-        start_time = datetime.utcnow() - timedelta(hours=2)
-        end_time = datetime.utcnow()
+        start_time = datetime.now(timezone.utc) - timedelta(hours=2)
+        end_time = datetime.now(timezone.utc)
 
         entry_data = TimeEntryCreate(
             order_id=sample_order.id,
@@ -70,7 +70,7 @@ class TestTimeEntryCreation:
         self, db_session, sample_order, sample_activity, sample_user
     ):
         """Test creating time entry with only required fields"""
-        start_time = datetime.utcnow()
+        start_time = datetime.now(timezone.utc)
 
         entry_data = TimeEntryCreate(
             order_id=sample_order.id,
@@ -92,7 +92,7 @@ class TestTimeEntryCreation:
         self, db_session, sample_order, sample_activity, sample_user
     ):
         """Test creating an active time entry (no end time)"""
-        start_time = datetime.utcnow()
+        start_time = datetime.now(timezone.utc)
 
         entry_data = TimeEntryCreate(
             order_id=sample_order.id,
@@ -112,8 +112,8 @@ class TestTimeEntryCreation:
         self, db_session, sample_order, sample_activity, sample_user
     ):
         """Test that duration is auto-calculated from start and end times"""
-        start_time = datetime.utcnow() - timedelta(hours=3, minutes=30)
-        end_time = datetime.utcnow()
+        start_time = datetime.now(timezone.utc) - timedelta(hours=3, minutes=30)
+        end_time = datetime.now(timezone.utc)
 
         entry_data = TimeEntryCreate(
             order_id=sample_order.id,
@@ -176,8 +176,8 @@ class TestTimeEntryRetrieval:
         self, db_session, sample_user, sample_time_entry
     ):
         """Test retrieving user time entries filtered by date range"""
-        start_date = datetime.utcnow() - timedelta(days=7)
-        end_date = datetime.utcnow() + timedelta(days=1)
+        start_date = datetime.now(timezone.utc) - timedelta(days=7)
+        end_date = datetime.now(timezone.utc) + timedelta(days=1)
 
         entries = await TimeTrackingService.get_time_entries_for_user(
             db_session, sample_user.id, start_date=start_date, end_date=end_date
@@ -198,8 +198,8 @@ class TestTimeEntryRetrieval:
                 order_id=sample_order.id,
                 user_id=sample_user.id,
                 activity_id=sample_activity.id,
-                start_time=datetime.utcnow() - timedelta(hours=i),
-                end_time=datetime.utcnow() - timedelta(hours=i - 1),
+                start_time=datetime.now(timezone.utc) - timedelta(hours=i),
+                end_time=datetime.now(timezone.utc) - timedelta(hours=i - 1),
             )
             await TimeTrackingService.create_time_entry(db_session, entry_data)
 
@@ -412,8 +412,8 @@ class TestOrderTotalTime:
                 order_id=sample_order.id,
                 user_id=sample_user.id,
                 activity_id=sample_activity.id,
-                start_time=datetime.utcnow() - timedelta(hours=2),
-                end_time=datetime.utcnow() - timedelta(hours=1),
+                start_time=datetime.now(timezone.utc) - timedelta(hours=2),
+                end_time=datetime.now(timezone.utc) - timedelta(hours=1),
             )
             await TimeTrackingService.create_time_entry(db_session, entry_data)
 
@@ -435,8 +435,8 @@ class TestOrderTotalTime:
             order_id=sample_order.id,
             user_id=sample_user.id,
             activity_id=sample_activity.id,
-            start_time=datetime.utcnow() - timedelta(hours=2),
-            end_time=datetime.utcnow(),
+            start_time=datetime.now(timezone.utc) - timedelta(hours=2),
+            end_time=datetime.now(timezone.utc),
         )
         await TimeTrackingService.create_time_entry(db_session, entry_data)
 
@@ -445,7 +445,7 @@ class TestOrderTotalTime:
             order_id=sample_order.id,
             user_id=sample_user.id,
             activity_id=sample_activity.id,
-            start_time=datetime.utcnow() - timedelta(minutes=30),
+            start_time=datetime.now(timezone.utc) - timedelta(minutes=30),
         )
         await TimeTrackingService.create_time_entry(db_session, active_data)
 
@@ -498,7 +498,7 @@ class TestEdgeCases:
         self, db_session, sample_order, sample_activity, sample_user
     ):
         """Test creating entry with very short duration (< 1 minute)"""
-        start_time = datetime.utcnow()
+        start_time = datetime.now(timezone.utc)
         end_time = start_time + timedelta(seconds=30)
 
         entry_data = TimeEntryCreate(
@@ -518,8 +518,8 @@ class TestEdgeCases:
         self, db_session, sample_order, sample_activity, sample_user
     ):
         """Test creating entry with very long duration (multiple days)"""
-        start_time = datetime.utcnow() - timedelta(days=2)
-        end_time = datetime.utcnow()
+        start_time = datetime.now(timezone.utc) - timedelta(days=2)
+        end_time = datetime.now(timezone.utc)
 
         entry_data = TimeEntryCreate(
             order_id=sample_order.id,

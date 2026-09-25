@@ -1,5 +1,5 @@
 # src/goldsmith_erp/models/order.py
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any, Dict, List, Literal, Optional
 
@@ -12,6 +12,7 @@ from goldsmith_erp.db.models import (
     OrderStatusEnum,
     OrderTypeEnum,
 )
+from goldsmith_erp.models._common import Money, Percent, Weight, number_default
 
 # Deliberate models -> services import: the allowed Feingehalt vocabulary
 # (W2-09; DOM-22, DOM-23, D-10) must never drift from the one
@@ -30,7 +31,7 @@ class MaterialBase(BaseModel):
 
     id: int = Field(..., gt=0, description="Material ID (must be positive)")
     name: str = Field(..., min_length=1, max_length=200, description="Material name")
-    unit_price: float = Field(
+    unit_price: Money = Field(
         ..., ge=0, description="Unit price (must be non-negative)"
     )
 
@@ -49,7 +50,7 @@ class OrderBase(BaseModel):
         max_length=2000,
         description="Order description (1-2000 characters)",
     )
-    price: Optional[float] = Field(
+    price: Optional[Money] = Field(
         None, ge=0, description="Agreed order price, NET excl. VAT (ADR-2026-09-25)"
     )
 
@@ -84,7 +85,7 @@ class OrderBase(BaseModel):
 
     @field_validator("price")
     @classmethod
-    def validate_price(cls, v: Optional[float]) -> Optional[float]:
+    def validate_price(cls, v: Optional[Decimal]) -> Optional[Decimal]:
         """Validate price is reasonable."""
         if v is not None:
             if v < 0:
@@ -108,11 +109,11 @@ class OrderCreate(OrderBase):
     )
 
     # Weight & Material (optional at creation)
-    estimated_weight_g: Optional[float] = Field(
+    estimated_weight_g: Optional[Weight] = Field(
         None, ge=0, description="Estimated metal weight in grams"
     )
-    scrap_percentage: Optional[float] = Field(
-        5.0, ge=0, le=50, description="Material loss percentage"
+    scrap_percentage: Optional[Percent] = Field(
+        5.0, ge=0, le=50, validate_default=True, description="Material loss percentage"
     )
 
     # Metal Inventory Integration (optional at creation)
@@ -129,18 +130,24 @@ class OrderCreate(OrderBase):
     )
 
     # Cost Calculation (optional at creation)
-    material_cost_override: Optional[float] = Field(
+    material_cost_override: Optional[Money] = Field(
         None, ge=0, description="Manual material cost override"
     )
     labor_hours: Optional[float] = Field(None, ge=0, description="Estimated work hours")
-    hourly_rate: Optional[float] = Field(75.00, ge=0, description="Labor rate per hour")
+    hourly_rate: Optional[Money] = Field(
+        75.00, ge=0, validate_default=True, description="Labor rate per hour"
+    )
 
     # Pricing (optional at creation)
-    profit_margin_percent: Optional[float] = Field(
-        40.0, ge=0, le=100, description="Profit margin percentage"
+    profit_margin_percent: Optional[Percent] = Field(
+        40.0,
+        ge=0,
+        le=100,
+        validate_default=True,
+        description="Profit margin percentage",
     )
-    vat_rate: Optional[float] = Field(
-        19.0, ge=0, le=100, description="VAT rate percentage"
+    vat_rate: Optional[Percent] = Field(
+        19.0, ge=0, le=100, validate_default=True, description="VAT rate percentage"
     )
 
     # ML feature fields (optional at creation — can be filled during intake)
@@ -181,7 +188,7 @@ class OrderCreate(OrderBase):
         if v is not None:
             # Allow deadlines in the past for historical orders
             # But warn if deadline is more than 10 years in the future
-            if v.year > datetime.utcnow().year + 10:
+            if v.year > datetime.now(timezone.utc).year + 10:
                 raise ValueError("Deadline cannot be more than 10 years in the future")
         return v
 
@@ -211,7 +218,7 @@ class OrderUpdate(BaseModel):
     description: Optional[str] = Field(
         None, min_length=1, max_length=2000, description="New order description"
     )
-    price: Optional[float] = Field(
+    price: Optional[Money] = Field(
         None, ge=0, description="New agreed order price, NET excl. VAT"
     )
     status: Optional[OrderStatusEnum] = Field(
@@ -238,9 +245,9 @@ class OrderUpdate(BaseModel):
     )
 
     # Weight & Material
-    estimated_weight_g: Optional[float] = Field(None, ge=0)
-    actual_weight_g: Optional[float] = Field(None, ge=0)
-    scrap_percentage: Optional[float] = Field(None, ge=0, le=50)
+    estimated_weight_g: Optional[Weight] = Field(None, ge=0)
+    actual_weight_g: Optional[Weight] = Field(None, ge=0)
+    scrap_percentage: Optional[Percent] = Field(None, ge=0, le=50)
 
     # Metal Inventory Integration
     metal_type: Optional[MetalType] = Field(None, description="Type of metal to use")
@@ -250,13 +257,13 @@ class OrderUpdate(BaseModel):
     )
 
     # Cost Calculation
-    material_cost_override: Optional[float] = Field(None, ge=0)
+    material_cost_override: Optional[Money] = Field(None, ge=0)
     labor_hours: Optional[float] = Field(None, ge=0)
-    hourly_rate: Optional[float] = Field(None, ge=0)
+    hourly_rate: Optional[Money] = Field(None, ge=0)
 
     # Pricing
-    profit_margin_percent: Optional[float] = Field(None, ge=0, le=100)
-    vat_rate: Optional[float] = Field(None, ge=0, le=100)
+    profit_margin_percent: Optional[Percent] = Field(None, ge=0, le=100)
+    vat_rate: Optional[Percent] = Field(None, ge=0, le=100)
 
     # ML feature fields (updatable at any point during order lifecycle)
     order_type: Optional[OrderTypeEnum] = Field(
@@ -386,7 +393,7 @@ class OrderUpdate(BaseModel):
 
     @field_validator("price")
     @classmethod
-    def validate_price(cls, v: Optional[float]) -> Optional[float]:
+    def validate_price(cls, v: Optional[Decimal]) -> Optional[Decimal]:
         """Validate price is reasonable."""
         if v is not None:
             if v < 0:
@@ -413,9 +420,9 @@ class OrderRead(OrderBase):
     current_location: Optional[str] = None
 
     # Weight & Material
-    estimated_weight_g: Optional[float] = None
-    actual_weight_g: Optional[float] = None
-    scrap_percentage: Optional[float] = 5.0
+    estimated_weight_g: Optional[Weight] = None
+    actual_weight_g: Optional[Weight] = None
+    scrap_percentage: Optional[Percent] = number_default(5.0)
 
     # Metal Inventory Integration
     metal_type: Optional[MetalType] = None
@@ -423,16 +430,16 @@ class OrderRead(OrderBase):
     specific_metal_purchase_id: Optional[int] = None
 
     # Cost Calculation
-    material_cost_calculated: Optional[float] = None
-    material_cost_override: Optional[float] = None
+    material_cost_calculated: Optional[Money] = None
+    material_cost_override: Optional[Money] = None
     labor_hours: Optional[float] = None
-    hourly_rate: Optional[float] = 75.00
-    labor_cost: Optional[float] = None
+    hourly_rate: Optional[Money] = number_default(75.00)
+    labor_cost: Optional[Money] = None
 
     # Pricing
-    profit_margin_percent: Optional[float] = 40.0
-    vat_rate: Optional[float] = 19.0
-    calculated_price: Optional[float] = None
+    profit_margin_percent: Optional[Percent] = number_default(40.0)
+    vat_rate: Optional[Percent] = number_default(19.0)
+    calculated_price: Optional[Money] = None
 
     created_at: datetime
     updated_at: datetime

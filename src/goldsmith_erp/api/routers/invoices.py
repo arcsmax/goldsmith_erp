@@ -25,7 +25,7 @@ to prevent FastAPI from treating "export" as an invoice_id path parameter.
 
 import io
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -236,7 +236,7 @@ async def export_invoices_datev(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
         ) from exc
 
-    filename = f"datev_export_{datetime.utcnow().strftime('%Y%m%d')}.csv"
+    filename = f"datev_export_{datetime.now(timezone.utc).strftime('%Y%m%d')}.csv"
     return StreamingResponse(
         io.BytesIO(csv_content.encode("utf-8-sig")),
         media_type="text/csv; charset=utf-8",
@@ -314,7 +314,7 @@ async def export_invoices_lexoffice(
         issued_invoices, reversal_invoices=cancelled_invoices
     )
 
-    filename = f"lexoffice_export_{datetime.utcnow().strftime('%Y%m%d')}.csv"
+    filename = f"lexoffice_export_{datetime.now(timezone.utc).strftime('%Y%m%d')}.csv"
     return StreamingResponse(
         io.BytesIO(csv_content.encode("utf-8-sig")),
         media_type="text/csv; charset=utf-8",

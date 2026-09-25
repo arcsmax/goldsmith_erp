@@ -30,7 +30,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Awaitable, Callable, Dict, List, Optional, cast
 
 from sqlalchemy import select
@@ -143,8 +143,8 @@ class OutboxService:
             dedupe_key=dedupe_key,
             status=OutboxStatus.PENDING.value,
             attempts=0,
-            next_attempt_at=datetime.utcnow(),
-            created_at=datetime.utcnow(),
+            next_attempt_at=datetime.now(timezone.utc),
+            created_at=datetime.now(timezone.utc),
         )
         db.add(msg)
         await db.flush()
@@ -156,7 +156,7 @@ class OutboxService:
         db: AsyncSession, *, limit: int, now: Optional[datetime] = None
     ) -> List[int]:
         """Lease up to ``limit`` due rows; returns their ids (committed)."""
-        moment = now or datetime.utcnow()
+        moment = now or datetime.now(timezone.utc)
         stmt = (
             select(OutboxMessage)
             .where(
@@ -212,7 +212,7 @@ class OutboxService:
     async def _mark_sent(db: AsyncSession, msg: Any) -> str:
         async with transactional(db):
             msg.status = OutboxStatus.SENT.value
-            msg.sent_at = datetime.utcnow()
+            msg.sent_at = datetime.now(timezone.utc)
             msg.last_error = None
         _log("sent", msg)
         return OutboxStatus.SENT.value
@@ -233,7 +233,7 @@ class OutboxService:
                 msg.status = OutboxStatus.DEAD.value
             else:
                 msg.status = OutboxStatus.FAILED.value
-                msg.next_attempt_at = datetime.utcnow() + timedelta(
+                msg.next_attempt_at = datetime.now(timezone.utc) + timedelta(
                     seconds=backoff_seconds(attempts)
                 )
         if not is_dead:
@@ -297,7 +297,7 @@ class OutboxService:
                 raise OutboxNotRetryableError(msg_id)
             msg.status = OutboxStatus.PENDING.value
             msg.attempts = 0
-            msg.next_attempt_at = datetime.utcnow()
+            msg.next_attempt_at = datetime.now(timezone.utc)
         await db.refresh(msg)
         _log("retry_requested", msg)
         return cast(OutboxMessage, msg)

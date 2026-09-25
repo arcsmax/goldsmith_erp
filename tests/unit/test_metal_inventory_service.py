@@ -10,6 +10,7 @@ Tests cover:
 """
 
 from datetime import datetime
+from decimal import Decimal
 
 import pytest
 
@@ -70,7 +71,7 @@ class TestMetalPurchaseCreation:
         )
 
         # 15000 / 333 = 45.045045... should round to 45.05
-        assert purchase.price_per_gram == 45.05
+        assert purchase.price_per_gram == Decimal("45.05")
 
 
 @pytest.mark.asyncio

@@ -14,7 +14,7 @@ All access to valuation records is audit-logged via structured logging.
 """
 
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import List, Optional
 
 from sqlalchemy import func, select
@@ -36,7 +36,7 @@ async def _generate_certificate_number(db: AsyncSession) -> str:
     Queries the highest existing sequence within the year and increments by one.
     Thread-safe under normal DB transaction isolation.
     """
-    year = datetime.utcnow().year
+    year = datetime.now(timezone.utc).year
     prefix = f"WG-{year}-"
 
     result = await db.execute(
@@ -135,7 +135,7 @@ class ValuationService:
         Generates the certificate number and sets valid_until = valuation_date + 2 years.
         """
         cert_number = await _generate_certificate_number(db)
-        val_date = valuation_date or datetime.utcnow()
+        val_date = valuation_date or datetime.now(timezone.utc)
         valid_until = val_date + timedelta(days=_VALIDITY_DAYS)
 
         cert = ValuationCertificate(

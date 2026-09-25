@@ -14,7 +14,7 @@ DEVELOPMENT ONLY — do not run in production.
 """
 
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy.orm import Session
 
@@ -263,7 +263,7 @@ SAMPLE_MATERIALS = [
 
 def _build_sample_orders(customer_ids: dict, user_id: int) -> list:
     """Build sample orders referencing created customer IDs."""
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     return [
         {
             "title": "Verlobungsring Solitär",
@@ -336,7 +336,7 @@ def _build_sample_orders(customer_ids: dict, user_id: int) -> list:
 
 
 def _build_metal_purchases() -> list:
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     return [
         {
             "metal_type": MetalType.GOLD_18K,
@@ -391,7 +391,7 @@ def seed_users(db: Session) -> dict:
             last_name=data["last_name"],
             role=data["role"],
             is_active=True,
-            created_at=datetime.utcnow(),
+            created_at=datetime.now(timezone.utc),
         )
         db.add(user)
         db.flush()
@@ -429,7 +429,7 @@ def seed_activities(db: Session) -> None:
             usage_count=0,
             is_custom=False,
             is_billable=data["category"] == "fabrication",
-            created_at=datetime.utcnow(),
+            created_at=datetime.now(timezone.utc),
         )
         db.add(activity)
         created += 1
@@ -465,7 +465,7 @@ def seed_customers(db: Session) -> dict:
             source=data.get("source"),
             notes=data.get("notes"),
             is_active=True,
-            created_at=datetime.utcnow(),
+            created_at=datetime.now(timezone.utc),
         )
         db.add(customer)
         db.flush()

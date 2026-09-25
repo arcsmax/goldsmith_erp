@@ -1,7 +1,7 @@
 """Customer/CRM API Endpoints"""
 
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Annotated, Any, Dict, List, Optional
 
@@ -558,7 +558,7 @@ async def gdpr_export_customer(
 
     payload = {
         **sections,
-        "export_date": datetime.utcnow().isoformat(),
+        "export_date": datetime.now(timezone.utc).isoformat(),
         "customer": {
             "id": customer.id,
             "first_name": customer.first_name,
@@ -628,8 +628,8 @@ async def _record_export_request(
                 customer_id=customer_id,
                 request_type="export",
                 status="completed",
-                requested_at=datetime.utcnow(),
-                completed_at=datetime.utcnow(),
+                requested_at=datetime.now(timezone.utc),
+                completed_at=datetime.now(timezone.utc),
                 requested_by=user_id,
                 notes="Art. 15 export produced (GDPR-05 complete export).",
             )
@@ -676,7 +676,7 @@ async def _write_pending_gdpr_request(
             customer_id=customer_id,
             request_type="erasure",
             status="PENDING",
-            requested_at=datetime.utcnow(),
+            requested_at=datetime.now(timezone.utc),
             requested_by=performed_by,
             notes=(
                 "Art. 17 erasure request received — awaiting "
@@ -742,7 +742,7 @@ async def _finalize_pending_gdpr_request(
         return
     row.status = new_status
     if new_status not in ("PENDING",):
-        row.completed_at = datetime.utcnow()
+        row.completed_at = datetime.now(timezone.utc)
     if notes_suffix:
         existing = row.notes or ""
         row.notes = f"{existing}\n{notes_suffix}" if existing else notes_suffix
@@ -884,7 +884,7 @@ async def gdpr_erase_customer(
             ),
         )
 
-    deletion_date = datetime.utcnow() + timedelta(days=30)
+    deletion_date = datetime.now(timezone.utc) + timedelta(days=30)
     file_erasure = FileErasureService(Path(settings.FILE_STORAGE_ROOT))
 
     # All mutations go through a single transaction — if PII scrub or
@@ -893,7 +893,7 @@ async def gdpr_erase_customer(
     try:
         customer.is_active = False
         customer.deletion_scheduled_at = deletion_date
-        customer.updated_at = datetime.utcnow()
+        customer.updated_at = datetime.now(timezone.utc)
 
         # Scrub PII from related free-text records. skip_gdpr_request=True
         # because THIS endpoint manages the full request lifecycle

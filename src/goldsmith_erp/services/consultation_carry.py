@@ -27,7 +27,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timezone
 from typing import Any, Optional, cast
 
 from sqlalchemy import select
@@ -163,9 +163,9 @@ def _first_metal(materials: Any) -> tuple[Optional[str], Optional[MetalType]]:
 
 
 def _deadline_from(occasion_date: Optional[date]) -> Optional[datetime]:
-    if occasion_date is None or occasion_date < datetime.utcnow().date():
+    if occasion_date is None or occasion_date < datetime.now(timezone.utc).date():
         return None
-    return datetime.combine(occasion_date, time.min)
+    return datetime.combine(occasion_date, time.min, tzinfo=timezone.utc)
 
 
 def _plausible_ring_size(value: Optional[float]) -> Optional[float]:

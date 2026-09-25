@@ -14,14 +14,14 @@ paths.  See ``scripts/seed_demo.py`` and ``db/seed_data.py`` for usage.
 from __future__ import annotations
 
 import uuid as _uuid_lib
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Iterable
 
 # Frozen-at-import time so the entire run of a single seed script computes
 # timestamps relative to the SAME instant — keeps "now", "today", and
 # "_days_ago(N)" internally consistent without requiring callers to thread
 # a clock through every function.
-NOW: datetime = datetime.utcnow()
+NOW: datetime = datetime.now(timezone.utc)
 TODAY: datetime = NOW.replace(hour=0, minute=0, second=0, microsecond=0)
 
 

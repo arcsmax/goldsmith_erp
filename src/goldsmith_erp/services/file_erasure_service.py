@@ -48,7 +48,7 @@ from __future__ import annotations
 import logging
 import os
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, List, Optional, Tuple
 
@@ -1009,7 +1009,7 @@ class FileErasureService:
             entity="customer",
             entity_id=customer_id,
             details=result.as_dict(),
-            timestamp=datetime.utcnow(),
+            timestamp=datetime.now(timezone.utc),
         )
         db.add(audit_log)
 
