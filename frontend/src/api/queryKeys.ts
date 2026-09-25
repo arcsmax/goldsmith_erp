@@ -70,4 +70,14 @@ export const queryKeys = {
     all: ['materials'] as const,
     lowStock: (threshold: number) => [...queryKeys.materials.all, 'low-stock', { threshold }] as const,
   },
+  users: {
+    all: ['users'] as const,
+    /** GET /users/ (admin list, legacy skip/limit). */
+    list: () => [...queryKeys.users.all, 'list'] as const,
+  },
+  calendar: {
+    all: ['calendar'] as const,
+    /** GET /calendar/events for one visible date range. */
+    events: (range: DateRange) => [...queryKeys.calendar.all, 'events', range] as const,
+  },
 } as const;

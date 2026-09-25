@@ -1,111 +1,134 @@
-// Users Page Component (Admin only)
-import React, { useEffect, useState } from 'react';
+// Users page (admin only) — list template (playbook 5.1) on TanStack Query (W4-03).
+//
+// GET /users/ is not paged on the server; the admin list is short, so one
+// query holds it. Create, update, activate and deactivate are mutations that
+// invalidate ['users'].
+import React, { useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { usersApi } from '../api';
-import { UserType, UserCreateInput, UserUpdateInput } from '../types';
+import { queryKeys } from '../api/queryKeys';
 import { UserFormModal } from '../components/users/UserFormModal';
 import { useToast, useConfirm } from '../contexts';
+import { getErrorMessage } from '../lib/errors';
+import type { UserType, UserCreateInput, UserUpdateInput } from '../types';
+import { Button, DataTable, Icon, PageHeader, type Column, type PageStateValue } from '../ui';
 import '../styles/pages.css';
+import '../styles/users.css';
+
+const ROLE_LABELS: Readonly<Record<string, string>> = {
+  ADMIN: 'Administrator',
+  GOLDSMITH: 'Goldschmied',
+  VIEWER: 'Betrachter',
+  USER: 'Benutzer',
+};
+
+function roleLabel(role: string): string {
+  return ROLE_LABELS[role] ?? role;
+}
+
+function formatDate(value: string): string {
+  return new Date(value).toLocaleDateString('de-DE');
+}
+
+const ActiveState: React.FC<{ isActive: boolean }> = ({ isActive }) => (
+  <span className="users-active-state">
+    <Icon name={isActive ? 'circle-check' : 'circle-x'} />
+    {isActive ? 'Aktiv' : 'Inaktiv'}
+  </span>
+);
+
+function useUserMutations(onSaved: () => void) {
+  const queryClient = useQueryClient();
+  const { showToast } = useToast();
+  const invalidate = () => queryClient.invalidateQueries({ queryKey: queryKeys.users.all });
+
+  const create = useMutation({
+    mutationFn: (data: UserCreateInput) => usersApi.create(data),
+    onSuccess: async () => {
+      await invalidate();
+      onSaved();
+      showToast('Benutzer angelegt', 'success');
+    },
+    onError: (err) => showToast(getErrorMessage(err, 'Benutzer konnte nicht angelegt werden'), 'error'),
+  });
+
+  const update = useMutation({
+    mutationFn: ({ id, data }: { id: number; data: UserUpdateInput }) => usersApi.update(id, data),
+    onSuccess: async () => {
+      await invalidate();
+      onSaved();
+      showToast('Benutzer gespeichert', 'success');
+    },
+    onError: (err) =>
+      showToast(getErrorMessage(err, 'Benutzer konnte nicht gespeichert werden'), 'error'),
+  });
+
+  const deactivate = useMutation({
+    mutationFn: (id: number) => usersApi.deactivate(id),
+    onSuccess: async () => {
+      await invalidate();
+      showToast('Benutzer deaktiviert', 'success');
+    },
+    onError: (err) =>
+      showToast(getErrorMessage(err, 'Benutzer konnte nicht deaktiviert werden'), 'error'),
+  });
+
+  const activate = useMutation({
+    mutationFn: (id: number) => usersApi.activate(id),
+    onSuccess: async () => {
+      await invalidate();
+      showToast('Benutzer aktiviert', 'success');
+    },
+    onError: (err) => showToast(getErrorMessage(err, 'Benutzer konnte nicht aktiviert werden'), 'error'),
+  });
+
+  return { create, update, deactivate, activate };
+}
 
 export const UsersPage: React.FC = () => {
-  const { showToast } = useToast();
   const { showConfirm } = useConfirm();
-  const [users, setUsers] = useState<UserType[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [isFormLoading, setIsFormLoading] = useState(false);
   const [selectedUser, setSelectedUser] = useState<UserType | null>(null);
 
-  useEffect(() => {
-    fetchUsers();
-  }, []);
+  const usersQuery = useQuery({
+    queryKey: queryKeys.users.list(),
+    queryFn: () => usersApi.getAll(),
+  });
+  const users = usersQuery.data ?? [];
 
-  const fetchUsers = async () => {
-    try {
-      setIsLoading(true);
-      setError(null);
-      const data = await usersApi.getAll();
-      setUsers(data);
-    } catch (err: any) {
-      setError(err.response?.data?.detail || 'Fehler beim Laden der Benutzer');
-    } finally {
-      setIsLoading(false);
-    }
+  const closeModal = () => {
+    setIsModalOpen(false);
+    setSelectedUser(null);
   };
+  const { create, update, deactivate, activate } = useUserMutations(closeModal);
 
-  const handleCreateUser = async (data: UserCreateInput) => {
-    try {
-      setIsFormLoading(true);
-      await usersApi.create(data);
-      await fetchUsers();
-      setIsModalOpen(false);
-      showToast('Benutzer erfolgreich erstellt!', 'success');
-    } catch (err: any) {
-      showToast(err.response?.data?.detail || 'Fehler beim Erstellen des Benutzers', 'error');
-    } finally {
-      setIsFormLoading(false);
-    }
-  };
-
-  const handleUpdateUser = async (data: UserUpdateInput) => {
-    if (!selectedUser) return;
-
-    try {
-      setIsFormLoading(true);
-      await usersApi.update(selectedUser.id, data);
-      await fetchUsers();
-      setIsModalOpen(false);
-      setSelectedUser(null);
-      showToast('Benutzer erfolgreich aktualisiert!', 'success');
-    } catch (err: any) {
-      showToast(err.response?.data?.detail || 'Fehler beim Aktualisieren des Benutzers', 'error');
-    } finally {
-      setIsFormLoading(false);
-    }
-  };
-
-  const handleFormSubmit = async (data: UserCreateInput | UserUpdateInput) => {
+  // Errors surface as a toast (onError); the dialog stays open until onSuccess closes it.
+  const handleFormSubmit = async (data: UserCreateInput | UserUpdateInput): Promise<void> => {
     if (selectedUser) {
-      await handleUpdateUser(data as UserUpdateInput);
+      update.mutate({ id: selectedUser.id, data: data as UserUpdateInput });
     } else {
-      await handleCreateUser(data as UserCreateInput);
+      create.mutate(data as UserCreateInput);
     }
   };
 
   const handleDeactivateUser = async (user: UserType) => {
     const confirmed = await showConfirm({
       title: 'Benutzer deaktivieren',
-      message: `Mochten Sie den Benutzer "${user.email}" wirklich deaktivieren? Der Benutzer kann sich danach nicht mehr anmelden.`,
+      message: `Möchten Sie den Benutzer „${user.email}“ wirklich deaktivieren? Der Benutzer kann sich danach nicht mehr anmelden.`,
       confirmLabel: 'Deaktivieren',
       variant: 'danger',
     });
-    if (!confirmed) return;
-
-    try {
-      await usersApi.deactivate(user.id);
-      await fetchUsers();
-      showToast('Benutzer erfolgreich deaktiviert.', 'success');
-    } catch (err: any) {
-      showToast(err.response?.data?.detail || 'Fehler beim Deaktivieren des Benutzers', 'error');
-    }
+    if (confirmed) deactivate.mutate(user.id);
   };
 
   const handleActivateUser = async (user: UserType) => {
     const confirmed = await showConfirm({
       title: 'Benutzer aktivieren',
-      message: `Mochten Sie den Benutzer "${user.email}" wieder aktivieren?`,
+      message: `Möchten Sie den Benutzer „${user.email}“ wieder aktivieren?`,
       confirmLabel: 'Aktivieren',
       variant: 'default',
     });
-    if (!confirmed) return;
-
-    try {
-      await usersApi.activate(user.id);
-      await fetchUsers();
-      showToast('Benutzer erfolgreich aktiviert.', 'success');
-    } catch (err: any) {
-      showToast(err.response?.data?.detail || 'Fehler beim Aktivieren des Benutzers', 'error');
-    }
+    if (confirmed) activate.mutate(user.id);
   };
 
   const openCreateModal = () => {
@@ -118,144 +141,88 @@ export const UsersPage: React.FC = () => {
     setIsModalOpen(true);
   };
 
-  const closeModal = () => {
-    setIsModalOpen(false);
-    setSelectedUser(null);
-  };
+  const state: PageStateValue = usersQuery.isPending
+    ? { status: 'loading' }
+    : usersQuery.isError
+      ? {
+          status: 'error',
+          error: `${getErrorMessage(usersQuery.error, 'Benutzer konnten nicht geladen werden')} Dieser Bereich ist nur für Administratoren zugänglich.`,
+          retry: () => void usersQuery.refetch(),
+        }
+      : users.length === 0
+        ? { status: 'empty' }
+        : { status: 'ready' };
 
-  const getRoleLabel = (role: string) => {
-    const labels: Record<string, string> = {
-      ADMIN: 'Administrator',
-      GOLDSMITH: 'Goldschmied',
-      VIEWER: 'Betrachter',
-      USER: 'Benutzer',
-    };
-    return labels[role] || role;
-  };
+  const columns: Column<UserType>[] = [
+    { key: 'email', header: 'E-Mail', render: (u) => u.email },
+    { key: 'first_name', header: 'Vorname', render: (u) => u.first_name || '—', hideBelow: 'tablet' },
+    { key: 'last_name', header: 'Nachname', render: (u) => u.last_name || '—', hideBelow: 'tablet' },
+    { key: 'role', header: 'Rolle', render: (u) => roleLabel(u.role) },
+    { key: 'active', header: 'Status', render: (u) => <ActiveState isActive={u.is_active} /> },
+    {
+      key: 'created_at',
+      header: 'Erstellt',
+      numeric: true,
+      hideBelow: 'tablet',
+      render: (u) => formatDate(u.created_at),
+    },
+    {
+      key: 'actions',
+      header: 'Aktionen',
+      render: (u) => (
+        <div className="users-page-actions">
+          <Button variant="secondary" icon="pencil" onClick={() => openEditModal(u)}>
+            Bearbeiten
+          </Button>
+          {u.is_active ? (
+            <Button variant="ghost" onClick={() => void handleDeactivateUser(u)}>
+              Deaktivieren
+            </Button>
+          ) : (
+            <Button variant="ghost" icon="check" onClick={() => void handleActivateUser(u)}>
+              Aktivieren
+            </Button>
+          )}
+        </div>
+      ),
+    },
+  ];
 
-  if (isLoading) {
-    return <div className="page-loading">Lade Benutzer...</div>;
-  }
-
-  if (error) {
-    return (
-      <div className="page-error">
-        <p>{error}</p>
-        <p className="error-hint">
-          Hinweis: Dieser Bereich ist nur fur Administratoren zuganglich.
-        </p>
-      </div>
-    );
-  }
+  const activeCount = users.filter((u) => u.is_active).length;
 
   return (
     <div className="page-container">
-      <header className="page-header">
-        <div>
-          <h1>Benutzerverwaltung</h1>
-          <p style={{ color: '#666', margin: '0.5rem 0 0 0' }}>
-            {users.length} Benutzer &bull;{' '}
-            {users.filter((u) => u.is_active).length} aktiv
-          </p>
-        </div>
-        <button className="btn-primary" onClick={openCreateModal}>
-          + Neuer Benutzer
-        </button>
-      </header>
+      <PageHeader
+        title="Benutzerverwaltung"
+        meta={usersQuery.isSuccess ? `${users.length} Benutzer · ${activeCount} aktiv` : undefined}
+        primaryAction={
+          <Button icon="plus" onClick={openCreateModal}>
+            Benutzer anlegen
+          </Button>
+        }
+      />
 
-      {users.length === 0 ? (
-        <div className="empty-state">
-          <p>Keine Benutzer vorhanden.</p>
-        </div>
-      ) : (
-        <div className="table-container">
-          <table className="data-table users-table">
-            <thead>
-              <tr>
-                <th>ID</th>
-                <th>E-Mail</th>
-                <th>Vorname</th>
-                <th>Nachname</th>
-                <th>Rolle</th>
-                <th>Status</th>
-                <th>Erstellt</th>
-                <th>Aktionen</th>
-              </tr>
-            </thead>
-            <tbody>
-              {users.map((user) => (
-                <tr key={user.id}>
-                  <td data-label="ID">#{user.id}</td>
-                  <td data-label="E-Mail">{user.email}</td>
-                  <td data-label="Vorname">{user.first_name || '-'}</td>
-                  <td data-label="Nachname">{user.last_name || '-'}</td>
-                  <td data-label="Rolle">
-                    <span className={`status-badge status-${user.role.toLowerCase()}`}>
-                      {getRoleLabel(user.role)}
-                    </span>
-                  </td>
-                  <td data-label="Status">
-                    <span
-                      className={`status-badge ${
-                        user.is_active ? 'status-completed' : 'status-new'
-                      }`}
-                    >
-                      {user.is_active ? 'Aktiv' : 'Inaktiv'}
-                    </span>
-                  </td>
-                  <td data-label="Erstellt">
-                    {new Date(user.created_at).toLocaleDateString('de-DE')}
-                  </td>
-                  <td data-label="Aktionen">
-                    <div className="users-page-actions" style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-                      <button
-                        className="btn-icon btn-edit"
-                        onClick={() => openEditModal(user)}
-                        title="Bearbeiten"
-                        style={{ minWidth: '44px', minHeight: '44px' }}
-                      >
-                        Bearbeiten
-                      </button>
-                      {user.is_active ? (
-                        <button
-                          className="btn-icon btn-delete"
-                          onClick={() => handleDeactivateUser(user)}
-                          title="Benutzer deaktivieren"
-                          style={{ minWidth: '44px', minHeight: '44px' }}
-                        >
-                          Deaktivieren
-                        </button>
-                      ) : (
-                        <button
-                          className="btn-icon"
-                          onClick={() => handleActivateUser(user)}
-                          title="Benutzer aktivieren"
-                          style={{
-                            minWidth: '44px',
-                            minHeight: '44px',
-                            background: '#dcfce7',
-                            color: '#166534',
-                            border: '1px solid #bbf7d0',
-                          }}
-                        >
-                          Aktivieren
-                        </button>
-                      )}
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+      <DataTable
+        rows={users}
+        columns={columns}
+        getRowKey={(u) => u.id}
+        caption="Benutzer"
+        state={state}
+        cardTitle={(u) => u.email}
+        empty={{
+          icon: 'inbox',
+          title: 'Noch keine Benutzer',
+          body: 'Legen Sie den ersten Benutzer für die Werkstatt an.',
+          action: <Button onClick={openCreateModal}>Benutzer anlegen</Button>,
+        }}
+      />
 
       <UserFormModal
         isOpen={isModalOpen}
         onClose={closeModal}
         onSubmit={handleFormSubmit}
         user={selectedUser}
-        isLoading={isFormLoading}
+        isLoading={create.isPending || update.isPending}
       />
     </div>
   );
