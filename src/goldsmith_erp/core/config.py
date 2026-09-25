@@ -632,6 +632,15 @@ class Settings(BaseSettings):
     # always wins over this setting.
     RETENTION_EXECUTE: bool = False
 
+    # ── Health check (LV-17) ─────────────────────────────────────────────────
+    # Appended at the end of Settings on purpose (merge-safety, see above).
+    # /health's disk component reports "warning" from 80 % used (informational,
+    # unchanged) but that alone no longer flips the overall status to
+    # "degraded" — a workshop server sitting at 80-94 % is routine, not an
+    # incident. Only usage at or above this percentage flips the overall
+    # status to "unhealthy" (503), the same as a down database or Redis.
+    HEALTH_DISK_CRITICAL_PERCENT: float = 95.0
+
 
 # Instantiate once per process
 settings = Settings()
