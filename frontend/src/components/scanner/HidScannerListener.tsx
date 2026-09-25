@@ -93,7 +93,6 @@ export const HidScannerListener: React.FC<HidScannerListenerProps> = ({
       } catch (err) {
         // The scan still happened even though it could not be resolved.
         await recordScan(payload, null, context);
-        // eslint-disable-next-line no-console
         console.error('[HidScannerListener] Scan konnte nicht verarbeitet werden', err);
       }
     },

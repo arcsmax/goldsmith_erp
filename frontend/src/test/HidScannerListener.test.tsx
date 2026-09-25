@@ -8,7 +8,7 @@
 // wiring: a burst typed into a focused text input must NOT reach the
 // handler.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import React, { useRef } from 'react';
+import React from 'react';
 import { act, render, screen, waitFor } from '@testing-library/react';
 
 const mocks = vi.hoisted(() => ({
@@ -50,7 +50,7 @@ function orderResolve(): ResolveResponse {
 function makeTransport(resolveFn: (payload: string, ctx: ScanContext) => Promise<ResolveResponse>): Transport {
   return {
     resolve: resolveFn,
-    logScan: vi.fn(async (_event: ScanEvent) => {}),
+    logScan: vi.fn(async () => {}),
     executeAction: vi.fn(),
   };
 }
