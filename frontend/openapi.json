@@ -3322,6 +3322,80 @@
         }
       }
     },
+    "/api/v1/orders/{order_id}/status-report.pdf": {
+      "get": {
+        "tags": [
+          "orders"
+        ],
+        "summary": "Get Order Status Report",
+        "description": "Statusbericht (Kundenbericht) als PDF (W6, DOM section D Option 2).\n\nWerkstatt-Kopf, Schmuckstueck (Titel, Material, Steine), Verlauf aus\nStatus-Ereignissen und tatsaechlich verschickten Kundeninfos, die\nzuletzt mit der Kundin/dem Kunden geteilten Fotos, ein \"Wie geht es\nweiter\"-Text und die Kontaktzeile. Nie Preise, Kosten, interne Notizen\noder Mitarbeiternamen (CLAUDE.md). GOLDSMITH/ADMIN only (VIEWER: 403);\njeder Abruf wird protokolliert.",
+        "operationId": "get_order_status_report_api_v1_orders__order_id__status_report_pdf_get",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "order_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Order Id"
+            }
+          },
+          {
+            "name": "next_steps",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 2000
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Next Steps"
+            }
+          },
+          {
+            "name": "access_token",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Access Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/orders/{order_id}/location": {
       "post": {
         "tags": [
@@ -14074,6 +14148,80 @@
         }
       }
     },
+    "/api/v1/repairs/{repair_id}/status-report.pdf": {
+      "get": {
+        "tags": [
+          "repairs"
+        ],
+        "summary": "Get Repair Status Report",
+        "description": "Statusbericht (Kundenbericht) als PDF (W6, DOM section D Option 2).\n\nWerkstatt-Kopf, Schmuckstueck, Verlauf (aktueller Status, tatsaechlich\nverschickte Kundeninfos), die neuesten Reparaturfotos, ein \"Wie geht es\nweiter\"-Text und die Kontaktzeile. Nie Preise, Kosten, Diagnosenotizen\noder Mitarbeiternamen (CLAUDE.md). GOLDSMITH/ADMIN only (VIEWER: 403);\njeder Abruf wird protokolliert.",
+        "operationId": "get_repair_status_report_api_v1_repairs__repair_id__status_report_pdf_get",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "repair_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Repair Id"
+            }
+          },
+          {
+            "name": "next_steps",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 2000
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Next Steps"
+            }
+          },
+          {
+            "name": "access_token",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Access Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/repairs/{repair_id}/intake-checklist": {
       "put": {
         "tags": [
@@ -18123,7 +18271,7 @@
           "customer-updates"
         ],
         "summary": "Kundeninfo-Update verschicken",
-        "description": "Verschickt das Update per Email.\n\nLiefert IMMER 200 — auch bei fehlgeschlagenem Versand oder wenn SMTP\nnicht konfiguriert ist (``delivered=false``); der Entwurf bleibt in\njedem Fall erhalten. Ein bereits verschicktes Update (Status \"sent\")\nkann nicht erneut verschickt werden (409).",
+        "description": "Verschickt das Update per Email.\n\nLiefert IMMER 200 — auch bei fehlgeschlagenem Versand oder wenn SMTP\nnicht konfiguriert ist (``delivered=false``); der Entwurf bleibt in\njedem Fall erhalten. Ein bereits verschicktes Update (Status \"sent\")\nkann nicht erneut verschickt werden (409). Optionaler Body\n``{\"attach_status_report\": true}`` haengt den aktuellen Statusbericht\nals PDF an die E-Mail an (W6, \"Statusbericht anhaengen\").",
         "operationId": "send_update_api_v1_updates__update_id__send_post",
         "security": [
           {
@@ -18157,6 +18305,23 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/AttachStatusReportRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Data"
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -20277,6 +20442,19 @@
         ],
         "title": "ApproveQuoteRequest",
         "description": "Request body for approving a quote.\n\nDOM-11d: ``response_method`` records how the customer agreed (in person,\nby email reply, by phone), the same evidence vocabulary as the section\n649 BGB cost-change approval. The signature stays optional."
+      },
+      "AttachStatusReportRequest": {
+        "properties": {
+          "attach_status_report": {
+            "type": "boolean",
+            "title": "Attach Status Report",
+            "default": false
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "AttachStatusReportRequest",
+        "description": "Optional body of ``POST /updates/{id}/send``.\n\n\"Statusbericht anhängen\" in the Kundeninfo composer (W6, DOM section D\nOption 2): when true, the live Statusbericht PDF\n(``status_report_service``) is generated fresh and attached to the\noutgoing email, and the message is classified as\n``MessageKind.STATUS_REPORT`` (contractual basis) for the content-rule\nand audit-log checks. Never persisted — there is no DB column for it\n(see the model's docstring); a PDF-manual fallback caused by this same\nsend instead relies on the frontend calling the standalone\n``GET /orders/{id}/status-report.pdf`` / ``.../repairs/{id}/...``\nendpoint directly, since the flag itself cannot be looked up later from\nthe stored CustomerUpdate row."
       },
       "BatchLogResponse": {
         "properties": {
