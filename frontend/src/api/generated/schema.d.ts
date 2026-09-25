@@ -4584,7 +4584,13 @@ export interface paths {
          * @description Replaces all theme settings.
          *
          *     Only users with the ADMIN role may call this endpoint.
-         *     The new settings are validated by Pydantic before being persisted.
+         *     The new settings are validated by Pydantic before being persisted, and
+         *     every text-bearing colour (primary_color, primary_dark,
+         *     header_gradient_start, header_gradient_end) must meet the WCAG AA
+         *     minimum contrast ratio (4.5:1) against white text — the frontend already
+         *     silently drops a failing colour and falls back to the default token
+         *     (useTheme.ts's setTextBearingColour), so the backend rejects it outright
+         *     instead of persisting a value the UI would never actually apply.
          */
         put: operations["update_theme_api_v1_theme_put"];
         post?: never;
@@ -11442,7 +11448,7 @@ export interface components {
             /**
              * Header Gradient Start
              * @description Header-Verlauf Startfarbe
-             * @default #d97706
+             * @default #b45309
              */
             header_gradient_start: string;
             /**
@@ -11458,8 +11464,8 @@ export interface components {
             page_background: string;
             /**
              * Primary Color
-             * @description Hauptfarbe (CSS hex, z. B. #d97706)
-             * @default #d97706
+             * @description Hauptfarbe (CSS hex, z. B. #b45309)
+             * @default #b45309
              */
             primary_color: string;
             /**

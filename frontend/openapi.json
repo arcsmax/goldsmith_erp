@@ -16986,7 +16986,7 @@
           "theme"
         ],
         "summary": "Theme-Einstellungen aktualisieren (nur ADMIN)",
-        "description": "Replaces all theme settings.\n\nOnly users with the ADMIN role may call this endpoint.\nThe new settings are validated by Pydantic before being persisted.",
+        "description": "Replaces all theme settings.\n\nOnly users with the ADMIN role may call this endpoint.\nThe new settings are validated by Pydantic before being persisted, and\nevery text-bearing colour (primary_color, primary_dark,\nheader_gradient_start, header_gradient_end) must meet the WCAG AA\nminimum contrast ratio (4.5:1) against white text — the frontend already\nsilently drops a failing colour and falls back to the default token\n(useTheme.ts's setTextBearingColour), so the backend rejects it outright\ninstead of persisting a value the UI would never actually apply.",
         "operationId": "update_theme_api_v1_theme_put",
         "security": [
           {
@@ -33906,8 +33906,8 @@
             "type": "string",
             "pattern": "^#[0-9a-fA-F]{6}$",
             "title": "Primary Color",
-            "description": "Hauptfarbe (CSS hex, z. B. #d97706)",
-            "default": "#d97706"
+            "description": "Hauptfarbe (CSS hex, z. B. #b45309)",
+            "default": "#b45309"
           },
           "primary_dark": {
             "type": "string",
@@ -33921,7 +33921,7 @@
             "pattern": "^#[0-9a-fA-F]{6}$",
             "title": "Header Gradient Start",
             "description": "Header-Verlauf Startfarbe",
-            "default": "#d97706"
+            "default": "#b45309"
           },
           "header_gradient_end": {
             "type": "string",
