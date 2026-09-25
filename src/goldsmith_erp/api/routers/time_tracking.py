@@ -1,6 +1,6 @@
 # src/goldsmith_erp/api/routers/time_tracking.py
 from datetime import datetime
-from typing import List, Optional
+from typing import Any, Dict, List, Optional, Sequence, Union
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -16,6 +16,13 @@ from goldsmith_erp.db.models import TimeEntry as TimeEntryModel
 from goldsmith_erp.db.models import User
 from goldsmith_erp.db.session import get_db
 from goldsmith_erp.models.interruption import InterruptionCreate, InterruptionRead
+from goldsmith_erp.models.pagination import (
+    Page,
+    PageParams,
+    legacy_list_response,
+    make_page_params,
+    page_response,
+)
 from goldsmith_erp.models.scanner import (
     LogInterruptionRequest,
     PatchActivityRequest,
@@ -30,6 +37,7 @@ from goldsmith_erp.models.time_entry import (
     TimeEntryWithDetails,
     TimeSummaryStats,
 )
+from goldsmith_erp.services import list_queries
 from goldsmith_erp.services.time_tracking_service import (
     TimeEntryValidationError,
     TimeTrackingService,
@@ -117,18 +125,40 @@ async def get_running_entry(
     return await TimeTrackingService.get_running_entry(db, current_user.id)
 
 
-@router.get("/order/{order_id}", response_model=List[TimeEntryRead])
+_TIME_ENTRY_LIST_MODEL = Union[Page[TimeEntryRead], List[TimeEntryRead]]
+
+
+def _time_entry_rows(rows: Sequence[Any]) -> List[Dict[str, Any]]:
+    return [TimeEntryRead.model_validate(e).model_dump() for e in rows]
+
+
+async def _time_entries_response(db: AsyncSession, page: PageParams, stmt, legacy):
+    """Page when ``offset`` was sent; otherwise the legacy list (deprecated)."""
+    if page.is_paged:
+        result = await list_queries.fetch_page(
+            db, stmt, page, list_queries.TIME_ENTRY_LIST_OPTIONS
+        )
+        return page_response(_time_entry_rows(result.items), result.total, page)
+    return legacy_list_response(_time_entry_rows(await legacy()))
+
+
+# W3-08: Page[...] when ``offset`` is sent, the legacy list otherwise.
+@router.get("/order/{order_id}", response_model=_TIME_ENTRY_LIST_MODEL)
 @require_permission(Permission.TIME_VIEW_ALL)
 async def get_time_entries_for_order(
     order_id: int,
-    skip: int = 0,
-    limit: int = 100,
+    page: PageParams = Depends(make_page_params(legacy_default_limit=100)),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     """Holt alle Zeiterfassungen für einen bestimmten Auftrag."""
-    return await TimeTrackingService.get_time_entries_for_order(
-        db, order_id, skip, limit
+    return await _time_entries_response(
+        db,
+        page,
+        list_queries.time_entries_statement(order_id=order_id),
+        lambda: TimeTrackingService.get_time_entries_for_order(
+            db, order_id, page.offset, page.limit
+        ),
     )
 
 
@@ -143,14 +173,13 @@ async def get_total_time_for_order(
     return await TimeTrackingService.get_total_time_for_order(db, order_id)
 
 
-@router.get("/user/{user_id}", response_model=List[TimeEntryRead])
+@router.get("/user/{user_id}", response_model=_TIME_ENTRY_LIST_MODEL)
 @require_permission(Permission.TIME_VIEW_OWN)
 async def get_time_entries_for_user(
     user_id: int,
     start_date: Optional[datetime] = Query(None, description="Filter by start date"),
     end_date: Optional[datetime] = Query(None, description="Filter by end date"),
-    skip: int = 0,
-    limit: int = 100,
+    page: PageParams = Depends(make_page_params(legacy_default_limit=100)),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -165,8 +194,15 @@ async def get_time_entries_for_user(
             detail="Permission denied: You can only view your own time entries or need TIME_VIEW_ALL permission",
         )
 
-    return await TimeTrackingService.get_time_entries_for_user(
-        db, user_id, start_date, end_date, skip, limit
+    return await _time_entries_response(
+        db,
+        page,
+        list_queries.time_entries_statement(
+            user_id=user_id, start_date=start_date, end_date=end_date
+        ),
+        lambda: TimeTrackingService.get_time_entries_for_user(
+            db, user_id, start_date, end_date, page.offset, page.limit
+        ),
     )
 
 

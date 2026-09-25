@@ -22,6 +22,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy.orm import selectinload
 
+from goldsmith_erp.core.errors import (
+    ConflictError,
+    DomainValidationError,
+    NotFoundError,
+)
 from goldsmith_erp.db.models import Customer as CustomerModel
 from goldsmith_erp.db.models import Invoice as InvoiceModel
 from goldsmith_erp.db.models import InvoiceLineItem as InvoiceLineItemModel
@@ -210,15 +215,14 @@ class InvoiceService:
             )
             net_price = net_from_gross(order.calculated_price, vat_rate)
         else:
-            from fastapi import HTTPException
 
-            raise HTTPException(
-                status_code=422,
-                detail=(
+            raise DomainValidationError(
+                (
                     f"Auftrag {order.id} hat keinen vereinbarten Preis "
                     "(Preis, Kalkulation oder umgewandelter Kostenvoranschlag). "
                     "Bitte zuerst einen Preis festlegen."
                 ),
+                code="invoice.order_price_missing",
             )
 
         return [
@@ -367,22 +371,21 @@ class InvoiceService:
         """
         order = await InvoiceService._get_order_with_relations(db, invoice_in.order_id)
         if not order:
-            from fastapi import HTTPException
 
-            raise HTTPException(
-                status_code=404, detail=f"Auftrag {invoice_in.order_id} nicht gefunden"
+            raise NotFoundError(
+                f"Auftrag {invoice_in.order_id} nicht gefunden",
+                code="invoice.order_not_found",
             )
 
         # Guard: only invoice completed/delivered orders
         from goldsmith_erp.db.models import OrderStatusEnum
 
         if order.status not in (OrderStatusEnum.COMPLETED, OrderStatusEnum.DELIVERED):
-            from fastapi import HTTPException
 
-            raise HTTPException(
-                status_code=422,
-                detail=f"Rechnung kann nur fuer abgeschlossene Auftraege erstellt werden. "
+            raise DomainValidationError(
+                f"Rechnung kann nur fuer abgeschlossene Auftraege erstellt werden. "
                 f"Aktueller Status: {order.status.value}",
+                code="invoice.order_not_completed",
             )
 
         # Guard: no duplicate invoices per order
@@ -393,11 +396,10 @@ class InvoiceService:
             )
         )
         if existing.scalar_one_or_none():
-            from fastapi import HTTPException
 
-            raise HTTPException(
-                status_code=409,
-                detail=f"Fuer Auftrag {invoice_in.order_id} existiert bereits eine aktive Rechnung",
+            raise ConflictError(
+                f"Fuer Auftrag {invoice_in.order_id} existiert bereits eine aktive Rechnung",
+                code="invoice.duplicate_active",
             )
 
         # Build line items from the agreed price (never purchase cost)
@@ -619,14 +621,13 @@ class InvoiceService:
             return None
 
         if invoice.status in (InvoiceStatus.PAID, InvoiceStatus.CANCELLED):
-            from fastapi import HTTPException
 
-            raise HTTPException(
-                status_code=409,
-                detail=(
+            raise ConflictError(
+                (
                     "Bezahlte oder stornierte Rechnungen koennen nicht "
                     "bearbeitet werden"
                 ),
+                code="invoice.locked",
             )
 
         update_data = invoice_in.model_dump(exclude_unset=True)
@@ -673,14 +674,13 @@ class InvoiceService:
             return None
 
         if invoice.status != InvoiceStatus.DRAFT:
-            from fastapi import HTTPException
 
-            raise HTTPException(
-                status_code=409,
-                detail=(
+            raise ConflictError(
+                (
                     f"Nur Entwuerfe koennen versendet werden. "
                     f"Aktueller Status: {invoice.status.value}"
                 ),
+                code="invoice.not_draft",
             )
 
         async with transactional(db):
@@ -727,12 +727,11 @@ class InvoiceService:
             InvoiceStatus.OVERDUE,
         }
         if invoice.status not in allowed_transitions:
-            from fastapi import HTTPException
 
-            raise HTTPException(
-                status_code=422,
-                detail=f"Rechnung mit Status '{invoice.status.value}' kann nicht als bezahlt markiert werden. "
+            raise DomainValidationError(
+                f"Rechnung mit Status '{invoice.status.value}' kann nicht als bezahlt markiert werden. "
                 f"Erlaubt: {', '.join(s.value for s in allowed_transitions)}",
+                code="invoice.invalid_payment_transition",
             )
 
         paid_at = request.paid_date or datetime.utcnow()
@@ -785,19 +784,18 @@ class InvoiceService:
             return None
 
         if invoice.status == InvoiceStatus.PAID:
-            from fastapi import HTTPException
 
-            raise HTTPException(
-                status_code=422,
-                detail="Bezahlte Rechnungen koennen nicht storniert werden. "
+            raise DomainValidationError(
+                "Bezahlte Rechnungen koennen nicht storniert werden. "
                 "Bitte kontaktieren Sie den Administrator fuer eine Storno-Gutschrift.",
+                code="invoice.cancel_paid",
             )
 
         if invoice.status == InvoiceStatus.CANCELLED:
-            from fastapi import HTTPException
 
-            raise HTTPException(
-                status_code=422, detail="Rechnung ist bereits storniert"
+            raise DomainValidationError(
+                "Rechnung ist bereits storniert",
+                code="invoice.already_cancelled",
             )
 
         async with transactional(db):

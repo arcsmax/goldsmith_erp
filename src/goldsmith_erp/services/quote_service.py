@@ -17,13 +17,18 @@ import logging
 from datetime import datetime, timedelta
 from typing import List, Optional, cast
 
-from fastapi import HTTPException
 from sqlalchemy import func, update
 from sqlalchemy.engine import CursorResult
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy.orm import selectinload
 
+from goldsmith_erp.core.errors import (
+    ConflictError,
+    DomainValidationError,
+    NotFoundError,
+    UpstreamError,
+)
 from goldsmith_erp.db.models import CostChangeResponseMethod
 from goldsmith_erp.db.models import Customer as CustomerModel
 from goldsmith_erp.db.models import CustomerUpdateStatus, InvoiceLineType, MetalType
@@ -431,9 +436,9 @@ class QuoteService:
             select(CustomerModel.id).where(CustomerModel.id == quote_in.customer_id)
         )
         if not cust_result.scalar_one_or_none():
-            raise HTTPException(
-                status_code=404,
-                detail=f"Kunde {quote_in.customer_id} nicht gefunden",
+            raise NotFoundError(
+                f"Kunde {quote_in.customer_id} nicht gefunden",
+                code="quote.customer_not_found",
             )
 
         auto_items: List[QuoteLineItemCreate] = []
@@ -441,15 +446,15 @@ class QuoteService:
         if quote_in.order_id:
             order = await QuoteService._get_order_with_relations(db, quote_in.order_id)
             if not order:
-                raise HTTPException(
-                    status_code=404,
-                    detail=f"Auftrag {quote_in.order_id} nicht gefunden",
+                raise NotFoundError(
+                    f"Auftrag {quote_in.order_id} nicht gefunden",
+                    code="quote.order_not_found",
                 )
             if order.customer_id != quote_in.customer_id:
-                raise HTTPException(
-                    status_code=422,
-                    detail=f"Auftrag {quote_in.order_id} gehoert zu einem anderen "
+                raise DomainValidationError(
+                    f"Auftrag {quote_in.order_id} gehoert zu einem anderen "
                     f"Kunden; Angebot und Auftrag muessen denselben Kunden haben.",
+                    code="quote.order_customer_mismatch",
                 )
             auto_items = QuoteService._build_line_items_from_order(order)
 
@@ -619,9 +624,9 @@ class QuoteService:
 
         immutable_statuses = {QuoteStatus.CONVERTED}
         if quote.status in immutable_statuses:
-            raise HTTPException(
-                status_code=422,
-                detail=f"Umgewandelte Kostenvoranschlaege koennen nicht bearbeitet werden",
+            raise DomainValidationError(
+                f"Umgewandelte Kostenvoranschlaege koennen nicht bearbeitet werden",
+                code="quote.converted_immutable",
             )
 
         update_data = quote_in.model_dump(exclude_unset=True)
@@ -836,8 +841,9 @@ class QuoteService:
             method = UpdateDeliveryMethod.EMAIL
             if not await quote_delivery.email_quote(quote, customer, recipient):
                 await QuoteService._record_send_failure(db, quote, current_user)
-                raise HTTPException(
-                    status_code=502, detail=quote_delivery.SMTP_FAILED_DETAIL
+                raise UpstreamError(
+                    quote_delivery.SMTP_FAILED_DETAIL,
+                    code="quote.send_failed",
                 )
 
         async with transactional(db):
@@ -883,10 +889,10 @@ class QuoteService:
     @staticmethod
     def _require_draft_for_send(quote: QuoteModel) -> None:
         if quote.status != QuoteStatus.DRAFT:
-            raise HTTPException(
-                status_code=422,
-                detail=f"Nur Entwuerfe koennen versendet werden. "
+            raise DomainValidationError(
+                f"Nur Entwuerfe koennen versendet werden. "
                 f"Aktueller Status: {quote.status.value}",
+                code="quote.not_draft",
             )
 
     @staticmethod
@@ -943,10 +949,10 @@ class QuoteService:
             return None
 
         if quote.status not in (QuoteStatus.SENT, QuoteStatus.DRAFT):
-            raise HTTPException(
-                status_code=422,
-                detail=f"Nur gesendete oder Entwurf-Angebote koennen genehmigt werden. "
+            raise DomainValidationError(
+                f"Nur gesendete oder Entwurf-Angebote koennen genehmigt werden. "
                 f"Aktueller Status: {quote.status.value}",
+                code="quote.approve_invalid_status",
             )
 
         now = datetime.utcnow()
@@ -990,10 +996,10 @@ class QuoteService:
             return None
 
         if quote.status not in (QuoteStatus.SENT, QuoteStatus.DRAFT):
-            raise HTTPException(
-                status_code=422,
-                detail=f"Nur gesendete oder Entwurf-Angebote koennen abgelehnt werden. "
+            raise DomainValidationError(
+                f"Nur gesendete oder Entwurf-Angebote koennen abgelehnt werden. "
                 f"Aktueller Status: {quote.status.value}",
+                code="quote.reject_invalid_status",
             )
 
         now = datetime.utcnow()
@@ -1111,17 +1117,17 @@ class QuoteService:
     @staticmethod
     def _require_convertible(quote: QuoteModel, now: datetime) -> None:
         if quote.status != QuoteStatus.APPROVED:
-            raise HTTPException(
-                status_code=422,
-                detail=f"Nur genehmigte Angebote koennen umgewandelt werden. "
+            raise DomainValidationError(
+                f"Nur genehmigte Angebote koennen umgewandelt werden. "
                 f"Aktueller Status: {quote.status.value}",
+                code="quote.convert_not_approved",
             )
         if quote.valid_until is not None and quote.valid_until < now:
-            raise HTTPException(
-                status_code=422,
-                detail=f"Angebot {quote.quote_number} ist abgelaufen "
+            raise DomainValidationError(
+                f"Angebot {quote.quote_number} ist abgelaufen "
                 f"(gueltig bis {quote.valid_until:%d.%m.%Y}) und kann nicht "
                 f"umgewandelt werden.",
+                code="quote.expired",
             )
 
     @staticmethod
@@ -1139,16 +1145,16 @@ class QuoteService:
             )
         ).scalar_one_or_none()
         if order is None:
-            raise HTTPException(
-                status_code=422,
-                detail=f"Verknuepfter Auftrag {quote.order_id} existiert nicht "
+            raise DomainValidationError(
+                f"Verknuepfter Auftrag {quote.order_id} existiert nicht "
                 f"mehr; Angebot kann nicht umgewandelt werden.",
+                code="quote.linked_order_missing",
             )
         if order.customer_id != quote.customer_id:
-            raise HTTPException(
-                status_code=422,
-                detail=f"Auftrag {quote.order_id} gehoert zu einem anderen Kunden "
+            raise DomainValidationError(
+                f"Auftrag {quote.order_id} gehoert zu einem anderen Kunden "
                 f"als Angebot {quote.quote_number}; Umwandlung abgebrochen.",
+                code="quote.linked_order_customer_mismatch",
             )
         return order
 
@@ -1157,12 +1163,12 @@ class QuoteService:
         """Net agreed price; 422 when the quote has none (same rule as invoices)."""
         net_price = round(float(quote.subtotal or 0.0), 2)
         if net_price <= 0:
-            raise HTTPException(
-                status_code=422,
-                detail=(
+            raise DomainValidationError(
+                (
                     f"Angebot {quote.quote_number} hat keinen vereinbarten Preis. "
                     "Bitte zuerst Positionen mit Preis erfassen."
                 ),
+                code="quote.price_missing",
             )
         return net_price
 
@@ -1179,9 +1185,9 @@ class QuoteService:
             .execution_options(synchronize_session=False)
         )
         if cast(CursorResult, result).rowcount != 1:
-            raise HTTPException(
-                status_code=409,
-                detail=f"Angebot {quote.quote_number} wurde bereits umgewandelt.",
+            raise ConflictError(
+                f"Angebot {quote.quote_number} wurde bereits umgewandelt.",
+                code="quote.already_converted",
             )
 
     @staticmethod
@@ -1225,10 +1231,10 @@ class QuoteService:
             QuoteStatus.CONVERTED,
         }
         if quote.status in protected_statuses:
-            raise HTTPException(
-                status_code=422,
-                detail=f"Angebote mit Status '{quote.status.value}' koennen nicht geloescht werden. "
+            raise DomainValidationError(
+                f"Angebote mit Status '{quote.status.value}' koennen nicht geloescht werden. "
                 f"Nur Entwuerfe und abgelehnte Angebote sind loeschbar.",
+                code="quote.delete_protected",
             )
 
         async with transactional(db):

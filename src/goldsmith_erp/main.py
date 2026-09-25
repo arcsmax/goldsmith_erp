@@ -54,6 +54,7 @@ from goldsmith_erp.api.routers import time_tracking, users, valuations
 from goldsmith_erp.core import ws_manager
 from goldsmith_erp.core.config import settings
 from goldsmith_erp.core.encryption import EncryptionError, check_encryption_configured
+from goldsmith_erp.core.errors import register_domain_error_handler
 from goldsmith_erp.core.logging import setup_logging
 from goldsmith_erp.core.security import ALGORITHM
 from goldsmith_erp.core.token_revocation import is_token_revoked
@@ -137,6 +138,8 @@ _uploads_dir.mkdir(parents=True, exist_ok=True)
 # Add rate limiting state and error handler
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+# ARCH-08 / W3-07: one handler renders every DomainError as {detail, code, extra}.
+register_domain_error_handler(app)
 
 # Add security middleware (order matters — Starlette runs middleware in
 # REVERSE order of add(), so the LAST add() is the OUTERMOST / first to run

@@ -4,13 +4,18 @@ import uuid
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
-from fastapi import HTTPException
 from sqlalchemy import and_, case, delete, func, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy.orm import selectinload
 
+from goldsmith_erp.core.errors import (
+    ConflictError,
+    DomainValidationError,
+    ForbiddenError,
+    NotFoundError,
+)
 from goldsmith_erp.db.models import Activity as ActivityModel
 from goldsmith_erp.db.models import Interruption as InterruptionModel
 from goldsmith_erp.db.models import Order as OrderModel
@@ -43,7 +48,7 @@ logger = logging.getLogger(__name__)
 STALE_TIMER_THRESHOLD = timedelta(minutes=20)
 
 
-class TimerPossiblyStaleError(HTTPException):
+class TimerPossiblyStaleError(ConflictError):
     """Raised by ``switch_timer`` when the outgoing timer looks stale (A5.2).
 
     The 409 envelope carries a structured ``detail`` so the frontend can
@@ -53,16 +58,19 @@ class TimerPossiblyStaleError(HTTPException):
     """
 
     def __init__(self, *, old_entry_id: str, running_minutes: int) -> None:
+        message = (
+            f"Der Timer laeuft {running_minutes} min ohne Taetigkeits- "
+            "oder Unterbrechungs-Eintrag. Mittagspause abziehen?"
+        )
         super().__init__(
-            status_code=409,
-            detail={
+            message,
+            code="time_entry.possibly_stale",
+            extra={"old_entry_id": old_entry_id, "running_minutes": running_minutes},
+            legacy_detail={
                 "code": "TIMER_POSSIBLY_STALE",
                 "old_entry_id": old_entry_id,
                 "running_minutes": running_minutes,
-                "message": (
-                    f"Der Timer laeuft {running_minutes} min ohne Taetigkeits- "
-                    "oder Unterbrechungs-Eintrag. Mittagspause abziehen?"
-                ),
+                "message": message,
             },
         )
 
@@ -71,7 +79,7 @@ class TimerPossiblyStaleError(HTTPException):
 MAX_EDITED_DURATION = timedelta(hours=24)
 
 
-class TimerAlreadyRunningError(HTTPException):
+class TimerAlreadyRunningError(ConflictError):
     """409 when the user already has a running timer (BE-12, W1-17).
 
     Raised by the pre-insert check and, for the lost race of two concurrent
@@ -82,10 +90,9 @@ class TimerAlreadyRunningError(HTTPException):
     def __init__(self, running_entry_id: Optional[str] = None) -> None:
         suffix = f" (ID: {running_entry_id})" if running_entry_id else ""
         super().__init__(
-            status_code=409,
-            detail=(
-                f"Es läuft bereits eine Zeiterfassung{suffix}. " "Bitte zuerst stoppen."
-            ),
+            f"Es läuft bereits eine Zeiterfassung{suffix}. Bitte zuerst stoppen.",
+            code="time_entry.already_running",
+            extra={"running_entry_id": running_entry_id} if running_entry_id else None,
         )
 
 
@@ -93,7 +100,7 @@ class TimeEntryValidationError(ValueError):
     """An edit would store an impossible time entry (BE-18) -> 422."""
 
 
-class CrossUserTimerError(HTTPException):
+class CrossUserTimerError(ForbiddenError):
     """Raised by ``switch_timer`` when a caller tries to switch another user's timer (A5.1).
 
     This is a hard 403 — no modal, no retry. A scan from user A MUST NOT
@@ -104,14 +111,11 @@ class CrossUserTimerError(HTTPException):
     def __init__(
         self, *, old_entry_id: str, caller_user_id: int, owner_user_id: int
     ) -> None:
+        message = "Timer gehoert einem anderen Benutzer — Wechsel nicht erlaubt."
         super().__init__(
-            status_code=403,
-            detail={
-                "code": "CROSS_USER_TIMER_FORBIDDEN",
-                "message": (
-                    "Timer gehoert einem anderen Benutzer — Wechsel nicht " "erlaubt."
-                ),
-            },
+            message,
+            code="time_entry.cross_user_forbidden",
+            legacy_detail={"code": "CROSS_USER_TIMER_FORBIDDEN", "message": message},
         )
         # Surface details only to server-side logs; not echoed to the
         # client because enumerating owner IDs is information leakage.
@@ -773,9 +777,11 @@ class TimeTrackingService:
                 # Spec A5.1 fault: old entry doesn't exist — 404 surface
                 # rather than silently starting a new one. Client retry
                 # with a stale cached ID must fail loudly.
-                raise HTTPException(
-                    status_code=404,
-                    detail={
+                raise NotFoundError(
+                    "Die zu wechselnde Zeiterfassung wurde nicht gefunden.",
+                    code="time_entry.old_entry_not_found",
+                    extra={"old_entry_id": old_entry_id},
+                    legacy_detail={
                         "code": "OLD_ENTRY_NOT_FOUND",
                         "old_entry_id": old_entry_id,
                     },
@@ -801,9 +807,11 @@ class TimeTrackingService:
             # Old entry must actually be running — stopping a stopped
             # entry would double-count duration.
             if old_entry.end_time is not None:
-                raise HTTPException(
-                    status_code=409,
-                    detail={
+                raise ConflictError(
+                    "Die zu wechselnde Zeiterfassung ist bereits gestoppt.",
+                    code="time_entry.old_already_stopped",
+                    extra={"old_entry_id": old_entry.id},
+                    legacy_detail={
                         "code": "OLD_TIMER_ALREADY_STOPPED",
                         "old_entry_id": old_entry.id,
                     },
@@ -938,13 +946,18 @@ class TimeTrackingService:
         """
         entry = await TimeTrackingService.get_time_entry(db, entry_id)
         if entry is None:
-            raise HTTPException(status_code=404, detail="Time entry not found")
+            raise NotFoundError(
+                "Time entry not found",
+                code="time_entry.not_found",
+                extra={"entry_id": entry_id},
+            )
 
         # Ownership — mirrors A5.1 per-user scope for switch_timer.
         if entry.user_id != user.id:
-            raise HTTPException(
-                status_code=403,
-                detail={
+            raise ForbiddenError(
+                "Zeiterfassung gehoert einem anderen Benutzer.",
+                code="time_entry.cross_user_forbidden",
+                legacy_detail={
                     "code": "CROSS_USER_TIME_ENTRY_FORBIDDEN",
                     "message": "Zeiterfassung gehoert einem anderen Benutzer.",
                 },
@@ -952,12 +965,11 @@ class TimeTrackingService:
 
         # Must be running — patching a stopped entry rewrites history.
         if entry.end_time is not None:
-            raise HTTPException(
-                status_code=409,
-                detail={
-                    "code": "ENTRY_ALREADY_STOPPED",
-                    "entry_id": entry.id,
-                },
+            raise ConflictError(
+                "Diese Zeiterfassung ist bereits gestoppt.",
+                code="time_entry.already_stopped",
+                extra={"entry_id": entry.id},
+                legacy_detail={"code": "ENTRY_ALREADY_STOPPED", "entry_id": entry.id},
             )
 
         # Verify target activity exists — fail loudly rather than FK
@@ -966,7 +978,11 @@ class TimeTrackingService:
             select(ActivityModel.id).where(ActivityModel.id == activity_id).limit(1)
         )
         if activity_exists.scalar_one_or_none() is None:
-            raise HTTPException(status_code=404, detail="Activity not found")
+            raise NotFoundError(
+                "Activity not found",
+                code="activity.not_found",
+                extra={"activity_id": activity_id},
+            )
 
         # In-place update — single row, no fork.
         await db.execute(
@@ -1023,13 +1039,18 @@ class TimeTrackingService:
         """
         entry = await TimeTrackingService.get_time_entry(db, entry_id)
         if entry is None:
-            raise HTTPException(status_code=404, detail="Time entry not found")
+            raise NotFoundError(
+                "Time entry not found",
+                code="time_entry.not_found",
+                extra={"entry_id": entry_id},
+            )
 
         # Per-user scope — symmetric with patch_activity.
         if entry.user_id != user.id:
-            raise HTTPException(
-                status_code=403,
-                detail={
+            raise ForbiddenError(
+                "Zeiterfassung gehoert einem anderen Benutzer.",
+                code="time_entry.cross_user_forbidden",
+                legacy_detail={
                     "code": "CROSS_USER_TIME_ENTRY_FORBIDDEN",
                     "message": "Zeiterfassung gehoert einem anderen Benutzer.",
                 },
@@ -1039,18 +1060,17 @@ class TimeTrackingService:
         # entry breaks the Slice 2 adoption metric (interruptions are
         # evidence of activity inside the stale-timer window).
         if entry.end_time is not None:
-            raise HTTPException(
-                status_code=409,
-                detail={
-                    "code": "ENTRY_ALREADY_STOPPED",
-                    "entry_id": entry.id,
-                },
+            raise ConflictError(
+                "Diese Zeiterfassung ist bereits gestoppt.",
+                code="time_entry.already_stopped",
+                extra={"entry_id": entry.id},
+                legacy_detail={"code": "ENTRY_ALREADY_STOPPED", "entry_id": entry.id},
             )
 
         if duration_minutes < 0:
-            raise HTTPException(
-                status_code=422,
-                detail="duration_minutes must be >= 0",
+            raise DomainValidationError(
+                "duration_minutes must be >= 0",
+                code="interruption.invalid_duration",
             )
 
         db_interruption = InterruptionModel(

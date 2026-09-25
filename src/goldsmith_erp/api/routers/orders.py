@@ -1,6 +1,6 @@
 # src/goldsmith_erp/api/routers/orders.py
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.encoders import jsonable_encoder
@@ -17,7 +17,7 @@ from goldsmith_erp.api.role_projection import (
 )
 from goldsmith_erp.core.config import settings
 from goldsmith_erp.core.permissions import Permission, require_permission
-from goldsmith_erp.db.models import OrderPhoto, User
+from goldsmith_erp.db.models import OrderPhoto, OrderStatusEnum, User
 from goldsmith_erp.db.session import get_db
 from goldsmith_erp.models.order import (
     LocationChangeRequest,
@@ -29,6 +29,14 @@ from goldsmith_erp.models.order import (
     OrderTimelineRead,
     OrderUpdate,
 )
+from goldsmith_erp.models.pagination import (
+    Page,
+    PageParams,
+    legacy_list_response,
+    make_page_params,
+    page_response,
+)
+from goldsmith_erp.services import list_queries
 from goldsmith_erp.services.cost_calculation_service import CostCalculationService
 from goldsmith_erp.services.customer_update_service import write_financial_audit_row
 from goldsmith_erp.services.label_service import LabelService
@@ -43,7 +51,7 @@ router = APIRouter()
 #   Pricing, payment info, material costs → visible only to ADMIN and GOLDSMITH
 #
 # Every GET handler that returns an OrderRead (single or list) routes through
-# ``_project_order_for_user`` / ``_project_orders_for_user`` so VIEWERs never
+# ``_project_order_for_user`` / ``_project_order_rows`` so VIEWERs never
 # receive these seven fields. The scanner service already had the allow-list
 # pattern (scanner_service.ORDER_FIELDS_BY_ROLE); this brings the REST API in
 # line.
@@ -131,12 +139,12 @@ async def _first_photo_ids(db: AsyncSession, order_ids: List[int]) -> Dict[int, 
     return {int(order_id): str(photo_id) for order_id, photo_id in rows.all()}
 
 
-def _project_orders_for_user(
+def _project_order_rows(
     orders: Any,
     user: User,
     first_photo_ids: Optional[Dict[int, str]] = None,
-) -> JSONResponse:
-    """Serialize a list of ORM Orders into a role-aware JSON response.
+) -> List[Dict[str, Any]]:
+    """Role-aware list rows for ORM Orders.
 
     ``first_photo_id`` is design IP (DESIGN_VIEW): it is only filled for
     callers that may see photos; everyone else gets ``None`` (W2-01).
@@ -148,32 +156,68 @@ def _project_orders_for_user(
         row = OrderListRead.model_validate(order).model_dump(exclude=excludes)
         row["first_photo_id"] = (photo_ids or {}).get(order.id)
         data.append(row)
-    return JSONResponse(content=jsonable_encoder(data))
+    return data
 
 
 @router.get(
     "/",
-    response_model=List[OrderListRead],
+    # W3-08: Page[...] when ``offset`` is sent, the legacy list otherwise.
+    response_model=Union[Page[OrderListRead], List[OrderListRead]],
     # C5: VIEWER responses strip financial fields — the actual projection
-    # happens in _project_orders_for_user. ``response_model`` still documents
+    # happens in _project_order_rows. ``response_model`` still documents
     # the maximal shape for ADMIN/GOLDSMITH in the OpenAPI schema.
     response_model_exclude_none=False,
 )
 @require_permission(Permission.ORDER_VIEW)
 async def list_orders(
-    skip: int = 0,
-    limit: int = 100,
+    page: PageParams = Depends(make_page_params(legacy_default_limit=100)),
     customer_id: Optional[int] = Query(None, description="Filter by customer ID"),
+    status: Optional[OrderStatusEnum] = Query(
+        None, description="Nach Status filtern (nur mit offset)"
+    ),
+    created_from: Optional[datetime] = Query(
+        None, description="Angelegt ab (nur mit offset)"
+    ),
+    created_to: Optional[datetime] = Query(
+        None, description="Angelegt bis (nur mit offset)"
+    ),
+    q: Optional[str] = Query(
+        None,
+        min_length=1,
+        max_length=100,
+        description="Suche in Nummer, Titel, Kundenname/E-Mail (nur mit offset)",
+    ),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     """Liste aller Aufträge.
 
+    With ``offset``: a ``Page`` with server-side filters and search. Without
+    it (deprecated, one release): the legacy plain list, flagged with
+    ``X-Deprecated-List: true``; only ``customer_id`` filters there.
+
     VIEWER-role callers receive the list WITHOUT the seven financial fields
     (``price``, ``material_cost_*``, ``labor_cost``, ``hourly_rate``,
     ``profit_margin_percent``, ``calculated_price``). See C5 fix-plan.
     """
-    orders = await OrderService.get_orders(db, skip, limit, customer_id=customer_id)
+    total = 0
+    if page.is_paged:
+        stmt = await list_queries.orders_statement(
+            db,
+            status=status,
+            customer_id=customer_id,
+            created_from=created_from,
+            created_to=created_to,
+            q=q,
+        )
+        result = await list_queries.fetch_page(
+            db, stmt, page, list_queries.ORDER_LIST_OPTIONS
+        )
+        orders, total = result.items, result.total
+    else:
+        orders = await OrderService.get_orders(
+            db, page.offset, page.limit, customer_id=customer_id
+        )
     # Finding 2.2: the seven financial fields (price / hourly_rate / margins /
     # calculated_price / material+labor cost) ride on OrderRead and are served
     # to ADMIN/GOLDSMITH here. CLAUDE.md requires every financial-data access to
@@ -203,7 +247,10 @@ async def list_orders(
         if can_view_design(current_user)
         else None
     )
-    return _project_orders_for_user(orders, current_user, first_photo_ids)
+    rows = _project_order_rows(orders, current_user, first_photo_ids)
+    if page.is_paged:
+        return page_response(rows, total, page)
+    return legacy_list_response(rows)
 
 
 @router.get("/calendar/deadlines")

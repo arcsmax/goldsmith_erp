@@ -31,9 +31,9 @@ import logging
 from datetime import date, datetime
 from typing import Any, Iterable, Mapping, Optional, Union, cast
 
-from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from goldsmith_erp.core.errors import ConflictError, DomainValidationError
 from goldsmith_erp.db.models import Order, OrderEvent, OrderStatusEnum, User
 
 logger = logging.getLogger(__name__)
@@ -150,7 +150,7 @@ def _join_labels(labels: Iterable[str]) -> str:
     return ", ".join(labels)
 
 
-class InvalidStatusTransitionError(HTTPException):
+class InvalidStatusTransitionError(ConflictError):
     """409: the table does not allow ``from -> to``; lists the allowed ones."""
 
     def __init__(self, current: OrderStatusEnum, target: OrderStatusEnum) -> None:
@@ -164,26 +164,44 @@ class InvalidStatusTransitionError(HTTPException):
             f"Statuswechsel von „{ORDER_STATUS_LABELS[current]}“ nach "
             f"„{ORDER_STATUS_LABELS[target]}“ ist nicht erlaubt. {hint}"
         )
+        extra = {
+            "from_status": current.value,
+            "to_status": target.value,
+            "allowed": [s.value for s in allowed],
+            "allowed_labels": allowed_labels,
+        }
         super().__init__(
-            status_code=409,
-            detail={
+            message,
+            code="order.invalid_transition",
+            extra=extra,
+            legacy_detail={
                 "code": "INVALID_STATUS_TRANSITION",
                 "message": message,
-                "from_status": current.value,
-                "to_status": target.value,
-                "allowed": [s.value for s in allowed],
-                "allowed_labels": allowed_labels,
+                **extra,
             },
         )
 
 
-class StatusTransitionInputError(HTTPException):
+# Legacy UPPER_SNAKE code in ``detail.code`` -> new dotted slug.
+_INPUT_ERROR_SLUGS: dict[str, str] = {
+    "STATUS_REASON_REQUIRED": "order.reason_required",
+    "STATUS_RESUME_DATE_INVALID": "order.resume_date_invalid",
+}
+
+
+class StatusTransitionInputError(DomainValidationError):
     """422: the transition is allowed but its inputs are missing or invalid."""
 
     def __init__(self, code: str, message: str, target: OrderStatusEnum) -> None:
         super().__init__(
-            status_code=422,
-            detail={"code": code, "message": message, "to_status": target.value},
+            message,
+            code=_INPUT_ERROR_SLUGS.get(code, "order.transition_input_invalid"),
+            extra={"to_status": target.value},
+            legacy_detail={
+                "code": code,
+                "message": message,
+                "to_status": target.value,
+            },
         )
 
 
@@ -206,7 +224,7 @@ class TransitionReasonRequiredError(StatusTransitionInputError):
 _PUNZIERUNG_REQUIRED_TARGETS: frozenset[OrderStatusEnum] = frozenset({S.COMPLETED})
 
 
-class PunzierungRequiredError(HTTPException):
+class PunzierungRequiredError(ConflictError):
     """409 when advancing to COMPLETED without a verified Punzierung (M4).
 
     Structured detail so the frontend can open the PunzierungsCheckModal
@@ -214,15 +232,16 @@ class PunzierungRequiredError(HTTPException):
     """
 
     def __init__(self, *, order_id: int, alloy: str) -> None:
+        message = "Feingehalts-Punze muss vor Status COMPLETED geprueft werden."
         super().__init__(
-            status_code=409,
-            detail={
+            message,
+            code="order.punzierung_required",
+            extra={"order_id": order_id, "alloy": alloy},
+            legacy_detail={
                 "code": "PUNZIERUNG_REQUIRED",
                 "order_id": order_id,
                 "alloy": alloy,
-                "message": (
-                    "Feingehalts-Punze muss vor Status COMPLETED geprueft werden."
-                ),
+                "message": message,
             },
         )
 

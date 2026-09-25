@@ -14,9 +14,10 @@ Routes:
   POST /api/v1/notifications/check-low-stock   — trigger stock scan (ADMIN)
 """
 
-from typing import List
+from typing import Any, Dict, List, Sequence, Union
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from goldsmith_erp.api.deps import get_current_user
@@ -24,34 +25,59 @@ from goldsmith_erp.core.permissions import Permission, require_permission
 from goldsmith_erp.db.models import User
 from goldsmith_erp.db.session import get_db
 from goldsmith_erp.models.notification import NotificationRead, UnreadCountResponse
+from goldsmith_erp.models.pagination import (
+    Page,
+    PageParams,
+    legacy_list_response,
+    make_page_params,
+    page_response,
+)
+from goldsmith_erp.services import list_queries
 from goldsmith_erp.services.notification_service import NotificationService
 
 router = APIRouter()
 
 
-@router.get("/", response_model=List[NotificationRead])
+@router.get(
+    "/",
+    # W3-08: Page[...] when ``offset`` is sent, the legacy list otherwise.
+    response_model=Union[Page[NotificationRead], List[NotificationRead]],
+)
 @require_permission(Permission.NOTIFICATION_VIEW)
 async def list_notifications(
     unread_only: bool = Query(
         False, description="When true, return only unread notifications"
     ),
-    limit: int = Query(
-        50, ge=1, le=200, description="Maximum number of notifications to return"
+    page: PageParams = Depends(
+        make_page_params(legacy_default_limit=50, legacy_max_limit=200)
     ),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
-) -> List[NotificationRead]:
+) -> JSONResponse:
     """
     Return the authenticated user's notifications, newest first.
 
     Use ``unread_only=true`` to fetch only unread items (e.g. for notification panel).
+    With ``offset``: a ``Page``; without it (deprecated): the legacy list with
+    ``X-Deprecated-List: true`` (legacy mode ignores ``skip``, as before).
     """
-    return await NotificationService.get_notifications(
+    if page.is_paged:
+        stmt = list_queries.notifications_statement(
+            user_id=current_user.id, unread_only=unread_only
+        )
+        result = await list_queries.fetch_page(db, stmt, page)
+        return page_response(_notification_rows(result.items), result.total, page)
+    notifications = await NotificationService.get_notifications(
         db=db,
         user_id=current_user.id,
         unread_only=unread_only,
-        limit=limit,
+        limit=page.limit,
     )
+    return legacy_list_response(_notification_rows(notifications))
+
+
+def _notification_rows(rows: Sequence[Any]) -> List[Dict[str, Any]]:
+    return [NotificationRead.model_validate(n).model_dump() for n in rows]
 
 
 @router.get("/unread-count", response_model=UnreadCountResponse)

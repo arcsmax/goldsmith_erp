@@ -32,7 +32,8 @@ second segment ("pdf" vs "line-items") or segment count (2 vs 3 for
 
 import io
 import logging
-from typing import List, NoReturn, Optional
+from datetime import datetime
+from typing import List, NoReturn, Optional, Union
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
@@ -43,20 +44,31 @@ from goldsmith_erp.api.deps import get_current_user
 from goldsmith_erp.core.permissions import Permission, require_permission
 from goldsmith_erp.db.models import Customer, Quote, QuoteStatus, User
 from goldsmith_erp.db.session import get_db
+from goldsmith_erp.models.pagination import (
+    Page,
+    PageParams,
+    legacy_list_response,
+    make_page_params,
+    page_response,
+)
 from goldsmith_erp.models.quote import (
     ApproveQuoteRequest,
     QuoteCreate,
     QuoteLineItemCreate,
+    QuoteListItem,
     QuoteListResponse,
     QuoteResponse,
     QuoteUpdate,
     RejectQuoteRequest,
 )
+from goldsmith_erp.services import list_queries
 from goldsmith_erp.services.quote_delivery import render_quote_pdf_bytes
 from goldsmith_erp.services.quote_service import (
     QuoteNotEditableError,
     QuoteNotFoundError,
     QuoteService,
+    _log_quote_access,
+    _user_role_str,
 )
 
 logger = logging.getLogger(__name__)
@@ -124,11 +136,16 @@ async def create_quote(
     return await QuoteService.create_quote(db, quote_in, current_user)
 
 
-@router.get("/", response_model=QuoteListResponse)
+@router.get(
+    "/",
+    # W3-08: Page[...] when ``offset`` is sent, the legacy envelope otherwise.
+    response_model=Union[Page[QuoteListItem], QuoteListResponse],
+)
 @require_permission(Permission.QUOTE_VIEW)
 async def list_quotes(
-    skip: int = Query(default=0, ge=0, description="Pagination offset"),
-    limit: int = Query(default=50, ge=1, le=200, description="Page size (max 200)"),
+    page: PageParams = Depends(
+        make_page_params(legacy_default_limit=50, legacy_max_limit=200)
+    ),
     status_filter: Optional[QuoteStatus] = Query(
         default=None,
         alias="status",
@@ -136,6 +153,18 @@ async def list_quotes(
     ),
     customer_id: Optional[int] = Query(
         default=None, ge=1, description="Filter by customer ID"
+    ),
+    created_from: Optional[datetime] = Query(
+        default=None, description="Angelegt ab (nur mit offset)"
+    ),
+    created_to: Optional[datetime] = Query(
+        default=None, description="Angelegt bis (nur mit offset)"
+    ),
+    q: Optional[str] = Query(
+        default=None,
+        min_length=1,
+        max_length=100,
+        description="Suche in KV-Nummer und Kundenname/E-Mail (nur mit offset)",
     ),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -145,16 +174,78 @@ async def list_quotes(
 
     Supports filtering by status and customer.
     Results are sorted by created_at descending (newest first).
+
+    With ``offset``: a ``Page`` (``items, total, limit, offset,
+    next_offset``) with date range and ``q`` search. Without it
+    (deprecated, one release): the legacy ``{items, total, skip, limit}``
+    envelope, flagged with ``X-Deprecated-List: true``.
     """
+    if page.is_paged:
+        return await _list_quotes_paged(
+            db,
+            current_user,
+            page,
+            status=status_filter,
+            customer_id=customer_id,
+            created_from=created_from,
+            created_to=created_to,
+            q=q,
+        )
     items, total = await QuoteService.list_quotes(
         db=db,
         current_user=current_user,
-        skip=skip,
-        limit=limit,
+        skip=page.offset,
+        limit=page.limit,
         status=status_filter,
         customer_id=customer_id,
     )
-    return QuoteListResponse(items=items, total=total, skip=skip, limit=limit)
+    legacy = QuoteListResponse.model_validate(
+        {"items": items, "total": total, "skip": page.offset, "limit": page.limit},
+        from_attributes=True,
+    )
+    return legacy_list_response(legacy.model_dump())
+
+
+async def _list_quotes_paged(
+    db: AsyncSession,
+    current_user: User,
+    page: PageParams,
+    *,
+    status: Optional[QuoteStatus],
+    customer_id: Optional[int],
+    created_from: Optional[datetime],
+    created_to: Optional[datetime],
+    q: Optional[str],
+):
+    stmt = await list_queries.quotes_statement(
+        db,
+        status=status,
+        customer_id=customer_id,
+        created_from=created_from,
+        created_to=created_to,
+        q=q,
+    )
+    result = await list_queries.fetch_page(
+        db, stmt, page, list_queries.QUOTE_LIST_OPTIONS
+    )
+    # Same financial-access audit line as QuoteService.list_quotes; the
+    # search text is never logged (it may be a customer name).
+    _log_quote_access(
+        action="listed",
+        quote_id=None,
+        user_id=current_user.id,
+        user_role=_user_role_str(current_user),
+        extra={
+            "filters": {
+                "status": status,
+                "customer_id": customer_id,
+                "has_search": bool(q),
+            },
+            "result_count": len(result.items),
+        },
+    )
+    rows = [QuoteListItem.model_validate(r).model_dump() for r in result.items]
+    return page_response(rows, result.total, page)
 
 
 @router.get("/{quote_id}", response_model=QuoteResponse)

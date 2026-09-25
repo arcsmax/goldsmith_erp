@@ -13,7 +13,7 @@ array on the detail view) require DESIGN_VIEW.
 """
 
 import logging
-from typing import List, Optional
+from typing import List, Optional, Union
 
 from fastapi import APIRouter, Depends
 from fastapi import File as FastAPIFile
@@ -25,6 +25,7 @@ from goldsmith_erp.api.deps import get_current_user
 from goldsmith_erp.api.role_projection import (
     ExcludeSpec,
     build_excludes,
+    project,
     project_response,
 )
 from goldsmith_erp.core.config import settings
@@ -34,6 +35,13 @@ from goldsmith_erp.db.session import get_db
 from goldsmith_erp.models.customer_update import (
     CustomerUpdateRead,
     CustomerUpdateSendResult,
+)
+from goldsmith_erp.models.pagination import (
+    Page,
+    PageParams,
+    legacy_list_response,
+    make_page_params,
+    page_response,
 )
 from goldsmith_erp.models.repair import (
     IntakeChecklistUpdate,
@@ -45,6 +53,7 @@ from goldsmith_erp.models.repair import (
     RepairPhotoRead,
     RepairStatusUpdate,
 )
+from goldsmith_erp.services import list_queries
 from goldsmith_erp.services.customer_update_service import (
     CustomerUpdateNotFoundError,
     CustomerUpdateService,
@@ -92,15 +101,24 @@ def _media_type_from_ext(suffix: str) -> str:
 # ============================================================================
 
 
-@router.get("/", response_model=List[RepairJobListItem])
+@router.get(
+    "/",
+    # W3-08: Page[...] when ``offset`` is sent, the legacy list otherwise.
+    response_model=Union[Page[RepairJobListItem], List[RepairJobListItem]],
+)
 @require_permission(Permission.REPAIR_VIEW)
 async def list_repairs(
-    skip: int = Query(0, ge=0, description="Datensaetze ueberspringen"),
-    limit: int = Query(100, ge=1, le=500, description="Maximale Ergebnisanzahl"),
+    page: PageParams = Depends(make_page_params(legacy_default_limit=100)),
     status: Optional[RepairJobStatus] = Query(None, description="Nach Status filtern"),
     customer_id: Optional[int] = Query(None, gt=0, description="Nach Kunde filtern"),
     search: Optional[str] = Query(
         None, max_length=100, description="Suche in Nr, Tüte, Beschreibung"
+    ),
+    q: Optional[str] = Query(
+        None,
+        min_length=1,
+        max_length=100,
+        description="Suche in Nr, Tüte, Beschreibung, Kunde (nur mit offset)",
     ),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -108,18 +126,34 @@ async def list_repairs(
     """
     Liste aller Reparaturauftraege mit optionalen Filtern.
 
+    Mit ``offset``: ``Page`` mit Gesamtzahl; ``q`` (oder ``search``) sucht
+    zusaetzlich im Kundennamen. Ohne ``offset`` (veraltet): Liste mit Header
+    ``X-Deprecated-List: true``.
+
     Gibt kompakte ListItem-Objekte zurueck (ohne Fotos und lange Felder).
     Ohne FINANCIAL_VIEW (VIEWER) entfaellt ``estimated_cost``.
     """
+    excludes = _repair_excludes(current_user)
+    if page.is_paged:
+        stmt = await list_queries.repairs_statement(
+            db, status=status, customer_id=customer_id, q=q or search
+        )
+        result = await list_queries.fetch_page(
+            db, stmt, page, list_queries.REPAIR_LIST_OPTIONS
+        )
+        rows = [project(RepairJobListItem, r, excludes) for r in result.items]
+        return page_response(rows, result.total, page)
     repairs = await RepairService.list_repairs(
         db,
-        skip=skip,
-        limit=limit,
+        skip=page.offset,
+        limit=page.limit,
         status=status,
         customer_id=customer_id,
         search=search,
     )
-    return project_response(RepairJobListItem, repairs, _repair_excludes(current_user))
+    return legacy_list_response(
+        [project(RepairJobListItem, r, excludes) for r in repairs]
+    )
 
 
 @router.get("/{repair_id}", response_model=RepairJobRead)
