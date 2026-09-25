@@ -105,6 +105,12 @@
   --color-surface-raised: #ffffff;
   --color-surface-sunken: var(--color-brand-stone-100);
   --color-backdrop: color-mix(in srgb, var(--color-text) 55%, transparent); /* modal scrim */
+  /* Shadow ink for color-mix() tints and multi-layer shadows (W4 phase 4) */
+  --color-shadow: #1e293b;
+  /* Photo and swatch overlays: identical in both themes (photos stay dark-framed) */
+  --color-overlay-bg: #111111;
+  --color-overlay-fg: #ffffff;          /* 18.88 on overlay-bg */
+  --color-overlay-danger: #b91c1c;      /* overlay-fg on it 6.47 */
 
   /* Text */
   --color-text: var(--color-brand-primary-800);            /* 13.79 on surface */
@@ -302,6 +308,10 @@
   --color-surface-raised: #292524;
   --color-surface-sunken: #0c0a09;
   --color-backdrop: rgb(0 0 0 / 0.7);
+  --color-shadow: #000000;
+  --color-overlay-bg: #111111;
+  --color-overlay-fg: #ffffff;
+  --color-overlay-danger: #b91c1c;
 
   /* Text */
   --color-text: #f5f5f4;                /* 16.03 on surface, 13.90 on raised */
@@ -391,6 +401,10 @@
     --color-surface-raised: #292524;
     --color-surface-sunken: #0c0a09;
     --color-backdrop: rgb(0 0 0 / 0.7);
+    --color-shadow: #000000;
+    --color-overlay-bg: #111111;
+    --color-overlay-fg: #ffffff;
+    --color-overlay-danger: #b91c1c;
 
     /* Text */
     --color-text: #f5f5f4;                /* 16.03 on surface, 13.90 on raised */

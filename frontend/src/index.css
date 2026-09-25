@@ -11,9 +11,8 @@
   line-height: 1.5;
   font-weight: 400;
 
-  color-scheme: light;
-  color: #213547;
-  background-color: #ffffff;
+  color: var(--color-text);
+  background-color: var(--color-surface);
 
   font-synthesis: none;
   text-rendering: optimizeLegibility;
@@ -21,12 +20,10 @@
   -moz-osx-font-smoothing: grayscale;
 
   /* Color Palette */
-  --primary-color: var(--color-interactive-primary, #d97706);
-  --primary-hover: var(--color-interactive-primary-hover, #b45309);
-  --background-dark: #242424;
-  --background-light: #ffffff;
-  --text-light: rgba(255, 255, 255, 0.87);
-  --text-dark: #213547;
+  --primary-color: var(--color-interactive-primary);
+  --primary-hover: var(--color-interactive-primary-hover);
+  --background-light: var(--color-surface-raised);
+  --text-dark: var(--color-text);
 }
 
 * {
@@ -39,8 +36,8 @@ body {
   margin: 0;
   min-width: 320px;
   min-height: 100vh;
-  color: var(--text-dark, #213547);
-  background-color: var(--background-light, #ffffff);
+  color: var(--text-dark);
+  background-color: var(--background-light);
 }
 
 #root {
@@ -71,12 +68,11 @@ h1 {
 .app-footer {
   margin-top: 4rem;
   padding: 1rem;
-  color: #888;
+  color: var(--color-text-muted);
   font-size: 0.9em;
 }
 
 .error-message {
-  /* was #ff4444 (3.41:1); danger on danger-bg is 5.30:1 (DES-19 stopgap) */
   color: var(--color-danger);
   padding: 1rem;
   border: 1px solid var(--color-danger);
@@ -97,18 +93,18 @@ h1 {
    color:white (e.g. header). These rules enforce readability
    without interfering with fixed-position widgets that set their own colors. */
 .page-container {
-  color: var(--color-text-body, #374151);
+  color: var(--color-text-body);
 }
 
 /* Global form element styles — ensure light theme on all inputs */
 input, select, textarea {
-  color: #213547;
-  background-color: #ffffff;
+  color: var(--color-text);
+  background-color: var(--color-surface-raised);
 }
 
 /* Tables — ensure readability */
 table, th, td {
-  color: #333;
+  color: var(--color-text);
 }
 
 /* Button styles */
@@ -134,6 +130,6 @@ button:hover {
 
 @media (prefers-color-scheme: light) {
   button {
-    background-color: #f9f9f9;
+    background-color: var(--color-surface-sunken);
   }
 }
