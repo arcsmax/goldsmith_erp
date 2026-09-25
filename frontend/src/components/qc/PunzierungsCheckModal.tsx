@@ -106,7 +106,7 @@ const FEINGEHALT_OPTIONS: readonly MarkOption[] = [
 const ADDITIONAL_OPTIONS: readonly MarkOption[] = [
   { id: 'meisterzeichen', label: 'Meisterzeichen' },
   { id: 'herstellerzeichen', label: 'Herstellerzeichen' },
-  { id: 'laenderzeichen', label: 'Laenderzeichen (Export)' },
+  { id: 'laenderzeichen', label: 'Länderzeichen (Export)' },
 ];
 
 const FEINGEHALT_IDS: ReadonlySet<PunzierungMark> = new Set(
