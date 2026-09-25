@@ -15,7 +15,14 @@
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
   position: sticky;
   top: 0;
-  z-index: 200;
+  z-index: var(--z-header);
+}
+
+/* Offline banner (OfflineIndicator.tsx, fixed at top) must sit above the
+ * sticky header, not under it (DES-10). The component has no stylesheet of
+ * its own and uses Tailwind's z-50, so it is targeted here by its label. */
+[role="status"][aria-label="Offline-Modus aktiv"] {
+  z-index: var(--z-banner);
 }
 
 .header-content {
@@ -141,7 +148,7 @@
   position: fixed;
   inset: 0;
   background: rgba(0, 0, 0, 0.45);
-  z-index: 149;
+  z-index: calc(var(--z-drawer) - 1);
   animation: fadeInOverlay 0.2s ease-out;
 }
 
@@ -179,8 +186,9 @@
 }
 
 .nav-link.active {
-  background-color: var(--color-brand-cta-100);
-  color: var(--color-interactive-primary);
+  /* primary-hover on primary-subtle: 6.37:1 (was #d97706 on #fef3c7, 2.86:1; DES-01) */
+  background-color: var(--color-primary-subtle);
+  color: var(--color-primary-hover);
   border-left-color: var(--color-interactive-primary);
 }
 
@@ -244,7 +252,7 @@
     top: 0;
     left: 0;
     bottom: 0;
-    z-index: 150;
+    z-index: var(--z-drawer);
     width: 280px;
     padding-top: 1rem;
     overflow-y: auto;

@@ -243,50 +243,8 @@
   letter-spacing: 0.02em;
 }
 
-.status-badge.received {
-  background: #dbeafe;
-  color: #1d4ed8;
-}
-
-.status-badge.diagnosed {
-  background: #ede9fe;
-  color: #6d28d9;
-}
-
-.status-badge.quoted {
-  background: #ffedd5;
-  color: #c2410c;
-}
-
-.status-badge.approved {
-  background: #ccfbf1;
-  color: #0f766e;
-}
-
-.status-badge.in_repair {
-  background: #fef3c7;
-  color: #92400e;
-}
-
-.status-badge.quality_check {
-  background: #e0e7ff;
-  color: #3730a3;
-}
-
-.status-badge.ready {
-  background: #dcfce7;
-  color: #15803d;
-}
-
-.status-badge.picked_up {
-  background: #f3f4f6;
-  color: #4b5563;
-}
-
-.status-badge.cancelled {
-  background: #fee2e2;
-  color: #b91c1c;
-}
+/* Per-status colours live in styles/status-tones.css (global, --tone-* tokens,
+ * all order and repair statuses; W4-01 / DES-03). */
 
 /* ============================================================
    EMPTY STATE
