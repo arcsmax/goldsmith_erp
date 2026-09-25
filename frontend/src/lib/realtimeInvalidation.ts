@@ -8,6 +8,8 @@
  *   order_updates          → ['orders'], ['dashboard'], ['handoffs'], ['calendar'], ['jobs']
  *   time_tracking_updates  → ['timer'], ['dashboard']
  *   notifications          → ['notifications'], ['handoffs']
+ *   repair_updates         → ['repairs'], ['jobs']
+ *   job_updates            → ['jobs']
  *
  * Invalidation refetches only the queries that are mounted; the rest are
  * marked stale and refetch on their next mount. Hints carry ids and status
@@ -34,6 +36,12 @@ export const REALTIME_INVALIDATIONS: Readonly<Record<RealtimeChannel, readonly Q
   ],
   time_tracking_updates: [queryKeys.timer.all, queryKeys.dashboard.all],
   notifications: [queryKeys.notifications.all, queryKeys.handoffs.all],
+  // No `queryKeys.repairs` root exists yet (repair pages are still being
+  // migrated onto TanStack Query by other agents) — ['repairs'] is the
+  // literal root they will register under; this stays a plain tuple
+  // rather than `queryKeys.repairs.all` until that root lands.
+  repair_updates: [['repairs'], queryKeys.jobs.all],
+  job_updates: [queryKeys.jobs.all],
 };
 
 /** Mark every query of the channel's roots stale and refetch the mounted ones. */
@@ -59,6 +67,8 @@ export function useRealtimeInvalidation(): void {
   useRealtime('order_updates', handle('order_updates'));
   useRealtime('time_tracking_updates', handle('time_tracking_updates'));
   useRealtime('notifications', handle('notifications'));
+  useRealtime('repair_updates', handle('repair_updates'));
+  useRealtime('job_updates', handle('job_updates'));
 }
 
 /** Render-nothing mount point for App.tsx (inside WebSocketProvider). */

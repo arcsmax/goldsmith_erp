@@ -11,6 +11,8 @@
  * REST, which applies the role projection:
  *
  *   useRealtime('time_tracking_updates', () => refreshRunningEntry());
+ *   useRealtime('repair_updates', () => refreshRepairs());
+ *   useRealtime('job_updates', () => refreshJobs());
  *   useRefetchOn('orders', loadOrders);          // lib/refetchBus
  *
  * After a reconnect every subscriber gets a `resync` event and every
@@ -25,7 +27,12 @@ import { triggerAllRefetch, triggerRefetch, type RefetchTopic } from '../lib/ref
 // Types
 // ---------------------------------------------------------------------------
 
-export type RealtimeChannel = 'order_updates' | 'time_tracking_updates' | 'notifications';
+export type RealtimeChannel =
+  | 'order_updates'
+  | 'time_tracking_updates'
+  | 'notifications'
+  | 'repair_updates'
+  | 'job_updates';
 
 export interface RealtimeEvent {
   channel: RealtimeChannel;
@@ -53,6 +60,8 @@ const CHANNEL_TOPICS: Readonly<Record<RealtimeChannel, RefetchTopic>> = {
   order_updates: 'orders',
   time_tracking_updates: 'time_tracking',
   notifications: 'notifications',
+  repair_updates: 'repairs',
+  job_updates: 'jobs',
 };
 
 const CHANNELS = Object.keys(CHANNEL_TOPICS) as RealtimeChannel[];

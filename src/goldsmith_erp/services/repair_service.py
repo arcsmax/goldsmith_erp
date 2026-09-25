@@ -204,6 +204,28 @@ def compose_intake_description(data: RepairJobCreate) -> str:
     return "\n".join(lines)
 
 
+async def _publish_repair_event(payload: dict[str, Any]) -> None:
+    """Publish a reduced ``repair_updates`` hint — ids/action/status/timestamp
+    only, never financial fields or free text.
+
+    Callers invoke this AFTER their ``transactional(db)`` block has exited
+    (commit already durable) — mirrors ``RepairPhotoService.upload_photo``'s
+    placement and the ``order_service.py`` convention, so a client that
+    refetches on this hint never race a not-yet-committed write.
+    ``pubsub.publish_event`` itself never raises (it retries and returns
+    False), but the call is still wrapped so a future change to that
+    contract can never fail an already-committed repair operation.
+    """
+    try:
+        await pubsub.publish_event("repair_updates", json.dumps(payload))
+    except Exception:
+        logger.error(
+            "Failed to publish repair_updates event",
+            extra={"repair_id": payload.get("repair_id")},
+            exc_info=True,
+        )
+
+
 async def _load_repair(db: AsyncSession, repair_id: int) -> Optional[RepairJob]:
     """Load a single repair job with all relationships eager-loaded."""
     result = await db.execute(
@@ -340,19 +362,17 @@ class RepairService:
                 db, repair, user_id, meta={"origin": "intake"}
             )
 
-            # Fire REPAIR_RECEIVED notification for all goldsmiths/admins
-            # (real-time via Redis pub/sub)
-            await pubsub.publish_event(
-                "repair_updates",
-                json.dumps(
-                    {
-                        "action": "created",
-                        "repair_id": repair.id,
-                        "repair_number": repair_number,
-                        "status": RepairJobStatus.RECEIVED.value,
-                    }
-                ),
-            )
+        # Publish AFTER commit (transactional() above already committed) so
+        # other devices refresh into durable data, not a soon-to-be-visible
+        # write. Reduced payload only — ids/action/status.
+        await _publish_repair_event(
+            {
+                "action": "created",
+                "repair_id": repair.id,
+                "repair_number": repair_number,
+                "status": RepairJobStatus.RECEIVED.value,
+            }
+        )
 
         logger.info(
             "Repair intake created",
@@ -461,17 +481,15 @@ class RepairService:
                 db, repair, new_status, user_id, extra_updates=extra_updates
             )
 
-            await pubsub.publish_event(
-                "repair_updates",
-                json.dumps(
-                    {
-                        "action": "status_changed",
-                        "repair_id": repair.id,
-                        "repair_number": repair.repair_number,
-                        "new_status": new_status.value,
-                    }
-                ),
-            )
+        # Publish AFTER commit — see _publish_repair_event's docstring.
+        await _publish_repair_event(
+            {
+                "action": "status_changed",
+                "repair_id": repair.id,
+                "repair_number": repair.repair_number,
+                "new_status": new_status.value,
+            }
+        )
 
         logger.info(
             "Repair status changed",
@@ -534,17 +552,15 @@ class RepairService:
                 db, repair, RepairJobStatus.QUOTED, user_id
             )
 
-            await pubsub.publish_event(
-                "repair_updates",
-                json.dumps(
-                    {
-                        "action": "status_changed",
-                        "repair_id": repair.id,
-                        "repair_number": repair.repair_number,
-                        "new_status": RepairJobStatus.QUOTED.value,
-                    }
-                ),
-            )
+        # Publish AFTER commit — see _publish_repair_event's docstring.
+        await _publish_repair_event(
+            {
+                "action": "status_changed",
+                "repair_id": repair.id,
+                "repair_number": repair.repair_number,
+                "new_status": RepairJobStatus.QUOTED.value,
+            }
+        )
 
         logger.info(
             "Repair diagnosed and quoted",
@@ -811,6 +827,18 @@ class RepairService:
             await repair_workflow.transition(
                 db, repair, RepairJobStatus.CANCELLED, user_id
             )
+
+        # Publish AFTER commit — see _publish_repair_event's docstring. Was
+        # previously missing here (cancellation is a status change like any
+        # other _transition path, just validated separately above).
+        await _publish_repair_event(
+            {
+                "action": "status_changed",
+                "repair_id": repair.id,
+                "repair_number": repair.repair_number,
+                "new_status": RepairJobStatus.CANCELLED.value,
+            }
+        )
 
         logger.info(
             "Repair cancelled",

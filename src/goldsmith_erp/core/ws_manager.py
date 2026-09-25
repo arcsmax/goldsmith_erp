@@ -14,6 +14,8 @@ Redis channel              Client ``channel``      Recipients
 =========================  ======================  ==========================
 ``order_updates``          ``order_updates``       every connected user
 ``time_tracking_updates``  ``time_tracking_updates``  ``payload["user_id"]``
+``repair_updates``         ``repair_updates``      every connected user
+``job_updates``            ``job_updates``         every connected user
 ``notifications:{uid}``    ``notifications``       ``uid``
 =========================  ======================  ==========================
 
@@ -40,11 +42,18 @@ logger = logging.getLogger(__name__)
 
 ORDER_CHANNEL = "order_updates"
 TIME_TRACKING_CHANNEL = "time_tracking_updates"
+REPAIR_CHANNEL = "repair_updates"
+JOB_CHANNEL = "job_updates"
 NOTIFICATION_PATTERN = "notifications:*"
 NOTIFICATION_PREFIX = "notifications:"
 CLIENT_NOTIFICATION_CHANNEL = "notifications"
 
-SUBSCRIBED_CHANNELS = (ORDER_CHANNEL, TIME_TRACKING_CHANNEL)
+SUBSCRIBED_CHANNELS = (
+    ORDER_CHANNEL,
+    TIME_TRACKING_CHANNEL,
+    REPAIR_CHANNEL,
+    JOB_CHANNEL,
+)
 
 DEFAULT_HEARTBEAT_SECONDS = 30.0
 DEFAULT_POLL_TIMEOUT_SECONDS = 1.0
@@ -76,6 +85,17 @@ _NOTIFICATION_HINT_KEYS = (
     "is_read",
     "created_at",
 )
+_REPAIR_HINT_KEYS = (
+    "action",
+    "repair_id",
+    "repair_number",
+    "status",
+    "new_status",
+    "photo_id",
+    "phase",
+    "timestamp",
+)
+_JOB_HINT_KEYS = ("job_id", "kind", "status", "timestamp")
 
 
 class PubSubLike(Protocol):
@@ -147,6 +167,12 @@ def route_event(channel: str, raw: str) -> Optional[RoutedEvent]:
             return None
         hint = _pick(payload, _TIMER_HINT_KEYS)
         return RoutedEvent(_frame(channel, hint), frozenset({user_id}))
+
+    if channel == REPAIR_CHANNEL:
+        return RoutedEvent(_frame(channel, _pick(payload, _REPAIR_HINT_KEYS)), None)
+
+    if channel == JOB_CHANNEL:
+        return RoutedEvent(_frame(channel, _pick(payload, _JOB_HINT_KEYS)), None)
 
     if channel.startswith(NOTIFICATION_PREFIX):
         user_id = _as_user_id(channel[len(NOTIFICATION_PREFIX) :])
