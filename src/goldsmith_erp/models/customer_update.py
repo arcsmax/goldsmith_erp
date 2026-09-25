@@ -29,7 +29,8 @@ _REASON_MIN_LENGTH = 10
 _RESPONSE_EVIDENCE_MIN_LENGTH = 5
 
 # W6: why a send dispatched no email (CustomerUpdateSendResult.reason).
-NotSentReason = Literal["smtp_disabled", "no_email", "opted_out"]
+# "queued": OUTBOX_MODE=worker accepted the mail; the worker sends it.
+NotSentReason = Literal["smtp_disabled", "no_email", "opted_out", "queued"]
 
 
 def _strip_or_raise(value: str, field_label: str, min_length: int) -> str:

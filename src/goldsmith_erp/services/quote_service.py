@@ -50,6 +50,7 @@ from goldsmith_erp.services.number_sequence_service import (
     QUOTE_KIND,
     NumberSequenceService,
 )
+from goldsmith_erp.services.outbox_service import is_worker_mode
 
 logger = logging.getLogger(__name__)
 
@@ -823,8 +824,10 @@ class QuoteService:
             else None
         )
         method = UpdateDeliveryMethod.PDF_MANUAL
+        queue_email = recipient is not None and is_worker_mode()
         if recipient is not None:
             method = UpdateDeliveryMethod.EMAIL
+        if recipient is not None and not queue_email:
             if not await quote_delivery.email_quote(quote, customer, recipient):
                 await QuoteService._record_send_failure(db, quote, current_user)
                 raise UpstreamError(
@@ -838,15 +841,20 @@ class QuoteService:
                 raise QuoteNotFoundError(quote_id)
             QuoteService._require_draft_for_send(locked)
             locked.status = QuoteStatus.SENT
-            db.add(
-                quote_delivery.build_record(
-                    locked,
-                    int(current_user.id),
-                    CustomerUpdateStatus.SENT,
-                    method,
-                    datetime.utcnow(),
+            if queue_email:  # ARCH-04: the mail job commits with SENT
+                await quote_delivery.enqueue_quote_email(
+                    db, locked, int(current_user.id)
                 )
-            )
+            else:
+                db.add(
+                    quote_delivery.build_record(
+                        locked,
+                        int(current_user.id),
+                        CustomerUpdateStatus.SENT,
+                        method,
+                        datetime.utcnow(),
+                    )
+                )
 
         _log_quote_access(
             action="sent",
