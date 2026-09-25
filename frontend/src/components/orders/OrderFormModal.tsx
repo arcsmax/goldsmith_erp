@@ -2,10 +2,16 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { OrderType, OrderStatus, OrderCreateInput, OrderUpdateInput, CustomerListItem, MetalType, CostingMethod } from '../../types';
 import { customersApi } from '../../api';
-import { useMetalTypes } from '../../hooks/useMetalTypes';
 import { OrderCreateSchema } from '../../lib/validation/schemas';
 import { useFormValidation } from '../../lib/validation/useFormValidation';
 import { NoGoWarning } from '../consultation/NoGoWarning';
+import { GemstoneRepeater } from './GemstoneRepeater';
+import {
+  ALLOY_CHOICES,
+  ORDER_TYPE_OPTIONS,
+  alloyChoiceKey,
+  findAlloyChoice,
+} from './orderIntakeOptions';
 import '../../styles/orders.css';
 
 interface OrderFormModalProps {
@@ -18,33 +24,11 @@ interface OrderFormModalProps {
 
 type TabType = 'basic' | 'auftrag' | 'metal' | 'pricing';
 
-// Kept as fallback while the metal-types API is loading
-const METAL_TYPE_OPTIONS_FALLBACK: { value: MetalType; label: string }[] = [
-  { value: 'gold_24k', label: 'Gold 24K (999)' },
-  { value: 'gold_18k', label: 'Gold 18K (750)' },
-  { value: 'gold_14k', label: 'Gold 14K (585)' },
-  { value: 'silver_925', label: 'Silber 925' },
-  { value: 'silver_999', label: 'Silber 999' },
-  { value: 'platinum_950', label: 'Platin 950' },
-];
-
 const COSTING_METHOD_OPTIONS: { value: CostingMethod; label: string }[] = [
   { value: 'fifo', label: 'FIFO (First In, First Out)' },
   { value: 'lifo', label: 'LIFO (Last In, First Out)' },
   { value: 'average', label: 'Durchschnittspreis' },
   { value: 'specific', label: 'Spezifische Charge' },
-];
-
-const ALLOY_OPTIONS = [
-  { value: '999', label: 'Gold 999 (24K, Feingold)' },
-  { value: '900', label: 'Gold 900 (21,6K)' },
-  { value: '750', label: 'Gold 750 (18K)' },
-  { value: '585', label: 'Gold 585 (14K)' },
-  { value: '375', label: 'Gold 375 (9K)' },
-  { value: '333', label: 'Gold 333 (8K)' },
-  { value: 'Ag925', label: 'Silber 925 (Sterling)' },
-  { value: 'Ag800', label: 'Silber 800' },
-  { value: 'Pt950', label: 'Platin 950' },
 ];
 
 const SURFACE_FINISH_OPTIONS = [
@@ -66,7 +50,6 @@ export const OrderFormModal: React.FC<OrderFormModalProps> = ({
   const [activeTab, setActiveTab] = useState<TabType>('basic');
   const [customers, setCustomers] = useState<CustomerListItem[]>([]);
   const [isLoadingCustomers, setIsLoadingCustomers] = useState(false);
-  const { metalTypes: allMetalTypes, isLoading: isLoadingMetalTypes } = useMetalTypes();
   const firstInputRef = useRef<HTMLInputElement>(null);
 
   const [formData, setFormData] = useState({
@@ -76,6 +59,8 @@ export const OrderFormModal: React.FC<OrderFormModalProps> = ({
     deadline: '',
     status: 'new' as OrderStatus,
     current_location: '',
+    // W2-06 / DOM-09: drives the ring-size requirement and the estimator.
+    order_type: '',
 
     // Metal fields
     metal_type: '' as MetalType | '',
@@ -103,13 +88,6 @@ export const OrderFormModal: React.FC<OrderFormModalProps> = ({
   const { validate: zodValidate, errors, clearErrors, clearError } = useFormValidation(OrderCreateSchema);
   const [hasAttemptedSubmit, setHasAttemptedSubmit] = useState(false);
 
-  // Shared with the No-Go candidate derivation below and the Metal tab's
-  // <select> options — factored out so both read the same resolved list.
-  const metalTypeOptions =
-    isLoadingMetalTypes || allMetalTypes.length === 0
-      ? METAL_TYPE_OPTIONS_FALLBACK
-      : allMetalTypes.map((o) => ({ value: o.code, label: o.display_name }));
-
   // Fetch customers on mount
   useEffect(() => {
     if (isOpen) {
@@ -135,6 +113,7 @@ export const OrderFormModal: React.FC<OrderFormModalProps> = ({
         deadline: order.deadline ? order.deadline.split('T')[0] : '',
         status: order.status,
         current_location: order.current_location || '',
+        order_type: order.order_type || '',
 
         metal_type: order.metal_type || '',
         estimated_weight_g: order.estimated_weight_g?.toString() || '',
@@ -163,6 +142,7 @@ export const OrderFormModal: React.FC<OrderFormModalProps> = ({
         deadline: '',
         status: 'new',
         current_location: '',
+        order_type: '',
         metal_type: '',
         estimated_weight_g: '',
         scrap_percentage: '5',
@@ -207,6 +187,23 @@ export const OrderFormModal: React.FC<OrderFormModalProps> = ({
     clearError(name);
   };
 
+  // DOM-06: one "Legierung & Farbe" choice sets metal_type AND alloy.
+  const alloyChoice = alloyChoiceKey(formData.metal_type, formData.alloy);
+  const selectedAlloyChoice = findAlloyChoice(alloyChoice);
+  const hasLegacyAlloyPair =
+    alloyChoice === '' && (formData.metal_type !== '' || formData.alloy !== '');
+
+  const handleAlloyChoiceChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const choice = findAlloyChoice(e.target.value);
+    setFormData((prev) => ({
+      ...prev,
+      metal_type: choice ? choice.metal_type : '',
+      alloy: choice ? choice.alloy : '',
+    }));
+    clearError('metal_type');
+    clearError('alloy');
+  };
+
   const handleCheckboxChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, checked } = e.target;
     setFormData((prev) => ({ ...prev, [name]: checked }));
@@ -225,15 +222,17 @@ export const OrderFormModal: React.FC<OrderFormModalProps> = ({
 
   // Pflichtfelder completion indicator for the Auftrag tab
   // These are the fields needed before status can be set to 'confirmed'
-  const isRingOrder = formData.metal_type !== '' &&
-    (formData.title.toLowerCase().includes('ring') ||
-     formData.description.toLowerCase().includes('ring'));
+  // DOM-05: driven by the order type, not by "ring" inside "Ohrring".
+  const isRingOrder = formData.order_type === 'ring';
   const pflichtfelder = [
     { key: 'title', label: 'Bezeichnung', filled: formData.title.trim() !== '' },
-    { key: 'metal_type', label: 'Metallart', filled: formData.metal_type !== '' },
-    { key: 'alloy', label: 'Legierung', filled: formData.alloy !== '' },
+    {
+      key: 'alloy',
+      label: 'Legierung & Farbe',
+      filled: formData.metal_type !== '' && formData.alloy !== '',
+    },
     { key: 'deadline', label: 'Abgabetermin', filled: formData.deadline !== '' },
-    ...(isRingOrder ? [{ key: 'ring_size_mm', label: 'Ringmass', filled: formData.ring_size_mm !== '' }] : []),
+    ...(isRingOrder ? [{ key: 'ring_size_mm', label: 'Ringmaß', filled: formData.ring_size_mm !== '' }] : []),
   ];
   const filledCount = pflichtfelder.filter((f) => f.filled).length;
   const totalCount = pflichtfelder.length;
@@ -291,6 +290,9 @@ export const OrderFormModal: React.FC<OrderFormModalProps> = ({
       ...result.data,
       // The form field is costing_method_used for display; backend expects costing_method
       costing_method_used: result.data.costing_method,
+      // DOM-09: not in the Zod schema (it would be stripped); an edit may
+      // clear it, a new order simply omits it.
+      order_type: formData.order_type || (order ? null : undefined),
     };
     delete submitData.costing_method;
 
@@ -299,21 +301,15 @@ export const OrderFormModal: React.FC<OrderFormModalProps> = ({
 
   // No-Go conflict candidates (Task 9): every field on this form that
   // carries material/appearance identity a customer could have blocked.
-  // metal_type/alloy/surface_finish resolve to their human-readable labels
-  // — the raw enum/codes ("gold_18k", "585") won't textually match a
-  // no-go value like "Weißgold". description is included as a catch-all:
-  // the intake form has no separate gemstone/allergy field, and staff
-  // routinely note stones or materials there (e.g. "mit Opal", "Nickel-Öse
-  // vom Kunden mitgebracht").
-  const selectedMetalTypeLabel = metalTypeOptions.find(
-    (o) => o.value === formData.metal_type
-  )?.label;
-  const selectedAlloyLabel = ALLOY_OPTIONS.find((o) => o.value === formData.alloy)?.label;
+  // The alloy choice and surface finish resolve to their human-readable
+  // labels — raw codes ("white_gold_18k", "750") won't textually match a
+  // no-go value like "Weißgold". description stays a catch-all for
+  // allergies and materials noted in free text.
+  const selectedAlloyLabel = selectedAlloyChoice?.label;
   const selectedSurfaceFinishLabel = SURFACE_FINISH_OPTIONS.find(
     (o) => o.value === formData.surface_finish
   )?.label;
   const noGoCandidates = [
-    selectedMetalTypeLabel,
     selectedAlloyLabel,
     selectedSurfaceFinishLabel,
     formData.description,
@@ -446,6 +442,23 @@ export const OrderFormModal: React.FC<OrderFormModalProps> = ({
                   )}
                 </div>
 
+                <div className="form-group">
+                  <label htmlFor="order_type">Schmuckart</label>
+                  <select
+                    id="order_type"
+                    name="order_type"
+                    value={formData.order_type}
+                    onChange={handleChange}
+                  >
+                    <option value="">-- Schmuckart auswählen --</option>
+                    {ORDER_TYPE_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
                 <div className="form-row">
                   <div className="form-group">
                     <label htmlFor="deadline">
@@ -518,27 +531,31 @@ export const OrderFormModal: React.FC<OrderFormModalProps> = ({
                   )}
                 </div>
 
-                {/* Legierung */}
+                {/* Legierung & Farbe (DOM-06): one choice sets metal type and alloy */}
                 <div className="form-group">
-                  <label htmlFor="alloy">
-                    Legierung <span className="required">*</span>
+                  <label htmlFor="alloy_choice">
+                    Legierung & Farbe <span className="required">*</span>
                   </label>
                   <select
-                    id="alloy"
-                    name="alloy"
-                    value={formData.alloy}
-                    onChange={handleChange}
+                    id="alloy_choice"
+                    name="alloy_choice"
+                    value={alloyChoice}
+                    onChange={handleAlloyChoiceChange}
+                    className={hasAttemptedSubmit && (errors.metal_type || errors.alloy) ? 'error' : ''}
                   >
-                    <option value="">-- Legierung auswählen --</option>
-                    {ALLOY_OPTIONS.map((opt) => (
-                      <option key={opt.value} value={opt.value}>
-                        {opt.label}
+                    <option value="">-- Legierung & Farbe auswählen --</option>
+                    {ALLOY_CHOICES.map((choice) => (
+                      <option key={choice.key} value={choice.key}>
+                        {choice.label}
                       </option>
                     ))}
                   </select>
-                  <small style={{ color: '#666' }}>
-                    Feingehalt der Legierung (z.B. 585 = 58,5% Feingold)
-                  </small>
+                  {hasLegacyAlloyPair && (
+                    <small className="form-hint">
+                      Bisher gespeichert: {formData.metal_type || '—'} / {formData.alloy || '—'}. Bitte
+                      Legierung & Farbe neu wählen.
+                    </small>
+                  )}
                 </div>
 
                 {/* Oberfläche */}
@@ -559,11 +576,11 @@ export const OrderFormModal: React.FC<OrderFormModalProps> = ({
                   </select>
                 </div>
 
-                {/* Ringmass — only shown when the order appears to be a ring */}
+                {/* Ringmaß — only for order type "Ring" (DOM-05) */}
                 {isRingOrder && (
                   <div className="form-group">
                     <label htmlFor="ring_size_mm">
-                      Ringmass (mm Innenumfang) <span className="required">*</span>
+                      Ringmaß (mm Innenumfang) <span className="required">*</span>
                     </label>
                     <input
                       type="number"
@@ -621,9 +638,18 @@ export const OrderFormModal: React.FC<OrderFormModalProps> = ({
                     value={formData.special_instructions}
                     onChange={handleChange}
                     rows={4}
-                    placeholder="Besondere Anforderungen des Kunden (Gravur, Fassungsart, Lieferbedingungen, ...)"
+                    placeholder="Besondere Anforderungen des Kunden (Gravur, Lieferbedingungen, …)"
                   />
                 </div>
+
+                {/* Steine (DOM-04): stored per stone, so only on a saved order */}
+                {order ? (
+                  <GemstoneRepeater orderId={order.id} canEdit canViewCost />
+                ) : (
+                  <p className="form-hint">
+                    Steine lassen sich nach dem Anlegen des Auftrags erfassen (Auftrag bearbeiten → Auftrag).
+                  </p>
+                )}
 
               </div>
             )}
@@ -631,29 +657,14 @@ export const OrderFormModal: React.FC<OrderFormModalProps> = ({
             {/* Metal Tab */}
             {activeTab === 'metal' && (
               <div className="tab-content-form">
-                <div className="form-group">
-                  <label htmlFor="metal_type">
-                    Metallart <span className="required">*</span>
-                  </label>
-                  <select
-                    id="metal_type"
-                    name="metal_type"
-                    value={formData.metal_type}
-                    onChange={handleChange}
-                    className={hasAttemptedSubmit && errors.metal_type ? 'error' : ''}
-                    disabled={isLoadingMetalTypes}
-                  >
-                    <option value="">-- Metallart auswählen --</option>
-                    {metalTypeOptions.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                  {hasAttemptedSubmit && errors.metal_type && (
-                    <span className="error-message">{errors.metal_type}</span>
-                  )}
-                </div>
+                <p className="form-hint">
+                  {selectedAlloyChoice
+                    ? `Legierung & Farbe: ${selectedAlloyChoice.label}`
+                    : 'Bitte zuerst im Tab „Auftrag“ Legierung & Farbe wählen.'}
+                </p>
+                {hasAttemptedSubmit && errors.metal_type && (
+                  <span className="error-message">{errors.metal_type}</span>
+                )}
 
                 {formData.metal_type && (
                   <>

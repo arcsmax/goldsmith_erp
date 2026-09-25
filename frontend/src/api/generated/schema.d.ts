@@ -1258,6 +1258,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/gemstones/{gemstone_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete Gemstone
+         * @description Stein entfernen.
+         */
+        delete: operations["delete_gemstone_api_v1_gemstones__gemstone_id__delete"];
+        options?: never;
+        head?: never;
+        /**
+         * Update Gemstone
+         * @description Stein bearbeiten.
+         */
+        patch: operations["update_gemstone_api_v1_gemstones__gemstone_id__patch"];
+        trace?: never;
+    };
     "/api/v1/handoffs/{handoff_id}/accept": {
         parameters: {
             query?: never;
@@ -2952,6 +2976,30 @@ export interface paths {
          *     ``CostChangeService.send``).
          */
         post: operations["create_cost_change_api_v1_orders__order_id__cost_changes_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/orders/{order_id}/gemstones": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Gemstones
+         * @description Steine eines Auftrags.
+         */
+        get: operations["list_gemstones_api_v1_orders__order_id__gemstones_get"];
+        put?: never;
+        /**
+         * Create Gemstone
+         * @description Stein zum Auftrag hinzufügen.
+         */
+        post: operations["create_gemstone_api_v1_orders__order_id__gemstones_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -7295,6 +7343,165 @@ export interface components {
             requested_at?: string | null;
             /** Status */
             status: string;
+        };
+        /**
+         * GemstoneCreate
+         * @description Body for ``POST /orders/{order_id}/gemstones``.
+         */
+        GemstoneCreate: {
+            /**
+             * Carat
+             * @description Karat je Stein
+             */
+            carat?: number | null;
+            /** Certificate Authority */
+            certificate_authority?: string | null;
+            /** Certificate Number */
+            certificate_number?: string | null;
+            /**
+             * Color
+             * @description Farbe, z.B. G
+             */
+            color?: string | null;
+            /**
+             * Cost
+             * @description Einkaufspreis je Stein (netto, EUR)
+             * @default 0
+             */
+            cost: number;
+            /**
+             * Cut
+             * @description Schliff
+             */
+            cut?: string | null;
+            /**
+             * Is Customer Stone
+             * @description Kundenstein
+             * @default false
+             */
+            is_customer_stone: boolean;
+            /** Notes */
+            notes?: string | null;
+            /**
+             * Quality
+             * @description Reinheit, z.B. VS1
+             */
+            quality?: string | null;
+            /**
+             * Quantity
+             * @description Anzahl
+             * @default 1
+             */
+            quantity: number;
+            /**
+             * Setting Type
+             * @description Fassungsart
+             */
+            setting_type?: ("bezel" | "prong" | "channel" | "pave" | "tension" | "invisible") | null;
+            /**
+             * Shape
+             * @description Form, z.B. rund
+             */
+            shape?: string | null;
+            /**
+             * Type
+             * @description Steinart
+             */
+            type: string;
+        };
+        /**
+         * GemstoneRead
+         * @description A stone as returned to the caller (role projection strips fields).
+         */
+        GemstoneRead: {
+            /** Carat */
+            carat?: number | null;
+            /** Certificate Authority */
+            certificate_authority?: string | null;
+            /** Certificate Number */
+            certificate_number?: string | null;
+            /** Color */
+            color?: string | null;
+            /** Cost */
+            cost?: number | null;
+            /** Cut */
+            cut?: string | null;
+            /** Id */
+            id: number;
+            /**
+             * Is Customer Stone
+             * @default false
+             */
+            is_customer_stone: boolean;
+            /** Notes */
+            notes?: string | null;
+            /** Order Id */
+            order_id: number;
+            /** Quality */
+            quality?: string | null;
+            /**
+             * Quantity
+             * @default 1
+             */
+            quantity: number;
+            /** Setting Type */
+            setting_type?: string | null;
+            /** Shape */
+            shape?: string | null;
+            /** Total Cost */
+            total_cost?: number | null;
+            /** Type */
+            type: string;
+        };
+        /**
+         * GemstoneUpdate
+         * @description Body for ``PATCH /gemstones/{gemstone_id}`` (only sent fields change).
+         */
+        GemstoneUpdate: {
+            /**
+             * Carat
+             * @description Karat je Stein
+             */
+            carat?: number | null;
+            /** Certificate Authority */
+            certificate_authority?: string | null;
+            /** Certificate Number */
+            certificate_number?: string | null;
+            /**
+             * Color
+             * @description Farbe, z.B. G
+             */
+            color?: string | null;
+            /** Cost */
+            cost?: number | null;
+            /**
+             * Cut
+             * @description Schliff
+             */
+            cut?: string | null;
+            /** Is Customer Stone */
+            is_customer_stone?: boolean | null;
+            /** Notes */
+            notes?: string | null;
+            /**
+             * Quality
+             * @description Reinheit, z.B. VS1
+             */
+            quality?: string | null;
+            /** Quantity */
+            quantity?: number | null;
+            /**
+             * Setting Type
+             * @description Fassungsart
+             */
+            setting_type?: ("bezel" | "prong" | "channel" | "pave" | "tension" | "invisible") | null;
+            /**
+             * Shape
+             * @description Form, z.B. rund
+             */
+            shape?: string | null;
+            /** Type */
+            type?: string | null;
         };
         /**
          * HallmarkCreate
@@ -14367,6 +14574,74 @@ export interface operations {
             };
         };
     };
+    delete_gemstone_api_v1_gemstones__gemstone_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                gemstone_id: number;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_gemstone_api_v1_gemstones__gemstone_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                gemstone_id: number;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GemstoneUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GemstoneRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     accept_handoff_api_v1_handoffs__handoff_id__accept_put: {
         parameters: {
             query?: never;
@@ -17085,6 +17360,76 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CostChangeRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_gemstones_api_v1_orders__order_id__gemstones_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                order_id: number;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GemstoneRead"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_gemstone_api_v1_orders__order_id__gemstones_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                order_id: number;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GemstoneCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GemstoneRead"];
                 };
             };
             /** @description Validation Error */

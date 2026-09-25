@@ -49,6 +49,7 @@ vi.mock('../contexts', () => ({
 vi.mock('../components/orders/CostAlertBanner', () => ({
   CostAlertBanner: () => null,
 }));
+vi.mock('../components/orders/GemstoneList', () => ({ GemstoneList: () => <div>steine</div> }));
 vi.mock('../components/orders/CustomerInfoCard', () => ({
   CustomerInfoCard: () => <div>customer-info</div>,
 }));

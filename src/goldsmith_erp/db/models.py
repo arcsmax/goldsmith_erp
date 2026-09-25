@@ -1009,6 +1009,12 @@ class Gemstone(Base):
     certificate_number = Column(String(100), nullable=True)
     certificate_authority = Column(String(50), nullable=True)  # 'GIA', 'IGI', 'HRD'
 
+    # W2-06 / DOM-04: Kundenstein (the customer brought the stone). Migration
+    # 20260925_w206_gemstone_intake.
+    is_customer_stone = Column(
+        Boolean, nullable=False, default=False, server_default=text("false")
+    )
+
     notes = Column(Text, nullable=True)
 
     # Beziehungen

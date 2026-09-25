@@ -84,6 +84,7 @@ vi.mock('../contexts', () => ({
 
 // Children with their own data fetching are out of this test's focus.
 vi.mock('../components/orders/CostAlertBanner', () => ({ CostAlertBanner: () => null }));
+vi.mock('../components/orders/GemstoneList', () => ({ GemstoneList: () => <div>steine</div> }));
 vi.mock('../components/orders/CustomerInfoCard', () => ({
   CustomerInfoCard: () => <div>customer-info</div>,
 }));

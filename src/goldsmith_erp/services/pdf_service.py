@@ -464,6 +464,30 @@ def _draw_invoice_notes(pdf: "_GoldsmithPDF", notes: str) -> None:
     pdf.ln(2)
 
 
+def _draw_gemstones(pdf: "_GoldsmithPDF", gemstones: Optional[list[Any]]) -> None:
+    """W2-06 (DOM-04): the stones of the piece, one German line each.
+
+    Description only (type, count, ct, colour/clarity, shape, Fassungsart,
+    Kundenstein); never the purchase cost, which is internal data.
+    """
+    if not gemstones:
+        return
+    from goldsmith_erp.models.gemstone import describe_gemstone  # noqa: PLC0415
+
+    pdf.ln(2)
+    pdf.section_title("Steine")
+    pdf.set_font(_FONT, "", 9)
+    pdf.set_text_color(*_DARK)
+    for stone in gemstones:
+        pdf.set_x(pdf.l_margin)
+        pdf.multi_cell(
+            pdf.w - pdf.l_margin - pdf.r_margin,
+            4.5,
+            f"• {describe_gemstone(stone)}"[:300],
+        )
+    pdf.ln(2)
+
+
 def _bank_line(seller: Mapping[str, Any]) -> str:
     parts = [
         _safe_str(seller.get("bank_name")),
@@ -513,6 +537,7 @@ def _render_invoice_fpdf(
     workshop_name: str,
     altgold_credit: float = 0.0,
     seller: Optional[Mapping[str, Any]] = None,
+    gemstones: Optional[list[Any]] = None,
 ) -> bytes:
     """Build a §14 Abs. 4 UStG complete invoice PDF with fpdf2 (W2-04)."""
     seller_data: Mapping[str, Any] = seller or {"name": workshop_name}
@@ -533,6 +558,7 @@ def _render_invoice_fpdf(
     notes = _safe_str(getattr(invoice, "notes", None))
     if notes:
         _draw_invoice_notes(pdf, notes)
+    _draw_gemstones(pdf, gemstones)
     _draw_payment_block(
         pdf, invoice, seller_data, max(float(altgold_credit or 0.0), 0.0)
     )
@@ -789,6 +815,7 @@ def _render_quote_fpdf(
     customer: Any,
     line_items: list[Any],
     workshop_name: str,
+    gemstones: Optional[list[Any]] = None,
 ) -> bytes:
     """Build a Kostenvoranschlag PDF with fpdf2 and return raw bytes."""
     import base64
@@ -950,6 +977,8 @@ def _render_quote_fpdf(
         pdf.set_text_color(*_DARK)
         pdf.multi_cell(175, 4.5, notes[:400])
         pdf.ln(2)
+
+    _draw_gemstones(pdf, gemstones)
 
     # ── Signature line ────────────────────────────────────────────────────────
     pdf.ln(6)
@@ -1437,9 +1466,13 @@ class PDFService:
         workshop_name: str,
         altgold_credit: float = 0.0,
         seller: Optional[Mapping[str, Any]] = None,
+        gemstones: Optional[list[Any]] = None,
     ) -> bytes:
         """
         Render a German Rechnung (or Stornorechnung) as PDF.
+
+        W2-06: ``gemstones`` (optional) prints a "Steine" block with the
+        description of every stone (no purchase cost).
 
         W2-04: ``seller`` is the Werkstatt-Stammdaten block from the invoice
         snapshot; with it the PDF carries every §14 Abs. 4 UStG element
@@ -1470,6 +1503,7 @@ class PDFService:
             workshop_name=workshop_name,
             altgold_credit=altgold_credit,
             seller=seller,
+            gemstones=gemstones,
         )
 
     @staticmethod
@@ -1513,9 +1547,12 @@ class PDFService:
         customer: Any,
         line_items: list[Any],
         workshop_name: str,
+        gemstones: Optional[list[Any]] = None,
     ) -> bytes:
         """
         Render a German Kostenvoranschlag as PDF.
+
+        W2-06: ``gemstones`` (optional) prints a "Steine" block.
 
         Args:
             quote:         QuoteResponse-like object (quote_number, created_at,
@@ -1538,6 +1575,7 @@ class PDFService:
             customer=customer,
             line_items=line_items,
             workshop_name=workshop_name,
+            gemstones=gemstones,
         )
 
     @staticmethod
