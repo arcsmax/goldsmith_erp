@@ -432,8 +432,9 @@ export const CustomersPage: React.FC = () => {
               </div>
 
               <div className="page-size-selector">
-                <label>Pro Seite:</label>
+                <label htmlFor="customers-page-size">Pro Seite:</label>
                 <select
+                  id="customers-page-size"
                   value={pageSize}
                   onChange={(e) => {
                     setPageSize(Number(e.target.value));

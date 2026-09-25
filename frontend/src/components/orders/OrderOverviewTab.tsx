@@ -59,10 +59,12 @@ export function OrderOverviewTab({ order, role }: OrderOverviewTabProps) {
         <h3 id="order-overview-facts">Auftragsinformationen</h3>
         <div className="detail-grid">
           <div className="detail-item">
+            {/* eslint-disable-next-line jsx-a11y/label-has-associated-control -- key/value display pair, not a form control (styled via .detail-item label) */}
             <label>Auftragsnummer:</label>
             <span className="tabular-nums">#{order.id}</span>
           </div>
           <div className="detail-item">
+            {/* eslint-disable-next-line jsx-a11y/label-has-associated-control -- key/value display pair, not a form control (styled via .detail-item label) */}
             <label>Titel:</label>
             <span>{order.title}</span>
           </div>
@@ -70,6 +72,7 @@ export function OrderOverviewTab({ order, role }: OrderOverviewTabProps) {
               without it; omit the row rather than show an empty value. */}
           {canDesign && (
             <div className="detail-item">
+              {/* eslint-disable-next-line jsx-a11y/label-has-associated-control -- key/value display pair, not a form control (styled via .detail-item label) */}
               <label>Beschreibung:</label>
               <span>{order.description || '—'}</span>
             </div>
@@ -78,6 +81,7 @@ export function OrderOverviewTab({ order, role }: OrderOverviewTabProps) {
               without it; omit the row rather than report "Nicht festgelegt". */}
           {canFinance && (
             <div className="detail-item">
+              {/* eslint-disable-next-line jsx-a11y/label-has-associated-control -- key/value display pair, not a form control (styled via .detail-item label) */}
               <label>Preis:</label>
               <span className={`tabular-nums ${MONEY_CLASS}`}>
                 {order.price ? formatEur(order.price) : 'Nicht festgelegt'}
@@ -86,21 +90,25 @@ export function OrderOverviewTab({ order, role }: OrderOverviewTabProps) {
           )}
           {order.deadline && (
             <div className="detail-item">
+              {/* eslint-disable-next-line jsx-a11y/label-has-associated-control -- key/value display pair, not a form control (styled via .detail-item label) */}
               <label>Frist:</label>
               <span className="tabular-nums">{formatDateTime(order.deadline)}</span>
             </div>
           )}
           {order.current_location && (
             <div className="detail-item">
+              {/* eslint-disable-next-line jsx-a11y/label-has-associated-control -- key/value display pair, not a form control (styled via .detail-item label) */}
               <label>Standort:</label>
               <span>{order.current_location}</span>
             </div>
           )}
           <div className="detail-item">
+            {/* eslint-disable-next-line jsx-a11y/label-has-associated-control -- key/value display pair, not a form control (styled via .detail-item label) */}
             <label>Erstellt:</label>
             <span className="tabular-nums">{formatDateTime(order.created_at)}</span>
           </div>
           <div className="detail-item">
+            {/* eslint-disable-next-line jsx-a11y/label-has-associated-control -- key/value display pair, not a form control (styled via .detail-item label) */}
             <label>Aktualisiert:</label>
             <span className="tabular-nums">{formatDateTime(order.updated_at)}</span>
           </div>

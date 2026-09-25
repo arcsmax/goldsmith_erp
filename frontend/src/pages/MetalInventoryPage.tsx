@@ -309,8 +309,9 @@ export const MetalInventoryPage: React.FC = () => {
         </div>
 
         <div className="filter-group">
-          <label>Metalltyp:</label>
+          <label htmlFor="metal-inventory-filter-type">Metalltyp:</label>
           <select
+            id="metal-inventory-filter-type"
             value={filterMetalType}
             onChange={(e) => setFilterMetalType(e.target.value as MetalType | '')}
           >
@@ -324,8 +325,9 @@ export const MetalInventoryPage: React.FC = () => {
         </div>
 
         <div className="filter-group">
-          <label>Status:</label>
+          <label htmlFor="metal-inventory-filter-status">Status:</label>
           <select
+            id="metal-inventory-filter-status"
             value={filterDepleted}
             onChange={(e) => setFilterDepleted(e.target.value as 'all' | 'active' | 'depleted')}
           >
@@ -336,8 +338,8 @@ export const MetalInventoryPage: React.FC = () => {
         </div>
 
         <div className="filter-group">
-          <label>Sortieren:</label>
-          <select value={sortBy} onChange={(e) => setSortBy(e.target.value as any)}>
+          <label htmlFor="metal-inventory-sort-by">Sortieren:</label>
+          <select id="metal-inventory-sort-by" value={sortBy} onChange={(e) => setSortBy(e.target.value as any)}>
             <option value="date">Kaufdatum</option>
             <option value="metal_type">Metalltyp</option>
             <option value="value">Wert</option>
@@ -346,8 +348,9 @@ export const MetalInventoryPage: React.FC = () => {
         </div>
 
         <div className="filter-group">
-          <label>Pro Seite:</label>
+          <label htmlFor="metal-inventory-page-size">Pro Seite:</label>
           <select
+            id="metal-inventory-page-size"
             value={pageSize}
             onChange={(e) => {
               setPageSize(Number(e.target.value));

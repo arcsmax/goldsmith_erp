@@ -95,10 +95,18 @@ export const UserFormModal: React.FC<UserFormModalProps> = ({
   }
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
+    // eslint-disable-next-line jsx-a11y/click-events-have-key-events -- backdrop dismiss is mouse-only by convention
+    <div
+      className="modal-overlay"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="user-form-modal-title"
+      onClick={onClose}
+    >
+      {/* eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions -- stops the backdrop's onClose from firing when clicking inside the dialog; not itself interactive */}
       <div className="modal-content" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
-          <h2>{isEditing ? 'Benutzer bearbeiten' : 'Neuer Benutzer'}</h2>
+          <h2 id="user-form-modal-title">{isEditing ? 'Benutzer bearbeiten' : 'Neuer Benutzer'}</h2>
           <button className="modal-close" onClick={onClose} type="button">
             x
           </button>

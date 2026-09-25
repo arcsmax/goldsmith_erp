@@ -234,8 +234,9 @@ export const StyleNoGoStep: React.FC<WizardStepProps> = ({ consultation }) => {
         )}
 
         <div className="wizard-field">
-          <label>Schnellauswahl Allergien</label>
-          <div className="chip-group" role="group" aria-label="Schnellauswahl Allergien">
+          {/* eslint-disable-next-line jsx-a11y/label-has-associated-control -- labels the group below via aria-labelledby, not a single control */}
+          <label id="stylenogo-allergens-label">Schnellauswahl Allergien</label>
+          <div className="chip-group" role="group" aria-labelledby="stylenogo-allergens-label">
             {QUICK_ALLERGENS.map((allergen) => (
               <button
                 key={allergen}

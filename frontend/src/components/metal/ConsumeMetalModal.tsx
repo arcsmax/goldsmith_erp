@@ -296,8 +296,13 @@ export const ConsumeMetalModal: React.FC<ConsumeMetalModalProps> = ({
 
           {/* Costing method */}
           <div className="form-group">
-            <label>Bewertungsmethode *</label>
-            <div className="costing-method-grid">
+            {/* eslint-disable-next-line jsx-a11y/label-has-associated-control -- labels the radiogroup below via aria-labelledby, not a single control */}
+            <label id="consume-costing-method-label">Bewertungsmethode *</label>
+            <div
+              className="costing-method-grid"
+              role="radiogroup"
+              aria-labelledby="consume-costing-method-label"
+            >
               {COSTING_METHODS.map((m) => (
                 <label
                   key={m.value}

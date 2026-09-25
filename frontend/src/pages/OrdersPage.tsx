@@ -280,8 +280,9 @@ export const OrdersPage: React.FC = () => {
         </div>
 
         <div className="filter-group">
-          <label>Status:</label>
+          <label htmlFor="orders-filter-status">Status:</label>
           <select
+            id="orders-filter-status"
             value={filterStatus}
             onChange={(e) => setFilterStatus(e.target.value as OrderStatus | '')}
           >
@@ -295,8 +296,8 @@ export const OrdersPage: React.FC = () => {
         </div>
 
         <div className="filter-group">
-          <label>Sortieren:</label>
-          <select value={sortBy} onChange={(e) => setSortBy(e.target.value as any)}>
+          <label htmlFor="orders-sort-by">Sortieren:</label>
+          <select id="orders-sort-by" value={sortBy} onChange={(e) => setSortBy(e.target.value as any)}>
             <option value="created">Erstelldatum</option>
             <option value="deadline">Frist</option>
             {canFinance && <option value="price">Preis</option>}
@@ -304,8 +305,9 @@ export const OrdersPage: React.FC = () => {
         </div>
 
         <div className="filter-group">
-          <label>Pro Seite:</label>
+          <label htmlFor="orders-page-size">Pro Seite:</label>
           <select
+            id="orders-page-size"
             value={pageSize}
             onChange={(e) => {
               setPageSize(Number(e.target.value));

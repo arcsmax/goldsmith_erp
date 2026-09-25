@@ -305,15 +305,15 @@ const ArbeitszettelTab: React.FC<ArbeitszettelTabProps> = ({ order, onOrderUpdat
         {/* Sonderwünsche — read-only reminder */}
         {order.special_instructions && (
           <div className="arbeitszettel-field arbeitszettel-field--full">
-            <label className="az-label">
+            <label className="az-label" htmlFor="arbeitszettel-special-instructions">
               Sonderwünsche (Erinnerung)
             </label>
             <textarea
+              id="arbeitszettel-special-instructions"
               className="az-textarea az-textarea--readonly"
               readOnly
               rows={4}
               value={order.special_instructions}
-              aria-label="Sonderwünsche (schreibgeschützt)"
             />
             <p className="az-hint">
               Dieses Feld ist schreibgeschützt. Zum Bearbeiten bitte die Auftragsdetails verwenden.

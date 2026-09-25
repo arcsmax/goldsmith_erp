@@ -42,14 +42,22 @@ const PurchaseListModal: React.FC<PurchaseListModalProps> = ({ isOpen, onClose }
   if (!isOpen) return null;
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
+    // eslint-disable-next-line jsx-a11y/click-events-have-key-events -- backdrop dismiss is mouse-only by convention
+    <div
+      className="modal-overlay"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="reorder-list-modal-title"
+      onClick={onClose}
+    >
+      {/* eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions -- stops the backdrop's onClose from firing when clicking inside the dialog; not itself interactive */}
       <div
         className="modal-content"
         style={{ maxWidth: 700, width: '95vw' }}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="modal-header">
-          <h2>Bestellliste</h2>
+          <h2 id="reorder-list-modal-title">Bestellliste</h2>
           <button className="modal-close" onClick={onClose} type="button">
             ×
           </button>
@@ -325,8 +333,8 @@ export const MaterialsPage: React.FC = () => {
         </div>
 
         <div className="filter-group">
-          <label>Sortieren:</label>
-          <select value={sortBy} onChange={(e) => setSortBy(e.target.value as any)}>
+          <label htmlFor="materials-sort-by">Sortieren:</label>
+          <select id="materials-sort-by" value={sortBy} onChange={(e) => setSortBy(e.target.value as any)}>
             <option value="name">Name</option>
             {canFinance && <option value="price">Preis</option>}
             <option value="stock">Bestand</option>

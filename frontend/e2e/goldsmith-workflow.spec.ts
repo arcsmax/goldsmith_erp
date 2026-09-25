@@ -439,7 +439,7 @@ test.describe('Flow 5: All Pages Load Without Errors', () => {
   for (const { path, name } of pages) {
     test(`${name} (${path}) loads without white screen or crash text`, async ({ page }) => {
       await login(page);
-      const response = await page.goto(path, { waitUntil: 'domcontentloaded' });
+      await page.goto(path, { waitUntil: 'domcontentloaded' });
       await page.waitForLoadState('networkidle');
       await page.waitForTimeout(1_500);
 

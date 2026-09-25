@@ -392,6 +392,7 @@ export const CustomerFormModal: React.FC<CustomerFormModalProps> = ({
   if (!isOpen) return null;
 
   return (
+    // eslint-disable-next-line jsx-a11y/click-events-have-key-events -- backdrop dismiss is mouse-only by convention
     <div
       className="modal-overlay"
       role="dialog"
@@ -399,6 +400,7 @@ export const CustomerFormModal: React.FC<CustomerFormModalProps> = ({
       aria-labelledby="customer-modal-title"
       onClick={onClose}
     >
+      {/* eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions -- stops the backdrop's onClose from firing when clicking inside the dialog; not itself interactive */}
       <div className="modal-content" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <h2 id="customer-modal-title">{customer ? 'Kunde bearbeiten' : 'Neuer Kunde'}</h2>

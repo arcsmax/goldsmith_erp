@@ -13,7 +13,6 @@ const LISTBOX_ID = 'typeahead-listbox';
 
 interface CustomerTypeaheadProps {
   onSelect: (customer: CustomerListItem) => void;
-  autoFocus?: boolean;
   /** id for the input, so a visible <label htmlFor> can name it. */
   inputId?: string;
   /** Called when the search request fails (LV-02: never fail silently).
@@ -23,7 +22,6 @@ interface CustomerTypeaheadProps {
 
 export const CustomerTypeahead: React.FC<CustomerTypeaheadProps> = ({
   onSelect,
-  autoFocus,
   inputId,
   onError,
 }) => {
@@ -111,7 +109,6 @@ export const CustomerTypeahead: React.FC<CustomerTypeaheadProps> = ({
         aria-activedescendant={activeOptionId}
         placeholder="Name oder E-Mail suchen..."
         value={query}
-        autoFocus={autoFocus}
         onChange={(e) => setQuery(e.target.value)}
         onKeyDown={handleKeyDown}
       />

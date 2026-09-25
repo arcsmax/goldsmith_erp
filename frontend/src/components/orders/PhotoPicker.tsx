@@ -95,7 +95,7 @@ export function PhotoPicker({
   if (photos.length === 0) {
     return (
       <div className="photo-picker photo-picker-status">
-        Für diesen Auftrag sind noch keine Fotos hinterlegt. Fotos werden im Tab „Fotos"
+        Für diesen Auftrag sind noch keine Fotos hinterlegt. Fotos werden im Tab „Fotos&quot;
         hochgeladen und können hier anschließend ausgewählt werden.
       </div>
     );

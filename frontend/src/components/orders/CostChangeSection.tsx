@@ -169,6 +169,7 @@ function RecordResponseModal({ costChange, onClose, onSubmit }: RecordResponseMo
   };
 
   return (
+    // eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions -- backdrop dismiss is mouse-only by convention; the actual dialog role + keyboard handling is on the panel below
     <div className="cost-change-modal-overlay" onClick={onClose}>
       <div
         className="cost-change-modal"

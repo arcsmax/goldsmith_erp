@@ -138,7 +138,9 @@ const CreateQuoteModal: React.FC<CreateQuoteModalProps> = ({
   if (!isOpen) return null;
 
   return (
+    // eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions -- backdrop dismiss is mouse-only by convention; the actual dialog role is on the panel below
     <div className="modal-overlay" onClick={handleClose}>
+      {/* eslint-disable-next-line jsx-a11y/click-events-have-key-events -- stops the backdrop's onClose from firing when clicking inside the dialog */}
       <div
         className="modal-content create-quote-modal"
         onClick={e => e.stopPropagation()}
@@ -290,7 +292,9 @@ const ApproveModal: React.FC<ApproveModalProps> = ({ quote, onClose, onApprove }
   };
 
   return (
+    // eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions -- backdrop dismiss is mouse-only by convention; the actual dialog role is on the panel below
     <div className="modal-overlay" onClick={onClose}>
+      {/* eslint-disable-next-line jsx-a11y/click-events-have-key-events -- stops the backdrop's onClose from firing when clicking inside the dialog */}
       <div
         className="modal-content approve-quote-modal"
         onClick={e => e.stopPropagation()}
@@ -339,6 +343,7 @@ const ApproveModal: React.FC<ApproveModalProps> = ({ quote, onClose, onApprove }
         </fieldset>
 
         <div className="signature-section">
+          {/* eslint-disable-next-line jsx-a11y/label-has-associated-control -- labels a canvas-based signature pad, not a native form control */}
           <label className="signature-label">
             Unterschrift des Kunden (optional)
           </label>

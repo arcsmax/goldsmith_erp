@@ -86,8 +86,9 @@ export const WishStep: React.FC<WishStepProps> = ({ consultation, onFieldsChange
   return (
     <div className="wish-step">
       <div className="wizard-field">
-        <label>Art des Schmuckstücks</label>
-        <div className="chip-group" role="radiogroup" aria-label="Art des Schmuckstücks">
+        {/* eslint-disable-next-line jsx-a11y/label-has-associated-control -- labels the radiogroup below via aria-labelledby, not a single control */}
+        <label id="wish-piece-type-label">Art des Schmuckstücks</label>
+        <div className="chip-group" role="radiogroup" aria-labelledby="wish-piece-type-label">
           {PIECE_TYPE_KEYS.map((key) => (
             <button
               key={key}

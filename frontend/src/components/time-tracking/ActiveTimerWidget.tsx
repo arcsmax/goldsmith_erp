@@ -265,13 +265,13 @@ export const ActiveTimerWidget: React.FC = () => {
     // Minimized view when an entry is active (running or paused)
     return (
       <div className="timer-widget minimized">
-        <div className="timer-minimal-content" onClick={() => setIsExpanded(true)}>
+        <button type="button" className="timer-minimal-content" onClick={() => setIsExpanded(true)}>
           <span className="timer-minimal-icon">⏱️</span>
           <span className="timer-minimal-display">{formatDuration()}</span>
           <span className="timer-minimal-order">
             {getSelectedOrder()?.title || 'Auftrag #' + timerState.orderId}
           </span>
-        </div>
+        </button>
       </div>
     );
   }
