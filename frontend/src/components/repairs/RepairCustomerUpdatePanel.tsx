@@ -1,5 +1,5 @@
 // RepairCustomerUpdatePanel — pickup-ready Kundeninfo draft on
-// RepairDetailPage (DOM-12 / W2-02).
+// RepairDetailPage (DOM-12 / W2-02; W4-03 on TanStack Query and src/ui).
 //
 // Reaching READY creates a DRAFT CustomerUpdate server-side (see
 // RepairService.complete_repair) — nothing is sent to the customer yet.
@@ -10,159 +10,117 @@
 // Only rendered for repairs that could have a draft (status ready or
 // picked_up — see _VALID_TRANSITIONS in repair_service.py: READY is only
 // reachable once and never reverts, so no earlier status can have one).
-//
-// Styling: no src/ui primitives exist yet (CLAUDE.md, Wave 4) — reuses the
-// existing .intake-checklist card + .status-badge + .btn classes rather
-// than introducing new ones (styles are out of scope for this fix).
-import React, { useCallback, useEffect, useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { customerUpdatesApi } from '../../api/customer-updates';
-import type { CustomerUpdate, CustomerUpdateStatus } from '../../api/customer-updates';
+import type { CustomerUpdate } from '../../api/customer-updates';
+import { repairCustomerUpdatesQuery, repairKeys } from '../../api/repairQueries';
 import type { RepairJob } from '../../types';
 import { useToast } from '../../contexts';
+import { getErrorMessage } from '../../lib/errors';
 import { logError } from '../../lib/logError';
+import { Button, Card } from '../../ui';
+import { StatusBadge } from '../../ui/StatusBadge';
+import { formatRepairDateTime } from './repairFormat';
 import { openRepairStatusReport } from './statusReport';
-
-const STATUS_LABELS: Record<CustomerUpdateStatus, string> = {
-  draft: 'Entwurf',
-  sent: 'Verschickt',
-  send_failed: 'Versand fehlgeschlagen',
-};
-
-function formatDateTime(value: string | null | undefined): string {
-  if (!value) return '—';
-  return new Date(value).toLocaleDateString('de-DE', {
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
-}
 
 interface RepairCustomerUpdatePanelProps {
   repair: RepairJob;
-  /** Called with the fresh RepairJob after a send — customer_notified_at
-   *  only ever changes server-side on an actual delivered send, so the
-   *  parent must refetch rather than have this panel guess the value. */
+  /** Called after a send — customer_notified_at only ever changes
+   *  server-side on an actual delivered send, so the parent must refetch
+   *  rather than have this panel guess the value. */
   onRepairRefresh: () => void;
 }
 
-export function RepairCustomerUpdatePanel({
-  repair,
-  onRepairRefresh,
-}: RepairCustomerUpdatePanelProps) {
+function useSendUpdate(repairId: number, onRepairRefresh: () => void) {
+  const queryClient = useQueryClient();
   const { showToast } = useToast();
-  const [update, setUpdate] = useState<CustomerUpdate | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [sending, setSending] = useState(false);
-  const [downloadingReport, setDownloadingReport] = useState(false);
-
-  const canHaveDraft = repair.status === 'ready' || repair.status === 'picked_up';
-
-  const loadUpdate = useCallback(async () => {
-    setLoading(true);
-    try {
-      const updates = await customerUpdatesApi.listRepairUpdates(repair.id);
-      setUpdate(updates[0] ?? null);
-    } catch (err) {
-      logError('Kundeninfo-Entwurf laden fehlgeschlagen', err);
-    } finally {
-      setLoading(false);
-    }
-  }, [repair.id]);
-
-  useEffect(() => {
-    if (canHaveDraft) loadUpdate();
-  }, [canHaveDraft, loadUpdate]);
-
-  if (!canHaveDraft) return null;
-
-  const handleSend = async () => {
-    setSending(true);
-    try {
-      const result = await customerUpdatesApi.sendRepairUpdate(repair.id);
-      setUpdate(result.update);
+  return useMutation({
+    mutationFn: () => customerUpdatesApi.sendRepairUpdate(repairId),
+    onSuccess: (result) => {
+      queryClient.setQueryData<CustomerUpdate[]>(repairKeys.customerUpdates(repairId), (prev) => [
+        result.update,
+        ...(prev ?? []).slice(1),
+      ]);
       // W6: an Art. 21 opt-out is an expected outcome, not an error.
       const notSentMessage =
         result.reason === 'opted_out'
           ? 'Kunde wünscht keine E-Mail-Updates — bitte als PDF übergeben'
-          : 'Email-Versand nicht möglich — Entwurf bleibt erhalten (PDF-Fallback über Kundeninfo)';
+          : 'E-Mail-Versand nicht möglich — Entwurf bleibt erhalten (PDF-Fallback über Kundeninfo)';
       showToast(
         result.delivered ? 'Kunde wurde benachrichtigt' : notSentMessage,
-        result.delivered ? 'success' : result.reason === 'opted_out' ? 'info' : 'error'
+        result.delivered ? 'success' : result.reason === 'opted_out' ? 'info' : 'error',
       );
       // customer_notified_at on the repair changes ONLY when this send was
       // delivered — refetch from the parent rather than duplicating that
       // rule here (see RepairService.send_customer_update).
       onRepairRefresh();
-    } catch (err: unknown) {
+    },
+    onError: (err) => {
       logError('Kundeninfo-Update senden fehlgeschlagen', err);
       showToast('Versand fehlgeschlagen', 'error');
-    } finally {
-      setSending(false);
-    }
-  };
+    },
+  });
+}
 
-  const handleDownloadStatusReport = async () => {
-    setDownloadingReport(true);
-    try {
-      await openRepairStatusReport(repair.id);
-    } catch (err) {
+function useStatusReport(repairId: number) {
+  const { showToast } = useToast();
+  return useMutation({
+    mutationFn: () => openRepairStatusReport(repairId),
+    onError: (err) => {
       logError('Statusbericht laden fehlgeschlagen', err);
       showToast('Statusbericht konnte nicht erstellt werden', 'error');
-    } finally {
-      setDownloadingReport(false);
-    }
-  };
+    },
+  });
+}
+
+export function RepairCustomerUpdatePanel({ repair, onRepairRefresh }: RepairCustomerUpdatePanelProps) {
+  const canHaveDraft = repair.status === 'ready' || repair.status === 'picked_up';
+  const updates = useQuery({ ...repairCustomerUpdatesQuery(repair.id), enabled: canHaveDraft });
+  const send = useSendUpdate(repair.id, onRepairRefresh);
+  const report = useStatusReport(repair.id);
+
+  if (!canHaveDraft) return null;
+
+  const update = updates.data?.[0] ?? null;
 
   return (
-    <div className="intake-checklist">
-      <div className="intake-checklist-header">
-        <h3>Kundeninfo — Abholbereit</h3>
-        {update && (
-          <span className={`status-badge ${update.status}`}>
-            {STATUS_LABELS[update.status]}
-          </span>
-        )}
-      </div>
+    <Card
+      title="Kundeninfo — Abholbereit"
+      headingLevel={3}
+      action={update ? <StatusBadge kind="customerUpdate" status={update.status} /> : undefined}
+      className="repair-update-panel"
+    >
+      <Button variant="secondary" icon="file-text" loading={report.isPending} onClick={() => report.mutate()}>
+        Statusbericht (PDF)
+      </Button>
 
-      <button
-        type="button"
-        className="btn btn-secondary btn-sm"
-        disabled={downloadingReport}
-        onClick={handleDownloadStatusReport}
-      >
-        {downloadingReport ? 'Wird erstellt…' : 'Statusbericht (PDF)'}
-      </button>
+      {updates.isPending && <p className="repair-update-panel__muted">Wird geladen…</p>}
 
-      {loading && <p style={{ color: 'var(--color-text-muted)' }}>Wird geladen…</p>}
-
-      {!loading && !update && (
-        <p style={{ color: 'var(--color-text-muted)' }}>
-          Noch kein Kundeninfo-Entwurf vorhanden.
+      {updates.isError && (
+        <p className="repair-update-panel__muted" role="alert">
+          {getErrorMessage(updates.error, 'Kundeninfo konnte nicht geladen werden.')}
         </p>
       )}
 
-      {!loading && update && (
+      {updates.isSuccess && !update && (
+        <p className="repair-update-panel__muted">Noch kein Kundeninfo-Entwurf vorhanden.</p>
+      )}
+
+      {update && (
         <>
-          <p style={{ fontWeight: 600, margin: '0 0 0.5rem' }}>{update.subject}</p>
+          <p className="repair-update-panel__subject">{update.subject}</p>
           {update.status === 'sent' ? (
-            <p style={{ color: 'var(--color-text-muted)', fontSize: '0.9rem' }}>
-              Verschickt am {formatDateTime(update.sent_at)}
-              {update.delivery_method === 'email' ? ' per Email' : ''}.
+            <p className="repair-update-panel__muted">
+              Verschickt am {formatRepairDateTime(update.sent_at)}
+              {update.delivery_method === 'email' ? ' per E-Mail' : ''}.
             </p>
           ) : (
-            <button
-              type="button"
-              className="btn btn-success"
-              disabled={sending}
-              onClick={handleSend}
-            >
-              {sending ? 'Wird verschickt…' : 'Kunde benachrichtigen'}
-            </button>
+            <Button icon="send" loading={send.isPending} onClick={() => send.mutate()}>
+              Kunde benachrichtigen
+            </Button>
           )}
         </>
       )}
-    </div>
+    </Card>
   );
 }
