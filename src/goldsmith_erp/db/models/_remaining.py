@@ -14,7 +14,6 @@ from sqlalchemy import (
     Index,
     Integer,
     String,
-    Table,
     Text,
     UniqueConstraint,
     event,
@@ -27,9 +26,7 @@ from goldsmith_erp.core.timeutil import utcnow
 from goldsmith_erp.db.models.base import (
     MONEY_NUMERIC,
     PERCENT_NUMERIC,
-    PRICE_PER_GRAM_NUMERIC,
     WEIGHT_NUMERIC,
-    AlloyType,
     Base,
     CostingMethod,
     InvoiceLineType,
@@ -37,8 +34,8 @@ from goldsmith_erp.db.models.base import (
     MetalType,
     OrderStatusEnum,
     SAEnum,
-    ScrapGoldStatus,
 )
+from goldsmith_erp.db.models.materials import order_materials
 from goldsmith_erp.db.types import EncryptedString, UtcDateTime, UtcDateTimeNaiveStorage
 
 
@@ -49,15 +46,6 @@ class CalendarEventType(str, enum.Enum):
     WORKSHOP_TASK = "workshop_task"
     APPOINTMENT = "appointment"
     REMINDER = "reminder"
-
-
-# Many-to-Many zwischen Material und Order
-order_materials = Table(
-    "order_materials",
-    Base.metadata,
-    Column("order_id", Integer, ForeignKey("orders.id"), primary_key=True),
-    Column("material_id", Integer, ForeignKey("materials.id"), primary_key=True),
-)
 
 
 class OrderTypeEnum(str, enum.Enum):
@@ -332,26 +320,6 @@ class OrderComment(Base):
     user = relationship("User")
 
 
-class Material(Base):
-    __tablename__ = "materials"
-
-    id = Column(Integer, primary_key=True, index=True)
-    name = Column(String, index=True)
-    description = Column(String)
-    unit_price = Column(MONEY_NUMERIC)
-    stock = Column(WEIGHT_NUMERIC)
-    unit = Column(String)  # g, kg, stück, etc.
-    image_url = Column(String(500), nullable=True)
-    supplier = Column(String(200), nullable=True)
-    webshop_url = Column(String(500), nullable=True)
-    min_stock = Column(WEIGHT_NUMERIC, default=Decimal("10.0"), nullable=False)
-
-    # Beziehungen
-    orders = relationship(
-        "Order", secondary=order_materials, back_populates="materials"
-    )
-
-
 class OrderPhoto(Base):
     """Foto-Dokumentation für Aufträge"""
 
@@ -419,349 +387,6 @@ class Gemstone(Base):
 
     # Beziehungen
     order = relationship("Order", back_populates="gemstones")
-
-
-# ============================================================================
-# METAL INVENTORY MANAGEMENT
-# ============================================================================
-
-
-class MetalPurchase(Base):
-    """
-    Tracks metal purchases for inventory management.
-
-    Each purchase represents a batch of metal bought at a specific price.
-    Remaining weight decreases as metal is used for orders.
-    """
-
-    __tablename__ = "metal_purchases"
-
-    id = Column(Integer, primary_key=True, index=True)
-
-    # Purchase Details
-    date_purchased = Column(UtcDateTime, nullable=False, default=utcnow, index=True)
-    metal_type = Column(SAEnum(MetalType), nullable=False, index=True)
-
-    # Weight & Pricing
-    weight_g = Column(
-        WEIGHT_NUMERIC, nullable=False
-    )  # Original purchase weight in grams
-    remaining_weight_g = Column(WEIGHT_NUMERIC, nullable=False)  # Decreases as used
-    price_total = Column(MONEY_NUMERIC, nullable=False)  # Total price paid (EUR)
-    price_per_gram = Column(
-        PRICE_PER_GRAM_NUMERIC, nullable=False
-    )  # Calculated: price_total / weight_g
-
-    # Supplier Information
-    supplier = Column(String(200), nullable=True)
-    invoice_number = Column(String(100), nullable=True)
-
-    # Additional Info
-    notes = Column(Text, nullable=True)
-    lot_number = Column(String(100), nullable=True)  # For tracking/certification
-
-    # Timestamps
-    created_at = Column(UtcDateTime, default=utcnow, nullable=False)
-    updated_at = Column(UtcDateTime, default=utcnow, onupdate=utcnow, nullable=False)
-
-    # Relationships
-    usage_records = relationship(
-        "MaterialUsage", back_populates="metal_purchase", cascade="all, delete-orphan"
-    )
-
-    @property
-    def used_weight_g(self) -> Decimal:
-        """Calculate how much weight has been used from this purchase"""
-        return Decimal(str(self.weight_g)) - Decimal(str(self.remaining_weight_g))
-
-    @property
-    def usage_percentage(self) -> float:
-        """Calculate what percentage of this batch has been used"""
-        if self.weight_g == 0:
-            return 100.0
-        return float(self.used_weight_g / Decimal(str(self.weight_g)) * 100)
-
-    @property
-    def is_depleted(self) -> bool:
-        """Check if this batch is fully consumed"""
-        return self.remaining_weight_g <= 0.01  # Allow 0.01g tolerance
-
-    @property
-    def remaining_value(self) -> Decimal:
-        """Calculate the value of remaining metal in this batch"""
-        return Decimal(str(self.remaining_weight_g)) * Decimal(str(self.price_per_gram))
-
-    def __repr__(self):
-        return f"<MetalPurchase {self.metal_type.value} {self.weight_g}g @ {self.price_per_gram:.2f} EUR/g>"
-
-
-class MaterialUsage(Base):
-    """
-    Tracks which metal batches were used for which orders.
-
-    Links orders to specific metal purchases, recording exact weight consumed
-    and cost at the time of use (for accurate accounting).
-    """
-
-    __tablename__ = "material_usage"
-
-    id = Column(Integer, primary_key=True, index=True)
-
-    # Links
-    order_id = Column(
-        Integer, ForeignKey("orders.id", ondelete="CASCADE"), nullable=False, index=True
-    )
-    metal_purchase_id = Column(
-        Integer,
-        ForeignKey("metal_purchases.id", ondelete="RESTRICT"),
-        nullable=False,
-        index=True,
-    )
-
-    # Usage Details
-    weight_used_g = Column(WEIGHT_NUMERIC, nullable=False)  # How much was consumed
-    cost_at_time = Column(
-        MONEY_NUMERIC, nullable=False
-    )  # Cost when used (weight * price_per_gram)
-    price_per_gram_at_time = Column(
-        PRICE_PER_GRAM_NUMERIC, nullable=False
-    )  # Snapshot of price when used
-
-    # Costing Method Used
-    costing_method = Column(
-        SAEnum(CostingMethod), nullable=False, default=CostingMethod.FIFO
-    )
-
-    # Timestamps
-    used_at = Column(UtcDateTime, default=utcnow, nullable=False, index=True)
-    created_at = Column(UtcDateTime, default=utcnow, nullable=False)
-
-    # Notes
-    notes = Column(Text, nullable=True)
-
-    # ── Slice 2 — alloy override audit + retention + user FK ──────────
-    # A2 / R10 — captured when a goldsmith overrides the alloy mismatch
-    # (metal_purchase.alloy != order.alloy). Default FALSE so legacy rows
-    # back-populate correctly.
-    alloy_override = Column(
-        Boolean,
-        nullable=False,
-        server_default=text("FALSE"),
-        default=False,
-    )
-    # A2.3 — DB-nullable freetext reason. Pydantic enforces 3–200 chars.
-    override_reason = Column(Text, nullable=True)
-    # A2.4 — enum-like category. Allowed values enforced at Pydantic layer:
-    #   charge_abweichung | kleinteil | notfall | sonstiges
-    override_reason_category = Column(String(32), nullable=True)
-    # A2.7 — HGB §257: 10-year retention for financial audit.
-    retention_class = Column(
-        String(32),
-        nullable=False,
-        server_default=text("'financial_10y'"),
-        default="financial_10y",
-    )
-    # NEW in Slice 2 — column wasn't in the ORM previously. Anna B2
-    # assumed it existed. Nullable so we can backfill via a later slice
-    # if needed; new writes (Slice 5) will set it from current_user.id.
-    user_id = Column(
-        Integer,
-        ForeignKey(
-            "users.id",
-            name="fk_material_usage_user_id_users",
-            ondelete="RESTRICT",
-        ),
-        nullable=True,
-    )
-
-    # Relationships
-    order = relationship("Order", back_populates="material_usage_records")
-    metal_purchase = relationship("MetalPurchase", back_populates="usage_records")
-    user = relationship("User", foreign_keys=[user_id])
-
-    def __repr__(self):
-        return f"<MaterialUsage Order#{self.order_id} used {self.weight_used_g}g @ {self.price_per_gram_at_time:.2f} EUR/g>"
-
-
-class InventoryAdjustment(Base):
-    """
-    Tracks manual inventory adjustments (loss, theft, reclamation, etc.)
-
-    Maintains audit trail for any changes to metal inventory that aren't
-    from normal purchase or order consumption.
-    """
-
-    __tablename__ = "inventory_adjustments"
-
-    id = Column(Integer, primary_key=True, index=True)
-
-    # Link to metal purchase
-    metal_purchase_id = Column(
-        Integer,
-        ForeignKey("metal_purchases.id", ondelete="RESTRICT"),
-        nullable=False,
-        index=True,
-    )
-
-    # Adjustment Details
-    adjustment_type = Column(
-        String(50), nullable=False
-    )  # 'loss', 'theft', 'reclamation', 'correction', 'return'
-    weight_change_g = Column(
-        WEIGHT_NUMERIC, nullable=False
-    )  # Positive for additions, negative for reductions
-
-    # Reason & Documentation
-    reason = Column(Text, nullable=False)
-    adjusted_by_user_id = Column(
-        Integer, ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
-    )
-
-    # Timestamps
-    adjusted_at = Column(UtcDateTime, default=utcnow, nullable=False, index=True)
-
-    # Relationships
-    metal_purchase = relationship("MetalPurchase")
-    adjusted_by = relationship("User")
-
-    def __repr__(self):
-        return (
-            f"<InventoryAdjustment {self.adjustment_type} {self.weight_change_g:+.2f}g>"
-        )
-
-
-class ScrapGold(Base):
-    """Scrap gold (Altgold) intake record linked to an order."""
-
-    __tablename__ = "scrap_gold"
-
-    id = Column(Integer, primary_key=True, index=True)
-    order_id = Column(
-        Integer, ForeignKey("orders.id", ondelete="CASCADE"), nullable=False, index=True
-    )
-    customer_id = Column(
-        Integer,
-        ForeignKey("customers.id", ondelete="SET NULL"),
-        nullable=True,
-        index=True,
-    )
-    created_by = Column(
-        Integer, ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
-    )
-    status = Column(
-        SAEnum(ScrapGoldStatus), default=ScrapGoldStatus.RECEIVED, nullable=False
-    )
-
-    # Calculated totals
-    total_fine_gold_g = Column(WEIGHT_NUMERIC, default=Decimal("0.0"))
-    total_value_eur = Column(MONEY_NUMERIC, default=Decimal("0.0"))
-    gold_price_per_g = Column(
-        PRICE_PER_GRAM_NUMERIC, nullable=True
-    )  # Rate used for calculation
-    price_source = Column(String(50), default="fixed_rate")  # daily_rate or fixed_rate
-
-    # Legal documentation
-    signature_data = Column(Text, nullable=True)  # Base64 encoded signature image
-    signed_at = Column(UtcDateTime, nullable=True)
-    receipt_pdf_path = Column(String(500), nullable=True)
-
-    notes = Column(Text, nullable=True)
-    created_at = Column(UtcDateTime, default=utcnow)
-    updated_at = Column(UtcDateTime, default=utcnow, onupdate=utcnow)
-
-    # W2-16 / DOM-21 (decision D-16): Ankaufsbuch identification. Optional,
-    # required before SIGNED above SCRAP_GOLD_ID_THRESHOLD_EUR. Number and
-    # issuing authority are PII -> EncryptedString. Migration
-    # 20260925_w216_altgold_id.
-    id_document_type = Column(String(30), nullable=True)
-    id_document_number = Column(EncryptedString, nullable=True)
-    id_issuing_authority = Column(EncryptedString, nullable=True)
-    id_checked_by = Column(
-        Integer,
-        ForeignKey(
-            "users.id", name="fk_scrap_gold_id_checked_by_users", ondelete="SET NULL"
-        ),
-        nullable=True,
-    )
-    id_checked_at = Column(UtcDateTime, nullable=True)
-
-    # Relationships
-    order = relationship("Order")
-    customer = relationship("Customer")
-    creator = relationship("User", foreign_keys=[created_by])
-    id_checker = relationship("User", foreign_keys=[id_checked_by])
-    items = relationship(
-        "ScrapGoldItem", back_populates="scrap_gold", cascade="all, delete-orphan"
-    )
-
-
-class ScrapGoldItem(Base):
-    """Individual scrap gold item within a scrap gold intake."""
-
-    __tablename__ = "scrap_gold_items"
-
-    id = Column(Integer, primary_key=True, index=True)
-    scrap_gold_id = Column(
-        Integer,
-        ForeignKey("scrap_gold.id", ondelete="CASCADE"),
-        nullable=False,
-        index=True,
-    )
-    description = Column(String(200), nullable=False)  # "Alter Ehering", "Kette"
-    alloy = Column(SAEnum(AlloyType), nullable=False)
-    weight_g = Column(WEIGHT_NUMERIC, nullable=False)  # Total weight in grams
-    fine_content_g = Column(
-        WEIGHT_NUMERIC, nullable=False
-    )  # Calculated: weight * alloy/1000
-    photo_path = Column(String(500), nullable=True)
-    created_at = Column(UtcDateTime, default=utcnow)
-
-    # Relationships
-    scrap_gold = relationship("ScrapGold", back_populates="items")
-
-
-# ============================================================================
-# METAL PRICE HISTORY
-# ============================================================================
-
-
-class MetalPriceSource(str, enum.Enum):
-    """Source of a recorded metal spot price."""
-
-    API = "api"  # Fetched from an external price API
-    MANUAL = "manual"  # Entered manually by an admin
-    FALLBACK = "fallback"  # Hardcoded fallback used when all other sources failed
-
-
-class MetalPriceHistory(Base):
-    """
-    Persisted record of spot prices fetched for gold, silver, and platinum.
-
-    The table serves two purposes:
-    1. Audit trail — every price used in cost calculations is traceable.
-    2. Last-known-price fallback — when Redis cache is cold AND the external
-       API is unreachable the service queries this table for the most recent
-       entry per base metal.
-
-    Only base-metal prices are stored (GOLD_24K, SILVER_999, PLATINUM_950).
-    Alloy prices (18K, 14K, ...) are derived from these on the fly.
-    """
-
-    __tablename__ = "metal_price_history"
-
-    id = Column(Integer, primary_key=True, index=True)
-    metal_type = Column(SAEnum(MetalType), nullable=False, index=True)
-    price_per_gram_eur = Column(PRICE_PER_GRAM_NUMERIC, nullable=False)
-    source = Column(
-        SAEnum(MetalPriceSource), nullable=False, default=MetalPriceSource.API
-    )
-    fetched_at = Column(UtcDateTime, nullable=False, default=utcnow, index=True)
-
-    def __repr__(self) -> str:
-        return (
-            f"<MetalPriceHistory {self.metal_type.value} "
-            f"{self.price_per_gram_eur:.4f} EUR/g @ {self.fetched_at}>"
-        )
 
 
 class CalendarEvent(Base):
@@ -2183,50 +1808,6 @@ def _valuation_before_update(
         target.appraised_value_hmac = hmac_blind_index(cipher)
 
 
-class CustomMetalType(Base):
-    """User-defined metal types that extend the built-in MetalType enum.
-
-    Goldsmiths can define workshop-specific alloys (e.g. "Rotgold 333",
-    "Palladium 500", a supplier-specific alloy) that are not covered by the
-    standard 15-value MetalType enum.  The frontend shows built-in and custom
-    types side-by-side in all metal-type dropdowns.
-    """
-
-    __tablename__ = "custom_metal_types"
-
-    id = Column(Integer, primary_key=True, index=True)
-
-    # Machine-readable identifier — must be unique across custom types and must
-    # not collide with any MetalType enum value (e.g. "gold_18k").
-    code = Column(String(50), unique=True, nullable=False, index=True)
-
-    # Human-readable label shown in the UI (e.g. "Roségold 375 (9K)")
-    display_name = Column(String(100), nullable=False)
-
-    # Fine-content ratio: 0.0 – 1.0 (e.g. 0.375 for 9K gold)
-    fine_content_ratio = Column(Float, nullable=False)
-
-    # Base precious metal category for grouping in dropdowns
-    base_metal = Column(
-        String(20), nullable=False
-    )  # "gold", "silver", "platinum", "palladium"
-
-    # Optional hex colour for UI badge rendering (e.g. "#D4A843")
-    color = Column(String(7), nullable=True)
-
-    # Soft-delete flag — deactivated types are hidden from dropdowns but
-    # preserved for historical records (e.g. MetalPurchase rows still referencing them).
-    is_active = Column(Boolean, default=True, nullable=False, index=True)
-
-    created_at = Column(UtcDateTime, default=utcnow, nullable=False)
-    updated_at = Column(UtcDateTime, default=utcnow, onupdate=utcnow, nullable=False)
-
-    def __repr__(self) -> str:
-        return (
-            f"<CustomMetalType code={self.code!r} display_name={self.display_name!r}>"
-        )
-
-
 # ---------------------------------------------------------------------------
 # V1.2 Customer Updates & §649 BGB Cost Approval (Kundeninfo & Kostenfreigabe)
 # ---------------------------------------------------------------------------
@@ -2731,7 +2312,6 @@ Index(
 # retention_class indexes — small, selective buckets for the future
 # retention engine.
 Index("idx_orders_retention_class", Order.retention_class)
-Index("idx_material_usage_retention_class", MaterialUsage.retention_class)
 
 
 # ============================================================================

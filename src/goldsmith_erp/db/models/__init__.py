@@ -40,6 +40,22 @@ from goldsmith_erp.db.models.customers import (
     CustomerMeasurement,
     GDPRRequest,
 )
+from goldsmith_erp.db.models.materials import (
+    InventoryAdjustment,
+    Material,
+    MaterialUsage,
+    order_materials,
+)
+from goldsmith_erp.db.models.metals import (
+    CustomMetalType,
+    MetalPriceHistory,
+    MetalPriceSource,
+    MetalPurchase,
+)
+from goldsmith_erp.db.models.scrap_gold import (
+    ScrapGold,
+    ScrapGoldItem,
+)
 from goldsmith_erp.db.models._remaining import (
     BarcodeAlias,
     CalendarEvent,
@@ -52,7 +68,6 @@ from goldsmith_erp.db.models._remaining import (
     CostChangeRequest,
     CostChangeResponseMethod,
     CostChangeStatus,
-    CustomMetalType,
     CustomerNoGo,
     CustomerUpdate,
     CustomerUpdateKind,
@@ -63,15 +78,9 @@ from goldsmith_erp.db.models._remaining import (
     HallmarkType,
     HandoffStatusEnum,
     HandoffTypeEnum,
-    InventoryAdjustment,
     Invoice,
     InvoiceLineItem,
     LabelTemplate,
-    Material,
-    MaterialUsage,
-    MetalPriceHistory,
-    MetalPriceSource,
-    MetalPurchase,
     NoGoCategory,
     Notification,
     NotificationPreference,
@@ -100,12 +109,9 @@ from goldsmith_erp.db.models._remaining import (
     RepairPhoto,
     RepairPhotoPhase,
     ScanLog,
-    ScrapGold,
-    ScrapGoldItem,
     UpdateDeliveryMethod,
     ValuationCertificate,
     WorkshopSettings,
-    order_materials,
 )
 from goldsmith_erp.db.models.time_tracking import (
     Activity,
