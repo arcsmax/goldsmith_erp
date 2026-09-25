@@ -66,7 +66,7 @@ import {
 } from './scanTracking';
 import { useLocationPrompt } from './LocationPrompt';
 import { ModalStackHost } from '../../lib/modal-stack';
-import { useToast } from '../../contexts/ToastContext';
+import { useOptionalToast } from './useOptionalToast';
 import { useNavigate } from 'react-router-dom';
 import '../../styles/components/ScanOverlay.css';
 
@@ -86,20 +86,6 @@ export interface ScanOverlayProps {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-type ShowToast = ReturnType<typeof useToast>['showToast'];
-
-/**
- * The overlay also renders in isolated tests without a ToastProvider; the
- * context read happens on every render either way (hook order is stable).
- */
-function useOptionalToast(): ShowToast | null {
-  try {
-    return useToast().showToast;
-  } catch {
-    return null;
-  }
-}
 
 /** Only actions the sheet can execute (the rest had no handler, FE audit). */
 function withSupportedActions(response: ResolveResponse): ResolveResponse {

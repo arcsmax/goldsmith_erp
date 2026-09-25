@@ -10,22 +10,33 @@ import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 
+import { usersApi } from '../../api';
 import { scanHistorySearchQuery, type ScanHistoryRow } from '../../api/scanner';
-import type { ScanHistorySearchParams } from '../../api/queryKeys';
+import { queryKeys, type ScanHistorySearchParams } from '../../api/queryKeys';
 import { describeActionId, formatScanTime } from '../../components/scanner/scanHistory';
+import { useOptionalAuth } from '../../contexts/AuthContext';
 import { getErrorMessage } from '../../lib/errors';
+import { canAdministerSystem } from '../../lib/roles';
 import { Button, Card, EmptyState, Field, PageState, type PageStateValue } from '../../ui';
 import '../../styles/components/ScanTracking.css';
 
 const PAGE_SIZE = 25;
+// GET /users/ requires Permission.USER_VIEW, which only ADMIN holds
+// (core/permissions.py ROLE_PERMISSIONS) — GOLDSMITH, who can also open
+// this panel, would 403. The dropdown is ADMIN-only; GOLDSMITH keeps the
+// free-text "Nummer oder Code" search.
+const USER_LIST_LIMIT = 100;
 
 interface SearchForm {
   q: string;
+  /** Selected user id as a string ('' = alle Mitarbeiter:innen), because
+   *  <select> values are always strings. */
+  user: string;
   from: string;
   to: string;
 }
 
-const EMPTY_FORM: SearchForm = { q: '', from: '', to: '' };
+const EMPTY_FORM: SearchForm = { q: '', user: '', from: '', to: '' };
 
 /** Local date input (YYYY-MM-DD) → ISO bounds of that day. */
 function dayStart(value: string): string | undefined {
@@ -38,13 +49,23 @@ function dayEnd(value: string): string | undefined {
 
 export function toSearchParams(form: SearchForm, offset: number): ScanHistorySearchParams {
   const q = form.q.trim();
+  const userId = form.user.trim() === '' ? null : Number(form.user);
   return {
     ...(q ? { q } : {}),
+    ...(userId !== null && Number.isFinite(userId) ? { user: userId } : {}),
     ...(form.from ? { from: dayStart(form.from) } : {}),
     ...(form.to ? { to: dayEnd(form.to) } : {}),
     limit: PAGE_SIZE,
     offset,
   };
+}
+
+/** Display label for a staff user in the filter dropdown: full name, falling
+ *  back to email when either name part is missing (mirrors MainLayout's
+ *  header displayName pattern). */
+function userDisplayName(user: { first_name?: string | null; last_name?: string | null; email: string }): string {
+  const name = [user.first_name, user.last_name].filter(Boolean).join(' ').trim();
+  return name.length > 0 ? name : user.email;
 }
 
 function pieceLink(row: ScanHistoryRow): string | null {
@@ -83,14 +104,30 @@ export const ScanHistoryPanel: React.FC = () => {
   const [offset, setOffset] = useState(0);
   const query = useQuery(scanHistorySearchQuery(toSearchParams(submitted, offset)));
 
+  const auth = useOptionalAuth();
+  const isAdmin = canAdministerSystem(auth?.user?.role);
+  // Dropdown of staff users (SC-03 follow-up): the search API already
+  // supports `user=`, this just surfaces it instead of requiring a
+  // memorised id. ADMIN only (see USER_LIST_LIMIT comment above).
+  const usersQuery = useQuery({
+    queryKey: queryKeys.users.list(0, USER_LIST_LIMIT),
+    queryFn: () => usersApi.getAll(0, USER_LIST_LIMIT),
+    enabled: isAdmin,
+  });
+  const staffUsers = [...(usersQuery.data ?? [])].sort((a, b) =>
+    userDisplayName(a).localeCompare(userDisplayName(b), 'de'),
+  );
+
   const submit = (event: React.FormEvent<HTMLFormElement>): void => {
     event.preventDefault();
     setSubmitted(form);
     setOffset(0);
   };
 
-  const update = (key: keyof SearchForm) => (event: React.ChangeEvent<HTMLInputElement>) =>
-    setForm((current) => ({ ...current, [key]: event.target.value }));
+  const update =
+    (key: keyof SearchForm) =>
+    (event: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
+      setForm((current) => ({ ...current, [key]: event.target.value }));
 
   const renderResults = (): React.ReactNode => {
     if (!query.data) {
@@ -155,6 +192,24 @@ export const ScanHistoryPanel: React.FC = () => {
         >
           <input id="scan-history-q" type="search" value={form.q} onChange={update('q')} />
         </Field>
+        {isAdmin && (
+          <Field label="Mitarbeiter:in" name="scan-history-user">
+            <select
+              id="scan-history-user"
+              value={form.user}
+              onChange={update('user')}
+              disabled={usersQuery.isPending}
+              data-testid="scan-history-user-select"
+            >
+              <option value="">Alle Mitarbeiter:innen</option>
+              {staffUsers.map((user) => (
+                <option key={user.id} value={user.id}>
+                  {userDisplayName(user)}
+                </option>
+              ))}
+            </select>
+          </Field>
+        )}
         <Field label="Von" name="scan-history-from">
           <input id="scan-history-from" type="date" value={form.from} onChange={update('from')} />
         </Field>
