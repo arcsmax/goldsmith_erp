@@ -804,7 +804,7 @@ const ThemeConfigSection: React.FC = () => {
               }
             />
             <span className="theme-field-hint">
-              Oeffentlich erreichbare URL zu Ihrem Logo (JPG, PNG oder SVG, max. 64 px Hoehe empfohlen).
+              Öffentlich erreichbare URL zu Ihrem Logo (JPG, PNG oder SVG, max. 64 px Höhe empfohlen).
             </span>
           </div>
 

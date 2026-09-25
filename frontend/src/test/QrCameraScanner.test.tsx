@@ -220,7 +220,7 @@ describe('QrCameraScanner', () => {
       mockScannerRegistry.lastOnError?.(err);
     });
 
-    const title = await screen.findByText(/Kamera nicht verfuegbar/i);
+    const title = await screen.findByText(/Kamera nicht verfügbar/i);
     expect(title).toBeInTheDocument();
 
     // Manual fallback still present.

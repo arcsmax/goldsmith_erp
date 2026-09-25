@@ -226,7 +226,7 @@ export const CustomerPortalPage: React.FC = () => {
       setResult(data);
     } catch {
       setError(
-        'Verbindung zum Server nicht moeglich. Bitte pruefen Sie Ihre Internetverbindung.'
+        'Verbindung zum Server nicht möglich. Bitte prüfen Sie Ihre Internetverbindung.'
       );
     } finally {
       setLoading(false);
