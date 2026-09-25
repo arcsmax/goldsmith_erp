@@ -1,4 +1,16 @@
 # Architecture Review: Goldsmith ERP System
+
+> ⚠️ **SUPERSEDED (2026-09-25, ARCH-16).** This review is from 2025-11-09
+> against a 39-file/v0.1.0 codebase and most of its P0/P1 items (hardcoded
+> secrets, N+1 queries, connection pooling, transactions) have since been
+> fixed or superseded by later work. It is no longer "READ THIS FIRST" — use
+> the current architecture review instead:
+> [docs/review/2026-09-25/01-architecture.md](../../review/2026-09-25/01-architecture.md)
+> (plus [00-SUMMARY.md](../../review/2026-09-25/00-SUMMARY.md) and
+> [MASTER-FIX-PLAN.md](../../review/2026-09-25/MASTER-FIX-PLAN.md) for what is
+> open). Kept here for historical reference only, not deleted.
+
+# Architecture Review: Goldsmith ERP System
 **Review Date:** 2025-11-09
 **Reviewer:** Senior Software Architect
 **Codebase:** Goldsmith ERP v0.1.0 (39 Python files, 195 TypeScript files)

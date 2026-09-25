@@ -369,3 +369,4 @@ podman logs goldsmith-backend-prod --tail 200
 - [PRODUCTION_TLS.md](PRODUCTION_TLS.md) – Caddy TLS-Proxy + CA-Vertrauen.
 - [DATABASE_SEEDING.md](DATABASE_SEEDING.md) – Produktions- vs. Demo-Seed.
 - [GDPR_ERASURE_RETENTION.md](../GDPR_ERASURE_RETENTION.md) – Löschung, Aufbewahrung, Backups.
+- [ADR: Single-box deployment, migrate-on-boot](../../architecture/ADR-2026-09-25-single-box-deployment.md) – warum ein Host, kein SaaS.
