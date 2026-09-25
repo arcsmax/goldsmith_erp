@@ -184,6 +184,7 @@ lint-local: lint-frontend ## OPS-05 — backend lint suite outside containers, s
 	@poetry run isort --check-only src/goldsmith_erp/
 	@poetry run bandit -r src/goldsmith_erp/ -c pyproject.toml
 	@poetry run mypy src/goldsmith_erp/ --ignore-missing-imports
+	@PYTHONPATH=src poetry run lint-imports  # ARCH-09 layering contracts (.importlinter)
 	@poetry run pip install --quiet ruff
 	@poetry run ruff check src/goldsmith_erp/ --exit-zero
 
