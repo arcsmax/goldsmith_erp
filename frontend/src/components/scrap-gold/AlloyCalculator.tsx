@@ -1,6 +1,11 @@
 // Alloy Calculator Widget - Calculates fine gold content from alloy and weight
 import React, { useState, useMemo } from 'react';
 import { useMetalTypes } from '../../hooks/useMetalTypes';
+import { Button, Card, Field } from '../../ui';
+
+import { formatGrams, parseWeight } from './scrapGoldFormat';
+
+const PER_MILLE = 1000;
 
 export interface AlloyOption {
   /** Permille fineness, used for the <select> value and the %-preview math. */
@@ -64,7 +69,7 @@ export const AlloyCalculator: React.FC<AlloyCalculatorProps> = ({
       const metalType: 'gold' | 'silver' | 'platinum' =
         base === 'silver' ? 'silver' : base === 'platinum' || base === 'palladium' ? 'platinum' : 'gold';
       for (const t of types) {
-        const permille = Math.round(t.fine_content_ratio * 1000);
+        const permille = Math.round(t.fine_content_ratio * PER_MILLE);
         result.push({
           value: permille,
           code: alloyCodeForMetal(permille, metalType),
@@ -83,9 +88,9 @@ export const AlloyCalculator: React.FC<AlloyCalculatorProps> = ({
   }, [groupedMetalTypes, isLoadingMetalTypes]);
 
   const fineContent = useMemo(() => {
-    const weight = parseFloat(weightG);
+    const weight = parseWeight(weightG);
     if (isNaN(weight) || weight <= 0) return null;
-    return weight * selectedAlloy / 1000;
+    return (weight * selectedAlloy) / PER_MILLE;
   }, [weightG, selectedAlloy]);
 
   const finePercentage = useMemo(() => {
@@ -105,7 +110,7 @@ export const AlloyCalculator: React.FC<AlloyCalculatorProps> = ({
   };
 
   const handleAdd = () => {
-    const weight = parseFloat(weightG);
+    const weight = parseWeight(weightG);
     if (isNaN(weight) || weight <= 0) return;
     if (!description.trim()) return;
     // selectedOption carries the canonical backend alloy code (DOM-19) — if
@@ -122,107 +127,66 @@ export const AlloyCalculator: React.FC<AlloyCalculatorProps> = ({
 
   const canAdd = description.trim().length > 0 && fineContent !== null && fineContent > 0;
 
-  const goldOptions = dynamicOptions.filter((o) => o.metalType === 'gold');
-  const silverOptions = dynamicOptions.filter((o) => o.metalType === 'silver');
-  const platinumOptions = dynamicOptions.filter((o) => o.metalType === 'platinum');
+  const optionGroups = [
+    { label: 'Gold', options: dynamicOptions.filter((o) => o.metalType === 'gold') },
+    { label: 'Silber', options: dynamicOptions.filter((o) => o.metalType === 'silver') },
+    { label: 'Platin', options: dynamicOptions.filter((o) => o.metalType === 'platinum') },
+  ].filter((group) => group.options.length > 0);
 
   return (
-    <div className="alloy-calculator">
-      <div className="alloy-calculator-header">
-        <h3>Legierungsrechner</h3>
-      </div>
-
-      <div className="alloy-calculator-form">
-        {/* Description */}
-        <div className="alloy-field">
-          <label htmlFor="scrap-description">Beschreibung</label>
+    <Card title="Legierungsrechner" headingLevel={3} className="alloy-calculator">
+      <div className="alloy-calculator__form">
+        <Field label="Beschreibung" name="scrap-description" className="alloy-calculator__full">
           <input
-            id="scrap-description"
             type="text"
             value={description}
             onChange={(e) => setDescription(e.target.value)}
-            placeholder="z.B. Alter Ehering, Kette, Armband..."
+            placeholder="z. B. Alter Ehering, Kette, Armband …"
             disabled={isDisabled}
           />
-        </div>
+        </Field>
 
-        {/* Alloy Selection */}
-        <div className="alloy-field-row">
-          <div className="alloy-field">
-            <label htmlFor="scrap-alloy">Legierung</label>
-            <select
-              id="scrap-alloy"
-              value={selectedAlloy}
-              onChange={(e) => setSelectedAlloy(Number(e.target.value))}
-              disabled={isDisabled || isLoadingMetalTypes}
-            >
-              {goldOptions.length > 0 && (
-                <optgroup label="Gold">
-                  {goldOptions.map((opt) => (
-                    <option key={opt.value} value={opt.value}>
-                      {opt.label}
-                    </option>
-                  ))}
-                </optgroup>
-              )}
-              {silverOptions.length > 0 && (
-                <optgroup label="Silber">
-                  {silverOptions.map((opt) => (
-                    <option key={opt.value} value={opt.value}>
-                      {opt.label}
-                    </option>
-                  ))}
-                </optgroup>
-              )}
-              {platinumOptions.length > 0 && (
-                <optgroup label="Platin">
-                  {platinumOptions.map((opt) => (
-                    <option key={opt.value} value={opt.value}>
-                      {opt.label}
-                    </option>
-                  ))}
-                </optgroup>
-              )}
-            </select>
-          </div>
+        <Field label="Legierung" name="scrap-alloy">
+          <select
+            value={selectedAlloy}
+            onChange={(e) => setSelectedAlloy(Number(e.target.value))}
+            disabled={isDisabled || isLoadingMetalTypes}
+          >
+            {optionGroups.map((group) => (
+              <optgroup key={group.label} label={group.label}>
+                {group.options.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+              </optgroup>
+            ))}
+          </select>
+        </Field>
 
-          {/* Weight Input */}
-          <div className="alloy-field">
-            <label htmlFor="scrap-weight">Gewicht (g)</label>
-            <input
-              id="scrap-weight"
-              type="number"
-              step="0.01"
-              min="0"
-              value={weightG}
-              onChange={(e) => setWeightG(e.target.value)}
-              placeholder="0.00"
-              disabled={isDisabled}
-            />
-          </div>
-        </div>
+        <Field label="Gewicht" name="scrap-weight" inputMode="decimal" suffix="g">
+          <input
+            type="text"
+            value={weightG}
+            onChange={(e) => setWeightG(e.target.value)}
+            placeholder="0,00"
+            disabled={isDisabled}
+          />
+        </Field>
 
-        {/* Result Display */}
         {fineContent !== null && (
-          <div className="alloy-result">
-            <span className="alloy-result-value">
-              {fineContent.toFixed(3)}g {getFineLabel()}
-            </span>
-            <span className="alloy-result-percentage">
-              ({finePercentage.toFixed(1)}%)
-            </span>
-          </div>
+          <p className="alloy-calculator__result" aria-live="polite">
+            <span className="ui-num">
+              {formatGrams(fineContent)} {getFineLabel()}
+            </span>{' '}
+            <span className="alloy-calculator__percent">({finePercentage.toFixed(1).replace('.', ',')} %)</span>
+          </p>
         )}
 
-        {/* Add Button */}
-        <button
-          className="btn-add-item"
-          onClick={handleAdd}
-          disabled={!canAdd || isDisabled}
-        >
-          Hinzufuegen
-        </button>
+        <Button icon="plus" onClick={handleAdd} disabled={!canAdd || isDisabled} className="alloy-calculator__add">
+          Position hinzufügen
+        </Button>
       </div>
-    </div>
+    </Card>
   );
 };

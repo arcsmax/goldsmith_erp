@@ -3,10 +3,15 @@
 // Optional below the configured value threshold, required (before the
 // signature) above it — the backend decides and reports `id_required`.
 // Reads carry only the last four characters of the number.
-import { useId, useState } from 'react';
+import { useState } from 'react';
+import { useMutation } from '@tanstack/react-query';
 import { ID_DOCUMENT_OPTIONS, scrapGoldApi, type IdDocumentType, type ScrapGold } from '../../api/scrap-gold';
 import { useToast } from '../../contexts';
 import { logError } from '../../lib/logError';
+import { Button, Field } from '../../ui';
+
+const MIN_NUMBER_LENGTH = 4;
+const MIN_AUTHORITY_LENGTH = 2;
 
 interface ScrapGoldIdentificationProps {
   scrapGold: ScrapGold;
@@ -27,90 +32,91 @@ export function identificationSummary(scrapGold: ScrapGold): string {
 
 export function ScrapGoldIdentification({ scrapGold, isEditable, onSaved }: ScrapGoldIdentificationProps) {
   const { showToast } = useToast();
-  const id = useId();
   const [documentType, setDocumentType] = useState<IdDocumentType | ''>(
     (scrapGold.id_document_type as IdDocumentType | null) ?? ''
   );
   const [documentNumber, setDocumentNumber] = useState('');
   const [authority, setAuthority] = useState(scrapGold.id_issuing_authority ?? '');
-  const [isSaving, setIsSaving] = useState(false);
 
-  const heading = scrapGold.id_required ? 'Ausweisdaten' : 'Ausweisdaten (optional)';
-  const canSave = documentType !== '' && documentNumber.trim().length >= 4 && authority.trim().length >= 2;
-
-  const handleSave = async () => {
-    if (documentType === '' || !canSave) return;
-    setIsSaving(true);
-    try {
-      const updated = await scrapGoldApi.setIdentification(scrapGold.id, {
-        id_document_type: documentType,
+  const save = useMutation({
+    mutationFn: (type: IdDocumentType) =>
+      scrapGoldApi.setIdentification(scrapGold.id, {
+        id_document_type: type,
         id_document_number: documentNumber.trim(),
         id_issuing_authority: authority.trim(),
-      });
+      }),
+    onSuccess: (updated) => {
       setDocumentNumber('');
       onSaved(updated);
       showToast('Ausweisdaten gespeichert', 'success');
-    } catch (err: unknown) {
+    },
+    onError: (err: unknown) => {
       logError('ScrapGoldIdentification.save', err);
       showToast('Ausweisdaten konnten nicht gespeichert werden.', 'error');
-    } finally {
-      setIsSaving(false);
-    }
-  };
+    },
+  });
+
+  const heading = scrapGold.id_required ? 'Ausweisdaten' : 'Ausweisdaten (optional)';
+  const canSave =
+    documentType !== '' &&
+    documentNumber.trim().length >= MIN_NUMBER_LENGTH &&
+    authority.trim().length >= MIN_AUTHORITY_LENGTH;
 
   return (
-    <div className="scrap-gold-identification">
-      <h3>{heading}</h3>
+    <section className="scrap-gold-section" aria-labelledby={`scrap-gold-id-${scrapGold.id}`}>
+      <h3 id={`scrap-gold-id-${scrapGold.id}`}>{heading}</h3>
       {scrapGold.id_required && !scrapGold.has_identification && (
-        <p role="note">
+        <p role="note" className="scrap-gold-hint">
           Ausweisdaten sind bei diesem Ankaufswert Pflicht und müssen vor der Unterschrift erfasst werden.
         </p>
       )}
       {scrapGold.has_identification && <p>Erfasst: {identificationSummary(scrapGold)}</p>}
       {isEditable && (
-        <div className="scrap-gold-identification-form">
-          <div className="form-group">
-            <label htmlFor={`${id}-type`}>Ausweisart</label>
+        <div className="scrap-gold-form">
+          <Field label="Ausweisart" name="scrap-gold-id-type">
             <select
-              id={`${id}-type`}
               value={documentType}
               onChange={(e) => setDocumentType(e.target.value as IdDocumentType | '')}
             >
-              <option value="">-- Ausweisart auswählen --</option>
+              <option value="">Ausweisart auswählen</option>
               {ID_DOCUMENT_OPTIONS.map((option) => (
                 <option key={option.value} value={option.value}>
                   {option.label}
                 </option>
               ))}
             </select>
-          </div>
-          <div className="form-group">
-            <label htmlFor={`${id}-number`}>Ausweisnummer</label>
+          </Field>
+          <Field
+            label="Ausweisnummer"
+            name="scrap-gold-id-number"
+            help={scrapGold.has_identification ? 'Nur zum Ändern neu eingeben.' : 'Mindestens 4 Zeichen.'}
+          >
             <input
-              id={`${id}-number`}
               type="text"
               autoComplete="off"
               value={documentNumber}
               onChange={(e) => setDocumentNumber(e.target.value)}
-              placeholder={scrapGold.has_identification ? 'Nur zum Ändern neu eingeben' : ''}
             />
-          </div>
-          <div className="form-group">
-            <label htmlFor={`${id}-authority`}>Ausstellende Behörde</label>
+          </Field>
+          <Field label="Ausstellende Behörde" name="scrap-gold-id-authority">
             <input
-              id={`${id}-authority`}
               type="text"
               value={authority}
               onChange={(e) => setAuthority(e.target.value)}
-              placeholder="z.B. Stadt München"
+              placeholder="z. B. Stadt München"
             />
-          </div>
-          <button type="button" className="btn-secondary" onClick={() => void handleSave()} disabled={!canSave || isSaving}>
+          </Field>
+          <Button
+            variant="secondary"
+            onClick={() => documentType !== '' && save.mutate(documentType)}
+            disabled={!canSave}
+            loading={save.isPending}
+          >
             Ausweisdaten speichern
-          </button>
+          </Button>
         </div>
       )}
-    </div>
+    </section>
   );
 }
 

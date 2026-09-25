@@ -82,6 +82,11 @@ export const queryKeys = {
     priceHistory: (metalType: string, days: number) =>
       [...queryKeys.metalInventory.all, 'price-history', { metalType, days }] as const,
   },
+  scrapGold: {
+    all: ['scrap-gold'] as const,
+    /** GET /orders/{id}/scrap-gold (null when the order has no Altgold yet). */
+    forOrder: (orderId: number) => [...queryKeys.scrapGold.all, 'order', orderId] as const,
+  },
   materials: {
     all: ['materials'] as const,
     lowStock: (threshold: number) => [...queryKeys.materials.all, 'low-stock', { threshold }] as const,
