@@ -43,6 +43,16 @@ export const OfflineIndicator: React.FC = () => {
     };
   }, [handleOffline, handleOnline]);
 
+  // LV-13: the banner is position:fixed; body.is-offline moves the layout
+  // down by --offline-banner-height (layout.css) so the header stays visible.
+  useEffect(() => {
+    const isBannerVisible = state !== 'online';
+    document.body.classList.toggle('is-offline', isBannerVisible);
+    return () => {
+      document.body.classList.remove('is-offline');
+    };
+  }, [state]);
+
   if (state === 'online') return null;
 
   // ---- Offline banner --------------------------------------------------------

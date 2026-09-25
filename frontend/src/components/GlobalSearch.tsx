@@ -321,6 +321,7 @@ export const GlobalSearch: React.FC = () => {
 
 const SearchIcon: React.FC = () => (
   <svg
+    className="global-search__icon"
     width="20"
     height="20"
     viewBox="0 0 24 24"

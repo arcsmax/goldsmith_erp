@@ -1,9 +1,21 @@
 /* Main Layout Styles */
 
+/* LV-13: height of the fixed OfflineIndicator banner (py-2 + text-sm line,
+ * 36px). OfflineIndicator toggles body.is-offline; the layout moves down by
+ * this amount so the banner never covers the header. */
+:root {
+  --offline-banner-height: 0px;
+}
+
+body.is-offline {
+  --offline-banner-height: calc(var(--space-2) * 2 + var(--space-5) - var(--space-1));
+}
+
 .main-layout {
   display: flex;
   flex-direction: column;
   min-height: 100vh;
+  padding-top: var(--offline-banner-height);
   background-color: var(--color-surface-page, #faf8f4);
 }
 
@@ -14,7 +26,7 @@
   color: white;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
   position: sticky;
-  top: 0;
+  top: var(--offline-banner-height);
   z-index: var(--z-header);
 }
 
@@ -29,6 +41,7 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: var(--space-2);
   padding: 0 2rem;
   height: 64px;
   max-width: 1600px;
@@ -40,6 +53,12 @@
   font-weight: 700;
   margin: 0;
   color: white;
+  /* LV-01: the logo is the one header item that may shrink */
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* Hamburger button — visible only on mobile */
@@ -132,7 +151,7 @@
   padding: 2rem 0;
   min-height: calc(100vh - 64px);
   position: sticky;
-  top: 64px;
+  top: calc(64px + var(--offline-banner-height));
   display: flex;
   flex-direction: column;
 }
@@ -322,4 +341,101 @@
   .main-content {
     padding: 0.75rem;
   }
+}
+
+/* ==================== HEADER SEARCH ICON (LV-06) ==================== */
+
+/* The trigger is a flex container; without this the SVG was squashed to
+ * 3.6 x 20 px and the button looked like a blank square. */
+.global-search__icon {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  min-width: 20px;
+}
+
+/* ==================== ACCOUNT BLOCK IN THE DRAWER (LV-01) ==================== */
+
+.sidebar-account {
+  display: none;
+}
+
+/* ==================== RESPONSIVE — PHONE (<600px) ==================== */
+
+@media (max-width: 600px) {
+  /* LV-01: Scanner (also the FAB), name and "Abmelden" live in the drawer,
+   * so the header fits 390px: hamburger, logo, search, bell. */
+  .header-desktop-only {
+    display: none;
+  }
+
+  .header-content {
+    padding: 0 var(--space-3);
+  }
+
+  .user-menu {
+    flex-shrink: 0;
+    gap: var(--space-2);
+  }
+
+  .global-search__input-wrapper {
+    width: calc(100vw - var(--space-8) * 2 - var(--space-6));
+  }
+
+  .sidebar-account {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    margin-top: var(--space-4);
+    padding: var(--space-4) 0 0;
+    border-top: 1px solid var(--color-border);
+  }
+
+  .sidebar-account__name {
+    padding: 0 var(--space-5);
+    font-weight: 600;
+    color: var(--color-text);
+    overflow-wrap: anywhere;
+  }
+
+  .sidebar-account__logout {
+    margin: 0 var(--space-5);
+    min-height: var(--touch-min);
+    padding: 0 var(--space-4);
+    border: 1px solid var(--color-border-strong);
+    border-radius: var(--radius-md);
+    background: var(--color-surface-raised);
+    color: var(--color-text);
+    font-weight: 600;
+    cursor: pointer;
+  }
+
+  /* LV-12: every control in the content and the drawer is at least
+   * 44 x 44 px on phones (56 px in Werkbank-Modus via --touch-min).
+   * :root raises specificity above per-page button classes. */
+  :root .main-content :is(button, select, input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"])),
+  :root .main-sidebar button,
+  :root .main-content a:is([class*="btn"], [class*="button"]) {
+    min-height: var(--touch-min);
+  }
+
+  :root .main-content :is(button, a[class*="btn"], a[class*="button"]) {
+    min-width: var(--touch-min);
+  }
+
+  :root .main-content a:is([class*="btn"], [class*="button"]) {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  :root .main-content :is(input[type="checkbox"], input[type="radio"]) {
+    width: var(--space-5);
+    height: var(--space-5);
+  }
+}
+
+/* LV-19: keep the last rows clear of the scan FAB (56px + its offset). */
+.main-content {
+  padding-bottom: calc(var(--touch-comfort) + var(--space-7));
 }
