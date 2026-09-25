@@ -7,7 +7,8 @@ import { Button } from '../ui';
 export interface PagerProps {
   /** 1-based. */
   pageNumber: number;
-  pageCount: number;
+  /** Omit when the endpoint sends no total (legacy lists): shows "Seite N". */
+  pageCount?: number;
   /** Optional summary text, e.g. "60 Kunden". */
   summary?: string;
   onPrevious: () => void;
@@ -30,7 +31,8 @@ export const Pager: React.FC<PagerProps> = ({
 }) => (
   <nav className="pagination-controls" aria-label={label}>
     <p className="pagination-info" aria-live="polite">
-      Seite {pageNumber} von {pageCount}
+      Seite {pageNumber}
+      {pageCount !== undefined && ` von ${pageCount}`}
       {summary && ` • ${summary}`}
       {isFetching && <span className="ui-visually-hidden"> Wird geladen…</span>}
     </p>
