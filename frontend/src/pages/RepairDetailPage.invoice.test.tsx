@@ -3,10 +3,11 @@
 // PICKED_UP repairs with a customer; success opens the invoice, 409 / 422
 // show the backend's German message.
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import type { RepairJob } from '../types';
+import { renderWithQuery } from '../test/queryWrapper';
 
 const mockGetById = vi.fn();
 vi.mock('../api/repairs', () => ({
@@ -61,13 +62,14 @@ function LocationProbe() {
 }
 
 function renderPage() {
-  return render(
+  return renderWithQuery(
     <MemoryRouter initialEntries={['/repairs/7']}>
       <Routes>
         <Route path="/repairs/:id" element={<RepairDetailPage />} />
         <Route path="/invoices" element={<LocationProbe />} />
       </Routes>
     </MemoryRouter>,
+    { route: null },
   );
 }
 

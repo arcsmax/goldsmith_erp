@@ -1,915 +1,253 @@
-// Reparatur Detailansicht — status actions, photo tabs, diagnosis, history
-import React, { useCallback, useEffect, useId, useState } from 'react';
+// Reparatur — detail page on TanStack Query and src/ui (W4-03, playbook 5.2).
+//
+// PageHeader with the back link, identity (number, StatusBadge, deadline),
+// the next status step as the one primary action and the print / invoice
+// actions beside it. The intake checklist stays above the tabs (dispute
+// protection, visible on every tab); the five tabs mirror the order page:
+// Übersicht, Arbeit, Fotos, Kunde, Verlauf, with the selection in `?tab=`.
+//
+// Role gates in code: status steps and cancel need REPAIR_EDIT (ADMIN +
+// GOLDSMITH, the same roles as REPAIR_CREATE), Fotos and the Annahmeschein
+// DESIGN_VIEW, prices and "Rechnung erstellen" FINANCIAL_VIEW. A VIEWER sees
+// the repair read-only.
+import React, { useState, type ReactNode } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import { jobsApi } from '../api/jobs';
-import { repairPhotoPath, repairPhotoThumbPath, repairsApi } from '../api/repairs';
-import type {
-  RepairCompleteInput,
-  RepairDiagnoseInput,
-  RepairJob,
-  RepairJobStatus,
-  RepairPhoto,
-  RepairPhotoPhase,
-} from '../types';
-import { PhotoCompare } from '../components/PhotoCompare';
-import type { PhotoItem } from '../components/PhotoCompare';
-import { IntakeChecklist } from '../components/repairs/IntakeChecklist';
-import { RepairCustomerUpdatePanel } from '../components/repairs/RepairCustomerUpdatePanel';
-import { openAnnahmeschein } from '../components/repairs/annahmeschein';
+import { repairDetailQuery } from '../api/repairQueries';
 import { DEFAULT_PAYMENT_TERM_DAYS, inDaysIso } from '../components/invoices/invoiceFormat';
+import { IntakeChecklist } from '../components/repairs/IntakeChecklist';
+import { openAnnahmeschein } from '../components/repairs/annahmeschein';
+import {
+  REPAIR_TAB_LABELS,
+  RepairCustomerTab,
+  RepairHistoryTab,
+  RepairOverviewTab,
+  RepairWorkTab,
+  repairTabs,
+  type RepairPageTab,
+} from '../components/repairs/RepairDetailTabs';
+import { RepairPhotosTab } from '../components/repairs/RepairPhotosTab';
+import { CompleteDialog, DiagnoseDialog } from '../components/repairs/RepairStatusDialogs';
+import {
+  isCancellable,
+  NEXT_ACTION,
+  transitionError,
+  useRepairCache,
+  useRepairTransition,
+  type RepairTransition,
+} from '../components/repairs/useRepairActions';
 import { useAuth, useConfirm, useToast } from '../contexts';
-import { logError } from '../lib/logError';
 import { getErrorMessage } from '../lib/errors';
-import { canViewDesign, canViewFinancials } from '../lib/roles';
-import { Button } from '../ui/Button';
+import { logError } from '../lib/logError';
+import { canCreateRepairs, canViewDesign, canViewFinancials } from '../lib/roles';
+import type { RepairJob } from '../types';
+import { Button, DeadlineChip, PageHeader, PageState, Tabs, useTabParam } from '../ui';
 import { StatusBadge } from '../ui/StatusBadge';
-import { formatEur, MONEY_CLASS } from '../lib/format';
 import '../styles/repairs.css';
-
-// ─── helpers ────────────────────────────────────────────────────────────────
-
-const PHASE_LABELS: Record<RepairPhotoPhase, string> = {
-  intake: 'Eingang',
-  during_repair: 'Während der Reparatur',
-  completed: 'Fertiggestellt',
-};
-
-function formatDate(dateStr: string | null | undefined): string {
-  if (!dateStr) return '—';
-  return new Date(dateStr).toLocaleDateString('de-DE', {
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
-}
-
-function formatDateShort(dateStr: string | null | undefined): string {
-  if (!dateStr) return '—';
-  return new Date(dateStr).toLocaleDateString('de-DE', {
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric',
-  });
-}
-
-// ─── Status action buttons ───────────────────────────────────────────────────
-
-interface ActionButtonsProps {
-  repair: RepairJob;
-  onAction: (action: string, extraData?: Record<string, unknown>) => void;
-  busy: boolean;
-}
-
-function ActionButtons({ repair, onAction, busy }: ActionButtonsProps) {
-  const { status } = repair;
-
-  const actions: Array<{
-    label: string;
-    action: string;
-    className: string;
-    show: boolean;
-  }> = [
-    {
-      label: 'Diagnose stellen',
-      action: 'diagnose',
-      className: 'btn btn-primary',
-      show: status === 'received',
-    },
-    {
-      label: 'Angebot bestätigen',
-      action: 'approve',
-      className: 'btn btn-success',
-      show: status === 'quoted',
-    },
-    {
-      label: 'Reparatur starten',
-      action: 'start',
-      className: 'btn btn-primary',
-      show: status === 'approved',
-    },
-    {
-      label: 'Zur QK einreichen',
-      action: 'quality_check',
-      className: 'btn btn-primary',
-      show: status === 'in_repair',
-    },
-    {
-      label: 'Fertigmelden',
-      action: 'complete',
-      className: 'btn btn-success',
-      show: status === 'quality_check',
-    },
-    {
-      label: 'Abholung bestätigen',
-      action: 'pickup',
-      className: 'btn btn-success',
-      show: status === 'ready',
-    },
-    {
-      label: 'Stornieren',
-      action: 'cancel',
-      className: 'btn btn-danger',
-      show: !['picked_up', 'cancelled'].includes(status),
-    },
-  ];
-
-  const visible = actions.filter(a => a.show);
-  if (visible.length === 0) return null;
-
-  return (
-    <div className="repair-actions-strip">
-      {visible.map(a => (
-        <button
-          key={a.action}
-          className={a.className}
-          disabled={busy}
-          onClick={() => onAction(a.action)}
-        >
-          {a.label}
-        </button>
-      ))}
-    </div>
-  );
-}
-
-// ─── Diagnose Modal ──────────────────────────────────────────────────────────
-
-interface DiagnoseModalProps {
-  repairId: number;
-  onClose: () => void;
-  onDone: (repair: RepairJob) => void;
-}
-
-function DiagnoseModal({ repairId, onClose, onDone }: DiagnoseModalProps) {
-  const [form, setForm] = useState<RepairDiagnoseInput>({
-    diagnosis_notes: '',
-    estimated_cost: 0,
-    estimated_completion_date: undefined,
-  });
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const diagnosisNotesId = useId();
-  const estimatedCostId = useId();
-  const estimatedCompletionDateId = useId();
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!form.diagnosis_notes.trim()) {
-      setError('Bitte Befund eingeben.');
-      return;
-    }
-    setSaving(true);
-    setError(null);
-    try {
-      const payload: RepairDiagnoseInput = {
-        ...form,
-        estimated_completion_date: form.estimated_completion_date
-          ? new Date(form.estimated_completion_date).toISOString()
-          : undefined,
-      };
-      const updated = await repairsApi.diagnose(repairId, payload);
-      onDone(updated);
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Fehler beim Speichern.');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  return (
-    <div
-      className="modal-overlay"
-      role="presentation"
-      onClick={e => { if (e.target === e.currentTarget) onClose(); }}
-    >
-      <div className="modal-box">
-        <div className="modal-header">
-          <h2>Diagnose stellen</h2>
-          <button className="modal-close" onClick={onClose}>&#x2715;</button>
-        </div>
-        <form onSubmit={handleSubmit}>
-          <div className="modal-body">
-            {error && <div className="repairs-error">{error}</div>}
-            <div className="form-group">
-              <label className="form-label" htmlFor={diagnosisNotesId}>
-                Befundbeschreibung <span className="required">*</span>
-              </label>
-              <textarea
-                id={diagnosisNotesId}
-                className="form-textarea"
-                rows={5}
-                placeholder="Was wurde festgestellt? Welche Arbeiten sind erforderlich?"
-                value={form.diagnosis_notes}
-                onChange={e => setForm(prev => ({ ...prev, diagnosis_notes: e.target.value }))}
-                required
-              />
-            </div>
-            <div className="form-row">
-              <div className="form-group">
-                <label className="form-label" htmlFor={estimatedCostId}>
-                  Kostenvoranschlag (EUR) <span className="required">*</span>
-                </label>
-                <input
-                  id={estimatedCostId}
-                  type="number"
-                  min={0}
-                  step={0.01}
-                  className="form-input"
-                  value={form.estimated_cost}
-                  onChange={e => setForm(prev => ({ ...prev, estimated_cost: Number(e.target.value) }))}
-                  required
-                />
-              </div>
-              <div className="form-group">
-                <label className="form-label" htmlFor={estimatedCompletionDateId}>Fertigstellung bis</label>
-                <input
-                  id={estimatedCompletionDateId}
-                  type="date"
-                  className="form-input"
-                  value={form.estimated_completion_date
-                    ? form.estimated_completion_date.slice(0, 10)
-                    : ''}
-                  onChange={e => setForm(prev => ({
-                    ...prev,
-                    estimated_completion_date: e.target.value || undefined,
-                  }))}
-                />
-              </div>
-            </div>
-          </div>
-          <div className="modal-footer">
-            <button type="button" className="btn btn-secondary" onClick={onClose}>Abbrechen</button>
-            <button type="submit" className="btn btn-primary" disabled={saving}>
-              {saving ? 'Wird gespeichert…' : 'Diagnose speichern'}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
-  );
-}
-
-// ─── Complete Modal ──────────────────────────────────────────────────────────
-
-interface CompleteModalProps {
-  repairId: number;
-  estimatedCost: number | null | undefined;
-  onClose: () => void;
-  onDone: (repair: RepairJob) => void;
-}
-
-function CompleteModal({ repairId, estimatedCost, onClose, onDone }: CompleteModalProps) {
-  const [actualCost, setActualCost] = useState<number>(estimatedCost ?? 0);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const actualCostId = useId();
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setSaving(true);
-    setError(null);
-    try {
-      const data: RepairCompleteInput = { actual_cost: actualCost };
-      const updated = await repairsApi.complete(repairId, data);
-      onDone(updated);
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Fehler beim Speichern.');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  return (
-    <div
-      className="modal-overlay"
-      role="presentation"
-      onClick={e => { if (e.target === e.currentTarget) onClose(); }}
-    >
-      <div className="modal-box">
-        <div className="modal-header">
-          <h2>Reparatur fertigmelden</h2>
-          <button className="modal-close" onClick={onClose}>&#x2715;</button>
-        </div>
-        <form onSubmit={handleSubmit}>
-          <div className="modal-body">
-            {error && <div className="repairs-error">{error}</div>}
-            <p style={{ marginTop: 0, fontSize: '0.9rem', color: 'var(--color-text-muted)' }}>
-              Die Reparatur wird auf <strong>Abholbereit</strong> gesetzt und alle
-              Mitarbeiter werden benachrichtigt.
-            </p>
-            {estimatedCost != null && (
-              <p style={{ fontSize: '0.875rem', color: 'var(--color-text-muted)' }}>
-                Kostenvoranschlag: <strong className={MONEY_CLASS}>{formatEur(estimatedCost)}</strong>
-              </p>
-            )}
-            <div className="form-group">
-              <label className="form-label" htmlFor={actualCostId}>
-                Tatsächliche Kosten (EUR) <span className="required">*</span>
-              </label>
-              <input
-                id={actualCostId}
-                type="number"
-                min={0}
-                step={0.01}
-                className="form-input"
-                value={actualCost}
-                onChange={e => setActualCost(Number(e.target.value))}
-                required
-              />
-            </div>
-          </div>
-          <div className="modal-footer">
-            <button type="button" className="btn btn-secondary" onClick={onClose}>Abbrechen</button>
-            <button type="submit" className="btn btn-success" disabled={saving}>
-              {saving ? 'Wird gespeichert…' : 'Fertigmelden'}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
-  );
-}
-
-// ─── Photo section ───────────────────────────────────────────────────────────
-
-const PHASES: RepairPhotoPhase[] = ['intake', 'during_repair', 'completed'];
-
-/** Backend limit — reject client-side before any upload attempt. */
-const MAX_PHOTO_BYTES = 8 * 1024 * 1024;
-
-/**
- * Map RepairPhoto to the generic PhotoItem shape expected by PhotoCompare.
- *
- * thumbSrc/fullSrc route rendering through AuthenticatedImage instead of a
- * raw `<img src={file_path}>` — file_path is now a server-side filesystem
- * path (real upload, Task 3), not a directly fetchable URL.
- */
-function toPhotoItem(p: RepairPhoto): PhotoItem {
-  return {
-    id: p.id,
-    file_path: p.file_path,
-    notes: p.notes,
-    timestamp: p.timestamp,
-    thumbSrc: repairPhotoThumbPath(p.id),
-    fullSrc: repairPhotoPath(p.id),
-  };
-}
-
-function PhotosTab({
-  repair,
-  onPhotoAdded,
-  reloadRepair,
-}: {
-  repair: RepairJob;
-  onPhotoAdded: (photo: RepairPhoto) => void;
-  reloadRepair: () => Promise<void>;
-}) {
-  const { showToast } = useToast();
-  const { showConfirm } = useConfirm();
-  const [uploadingPhase, setUploadingPhase] = useState<RepairPhotoPhase | null>(null);
-  const [deletingPhotoId, setDeletingPhotoId] = useState<number | null>(null);
-
-  // DESIGN_VIEW (SEC-09/GDPR-04): `repair.photos` is stripped entirely from
-  // the backend response for a caller without it, so this tab must never
-  // be reachable for that role (guarded by the caller — see `tabs` below)
-  // and must not blow up on an undefined array if it somehow is.
-  const photosByPhase = (phase: RepairPhotoPhase) =>
-    (repair.photos ?? []).filter(p => p.phase === phase);
-
-  const handleFileSelect = async (
-    phase: RepairPhotoPhase,
-    e: React.ChangeEvent<HTMLInputElement>
-  ) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    if (file.size > MAX_PHOTO_BYTES) {
-      showToast('Datei zu groß — maximal 8 MB erlaubt', 'error');
-      e.target.value = '';
-      return;
-    }
-
-    setUploadingPhase(phase);
-    try {
-      const photo = await repairsApi.uploadPhoto(repair.id, file, phase);
-      onPhotoAdded(photo);
-    } catch (err: unknown) {
-      logError('Foto hochladen fehlgeschlagen', err);
-      showToast('Foto konnte nicht hochgeladen werden', 'error');
-    } finally {
-      setUploadingPhase(null);
-      e.target.value = '';
-    }
-  };
-
-  const handleDeletePhoto = async (photo: PhotoItem) => {
-    const confirmed = await showConfirm({
-      title: 'Foto löschen',
-      message: 'Foto wirklich löschen?',
-      confirmLabel: 'Löschen',
-      variant: 'danger',
-    });
-    if (!confirmed) return;
-
-    setDeletingPhotoId(photo.id);
-    try {
-      await repairsApi.deletePhoto(photo.id);
-      // Deleting a photo can auto-downgrade a linked intake-checklist item
-      // back to "open" on the backend — always refetch, never patch locally.
-      await reloadRepair();
-    } catch (err: unknown) {
-      logError('Foto löschen fehlgeschlagen', err);
-      showToast('Foto konnte nicht gelöscht werden', 'error');
-    } finally {
-      setDeletingPhotoId(null);
-    }
-  };
-
-  const intakePhotos = photosByPhase('intake').map(toPhotoItem);
-  const duringPhotos = photosByPhase('during_repair').map(toPhotoItem);
-  const completedPhotos = photosByPhase('completed').map(toPhotoItem);
-
-  return (
-    <div className="repair-tab-panel">
-      {/* Before / After comparison view */}
-      <PhotoCompare
-        beforePhotos={intakePhotos}
-        duringPhotos={duringPhotos}
-        afterPhotos={completedPhotos}
-        onDeletePhoto={handleDeletePhoto}
-        deletingPhotoId={deletingPhotoId}
-      />
-
-      {/* Upload controls — one per phase, shown below the comparison */}
-      <div style={{ marginTop: '1.5rem', paddingTop: '1rem', borderTop: '1px solid var(--color-border-default)' }}>
-        <p style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)', marginTop: 0, marginBottom: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600 }}>
-          Foto hinzufuegen
-        </p>
-        <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
-          {PHASES.map(phase => (
-            <label
-              key={phase}
-              className="photo-upload-btn"
-              style={{ flex: '1 1 140px', minWidth: 140, aspectRatio: 'unset', padding: '0.6rem 1rem', height: 'auto', minHeight: 44 }}
-              title={`Foto hinzufuegen (${PHASE_LABELS[phase]})`}
-            >
-              <input
-                type="file"
-                accept="image/*"
-                capture="environment"
-                style={{ display: 'none' }}
-                onChange={e => handleFileSelect(phase, e)}
-                disabled={uploadingPhase !== null}
-              />
-              {uploadingPhase === phase ? (
-                <span style={{ fontSize: '0.8rem' }}>Wird hochgeladen…</span>
-              ) : (
-                <>
-                  <span style={{ fontSize: '1.1rem' }}>+</span>
-                  <span style={{ fontSize: '0.82rem' }}>{PHASE_LABELS[phase]}</span>
-                </>
-              )}
-            </label>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ─── History tab ─────────────────────────────────────────────────────────────
-
-const STATUS_ORDER: RepairJobStatus[] = [
-  'received', 'diagnosed', 'quoted', 'approved',
-  'in_repair', 'quality_check', 'ready', 'picked_up',
-];
-
-function HistoryTab({ repair }: { repair: RepairJob }) {
-  const currentIdx = STATUS_ORDER.indexOf(repair.status);
-  const isCancelled = repair.status === 'cancelled';
-
-  const milestones: Array<{ label: string; date?: string | null; done: boolean }> = [
-    { label: 'Eingang', date: repair.created_at, done: true },
-    { label: 'Diagnose', date: repair.diagnosis_notes ? repair.updated_at : null, done: currentIdx >= 1 || repair.status === 'diagnosed' },
-    { label: 'Angebot', date: null, done: currentIdx >= 2 },
-    { label: 'Genehmigt', date: null, done: currentIdx >= 3 },
-    { label: 'In Arbeit', date: null, done: currentIdx >= 4 },
-    { label: 'Qualitätskontrolle', date: null, done: currentIdx >= 5 },
-    { label: 'Fertig (Abholbereit)', date: repair.actual_completion_date, done: currentIdx >= 6 || repair.status === 'ready' },
-    { label: 'Abgeholt', date: repair.picked_up_at, done: repair.status === 'picked_up' },
-  ];
-
-  return (
-    <div className="repair-tab-panel">
-      {isCancelled && (
-        <div className="repairs-error" style={{ marginBottom: '1.5rem' }}>
-          Dieser Reparaturauftrag wurde storniert.
-        </div>
-      )}
-      <ul className="repair-history-list">
-        {milestones.map((m, i) => (
-          <li key={i} className="repair-history-item">
-            <div
-              className="repair-history-dot"
-              style={{
-                background: m.done
-                  ? 'var(--color-brand-cta-500)'
-                  : 'var(--color-border-default)',
-              }}
-            >
-              {m.done ? '✓' : ''}
-            </div>
-            <div className="repair-history-content">
-              <div
-                className="repair-history-label"
-                style={{ color: m.done ? 'var(--color-text-heading)' : 'var(--color-text-muted)' }}
-              >
-                {m.label}
-              </div>
-              {m.date && (
-                <div className="repair-history-time">{formatDate(m.date)}</div>
-              )}
-            </div>
-          </li>
-        ))}
-      </ul>
-    </div>
-  );
-}
-
-// ─── Diagnosis tab ────────────────────────────────────────────────────────────
-
-function DiagnosisTab({ repair }: { repair: RepairJob }) {
-  if (!repair.diagnosis_notes && repair.estimated_cost == null) {
-    return (
-      <div className="repair-tab-panel">
-        <div className="repairs-empty" style={{ padding: '2rem' }}>
-          <div className="repairs-empty-icon">&#128269;</div>
-          <h3>Noch keine Diagnose</h3>
-          <p>Verwenden Sie die Schaltfläche &bdquo;Diagnose stellen&ldquo; oben, um Befund und Kostenvoranschlag zu erfassen.</p>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="repair-tab-panel">
-      {repair.diagnosis_notes && (
-        <div className="diagnosis-section">
-          <h3>Befundbeschreibung</h3>
-          <div className="diagnosis-notes-box">{repair.diagnosis_notes}</div>
-        </div>
-      )}
-
-      <div className="cost-comparison">
-        <div className="cost-card">
-          <div className="cost-card-label">Kostenvoranschlag</div>
-          <div className={`cost-card-value ${MONEY_CLASS}`}>{formatEur(repair.estimated_cost)}</div>
-        </div>
-        <div className="cost-card">
-          <div className="cost-card-label">Tatsächliche Kosten</div>
-          <div className={`cost-card-value ${MONEY_CLASS}`}>{formatEur(repair.actual_cost)}</div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ─── Details tab ──────────────────────────────────────────────────────────────
-
-function DetailsTab({ repair }: { repair: RepairJob }) {
-  const ITEM_TYPE_LABELS: Record<string, string> = {
-    ring: 'Ring', chain: 'Kette', bracelet: 'Armband',
-    earring: 'Ohrringe', watch: 'Uhr', brooch: 'Brosche', other: 'Sonstiges',
-  };
-
-  return (
-    <div className="repair-tab-panel">
-      <div className="repair-details-grid">
-        <div className="repair-detail-field">
-          <span className="repair-detail-field-label">Beschreibung</span>
-          <span className="repair-detail-field-value">{repair.item_description}</span>
-        </div>
-        <div className="repair-detail-field">
-          <span className="repair-detail-field-label">Art</span>
-          <span className="repair-detail-field-value">{ITEM_TYPE_LABELS[repair.item_type] ?? repair.item_type}</span>
-        </div>
-        <div className="repair-detail-field">
-          <span className="repair-detail-field-label">Metall</span>
-          <span className="repair-detail-field-value">{repair.metal_type ?? '—'}</span>
-        </div>
-        <div className="repair-detail-field">
-          <span className="repair-detail-field-label">Versicherungswert</span>
-          <span className={`repair-detail-field-value ${MONEY_CLASS}`}>{formatEur(repair.estimated_value)}</span>
-        </div>
-        <div className="repair-detail-field">
-          <span className="repair-detail-field-label">Voraussichtliche Fertigstellung</span>
-          <span className="repair-detail-field-value">{formatDateShort(repair.estimated_completion_date)}</span>
-        </div>
-        <div className="repair-detail-field">
-          <span className="repair-detail-field-label">Tatsächliche Fertigstellung</span>
-          <span className="repair-detail-field-value">{formatDateShort(repair.actual_completion_date)}</span>
-        </div>
-        <div className="repair-detail-field">
-          <span className="repair-detail-field-label">Kunde benachrichtigt</span>
-          <span className="repair-detail-field-value">{formatDate(repair.customer_notified_at)}</span>
-        </div>
-        <div className="repair-detail-field">
-          <span className="repair-detail-field-label">Abgeholt</span>
-          <span className="repair-detail-field-value">{formatDate(repair.picked_up_at)}</span>
-        </div>
-        <div className="repair-detail-field">
-          <span className="repair-detail-field-label">Angelegt</span>
-          <span className="repair-detail-field-value">{formatDate(repair.created_at)}</span>
-        </div>
-      </div>
-
-      {repair.customer && (
-        <div style={{ marginTop: '1.5rem', paddingTop: '1rem', borderTop: '1px solid var(--color-border-default)' }}>
-          <h3 style={{ fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--color-text-muted)', fontWeight: 700, margin: '0 0 0.75rem' }}>
-            Kundendaten
-          </h3>
-          <div className="repair-details-grid">
-            <div className="repair-detail-field">
-              <span className="repair-detail-field-label">Name</span>
-              <span className="repair-detail-field-value highlight">
-                {repair.customer.first_name} {repair.customer.last_name}
-              </span>
-            </div>
-            <div className="repair-detail-field">
-              <span className="repair-detail-field-label">E-Mail</span>
-              <span className="repair-detail-field-value">{repair.customer.email}</span>
-            </div>
-            {repair.customer.phone && (
-              <div className="repair-detail-field">
-                <span className="repair-detail-field-label">Telefon</span>
-                <span className="repair-detail-field-value">{repair.customer.phone}</span>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ─── Main Detail Page ─────────────────────────────────────────────────────────
-
-type Tab = 'details' | 'fotos' | 'diagnose' | 'historie';
 
 /** Statuses the backend bills (POST /repairs/{id}/invoice, ARCH-02). */
 const INVOICEABLE_STATUSES: readonly string[] = ['ready', 'picked_up'];
+const BACK = { to: '/repairs', label: 'Reparaturen' };
 
-export function RepairDetailPage() {
-  const { id } = useParams<{ id: string }>();
-  const navigate = useNavigate();
-  const { user } = useAuth();
-  const canDesign = canViewDesign(user?.role);
+type OpenDialog = 'diagnose' | 'complete' | null;
+
+function usePrintAnnahmeschein(repairId: number) {
   const { showToast } = useToast();
-  const repairId = Number(id);
-  const [isPrinting, setIsPrinting] = useState(false);
-  const [isInvoicing, setIsInvoicing] = useState(false);
-  const canInvoice = canViewFinancials(user?.role);
-
-  // W2-12: reprint the intake receipt (DESIGN_VIEW: it carries the photos).
-  const handlePrintAnnahmeschein = async () => {
-    setIsPrinting(true);
-    try {
-      await openAnnahmeschein(repairId);
-    } catch (err) {
+  return useMutation({
+    mutationFn: () => openAnnahmeschein(repairId),
+    onError: (err) => {
       logError('RepairDetailPage.annahmeschein', err);
       showToast('Annahmeschein konnte nicht geladen werden. Bitte erneut versuchen.', 'error');
-    } finally {
-      setIsPrinting(false);
-    }
-  };
+    },
+  });
+}
 
-  // ARCH-02: bill a finished repair; 409 (already invoiced) and 422 (not
-  // billable) come back as German backend messages.
-  const handleCreateInvoice = async () => {
-    setIsInvoicing(true);
-    try {
-      const invoice = await jobsApi.invoiceRepair(repairId, {
+// ARCH-02: bill a finished repair; 409 (already invoiced) and 422 (not
+// billable) come back as German backend messages.
+function useCreateInvoice(repairId: number) {
+  const navigate = useNavigate();
+  const { showToast } = useToast();
+  return useMutation({
+    mutationFn: () =>
+      jobsApi.invoiceRepair(repairId, {
         due_date: new Date(inDaysIso(DEFAULT_PAYMENT_TERM_DAYS)).toISOString(),
-      });
+      }),
+    onSuccess: (invoice) => {
       showToast('Rechnung erstellt', 'success');
       navigate(`/invoices?invoice_id=${invoice.id}`);
-    } catch (err) {
+    },
+    onError: (err) => {
       logError('RepairDetailPage.createInvoice', err);
       showToast(getErrorMessage(err, 'Rechnung konnte nicht erstellt werden.'), 'error');
-    } finally {
-      setIsInvoicing(false);
-    }
+    },
+  });
+}
+
+function RepairDetailView({ repair }: { repair: RepairJob }) {
+  const { user } = useAuth();
+  const { showToast } = useToast();
+  const { showConfirm } = useConfirm();
+  const canEdit = canCreateRepairs(user?.role);
+  const canDesign = canViewDesign(user?.role);
+  const canFinance = canViewFinancials(user?.role);
+  const tabIds = repairTabs(canDesign);
+  const [activeTab, setTab] = useTabParam<RepairPageTab>(tabIds, 'uebersicht');
+  const [dialog, setDialog] = useState<OpenDialog>(null);
+
+  const cache = useRepairCache(repair.id);
+  const transition = useRepairTransition(repair.id, () => setDialog(null));
+  const print = usePrintAnnahmeschein(repair.id);
+  const invoice = useCreateInvoice(repair.id);
+
+  const next = canEdit ? NEXT_ACTION[repair.status] : undefined;
+  const run = (t: RepairTransition) =>
+    transition.mutate(t, {
+      // Dialog steps show the error inline; one-tap steps as a toast.
+      onError: (err) => {
+        if (dialog === null) showToast(transitionError(err), 'error');
+      },
+    });
+  const openDialog = (which: Exclude<OpenDialog, null>) => {
+    transition.reset();
+    setDialog(which);
+  };
+  const handleNext = () => {
+    if (!next) return;
+    if (next.action === 'diagnose' || next.action === 'complete') openDialog(next.action);
+    else run({ action: next.action });
+  };
+  const handleCancel = async () => {
+    const confirmed = await showConfirm({
+      title: 'Reparatur stornieren',
+      message: `Möchten Sie die Reparatur ${repair.repair_number} wirklich stornieren?`,
+      confirmLabel: 'Stornieren',
+      cancelLabel: 'Nicht stornieren',
+      variant: 'danger',
+    });
+    if (confirmed) run({ action: 'cancel' });
   };
 
-  const [repair, setRepair] = useState<RepairJob | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<Tab>('details');
-  const [busy, setBusy] = useState(false);
-  const [activeModal, setActiveModal] = useState<string | null>(null);
-
-  const loadRepair = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const data = await repairsApi.getById(repairId);
-      setRepair(data);
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Fehler beim Laden.');
-    } finally {
-      setLoading(false);
-    }
-  }, [repairId]);
-
-  useEffect(() => { loadRepair(); }, [loadRepair]);
-
-  const handleAction = async (action: string) => {
-    if (!repair) return;
-
-    // Actions that need a modal
-    if (action === 'diagnose') { setActiveModal('diagnose'); return; }
-    if (action === 'complete') { setActiveModal('complete'); return; }
-
-    setBusy(true);
-    setError(null);
-    try {
-      let updated: RepairJob;
-      switch (action) {
-        case 'approve':
-          updated = await repairsApi.approve(repair.id);
-          break;
-        case 'start':
-          updated = await repairsApi.startRepair(repair.id);
-          break;
-        case 'quality_check':
-          updated = await repairsApi.submitQualityCheck(repair.id);
-          break;
-        case 'pickup':
-          updated = await repairsApi.pickup(repair.id);
-          break;
-        case 'cancel':
-          if (!window.confirm('Reparaturauftrag wirklich stornieren?')) return;
-          updated = await repairsApi.cancel(repair.id);
-          break;
-        default:
-          return;
-      }
-      setRepair(updated);
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Aktion fehlgeschlagen.');
-    } finally {
-      setBusy(false);
-    }
+  const refresh = () => void cache.refresh();
+  const panels: Record<RepairPageTab, () => ReactNode> = {
+    uebersicht: () => (
+      <RepairOverviewTab
+        repair={repair}
+        canFinance={canFinance}
+        onCancel={canEdit && isCancellable(repair.status) ? () => void handleCancel() : undefined}
+        isCancelling={transition.isPending && transition.variables?.action === 'cancel'}
+      />
+    ),
+    arbeit: () => (
+      <RepairWorkTab
+        repair={repair}
+        canFinance={canFinance}
+        onDiagnose={next?.action === 'diagnose' ? () => openDialog('diagnose') : undefined}
+      />
+    ),
+    fotos: () => <RepairPhotosTab repair={repair} />,
+    kunde: () => <RepairCustomerTab repair={repair} onRepairRefresh={refresh} />,
+    verlauf: () => <RepairHistoryTab repair={repair} />,
   };
+  const tabItems = tabIds.map((id) => ({
+    id,
+    label: id === 'fotos' ? `Fotos (${repair.photos?.length ?? 0})` : REPAIR_TAB_LABELS[id],
+    panel: id === activeTab ? panels[id]() : undefined,
+  }));
 
-  const handlePhotoAdded = (photo: RepairPhoto) => {
-    setRepair(prev =>
-      prev ? { ...prev, photos: [...prev.photos, photo] } : prev
-    );
-  };
-
-  if (loading) return <div className="repairs-loading">Wird geladen…</div>;
-  if (!repair) return (
-    <div className="repair-detail-page">
-      <div className="repairs-error">
-        {error ?? 'Reparaturauftrag nicht gefunden.'}
-      </div>
-      <button className="btn btn-secondary" onClick={() => navigate('/repairs')}>
-        Zurück zur Liste
-      </button>
-    </div>
+  const isOpen = isCancellable(repair.status);
+  const meta = (
+    <>
+      <StatusBadge kind="repair" status={repair.status} />
+      {isOpen && repair.estimated_completion_date && (
+        <DeadlineChip deadline={repair.estimated_completion_date} />
+      )}
+      <span className="repair-header-meta">Tüte {repair.bag_number}</span>
+      <span className="repair-header-meta">{repair.item_description}</span>
+    </>
   );
-
-  // DESIGN_VIEW (SEC-09/GDPR-04): every repair-photo endpoint 403s for a
-  // caller without it, and `repair.photos` itself is stripped from the
-  // response — so the tab is omitted rather than shown empty or crashing.
-  const tabs: Array<{ id: Tab; label: string }> = [
-    { id: 'details', label: 'Details' },
-    ...(canDesign
-      ? [{ id: 'fotos' as const, label: `Fotos (${repair.photos?.length ?? 0})` }]
-      : []),
-    { id: 'diagnose', label: 'Diagnose' },
-    { id: 'historie', label: 'Historie' },
-  ];
+  const secondaryActions = (
+    <>
+      {canDesign && (
+        <Button variant="secondary" icon="file-text" onClick={() => print.mutate()} loading={print.isPending}>
+          Annahmeschein drucken
+        </Button>
+      )}
+      {canFinance && INVOICEABLE_STATUSES.includes(repair.status) && repair.customer_id != null && (
+        <Button variant="secondary" icon="receipt" onClick={() => invoice.mutate()} loading={invoice.isPending}>
+          Rechnung erstellen
+        </Button>
+      )}
+    </>
+  );
+  const dialogError = transition.isError ? transitionError(transition.error) : null;
 
   return (
     <div className="repair-detail-page">
-      {/* Back link */}
-      <button
-        className="btn btn-secondary"
-        style={{ marginBottom: '1rem', fontSize: '0.85rem' }}
-        onClick={() => navigate('/repairs')}
-      >
-        ← Zur Liste
-      </button>
+      <PageHeader
+        title={repair.repair_number}
+        back={BACK}
+        meta={meta}
+        primaryAction={
+          next ? (
+            <Button icon={next.icon} onClick={handleNext} loading={transition.isPending && dialog === null}>
+              {next.label}
+            </Button>
+          ) : undefined
+        }
+        secondaryActions={secondaryActions}
+      />
 
-      {/* Header */}
-      <div className="repair-detail-header">
-        <div className="repair-detail-title">
-          <h1>{repair.repair_number}</h1>
-          <StatusBadge kind="repair" status={repair.status} />
-          <span className="repair-bag-number" title="Tütennummer">
-            Tüte: {repair.bag_number}
-          </span>
-        </div>
-        {canDesign && (
-          <button
-            type="button"
-            className="btn btn-secondary repair-annahmeschein-btn"
-            onClick={handlePrintAnnahmeschein}
-            disabled={isPrinting}
-          >
-            {isPrinting ? 'Wird geladen…' : 'Annahmeschein drucken'}
-          </button>
-        )}
-        {canInvoice && INVOICEABLE_STATUSES.includes(repair.status) && repair.customer_id != null && (
-          <Button icon="receipt" onClick={handleCreateInvoice} loading={isInvoicing}>
-            Rechnung erstellen
-          </Button>
-        )}
-      </div>
+      {/* Eingangs-Checkliste — dispute protection, kept above the tabs so it
+          stays visible regardless of which tab is active. */}
+      <IntakeChecklist repair={repair} onUpdated={cache.set} onRefresh={refresh} />
 
-      {/* Meta strip */}
-      <div className="repair-detail-meta">
-        <div className="repair-meta-item">
-          <span className="repair-meta-label">Kunde</span>
-          <span className="repair-meta-value">
-            {repair.customer
-              ? `${repair.customer.first_name} ${repair.customer.last_name}`
-              : 'Laufkunde'}
-          </span>
-        </div>
-        <div className="repair-meta-item">
-          <span className="repair-meta-label">Gegenstand</span>
-          <span className="repair-meta-value repair-meta-value--multiline">
-            {repair.item_description}
-          </span>
-        </div>
-        {repair.estimated_completion_date && (
-          <div className="repair-meta-item">
-            <span className="repair-meta-label">Deadline</span>
-            <span className="repair-meta-value">
-              {new Date(repair.estimated_completion_date).toLocaleDateString('de-DE')}
-            </span>
-          </div>
-        )}
-      </div>
+      <Tabs label="Reparaturbereiche" tabs={tabItems} selectedId={activeTab} onSelect={setTab} />
 
-      {/* Error banner */}
-      {error && <div className="repairs-error">{error}</div>}
-
-      {/* Eingangs-Checkliste — dispute protection, kept prominent above the
-          tabs so it stays visible regardless of which tab is active. */}
-      <IntakeChecklist repair={repair} onUpdated={setRepair} onRefresh={loadRepair} />
-
-      {/* Kundeninfo — Abholbereit draft + one-tap send (DOM-12 / W2-02) */}
-      <RepairCustomerUpdatePanel repair={repair} onRepairRefresh={loadRepair} />
-
-      {/* Action buttons */}
-      <ActionButtons repair={repair} onAction={handleAction} busy={busy} />
-
-      {/* Tabs */}
-      <div className="repair-tabs" role="tablist">
-        {tabs.map(t => (
-          <button
-            key={t.id}
-            role="tab"
-            aria-selected={activeTab === t.id}
-            className={`repair-tab${activeTab === t.id ? ' active' : ''}`}
-            onClick={() => setActiveTab(t.id)}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
-
-      {/* Tab panels */}
-      {activeTab === 'details' && <DetailsTab repair={repair} />}
-      {activeTab === 'fotos' && canDesign && (
-        <PhotosTab repair={repair} onPhotoAdded={handlePhotoAdded} reloadRepair={loadRepair} />
-      )}
-      {activeTab === 'diagnose' && <DiagnosisTab repair={repair} />}
-      {activeTab === 'historie' && <HistoryTab repair={repair} />}
-
-      {/* Modals */}
-      {activeModal === 'diagnose' && (
-        <DiagnoseModal
-          repairId={repair.id}
-          onClose={() => setActiveModal(null)}
-          onDone={updated => { setRepair(updated); setActiveModal(null); }}
+      {dialog === 'diagnose' && (
+        <DiagnoseDialog
+          open
+          isSubmitting={transition.isPending}
+          error={dialogError}
+          onSubmit={run}
+          onClose={() => setDialog(null)}
         />
       )}
-      {activeModal === 'complete' && (
-        <CompleteModal
-          repairId={repair.id}
-          estimatedCost={repair.estimated_cost}
-          onClose={() => setActiveModal(null)}
-          onDone={updated => { setRepair(updated); setActiveModal(null); }}
+      {dialog === 'complete' && (
+        <CompleteDialog
+          open
+          estimatedCost={canFinance ? repair.estimated_cost : null}
+          isSubmitting={transition.isPending}
+          error={dialogError}
+          onSubmit={run}
+          onClose={() => setDialog(null)}
         />
       )}
+    </div>
+  );
+}
+
+export function RepairDetailPage() {
+  const { id } = useParams<{ id: string }>();
+  const repairId = Number(id);
+  const isValidId = Number.isInteger(repairId) && repairId > 0;
+  const query = useQuery({ ...repairDetailQuery(repairId), enabled: isValidId });
+
+  if (query.data) return <RepairDetailView repair={query.data} />;
+
+  const state = !isValidId
+    ? { status: 'error' as const, error: 'Reparatur nicht gefunden.' }
+    : query.isError
+      ? {
+          status: 'error' as const,
+          error: getErrorMessage(query.error, 'Reparatur konnte nicht geladen werden.'),
+          retry: () => void query.refetch(),
+        }
+      : { status: 'loading' as const };
+  return (
+    <div className="repair-detail-page">
+      <PageHeader title="Reparatur" back={BACK} />
+      <PageState state={state} skeleton="detail" skeletonCount={3} />
     </div>
   );
 }

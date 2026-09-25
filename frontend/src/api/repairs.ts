@@ -13,6 +13,12 @@ import {
   RepairStatusUpdateInput,
 } from '../types';
 import type { Schema } from './generated';
+import { fetchPage, type PageItem, type PageParams, type PageResponse } from './paged';
+
+/** GET /repairs/?offset=… answers with a Page envelope (W3-08). */
+export type RepairsPage = PageResponse<'/api/v1/repairs/'>;
+export type RepairPageItem = PageItem<'/api/v1/repairs/'>;
+export type RepairPageParams = PageParams<'/api/v1/repairs/'>;
 
 /** Counter intake body (W2-12): the generated RepairJobCreate schema. */
 export type RepairIntakeInput = Schema<'RepairJobCreate'>;
@@ -25,6 +31,13 @@ export const repairPhotoThumbPath = (photoId: number): string =>
   `${BASE}/photos/${photoId}/thumbnail`;
 
 export const repairsApi = {
+  /**
+   * One page of repair jobs (Page envelope; status filter, `q` search and
+   * `sort` run on the server). The list screen uses this, not getAll.
+   */
+  getPage: (params: RepairPageParams, signal?: AbortSignal): Promise<RepairsPage> =>
+    fetchPage('/api/v1/repairs/', params, signal),
+
   /**
    * List repair jobs with optional filters.
    */

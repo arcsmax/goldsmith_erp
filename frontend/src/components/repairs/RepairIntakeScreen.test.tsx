@@ -9,8 +9,9 @@
 //       body, photos are uploaded as INTAKE photos, then the Annahmeschein
 //       step shows the repair number and "Zur Reparatur" hands back the id.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { renderWithQuery } from '../../test/queryWrapper';
 
 const mockSearch = vi.fn();
 const mockCreateCustomer = vi.fn();
@@ -34,8 +35,9 @@ vi.mock('../../api/repairs', () => ({
 
 const mockShowToast = vi.fn();
 const mockShowConfirm = vi.fn();
+const mockRole = vi.fn(() => 'GOLDSMITH');
 vi.mock('../../contexts', () => ({
-  useAuth: () => ({ user: { role: 'GOLDSMITH' } }),
+  useAuth: () => ({ user: { role: mockRole() } }),
   useToast: () => ({ showToast: mockShowToast }),
   useConfirm: () => ({ showConfirm: mockShowConfirm }),
 }));
@@ -66,10 +68,12 @@ const CREATED_REPAIR = {
   photos: [],
 };
 
-function renderScreen() {
+function renderScreen(props: { initialCustomerId?: number } = {}) {
   const onClose = vi.fn();
   const onDone = vi.fn();
-  render(<RepairIntakeScreen onClose={onClose} onDone={onDone} />);
+  renderWithQuery(<RepairIntakeScreen onClose={onClose} onDone={onDone} {...props} />, {
+    route: null,
+  });
   return { onClose, onDone };
 }
 
@@ -81,6 +85,7 @@ beforeEach(() => {
 afterEach(() => {
   vi.useRealTimers();
   vi.clearAllMocks();
+  mockRole.mockReturnValue('GOLDSMITH');
 });
 
 describe('RepairIntakeScreen', () => {
@@ -223,5 +228,87 @@ describe('RepairIntakeScreen', () => {
       '1 Foto konnte nicht hochgeladen werden. Bitte in der Reparatur erneut aufnehmen.',
       'error',
     );
+  });
+});
+
+describe('RepairIntakeScreen — form (react-hook-form + zod)', () => {
+  it('moves focus to the first invalid field on submit', async () => {
+    const user = userEvent.setup();
+    renderScreen();
+
+    await user.click(screen.getByRole('button', { name: 'Reparatur annehmen' }));
+
+    expect(screen.getByLabelText('Kundin oder Kunde suchen')).toHaveFocus();
+    expect(screen.getByLabelText(/Beschreibung des Stücks/)).toHaveAttribute('aria-invalid', 'true');
+  });
+
+  it('clears an error as soon as the field is fixed after a failed submit', async () => {
+    const user = userEvent.setup();
+    renderScreen();
+
+    await user.click(screen.getByRole('button', { name: 'Reparatur annehmen' }));
+    const message = 'Beschreibung fehlt. Bitte das Stück kurz beschreiben.';
+    expect(screen.getByText(message)).toBeInTheDocument();
+
+    await user.type(screen.getByLabelText(/Beschreibung des Stücks/), 'Ring');
+    await waitFor(() => expect(screen.queryByText(message)).not.toBeInTheDocument());
+  });
+
+  it('closes at once while nothing is entered', async () => {
+    const user = userEvent.setup();
+    const { onClose } = renderScreen();
+
+    await user.keyboard('{Escape}');
+
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(mockShowConfirm).not.toHaveBeenCalled();
+  });
+
+  it('asks "Änderungen verwerfen?" before a dirty form closes on Escape', async () => {
+    const user = userEvent.setup();
+    const { onClose } = renderScreen();
+
+    await user.type(screen.getByLabelText(/Beschreibung des Stücks/), 'Ring');
+    await user.keyboard('{Escape}');
+
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.getByText('Änderungen verwerfen?')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Weiter bearbeiten' }));
+    expect(screen.getByLabelText(/Beschreibung des Stücks/)).toHaveValue('Ring');
+
+    await user.keyboard('{Escape}');
+    await user.click(screen.getByRole('button', { name: 'Verwerfen' }));
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('treats a picked chip as input, and "Abbrechen" asks before discarding it', async () => {
+    const user = userEvent.setup();
+    mockShowConfirm.mockResolvedValue(false);
+    const { onClose } = renderScreen();
+
+    const typeGroup = screen.getByRole('group', { name: 'Art des Stücks' });
+    await user.click(within(typeGroup).getByRole('button', { name: 'Kette' }));
+    await user.click(screen.getByRole('button', { name: 'Abbrechen' }));
+
+    expect(mockShowConfirm).toHaveBeenCalledWith(
+      expect.objectContaining({ title: 'Annahme verwerfen?' }),
+    );
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it('never closes on a backdrop click', async () => {
+    const user = userEvent.setup();
+    const { onClose } = renderScreen();
+
+    await user.click(screen.getByTestId('ui-modal-backdrop'));
+
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it('shows no price field to a VIEWER (FINANCIAL_VIEW) and sends no price', async () => {
+    mockRole.mockReturnValue('VIEWER');
+    renderScreen();
+
+    expect(screen.queryByLabelText(/Preisindikation/)).not.toBeInTheDocument();
   });
 });

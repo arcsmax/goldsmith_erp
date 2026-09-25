@@ -12,7 +12,8 @@
 // api/customer-updates is mocked BEFORE the component import so no network
 // is needed — mirrors IntakeChecklist.test.tsx's mocking convention.
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { screen, waitFor } from '@testing-library/react';
+import { renderWithQuery } from '../../test/queryWrapper';
 import userEvent from '@testing-library/user-event';
 import type { RepairJob } from '../../types';
 import type { CustomerUpdate } from '../../api/customer-updates';
@@ -96,9 +97,7 @@ beforeEach(() => {
 describe('RepairCustomerUpdatePanel', () => {
   it('renders nothing and makes no request before the repair can have a draft', () => {
     const repair = makeRepair({ status: 'in_repair' });
-    const { container } = render(
-      <RepairCustomerUpdatePanel repair={repair} onRepairRefresh={vi.fn()} />
-    );
+    const { container } = renderWithQuery(<RepairCustomerUpdatePanel repair={repair} onRepairRefresh={vi.fn()} />, { route: null });
 
     expect(container).toBeEmptyDOMElement();
     expect(mockListRepairUpdates).not.toHaveBeenCalled();
@@ -108,7 +107,7 @@ describe('RepairCustomerUpdatePanel', () => {
     mockListRepairUpdates.mockResolvedValue([makeUpdate()]);
     const repair = makeRepair({ status: 'ready' });
 
-    render(<RepairCustomerUpdatePanel repair={repair} onRepairRefresh={vi.fn()} />);
+    renderWithQuery(<RepairCustomerUpdatePanel repair={repair} onRepairRefresh={vi.fn()} />, { route: null });
 
     await waitFor(() => expect(mockListRepairUpdates).toHaveBeenCalledWith(9));
     expect(await screen.findByText(/fertig zur Abholung/)).toBeInTheDocument();
@@ -131,7 +130,7 @@ describe('RepairCustomerUpdatePanel', () => {
     const onRepairRefresh = vi.fn();
     const repair = makeRepair({ status: 'ready' });
 
-    render(<RepairCustomerUpdatePanel repair={repair} onRepairRefresh={onRepairRefresh} />);
+    renderWithQuery(<RepairCustomerUpdatePanel repair={repair} onRepairRefresh={onRepairRefresh} />, { route: null });
 
     const button = await screen.findByRole('button', { name: 'Kunde benachrichtigen' });
     await userEvent.click(button);
@@ -158,7 +157,7 @@ describe('RepairCustomerUpdatePanel', () => {
     const onRepairRefresh = vi.fn();
     const repair = makeRepair({ status: 'ready' });
 
-    render(<RepairCustomerUpdatePanel repair={repair} onRepairRefresh={onRepairRefresh} />);
+    renderWithQuery(<RepairCustomerUpdatePanel repair={repair} onRepairRefresh={onRepairRefresh} />, { route: null });
 
     const button = await screen.findByRole('button', { name: 'Kunde benachrichtigen' });
     await userEvent.click(button);
@@ -172,7 +171,7 @@ describe('RepairCustomerUpdatePanel', () => {
     mockOpenRepairStatusReport.mockResolvedValue(undefined);
     const repair = makeRepair({ status: 'ready' });
 
-    render(<RepairCustomerUpdatePanel repair={repair} onRepairRefresh={vi.fn()} />);
+    renderWithQuery(<RepairCustomerUpdatePanel repair={repair} onRepairRefresh={vi.fn()} />, { route: null });
 
     const button = await screen.findByRole('button', { name: 'Statusbericht (PDF)' });
     await userEvent.click(button);
@@ -186,7 +185,7 @@ describe('RepairCustomerUpdatePanel', () => {
     ]);
     const repair = makeRepair({ status: 'picked_up' });
 
-    render(<RepairCustomerUpdatePanel repair={repair} onRepairRefresh={vi.fn()} />);
+    renderWithQuery(<RepairCustomerUpdatePanel repair={repair} onRepairRefresh={vi.fn()} />, { route: null });
 
     expect(await screen.findByText(/Verschickt am/)).toBeInTheDocument();
     expect(
