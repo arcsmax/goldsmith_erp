@@ -13,6 +13,9 @@ import { customersApi } from '../../api/customers';
 import { NoGo, NoGoCategory, NoGoCreateInput, StyleProfile } from '../../types';
 import { useConfirm, useToast } from '../../contexts';
 import { logError } from '../../lib/logError';
+import { getErrorMessage } from '../../lib/errors';
+import { ConsentRecord, consentsApi, findActiveConsent } from '../../api/consents';
+import { HealthDataConsentBlock } from './HealthDataConsentBlock';
 // Moved to labels.ts (kills the bundle coupling — see that file's header);
 // re-exported here for backwards compatibility.
 export { NO_GO_CATEGORY_LABELS } from './labels';
@@ -54,6 +57,7 @@ export const StyleNoGoStep: React.FC<WizardStepProps> = ({ consultation }) => {
 
   const [noGos, setNoGos] = useState<NoGo[]>([]);
   const [styleProfile, setStyleProfile] = useState<StyleProfile>(EMPTY_STYLE_PROFILE);
+  const [healthConsent, setHealthConsent] = useState<ConsentRecord | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   // No-Go add form
@@ -78,13 +82,15 @@ export const StyleNoGoStep: React.FC<WizardStepProps> = ({ consultation }) => {
     (async () => {
       try {
         setIsLoading(true);
-        const [loadedNoGos, loadedProfile] = await Promise.all([
+        const [loadedNoGos, loadedProfile, loadedConsents] = await Promise.all([
           customersApi.getNoGos(customerId),
           customersApi.getStyleProfile(customerId),
+          consentsApi.list(customerId),
         ]);
         if (cancelled) return;
         setNoGos(loadedNoGos);
         setStyleProfile(loadedProfile);
+        setHealthConsent(findActiveConsent(loadedConsents, 'health_data'));
       } catch (err) {
         logError('No-Gos/Stilprofil laden fehlgeschlagen', err);
         if (!cancelled) showToast('Stilprofil konnte nicht geladen werden', 'error');
@@ -111,7 +117,12 @@ export const StyleNoGoStep: React.FC<WizardStepProps> = ({ consultation }) => {
       // NEVER log the raw error: err.config.data carries the request body
       // (allergy no-go values) and FastAPI 422s echo the input in the response.
       logError('No-Go anlegen fehlgeschlagen', err);
-      showToast('No-Go konnte nicht angelegt werden', 'error');
+      // getErrorMessage surfaces the backend's own German detail (e.g. the
+      // HEALTH_DATA consent-required 422) instead of a generic toast —
+      // getErrorMessage never echoes the request body, only the response's
+      // `detail` text, so the "never log the raw value" rule above still
+      // holds for what actually reaches the UI.
+      showToast(getErrorMessage(err, 'No-Go konnte nicht angelegt werden'), 'error');
       return false;
     }
   };
@@ -234,10 +245,21 @@ export const StyleNoGoStep: React.FC<WizardStepProps> = ({ consultation }) => {
           </div>
         )}
 
+        <HealthDataConsentBlock
+          customerId={customerId}
+          consent={healthConsent}
+          onGranted={setHealthConsent}
+        />
+
         <div className="wizard-field">
           <span id="stylenogo-allergens-label" className="ui-field__label">
             Schnellauswahl Allergien
           </span>
+          {!healthConsent && (
+            <p className="field-hint">
+              Erst nach Bestätigung der Einwilligung „Gesundheitsdaten“ oben auswählbar.
+            </p>
+          )}
           <div className="chip-group" role="group" aria-labelledby="stylenogo-allergens-label">
             {QUICK_ALLERGENS.map((allergen) => (
               <button
@@ -245,7 +267,7 @@ export const StyleNoGoStep: React.FC<WizardStepProps> = ({ consultation }) => {
                 type="button"
                 className="chip"
                 onClick={() => handleQuickAllergen(allergen)}
-                disabled={addingQuickAllergen === allergen}
+                disabled={!healthConsent || addingQuickAllergen === allergen}
               >
                 {addingQuickAllergen === allergen ? '…' : allergen}
               </button>
@@ -287,7 +309,19 @@ export const StyleNoGoStep: React.FC<WizardStepProps> = ({ consultation }) => {
               disabled={isAddingNoGo}
             />
           </Field>
-          <Button type="submit" variant="secondary" icon="plus" disabled={!value.trim()} loading={isAddingNoGo}>
+          {category === 'allergy' && !healthConsent && (
+            <p className="field-hint">
+              Für die Kategorie „Allergie“ wird zuerst die Einwilligung
+              „Gesundheitsdaten“ oben benötigt.
+            </p>
+          )}
+          <Button
+            type="submit"
+            variant="secondary"
+            icon="plus"
+            disabled={!value.trim() || (category === 'allergy' && !healthConsent)}
+            loading={isAddingNoGo}
+          >
             No-Go hinzufügen
           </Button>
         </form>

@@ -338,6 +338,59 @@ async def test_consent_endpoints_are_audit_logged(
 
 
 @pytest.mark.asyncio
+async def test_consultation_step4_quick_allergen_no_go_reproduces_bug_and_fix(
+    client: AsyncClient, goldsmith_auth_headers: dict, test_customer: Customer
+):
+    """Reproduces the owner-reported bug at /consultations/{id}?step=4:
+    clicking a "Schnellauswahl Allergien" chip (Nickel/Kupfer/Silber) posts
+    ``POST /customers/{customer_id}/no-gos`` with
+    ``{"category": "allergy", "value": <chip>}`` for the consultation's
+    customer. Before the fix the frontend only showed a generic
+    "No-Go konnte nicht angelegt werden" toast; the actual backend response
+    is a 422 with a specific German consent message (asserted below) — the
+    root cause is the missing HEALTH_DATA consent, not a server error.
+    """
+    consultation_resp = await client.post(
+        "/api/v1/consultations/",
+        json={"customer_id": test_customer.id},
+        headers=goldsmith_auth_headers,
+    )
+    assert consultation_resp.status_code == 201, consultation_resp.text
+    consultation = consultation_resp.json()
+    assert consultation["customer_id"] == test_customer.id
+
+    # Step 4, chip "Nickel", no HEALTH_DATA consent recorded yet for this
+    # customer (the exact reported repro).
+    denied = await client.post(
+        f"{_url(consultation['customer_id'])}/no-gos",
+        json={"category": "allergy", "value": "Nickel"},
+        headers=goldsmith_auth_headers,
+    )
+    assert denied.status_code == 422, denied.text
+    assert denied.json()["detail"] == (
+        "Allergien sind Gesundheitsdaten (Art. 9 DSGVO) und dürfen nur mit "
+        "ausdrücklicher Einwilligung der Kundin/des Kunden gespeichert werden. "
+        "Bitte zuerst die Einwilligung 'Gesundheitsdaten' erfassen."
+    )
+
+    # Fix: confirming the wizard's "Einwilligung Gesundheitsdaten" block
+    # grants the consent via the existing consent endpoint...
+    await _grant_health_consent(
+        client, consultation["customer_id"], goldsmith_auth_headers
+    )
+
+    # ...after which the SAME chip click succeeds.
+    allowed = await client.post(
+        f"{_url(consultation['customer_id'])}/no-gos",
+        json={"category": "allergy", "value": "Nickel"},
+        headers=goldsmith_auth_headers,
+    )
+    assert allowed.status_code == 201, allowed.text
+    assert allowed.json()["category"] == "allergy"
+    assert allowed.json()["value"] == "Nickel"
+
+
+@pytest.mark.asyncio
 async def test_gdpr_export_includes_consents(
     client: AsyncClient,
     admin_auth_headers: dict,

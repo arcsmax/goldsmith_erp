@@ -39,6 +39,17 @@ vi.mock('../api/customers', () => ({
       .mockResolvedValue({ metal_tones: [], finishes: [], stone_preferences: [], style_words: [] }),
   },
 }));
+// Step 4 (StyleNoGoStep) fetches the customer's HEALTH_DATA consent to gate
+// the allergy chips — see HealthDataConsentBlock. Unmocked, the real
+// consentsApi.list would hit MSW's onUnhandledRequest("error") strategy.
+vi.mock('../api/consents', () => ({
+  consentsApi: {
+    list: vi.fn().mockResolvedValue([]),
+    grant: vi.fn(),
+  },
+  findActiveConsent: () => null,
+  CONSENT_METHOD_LABELS: { in_person: 'Vor Ort', written: 'Schriftlich', portal: 'Online-Portal' },
+}));
 
 import { ConsultationWizardPage } from './ConsultationWizardPage';
 import { QueryWrapper, createTestQueryClient } from '../test/queryWrapper';
