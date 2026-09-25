@@ -1,47 +1,49 @@
-from datetime import datetime
-from decimal import ROUND_HALF_UP, Decimal
-from typing import Any
+"""Models not yet moved to a domain module."""
 
-from sqlalchemy import Boolean, CheckConstraint, Column, Date
-from sqlalchemy import Enum as _SAEnum
+import enum
+import uuid
+from decimal import Decimal
+
 from sqlalchemy import (
+    Boolean,
+    CheckConstraint,
+    Column,
+    Date,
     Float,
     ForeignKey,
     Index,
     Integer,
-    Numeric,
     String,
     Table,
     Text,
     UniqueConstraint,
     event,
-    func,
     text,
 )
 from sqlalchemy.dialects.postgresql import JSON
-from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship
 
-from goldsmith_erp.core.timeutil import ensure_utc, utcnow
+from goldsmith_erp.core.timeutil import utcnow
+from goldsmith_erp.db.models.base import (
+    MONEY_NUMERIC,
+    PERCENT_NUMERIC,
+    PRICE_PER_GRAM_NUMERIC,
+    WEIGHT_NUMERIC,
+    AlloyType,
+    Base,
+    CostingMethod,
+    FingerPosition,
+    HandSide,
+    InvoiceLineType,
+    InvoiceStatus,
+    MeasurementType,
+    MetalType,
+    OrderStatusEnum,
+    SAEnum,
+    ScrapGoldStatus,
+    UserRole,
+)
 from goldsmith_erp.db.types import EncryptedString, UtcDateTime, UtcDateTimeNaiveStorage
-
-# Exact decimal column types (BE-14, ADR-2026-09-25-numeric-and-tz). Money is
-# stored to the cent, weights and quantities to the milligram / thousandth,
-# per-gram metal prices to 4 dp (a 2 dp rate times 1 kg is off by up to 5 EUR),
-# and percentages (VAT, margin, scrap loss) to 2 dp. The ORM returns Decimal.
-MONEY_NUMERIC = Numeric(12, 2)
-WEIGHT_NUMERIC = Numeric(12, 3)
-PRICE_PER_GRAM_NUMERIC = Numeric(12, 4)
-PERCENT_NUMERIC = Numeric(5, 2)
-
-
-def SAEnum(enum_class, **kwargs):
-    """Wrapper that ensures Python enum .value (lowercase) is stored in PostgreSQL."""
-    return _SAEnum(enum_class, values_callable=lambda e: [x.value for x in e], **kwargs)
-
-
-import enum
-import uuid
 
 
 class CalendarEventType(str, enum.Enum):
@@ -51,145 +53,6 @@ class CalendarEventType(str, enum.Enum):
     WORKSHOP_TASK = "workshop_task"
     APPOINTMENT = "appointment"
     REMINDER = "reminder"
-
-
-Base = declarative_base()
-
-
-class OrderStatusEnum(str, enum.Enum):
-    """Enumerated order statuses for consistency and validation.
-
-    Follows the goldsmith production pipeline:
-    Auftrag -> Entwurf -> Guss -> Montage -> Fassung -> Oberflaeche -> QK -> Auslieferung
-    """
-
-    DRAFT = "draft"
-    CONFIRMED = "confirmed"
-    IN_PROGRESS = "in_progress"
-    WAITING_FOR_FITTING = "waiting_for_fitting"
-    FITTING_DONE = "fitting_done"
-    READY_FOR_SETTING = "ready_for_setting"
-    QUALITY_CHECK = "quality_check"
-    COMPLETED = "completed"
-    DELIVERED = "delivered"
-    # W2-07 / DOM-13: paused (waiting for stone, customer, casting service)
-    # with Order.hold_reason + Order.resume_date; out of deadline alarms.
-    ON_HOLD = "on_hold"
-    # W2-07 / DOM-13: Storniert, with Order.cancel_reason; out of all
-    # active counts. Terminal except for a reopen to DRAFT.
-    CANCELLED = "cancelled"
-    # Legacy (DOM-46): display only, never set by new code. The W2-07 data
-    # migration maps existing rows to draft/confirmed. Transitions live in
-    # services/order_workflow.py.
-    NEW = "new"
-
-
-class UserRole(str, enum.Enum):
-    """User roles for RBAC (Role-Based Access Control)."""
-
-    ADMIN = "admin"  # Full system access
-    GOLDSMITH = "goldsmith"  # Production workers (orders, time tracking, materials)
-    VIEWER = "viewer"  # View-only access    # Standard user access
-
-
-class MetalType(str, enum.Enum):
-    """Standard metal types used in goldsmith workshop"""
-
-    GOLD_24K = "gold_24k"  # 999.9 Feingold
-    GOLD_22K = "gold_22k"  # 916 Gold
-    GOLD_18K = "gold_18k"  # 750 Gold
-    GOLD_14K = "gold_14k"  # 585 Gold
-    GOLD_9K = "gold_9k"  # 375 Gold
-    SILVER_999 = "silver_999"  # Feinsilber
-    SILVER_925 = "silver_925"  # Sterling Silber
-    SILVER_800 = "silver_800"  # Altsilber
-    PLATINUM_950 = "platinum_950"
-    PLATINUM_900 = "platinum_900"
-    PALLADIUM = "palladium"
-    WHITE_GOLD_18K = "white_gold_18k"
-    WHITE_GOLD_14K = "white_gold_14k"
-    ROSE_GOLD_18K = "rose_gold_18k"
-    ROSE_GOLD_14K = "rose_gold_14k"
-
-
-class CostingMethod(str, enum.Enum):
-    """Inventory costing method for material consumption"""
-
-    FIFO = "fifo"  # First In, First Out
-    LIFO = "lifo"  # Last In, First Out
-    AVERAGE = "average"  # Weighted Average Cost
-    SPECIFIC = "specific"  # Specific Identification (manual selection)
-
-
-class ScrapGoldStatus(str, enum.Enum):
-    """Status of scrap gold processing."""
-
-    RECEIVED = "received"  # Items documented
-    CALCULATED = "calculated"  # Fine content calculated
-    SIGNED = "signed"  # Customer signed receipt
-    CREDITED = "credited"  # Applied to invoice
-
-
-class InvoiceStatus(str, enum.Enum):
-    """Invoice lifecycle status (Rechnungsstatus)."""
-
-    DRAFT = "draft"  # Entwurf - not yet sent
-    SENT = "sent"  # Versendet - sent to customer
-    PAID = "paid"  # Bezahlt - payment received
-    OVERDUE = "overdue"  # Ueberfaellig - past due date
-    CANCELLED = "cancelled"  # Storniert - voided
-
-
-class InvoiceLineType(str, enum.Enum):
-    """Type of invoice line item (Rechnungspositionstyp)."""
-
-    MATERIAL = "material"  # Metal material (e.g. Gold 18K)
-    LABOR = "labor"  # Labor/Arbeitszeit
-    GEMSTONE = "gemstone"  # Edelstein
-    OTHER = "other"  # Sonstiges
-
-
-class MeasurementType(str, enum.Enum):
-    """Types of body measurements stored in the customer Massbibliothek."""
-
-    RING_SIZE = "ring_size"  # Ring inner circumference (EU mm or EU size)
-    CHAIN_LENGTH = "chain_length"  # Necklace/chain length in cm
-    WRIST_CIRCUMFERENCE = "wrist_circumference"  # Wrist for bracelets
-    FINGER_CIRCUMFERENCE = "finger_circumference"  # Exact finger circumference in mm
-    NECK_CIRCUMFERENCE = "neck_circumference"  # Neck circumference in cm
-    ANKLE_CIRCUMFERENCE = "ankle_circumference"  # Ankle for anklets
-
-
-class HandSide(str, enum.Enum):
-    """Hand side for ring and bracelet measurements."""
-
-    LEFT = "left"
-    RIGHT = "right"
-
-
-class FingerPosition(str, enum.Enum):
-    """Finger position for ring measurements (Fingerposition)."""
-
-    THUMB = "thumb"  # Daumen
-    INDEX = "index"  # Zeigefinger
-    MIDDLE = "middle"  # Mittelfinger
-    RING = "ring"  # Ringfinger
-    PINKY = "pinky"  # Kleiner Finger
-
-
-class AlloyType(str, enum.Enum):
-    """Standard gold/silver alloy types with fine content ratio."""
-
-    GOLD_999 = "999"  # 99.9% Feingold
-    GOLD_900 = "900"  # 90.0%
-    GOLD_750 = "750"  # 75.0% (18K)
-    GOLD_585 = "585"  # 58.5% (14K)
-    GOLD_375 = "375"  # 37.5% (9K)
-    GOLD_333 = "333"  # 33.3% (8K)
-    SILVER_999 = "ag999"  # 99.9% Feinsilber
-    SILVER_925 = "ag925"  # 92.5% Sterling
-    SILVER_800 = "ag800"  # 80.0%
-    PLATINUM_950 = "pt950"  # 95.0%
 
 
 # Many-to-Many zwischen Material und Order
@@ -764,220 +627,6 @@ class Material(Base):
     orders = relationship(
         "Order", secondary=order_materials, back_populates="materials"
     )
-
-
-class Activity(Base):
-    """Aktivitäts-Presets für Time-Tracking"""
-
-    __tablename__ = "activities"
-
-    id = Column(Integer, primary_key=True, index=True)
-    name = Column(String(100), nullable=False)
-    category = Column(
-        String(50), nullable=False, index=True
-    )  # fabrication, administration, waiting
-    icon = Column(String(10))  # Emoji
-    color = Column(String(7))  # Hex color #FF6B6B
-    usage_count = Column(Integer, default=0, index=True)
-    average_duration_minutes = Column(Float)
-    last_used = Column(UtcDateTime)
-    is_custom = Column(Boolean, default=False)
-    is_billable = Column(
-        Boolean, nullable=False, server_default=text("true"), default=True
-    )  # fabrication billable; administration/waiting non-billable by default
-    hourly_rate = Column(Numeric(10, 2), nullable=True)
-    # Per-activity labor rate (EUR/hour). NULL = use the shop default
-    # (settings.DEFAULT_HOURLY_RATE) — see CostCalculationService.
-    # Deliberately Numeric(10, 2), not Float, even though the legacy cost
-    # module (Order.hourly_rate/labor_cost above) works in float — money
-    # needs exact decimal arithmetic, so this column is an intentional
-    # exception, not an inconsistency to "fix".
-    created_by = Column(
-        Integer, ForeignKey("users.id", ondelete="RESTRICT"), nullable=True
-    )
-    created_at = Column(UtcDateTime, default=utcnow)
-
-    # Beziehungen
-    creator = relationship("User", foreign_keys=[created_by])
-    time_entries = relationship("TimeEntry", back_populates="activity")
-
-
-class TimeEntry(Base):
-    """Haupt-Zeiterfassung"""
-
-    __tablename__ = "time_entries"
-    # BE-12 (W1-17): at most one running timer (end_time IS NULL) per user.
-    # Partial unique index on both dialects so a double tap cannot create two
-    # open entries; the service maps the IntegrityError to a 409.
-    # Migration: 20260925_w117_one_running_timer.
-    __table_args__ = (
-        Index(
-            "uq_time_entries_one_running",
-            "user_id",
-            unique=True,
-            postgresql_where=text("end_time IS NULL"),
-            sqlite_where=text("end_time IS NULL"),
-        ),
-    )
-
-    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    order_id = Column(
-        Integer,
-        ForeignKey("orders.id", ondelete="RESTRICT"),
-        nullable=False,
-        index=True,
-    )
-    user_id = Column(
-        Integer,
-        ForeignKey("users.id", ondelete="RESTRICT"),
-        nullable=False,
-        index=True,
-    )
-    activity_id = Column(
-        Integer, ForeignKey("activities.id"), nullable=False, index=True
-    )
-    start_time = Column(UtcDateTime, nullable=False, index=True)
-    end_time = Column(UtcDateTime, nullable=True)
-    duration_minutes = Column(Integer, nullable=True)
-    location = Column(String(50))  # workbench_1, vault, etc.
-    complexity_rating = Column(Integer)  # 1-5
-    quality_rating = Column(Integer)  # 1-5
-    rework_required = Column(Boolean, default=False)
-    notes = Column(Text)
-    extra_metadata = Column(JSON)  # Flexible für zusätzliche Daten
-    created_at = Column(UtcDateTime, default=utcnow)
-
-    # ── Slice 2 — origin + correction tracking + retention ────────────
-    # A2-origin — Lena §1 adoption metric. Values: 'manual' | 'scan' |
-    # 'recovery' | 'import'. Back-populated to 'manual' for pre-Slice-2
-    # rows by the migration; every new row must set this explicitly.
-    origin = Column(
-        String(20),
-        nullable=False,
-        server_default=text("'manual'"),
-        default="manual",
-    )
-    # A2.2 — self-FK to the entry this row corrects (admin payroll fix).
-    # ON DELETE SET NULL so that deleting the original entry (rare, only
-    # via admin tools) leaves the correction in place as a standalone row.
-    correction_of = Column(
-        String(36),
-        ForeignKey(
-            "time_entries.id",
-            name="fk_time_entries_correction_of_self",
-            ondelete="SET NULL",
-        ),
-        nullable=True,
-    )
-    # A2.7 — HGB §257 requires 10-year financial retention.
-    retention_class = Column(
-        String(32),
-        nullable=False,
-        server_default=text("'financial_10y'"),
-        default="financial_10y",
-    )
-
-    # Beziehungen
-    order = relationship("Order", back_populates="time_entries")
-    user = relationship("User")
-    activity = relationship("Activity", back_populates="time_entries")
-    interruptions = relationship(
-        "Interruption", back_populates="time_entry", cascade="all, delete-orphan"
-    )
-    photos = relationship("OrderPhoto", back_populates="time_entry")
-
-
-# --------------------------------------------------------------------------- #
-# Defence-in-depth guard for `time_entries.extra_metadata` (O3)
-# --------------------------------------------------------------------------- #
-#
-# Layer A (Pydantic `TimeEntryMetadata` on the API boundary) covers every
-# legitimate HTTP write. This listener covers the residual surface:
-# service-layer code that constructs a `TimeEntry` ORM instance without
-# routing through the Pydantic schema, tests, fixtures, seed data, and
-# any future code path that bypasses the router. Both insert and update
-# paths are hooked.
-#
-# Limitations (known and documented):
-#   * Only fires on ORM-mediated writes. Raw SQL issued via
-#     `AsyncSession.execute(insert(TimeEntryModel.__table__)...)` or
-#     directly through a DBAPI cursor will NOT trigger this listener —
-#     SQLAlchemy's mapper events are an ORM-level mechanism. Raw-SQL
-#     writes must be separately covered by the DB-level constraint or
-#     a CI lint; see the audit script at
-#     `scripts/audit_time_entry_metadata.py` for the compensating
-#     control during rollout.
-#   * `AsyncSession.execute(update(TimeEntryModel)...)` likewise
-#     bypasses the mapper hook. The existing service code uses that
-#     pattern (see `TimeTrackingService.update_time_entry`) — the
-#     Pydantic layer catches the payload before it reaches there, so
-#     the two layers together cover the update path.
-#
-# Not swallowed: a `ValidationError` here propagates out of the
-# flush/commit and aborts the transaction. That is the desired
-# behaviour — fail loudly on schema violation rather than silently
-# writing PII.
-
-from goldsmith_erp.models.time_entry_metadata import TimeEntryMetadata  # noqa: E402
-
-
-@event.listens_for(TimeEntry, "before_insert")
-@event.listens_for(TimeEntry, "before_update")
-def _validate_time_entry_metadata(mapper, connection, target) -> None:
-    """Validate ``target.extra_metadata`` against the whitelist schema.
-
-    Runs on every ORM insert / update of a ``TimeEntry`` row before
-    the statement is sent to the database. ``None`` and empty-dict
-    payloads are accepted (there is nothing to scrub).
-    """
-    metadata = target.extra_metadata
-    if metadata is None or metadata == {}:
-        return
-    # Raises ValidationError — do not swallow; we want the transaction
-    # to fail so the caller sees the schema violation.
-    TimeEntryMetadata.model_validate(metadata)
-
-
-class Interruption(Base):
-    """Unterbrechungen während der Arbeit"""
-
-    __tablename__ = "interruptions"
-
-    id = Column(Integer, primary_key=True, index=True)
-    time_entry_id = Column(
-        String(36),
-        ForeignKey("time_entries.id", ondelete="CASCADE"),
-        nullable=False,
-        index=True,
-    )
-    reason = Column(String(100), nullable=False)  # customer_call, material_fetch, etc.
-    duration_minutes = Column(Integer, nullable=False)
-    timestamp = Column(UtcDateTime, default=utcnow)
-    # W2-14 / BE-19: set when work resumes; duration_minutes then holds the
-    # measured minutes. NULL with duration 0 = still open. Migration
-    # 20260925_w214_interrupt_resume.
-    resumed_at = Column(UtcDateTime, nullable=True)
-
-    # Beziehungen
-    time_entry = relationship("TimeEntry", back_populates="interruptions")
-
-
-class LocationHistory(Base):
-    """Lagerort-Verlauf für Aufträge"""
-
-    __tablename__ = "location_history"
-
-    id = Column(Integer, primary_key=True, index=True)
-    order_id = Column(Integer, ForeignKey("orders.id"), nullable=False, index=True)
-    location = Column(String(50), nullable=False)
-    timestamp = Column(UtcDateTime, default=utcnow, index=True)
-    changed_by = Column(
-        Integer, ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
-    )
-
-    # Beziehungen
-    order = relationship("Order")
-    user = relationship("User")
 
 
 class OrderPhoto(Base):
@@ -3429,89 +3078,6 @@ class LabelTemplate(Base):
     creator = relationship("User", foreign_keys=[created_by])
 
 
-# ============================================================================
-# V1.3 ESTIMATOR — ESTIMATE ACCURACY / CALIBRATION
-# ============================================================================
-
-
-class EstimateAccuracy(Base):
-    """Estimate-vs-actual record — the statistical labor estimator's learning
-    loop feedback (V1.3 Phase 1, Task 4).
-
-    Written when a completed order had a prior STORED estimate. Estimate
-    storage itself (where on `Order`/`Quote` a prior estimate lives) is
-    Task 5's job (`EstimatorService` + endpoints) — this table and
-    `EstimateAccuracyService.record()` are estimate-source-agnostic: they
-    persist whatever estimated/actual values the caller supplies. Until
-    Task 5 wires a real stored estimate, the `OrderService.update_order`
-    completion hook calls `EstimateAccuracyService.safe_record_on_completion`
-    with no values, which is a documented, tested no-op (see that method's
-    docstring and `services/estimate_accuracy_service.py`).
-
-    `estimator_version` lets calibration be sliced by estimator revision if
-    the median/P20/P80 logic changes later without conflating old and new
-    accuracy numbers.
-
-    Financial data (estimated/actual hours feed a labor cost) — ADMIN/
-    GOLDSMITH visibility only, audit-logged reads (CLAUDE.md: "All
-    financial data access MUST be audit-logged"). No API surface in this
-    task; Task 5 adds `GET /estimates/accuracy` + its `_RESOURCE_ROUTES`
-    entry in `middleware/audit_logging.py`.
-
-    FK deletion semantics: `order_id` uses `ondelete="RESTRICT"` — an
-    accuracy row is Art. 30-relevant calibration evidence tied to one
-    specific completed order, so (matching `CostChangeRequest.order_id` /
-    `Invoice.order_id`) a hard delete of the order must not silently
-    orphan or cascade away this financial record.
-    """
-
-    __tablename__ = "estimate_accuracy"
-
-    id = Column(Integer, primary_key=True, index=True)
-    # RESTRICT, not CASCADE/SET NULL — financial-retention backstop, see
-    # docstring (same rationale as CostChangeRequest.order_id).
-    order_id = Column(
-        Integer,
-        ForeignKey("orders.id", ondelete="RESTRICT"),
-        nullable=False,
-        index=True,
-    )
-
-    estimated_hours = Column(Float, nullable=False)
-    actual_hours = Column(Float, nullable=False)
-    estimated_total = Column(MONEY_NUMERIC, nullable=False)
-    actual_total = Column(MONEY_NUMERIC, nullable=False)
-
-    # Free-form tag identifying which estimator revision produced the
-    # estimate (e.g. "labor_estimator_v1") — lets calibration slice by
-    # revision once the median/tier logic changes. Not an enum: this is
-    # meant to be bumped freely as the estimator evolves, without a schema
-    # migration each time (mirrors Activity.category's free-text choice).
-    estimator_version = Column(String(50), nullable=False)
-
-    created_at = Column(
-        UtcDateTime, server_default=func.now(), nullable=False, index=True
-    )
-
-    # One-directional — no back_populates on Order, matching the
-    # CostChangeRequest / CustomerUpdate precedent (no existing need to
-    # traverse Order -> its accuracy rows from the ORM side).
-    order = relationship("Order")
-
-    def __repr__(self) -> str:
-        return (
-            f"<EstimateAccuracy {self.id} order={self.order_id} "
-            f"estimated_hours={self.estimated_hours} "
-            f"actual_hours={self.actual_hours}>"
-        )
-
-
-# ============================================================================
-# PERFORMANCE INDEXES
-# ============================================================================
-
-# Performance indexes for frequent query patterns
-Index("ix_time_entries_end_time", TimeEntry.end_time)
 Index("ix_notifications_user_read", Notification.user_id, Notification.is_read)
 Index("ix_orders_customer_deleted", Order.customer_id, Order.is_deleted)
 
@@ -3535,24 +3101,6 @@ Index(
     postgresql_where=ScanLog.idempotency_key.isnot(None),
 )
 Index("idx_template_entity_type", LabelTemplate.entity_type)
-
-# Slice 2 — security floor + audit indexes. Names match the Alembic
-# migration (20260419_security_floor) so both create_all() and
-# `alembic upgrade head` produce identical index shapes.
-#
-# Composite index for the 30-day scan-adoption metric query (Lena §1).
-Index(
-    "idx_time_entries_origin_created_at",
-    TimeEntry.origin,
-    TimeEntry.created_at,
-)
-# Partial on PG / plain on SQLite — the migration emits the WHERE clause
-# conditionally, and create_all honours the kwargs below on PG only.
-Index(
-    "idx_time_entries_correction_of",
-    TimeEntry.correction_of,
-    postgresql_where=TimeEntry.correction_of.isnot(None),
-)
 Index(
     "idx_orders_punzierung_verified_at",
     Order.punzierung_verified_at,
@@ -3567,7 +3115,6 @@ Index(
 # retention engine.
 Index("idx_orders_retention_class", Order.retention_class)
 Index("idx_material_usage_retention_class", MaterialUsage.retention_class)
-Index("idx_time_entries_retention_class", TimeEntry.retention_class)
 
 
 # ============================================================================
@@ -3620,77 +3167,3 @@ Index(
     OutboxMessage.status,
     OutboxMessage.next_attempt_at,
 )
-
-
-# ── Decimal coercion on assignment (BE-14) ─────────────────────────────────
-# Numeric columns load as Decimal, but a service that assigns a float (or an
-# int) would leave that float on the instance until the next refresh, and the
-# next ``Decimal * float`` raises TypeError. Every assignment to a Numeric
-# column is therefore converted here: floats go through ``str`` (so 0.1 stays
-# 0.1, not 0.1000000000000000055…), and the value is quantized to the column
-# scale with ROUND_HALF_UP, which is what the printed documents show.
-
-
-def _numeric_setter(scale: int) -> Any:
-    quantum = Decimal(1).scaleb(-scale)
-
-    def _coerce(target: Any, value: Any, oldvalue: Any, initiator: Any) -> Any:
-        if value is None or isinstance(value, bool):
-            return value
-        if isinstance(value, Decimal):
-            dec = value
-        elif isinstance(value, (int, float)):
-            dec = Decimal(str(value))
-        else:
-            return value
-        if not dec.is_finite():
-            raise ValueError(f"Non-finite value for Numeric column: {value!r}")
-        return dec.quantize(quantum, rounding=ROUND_HALF_UP)
-
-    return _coerce
-
-
-def _install_numeric_coercion() -> None:
-    for mapper in Base.registry.mappers:
-        for prop in mapper.column_attrs:
-            column = prop.columns[0]
-            col_type = getattr(column, "type", None)
-            if not isinstance(col_type, Numeric) or isinstance(col_type, Float):
-                continue
-            if col_type.scale is None:
-                continue
-            event.listen(
-                getattr(mapper.class_, prop.key),
-                "set",
-                _numeric_setter(col_type.scale),
-                retval=True,
-            )
-
-
-_install_numeric_coercion()
-
-
-# ── Aware-UTC coercion on assignment (BE-15) ───────────────────────────────
-# UtcDateTime already normalises on the way to and from the database, but a
-# naive value assigned in Python (legacy callers, tests) would stay naive on
-# the instance until the next refresh and then fail to compare with aware
-# values. Assignments are therefore normalised to aware UTC right away.
-
-
-def _utc_setter(target: Any, value: Any, oldvalue: Any, initiator: Any) -> Any:
-    if isinstance(value, datetime):
-        return ensure_utc(value)
-    return value
-
-
-def _install_utc_coercion() -> None:
-    for mapper in Base.registry.mappers:
-        for prop in mapper.column_attrs:
-            column = prop.columns[0]
-            if isinstance(getattr(column, "type", None), UtcDateTime):
-                event.listen(
-                    getattr(mapper.class_, prop.key), "set", _utc_setter, retval=True
-                )
-
-
-_install_utc_coercion()

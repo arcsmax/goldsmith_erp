@@ -224,7 +224,7 @@ disable_error_code = ["type-arg"]  # 2 error(s)
 module = "goldsmith_erp.db.migration_helpers"
 disable_error_code = ["no-untyped-call", "no-untyped-def", "type-arg"]  # 7 error(s)
 [[tool.mypy.overrides]]
-module = "goldsmith_erp.db.models"
+module = ["goldsmith_erp.db.models", "goldsmith_erp.db.models.*"]
 disable_error_code = ["arg-type", "assignment", "misc", "no-untyped-call", "no-untyped-def", "return-value", "valid-type"]  # 159 error(s)
 [[tool.mypy.overrides]]
 module = "goldsmith_erp.db.repositories.base"

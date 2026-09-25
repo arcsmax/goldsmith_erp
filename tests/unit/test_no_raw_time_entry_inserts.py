@@ -38,7 +38,7 @@ _ALLOWLIST: frozenset[str] = frozenset(
     {
         # The ORM model itself references the __table__ attribute in
         # doc-comments explaining the H12 limitation.
-        "src/goldsmith_erp/db/models.py",
+        "src/goldsmith_erp/db/models/time_tracking.py",
         # The audit script scans rows — does SELECTs only, never INSERT.
         "scripts/audit_time_entry_metadata.py",
     }
