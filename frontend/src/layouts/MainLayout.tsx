@@ -15,6 +15,7 @@ import { NotificationBell } from '../components/NotificationBell';
 import { HealthDot } from '../components/HealthDot';
 import { GlobalSearch } from '../components/GlobalSearch';
 import { ErrorBoundary } from '../components/ErrorBoundary';
+import { ThemeToggle } from '../components/ThemeToggle';
 import { Icon, IconButton, TabBar } from '../ui';
 import { canAdministerSystem } from '../lib/roles';
 import { navGroupsFor, tabBarItems, type NavGroup } from './navigation';
@@ -121,6 +122,7 @@ export const MainLayout: React.FC = () => {
               <Icon name="scan" />
               Scanner
             </Link>
+            <ThemeToggle variant="header" className="header-desktop-only" />
             <NotificationBell />
             <span className="user-name header-desktop-only">{displayName}</span>
             <button

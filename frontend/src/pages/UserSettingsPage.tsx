@@ -12,6 +12,7 @@ import React from 'react';
 
 import { useScannerContext } from '../contexts/ScannerContext';
 import { ToggleSetting } from '../components/ToggleSetting';
+import { ThemeToggle } from '../components/ThemeToggle';
 import { Card, PageHeader } from '../ui';
 import '../styles/user-settings.css';
 
@@ -21,6 +22,11 @@ export const UserSettingsPage: React.FC = () => {
   return (
     <div className="user-settings-container" data-testid="user-settings-page">
       <PageHeader title="Einstellungen" stickyPrimary={false} />
+
+      {/* W4-05: colour scheme per device; "System" follows the device setting. */}
+      <Card title="Darstellung" className="user-settings-section">
+        <ThemeToggle showLegend />
+      </Card>
 
       <Card title="Scanner-Einstellungen" className="user-settings-section">
 
