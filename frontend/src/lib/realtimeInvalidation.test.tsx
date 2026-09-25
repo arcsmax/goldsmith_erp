@@ -45,13 +45,13 @@ describe('realtimeInvalidation', () => {
     expect(REALTIME_INVALIDATIONS.notifications).toContainEqual(['notifications']);
   });
 
-  it('invalidates ["orders"] (and the dashboard) on an order_updates hint', () => {
+  it('invalidates ["orders"] (and the dashboard and handoffs) on an order_updates hint', () => {
     const { invalidatedRoots } = renderBridge();
     act(() => FakeWebSocket.latest().open());
     act(() =>
       FakeWebSocket.latest().serverSend({ channel: 'order_updates', data: { order_id: 1 } }),
     );
-    expect(invalidatedRoots()).toEqual([['orders'], ['dashboard']]);
+    expect(invalidatedRoots()).toEqual([['orders'], ['dashboard'], ['handoffs']]);
   });
 
   it('invalidates ["timer"] on a time_tracking_updates hint', () => {

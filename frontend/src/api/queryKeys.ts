@@ -7,7 +7,7 @@
  * the list, the pages and the details of that domain. Realtime hints
  * invalidate by root (lib/realtimeInvalidation.ts):
  *
- *   order_updates          → orders, dashboard
+ *   order_updates          → orders, dashboard, handoffs
  *   time_tracking_updates  → timer, dashboard
  *   notifications          → notifications, handoffs
  *
@@ -64,5 +64,10 @@ export const queryKeys = {
   metalInventory: {
     all: ['metal-inventory'] as const,
     statistics: () => [...queryKeys.metalInventory.all, 'statistics'] as const,
+    purchases: () => [...queryKeys.metalInventory.all, 'purchases'] as const,
+  },
+  materials: {
+    all: ['materials'] as const,
+    lowStock: (threshold: number) => [...queryKeys.materials.all, 'low-stock', { threshold }] as const,
   },
 } as const;
