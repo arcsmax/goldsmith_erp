@@ -15,6 +15,7 @@ It creates only:
     V1.3 ``is_billable`` / ``hourly_rate`` rubric the estimator reads)
   * a standard materials catalogue (the common alloys + consumables a fresh
     workshop starts with — nominal reference prices, stock 0)
+  * the four default Standorte (Werkbank 1, Werkbank 2, Tresor, Ausstellung)
 
 Idempotency (the whole point): every row is matched by its natural key
 (activity → ``name`` + ``category``, material → ``name``) and inserted only
@@ -47,7 +48,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from goldsmith_erp.db._seed_helpers import filter_model_fields
-from goldsmith_erp.db.models import Activity, Customer, Material, User
+from goldsmith_erp.db.models import Activity, Customer, Material, User, WorkshopLocation
 
 logger = logging.getLogger("reference_seed")
 
@@ -291,6 +292,14 @@ STANDARD_MATERIALS: tuple[dict[str, Any], ...] = (
     },
 )
 
+# W8 default Standorte (ADMIN edits them under Verwaltung > Standorte).
+STANDARD_LOCATIONS: tuple[dict[str, Any], ...] = (
+    {"name": "Werkbank 1", "kind": "bench", "sort_order": 10},
+    {"name": "Werkbank 2", "kind": "bench", "sort_order": 20},
+    {"name": "Tresor", "kind": "safe", "sort_order": 30},
+    {"name": "Ausstellung", "kind": "showroom", "sort_order": 40},
+)
+
 # Environment flag that gates the boot hook.  Default ON so a fresh production
 # deploy gets its reference data without an extra manual step.
 _SEED_FLAG_ENV = "SEED_REFERENCE_DATA"
@@ -374,6 +383,35 @@ async def seed_reference_materials(
     return created, skipped
 
 
+async def seed_reference_locations(
+    db: AsyncSession, *, commit: bool = False
+) -> tuple[int, int]:
+    """Insert the default Standorte that don't already exist.
+
+    Natural key: case-insensitive ``name`` (a migrated legacy "tresor" row
+    counts as the default "Tresor").  Returns ``(created, skipped)``.
+    """
+    created = 0
+    skipped = 0
+    for data in STANDARD_LOCATIONS:
+        exists = await db.scalar(
+            select(WorkshopLocation.id).where(
+                func.lower(WorkshopLocation.name) == str(data["name"]).lower()
+            )
+        )
+        if exists is not None:
+            skipped += 1
+            continue
+        db.add(WorkshopLocation(**data, is_active=True))
+        created += 1
+
+    await db.flush()
+    if commit:
+        await db.commit()
+    logger.info("Reference locations: %d created, %d skipped", created, skipped)
+    return created, skipped
+
+
 async def seed_reference_data(
     db: AsyncSession, *, commit: bool = True
 ) -> dict[str, int]:
@@ -385,6 +423,7 @@ async def seed_reference_data(
     """
     act_created, act_skipped = await seed_reference_activities(db, commit=False)
     mat_created, mat_skipped = await seed_reference_materials(db, commit=False)
+    loc_created, loc_skipped = await seed_reference_locations(db, commit=False)
     if commit:
         await db.commit()
     return {
@@ -392,6 +431,8 @@ async def seed_reference_data(
         "activities_skipped": act_skipped,
         "materials_created": mat_created,
         "materials_skipped": mat_skipped,
+        "locations_created": loc_created,
+        "locations_skipped": loc_skipped,
     }
 
 

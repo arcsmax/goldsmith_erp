@@ -3,7 +3,7 @@ from datetime import date, datetime, timezone
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any, Dict, List, Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from goldsmith_erp.db.models import (
     CostingMethod,
@@ -243,6 +243,9 @@ class OrderUpdate(BaseModel):
     current_location: Optional[str] = Field(
         None, min_length=1, max_length=50, description="Current storage location"
     )
+    location_id: Optional[int] = Field(
+        None, gt=0, description="Configured workshop location (Standort) id"
+    )
 
     # Weight & Material
     estimated_weight_g: Optional[Weight] = Field(None, ge=0)
@@ -418,6 +421,7 @@ class OrderRead(OrderBase):
     )
     deadline: Optional[datetime] = None
     current_location: Optional[str] = None
+    location_id: Optional[int] = None
 
     # Weight & Material
     estimated_weight_g: Optional[Weight] = None
@@ -523,20 +527,31 @@ class OrderTimelineRead(BaseModel):
 class LocationChangeRequest(BaseModel):
     """Schema for changing an order's current location."""
 
-    location: str = Field(
-        ...,
+    location: Optional[str] = Field(
+        None,
         min_length=1,
         max_length=50,
         description="Target workshop location (e.g. Werkbank 1, Tresor)",
     )
+    location_id: Optional[int] = Field(
+        None, gt=0, description="Configured workshop location (Standort) id"
+    )
 
     @field_validator("location")
     @classmethod
-    def validate_location(cls, v: str) -> str:
+    def validate_location(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return None
         v = v.strip()
         if not v:
             raise ValueError("Location cannot be empty")
         return v
+
+    @model_validator(mode="after")
+    def _location_or_id(self) -> "LocationChangeRequest":
+        if self.location is None and self.location_id is None:
+            raise ValueError("Bitte einen Standort angeben.")
+        return self
 
 
 class LocationHistoryRead(BaseModel):

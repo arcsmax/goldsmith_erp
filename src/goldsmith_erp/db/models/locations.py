@@ -9,14 +9,7 @@ write) for one release. Migration: 20260925_w8_workshop_locations.
 
 import enum
 
-from sqlalchemy import (
-    Boolean,
-    CheckConstraint,
-    Column,
-    Integer,
-    String,
-    text,
-)
+from sqlalchemy import Boolean, CheckConstraint, Column, Integer, String, text
 
 from goldsmith_erp.core.timeutil import utcnow
 from goldsmith_erp.db.models.base import Base
@@ -60,7 +53,5 @@ class WorkshopLocation(Base):
     is_active = Column(
         Boolean, nullable=False, server_default=text("true"), default=True
     )
-    sort_order = Column(
-        Integer, nullable=False, server_default=text("0"), default=0
-    )
+    sort_order = Column(Integer, nullable=False, server_default=text("0"), default=0)
     created_at = Column(UtcDateTime, default=utcnow, nullable=False)

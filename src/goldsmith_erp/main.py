@@ -38,6 +38,7 @@ from goldsmith_erp.api.routers import (
 from goldsmith_erp.api.routers import imports as imports_router
 from goldsmith_erp.api.routers import invoices
 from goldsmith_erp.api.routers import jobs as jobs_router
+from goldsmith_erp.api.routers import locations as locations_router
 from goldsmith_erp.api.routers import materials, measurements
 from goldsmith_erp.api.routers import media as media_router
 from goldsmith_erp.api.routers import (
@@ -266,6 +267,9 @@ app.include_router(
 app.include_router(
     admin_workshop.router, prefix=settings.API_V1_STR, tags=["admin-workshop"]
 )  # W2-04: Werkstatt-Stammdaten (ADMIN)
+app.include_router(  # W8: Standorte (picker + ADMIN management)
+    locations_router.router, prefix=settings.API_V1_STR, tags=["locations"]
+)
 app.include_router(
     admin_outbox.router, prefix=settings.API_V1_STR, tags=["admin-outbox"]
 )  # W6 outbox: Nachrichten-Warteschlange (ADMIN)

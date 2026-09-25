@@ -112,9 +112,7 @@ def test_upgrade_backfills_location_id_by_name(sqlite_engine):
         ids = dict(
             conn.execute(text("SELECT lower(name), id FROM workshop_locations")).all()
         )
-        orders = dict(
-            conn.execute(text("SELECT id, location_id FROM orders")).all()
-        )
+        orders = dict(conn.execute(text("SELECT id, location_id FROM orders")).all())
         entries = dict(
             conn.execute(text("SELECT id, location_id FROM time_entries")).all()
         )
@@ -136,9 +134,12 @@ def test_round_trip_is_idempotent_and_keeps_text_columns(sqlite_engine):
     assert "workshop_locations" not in insp.get_table_names()
     assert "location_id" not in {c["name"] for c in insp.get_columns("orders")}
     with sqlite_engine.connect() as conn:
-        assert conn.execute(
-            text("SELECT current_location FROM orders WHERE id = 1")
-        ).scalar_one() == "Tresor"
+        assert (
+            conn.execute(
+                text("SELECT current_location FROM orders WHERE id = 1")
+            ).scalar_one()
+            == "Tresor"
+        )
     _run(sqlite_engine, "downgrade")
     _run(sqlite_engine, "upgrade")
     assert len(_locations(sqlite_engine)) == 4

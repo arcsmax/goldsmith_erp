@@ -19,6 +19,9 @@ class TimeEntryBase(BaseModel):
         max_length=50,
         description="Storage location (1-50 characters)",
     )
+    location_id: Optional[int] = Field(
+        None, gt=0, description="Configured workshop location (Standort) id"
+    )
     notes: Optional[str] = Field(
         None, max_length=2000, description="Notes (max 2000 characters)"
     )
@@ -52,6 +55,9 @@ class TimeEntryStart(BaseModel):
     )
     location: Optional[str] = Field(
         None, min_length=1, max_length=50, description="Storage location"
+    )
+    location_id: Optional[int] = Field(
+        None, gt=0, description="Configured workshop location (Standort) id"
     )
     extra_metadata: Optional[Dict[str, Any]] = None
 
@@ -129,6 +135,9 @@ class TimeEntryUpdate(BaseModel):
     )
     location: Optional[str] = Field(
         None, min_length=1, max_length=50, description="Storage location"
+    )
+    location_id: Optional[int] = Field(
+        None, gt=0, description="Configured workshop location (Standort) id"
     )
     complexity_rating: Optional[int] = Field(
         None, ge=1, le=5, description="Complexity rating (1-5)"

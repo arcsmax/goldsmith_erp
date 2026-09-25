@@ -215,6 +215,10 @@ _RESOURCE_ROUTES: dict[str, Tuple[str, str, str, bool]] = {
     # W6 outbox (ARCH-04): the admin queue view and "retry" (a write that
     # re-sends a customer mail). Every verb audited.
     "admin/outbox": ("outbox_message", "accessed", "list_accessed", False),
+    # W8 Standorte: ADMIN create / rename / reorder / deactivate. Every verb
+    # audited (no service-layer audit rows). The staff picker route
+    # ``GET /locations`` is master data, not audited.
+    "admin/locations": ("workshop_location", "accessed", "list_accessed", False),
 }
 
 # Legal-basis overrides for audited families that are neither customer PII
@@ -234,6 +238,9 @@ _LEGAL_BASIS_OVERRIDES: dict[str, str] = {
     "measurement": "GDPR Article 6(1)(b) - Contract (customer measurement records)",
     "workshop_settings": (
         "GDPR Article 6(1)(c) - Legal obligation (§14 Abs. 4 UStG seller data)"
+    ),
+    "workshop_location": (
+        "GDPR Article 6(1)(f) - Legitimate interest (workshop master data)"
     ),
     "outbox_message": (
         "GDPR Article 6(1)(b) - Contract (delivery of customer communication)"

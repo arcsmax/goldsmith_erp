@@ -85,6 +85,10 @@ class Permission(str, Enum):
     # W6 outbox (ARCH-04): view the mail queue and retry failed/dead rows.
     # ADMIN only (ADMIN holds every permission; no other role gets this).
     OUTBOX_MANAGE = "outbox:manage"
+    # W8 Standorte: every staff role reads the active locations (dropdown);
+    # only ADMIN manages the list (ADMIN holds every permission).
+    LOCATION_VIEW = "location:view"
+    LOCATION_MANAGE = "location:manage"
 
     # ML permissions
     ML_PREDICT = "ml:predict"  # Predict duration for orders (all authenticated users)
@@ -258,6 +262,8 @@ ROLE_PERMISSIONS: dict[UserRole, List[Permission]] = {
         Permission.SCRAP_GOLD_VIEW,
         # Scanner (V1.1) — goldsmiths are the primary scanner users
         Permission.SCAN_READ,
+        # Standorte (W8) — read the active locations for the dropdown
+        Permission.LOCATION_VIEW,
         # Customer updates (V1.2) — goldsmiths draft and send Kundeninfo
         Permission.CUSTOMER_UPDATE_VIEW,
         Permission.CUSTOMER_UPDATE_SEND,
@@ -298,6 +304,8 @@ ROLE_PERMISSIONS: dict[UserRole, List[Permission]] = {
         # Scanner (V1.1) — viewers may scan; content projection ensures
         # no financial fields are returned to their role.
         Permission.SCAN_READ,
+        # Standorte (W8) — read the active locations for the dropdown
+        Permission.LOCATION_VIEW,
     ],
 }
 

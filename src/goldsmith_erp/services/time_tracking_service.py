@@ -31,6 +31,7 @@ from goldsmith_erp.models.time_entry import (
     TimeSummaryStats,
 )
 from goldsmith_erp.services.activity_service import ActivityService
+from goldsmith_erp.services.location_service import LocationService
 
 logger = logging.getLogger(__name__)
 
@@ -197,6 +198,9 @@ class TimeTrackingService:
         if running_entry:
             raise TimerAlreadyRunningError(running_entry.id)
 
+        location_id, location_name = await LocationService.resolve(
+            db, entry_in.location_id, entry_in.location
+        )
         # Erstelle neue TimeEntry
         db_entry = TimeEntryModel(
             id=str(uuid.uuid4()),
@@ -204,7 +208,8 @@ class TimeTrackingService:
             user_id=entry_in.user_id,
             activity_id=entry_in.activity_id,
             start_time=datetime.now(timezone.utc),
-            location=entry_in.location,
+            location=location_name,
+            location_id=location_id,
             extra_metadata=entry_in.extra_metadata or {},
             created_at=datetime.now(timezone.utc),
         )
@@ -559,6 +564,9 @@ class TimeTrackingService:
     ) -> TimeEntryModel:
         """Erstellt eine manuelle TimeEntry (mit Start & End Zeit)."""
         entry_data = entry_in.model_dump(exclude={"duration_minutes"})
+        entry_data["location_id"], entry_data["location"] = (
+            await LocationService.resolve(db, entry_in.location_id, entry_in.location)
+        )
 
         # Berechne Dauer falls nicht angegeben
         duration = entry_in.duration_minutes
@@ -610,6 +618,15 @@ class TimeTrackingService:
 
         update_data = entry_in.model_dump(exclude_unset=True)
         TimeTrackingService._validate_edit(entry, update_data)
+        if "location" in update_data or "location_id" in update_data:
+            update_data["location_id"], update_data["location"] = (
+                await LocationService.resolve(
+                    db,
+                    update_data.get("location_id"),
+                    update_data.get("location"),
+                    keep_id=entry.location_id,
+                )
+            )
 
         new_end: Optional[datetime] = update_data.get("end_time")
         if entry.end_time is None and new_end is not None:
