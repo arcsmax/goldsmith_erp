@@ -13,8 +13,8 @@ Tests cover:
 
 from datetime import datetime, timedelta, timezone
 
+import jwt
 import pytest
-from jose import JWTError, jwt
 
 from goldsmith_erp.core.config import settings
 from goldsmith_erp.core.security import (
@@ -82,45 +82,45 @@ class TestDecodeTokenAllowingGraceWindow:
         assert payload["sub"] == "7"
 
     def test_token_expired_beyond_grace_window_raises_jwt_error(self):
-        """Token expired well beyond the grace window must raise JWTError."""
+        """Token expired well beyond the grace window must raise InvalidTokenError."""
         beyond = REFRESH_GRACE_SECONDS + 60  # 6 minutes ago — outside the window
         token = _token_with_exp_offset(user_id=99, offset_seconds=-beyond)
 
-        with pytest.raises(JWTError):
+        with pytest.raises(jwt.InvalidTokenError):
             decode_token_allowing_grace_window(token)
 
     def test_structurally_invalid_token_raises_jwt_error(self):
-        """A garbage string must raise JWTError."""
-        with pytest.raises(JWTError):
+        """A garbage string must raise InvalidTokenError."""
+        with pytest.raises(jwt.InvalidTokenError):
             decode_token_allowing_grace_window("not.a.real.token")
 
     def test_tampered_signature_raises_jwt_error(self):
-        """Altering the signature portion must raise JWTError."""
+        """Altering the signature portion must raise InvalidTokenError."""
         token = _valid_token(user_id=5)
         # Replace last 5 chars of the signature with 'XXXXX'
         tampered = token[:-5] + "XXXXX"
 
-        with pytest.raises(JWTError):
+        with pytest.raises(jwt.InvalidTokenError):
             decode_token_allowing_grace_window(tampered)
 
     def test_token_signed_with_wrong_key_raises_jwt_error(self):
-        """Token signed with a different secret must raise JWTError."""
+        """Token signed with a different secret must raise InvalidTokenError."""
         payload = {"sub": "10", "exp": datetime.now(timezone.utc) + timedelta(hours=1)}
         wrong_key_token = jwt.encode(
             payload, "completely-wrong-secret", algorithm=ALGORITHM
         )
 
-        with pytest.raises(JWTError):
+        with pytest.raises(jwt.InvalidTokenError):
             decode_token_allowing_grace_window(wrong_key_token)
 
     def test_token_without_exp_claim_raises_jwt_error(self):
         """A token lacking the 'exp' claim must be rejected."""
-        # jose does not add exp unless told to; encode raw payload without it
+        # PyJWT does not add exp unless told to; encode raw payload without it
         no_exp_token = jwt.encode(
             {"sub": "3"}, settings.SECRET_KEY, algorithm=ALGORITHM
         )
 
-        with pytest.raises(JWTError, match="no expiry"):
+        with pytest.raises(jwt.InvalidTokenError, match="no expiry"):
             decode_token_allowing_grace_window(no_exp_token)
 
     def test_decoded_payload_preserves_sub_claim(self):

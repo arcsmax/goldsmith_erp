@@ -47,9 +47,13 @@ _THEME_FILE = _UPLOADS_DIR / "theme.json"
 class ThemeSettings(BaseModel):
     """Complete theme settings — returned by GET, accepted by PUT."""
 
+    # Design tokens phase 1 (W4-01): #d97706 carries white text at only a
+    # 3.19:1 contrast ratio, below WCAG AA's 4.5:1 minimum for normal text.
+    # #b45309 (5.02:1) is the same swatch the frontend defaults to — see
+    # frontend/src/hooks/useTheme.ts and styles/brand-tokens.css.
     primary_color: str = Field(
-        default="#d97706",
-        description="Hauptfarbe (CSS hex, z. B. #d97706)",
+        default="#b45309",
+        description="Hauptfarbe (CSS hex, z. B. #b45309)",
         pattern=r"^#[0-9a-fA-F]{6}$",
     )
     primary_dark: str = Field(
@@ -58,7 +62,7 @@ class ThemeSettings(BaseModel):
         pattern=r"^#[0-9a-fA-F]{6}$",
     )
     header_gradient_start: str = Field(
-        default="#d97706",
+        default="#b45309",
         description="Header-Verlauf Startfarbe",
         pattern=r"^#[0-9a-fA-F]{6}$",
     )
@@ -92,6 +96,57 @@ class ThemeSettings(BaseModel):
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
 _DEFAULTS = ThemeSettings()
+
+# WCAG AA minimum contrast ratio for normal-size text (mirrors
+# frontend/src/hooks/useTheme.ts's MIN_TEXT_CONTRAST so both layers agree).
+_MIN_TEXT_CONTRAST = 4.5
+
+# The theme fields that render white text on top of them (buttons, header
+# gradient) — see useTheme.ts's setTextBearingColour(). Every other field
+# (accent_color, page_background) is not text-bearing and is not checked.
+_TEXT_BEARING_FIELDS: tuple[str, ...] = (
+    "primary_color",
+    "primary_dark",
+    "header_gradient_start",
+    "header_gradient_end",
+)
+
+_FIELD_LABELS_DE: dict[str, str] = {
+    "primary_color": "Hauptfarbe",
+    "primary_dark": "Dunkle Variante der Hauptfarbe",
+    "header_gradient_start": "Header-Verlauf Startfarbe",
+    "header_gradient_end": "Header-Verlauf Endfarbe",
+}
+
+
+def _relative_luminance(hex_color: str) -> float:
+    """WCAG relative luminance of a #rrggbb colour (sRGB, gamma-corrected).
+
+    Mirrors frontend/src/hooks/useTheme.ts's relativeLuminance() exactly so
+    both layers agree on which colours pass.
+    """
+    hex_digits = hex_color.lstrip("#")
+
+    def channel(offset: int) -> float:
+        c = int(hex_digits[offset : offset + 2], 16) / 255
+        return c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4
+
+    return 0.2126 * channel(0) + 0.7152 * channel(2) + 0.0722 * channel(4)
+
+
+def contrast_with_white(hex_color: str) -> float:
+    """Contrast ratio of white text on `hex_color` (WCAG 2.x)."""
+    return 1.05 / (_relative_luminance(hex_color) + 0.05)
+
+
+def _find_low_contrast_fields(theme: ThemeSettings) -> list[str]:
+    """Return the text-bearing field names whose contrast with white text
+    falls below the WCAG AA minimum."""
+    return [
+        field_name
+        for field_name in _TEXT_BEARING_FIELDS
+        if contrast_with_white(getattr(theme, field_name)) < _MIN_TEXT_CONTRAST
+    ]
 
 
 def _load_theme() -> ThemeSettings:
@@ -166,8 +221,29 @@ async def update_theme(
     Replaces all theme settings.
 
     Only users with the ADMIN role may call this endpoint.
-    The new settings are validated by Pydantic before being persisted.
+    The new settings are validated by Pydantic before being persisted, and
+    every text-bearing colour (primary_color, primary_dark,
+    header_gradient_start, header_gradient_end) must meet the WCAG AA
+    minimum contrast ratio (4.5:1) against white text — the frontend already
+    silently drops a failing colour and falls back to the default token
+    (useTheme.ts's setTextBearingColour), so the backend rejects it outright
+    instead of persisting a value the UI would never actually apply.
     """
+    low_contrast_fields = _find_low_contrast_fields(payload)
+    if low_contrast_fields:
+        details = "; ".join(
+            f"{_FIELD_LABELS_DE[field_name]} ({getattr(payload, field_name)}, "
+            f"Kontrast {contrast_with_white(getattr(payload, field_name)):.2f}:1)"
+            for field_name in low_contrast_fields
+        )
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                "Folgende Farben erfüllen nicht den WCAG-AA-Mindestkontrast von "
+                f"4,5:1 mit weißer Schrift: {details}."
+            ),
+        )
+
     try:
         _save_theme(payload)
     except OSError as exc:

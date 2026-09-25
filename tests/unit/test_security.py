@@ -2,8 +2,8 @@
 
 from datetime import timedelta
 
+import jwt
 import pytest
-from jose import jwt
 
 from goldsmith_erp.core.config import settings
 from goldsmith_erp.core.security import (
@@ -75,3 +75,17 @@ class TestJWTTokens:
         token = create_access_token(data={"sub": "1", "role": "admin"})
         payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[ALGORITHM])
         assert payload["role"] == "admin"
+
+    def test_token_signed_with_different_algorithm_is_rejected(self):
+        """A token signed with an algorithm other than the pinned ALGORITHM
+        (HS256) must be rejected, even with the correct secret key."""
+        assert ALGORITHM == "HS256"
+        other_algorithm_token = jwt.encode(
+            {"sub": "1"}, settings.SECRET_KEY, algorithm="HS384"
+        )
+        with pytest.raises(jwt.InvalidAlgorithmError):
+            jwt.decode(
+                other_algorithm_token,
+                settings.SECRET_KEY,
+                algorithms=[ALGORITHM],
+            )
