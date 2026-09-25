@@ -1,10 +1,11 @@
 # src/goldsmith_erp/api/routers/orders.py
+import logging
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Union
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.encoders import jsonable_encoder
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, Response
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -39,12 +40,14 @@ from goldsmith_erp.models.pagination import (
 from goldsmith_erp.services import list_queries
 from goldsmith_erp.services.cost_calculation_service import CostCalculationService
 from goldsmith_erp.services.customer_update_service import write_financial_audit_row
+from goldsmith_erp.services.handover_service import build_handover_data, can_hand_over
 from goldsmith_erp.services.label_service import LabelService
 from goldsmith_erp.services.order_service import OrderService
 from goldsmith_erp.services.order_timeline import build_order_timeline
 from goldsmith_erp.services.order_workflow import counts_for_deadline
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 # ── C5: VIEWER-role financial-field projection ───────────────────────────────
 # CLAUDE.md "Data Privacy Rules → Financial Data":
@@ -559,6 +562,58 @@ async def get_order_label(
         label_height_mm=height_mm,
     )
     return HTMLResponse(content=html, status_code=200)
+
+
+@router.get("/{order_id}/handover-pdf", response_class=Response)
+@require_permission(Permission.DESIGN_VIEW)
+async def get_handover_pdf(
+    order_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> Response:
+    """Abholprotokoll als PDF (W2-11, DOM-35).
+
+    Foto, Metall, Steine (ohne Einkaufspreis), Material, Pflegehinweise,
+    Gewährleistung und Unterschriftszeilen. Nur für fertiggestellte oder
+    ausgelieferte Aufträge; Design-Daten, daher DESIGN_VIEW.
+    """
+    from goldsmith_erp.services.pdf_service import PDFService  # noqa: PLC0415
+    from goldsmith_erp.services.workshop_settings_service import (  # noqa: PLC0415
+        WorkshopSettingsService,
+    )
+
+    order = await OrderService.get_order(db, order_id)
+    if not order:
+        raise HTTPException(status_code=404, detail="Auftrag nicht gefunden")
+    if not can_hand_over(order):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Das Abholprotokoll gibt es erst für fertiggestellte oder "
+                "ausgelieferte Aufträge."
+            ),
+        )
+    data = await build_handover_data(db, order)
+    workshop = await WorkshopSettingsService.read(db)
+    try:
+        content = PDFService.render_handover_pdf(data, workshop.name)
+    except Exception:
+        logger.exception("Handover PDF generation failed", extra={"order_id": order_id})
+        raise HTTPException(
+            status_code=500,
+            detail="PDF-Generierung fehlgeschlagen. Bitte später erneut versuchen.",
+        )
+    logger.info(
+        "Handover PDF generated",
+        extra={"order_id": order_id, "user_id": current_user.id},
+    )
+    return Response(
+        content=content,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="abholprotokoll_{order_id}.pdf"'
+        },
+    )
 
 
 @router.delete("/{order_id}")

@@ -1310,6 +1310,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/gemstones/{gemstone_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete Gemstone
+         * @description Stein entfernen.
+         */
+        delete: operations["delete_gemstone_api_v1_gemstones__gemstone_id__delete"];
+        options?: never;
+        head?: never;
+        /**
+         * Update Gemstone
+         * @description Stein bearbeiten.
+         */
+        patch: operations["update_gemstone_api_v1_gemstones__gemstone_id__patch"];
+        trace?: never;
+    };
     "/api/v1/handoffs/{handoff_id}/accept": {
         parameters: {
             query?: never;
@@ -3010,6 +3034,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/orders/{order_id}/gemstones": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Gemstones
+         * @description Steine eines Auftrags.
+         */
+        get: operations["list_gemstones_api_v1_orders__order_id__gemstones_get"];
+        put?: never;
+        /**
+         * Create Gemstone
+         * @description Stein zum Auftrag hinzufügen.
+         */
+        post: operations["create_gemstone_api_v1_orders__order_id__gemstones_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/orders/{order_id}/hallmarks": {
         parameters: {
             query?: never;
@@ -3132,6 +3180,30 @@ export interface paths {
          *     weitergegeben und welche Schritte wurden bestaetigt oder abgelehnt.
          */
         get: operations["get_order_handoffs_api_v1_orders__order_id__handoffs_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/orders/{order_id}/handover-pdf": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Handover Pdf
+         * @description Abholprotokoll als PDF (W2-11, DOM-35).
+         *
+         *     Foto, Metall, Steine (ohne Einkaufspreis), Material, Pflegehinweise,
+         *     Gewährleistung und Unterschriftszeilen. Nur für fertiggestellte oder
+         *     ausgelieferte Aufträge; Design-Daten, daher DESIGN_VIEW.
+         */
+        get: operations["get_handover_pdf_api_v1_orders__order_id__handover_pdf_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -4427,6 +4499,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/scrap-gold/{scrap_gold_id}/identification": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Set Identification
+         * @description Ausweisdaten des Verkäufers erfassen (W2-16, vor der Unterschrift).
+         */
+        put: operations["set_identification_api_v1_scrap_gold__scrap_gold_id__identification_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/scrap-gold/{scrap_gold_id}/items": {
         parameters: {
             query?: never;
@@ -4556,6 +4648,29 @@ export interface paths {
          * @description Feingold-Gehalt einer Legierung berechnen (Hilfstool).
          */
         get: operations["calculate_alloy_api_v1_scrap_gold_alloy_calculator_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/scrap-gold/ankaufsbuch": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Export Ankaufsbuch
+         * @description Ankaufsbuch Altgold als CSV oder PDF (nur ADMIN, W2-16).
+         *
+         *     Enthält die entschlüsselten Ausweisdaten aller unterschriebenen Ankäufe
+         *     im Zeitraum. Rechtliche Anforderungen vom Steuerberater zu bestätigen.
+         */
+        get: operations["export_ankaufsbuch_api_v1_scrap_gold_ankaufsbuch_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -7525,6 +7640,165 @@ export interface components {
             requested_at?: string | null;
             /** Status */
             status: string;
+        };
+        /**
+         * GemstoneCreate
+         * @description Body for ``POST /orders/{order_id}/gemstones``.
+         */
+        GemstoneCreate: {
+            /**
+             * Carat
+             * @description Karat je Stein
+             */
+            carat?: number | null;
+            /** Certificate Authority */
+            certificate_authority?: string | null;
+            /** Certificate Number */
+            certificate_number?: string | null;
+            /**
+             * Color
+             * @description Farbe, z.B. G
+             */
+            color?: string | null;
+            /**
+             * Cost
+             * @description Einkaufspreis je Stein (netto, EUR)
+             * @default 0
+             */
+            cost: number;
+            /**
+             * Cut
+             * @description Schliff
+             */
+            cut?: string | null;
+            /**
+             * Is Customer Stone
+             * @description Kundenstein
+             * @default false
+             */
+            is_customer_stone: boolean;
+            /** Notes */
+            notes?: string | null;
+            /**
+             * Quality
+             * @description Reinheit, z.B. VS1
+             */
+            quality?: string | null;
+            /**
+             * Quantity
+             * @description Anzahl
+             * @default 1
+             */
+            quantity: number;
+            /**
+             * Setting Type
+             * @description Fassungsart
+             */
+            setting_type?: ("bezel" | "prong" | "channel" | "pave" | "tension" | "invisible") | null;
+            /**
+             * Shape
+             * @description Form, z.B. rund
+             */
+            shape?: string | null;
+            /**
+             * Type
+             * @description Steinart
+             */
+            type: string;
+        };
+        /**
+         * GemstoneRead
+         * @description A stone as returned to the caller (role projection strips fields).
+         */
+        GemstoneRead: {
+            /** Carat */
+            carat?: number | null;
+            /** Certificate Authority */
+            certificate_authority?: string | null;
+            /** Certificate Number */
+            certificate_number?: string | null;
+            /** Color */
+            color?: string | null;
+            /** Cost */
+            cost?: number | null;
+            /** Cut */
+            cut?: string | null;
+            /** Id */
+            id: number;
+            /**
+             * Is Customer Stone
+             * @default false
+             */
+            is_customer_stone: boolean;
+            /** Notes */
+            notes?: string | null;
+            /** Order Id */
+            order_id: number;
+            /** Quality */
+            quality?: string | null;
+            /**
+             * Quantity
+             * @default 1
+             */
+            quantity: number;
+            /** Setting Type */
+            setting_type?: string | null;
+            /** Shape */
+            shape?: string | null;
+            /** Total Cost */
+            total_cost?: number | null;
+            /** Type */
+            type: string;
+        };
+        /**
+         * GemstoneUpdate
+         * @description Body for ``PATCH /gemstones/{gemstone_id}`` (only sent fields change).
+         */
+        GemstoneUpdate: {
+            /**
+             * Carat
+             * @description Karat je Stein
+             */
+            carat?: number | null;
+            /** Certificate Authority */
+            certificate_authority?: string | null;
+            /** Certificate Number */
+            certificate_number?: string | null;
+            /**
+             * Color
+             * @description Farbe, z.B. G
+             */
+            color?: string | null;
+            /** Cost */
+            cost?: number | null;
+            /**
+             * Cut
+             * @description Schliff
+             */
+            cut?: string | null;
+            /** Is Customer Stone */
+            is_customer_stone?: boolean | null;
+            /** Notes */
+            notes?: string | null;
+            /**
+             * Quality
+             * @description Reinheit, z.B. VS1
+             */
+            quality?: string | null;
+            /** Quantity */
+            quantity?: number | null;
+            /**
+             * Setting Type
+             * @description Fassungsart
+             */
+            setting_type?: ("bezel" | "prong" | "channel" | "pave" | "tension" | "invisible") | null;
+            /**
+             * Shape
+             * @description Form, z.B. rund
+             */
+            shape?: string | null;
+            /** Type */
+            type?: string | null;
         };
         /**
          * HallmarkCreate
@@ -11203,6 +11477,24 @@ export interface components {
             /** Total Value Eur */
             total_value_eur?: number | null;
         };
+        /**
+         * ScrapGoldIdentification
+         * @description Body for ``PUT /scrap-gold/{id}/identification`` (W2-16).
+         *
+         *     Document number and issuing authority are PII: stored encrypted, never
+         *     logged, shown in reads only as the last four characters.
+         */
+        ScrapGoldIdentification: {
+            /** Id Document Number */
+            id_document_number: string;
+            /**
+             * Id Document Type
+             * @enum {string}
+             */
+            id_document_type: "personalausweis" | "reisepass" | "aufenthaltstitel" | "sonstiges";
+            /** Id Issuing Authority */
+            id_issuing_authority: string;
+        };
         /** ScrapGoldItemCreate */
         ScrapGoldItemCreate: {
             /** @description Alloy/fineness code, e.g. 585, 750, ag925, pt950 */
@@ -11265,8 +11557,22 @@ export interface components {
             customer_id: number;
             /** Gold Price Per G */
             gold_price_per_g?: number | null;
+            /** Has Identification */
+            readonly has_identification: boolean;
             /** Id */
             id: number;
+            /** Id Checked At */
+            id_checked_at?: string | null;
+            /** Id Checked By */
+            id_checked_by?: number | null;
+            /** Id Document Number Last4 */
+            id_document_number_last4?: string | null;
+            /** Id Document Type */
+            id_document_type?: string | null;
+            /** Id Issuing Authority */
+            id_issuing_authority?: string | null;
+            /** Id Required */
+            readonly id_required: boolean;
             /**
              * Items
              * @default []
@@ -14739,6 +15045,74 @@ export interface operations {
             };
         };
     };
+    delete_gemstone_api_v1_gemstones__gemstone_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                gemstone_id: number;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_gemstone_api_v1_gemstones__gemstone_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                gemstone_id: number;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GemstoneUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GemstoneRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     accept_handoff_api_v1_handoffs__handoff_id__accept_put: {
         parameters: {
             query?: never;
@@ -17470,6 +17844,76 @@ export interface operations {
             };
         };
     };
+    list_gemstones_api_v1_orders__order_id__gemstones_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                order_id: number;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GemstoneRead"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_gemstone_api_v1_orders__order_id__gemstones_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                order_id: number;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GemstoneCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GemstoneRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_hallmarks_api_v1_orders__order_id__hallmarks_get: {
         parameters: {
             query?: never;
@@ -17740,6 +18184,37 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["HandoffRead"][];
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_handover_pdf_api_v1_orders__order_id__handover_pdf_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                order_id: number;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {
@@ -19996,6 +20471,43 @@ export interface operations {
             };
         };
     };
+    set_identification_api_v1_scrap_gold__scrap_gold_id__identification_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                scrap_gold_id: number;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ScrapGoldIdentification"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScrapGoldRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     add_item_api_v1_scrap_gold__scrap_gold_id__items_post: {
         parameters: {
             query?: never;
@@ -20226,6 +20738,44 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AlloyCalculation"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    export_ankaufsbuch_api_v1_scrap_gold_ankaufsbuch_get: {
+        parameters: {
+            query: {
+                /** @description Erster Tag (YYYY-MM-DD) */
+                date_from: string;
+                /** @description Letzter Tag (YYYY-MM-DD) */
+                date_to: string;
+                /** @description csv oder pdf */
+                format?: "csv" | "pdf";
+            };
+            header?: never;
+            path?: never;
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
             /** @description Validation Error */

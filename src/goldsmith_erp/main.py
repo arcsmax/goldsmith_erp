@@ -29,6 +29,7 @@ from goldsmith_erp.api.routers import (
     customers,
     dashboard,
     estimator,
+    gemstones,
     hallmarks,
     handoffs,
     health,
@@ -293,6 +294,9 @@ app.include_router(
     prefix=f"{settings.API_V1_STR}/estimates",
     tags=["estimator"],
 )  # V1.3 Phase 1 — statistical labor estimator (financial, ADMIN/GOLDSMITH only)
+app.include_router(
+    gemstones.router, prefix=settings.API_V1_STR, tags=["gemstones"]
+)  # W2-06: /orders/{id}/gemstones + /gemstones/{id}
 
 
 async def _authenticate_websocket(websocket: WebSocket) -> int | None:
