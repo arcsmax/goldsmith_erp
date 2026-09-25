@@ -41,7 +41,15 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from goldsmith_erp.db.models import Invoice, NumberSequence, Quote
+from goldsmith_erp.db.models import (
+    ORDER_NUMBER_KIND,
+    REPAIR_NUMBER_KIND,
+    Invoice,
+    Job,
+    NumberSequence,
+    Quote,
+    RepairJob,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -53,6 +61,10 @@ _BERLIN = ZoneInfo("Europe/Berlin")
 _NUMBERED_COLUMNS: Dict[str, Any] = {
     INVOICE_KIND: Invoice.invoice_number,
     QUOTE_KIND: Quote.quote_number,
+    # ARCH phase 5 (D-12): Auftragsnummer lives on the job, the
+    # Reparaturnummer on the repair (copied to its job).
+    ORDER_NUMBER_KIND: Job.number,
+    REPAIR_NUMBER_KIND: RepairJob.repair_number,
 }
 
 

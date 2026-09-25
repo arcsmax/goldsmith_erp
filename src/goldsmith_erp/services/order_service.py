@@ -23,6 +23,7 @@ from goldsmith_erp.models.order import OrderCreate, OrderUpdate
 # table live in services/order_workflow.py so every status-write path runs
 # them; both guard names stay importable from here for existing callers.
 from goldsmith_erp.services import order_workflow
+from goldsmith_erp.services.job_service import JobService
 from goldsmith_erp.services.order_workflow import (  # noqa: F401
     _PUNZIERUNG_REQUIRED_TARGETS,
     PunzierungRequiredError,
@@ -385,6 +386,9 @@ class OrderService:
                     meta={"origin": origin},
                     pending_marks=pending_marks,
                 )
+            elif update_data:
+                # ARCH phase 5: title / deadline / customer changes reach the job.
+                await JobService.sync_order(db, order)
 
             # Auto-calculate actual_hours from time entries inside the same transaction.
             # Import here to avoid circular dependency at module level.
@@ -585,6 +589,15 @@ class OrderService:
                 .where(OrderModel.id == order_id)
                 .values(is_deleted=True, deleted_at=datetime.now(timezone.utc))
             )
+            deleted = (
+                await db.execute(
+                    select(OrderModel)
+                    .where(OrderModel.id == order_id)
+                    .execution_options(populate_existing=True)
+                )
+            ).scalar_one_or_none()
+            if deleted is not None:
+                await JobService.sync_order(db, deleted)
 
         # Publish event to Redis AFTER successful transaction commit
         try:

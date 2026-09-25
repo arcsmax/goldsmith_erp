@@ -19,7 +19,7 @@ from datetime import datetime, timezone
 from typing import Any, List, Optional, cast
 
 from PIL import Image
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -27,6 +27,7 @@ from goldsmith_erp.core import pubsub
 from goldsmith_erp.core.config import settings
 from goldsmith_erp.core.timeutil import ensure_utc
 from goldsmith_erp.db.models import (
+    REPAIR_NUMBER_KIND,
     Customer,
     CustomerUpdate,
     CustomerUpdateKind,
@@ -50,6 +51,13 @@ from goldsmith_erp.models.repair import (
     RepairDiagnoseInput,
     RepairJobCreate,
     RepairStatusUpdate,
+)
+from goldsmith_erp.services import repair_workflow
+from goldsmith_erp.services.job_service import JobService
+from goldsmith_erp.services.number_sequence_service import (
+    NumberSequenceService,
+    berlin_year,
+    format_number,
 )
 from goldsmith_erp.services.repair_photo_service import RepairPhotoService
 
@@ -122,51 +130,26 @@ def _slugify_label(label: str) -> str:
 
 
 # Valid forward transitions per status — cancellation is handled separately.
-_VALID_TRANSITIONS: dict[RepairJobStatus, list[RepairJobStatus]] = {
-    RepairJobStatus.RECEIVED: [RepairJobStatus.DIAGNOSED, RepairJobStatus.CANCELLED],
-    RepairJobStatus.DIAGNOSED: [RepairJobStatus.QUOTED, RepairJobStatus.CANCELLED],
-    RepairJobStatus.QUOTED: [RepairJobStatus.APPROVED, RepairJobStatus.CANCELLED],
-    RepairJobStatus.APPROVED: [RepairJobStatus.IN_REPAIR, RepairJobStatus.CANCELLED],
-    RepairJobStatus.IN_REPAIR: [
-        RepairJobStatus.QUALITY_CHECK,
-        RepairJobStatus.CANCELLED,
-    ],
-    RepairJobStatus.QUALITY_CHECK: [RepairJobStatus.READY, RepairJobStatus.IN_REPAIR],
-    RepairJobStatus.READY: [RepairJobStatus.PICKED_UP],
-    RepairJobStatus.PICKED_UP: [],
-    RepairJobStatus.CANCELLED: [],
-}
+# ARCH phase 5: the table lives in services/repair_workflow (alias kept).
+_VALID_TRANSITIONS = repair_workflow.ALLOWED_TRANSITIONS
 
 
 async def _generate_repair_number(db: AsyncSession) -> tuple[str, str]:
     """
-    Generate unique repair number and bag number for the current year.
+    Next repair number and bag number for the current Europe/Berlin year.
 
-    Queries the highest existing sequence within the year and increments by one.
-    Both numbers share the same counter so bag label matches the system record.
+    ARCH phase 5 (D-12): drawn from the row-locked ``number_sequences``
+    counter (kind ``REP``, seeded from the highest existing number), so two
+    concurrent intakes never share a number. Must run inside the
+    transaction that inserts the repair. Both numbers share the counter so
+    the bag label matches the system record.
 
     Returns:
-        (repair_number, bag_number) — e.g. ("REP-2026-0001", "TÜ-2026-0001")
+        (repair_number, bag_number) — e.g. ("REP-2026-0001", "TU-2026-0001")
     """
-    year = datetime.now(timezone.utc).year
-    prefix = f"REP-{year}-"
-
-    result = await db.execute(
-        select(func.max(RepairJob.repair_number)).where(
-            RepairJob.repair_number.like(f"{prefix}%")
-        )
-    )
-    last_number = result.scalar_one_or_none()
-
-    if last_number:
-        try:
-            seq = int(last_number.split("-")[-1]) + 1
-        except (ValueError, IndexError):
-            seq = 1
-    else:
-        seq = 1
-
-    repair_number = f"REP-{year}-{seq:04d}"
+    year = berlin_year()
+    seq = await NumberSequenceService.next_value(db, REPAIR_NUMBER_KIND, year)
+    repair_number = format_number(REPAIR_NUMBER_KIND, year, seq)
     bag_number = f"TU-{year}-{seq:04d}"  # ASCII-safe label for printer compatibility
     return repair_number, bag_number
 
@@ -317,8 +300,6 @@ class RepairService:
         Auto-generates repair_number (REP-YYYY-NNNN) and bag_number (TU-YYYY-NNNN).
         Initial status is always RECEIVED.
         """
-        repair_number, bag_number = await _generate_repair_number(db)
-
         # Seed the intake checklist from settings — one open item per
         # configured label, keyed by a stable slug (see _slugify_label).
         # Written as part of the RepairJob constructor call, so it lands
@@ -336,8 +317,6 @@ class RepairService:
         ]
 
         repair = RepairJob(
-            repair_number=repair_number,
-            bag_number=bag_number,
             customer_id=data.customer_id,
             received_by=user_id,
             item_description=compose_intake_description(data),
@@ -351,8 +330,15 @@ class RepairService:
         )
 
         async with transactional(db):
+            repair_number, bag_number = await _generate_repair_number(db)
+            repair.repair_number = repair_number
+            repair.bag_number = bag_number
             db.add(repair)
             await db.flush()  # Populate repair.id before notification
+            # ARCH phase 5: the repair's job and its first event.
+            await repair_workflow.record_creation(
+                db, repair, user_id, meta={"origin": "intake"}
+            )
 
             # Fire REPAIR_RECEIVED notification for all goldsmiths/admins
             # (real-time via Redis pub/sub)
@@ -455,6 +441,7 @@ class RepairService:
         repair_id: int,
         new_status: RepairJobStatus,
         extra_updates: Optional[dict] = None,
+        user_id: Optional[int] = None,
     ) -> RepairJob:
         """
         Internal helper — validate and apply a status transition.
@@ -466,18 +453,13 @@ class RepairService:
         if repair is None:
             raise ValueError(f"Reparaturauftrag #{repair_id} nicht gefunden")
 
-        allowed = _VALID_TRANSITIONS.get(repair.status, [])
-        if new_status not in allowed:
-            raise ValueError(
-                f"Statuswechsel von '{repair.status.value}' nach '{new_status.value}' "
-                f"ist nicht erlaubt. Erlaubt: {[s.value for s in allowed]}"
-            )
+        # ARCH phase 5: table check, event row and job sync in one place.
+        repair_workflow.check_transition(repair.status, new_status)
 
         async with transactional(db):
-            repair.status = new_status
-            if extra_updates:
-                for field, value in extra_updates.items():
-                    setattr(repair, field, value)
+            await repair_workflow.transition(
+                db, repair, new_status, user_id, extra_updates=extra_updates
+            )
 
             await pubsub.publish_event(
                 "repair_updates",
@@ -536,7 +518,10 @@ class RepairService:
         # All-or-nothing: single transaction wrapping both transitions + the
         # field updates so the row is never left half-written.
         async with transactional(db):
-            repair.status = RepairJobStatus.QUOTED
+            # Pre-flight above guarantees RECEIVED -> DIAGNOSED -> QUOTED.
+            await repair_workflow.transition(
+                db, repair, RepairJobStatus.DIAGNOSED, user_id
+            )
             repair.diagnosis_notes = data.diagnosis_notes
             repair.estimated_cost = data.estimated_cost
             if data.estimated_completion_date is not None:
@@ -545,6 +530,9 @@ class RepairService:
                 repair.estimated_completion_date = ensure_utc(
                     data.estimated_completion_date
                 )
+            await repair_workflow.transition(
+                db, repair, RepairJobStatus.QUOTED, user_id
+            )
 
             await pubsub.publish_event(
                 "repair_updates",
@@ -576,7 +564,9 @@ class RepairService:
         user_id: int,
     ) -> RepairJob:
         """Customer approved the quote — advance to APPROVED."""
-        return await RepairService._transition(db, repair_id, RepairJobStatus.APPROVED)
+        return await RepairService._transition(
+            db, repair_id, RepairJobStatus.APPROVED, user_id=user_id
+        )
 
     @staticmethod
     async def start_repair(
@@ -585,7 +575,9 @@ class RepairService:
         user_id: int,
     ) -> RepairJob:
         """Begin physical repair work — advance to IN_REPAIR."""
-        return await RepairService._transition(db, repair_id, RepairJobStatus.IN_REPAIR)
+        return await RepairService._transition(
+            db, repair_id, RepairJobStatus.IN_REPAIR, user_id=user_id
+        )
 
     @staticmethod
     async def submit_for_quality_check(
@@ -595,7 +587,7 @@ class RepairService:
     ) -> RepairJob:
         """Repair work done — advance to QUALITY_CHECK."""
         return await RepairService._transition(
-            db, repair_id, RepairJobStatus.QUALITY_CHECK
+            db, repair_id, RepairJobStatus.QUALITY_CHECK, user_id=user_id
         )
 
     @staticmethod
@@ -628,6 +620,7 @@ class RepairService:
                 "actual_cost": data.actual_cost,
                 "actual_completion_date": now,
             },
+            user_id=user_id,
         )
 
         # Create in-app notification for admins (customer contact role)
@@ -794,6 +787,7 @@ class RepairService:
             repair_id,
             RepairJobStatus.PICKED_UP,
             extra_updates={"picked_up_at": datetime.now(timezone.utc)},
+            user_id=user_id,
         )
 
     @staticmethod
@@ -814,7 +808,9 @@ class RepairService:
             )
 
         async with transactional(db):
-            repair.status = RepairJobStatus.CANCELLED
+            await repair_workflow.transition(
+                db, repair, RepairJobStatus.CANCELLED, user_id
+            )
 
         logger.info(
             "Repair cancelled",
@@ -845,6 +841,7 @@ class RepairService:
         async with transactional(db):
             repair.is_deleted = True
             repair.deleted_at = datetime.now(timezone.utc)
+            await JobService.sync_repair(db, repair)
 
         logger.info(
             "Repair soft-deleted",

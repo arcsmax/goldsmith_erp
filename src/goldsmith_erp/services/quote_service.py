@@ -48,6 +48,7 @@ from goldsmith_erp.models.quote import (
     QuoteUpdate,
 )
 from goldsmith_erp.services import consultation_carry, order_workflow, quote_delivery
+from goldsmith_erp.services.job_service import JobService
 from goldsmith_erp.services.number_sequence_service import (
     QUOTE_KIND,
     NumberSequenceService,
@@ -1099,6 +1100,8 @@ class QuoteService:
                 db.add(target_order)
                 await db.flush()
 
+            # ARCH phase 5: a new order gets its job; carried fields reach it.
+            await JobService.sync_order(db, target_order)
             quote.status = QuoteStatus.CONVERTED
             quote.converted_at = now
             quote.order_id = target_order.id

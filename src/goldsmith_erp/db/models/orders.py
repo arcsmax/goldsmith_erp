@@ -84,6 +84,13 @@ class Order(Base):
         index=True,
     )
     deadline = Column(UtcDateTime, nullable=True, index=True)  # Deadline für Kalender
+    # ARCH phase 5: the job spine row (services/job_service keeps it in sync).
+    job_id = Column(
+        Integer,
+        ForeignKey("jobs.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
     current_location = Column(String(50), nullable=True)  # Aktueller Lagerort
 
     # Weight & Material Calculation
@@ -244,6 +251,7 @@ class Order(Base):
         cascade="all, delete-orphan",
         order_by="OrderEvent.created_at",
     )
+    job = relationship("Job", back_populates="order", foreign_keys=[job_id])
 
 
 class OrderEvent(Base):
@@ -264,10 +272,25 @@ class OrderEvent(Base):
     __table_args__ = (Index("ix_order_events_order_created", "order_id", "created_at"),)
 
     id = Column(Integer, primary_key=True, index=True)
+    # ARCH phase 5: an event belongs to an order OR a repair (exactly one of
+    # order_id / repair_job_id, set by order_workflow / repair_workflow);
+    # job_id is the spine row of either.
     order_id = Column(
         Integer,
         ForeignKey("orders.id", ondelete="CASCADE"),
-        nullable=False,
+        nullable=True,
+        index=True,
+    )
+    repair_job_id = Column(
+        Integer,
+        ForeignKey("repair_jobs.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+    )
+    job_id = Column(
+        Integer,
+        ForeignKey("jobs.id", ondelete="SET NULL"),
+        nullable=True,
         index=True,
     )
     from_status = Column(String(30), nullable=True)

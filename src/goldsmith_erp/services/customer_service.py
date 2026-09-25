@@ -27,6 +27,7 @@ from goldsmith_erp.db.models import (
     Gemstone,
     Invoice,
     InvoiceLineItem,
+    Job,
     MaterialUsage,
     Notification,
 )
@@ -204,6 +205,8 @@ SCRUBBABLE_FIELDS: List[ScrubTarget] = [
     ),
     # ── Final-sweep (2026-04-17) — definitive coverage ─────────────────
     ScrubTarget(OrderModel, "title", "customer_id", "orders.title"),
+    # ARCH phase 5: jobs.title copies orders.title / repair_jobs.item_description.
+    ScrubTarget(Job, "title", "customer_id", "jobs.title"),
     ScrubTarget(
         CustomerMeasurement,
         "notes",

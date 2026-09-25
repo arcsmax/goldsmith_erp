@@ -1527,6 +1527,24 @@ async def _f_orders_title(db, customer, admin, pii_value):
     return await _mk_order(db, customer, admin, title=pii_value)
 
 
+async def _f_jobs_title(db, customer, admin, pii_value):
+    # ARCH phase 5: jobs.title copies the order title / repair description.
+    from goldsmith_erp.db.models import Job
+
+    job = Job(
+        kind="order",
+        number=f"AU-2026-{uuid.uuid4().int % 10000:04d}",
+        customer_id=customer.id,
+        title=pii_value,
+        status="draft",
+        kind_status="draft",
+    )
+    db.add(job)
+    await db.commit()
+    await db.refresh(job)
+    return job
+
+
 async def _f_orders_description(db, customer, admin, pii_value):
     return await _mk_order(db, customer, admin, description=pii_value)
 
@@ -2025,6 +2043,7 @@ async def _f_consultations_source_material(db, customer, admin, pii_value):
 # fails fast rather than silently skipping.
 _FACTORY_MAP = {
     "orders.title": _f_orders_title,
+    "jobs.title": _f_jobs_title,
     "orders.description": _f_orders_description,
     "orders.special_instructions": _f_orders_special_instructions,
     "order_comments.text": _f_order_comments_text,
