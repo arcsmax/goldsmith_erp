@@ -128,7 +128,7 @@ def test_main_app_registers_the_handler():
         ),
         (
             PunzierungRequiredError(order_id=3, alloy="585"),
-            "order.punzierung_required",
+            "order.hallmark_required",
             409,
         ),
         (TimerAlreadyRunningError("e1"), "time_entry.already_running", 409),

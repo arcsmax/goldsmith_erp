@@ -35,6 +35,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from goldsmith_erp.core.errors import ConflictError, DomainValidationError
 from goldsmith_erp.db.models import Order, OrderEvent, OrderStatusEnum, User
+from goldsmith_erp.services.hallmark_vocabulary import satisfies_hallmark_requirement
 
 logger = logging.getLogger(__name__)
 
@@ -217,25 +218,33 @@ class TransitionReasonRequiredError(StatusTransitionInputError):
 
 
 # --------------------------------------------------------------------------- #
-# Punzierung guard (Slice 5 / M4 / R8 / A5.3), moved here from order_service
-# so every status-write path runs it. order_service re-exports both names.
+# Hallmark ("Punzierung") guard (Slice 5 / M4 / R8 / A5.3, soft-gated by
+# W2-09 / D-10), moved here from order_service so every status-write path
+# runs it. order_service re-exports both names.
 # --------------------------------------------------------------------------- #
 
 _PUNZIERUNG_REQUIRED_TARGETS: frozenset[OrderStatusEnum] = frozenset({S.COMPLETED})
 
 
 class PunzierungRequiredError(ConflictError):
-    """409 when advancing to COMPLETED without a verified Punzierung (M4).
+    """409 when advancing to COMPLETED without a verified hallmark or a
+    documented "nicht punziert" reason (M4, soft-gated by D-10).
 
     Structured detail so the frontend can open the PunzierungsCheckModal
-    directly from the error response.
+    directly from the error response. ``code`` is the modern dotted slug
+    (``order.hallmark_required``); ``legacy_detail.code`` keeps the
+    original ``PUNZIERUNG_REQUIRED`` string so callers written against the
+    hard-gate era keep working.
     """
 
     def __init__(self, *, order_id: int, alloy: str) -> None:
-        message = "Feingehalts-Punze muss vor Status COMPLETED geprueft werden."
+        message = (
+            "Vor Status „Fertiggestellt“ muss entweder die Feingehalts-Punze "
+            "bestätigt oder ein Grund für „nicht punziert“ dokumentiert werden."
+        )
         super().__init__(
             message,
-            code="order.punzierung_required",
+            code="order.hallmark_required",
             extra={"order_id": order_id, "alloy": alloy},
             legacy_detail={
                 "code": "PUNZIERUNG_REQUIRED",
@@ -251,7 +260,13 @@ def _check_punzierung_requirement(
     new_status: Optional[OrderStatusEnum],
     pending_marks: Optional[list[Any]],
 ) -> None:
-    """Refuse COMPLETED for an alloyed piece without verified marks.
+    """Refuse COMPLETED for an alloyed piece without a documented hallmark.
+
+    Soft gate (D-10): satisfied by a real Feingehalt mark (for any alloy —
+    see ``services/hallmark_vocabulary.satisfies_hallmark_requirement``) or
+    by a ``"nicht punziert: <Grund>"`` entry recording why the piece was
+    deliberately left unhallmarked. An additional mark alone (Meisterzeichen
+    etc.) is not enough — "Meisterzeichen allein ist kein Reinheits-Audit".
 
     ``pending_marks`` are the marks the same request is about to write, so a
     caller can verify and complete in one round trip (scan flow). Orders
@@ -264,7 +279,8 @@ def _check_punzierung_requirement(
         return
     existing_marks = order.punzierung_verified_marks or []
     pending = pending_marks or []
-    if len(existing_marks) == 0 and len(pending) == 0:
+    combined = [*existing_marks, *pending]
+    if not satisfies_hallmark_requirement(combined):
         raise PunzierungRequiredError(order_id=order.id, alloy=order.alloy)
 
 
