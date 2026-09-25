@@ -1,71 +1,5 @@
 /* Orders Page & Modal Styles */
 
-/* ==================== MODAL LARGE ==================== */
-
-.modal-large {
-  max-width: 800px;
-}
-
-/* ==================== FORM TABS ==================== */
-
-.form-tabs {
-  display: flex;
-  border-bottom: 2px solid #e5e7eb;
-  background: #f8f9fa;
-}
-
-.form-tab {
-  flex: 1;
-  padding: 1rem 1.5rem;
-  background: none;
-  border: none;
-  font-size: 1rem;
-  font-weight: 600;
-  color: #666;
-  cursor: pointer;
-  transition: all 0.3s;
-  border-bottom: 3px solid transparent;
-  position: relative;
-  top: 2px;
-}
-
-.form-tab:hover {
-  background: white;
-  color: var(--color-interactive-primary);
-}
-
-.form-tab.active {
-  background: white;
-  color: var(--color-interactive-primary);
-  border-bottom-color: var(--color-interactive-primary);
-}
-
-/* ==================== FORM VALIDATION ==================== */
-
-.order-form .form-group .required {
-  color: #ef4444;
-  margin-left: 0.25rem;
-  font-weight: 700;
-}
-
-.order-form .form-group input.error,
-.order-form .form-group textarea.error,
-.order-form .form-group select.error {
-  border-color: #ef4444;
-  box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.15);
-}
-
-.order-form .form-group .error-message {
-  display: block;
-  color: #ef4444;
-  font-size: 0.85rem;
-  font-weight: 500;
-  margin-top: 0.35rem;
-  padding: 0;
-  border: none;
-  background: none;
-}
-
 /* ==================== FORM LAYOUT ==================== */
 
 .order-form {
@@ -215,11 +149,6 @@
   color: #ef4444;
 }
 
-.btn-icon.btn-duplicate:hover {
-  border-color: #10b981;
-  color: #10b981;
-}
-
 /* ==================== PAGINATION ==================== */
 
 .pagination-controls {
@@ -234,110 +163,6 @@
 .pagination-info {
   color: #666;
   font-size: 0.95rem;
-}
-
-.pagination-buttons {
-  display: flex;
-  gap: 0.5rem;
-  align-items: center;
-}
-
-.pagination-buttons button {
-  padding: 0.5rem 1rem;
-  border: 2px solid #e5e7eb;
-  background: white;
-  border-radius: 6px;
-  cursor: pointer;
-  font-weight: 600;
-  transition: all 0.3s;
-}
-
-.pagination-buttons button:hover:not(:disabled) {
-  background: #f3f4f6;
-  border-color: var(--color-interactive-primary);
-  color: var(--color-interactive-primary);
-}
-
-.pagination-buttons button:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.pagination-buttons .page-size-select {
-  padding: 0.5rem 0.75rem;
-  border: 2px solid #e5e7eb;
-  border-radius: 6px;
-  font-size: 0.95rem;
-  cursor: pointer;
-  background: white;
-}
-
-/* ==================== CUSTOMER AUTOCOMPLETE ==================== */
-
-.customer-select {
-  position: relative;
-}
-
-.customer-autocomplete {
-  position: absolute;
-  top: 100%;
-  left: 0;
-  right: 0;
-  background: white;
-  border: 2px solid var(--color-interactive-primary);
-  border-top: none;
-  border-radius: 0 0 8px 8px;
-  max-height: 200px;
-  overflow-y: auto;
-  z-index: 100;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-}
-
-.customer-autocomplete-item {
-  padding: 0.75rem 1rem;
-  cursor: pointer;
-  transition: background 0.2s;
-  border-bottom: 1px solid #e5e7eb;
-}
-
-.customer-autocomplete-item:last-child {
-  border-bottom: none;
-}
-
-.customer-autocomplete-item:hover {
-  background: #f3f4f6;
-}
-
-.customer-autocomplete-item.active {
-  background: #eff6ff;
-  color: #1e40af;
-}
-
-/* ==================== METAL TYPE INDICATORS ==================== */
-
-.metal-indicator {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.25rem 0.75rem;
-  border-radius: 12px;
-  font-size: 0.85rem;
-  font-weight: 600;
-}
-
-.metal-indicator.gold {
-  background: rgba(255, 215, 0, 0.2);
-  color: #b45309;
-}
-
-.metal-indicator.silver {
-  background: rgba(192, 192, 192, 0.3);
-  color: #6b7280;
-}
-
-.metal-indicator.platinum {
-  background: rgba(229, 228, 226, 0.3);
-  color: #4b5563;
 }
 
 /* ==================== PRICE DISPLAY ==================== */
@@ -369,27 +194,6 @@
 /* ==================== RESPONSIVE — MOBILE ==================== */
 
 @media (max-width: 768px) {
-  .modal-large {
-    width: 95%;
-    max-height: 95vh;
-  }
-
-  .form-tabs {
-    flex-direction: column;
-  }
-
-  .form-tab {
-    border-bottom: none;
-    border-left: 3px solid transparent;
-    min-height: 44px;
-    display: flex;
-    align-items: center;
-  }
-
-  .form-tab.active {
-    border-left-color: var(--color-interactive-primary);
-  }
-
   .form-row {
     grid-template-columns: 1fr;
   }
@@ -413,18 +217,6 @@
     align-items: flex-start;
   }
 
-  .pagination-buttons {
-    width: 100%;
-    justify-content: space-between;
-    flex-wrap: wrap;
-    gap: 0.5rem;
-  }
-
-  .pagination-buttons button {
-    min-height: 44px;
-    flex: 1;
-  }
-
   /* Action buttons: side by side with full width on mobile */
   .orders-page-actions {
     flex-wrap: wrap;
@@ -438,29 +230,6 @@
 }
 
 /* ==================== AUFTRAG TAB — PFLICHTFELDER ==================== */
-
-/* Small badge on the tab button showing completion ratio */
-.tab-badge {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  margin-left: 0.5rem;
-  padding: 0.1rem 0.45rem;
-  border-radius: 10px;
-  font-size: 0.72rem;
-  font-weight: 700;
-  line-height: 1;
-}
-
-.tab-badge--warn {
-  background: #fef3c7;
-  color: #92400e;
-}
-
-.tab-badge--ok {
-  background: #d1fae5;
-  color: #065f46;
-}
 
 /* Completion indicator bar inside the Auftrag tab */
 .pflichtfelder-indicator {
@@ -499,12 +268,6 @@
 .pflichtfelder-missing {
   color: #92400e;
   font-size: 0.85rem;
-}
-
-/* Checkbox form group variant */
-.form-group--checkbox {
-  display: flex;
-  align-items: flex-start;
 }
 
 .checkbox-label {

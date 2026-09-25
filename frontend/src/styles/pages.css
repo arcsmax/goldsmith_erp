@@ -177,8 +177,8 @@
  * Tables on small screens are replaced with card layouts.
  *
  * Usage: Add data-label="Column Name" to every <td> and one of the table
- *        classes below to the <table> (.data-table, .orders-table or
- *        .time-entries-table — CustomersPage, OrdersPage, TimeTrackingPage).
+ *        classes below to the <table> (.data-table or .orders-table —
+ *        CustomersPage, OrdersPage).
  *
  * On desktop nothing changes. On mobile (≤640px):
  *   - thead is hidden (screen-reader accessible via data-label)
@@ -188,14 +188,12 @@
 
 @media (max-width: 640px) {
   .data-table,
-  .orders-table,
-  .time-entries-table {
+  .orders-table {
     display: block;
   }
 
   .data-table thead,
-  .orders-table thead,
-  .time-entries-table thead {
+  .orders-table thead {
     /* Visually hidden but remains accessible to screen readers */
     position: absolute;
     width: 1px;
@@ -206,15 +204,13 @@
   }
 
   .data-table tbody,
-  .orders-table tbody,
-  .time-entries-table tbody {
+  .orders-table tbody {
     display: block;
   }
 
   /* Each row becomes a card */
   .data-table tbody tr,
-  .orders-table tbody tr,
-  .time-entries-table tbody tr {
+  .orders-table tbody tr {
     display: block;
     background: white;
     border-radius: 10px;
@@ -226,15 +222,13 @@
   }
 
   .data-table tbody tr:last-child,
-  .orders-table tbody tr:last-child,
-  .time-entries-table tbody tr:last-child {
+  .orders-table tbody tr:last-child {
     margin-bottom: 0;
   }
 
   /* Remove the inherited table-cell layout from td */
   .data-table td,
-  .orders-table td,
-  .time-entries-table td {
+  .orders-table td {
     display: flex;
     justify-content: space-between;
     align-items: flex-start;
@@ -245,16 +239,14 @@
   }
 
   .data-table td:last-child,
-  .orders-table td:last-child,
-  .time-entries-table td:last-child {
+  .orders-table td:last-child {
     border-bottom: none;
     padding-top: 0.6rem;
   }
 
   /* data-label becomes the left-side label */
   .data-table td::before,
-  .orders-table td::before,
-  .time-entries-table td::before {
+  .orders-table td::before {
     content: attr(data-label);
     font-size: 0.75rem;
     font-weight: 600;
