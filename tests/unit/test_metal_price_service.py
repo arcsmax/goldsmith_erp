@@ -16,7 +16,7 @@ timeout must raise a typed error — never a silently wrong price — so the
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
 import httpx
@@ -163,7 +163,7 @@ class TestFetchFromApiEurHandling:
     ) -> None:
         """The happy path: base=USD with an explicit EUR rate converts
         correctly and stamps a timestamp on every returned entry."""
-        before = datetime.utcnow()
+        before = datetime.now(timezone.utc)
         _install_fake_client(
             monkeypatch,
             json_data={
@@ -178,7 +178,7 @@ class TestFetchFromApiEurHandling:
         )
 
         prices = await MetalPriceService._fetch_from_api()
-        after = datetime.utcnow()
+        after = datetime.now(timezone.utc)
 
         assert set(prices) == {
             MetalType.GOLD_24K,
@@ -274,7 +274,7 @@ class TestPlatinumFineness:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         pure_platinum_spot = 30.0
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
 
         async def _fake_get_spot_prices(db: Any = None) -> dict:
             return {
@@ -357,7 +357,7 @@ class TestPersistPricesNeverStoresNonPositive:
         db.add = MagicMock()
         db.flush = AsyncMock()
 
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         prices = {
             MetalType.GOLD_24K: (75.0, MetalPriceSource.API, now),
             MetalType.SILVER_999: (0.0, MetalPriceSource.API, now),

@@ -12,13 +12,19 @@ German invoice terminology:
   Rechnungsposition  = Line item
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from goldsmith_erp.db.models import InvoiceLineType, InvoiceStatus
-from goldsmith_erp.models._common import UtcNaiveDatetime
+from goldsmith_erp.models._common import (
+    Money,
+    Percent,
+    UtcDatetime,
+    Weight,
+    number_default,
+)
 
 # ============================================================================
 # LINE ITEM SCHEMAS
@@ -37,10 +43,10 @@ class InvoiceLineItemCreate(BaseModel):
         max_length=500,
         description="Description of the line item (Beschreibung)",
     )
-    quantity: float = Field(
+    quantity: Weight = Field(
         ..., gt=0, description="Quantity (Menge) - must be positive"
     )
-    unit_price: float = Field(
+    unit_price: Money = Field(
         ..., ge=0, description="Net unit price in EUR (Einzelpreis netto)"
     )
 
@@ -62,9 +68,9 @@ class InvoiceLineItemResponse(BaseModel):
     invoice_id: int
     line_type: InvoiceLineType
     description: str
-    quantity: float
-    unit_price: float
-    total: float
+    quantity: Weight
+    unit_price: Money
+    total: Money
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -74,19 +80,13 @@ class InvoiceLineItemResponse(BaseModel):
 # ============================================================================
 
 
-class InvoiceCreate(BaseModel):
-    """
-    Schema for creating an invoice from an order.
+class InvoiceCreateBase(BaseModel):
+    """Fields shared by order and repair invoices (ARCH phase 5)."""
 
-    The service will auto-populate line items from the order's material,
-    labor, and gemstone data. Caller may also supply additional line items.
-    """
-
-    order_id: int = Field(..., gt=0, description="Order ID to generate invoice from")
-    due_date: UtcNaiveDatetime = Field(
+    due_date: UtcDatetime = Field(
         ..., description="Payment due date (Faelligkeitsdatum); normalised to UTC"
     )
-    tax_rate: Optional[float] = Field(
+    tax_rate: Optional[Percent] = Field(
         default=None,
         ge=0,
         le=100,
@@ -96,7 +96,7 @@ class InvoiceCreate(BaseModel):
             "Kleinunternehmer (§19 UStG)."
         ),
     )
-    service_date: Optional[UtcNaiveDatetime] = Field(
+    service_date: Optional[UtcDatetime] = Field(
         default=None,
         description=(
             "Leistungsdatum (§14 Abs. 4 Nr. 6 UStG). Omitted: the order's "
@@ -120,9 +120,29 @@ class InvoiceCreate(BaseModel):
     @field_validator("due_date")
     @classmethod
     def due_date_must_be_future(cls, v: datetime) -> datetime:
-        if v <= datetime.utcnow():
+        if v <= datetime.now(timezone.utc):
             raise ValueError("due_date must be in the future")
         return v
+
+
+class InvoiceCreate(InvoiceCreateBase):
+    """
+    Schema for creating an invoice from an order.
+
+    The service will auto-populate line items from the order's material,
+    labor, and gemstone data. Caller may also supply additional line items.
+    """
+
+    order_id: int = Field(..., gt=0, description="Order ID to generate invoice from")
+
+
+class RepairInvoiceCreate(InvoiceCreateBase):
+    """Body of ``POST /repairs/{id}/invoice`` (ARCH phase 5).
+
+    The line item comes from the repair's agreed NET price (actual cost,
+    else the accepted estimate); ``service_date`` defaults to the repair's
+    completion date.
+    """
 
 
 class InvoiceUpdate(BaseModel):
@@ -138,7 +158,7 @@ class InvoiceUpdate(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    due_date: Optional[UtcNaiveDatetime] = Field(None, description="Updated due date")
+    due_date: Optional[UtcDatetime] = Field(None, description="Updated due date")
     notes: Optional[str] = Field(None, max_length=2000, description="Updated notes")
     payment_method: Optional[str] = Field(
         None, max_length=50, description="Payment method"
@@ -150,7 +170,12 @@ class InvoiceResponse(BaseModel):
 
     id: int
     invoice_number: str = Field(..., description="Rechnungsnummer (RE-YYYY-NNNN)")
-    order_id: int
+    order_id: Optional[int] = Field(
+        default=None, description="Order billed; null for a repair invoice"
+    )
+    job_id: Optional[int] = Field(
+        default=None, description="Job (order or repair) billed (ARCH phase 5)"
+    )
     customer_id: int
     created_by: int
     status: InvoiceStatus
@@ -168,15 +193,15 @@ class InvoiceResponse(BaseModel):
         default=None,
         description="Set on a cancelled invoice: its Stornorechnung (W2-04)",
     )
-    subtotal: float = Field(..., description="Zwischensumme (net)")
-    tax_rate: float = Field(..., description="MwSt-Satz in Prozent")
-    tax_amount: float = Field(..., description="MwSt-Betrag")
-    total: float = Field(..., description="Gesamtbetrag (gross)")
-    scrap_gold_credit: float = Field(
-        default=0.0,
+    subtotal: Money = Field(..., description="Zwischensumme (net)")
+    tax_rate: Percent = Field(..., description="MwSt-Satz in Prozent")
+    tax_amount: Money = Field(..., description="MwSt-Betrag")
+    total: Money = Field(..., description="Gesamtbetrag (gross)")
+    scrap_gold_credit: Money = Field(
+        default=number_default(0.0),
         description="Altgold-Gutschrift, deducted after VAT (not part of the VAT base)",
     )
-    amount_due: Optional[float] = Field(
+    amount_due: Optional[Money] = Field(
         default=None, description="Zahlbetrag = total - scrap_gold_credit"
     )
     notes: Optional[str] = None
@@ -193,16 +218,17 @@ class InvoiceListItem(BaseModel):
 
     id: int
     invoice_number: str
-    order_id: int
+    order_id: Optional[int] = None
+    job_id: Optional[int] = None
     customer_id: int
     status: InvoiceStatus
     issue_date: datetime
     due_date: datetime
     paid_date: Optional[datetime] = None
     cancels_invoice_id: Optional[int] = None
-    total: float
-    scrap_gold_credit: float = 0.0
-    amount_due: Optional[float] = None
+    total: Money
+    scrap_gold_credit: Money = number_default(0.0)
+    amount_due: Optional[Money] = None
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
@@ -220,7 +246,7 @@ class InvoiceListResponse(BaseModel):
 class MarkPaidRequest(BaseModel):
     """Request body for marking an invoice as paid (bezahlt)."""
 
-    paid_date: Optional[UtcNaiveDatetime] = Field(
+    paid_date: Optional[UtcDatetime] = Field(
         default=None,
         description="Actual payment date (defaults to now if omitted)",
     )

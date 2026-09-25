@@ -13,7 +13,7 @@ import {
 import { ICON_PATHS } from '../ui/Icon';
 
 const ENUM_FOR_KIND: Readonly<
-  Record<Exclude<StatusKind, 'scrapGold' | 'timeEntry'>, string>
+  Record<Exclude<StatusKind, 'scrapGold' | 'timeEntry' | 'user'>, string>
 > = {
   order: 'OrderStatusEnum',
   repair: 'RepairJobStatus',
@@ -47,6 +47,10 @@ describe('design/status map', () => {
 
   it('covers the D-15 manual-pause state (not a backend enum — TimeEntry.is_paused is a boolean)', () => {
     expect(Object.keys(STATUS_MAP.timeEntry).sort()).toEqual(['paused']);
+  });
+
+  it('covers exactly the two account states (User.is_active is a plain boolean, not an enum)', () => {
+    expect(Object.keys(STATUS_MAP.user).sort()).toEqual(['active', 'inactive']);
   });
 
   it('gives every status a German label, a known icon and a tone', () => {

@@ -1,8 +1,13 @@
-// User Form Modal Component (Admin only)
-import React, { useState, useEffect } from 'react';
-import { UserType, UserCreateInput, UserUpdateInput } from '../../types';
+// User form dialog (admin only) on the src/ui Modal + Field primitives (W4-03).
+//
+// Never closes on backdrop click; a dirty form asks "Änderungen verwerfen?"
+// before closing (Modal isDirty).
+import React, { useEffect, useId, useState } from 'react';
+import type { UserType, UserCreateInput, UserUpdateInput } from '../../types';
 import { UserCreateSchema, UserUpdateSchema } from '../../lib/validation/schemas';
 import { useFormValidation } from '../../lib/validation/useFormValidation';
+import { Button, Field, Modal } from '../../ui';
+import '../../styles/users.css';
 
 interface UserFormModalProps {
   isOpen: boolean;
@@ -10,6 +15,25 @@ interface UserFormModalProps {
   onSubmit: (data: UserCreateInput | UserUpdateInput) => Promise<void>;
   user?: UserType | null;
   isLoading?: boolean;
+}
+
+interface UserFormState {
+  email: string;
+  password: string;
+  first_name: string;
+  last_name: string;
+}
+
+const EMPTY_FORM: UserFormState = { email: '', password: '', first_name: '', last_name: '' };
+
+function formFromUser(user?: UserType | null): UserFormState {
+  if (!user) return EMPTY_FORM;
+  return {
+    email: user.email,
+    password: '',
+    first_name: user.first_name || '',
+    last_name: user.last_name || '',
+  };
 }
 
 export const UserFormModal: React.FC<UserFormModalProps> = ({
@@ -20,13 +44,9 @@ export const UserFormModal: React.FC<UserFormModalProps> = ({
   isLoading = false,
 }) => {
   const isEditing = Boolean(user);
-
-  const [formData, setFormData] = useState({
-    email: '',
-    password: '',
-    first_name: '',
-    last_name: '',
-  });
+  const formId = useId();
+  const [formData, setFormData] = useState<UserFormState>(EMPTY_FORM);
+  const [initialData, setInitialData] = useState<UserFormState>(EMPTY_FORM);
 
   const createValidation = useFormValidation(UserCreateSchema);
   const updateValidation = useFormValidation(UserUpdateSchema);
@@ -34,25 +54,17 @@ export const UserFormModal: React.FC<UserFormModalProps> = ({
     ? updateValidation
     : createValidation;
 
-  // Populate form when editing an existing user
+  // Populate the form when the dialog opens or the edited user changes.
   useEffect(() => {
-    if (user) {
-      setFormData({
-        email: user.email,
-        password: '',
-        first_name: user.first_name || '',
-        last_name: user.last_name || '',
-      });
-    } else {
-      setFormData({
-        email: '',
-        password: '',
-        first_name: '',
-        last_name: '',
-      });
-    }
+    const next = formFromUser(user);
+    setFormData(next);
+    setInitialData(next);
     clearErrors();
   }, [user, isOpen]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const isDirty = (Object.keys(formData) as (keyof UserFormState)[]).some(
+    (key) => formData[key] !== initialData[key],
+  );
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
@@ -76,127 +88,74 @@ export const UserFormModal: React.FC<UserFormModalProps> = ({
       payload.password = formData.password.trim();
     }
 
-    const result = validate(payload as any);
+    const result = validate(payload as never);
     if (!result.success) {
       return;
     }
 
-    // Remove empty optional password from update payload
-    const submitData: UserCreateInput | UserUpdateInput = { ...result.data };
-    if (isEditing && !(submitData as UserUpdateInput).password) {
-      delete (submitData as UserUpdateInput).password;
-    }
+    const { password, ...rest } = result.data as UserCreateInput;
+    const submitData: UserCreateInput | UserUpdateInput =
+      isEditing && !password ? rest : { ...rest, password };
 
     await onSubmit(submitData);
   };
 
-  if (!isOpen) {
-    return null;
-  }
+  const footer = (
+    <>
+      <Button variant="secondary" onClick={onClose} disabled={isLoading}>
+        Abbrechen
+      </Button>
+      <Button type="submit" form={formId} loading={isLoading}>
+        {isEditing ? 'Benutzer speichern' : 'Benutzer anlegen'}
+      </Button>
+    </>
+  );
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-        <div className="modal-header">
-          <h2>{isEditing ? 'Benutzer bearbeiten' : 'Neuer Benutzer'}</h2>
-          <button className="modal-close" onClick={onClose} type="button">
-            x
-          </button>
+    <Modal
+      open={isOpen}
+      onClose={onClose}
+      title={isEditing ? 'Benutzer bearbeiten' : 'Neuer Benutzer'}
+      isDirty={isDirty && !isLoading}
+      footer={footer}
+    >
+      <form id={formId} onSubmit={handleSubmit} noValidate>
+        <Field label="E-Mail-Adresse" name="email" required inputMode="email" error={errors.email}>
+          <input
+            type="email"
+            id="user-email"
+            value={formData.email}
+            onChange={handleChange}
+            autoComplete="off"
+          />
+        </Field>
+
+        <Field
+          label="Passwort"
+          name="password"
+          required={!isEditing}
+          help={isEditing ? 'Leer lassen, um das bisherige Passwort zu behalten.' : 'Mindestens 8 Zeichen.'}
+          error={errors.password}
+        >
+          <input
+            type="password"
+            id="user-password"
+            value={formData.password}
+            onChange={handleChange}
+            autoComplete="new-password"
+          />
+        </Field>
+
+        <div className="user-form-row">
+          <Field label="Vorname" name="first_name" error={errors.first_name}>
+            <input type="text" id="user-first-name" value={formData.first_name} onChange={handleChange} />
+          </Field>
+
+          <Field label="Nachname" name="last_name" error={errors.last_name}>
+            <input type="text" id="user-last-name" value={formData.last_name} onChange={handleChange} />
+          </Field>
         </div>
-
-        <form onSubmit={handleSubmit}>
-          <div className="form-body">
-            <div className="form-group">
-              <label htmlFor="user-email">
-                E-Mail-Adresse <span className="required">*</span>
-              </label>
-              <input
-                type="email"
-                id="user-email"
-                name="email"
-                value={formData.email}
-                onChange={handleChange}
-                className={errors.email ? 'error' : ''}
-                placeholder="benutzer@beispiel.de"
-                autoComplete="off"
-              />
-              {errors.email && <span className="error-message">{errors.email}</span>}
-            </div>
-
-            <div className="form-group">
-              <label htmlFor="user-password">
-                Passwort{' '}
-                {isEditing ? (
-                  <span style={{ color: '#666', fontWeight: 'normal', fontSize: '0.85rem' }}>
-                    (leer lassen um beizubehalten)
-                  </span>
-                ) : (
-                  <span className="required">*</span>
-                )}
-              </label>
-              <input
-                type="password"
-                id="user-password"
-                name="password"
-                value={formData.password}
-                onChange={handleChange}
-                className={errors.password ? 'error' : ''}
-                placeholder={isEditing ? 'Neues Passwort eingeben...' : 'Mindestens 8 Zeichen'}
-                autoComplete="new-password"
-              />
-              {errors.password && <span className="error-message">{errors.password}</span>}
-            </div>
-
-            <div className="form-row">
-              <div className="form-group">
-                <label htmlFor="user-first-name">Vorname</label>
-                <input
-                  type="text"
-                  id="user-first-name"
-                  name="first_name"
-                  value={formData.first_name}
-                  onChange={handleChange}
-                  className={errors.first_name ? 'error' : ''}
-                  placeholder="Vorname"
-                />
-                {errors.first_name && (
-                  <span className="error-message">{errors.first_name}</span>
-                )}
-              </div>
-
-              <div className="form-group">
-                <label htmlFor="user-last-name">Nachname</label>
-                <input
-                  type="text"
-                  id="user-last-name"
-                  name="last_name"
-                  value={formData.last_name}
-                  onChange={handleChange}
-                  className={errors.last_name ? 'error' : ''}
-                  placeholder="Nachname"
-                />
-                {errors.last_name && (
-                  <span className="error-message">{errors.last_name}</span>
-                )}
-              </div>
-            </div>
-          </div>
-
-          <div className="modal-footer">
-            <button
-              type="button"
-              onClick={onClose}
-              className="btn-secondary"
-              disabled={isLoading}
-            >
-              Abbrechen
-            </button>
-            <button type="submit" className="btn-primary" disabled={isLoading}>
-              {isLoading ? 'Speichern...' : isEditing ? 'Aktualisieren' : 'Erstellen'}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
+      </form>
+    </Modal>
   );
 };

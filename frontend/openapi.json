@@ -997,7 +997,7 @@
           "customers"
         ],
         "summary": "List Customers",
-        "description": "List all customers with optional filtering.\n\nPermissions: Requires CUSTOMER_VIEW permission.",
+        "description": "List customers with optional filtering.\n\nWith ``offset``: a ``Page`` {items, total, limit, offset, next_offset}\nwith ``q`` (full-email blind-index search) and ``sort``. Without it\n(deprecated, one release): the legacy plain list, flagged\n``X-Deprecated-List: true``, with the existing fuzzy ``search`` (name /\ncompany / email fragment, decrypted in Python — see\n``CustomerService.get_customers``).\n\nPermissions: Requires CUSTOMER_VIEW permission.",
         "operationId": "list_customers_api_v1_customers__get",
         "security": [
           {
@@ -1005,33 +1005,6 @@
           }
         ],
         "parameters": [
-          {
-            "name": "skip",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "minimum": 0,
-              "description": "Number of records to skip",
-              "default": 0,
-              "title": "Skip"
-            },
-            "description": "Number of records to skip"
-          },
-          {
-            "name": "limit",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "maximum": 100,
-              "minimum": 1,
-              "description": "Max records to return",
-              "default": 100,
-              "title": "Limit"
-            },
-            "description": "Max records to return"
-          },
           {
             "name": "search",
             "in": "query",
@@ -1045,10 +1018,30 @@
                   "type": "null"
                 }
               ],
-              "description": "Search in name, company, email",
+              "description": "Search in name, company, email (nur ohne offset)",
               "title": "Search"
             },
-            "description": "Search in name, company, email"
+            "description": "Search in name, company, email (nur ohne offset)"
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 254
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Volle E-Mail-Adresse, exakter Treffer über den email_hash Blind-Index (nur mit offset). Name/Firma sind verschlüsselt und daher hier nicht durchsuchbar — dafür ``search`` ohne offset verwenden.",
+              "title": "Q"
+            },
+            "description": "Volle E-Mail-Adresse, exakter Treffer über den email_hash Blind-Index (nur mit offset). Name/Firma sind verschlüsselt und daher hier nicht durchsuchbar — dafür ``search`` ohne offset verwenden."
           },
           {
             "name": "customer_type",
@@ -1105,6 +1098,79 @@
             "description": "Filter by tag"
           },
           {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Offset der Seite. Wenn gesetzt, antwortet der Endpunkt mit einer Page-Hülle {items, total, limit, offset, next_offset}.",
+              "title": "Offset"
+            },
+            "description": "Offset der Seite. Wenn gesetzt, antwortet der Endpunkt mit einer Page-Hülle {items, total, limit, offset, next_offset}."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "maximum": 100,
+                  "minimum": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Seitengröße (Standard 50, maximal 200 mit offset)",
+              "title": "Limit"
+            },
+            "description": "Seitengröße (Standard 50, maximal 200 mit offset)"
+          },
+          {
+            "name": "skip",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Veraltet: nur ohne offset (Listenantwort).",
+              "deprecated": true,
+              "default": 0,
+              "title": "Skip"
+            },
+            "description": "Veraltet: nur ohne offset (Listenantwort).",
+            "deprecated": true
+          },
+          {
+            "name": "sort",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 200
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Sortierung (nur mit offset): kommagetrennte Feldnamen, absteigend mit vorangestelltem '-' (z. B. '-created_at'). Erlaubte Felder: created_at, customer_type, is_active. Ein unbekanntes Feld ergibt 422 (code pagination.invalid_sort_field).",
+              "title": "Sort"
+            },
+            "description": "Sortierung (nur mit offset): kommagetrennte Feldnamen, absteigend mit vorangestelltem '-' (z. B. '-created_at'). Erlaubte Felder: created_at, customer_type, is_active. Ein unbekanntes Feld ergibt 422 (code pagination.invalid_sort_field)."
+          },
+          {
             "name": "access_token",
             "in": "cookie",
             "required": false,
@@ -1127,10 +1193,17 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/CustomerListItem"
-                  },
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/Page_CustomerListItem_"
+                    },
+                    {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/CustomerListItem"
+                      }
+                    }
+                  ],
                   "title": "Response List Customers Api V1 Customers  Get"
                 }
               }
@@ -2713,6 +2786,25 @@
             "deprecated": true
           },
           {
+            "name": "sort",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 200
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Sortierung (nur mit offset): kommagetrennte Feldnamen, absteigend mit vorangestelltem '-' (z. B. '-created_at'). Erlaubte Felder: created_at, deadline, status, title. Ein unbekanntes Feld ergibt 422 (code pagination.invalid_sort_field).",
+              "title": "Sort"
+            },
+            "description": "Sortierung (nur mit offset): kommagetrennte Feldnamen, absteigend mit vorangestelltem '-' (z. B. '-created_at'). Erlaubte Felder: created_at, deadline, status, title. Ein unbekanntes Feld ergibt 422 (code pagination.invalid_sort_field)."
+          },
+          {
             "name": "access_token",
             "in": "cookie",
             "required": false,
@@ -3322,6 +3414,80 @@
         }
       }
     },
+    "/api/v1/orders/{order_id}/status-report.pdf": {
+      "get": {
+        "tags": [
+          "orders"
+        ],
+        "summary": "Get Order Status Report",
+        "description": "Statusbericht (Kundenbericht) als PDF (W6, DOM section D Option 2).\n\nWerkstatt-Kopf, Schmuckstueck (Titel, Material, Steine), Verlauf aus\nStatus-Ereignissen und tatsaechlich verschickten Kundeninfos, die\nzuletzt mit der Kundin/dem Kunden geteilten Fotos, ein \"Wie geht es\nweiter\"-Text und die Kontaktzeile. Nie Preise, Kosten, interne Notizen\noder Mitarbeiternamen (CLAUDE.md). GOLDSMITH/ADMIN only (VIEWER: 403);\njeder Abruf wird protokolliert.",
+        "operationId": "get_order_status_report_api_v1_orders__order_id__status_report_pdf_get",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "order_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Order Id"
+            }
+          },
+          {
+            "name": "next_steps",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 2000
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Next Steps"
+            }
+          },
+          {
+            "name": "access_token",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Access Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/orders/{order_id}/location": {
       "post": {
         "tags": [
@@ -3766,6 +3932,25 @@
             },
             "description": "Veraltet: nur ohne offset (Listenantwort).",
             "deprecated": true
+          },
+          {
+            "name": "sort",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 200
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Sortierung (nur mit offset): kommagetrennte Feldnamen, absteigend mit vorangestelltem '-' (z. B. '-name'). Erlaubte Felder: name, stock, supplier. Ein unbekanntes Feld ergibt 422 (code pagination.invalid_sort_field).",
+              "title": "Sort"
+            },
+            "description": "Sortierung (nur mit offset): kommagetrennte Feldnamen, absteigend mit vorangestelltem '-' (z. B. '-name'). Erlaubte Felder: name, stock, supplier. Ein unbekanntes Feld ergibt 422 (code pagination.invalid_sort_field)."
           },
           {
             "name": "access_token",
@@ -5944,6 +6129,25 @@
             "deprecated": true
           },
           {
+            "name": "sort",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 200
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Sortierung (nur mit offset): kommagetrennte Feldnamen, absteigend mit vorangestelltem '-' (z. B. '-start_time'). Erlaubte Felder: start_time, end_time. Ein unbekanntes Feld ergibt 422 (code pagination.invalid_sort_field).",
+              "title": "Sort"
+            },
+            "description": "Sortierung (nur mit offset): kommagetrennte Feldnamen, absteigend mit vorangestelltem '-' (z. B. '-start_time'). Erlaubte Felder: start_time, end_time. Ein unbekanntes Feld ergibt 422 (code pagination.invalid_sort_field)."
+          },
+          {
             "name": "access_token",
             "in": "cookie",
             "required": false,
@@ -6171,6 +6375,25 @@
             },
             "description": "Veraltet: nur ohne offset (Listenantwort).",
             "deprecated": true
+          },
+          {
+            "name": "sort",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 200
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Sortierung (nur mit offset): kommagetrennte Feldnamen, absteigend mit vorangestelltem '-' (z. B. '-start_time'). Erlaubte Felder: start_time, end_time. Ein unbekanntes Feld ergibt 422 (code pagination.invalid_sort_field).",
+              "title": "Sort"
+            },
+            "description": "Sortierung (nur mit offset): kommagetrennte Feldnamen, absteigend mit vorangestelltem '-' (z. B. '-start_time'). Erlaubte Felder: start_time, end_time. Ein unbekanntes Feld ergibt 422 (code pagination.invalid_sort_field)."
           },
           {
             "name": "access_token",
@@ -11122,6 +11345,25 @@
             "deprecated": true
           },
           {
+            "name": "sort",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 200
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Sortierung (nur mit offset): kommagetrennte Feldnamen, absteigend mit vorangestelltem '-' (z. B. '-created_at'). Erlaubte Felder: created_at, severity, notification_type, is_read. Ein unbekanntes Feld ergibt 422 (code pagination.invalid_sort_field).",
+              "title": "Sort"
+            },
+            "description": "Sortierung (nur mit offset): kommagetrennte Feldnamen, absteigend mit vorangestelltem '-' (z. B. '-created_at'). Erlaubte Felder: created_at, severity, notification_type, is_read. Ein unbekanntes Feld ergibt 422 (code pagination.invalid_sort_field)."
+          },
+          {
             "name": "access_token",
             "in": "cookie",
             "required": false,
@@ -12877,6 +13119,25 @@
             "deprecated": true
           },
           {
+            "name": "sort",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 200
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Sortierung (nur mit offset): kommagetrennte Feldnamen, absteigend mit vorangestelltem '-' (z. B. '-created_at'). Erlaubte Felder: created_at, status, valid_until, quote_number. Ein unbekanntes Feld ergibt 422 (code pagination.invalid_sort_field).",
+              "title": "Sort"
+            },
+            "description": "Sortierung (nur mit offset): kommagetrennte Feldnamen, absteigend mit vorangestelltem '-' (z. B. '-created_at'). Erlaubte Felder: created_at, status, valid_until, quote_number. Ein unbekanntes Feld ergibt 422 (code pagination.invalid_sort_field)."
+          },
+          {
             "name": "access_token",
             "in": "cookie",
             "required": false,
@@ -13820,6 +14081,25 @@
             "deprecated": true
           },
           {
+            "name": "sort",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 200
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Sortierung (nur mit offset): kommagetrennte Feldnamen, absteigend mit vorangestelltem '-' (z. B. '-created_at'). Erlaubte Felder: created_at, status, estimated_completion_date, repair_number. Ein unbekanntes Feld ergibt 422 (code pagination.invalid_sort_field).",
+              "title": "Sort"
+            },
+            "description": "Sortierung (nur mit offset): kommagetrennte Feldnamen, absteigend mit vorangestelltem '-' (z. B. '-created_at'). Erlaubte Felder: created_at, status, estimated_completion_date, repair_number. Ein unbekanntes Feld ergibt 422 (code pagination.invalid_sort_field)."
+          },
+          {
             "name": "access_token",
             "in": "cookie",
             "required": false,
@@ -14166,6 +14446,80 @@
             "schema": {
               "type": "integer",
               "title": "Repair Id"
+            }
+          },
+          {
+            "name": "access_token",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Access Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/repairs/{repair_id}/status-report.pdf": {
+      "get": {
+        "tags": [
+          "repairs"
+        ],
+        "summary": "Get Repair Status Report",
+        "description": "Statusbericht (Kundenbericht) als PDF (W6, DOM section D Option 2).\n\nWerkstatt-Kopf, Schmuckstueck, Verlauf (aktueller Status, tatsaechlich\nverschickte Kundeninfos), die neuesten Reparaturfotos, ein \"Wie geht es\nweiter\"-Text und die Kontaktzeile. Nie Preise, Kosten, Diagnosenotizen\noder Mitarbeiternamen (CLAUDE.md). GOLDSMITH/ADMIN only (VIEWER: 403);\njeder Abruf wird protokolliert.",
+        "operationId": "get_repair_status_report_api_v1_repairs__repair_id__status_report_pdf_get",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "repair_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Repair Id"
+            }
+          },
+          {
+            "name": "next_steps",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 2000
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Next Steps"
             }
           },
           {
@@ -14764,6 +15118,80 @@
         }
       }
     },
+    "/api/v1/repairs/{repair_id}/invoice": {
+      "post": {
+        "tags": [
+          "repairs"
+        ],
+        "summary": "Create Repair Invoice",
+        "description": "Rechnung für eine fertige Reparatur erstellen.\n\nNur für Status ``ready`` oder ``picked_up`` und mit zugeordnetem Kunden.\nPosition: vereinbarter Nettopreis (tatsächliche Kosten, sonst\nKostenvoranschlag); Nummer, MwSt, §14-Angaben und Snapshot wie bei\nAuftragsrechnungen. 409, wenn schon eine aktive Rechnung existiert.",
+        "operationId": "create_repair_invoice_api_v1_repairs__repair_id__invoice_post",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "repair_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Repair Id"
+            }
+          },
+          {
+            "name": "access_token",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Access Token"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RepairInvoiceCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvoiceResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/repairs/{repair_id}/customer-updates": {
       "get": {
         "tags": [
@@ -15199,6 +15627,307 @@
             "content": {
               "application/json": {
                 "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/jobs/": {
+      "get": {
+        "tags": [
+          "jobs"
+        ],
+        "summary": "List Jobs",
+        "description": "Aufträge und Reparaturen gemeinsam, seitenweise (Grundlage Kanban).",
+        "operationId": "list_jobs_api_v1_jobs__get",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "kind",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/JobKind"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "order oder repair",
+              "title": "Kind"
+            },
+            "description": "order oder repair"
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/JobStatus"
+                  }
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Einheitlicher Status (mehrfach möglich)",
+              "title": "Status"
+            },
+            "description": "Einheitlicher Status (mehrfach möglich)"
+          },
+          {
+            "name": "customer_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "exclusiveMinimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Customer Id"
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 100
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Nummer, Titel oder Kunde",
+              "title": "Q"
+            },
+            "description": "Nummer, Titel oder Kunde"
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "sort",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 200
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Kommagetrennt, absteigend mit '-': created_at, deadline, kind, number, status, updated_at",
+              "title": "Sort"
+            },
+            "description": "Kommagetrennt, absteigend mit '-': created_at, deadline, kind, number, status, updated_at"
+          },
+          {
+            "name": "access_token",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Access Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_JobListItem_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/jobs/{job_id}": {
+      "get": {
+        "tags": [
+          "jobs"
+        ],
+        "summary": "Get Job",
+        "description": "Ein Vorgang (Auftrag oder Reparatur).",
+        "operationId": "get_job_api_v1_jobs__job_id__get",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Job Id"
+            }
+          },
+          {
+            "name": "access_token",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Access Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobListItem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/jobs/{job_id}/timeline": {
+      "get": {
+        "tags": [
+          "jobs"
+        ],
+        "summary": "Get Job Timeline",
+        "description": "Verlauf eines Vorgangs; nutzt die Timeline der jeweiligen Art.",
+        "operationId": "get_job_timeline_api_v1_jobs__job_id__timeline_get",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Job Id"
+            }
+          },
+          {
+            "name": "access_token",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Access Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobTimelineRead"
+                }
               }
             }
           },
@@ -17172,6 +17901,159 @@
         }
       }
     },
+    "/api/v1/admin/outbox": {
+      "get": {
+        "tags": [
+          "admin-outbox"
+        ],
+        "summary": "List Outbox",
+        "description": "Nachrichten-Warteschlange anzeigen (nur ADMIN).",
+        "operationId": "list_outbox_api_v1_admin_outbox_get",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "pending",
+                    "sent",
+                    "failed",
+                    "dead"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 500,
+              "minimum": 1,
+              "default": 100,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "access_token",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Access Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OutboxListResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/outbox/{message_id}/retry": {
+      "post": {
+        "tags": [
+          "admin-outbox"
+        ],
+        "summary": "Retry Outbox Message",
+        "description": "Fehlgeschlagene Nachricht erneut senden (nur ADMIN).",
+        "operationId": "retry_outbox_message_api_v1_admin_outbox__message_id__retry_post",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "message_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Message Id"
+            }
+          },
+          {
+            "name": "access_token",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Access Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OutboxMessageRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/admin/scan-metrics": {
       "get": {
         "tags": [
@@ -17305,6 +18187,28 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/portal/workshop-contact": {
+      "get": {
+        "tags": [
+          "customer-portal"
+        ],
+        "summary": "Kontaktdaten der Werkstatt (oeffentlich)",
+        "description": "Oeffentlicher Endpunkt — kein Login erforderlich. Liefert nur Name, Telefon und E-Mail der Werkstatt (kein Kundendaten, keine Bank- oder Steuerdaten) fuer den Fusszeilen-Kontakt des Portals.",
+        "operationId": "portal_workshop_contact_api_v1_portal_workshop_contact_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkshopPublicContact"
                 }
               }
             }
@@ -18098,7 +19002,7 @@
           "customer-updates"
         ],
         "summary": "Kundeninfo-Update verschicken",
-        "description": "Verschickt das Update per Email.\n\nLiefert IMMER 200 — auch bei fehlgeschlagenem Versand oder wenn SMTP\nnicht konfiguriert ist (``delivered=false``); der Entwurf bleibt in\njedem Fall erhalten. Ein bereits verschicktes Update (Status \"sent\")\nkann nicht erneut verschickt werden (409).",
+        "description": "Verschickt das Update per Email.\n\nLiefert IMMER 200 — auch bei fehlgeschlagenem Versand oder wenn SMTP\nnicht konfiguriert ist (``delivered=false``); der Entwurf bleibt in\njedem Fall erhalten. Ein bereits verschicktes Update (Status \"sent\")\nkann nicht erneut verschickt werden (409). Optionaler Body\n``{\"attach_status_report\": true}`` haengt den aktuellen Statusbericht\nals PDF an die E-Mail an (W6, \"Statusbericht anhaengen\").",
         "operationId": "send_update_api_v1_updates__update_id__send_post",
         "security": [
           {
@@ -18132,6 +19036,23 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/AttachStatusReportRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Data"
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -19451,6 +20372,279 @@
           }
         }
       }
+    },
+    "/api/v1/media": {
+      "get": {
+        "tags": [
+          "media"
+        ],
+        "summary": "List Media",
+        "description": "Medien eines Auftrags / einer Reparatur / Beratung auflisten.",
+        "operationId": "list_media_api_v1_media_get",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "owner_type",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/MediaOwnerType"
+            }
+          },
+          {
+            "name": "owner_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "title": "Owner Id"
+            }
+          },
+          {
+            "name": "access_token",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Access Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/MediaAssetRead"
+                  },
+                  "title": "Response List Media Api V1 Media Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/media/{media_id}": {
+      "get": {
+        "tags": [
+          "media"
+        ],
+        "summary": "Get Media File",
+        "description": "Originaldatei eines Mediums ausliefern.",
+        "operationId": "get_media_file_api_v1_media__media_id__get",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "media_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Media Id"
+            }
+          },
+          {
+            "name": "access_token",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Access Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "media"
+        ],
+        "summary": "Update Media",
+        "description": "„Für Kunden sichtbar“ setzen oder entfernen (GOLDSMITH/ADMIN).\n\nFlagged photos are what the status report and a photo Kundeninfo\nwithout ticked photos send to the customer.",
+        "operationId": "update_media_api_v1_media__media_id__patch",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "media_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Media Id"
+            }
+          },
+          {
+            "name": "access_token",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Access Token"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MediaAssetUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MediaAssetRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/media/{media_id}/thumbnail": {
+      "get": {
+        "tags": [
+          "media"
+        ],
+        "summary": "Get Media Thumbnail",
+        "description": "Miniaturansicht ausliefern (Fallback: Original).",
+        "operationId": "get_media_thumbnail_api_v1_media__media_id__thumbnail_get",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "media_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Media Id"
+            }
+          },
+          {
+            "name": "access_token",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Access Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -20252,6 +21446,19 @@
         ],
         "title": "ApproveQuoteRequest",
         "description": "Request body for approving a quote.\n\nDOM-11d: ``response_method`` records how the customer agreed (in person,\nby email reply, by phone), the same evidence vocabulary as the section\n649 BGB cost-change approval. The signature stays optional."
+      },
+      "AttachStatusReportRequest": {
+        "properties": {
+          "attach_status_report": {
+            "type": "boolean",
+            "title": "Attach Status Report",
+            "default": false
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "AttachStatusReportRequest",
+        "description": "Optional body of ``POST /updates/{id}/send``.\n\n\"Statusbericht anhängen\" in the Kundeninfo composer (W6, DOM section D\nOption 2): when true, the live Statusbericht PDF\n(``status_report_service``) is generated fresh and attached to the\noutgoing email, and the message is classified as\n``MessageKind.STATUS_REPORT`` (contractual basis) for the content-rule\nand audit-log checks. Never persisted — there is no DB column for it\n(see the model's docstring); a PDF-manual fallback caused by this same\nsend instead relies on the frontend calling the standalone\n``GET /orders/{id}/status-report.pdf`` / ``.../repairs/{id}/...``\nendpoint directly, since the flag itself cannot be looked up later from\nthe stored CustomerUpdate row."
       },
       "BatchLogResponse": {
         "properties": {
@@ -24426,7 +25633,8 @@
                 "enum": [
                   "smtp_disabled",
                   "no_email",
-                  "opted_out"
+                  "opted_out",
+                  "queued"
                 ]
               },
               {
@@ -26337,12 +27545,6 @@
       },
       "InvoiceCreate": {
         "properties": {
-          "order_id": {
-            "type": "integer",
-            "exclusiveMinimum": 0.0,
-            "title": "Order Id",
-            "description": "Order ID to generate invoice from"
-          },
           "due_date": {
             "type": "string",
             "format": "date-time",
@@ -26416,12 +27618,18 @@
             ],
             "title": "Additional Line Items",
             "description": "Additional line items beyond those auto-generated from the order"
+          },
+          "order_id": {
+            "type": "integer",
+            "exclusiveMinimum": 0.0,
+            "title": "Order Id",
+            "description": "Order ID to generate invoice from"
           }
         },
         "type": "object",
         "required": [
-          "order_id",
-          "due_date"
+          "due_date",
+          "order_id"
         ],
         "title": "InvoiceCreate",
         "description": "Schema for creating an invoice from an order.\n\nThe service will auto-populate line items from the order's material,\nlabor, and gemstone data. Caller may also supply additional line items."
@@ -26650,8 +27858,26 @@
             "title": "Invoice Number"
           },
           "order_id": {
-            "type": "integer",
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Order Id"
+          },
+          "job_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Job Id"
           },
           "customer_id": {
             "type": "integer",
@@ -26723,7 +27949,6 @@
         "required": [
           "id",
           "invoice_number",
-          "order_id",
           "customer_id",
           "status",
           "issue_date",
@@ -26778,8 +28003,28 @@
             "description": "Rechnungsnummer (RE-YYYY-NNNN)"
           },
           "order_id": {
-            "type": "integer",
-            "title": "Order Id"
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Order Id",
+            "description": "Order billed; null for a repair invoice"
+          },
+          "job_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Job Id",
+            "description": "Job (order or repair) billed (ARCH phase 5)"
           },
           "customer_id": {
             "type": "integer",
@@ -26934,7 +28179,6 @@
         "required": [
           "id",
           "invoice_number",
-          "order_id",
           "customer_id",
           "created_by",
           "status",
@@ -27008,6 +28252,252 @@
         "type": "object",
         "title": "InvoiceUpdate",
         "description": "Schema for updating an existing invoice.\n\nOnly editable fields — invoice_number, order_id and customer_id are immutable.\n``status`` is deliberately NOT editable here (BE-05): transitions go through\nthe dedicated endpoints (send, mark-paid, cancel), which carry their own\npermission checks. Unknown fields are rejected so a stray ``status`` fails\nloudly instead of being ignored."
+      },
+      "JobCustomer": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "display_name": {
+            "type": "string",
+            "title": "Display Name"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "display_name"
+        ],
+        "title": "JobCustomer",
+        "description": "Customer summary on a job row (name only; no contact data)."
+      },
+      "JobKind": {
+        "type": "string",
+        "enum": [
+          "order",
+          "repair"
+        ],
+        "title": "JobKind",
+        "description": "What a job wraps."
+      },
+      "JobListItem": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/JobKind"
+          },
+          "number": {
+            "type": "string",
+            "title": "Number",
+            "description": "AU-YYYY-NNNN (Auftrag) or REP-YYYY-NNNN"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "status": {
+            "$ref": "#/components/schemas/JobStatus",
+            "description": "Unified lifecycle"
+          },
+          "status_label": {
+            "type": "string",
+            "title": "Status Label"
+          },
+          "kind_status": {
+            "type": "string",
+            "title": "Kind Status",
+            "description": "Raw order / repair status"
+          },
+          "deadline": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deadline"
+          },
+          "on_hold_since": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "On Hold Since"
+          },
+          "resume_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resume Date"
+          },
+          "customer_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Customer Id"
+          },
+          "customer": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/JobCustomer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "order_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Order Id"
+          },
+          "repair_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Repair Id"
+          },
+          "agreed_price": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agreed Price"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "kind",
+          "number",
+          "status",
+          "status_label",
+          "kind_status",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "JobListItem",
+        "description": "One order or repair on the job spine (kanban card)."
+      },
+      "JobStatus": {
+        "type": "string",
+        "enum": [
+          "draft",
+          "intake",
+          "awaiting_approval",
+          "confirmed",
+          "in_progress",
+          "quality_check",
+          "ready",
+          "delivered",
+          "on_hold",
+          "cancelled"
+        ],
+        "title": "JobStatus",
+        "description": "Unified lifecycle across orders and repairs (kanban columns)."
+      },
+      "JobTimelineRead": {
+        "properties": {
+          "job_id": {
+            "type": "integer",
+            "title": "Job Id"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/JobKind"
+          },
+          "order_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Order Id"
+          },
+          "repair_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Repair Id"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/OrderTimelineItem"
+            },
+            "type": "array",
+            "title": "Items"
+          }
+        },
+        "type": "object",
+        "required": [
+          "job_id",
+          "kind",
+          "items"
+        ],
+        "title": "JobTimelineRead",
+        "description": "Merged history of one job (delegates to the per-kind timeline)."
       },
       "LaborEstimateRequest": {
         "properties": {
@@ -28288,6 +29778,179 @@
         "type": "object",
         "title": "MeasurementUpdate",
         "description": "Schema for updating an existing measurement.\n\nAll fields are optional — only provided fields are updated."
+      },
+      "MediaAssetRead": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "owner_type": {
+            "$ref": "#/components/schemas/MediaOwnerType"
+          },
+          "owner_id": {
+            "type": "integer",
+            "title": "Owner Id"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/MediaKind"
+          },
+          "mime": {
+            "type": "string",
+            "title": "Mime"
+          },
+          "bytes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bytes"
+          },
+          "width": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Width"
+          },
+          "height": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Height"
+          },
+          "customer_visible": {
+            "type": "boolean",
+            "title": "Customer Visible"
+          },
+          "caption": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Caption"
+          },
+          "sort_order": {
+            "type": "integer",
+            "title": "Sort Order"
+          },
+          "taken_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Taken At"
+          },
+          "uploaded_by": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Uploaded By"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "legacy_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Legacy Id"
+          },
+          "tag": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tag"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "owner_type",
+          "owner_id",
+          "kind",
+          "mime",
+          "customer_visible",
+          "sort_order",
+          "created_at"
+        ],
+        "title": "MediaAssetRead",
+        "description": "Metadata of one media asset."
+      },
+      "MediaAssetUpdate": {
+        "properties": {
+          "customer_visible": {
+            "type": "boolean",
+            "title": "Customer Visible"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "customer_visible"
+        ],
+        "title": "MediaAssetUpdate",
+        "description": "``PATCH /media/{id}``: only the customer-visibility flag is editable."
+      },
+      "MediaKind": {
+        "type": "string",
+        "enum": [
+          "photo",
+          "signature",
+          "document"
+        ],
+        "title": "MediaKind",
+        "description": "What a media asset is."
+      },
+      "MediaOwnerType": {
+        "type": "string",
+        "enum": [
+          "order",
+          "repair",
+          "consultation",
+          "customer_update"
+        ],
+        "title": "MediaOwnerType",
+        "description": "What a media asset belongs to."
       },
       "MetalAllocation": {
         "properties": {
@@ -31529,6 +33192,137 @@
         "title": "OrderUpdate",
         "description": "Schema für Order-Updates mit Validation."
       },
+      "OutboxCounts": {
+        "properties": {
+          "pending": {
+            "type": "integer",
+            "title": "Pending",
+            "default": 0
+          },
+          "sent": {
+            "type": "integer",
+            "title": "Sent",
+            "default": 0
+          },
+          "failed": {
+            "type": "integer",
+            "title": "Failed",
+            "default": 0
+          },
+          "dead": {
+            "type": "integer",
+            "title": "Dead",
+            "default": 0
+          }
+        },
+        "type": "object",
+        "title": "OutboxCounts"
+      },
+      "OutboxListResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/OutboxMessageRead"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "counts": {
+            "$ref": "#/components/schemas/OutboxCounts"
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "inline",
+              "worker"
+            ],
+            "title": "Mode"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "counts",
+          "mode"
+        ],
+        "title": "OutboxListResponse"
+      },
+      "OutboxMessageRead": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "kind": {
+            "type": "string",
+            "title": "Kind"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "sent",
+              "failed",
+              "dead"
+            ],
+            "title": "Status"
+          },
+          "attempts": {
+            "type": "integer",
+            "title": "Attempts"
+          },
+          "payload": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Payload"
+          },
+          "next_attempt_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Next Attempt At"
+          },
+          "last_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Error"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "sent_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sent At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "kind",
+          "status",
+          "attempts",
+          "payload",
+          "next_attempt_at",
+          "created_at"
+        ],
+        "title": "OutboxMessageRead",
+        "description": "One queued message. ``payload`` holds ids only (no address/subject/body)."
+      },
       "OverrideReasonCategoryEnum": {
         "type": "string",
         "enum": [
@@ -31587,6 +33381,102 @@
           "offset"
         ],
         "title": "Page[CustomerActivityItem]"
+      },
+      "Page_CustomerListItem_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/CustomerListItem"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Total",
+            "description": "Anzahl aller Treffer über alle Seiten"
+          },
+          "limit": {
+            "type": "integer",
+            "maximum": 200.0,
+            "minimum": 1.0,
+            "title": "Limit"
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Offset"
+          },
+          "next_offset": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Offset",
+            "description": "Offset der nächsten Seite; null auf der letzten"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "title": "Page[CustomerListItem]"
+      },
+      "Page_JobListItem_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/JobListItem"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Total",
+            "description": "Anzahl aller Treffer über alle Seiten"
+          },
+          "limit": {
+            "type": "integer",
+            "maximum": 200.0,
+            "minimum": 1.0,
+            "title": "Limit"
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Offset"
+          },
+          "next_offset": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Offset",
+            "description": "Offset der nächsten Seite; null auf der letzten"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "title": "Page[JobListItem]"
       },
       "Page_MaterialRead_": {
         "properties": {
@@ -31977,6 +33867,17 @@
               }
             ],
             "title": "Quote Id"
+          },
+          "job_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Job Id"
           },
           "bag_number": {
             "anyOf": [
@@ -33186,6 +35087,90 @@
           "item_description"
         ],
         "title": "RepairExport"
+      },
+      "RepairInvoiceCreate": {
+        "properties": {
+          "due_date": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Due Date",
+            "description": "Payment due date (Faelligkeitsdatum); normalised to UTC"
+          },
+          "tax_rate": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 100.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tax Rate",
+            "description": "VAT rate in percent (MwSt-Satz). Omitted: the workshop default (Werkstatt-Stammdaten, 19 % unless changed). Always 0 for a Kleinunternehmer (§19 UStG)."
+          },
+          "service_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Service Date",
+            "description": "Leistungsdatum (§14 Abs. 4 Nr. 6 UStG). Omitted: the order's completion date, else the invoice date."
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 2000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes",
+            "description": "Optional notes on the invoice (Anmerkungen)"
+          },
+          "payment_method": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 50
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Payment Method",
+            "description": "Payment method (Zahlungsart): Ueberweisung, Bar, Karte"
+          },
+          "additional_line_items": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/InvoiceLineItemCreate"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Additional Line Items",
+            "description": "Additional line items beyond those auto-generated from the order"
+          }
+        },
+        "type": "object",
+        "required": [
+          "due_date"
+        ],
+        "title": "RepairInvoiceCreate",
+        "description": "Body of ``POST /repairs/{id}/invoice`` (ARCH phase 5).\n\nThe line item comes from the repair's agreed NET price (actual cost,\nelse the accepted estimate); ``service_date`` defaults to the repair's\ncompletion date."
       },
       "RepairItemType": {
         "type": "string",
@@ -34854,6 +36839,15 @@
             "type": "boolean",
             "title": "Id Required",
             "readOnly": true
+          },
+          "fine_grams_by_metal": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "type": "object",
+            "title": "Fine Grams By Metal",
+            "description": "Per-metal fine-gram breakdown (DOM-20 remainder).\n\n``total_fine_gold_g`` aggregates fine content across every metal\n(gold, silver, platinum) into one number, which reads as \"all gold\"\neven when the lot is mixed. This computed field re-derives an\nhonest per-metal split from ``items`` (each item already carries\nits own alloy and fine content) without any schema change — the\nfull DOM-20 fix (per-metal prices stored on the row, an\nAnkaufsabschlag %) still needs a migration and is tracked\nseparately.",
+            "readOnly": true
           }
         },
         "type": "object",
@@ -34869,7 +36863,8 @@
           "created_at",
           "updated_at",
           "has_identification",
-          "id_required"
+          "id_required",
+          "fine_grams_by_metal"
         ],
         "title": "ScrapGoldRead"
       },
@@ -37079,6 +39074,18 @@
               }
             ],
             "title": "Bag Number"
+          },
+          "job_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Job Id",
+            "description": "Job spine id (GET /jobs/{id}); ARCH phase 5"
           }
         },
         "type": "object",
@@ -37093,6 +39100,42 @@
         ],
         "title": "WorkItem",
         "description": "An order or repair with a due date (overdue and due-soon lanes)."
+      },
+      "WorkshopPublicContact": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "phone": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Phone"
+          },
+          "email": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Email"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "title": "WorkshopPublicContact",
+        "description": "Public subset of the workshop settings (customer portal footer).\n\nOnly the workshop's own name and how to reach it — never the bank\ndetails, tax IDs or invoice footer text that ride along on\n``WorkshopSettingsRead``. This is the workshop's own business contact\ndata, not customer PII, and is served to logged-out portal visitors."
       },
       "WorkshopSettingsRead": {
         "properties": {

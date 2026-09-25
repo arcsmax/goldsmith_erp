@@ -1,9 +1,9 @@
 """Service for Scrap Gold (Altgold) management."""
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from decimal import ROUND_HALF_UP, Decimal
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Union
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
@@ -96,7 +96,9 @@ def ensure_editable(scrap_gold: ScrapGoldModel) -> None:
 class ScrapGoldService:
 
     @staticmethod
-    def calculate_fine_content(alloy: AlloyType, weight_g: float) -> float:
+    def calculate_fine_content(
+        alloy: AlloyType, weight_g: Union[Decimal, float, int, str]
+    ) -> Decimal:
         """Calculate fine gold/silver/platinum content from alloy and weight.
 
         ``alloy`` must be a valid ``AlloyType`` member. There is no silent
@@ -107,10 +109,9 @@ class ScrapGoldService:
         """
         alloy_enum = alloy if isinstance(alloy, AlloyType) else AlloyType(alloy)
         fineness = ALLOY_FINENESS[alloy_enum]
-        fine = (Decimal(str(weight_g)) * fineness).quantize(
+        return (Decimal(str(weight_g)) * fineness).quantize(
             _GRAM_QUANT, rounding=ROUND_HALF_UP
         )
-        return float(fine)
 
     @staticmethod
     async def get_for_order(
@@ -258,7 +259,7 @@ class ScrapGoldService:
             raise ScrapGoldIdMissingError(scrap_gold_id)
 
         scrap_gold.signature_data = signature_data
-        scrap_gold.signed_at = datetime.utcnow()
+        scrap_gold.signed_at = datetime.now(timezone.utc)
         scrap_gold.status = ScrapGoldStatus.SIGNED
         await db.commit()
         await db.refresh(scrap_gold)
@@ -285,7 +286,7 @@ class ScrapGoldService:
         scrap_gold.id_document_number = data.id_document_number
         scrap_gold.id_issuing_authority = data.id_issuing_authority
         scrap_gold.id_checked_by = checked_by
-        scrap_gold.id_checked_at = datetime.utcnow()
+        scrap_gold.id_checked_at = datetime.now(timezone.utc)
         await db.commit()
         logger.info(
             "Scrap gold identification recorded",
@@ -398,10 +399,10 @@ class ScrapGoldService:
                 )
                 total_value += fine * price_per_g
 
-        scrap_gold.total_fine_gold_g = float(
-            total_fine.quantize(_GRAM_QUANT, rounding=ROUND_HALF_UP)
+        scrap_gold.total_fine_gold_g = total_fine.quantize(
+            _GRAM_QUANT, rounding=ROUND_HALF_UP
         )
-        scrap_gold.total_value_eur = float(
-            total_value.quantize(_EUR_QUANT, rounding=ROUND_HALF_UP)
+        scrap_gold.total_value_eur = total_value.quantize(
+            _EUR_QUANT, rounding=ROUND_HALF_UP
         )
         await db.commit()

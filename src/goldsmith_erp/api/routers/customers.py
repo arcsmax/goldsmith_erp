@@ -1,9 +1,9 @@
 """Customer/CRM API Endpoints"""
 
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Annotated, Any, Dict, List, Optional
+from typing import Annotated, Any, Dict, List, Optional, Union
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from fastapi.responses import JSONResponse
@@ -44,8 +44,11 @@ from goldsmith_erp.models.pagination import (
     MAX_PAGE_LIMIT,
     Page,
     PageParams,
+    legacy_list_response,
+    make_page_params,
     page_response,
 )
+from goldsmith_erp.services import list_queries
 from goldsmith_erp.services.consent_service import (
     ConsentCustomerNotFoundError,
     ConsentService,
@@ -98,11 +101,33 @@ def _health_consent_422() -> HTTPException:
     )
 
 
-@router.get("/", response_model=List[CustomerListItem])
+@router.get(
+    "/",
+    # W3-08/W3-sort: Page[...] when ``offset`` is sent, the legacy list otherwise.
+    response_model=Union[Page[CustomerListItem], List[CustomerListItem]],
+)
 async def list_customers(
-    skip: int = Query(0, ge=0, description="Number of records to skip"),
-    limit: int = Query(100, ge=1, le=100, description="Max records to return"),
-    search: Optional[str] = Query(None, description="Search in name, company, email"),
+    page: PageParams = Depends(
+        make_page_params(
+            legacy_default_limit=100,
+            legacy_max_limit=100,
+            sort_fields=tuple(list_queries.CUSTOMER_SORT_FIELDS),
+        )
+    ),
+    search: Optional[str] = Query(
+        None, description="Search in name, company, email (nur ohne offset)"
+    ),
+    q: Optional[str] = Query(
+        None,
+        min_length=1,
+        max_length=254,
+        description=(
+            "Volle E-Mail-Adresse, exakter Treffer über den email_hash "
+            "Blind-Index (nur mit offset). Name/Firma sind verschlüsselt "
+            "und daher hier nicht durchsuchbar — dafür ``search`` ohne "
+            "offset verwenden."
+        ),
+    ),
     customer_type: Optional[str] = Query(None, description="Filter by customer type"),
     is_active: Optional[bool] = Query(None, description="Filter by active status"),
     tag: Optional[str] = Query(None, description="Filter by tag"),
@@ -110,23 +135,43 @@ async def list_customers(
     current_user: User = Depends(require_permission(Permission.CUSTOMER_VIEW)),
 ):
     """
-    List all customers with optional filtering.
+    List customers with optional filtering.
+
+    With ``offset``: a ``Page`` {items, total, limit, offset, next_offset}
+    with ``q`` (full-email blind-index search) and ``sort``. Without it
+    (deprecated, one release): the legacy plain list, flagged
+    ``X-Deprecated-List: true``, with the existing fuzzy ``search`` (name /
+    company / email fragment, decrypted in Python — see
+    ``CustomerService.get_customers``).
 
     Permissions: Requires CUSTOMER_VIEW permission.
     """
+    if page.is_paged:
+        stmt = list_queries.customers_statement(
+            customer_type=customer_type,
+            is_active=is_active,
+            tag=tag,
+            q=q,
+            sort=page.sort,
+        )
+        result = await list_queries.fetch_page(db, stmt, page)
+        rows = [CustomerListItem.model_validate(c).model_dump() for c in result.items]
+        return page_response(rows, result.total, page)
     try:
         customers = await CustomerService.get_customers(
             db,
-            skip=skip,
-            limit=limit,
+            skip=page.offset,
+            limit=page.limit,
             search=search,
             customer_type=customer_type,
             is_active=is_active,
             tag=tag,
         )
-        return customers
+        return legacy_list_response(
+            [CustomerListItem.model_validate(c).model_dump() for c in customers]
+        )
 
-    except Exception as e:
+    except Exception:
         logger.error("Error listing customers", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -558,7 +603,7 @@ async def gdpr_export_customer(
 
     payload = {
         **sections,
-        "export_date": datetime.utcnow().isoformat(),
+        "export_date": datetime.now(timezone.utc).isoformat(),
         "customer": {
             "id": customer.id,
             "first_name": customer.first_name,
@@ -628,8 +673,8 @@ async def _record_export_request(
                 customer_id=customer_id,
                 request_type="export",
                 status="completed",
-                requested_at=datetime.utcnow(),
-                completed_at=datetime.utcnow(),
+                requested_at=datetime.now(timezone.utc),
+                completed_at=datetime.now(timezone.utc),
                 requested_by=user_id,
                 notes="Art. 15 export produced (GDPR-05 complete export).",
             )
@@ -676,7 +721,7 @@ async def _write_pending_gdpr_request(
             customer_id=customer_id,
             request_type="erasure",
             status="PENDING",
-            requested_at=datetime.utcnow(),
+            requested_at=datetime.now(timezone.utc),
             requested_by=performed_by,
             notes=(
                 "Art. 17 erasure request received — awaiting "
@@ -742,7 +787,7 @@ async def _finalize_pending_gdpr_request(
         return
     row.status = new_status
     if new_status not in ("PENDING",):
-        row.completed_at = datetime.utcnow()
+        row.completed_at = datetime.now(timezone.utc)
     if notes_suffix:
         existing = row.notes or ""
         row.notes = f"{existing}\n{notes_suffix}" if existing else notes_suffix
@@ -884,7 +929,7 @@ async def gdpr_erase_customer(
             ),
         )
 
-    deletion_date = datetime.utcnow() + timedelta(days=30)
+    deletion_date = datetime.now(timezone.utc) + timedelta(days=30)
     file_erasure = FileErasureService(Path(settings.FILE_STORAGE_ROOT))
 
     # All mutations go through a single transaction — if PII scrub or
@@ -893,7 +938,7 @@ async def gdpr_erase_customer(
     try:
         customer.is_active = False
         customer.deletion_scheduled_at = deletion_date
-        customer.updated_at = datetime.utcnow()
+        customer.updated_at = datetime.now(timezone.utc)
 
         # Scrub PII from related free-text records. skip_gdpr_request=True
         # because THIS endpoint manages the full request lifecycle

@@ -41,7 +41,7 @@ beforeEach(() => {
 });
 
 async function openModalAndFillRequiredFields() {
-  await userEvent.click(screen.getByRole('button', { name: '+ Neue Kundin' }));
+  await userEvent.click(screen.getByRole('button', { name: 'Kundin anlegen' }));
   // CustomerFormModal auto-focuses its first field via a 30 ms setTimeout
   // (focus effect). That one-shot timer is still pending right after the modal
   // opens; if we start typing before it fires, it lands mid-sequence, steals

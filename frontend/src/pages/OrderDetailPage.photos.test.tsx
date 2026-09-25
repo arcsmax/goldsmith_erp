@@ -8,11 +8,12 @@
 // the upload control is GOLDSMITH/ADMIN only (DESIGN_VIEW).
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useState } from 'react';
-import { render, screen, waitFor } from '@testing-library/react';
-import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
+import { act, screen, waitFor } from '@testing-library/react';
+import { Route, Routes, useLocation } from 'react-router-dom';
+import { renderWithQuery } from '../test/queryWrapper';
 import userEvent from '@testing-library/user-event';
 import type { OrderType } from '../types';
-import { triggerRefetch } from '../lib/refetchBus';
+import { invalidateForChannel } from '../lib/realtimeInvalidation';
 
 const mockGetById = vi.fn();
 vi.mock('../api', () => ({
@@ -96,20 +97,19 @@ function LocationProbe() {
 }
 
 function renderPage(entry = '/orders/42') {
-  return render(
-    <MemoryRouter initialEntries={[entry]}>
-      <Routes>
-        <Route
-          path="/orders/:orderId"
-          element={
-            <>
-              <OrderDetailPage />
-              <LocationProbe />
-            </>
-          }
-        />
-      </Routes>
-    </MemoryRouter>
+  return renderWithQuery(
+    <Routes>
+      <Route
+        path="/orders/:orderId"
+        element={
+          <>
+            <OrderDetailPage />
+            <LocationProbe />
+          </>
+        }
+      />
+    </Routes>,
+    { route: entry }
   );
 }
 
@@ -185,14 +185,15 @@ describe('OrderDetailPage — Fotos tab upload', () => {
 describe('OrderDetailPage — realtime refresh (W2-13 hook)', () => {
   it('reloads the order and its photos when the orders topic fires, without unmounting the tab', async () => {
     mockUseAuth.mockReturnValue({ user: { role: 'GOLDSMITH' } });
-    renderPage();
+    const { client } = renderPage();
     await userEvent.click(await screen.findByText('Fotos (1)'));
     expect(mockGetById).toHaveBeenCalledTimes(1);
 
     mockGetForOrder.mockResolvedValue({
       data: [EXISTING_PHOTO, { ...EXISTING_PHOTO, id: 'cccc-3333' }],
     });
-    triggerRefetch('orders');
+    // W4-03: the realtime hint invalidates ['orders'] (lib/realtimeInvalidation).
+    await act(() => invalidateForChannel(client, 'order_updates'));
 
     await waitFor(() => expect(mockGetById).toHaveBeenCalledTimes(2));
     expect(await screen.findByText('Fotos (2)')).toBeInTheDocument();
@@ -208,8 +209,9 @@ describe('OrderDetailPage — scanner deep link', () => {
 
     expect(await screen.findByLabelText('Foto aufnehmen')).toBeInTheDocument();
     await waitFor(() => expect(clickSpy).toHaveBeenCalledTimes(1));
-    // Params are consumed so a reload does not reopen the camera.
-    await waitFor(() => expect(screen.getByTestId('location')).toHaveTextContent(/^$/));
+    // The capture param is consumed so a reload does not reopen the camera;
+    // the tab stays in the URL (W4-03: `?tab=` is synced).
+    await waitFor(() => expect(screen.getByTestId('location')).toHaveTextContent(/^\?tab=fotos$/));
   });
 
   it('legacy ?action=take-photo behaves the same', async () => {

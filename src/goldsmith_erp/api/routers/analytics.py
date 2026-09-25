@@ -7,7 +7,7 @@ All endpoints audit-log financial data access per CLAUDE.md requirements.
 """
 
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -46,7 +46,7 @@ def _audit_log_financial_access(
                 user.role.value if hasattr(user.role, "value") else str(user.role)
             ),
             "context": context,
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
         },
     )
 
@@ -137,7 +137,7 @@ async def get_workshop_stats(
     Standard-Zeitraum: letzte 90 Tage.
     Alle Zugriffe werden audit-geloggt (finanzielle Daten).
     """
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     effective_from = date_from or (now - timedelta(days=90))
     effective_to = date_to or now
 
@@ -210,7 +210,7 @@ async def get_goldsmith_accuracy(
             detail="Goldschmiede duerfen nur ihre eigene Genauigkeit abrufen.",
         )
 
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     effective_from = date_from or (now - timedelta(days=90))
     effective_to = date_to or now
 

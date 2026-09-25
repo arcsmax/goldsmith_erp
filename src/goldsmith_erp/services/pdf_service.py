@@ -15,12 +15,15 @@ import io
 import logging
 import os
 import tempfile
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping, Optional
 
 from fpdf import FPDF
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 from PIL import Image
+
+from goldsmith_erp.core.timeutil import DATE_FORMAT, format_local
 
 logger = logging.getLogger(__name__)
 
@@ -79,10 +82,13 @@ _FONT_B = "DejaVuBold"  # bold weight
 
 def _get_jinja_env() -> Environment:
     """Return a configured Jinja2 environment pointing at the templates dir."""
-    return Environment(
+    env = Environment(
         loader=FileSystemLoader(str(_TEMPLATES_DIR)),
         autoescape=select_autoescape(["html"]),
     )
+    # Documents show Europe/Berlin dates, never raw UTC (BE-15).
+    env.filters["local_date"] = _fmt_date
+    return env
 
 
 def _html_to_pdf_bytes(html_content: str, title: str = "Dokument") -> bytes:
@@ -350,7 +356,12 @@ def _invoice_meta_rows(invoice: Any) -> list[tuple[str, str]]:
     ]
     if not _is_storno(invoice):
         rows.append(("Fälligkeitsdatum:", _fmt_date(invoice.due_date)))
-    rows.append(("Auftragsnummer:", str(invoice.order_id)))
+    reference = getattr(invoice, "reference", None)
+    if reference:
+        label = getattr(invoice, "reference_label", None) or "Auftragsnummer:"
+        rows.append((label, str(reference)))
+    else:
+        rows.append(("Auftragsnummer:", str(invoice.order_id)))
     if getattr(invoice, "payment_method", None):
         rows.append(("Zahlungsart:", str(invoice.payment_method)))
     return rows
@@ -767,13 +778,12 @@ def _render_scrap_gold_fpdf(
 
 
 def _fmt_date(dt: Any) -> str:
-    """Format a datetime as German dd.mm.YYYY."""
+    """Format as German dd.mm.YYYY; datetimes in Europe/Berlin (BE-15)."""
     if dt is None:
         return ""
-    try:
-        return dt.strftime("%d.%m.%Y")
-    except AttributeError:
-        return str(dt)
+    if isinstance(dt, (datetime, date)):
+        return format_local(dt, DATE_FORMAT, empty="")
+    return str(dt)
 
 
 def _fmt_eur(value: Any) -> str:
@@ -1681,6 +1691,29 @@ class PDFService:
             workshop_name=workshop_name,
         )
 
+    @staticmethod
+    def render_status_report_pdf(data: Any) -> bytes:
+        """W6 / DOM section D: customer-facing "Statusbericht" PDF.
+
+        Args:
+            data: a ``status_report_service.StatusReportData`` (reference,
+                title, metal_label, gemstones, events, photos, next_steps,
+                customer_name, workshop).
+
+        Returns:
+            Raw PDF bytes. Caller streams via ``Response``/``StreamingResponse``.
+        """
+        # data.reference may carry the order's free-text title (business-
+        # confidential per CLAUDE.md) — never logged, counts only.
+        logger.info(
+            "Rendering status report PDF",
+            extra={
+                "photo_count": len(getattr(data, "photos", []) or []),
+                "event_count": len(getattr(data, "events", []) or []),
+            },
+        )
+        return _render_status_report_fpdf(data)
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Annahmeschein (repair intake receipt, W2-12 / DOM-08)
@@ -1910,4 +1943,169 @@ def render_repair_intake_receipt_pdf(
     _annahme_checklist(pdf, repair)
     _annahme_photos(pdf, photos)
     _annahme_terms_and_signature(pdf, signature_png)
+    return bytes(pdf.output())
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Statusbericht (customer-facing status report, W6 / DOM section D Option 2)
+# ─────────────────────────────────────────────────────────────────────────────
+
+_STATUS_REPORT_ART13_NOTE = (
+    "Unsere Datenschutzhinweise zu Ihren Rechten und zur Speicherdauer liegen "
+    "in der Werkstatt aus; auf Anfrage senden wir sie Ihnen gern per E-Mail."
+)
+_STATUS_REPORT_THUMB_W_MM = 58.0
+_STATUS_REPORT_THUMB_MAX_H_MM = 58.0
+_STATUS_REPORT_THUMB_GAP_MM = 4.0
+_STATUS_REPORT_THUMBS_PER_ROW = 3
+
+
+def _status_report_header(
+    pdf: "_GoldsmithPDF", data: Any, workshop: Mapping[str, Any]
+) -> None:
+    name = _safe_str(workshop.get("name")) or "Goldschmiede"
+    pdf.set_font(_FONT_B, "", 15)
+    pdf.set_text_color(*_GOLD)
+    pdf.cell(110, 9, name)
+    pdf.set_font(_FONT_B, "", 13)
+    pdf.set_text_color(*_DARK)
+    pdf.cell(0, 9, "Statusbericht", align="R", ln=True)
+    pdf.set_font(_FONT, "", 8.5)
+    pdf.set_text_color(*_GRAY)
+    for line in _seller_address_lines(workshop):
+        pdf.cell(0, 4, line, ln=True)
+    pdf.set_text_color(*_DARK)
+    pdf.ln(2)
+    pdf.gold_rule()
+    pdf.ln(3)
+    pdf.kv_row(
+        "Kundin/Kunde", _safe_str(getattr(data, "customer_name", None)) or "Kunde"
+    )
+    pdf.kv_row("Referenz", _safe_str(getattr(data, "reference", None)))
+    pdf.kv_row("Datum", _fmt_date(datetime.now(timezone.utc)))
+    pdf.ln(3)
+
+
+def _status_report_piece(pdf: "_GoldsmithPDF", data: Any) -> None:
+    pdf.section_title("Schmuckstück")
+    pdf.set_font(_FONT, "", 9)
+    _paragraph(pdf, _safe_str(getattr(data, "title", None)))
+    metal_label = getattr(data, "metal_label", None)
+    if metal_label:
+        pdf.kv_row("Material", _safe_str(metal_label))
+    gemstones = getattr(data, "gemstones", None) or []
+    if gemstones:
+        pdf.kv_row("Steine", ", ".join(gemstones), label_w=55)
+    pdf.ln(2)
+
+
+def _status_report_timeline(pdf: "_GoldsmithPDF", data: Any) -> None:
+    events = getattr(data, "events", None) or []
+    pdf.section_title("Verlauf")
+    if not events:
+        pdf.set_font(_FONT, "", 9)
+        _paragraph(pdf, "Noch keine Ereignisse erfasst.")
+        pdf.ln(2)
+        return
+    for event in events:
+        pdf.set_font(_FONT, "", 8)
+        pdf.set_text_color(*_GRAY)
+        pdf.cell(28, 5, _fmt_date(getattr(event, "at", None)))
+        pdf.set_text_color(*_DARK)
+        pdf.set_font(_FONT, "", 9)
+        pdf.multi_cell(
+            0,
+            5,
+            _safe_str(getattr(event, "summary", None)),
+            new_x="LMARGIN",
+            new_y="NEXT",
+        )
+    pdf.ln(2)
+
+
+def _status_report_photo_size(photo: bytes) -> Optional[tuple[float, float]]:
+    try:
+        with Image.open(io.BytesIO(photo)) as img:
+            w_px, h_px = img.size
+    except Exception:
+        logger.warning("Could not read status report photo", exc_info=True)
+        return None
+    if w_px <= 0 or h_px <= 0:
+        return None
+    h_mm = min(_STATUS_REPORT_THUMB_W_MM * h_px / w_px, _STATUS_REPORT_THUMB_MAX_H_MM)
+    return h_mm * w_px / h_px, h_mm
+
+
+def _status_report_photos(pdf: "_GoldsmithPDF", photos: list[bytes]) -> None:
+    if not photos:
+        return
+    pdf.section_title(f"Aktuelle Fotos ({len(photos)})")
+    x, row_h, col = pdf.l_margin, 0.0, 0
+    for photo in photos:
+        size = _status_report_photo_size(photo)
+        if size is None:
+            continue
+        w_mm, h_mm = size
+        bottom = pdf.get_y() + _STATUS_REPORT_THUMB_MAX_H_MM
+        if col == 0 and bottom > pdf.page_break_trigger:
+            pdf.add_page()
+        rect = (x, pdf.get_y(), w_mm, h_mm)
+        try:
+            _embed_image_bytes(pdf, photo, rect, suffix=".jpg")
+        except Exception:
+            logger.warning("Could not embed status report photo", exc_info=True)
+            continue
+        row_h, col = max(row_h, h_mm), col + 1
+        x += _STATUS_REPORT_THUMB_W_MM + _STATUS_REPORT_THUMB_GAP_MM
+        if col == _STATUS_REPORT_THUMBS_PER_ROW:
+            pdf.set_y(pdf.get_y() + row_h + _STATUS_REPORT_THUMB_GAP_MM)
+            x, row_h, col = pdf.l_margin, 0.0, 0
+    if col:
+        pdf.set_y(pdf.get_y() + row_h + _STATUS_REPORT_THUMB_GAP_MM)
+
+
+def _status_report_next_steps_and_contact(
+    pdf: "_GoldsmithPDF", data: Any, workshop: Mapping[str, Any]
+) -> None:
+    pdf.section_title("Wie geht es weiter?")
+    pdf.set_font(_FONT, "", 9)
+    _paragraph(pdf, _safe_str(getattr(data, "next_steps", None)))
+    pdf.ln(2)
+    pdf.section_title("Kontakt")
+    pdf.set_font(_FONT, "", 9)
+    phone = _safe_str(workshop.get("phone"))
+    email = _safe_str(workshop.get("email"))
+    contact_bits = [bit for bit in (phone, email) if bit]
+    contact_line = (
+        f"Bei Fragen erreichen Sie uns unter {' oder '.join(contact_bits)}."
+        if contact_bits
+        else "Bei Fragen erreichen Sie uns gern in der Werkstatt."
+    )
+    _paragraph(pdf, contact_line)
+    pdf.ln(3)
+    pdf.set_font(_FONT, "", 7.5)
+    pdf.set_text_color(*_GRAY)
+    _paragraph(pdf, _STATUS_REPORT_ART13_NOTE)
+    pdf.set_text_color(*_DARK)
+
+
+def _render_status_report_fpdf(data: Any) -> bytes:
+    """Render the Statusbericht (order or repair) as PDF bytes.
+
+    ``data`` is a ``status_report_service.StatusReportData`` — never carries
+    prices, cost internals, staff names or internal/diagnosis notes; only
+    the piece's customer-facing facts, the sent-to-customer timeline and the
+    photos actually shared with this customer so far (see that module's
+    docstring for the exact visibility rule per photo source).
+    """
+    workshop = getattr(data, "workshop", None) or {}
+    name = _safe_str(workshop.get("name")) or "Goldschmiede"
+    footer = f"{name}  |  Statusbericht {_safe_str(getattr(data, 'reference', ''))}"
+    pdf = _GoldsmithPDF(workshop_name=name, footer_text=footer)
+    pdf.set_title(f"Statusbericht {_safe_str(getattr(data, 'reference', ''))}")
+    _status_report_header(pdf, data, workshop)
+    _status_report_piece(pdf, data)
+    _status_report_timeline(pdf, data)
+    _status_report_photos(pdf, list(getattr(data, "photos", None) or []))
+    _status_report_next_steps_and_contact(pdf, data, workshop)
     return bytes(pdf.output())

@@ -1,4 +1,4 @@
-import { test, expect, Page } from '@playwright/test';
+import { test, expect } from '@playwright/test';
 
 const BASE = 'http://localhost:3000';
 // Defaults match scripts/seed_demo.py's admin/inhaber account (the single

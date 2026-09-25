@@ -36,6 +36,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from goldsmith_erp.core.permissions import Permission, has_permission
+from goldsmith_erp.core.timeutil import ensure_utc
 from goldsmith_erp.db.models import (
     CostChangeRequest,
     CostChangeStatus,
@@ -101,14 +102,14 @@ def berlin_today(now_utc: Optional[datetime] = None) -> date:
 
 
 def _berlin_date(stored_utc: datetime) -> date:
-    """Calendar day in Berlin of a naive-UTC stored timestamp."""
-    return stored_utc.replace(tzinfo=timezone.utc).astimezone(BERLIN).date()
+    """Calendar day in Berlin of a stored UTC timestamp (naive read as UTC)."""
+    return ensure_utc(stored_utc).astimezone(BERLIN).date()
 
 
 def _day_start_utc(day: date) -> datetime:
-    """Naive-UTC instant of Berlin midnight at the start of ``day``."""
+    """Aware-UTC instant of Berlin midnight at the start of ``day``."""
     local_midnight = datetime.combine(day, time.min, tzinfo=BERLIN)
-    return local_midnight.astimezone(timezone.utc).replace(tzinfo=None)
+    return local_midnight.astimezone(timezone.utc)
 
 
 def _customer_name(customer: Optional[OrmRow]) -> Optional[str]:
@@ -139,6 +140,7 @@ def _order_work_item(order: OrmRow, today: date) -> WorkItem:
         days_overdue=(today - due).days,
         customer_id=order.customer_id,
         customer_name=_customer_name(order.customer),
+        job_id=order.job_id,
     )
 
 
@@ -155,6 +157,7 @@ def _repair_work_item(repair: OrmRow, today: date) -> WorkItem:
         customer_id=repair.customer_id,
         customer_name=_customer_name(repair.customer),
         bag_number=repair.bag_number,
+        job_id=repair.job_id,
     )
 
 
@@ -189,6 +192,7 @@ def _cost_change_item(change: OrmRow) -> PendingItem:
         customer_id=order.customer_id if order else None,
         customer_name=_customer_name(order.customer) if order else None,
         order_id=change.order_id,
+        job_id=order.job_id if order else None,
         amount=change.new_amount,
     )
 
@@ -215,6 +219,7 @@ def _customer_update_item(update: OrmRow) -> PendingItem:
         customer_name=_customer_name(customer),
         order_id=update.order_id,
         repair_id=update.repair_job_id,
+        job_id=update.job_id,
     )
 
 
@@ -229,6 +234,7 @@ def _repair_ready_item(repair: OrmRow) -> PendingItem:
         customer_name=_customer_name(repair.customer),
         repair_id=repair.id,
         bag_number=repair.bag_number,
+        job_id=repair.job_id,
     )
 
 
@@ -242,6 +248,7 @@ def _order_ready_item(order: OrmRow) -> PendingItem:
         customer_id=order.customer_id,
         customer_name=_customer_name(order.customer),
         order_id=order.id,
+        job_id=order.job_id,
     )
 
 
@@ -510,7 +517,7 @@ class DashboardService:
         )
         return DashboardToday(
             today=today,
-            generated_at=now.astimezone(timezone.utc).replace(tzinfo=None),
+            generated_at=now.astimezone(timezone.utc),
             can_view_financials=has_permission(user, Permission.FINANCIAL_VIEW),
             truncated=lanes.truncated,
             overdue=overdue,

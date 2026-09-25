@@ -1,19 +1,23 @@
-// ConsultationsPage — Beratungen (V1.1 consultation list, Task 9).
-// Follows the page-container/page-header conventions established by
-// CustomersPage; the status filter and card grid reuse the wizard's own
-// chip/card visual language (styles/consultations.css) instead of the
-// table layout other list pages use, since a Beratung reads as a small
-// summary card rather than a row of tabular fields.
-import React, { useCallback, useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+// ConsultationsPage — Beratungen list on TanStack Query (W4-03).
+//
+// GET /consultations/ answers with a legacy plain list (no Page envelope),
+// so it runs inside useQuery with the status filter in the key. Each
+// Beratung is a ListCard whose whole card is a link: drafts resume at the
+// wizard step where editing left off, everything else opens the summary.
+// No realtime channel carries consultation changes; the wizard invalidates
+// ['consultations'] after its writes.
+import React, { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { format } from 'date-fns';
 import { consultationsApi } from '../api/consultations';
-import { ConsultationListItem, ConsultationStatus } from '../types';
+import { queryKeys } from '../api/queryKeys';
+import type { ConsultationListItem, ConsultationStatus } from '../types';
 import { OCCASION_LABELS, PIECE_TYPE_LABELS } from '../components/consultation/labels';
 import { logError } from '../lib/logError';
+import { getErrorMessage } from '../lib/errors';
 import { CONSULTATION_STATUS, statusLabelsFor } from '../design/status';
+import { ButtonLink, ListCard, PageHeader, PageState, type PageStateValue } from '../ui';
 import { StatusBadge } from '../ui/StatusBadge';
-import '../styles/pages.css';
 import '../styles/consultations.css';
 
 const STATUS_LABELS = statusLabelsFor(CONSULTATION_STATUS);
@@ -26,61 +30,78 @@ const STATUS_FILTERS: { label: string; value: ConsultationStatus | undefined }[]
   })),
 ];
 
-/** Card click target: drafts resume at the wizard step where editing left
- *  off (step 2, occasion/budget — step 1 is customer selection, already
- *  done for an existing draft); everything else opens the read-only
- *  summary step. */
+/** Drafts resume at step 2 (occasion/budget; step 1, the customer, is done
+ *  for an existing draft); everything else opens the read-only summary. */
+const DRAFT_RESUME_STEP = 2;
+const SUMMARY_STEP = 7;
+
 function targetStepFor(status: ConsultationStatus): number {
-  return status === 'draft' ? 2 : 7;
+  return status === 'draft' ? DRAFT_RESUME_STEP : SUMMARY_STEP;
 }
 
-export const ConsultationsPage: React.FC = () => {
-  const navigate = useNavigate();
-  const [consultations, setConsultations] = useState<ConsultationListItem[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [statusFilter, setStatusFilter] = useState<ConsultationStatus | undefined>(undefined);
+function formatDay(iso: string): string {
+  return format(new Date(iso), 'dd.MM.yyyy');
+}
 
-  const fetchConsultations = useCallback(async () => {
-    try {
-      setIsLoading(true);
-      setError(null);
-      const data = await consultationsApi.getAll({ status: statusFilter });
-      setConsultations(data);
-    } catch (err) {
-      logError('Beratungen laden fehlgeschlagen', err);
-      setError('Fehler beim Laden der Beratungen');
-    } finally {
-      setIsLoading(false);
+async function fetchConsultations(status: ConsultationStatus | undefined): Promise<ConsultationListItem[]> {
+  try {
+    return await consultationsApi.getAll({ status });
+  } catch (err) {
+    logError('Beratungen laden fehlgeschlagen', err);
+    throw err;
+  }
+}
+
+const NewConsultationLink: React.FC = () => (
+  <ButtonLink to="/consultations/new" icon="plus">
+    Beratung starten
+  </ButtonLink>
+);
+
+const ConsultationCard: React.FC<{ item: ConsultationListItem }> = ({ item }) => (
+  <ListCard
+    href={`/consultations/${item.id}?step=${targetStepFor(item.status)}`}
+    title={OCCASION_LABELS[item.occasion]}
+    badges={<StatusBadge kind="consultation" status={item.status} />}
+    meta={
+      <>
+        <span>{item.piece_type ? PIECE_TYPE_LABELS[item.piece_type] : 'Kein Schmuckstück-Typ'}</span>
+        <span aria-hidden="true"> · </span>
+        <span className="ui-num">{formatDay(item.created_at)}</span>
+        {item.follow_up_at && (
+          <span className="consultation-card__followup">
+            {' '}
+            · Wiedervorlage: <span className="ui-num">{formatDay(item.follow_up_at)}</span>
+          </span>
+        )}
+      </>
     }
-  }, [statusFilter]);
+  />
+);
 
-  useEffect(() => {
-    fetchConsultations();
-  }, [fetchConsultations]);
+export const ConsultationsPage: React.FC = () => {
+  const [statusFilter, setStatusFilter] = useState<ConsultationStatus | undefined>(undefined);
+  const query = useQuery({
+    queryKey: queryKeys.consultations.list(statusFilter),
+    queryFn: () => fetchConsultations(statusFilter),
+  });
+  const consultations = query.data ?? [];
 
-  const handleCardClick = (item: ConsultationListItem) => {
-    navigate(`/consultations/${item.id}?step=${targetStepFor(item.status)}`);
-  };
-
-  if (isLoading && consultations.length === 0 && !error) {
-    return <div className="page-loading">Lade Beratungen...</div>;
+  let state: PageStateValue = { status: consultations.length ? 'ready' : 'empty' };
+  if (query.isPending) state = { status: 'loading' };
+  if (query.isError) {
+    state = {
+      status: 'error',
+      error: getErrorMessage(query.error, 'Beratungen konnten nicht geladen werden.'),
+      retry: () => void query.refetch(),
+    };
   }
 
   return (
-    <div className="page-container">
-      <header className="page-header">
-        <h1>Beratungen</h1>
-        <button className="btn-primary" onClick={() => navigate('/consultations/new')}>
-          + Neue Beratung
-        </button>
-      </header>
+    <div className="page-container consultations-page">
+      <PageHeader title="Beratungen" primaryAction={<NewConsultationLink />} />
 
-      <div
-        className="chip-group consultation-status-filters"
-        role="group"
-        aria-label="Nach Status filtern"
-      >
+      <div className="chip-group consultation-status-filters" role="group" aria-label="Nach Status filtern">
         {STATUS_FILTERS.map((filter) => (
           <button
             key={filter.label}
@@ -94,50 +115,24 @@ export const ConsultationsPage: React.FC = () => {
         ))}
       </div>
 
-      {error && (
-        <div className="page-error">
-          {error}
-          <button onClick={fetchConsultations} className="btn-primary">
-            Erneut versuchen
-          </button>
-        </div>
-      )}
-
-      {!error && consultations.length === 0 ? (
-        <div className="empty-state">
-          <p>Keine Beratungen gefunden.</p>
-          <p className="error-hint">Starten Sie eine neue Beratung, um loszulegen.</p>
-        </div>
-      ) : (
-        !error && (
-          <div className="consultation-list">
-            {consultations.map((item) => (
-              <button
-                key={item.id}
-                type="button"
-                className="consultation-list-card"
-                onClick={() => handleCardClick(item)}
-              >
-                <div className="consultation-list-card-header">
-                  <StatusBadge kind="consultation" status={item.status} />
-                  <span className="consultation-list-card-date">
-                    {format(new Date(item.created_at), 'dd.MM.yyyy')}
-                  </span>
-                </div>
-                <h3 className="consultation-list-card-title">{OCCASION_LABELS[item.occasion]}</h3>
-                <p className="consultation-list-card-meta">
-                  {item.piece_type ? PIECE_TYPE_LABELS[item.piece_type] : 'Kein Schmuckstück-Typ'}
-                </p>
-                {item.follow_up_at && (
-                  <p className="consultation-list-card-followup">
-                    Wiedervorlage: {format(new Date(item.follow_up_at), 'dd.MM.yyyy')}
-                  </p>
-                )}
-              </button>
-            ))}
-          </div>
-        )
-      )}
+      <PageState
+        state={state}
+        skeleton="cards"
+        empty={{
+          icon: 'inbox',
+          title: 'Keine Beratungen gefunden',
+          body: statusFilter ? 'Einen anderen Status wählen.' : 'Starten Sie eine neue Beratung, um loszulegen.',
+          action: <NewConsultationLink />,
+        }}
+      >
+        <ul className="consultation-list" aria-label="Beratungen">
+          {consultations.map((item) => (
+            <li key={item.id}>
+              <ConsultationCard item={item} />
+            </li>
+          ))}
+        </ul>
+      </PageState>
     </div>
   );
 };

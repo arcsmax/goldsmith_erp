@@ -91,6 +91,27 @@ export function canCreateRepairs(role?: UserRole | string | null): boolean {
   return normalized === 'ADMIN' || normalized === 'GOLDSMITH';
 }
 
+/**
+ * True when the caller may create a quote (Kostenvoranschlag). Mirrors
+ * `Permission.QUOTE_CREATE` (ADMIN + GOLDSMITH; VIEWER does not hold it —
+ * the /quotes route itself is gated the same way in App.tsx). LV2-04: the
+ * order detail page's "Angebot erstellen" button navigated a VIEWER to
+ * /quotes, which the route guard then silently bounced back to /dashboard.
+ */
+export function canCreateQuotes(role?: UserRole | string | null): boolean {
+  const normalized = normalizeRole(role);
+  return normalized === 'ADMIN' || normalized === 'GOLDSMITH';
+}
+
+/**
+ * True when the caller may create, edit or delete materials. Mirrors
+ * `Permission.MATERIAL_CREATE` / `MATERIAL_EDIT` / `MATERIAL_DELETE`
+ * (ADMIN only; GOLDSMITH and VIEWER hold MATERIAL_VIEW).
+ */
+export function canManageMaterials(role?: UserRole | string | null): boolean {
+  return normalizeRole(role) === 'ADMIN';
+}
+
 /** Short German hint shown where hiding a financial section would
  *  otherwise leave a confusing empty gap. */
 export const FINANCIAL_HIDDEN_HINT = 'Keine Berechtigung für Finanzdaten';

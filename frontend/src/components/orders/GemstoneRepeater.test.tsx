@@ -1,6 +1,7 @@
 // GemstoneRepeater (W2-06, DOM-04): stones on the order form and Übersicht.
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { render, screen, within } from '@testing-library/react';
+import { screen, within } from '@testing-library/react';
+import { renderWithQuery } from '../../test/queryWrapper';
 import userEvent from '@testing-library/user-event';
 
 const mockList = vi.fn();
@@ -48,7 +49,7 @@ beforeEach(() => {
 
 describe('GemstoneRepeater', () => {
   it('loads the stones of the order and shows the Fassungsart dropdown with German labels', async () => {
-    render(<GemstoneRepeater orderId={5} canEdit canViewCost />);
+    renderWithQuery(<GemstoneRepeater orderId={5} canEdit canViewCost />);
 
     const select = await screen.findByLabelText('Fassungsart (Stein 1)');
     expect(mockList).toHaveBeenCalledWith(5);
@@ -68,7 +69,7 @@ describe('GemstoneRepeater', () => {
   it('adds a new stone row and saves it with the chosen Fassungsart and Kundenstein flag', async () => {
     mockList.mockResolvedValue([]);
     mockCreate.mockResolvedValue({ ...diamond, id: 12, type: 'Rubin', setting_type: 'bezel' });
-    render(<GemstoneRepeater orderId={5} canEdit canViewCost />);
+    renderWithQuery(<GemstoneRepeater orderId={5} canEdit canViewCost />);
 
     await userEvent.click(await screen.findByRole('button', { name: 'Stein hinzufügen' }));
     await userEvent.type(screen.getByLabelText('Steinart (Stein 1)'), 'Rubin');
@@ -92,7 +93,7 @@ describe('GemstoneRepeater', () => {
 
   it('asks before removing a saved stone', async () => {
     mockRemove.mockResolvedValue(undefined);
-    render(<GemstoneRepeater orderId={5} canEdit canViewCost />);
+    renderWithQuery(<GemstoneRepeater orderId={5} canEdit canViewCost />);
 
     await userEvent.click(await screen.findByRole('button', { name: 'Stein entfernen' }));
     expect(mockShowConfirm).toHaveBeenCalledWith(expect.objectContaining({ variant: 'danger' }));
@@ -100,7 +101,7 @@ describe('GemstoneRepeater', () => {
   });
 
   it('is read-only without edit rights and hides the cost', async () => {
-    render(<GemstoneRepeater orderId={5} canEdit={false} canViewCost={false} />);
+    renderWithQuery(<GemstoneRepeater orderId={5} canEdit={false} canViewCost={false} />);
 
     expect(await screen.findByText('3 × Diamant 0,10 ct G/VS1, rund, Krappenfassung')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Stein hinzufügen' })).not.toBeInTheDocument();
@@ -109,7 +110,7 @@ describe('GemstoneRepeater', () => {
 
   it('shows an empty state with an action when the order has no stones', async () => {
     mockList.mockResolvedValue([]);
-    render(<GemstoneRepeater orderId={5} canEdit canViewCost />);
+    renderWithQuery(<GemstoneRepeater orderId={5} canEdit canViewCost />);
 
     expect(await screen.findByText('Noch keine Steine erfasst.')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Stein hinzufügen' })).toBeInTheDocument();

@@ -28,7 +28,7 @@ cancelled orders out of deadline alarms and active counts.
 from __future__ import annotations
 
 import logging
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from typing import Any, Iterable, Mapping, Optional, Union, cast
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -36,6 +36,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from goldsmith_erp.core.errors import ConflictError, DomainValidationError
 from goldsmith_erp.db.models import Order, OrderEvent, OrderStatusEnum, User
 from goldsmith_erp.services.hallmark_vocabulary import satisfies_hallmark_requirement
+from goldsmith_erp.services.job_service import JobService
 
 logger = logging.getLogger(__name__)
 
@@ -384,17 +385,20 @@ async def transition(
 
     row.status = target
     _apply_side_fields(row, target, clean_reason, resume_date)
+    # ARCH phase 5: the job spine follows every status write.
+    job = await JobService.sync_order(db, order)
 
     event_meta: dict[str, Any] = dict(meta or {})
     if target is S.ON_HOLD and resume_date is not None:
         event_meta["resume_date"] = resume_date.isoformat()
     event = OrderEvent(
         order_id=order.id,
+        job_id=job.id,
         from_status=current.value,
         to_status=target.value,
         user_id=_user_id(user),
         reason=clean_reason,
-        created_at=datetime.utcnow(),
+        created_at=datetime.now(timezone.utc),
         meta=event_meta or None,
     )
     db.add(event)
@@ -418,13 +422,18 @@ async def record_creation(
     *,
     meta: Optional[dict[str, Any]] = None,
 ) -> OrderEvent:
-    """Add the first event (``from_status`` NULL) for a just-flushed order."""
+    """Add the first event (``from_status`` NULL) for a just-flushed order.
+
+    Also creates the order's job (ARCH phase 5).
+    """
+    job = await JobService.sync_order(db, order)
     event = OrderEvent(
         order_id=order.id,
+        job_id=job.id,
         from_status=None,
         to_status=_coerce(cast(Any, order).status).value,
         user_id=_user_id(user),
-        created_at=datetime.utcnow(),
+        created_at=datetime.now(timezone.utc),
         meta=meta,
     )
     db.add(event)

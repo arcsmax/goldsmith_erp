@@ -1,5 +1,6 @@
 // Admin API Service — system health, backup management
 import apiClient from './client';
+import type { Schema } from './generated';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -269,5 +270,27 @@ export const updateWorkshopSettings = async (
   data: WorkshopSettingsInput
 ): Promise<WorkshopSettings> => {
   const response = await apiClient.put<WorkshopSettings>('/admin/workshop-settings', data);
+  return response.data;
+};
+
+// ---------------------------------------------------------------------------
+// Nachrichten-Warteschlange / outbox (ARCH-04, ADMIN only)
+// ---------------------------------------------------------------------------
+
+export type OutboxMessage = Schema<'OutboxMessageRead'>;
+export type OutboxList = Schema<'OutboxListResponse'>;
+export type OutboxStatus = OutboxMessage['status'];
+
+/** Queued customer mails, newest first, optionally one status. */
+export const getOutbox = async (status?: OutboxStatus): Promise<OutboxList> => {
+  const response = await apiClient.get<OutboxList>('/admin/outbox', {
+    params: status ? { status } : undefined,
+  });
+  return response.data;
+};
+
+/** Send a failed or dead message again (the worker picks it up). */
+export const retryOutboxMessage = async (id: number): Promise<OutboxMessage> => {
+  const response = await apiClient.post<OutboxMessage>(`/admin/outbox/${id}/retry`);
   return response.data;
 };

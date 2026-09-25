@@ -369,8 +369,8 @@ export const PunzierungsCheckModal: React.FC<
         </fieldset>
 
         <p id="punz-help" className="punz-help" data-testid="punz-help">
-          Hinweis: Mindestens eine Feingehaltspunze muss bestaetigt werden —
-          oder ein Grund fuer „nicht punziert“. Zeitstempel und Pruefer
+          Hinweis: Mindestens eine Feingehaltspunze muss bestätigt werden —
+          oder ein Grund für „nicht punziert“. Zeitstempel und Prüfer
           werden gespeichert.
         </p>
         {!canSubmit ? (
@@ -382,7 +382,7 @@ export const PunzierungsCheckModal: React.FC<
           >
             {isNichtPunziert
               ? 'Bitte einen Grund angeben.'
-              : 'Bitte mindestens eine Feingehaltspunze auswaehlen.'}
+              : 'Bitte mindestens eine Feingehaltspunze auswählen.'}
           </p>
         ) : null}
 

@@ -159,6 +159,9 @@ export const mockTimeTrackingStats: TimeTrackingStats = {
 // Request handlers
 export const handlers = [
   // Activities endpoints
+  // Media assets (ARCH phase 4): the photo tab reads customer_visible flags.
+  http.get(`${API_BASE}/media`, () => HttpResponse.json([])),
+
   http.get(`${API_BASE}/activities/`, ({ request }) => {
     const url = new URL(request.url);
     const category = url.searchParams.get('category');
@@ -331,5 +334,13 @@ export const handlers = [
     const body = (await request.json()) as Record<string, unknown>;
     // Return the entry with interruption added
     return HttpResponse.json(mockRunningEntry);
+  }),
+
+  // Public portal (no auth): CustomerPortalPage fetches this on mount for
+  // the footer's real name/phone/email (W7 hygiene — replaces a hardcoded
+  // placeholder). Harmless default so tests that merely render the page
+  // (e.g. App.portal.test.tsx) don't hit an unhandled-request warning.
+  http.get(`${API_BASE}/portal/workshop-contact`, () => {
+    return HttpResponse.json({ name: 'Goldschmiede', phone: null, email: null });
   }),
 ];

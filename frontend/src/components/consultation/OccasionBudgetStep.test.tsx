@@ -69,8 +69,8 @@ describe('OccasionBudgetStep', () => {
       />
     );
 
-    fireEvent.change(screen.getByLabelText('Budget von €'), { target: { value: '500' } });
-    fireEvent.change(screen.getByLabelText('Budget bis €'), { target: { value: '100' } });
+    fireEvent.change(screen.getByLabelText('Budget von'), { target: { value: '500' } });
+    fireEvent.change(screen.getByLabelText('Budget bis'), { target: { value: '100' } });
 
     expect(
       screen.getByText('Von-Budget darf nicht über dem Bis-Budget liegen')
@@ -92,7 +92,7 @@ describe('OccasionBudgetStep', () => {
       />
     );
 
-    fireEvent.change(screen.getByLabelText('Budget von €'), { target: { value: '-50' } });
+    fireEvent.change(screen.getByLabelText('Budget von'), { target: { value: '-50' } });
 
     expect(screen.getByText('Darf nicht negativ sein')).toBeInTheDocument();
     expect(onFieldsChange).toHaveBeenLastCalledWith(null);

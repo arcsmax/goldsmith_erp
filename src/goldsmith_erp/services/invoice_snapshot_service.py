@@ -43,7 +43,7 @@ import base64
 import hashlib
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from decimal import Decimal
 from types import SimpleNamespace
 from typing import Any, Dict, Iterable, List, Optional
@@ -53,11 +53,13 @@ from sqlalchemy.future import select
 from sqlalchemy.orm import selectinload
 
 from goldsmith_erp.core.config import settings
+from goldsmith_erp.core.timeutil import ensure_utc
 from goldsmith_erp.db.models import Customer as CustomerModel
 from goldsmith_erp.db.models import Invoice as InvoiceModel
 from goldsmith_erp.db.models import InvoiceLineItem as InvoiceLineItemModel
 from goldsmith_erp.db.models import InvoiceStatus
 from goldsmith_erp.db.models import Order as OrderModel
+from goldsmith_erp.models._common import dec, money
 from goldsmith_erp.services.pdf_service import PDFService
 from goldsmith_erp.services.workshop_settings_service import (
     WorkshopSettingsService,
@@ -82,7 +84,7 @@ def _iso(value: Optional[datetime]) -> Optional[str]:
 
 
 def _parse_dt(value: Optional[str]) -> Optional[datetime]:
-    return datetime.fromisoformat(value) if value else None
+    return ensure_utc(datetime.fromisoformat(value)) if value else None
 
 
 def _money(value: Any) -> float:
@@ -199,10 +201,10 @@ class InvoiceSnapshotService:
         """
         credit = float(scrap_gold_credit)
         total = _money(invoice.total)
-        return {
+        snapshot: Dict[str, Any] = {
             "version": SNAPSHOT_VERSION,
             "backfilled": backfilled,
-            "captured_at": datetime.utcnow().isoformat(),
+            "captured_at": datetime.now(timezone.utc).isoformat(),
             "recipient": _recipient(customer),
             "seller": dict(seller) if seller is not None else _legacy_seller(),
             "gemstones": _gemstones(order),
@@ -230,9 +232,20 @@ class InvoiceSnapshotService:
                 "tax_amount": _money(invoice.tax_amount),
                 "total": total,
                 "scrap_gold_credit": credit,
-                "amount_due": round(total - credit, 2),
+                # Decimal, not float round() (BE-14); JSON keeps numbers.
+                "amount_due": float(money(dec(invoice.total) - dec(scrap_gold_credit))),
             },
         }
+        # ARCH phase 5: a repair invoice names the repair instead of an order
+        # id on the PDF ("Reparaturnummer: REP-..."). Only set when present,
+        # so order snapshots keep their W1-10 layout.
+        reference = getattr(order, "reference", None)
+        if reference:
+            snapshot["invoice"]["reference"] = reference
+            snapshot["invoice"]["reference_label"] = getattr(
+                order, "reference_label", None
+            )
+        return snapshot
 
     @staticmethod
     def dump(snapshot: Dict[str, Any]) -> str:
@@ -326,6 +339,8 @@ class InvoiceSnapshotService:
             if invoice.status == InvoiceStatus.CANCELLED
             else InvoiceService._scrap_gold_credit_amount(
                 await InvoiceService._get_scrap_gold_credit(db, invoice.order_id)
+                if invoice.order_id is not None
+                else []
             )
         )
         snapshot = InvoiceSnapshotService.build(
@@ -361,7 +376,7 @@ class InvoiceSnapshotService:
         pdf_bytes = InvoiceSnapshotService.render(invoice)
         invoice.issued_pdf = base64.b64encode(pdf_bytes).decode("ascii")
         invoice.issued_pdf_sha256 = hashlib.sha256(pdf_bytes).hexdigest()
-        invoice.issued_at = datetime.utcnow()
+        invoice.issued_at = datetime.now(timezone.utc)
         logger.info(
             "Invoice PDF frozen",
             extra={
@@ -404,6 +419,8 @@ class InvoiceSnapshotService:
             invoice=SimpleNamespace(
                 invoice_number=header["invoice_number"],
                 order_id=header["order_id"],
+                reference=header.get("reference"),
+                reference_label=header.get("reference_label"),
                 issue_date=_parse_dt(header["issue_date"]),
                 due_date=_parse_dt(header["due_date"]),
                 service_date=_parse_dt(header.get("service_date")),

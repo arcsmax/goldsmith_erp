@@ -1,27 +1,32 @@
 // CostAlertBanner — §649 cost-alert banner for the order-detail header
-// (V1.2 Task 4).
+// (V1.2 Task 4; W4-03 on TanStack Query + src/ui).
 //
-// Fetches the projected net cost for an order and, when the projected total
-// exceeds the baseline threshold, shows an amber/red alert with the delta and
-// a CTA into the §649 cost-change flow. `getProjectedCost` is
-// COST_CHANGE_VIEW (ADMIN + GOLDSMITH only) — a VIEWER 403s, so the fetch
-// itself is gated on the role, not just the rendered UI (mirrors
-// KundeninfoTab's canManage gate). A failed fetch must never crash the
-// order-detail page — it is swallowed + logged and the banner renders
-// nothing, mirroring NoGoWarning's swallow+log pattern (see
-// src/components/consultation/NoGoWarning.tsx).
-import React, { useEffect, useState } from 'react';
+// Reads the projected net cost for an order and, when the projected total
+// exceeds the baseline threshold, shows a waiting-tone alert card with the
+// delta and a CTA into the §649 cost-change flow. `getProjectedCost` is
+// COST_CHANGE_VIEW (ADMIN + GOLDSMITH only) — a VIEWER 403s, so the query
+// itself is disabled for that role, not just the rendered UI. A failed
+// fetch must never crash the order-detail page: it is logged and the banner
+// renders nothing.
+//
+// The key sits under queryKeys.orders.detail(orderId), so a cost-change
+// mutation (invalidateOrder) or an order_updates hint refreshes it; no
+// manual refresh counter is needed.
+import React from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '../../contexts';
 import { customerUpdatesApi, ProjectedCost } from '../../api/customer-updates';
+import { queryKeys } from '../../api/queryKeys';
 import { logError } from '../../lib/logError';
-import { formatCurrency, formatPercentage } from '../../utils/formatters';
+import { formatEur, MONEY_CLASS } from '../../lib/format';
+import { formatPercentage } from '../../utils/formatters';
+import { Button, Card } from '../../ui';
 import './cost-alert-banner.css';
 
 export interface CostAlertBannerProps {
   orderId: number;
   onCreateCostChange: () => void;
-  /** Bump this to force a re-fetch (e.g. after a cost-change action changes
-   *  the projected cost) without changing `orderId`. */
+  /** @deprecated W4-03: the query refreshes via invalidation; ignored. */
   refreshKey?: number;
 }
 
@@ -38,68 +43,50 @@ function baselineLabel(source: ProjectedCost['baseline_source']): string {
   return DEFAULT_BASELINE_LABEL;
 }
 
-export function CostAlertBanner({
-  orderId,
-  onCreateCostChange,
-  refreshKey,
-}: CostAlertBannerProps) {
+async function fetchProjectedCost(orderId: number): Promise<ProjectedCost> {
+  try {
+    return await customerUpdatesApi.getProjectedCost(orderId);
+  } catch (err) {
+    logError('CostAlertBanner.load', err);
+    throw err;
+  }
+}
+
+export function CostAlertBanner({ orderId, onCreateCostChange }: CostAlertBannerProps) {
   const { hasRole } = useAuth();
   const canView = hasRole(['ADMIN', 'GOLDSMITH']);
 
-  const [projected, setProjected] = useState<ProjectedCost | null>(null);
+  const { data: projected } = useQuery({
+    queryKey: queryKeys.orders.projectedCost(orderId),
+    queryFn: () => fetchProjectedCost(orderId),
+    enabled: canView,
+  });
 
-  // Skip the GET entirely for a user without COST_CHANGE_VIEW — the backend
-  // 403s that role, and we must never even attempt it. Guards against
-  // out-of-order responses + setState-after-unmount with a `cancelled` flag,
-  // mirroring NoGoWarning.
-  useEffect(() => {
-    if (!canView) {
-      setProjected(null);
-      return;
-    }
-
-    let cancelled = false;
-    (async () => {
-      try {
-        const data = await customerUpdatesApi.getProjectedCost(orderId);
-        if (!cancelled) setProjected(data);
-      } catch (err) {
-        logError('CostAlertBanner.load', err);
-        if (!cancelled) setProjected(null);
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [orderId, canView, refreshKey]);
-
-  if (!projected || !projected.over_threshold) return null;
+  if (!canView || !projected || !projected.over_threshold) return null;
 
   const deltaAbs = projected.delta_abs ?? 0;
   const deltaPercent = projected.delta_percent ?? 0;
 
   return (
     <div className="cost-alert-banner" role="alert">
-      <div className="cost-alert-banner-body">
-        <p className="cost-alert-banner-headline">
+      <Card
+        tone="waiting"
+        action={
+          <Button variant="primary" icon="receipt" onClick={onCreateCostChange}>
+            §649 Kostenänderung anlegen
+          </Button>
+        }
+      >
+        <p className="cost-alert-banner__headline">
           §649 Hinweis: Kalkulierte Kosten überschreiten die Freigabegrenze
         </p>
-        <p className="cost-alert-banner-detail">
-          Projizierter Gesamtpreis (netto): {formatCurrency(projected.projected_total)} — das
-          sind {formatCurrency(deltaAbs)} (netto) bzw. {formatPercentage(deltaPercent)} mehr{' '}
-          {baselineLabel(projected.baseline_source)}.
+        <p className="cost-alert-banner__detail">
+          Projizierter Gesamtpreis (netto):{' '}
+          <span className={MONEY_CLASS}>{formatEur(projected.projected_total)}</span> — das sind{' '}
+          <span className={MONEY_CLASS}>{formatEur(deltaAbs)}</span> (netto) bzw.{' '}
+          {formatPercentage(deltaPercent)} mehr {baselineLabel(projected.baseline_source)}.
         </p>
-      </div>
-      {canView && (
-        <button
-          type="button"
-          className="cost-alert-banner-cta"
-          onClick={onCreateCostChange}
-        >
-          §649 Kostenänderung anlegen
-        </button>
-      )}
+      </Card>
     </div>
   );
 }

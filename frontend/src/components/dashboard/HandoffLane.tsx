@@ -1,10 +1,14 @@
 // "Übergaben an mich" lane of the Heute view. Each row opens the order's
 // Übergabe tab, where the handoff is accepted or declined (HandoffTab).
-import React, { useCallback, useEffect, useState } from 'react';
+//
+// W3-03: one useQuery (['handoffs', 'pending']); order and notification
+// hints invalidate ['handoffs'] in lib/realtimeInvalidation.
+import React from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { handoffsApi } from '../../api/handoffs';
+import { queryKeys } from '../../api/queryKeys';
 import { getHandoffTypeLabel } from '../../design/status';
 import { logError } from '../../lib/logError';
-import { useRefetchOn } from '../../lib/refetchBus';
 import { TodayLane, TodayRow } from './TodayLane';
 
 interface PendingHandoff {
@@ -21,27 +25,22 @@ function isPendingHandoff(value: unknown): value is PendingHandoff {
   return typeof row.id === 'number' && typeof row.order_id === 'number';
 }
 
+async function fetchPendingHandoffs(): Promise<PendingHandoff[]> {
+  try {
+    const response = await handoffsApi.getPending();
+    const rows: unknown[] = Array.isArray(response.data) ? response.data : [];
+    return rows.filter(isPendingHandoff);
+  } catch (err) {
+    logError('Offene Übergaben konnten nicht geladen werden', err);
+    throw err;
+  }
+}
+
 export const HandoffLane: React.FC = () => {
-  const [handoffs, setHandoffs] = useState<PendingHandoff[]>([]);
-  const [hasError, setHasError] = useState(false);
-
-  const load = useCallback(async () => {
-    try {
-      const response = await handoffsApi.getPending();
-      const rows: unknown[] = Array.isArray(response.data) ? response.data : [];
-      setHandoffs(rows.filter(isPendingHandoff));
-      setHasError(false);
-    } catch (err) {
-      logError('Offene Übergaben konnten nicht geladen werden', err);
-      setHasError(true);
-    }
-  }, []);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
-  useRefetchOn('orders', () => void load());
-  useRefetchOn('notifications', () => void load());
+  const { data: handoffs = [], isError: hasError } = useQuery({
+    queryKey: queryKeys.handoffs.pending(),
+    queryFn: fetchPendingHandoffs,
+  });
 
   if (hasError) {
     return (

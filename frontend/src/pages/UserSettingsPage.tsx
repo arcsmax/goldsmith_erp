@@ -12,6 +12,7 @@ import React from 'react';
 
 import { useScannerContext } from '../contexts/ScannerContext';
 import { ToggleSetting } from '../components/ToggleSetting';
+import { Card, PageHeader } from '../ui';
 import '../styles/user-settings.css';
 
 export const UserSettingsPage: React.FC = () => {
@@ -19,31 +20,22 @@ export const UserSettingsPage: React.FC = () => {
 
   return (
     <div className="user-settings-container" data-testid="user-settings-page">
-      <h1 className="user-settings-title">Einstellungen</h1>
+      <PageHeader title="Einstellungen" stickyPrimary={false} />
 
-      <section
-        className="user-settings-section"
-        aria-labelledby="settings-scanner-heading"
-      >
-        <h2
-          id="settings-scanner-heading"
-          className="user-settings-section-heading"
-        >
-          Scanner-Einstellungen
-        </h2>
+      <Card title="Scanner-Einstellungen" className="user-settings-section">
 
         <ToggleSetting
           id="bench-mode-toggle"
           label="Werkbank-Station-Modus aktivieren"
           description={
-            'Aktiviert den USB-HID-Scanner fuer die Werkbank. ' +
+            'Aktiviert den USB-HID-Scanner für die Werkbank. ' +
             'Tastatureingaben werden als Scans interpretiert, wenn kein ' +
             'Eingabefeld fokussiert ist.'
           }
           checked={benchModeEnabled}
           onChange={toggleBenchMode}
         />
-      </section>
+      </Card>
     </div>
   );
 };

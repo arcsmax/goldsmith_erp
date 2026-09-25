@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, List, Optional, cast
 
@@ -111,7 +111,7 @@ async def build_handover_data(
         order_id=int(order.id),
         title=order.title or f"Auftrag #{order.id}",
         customer_name=_customer_name(order.customer),
-        handed_over_at=now or datetime.utcnow(),
+        handed_over_at=now or datetime.now(timezone.utc),
         metal_label=_METAL_LABELS.get(metal_type or ""),
         alloy=order.alloy,
         weight_g=order.actual_weight_g or order.estimated_weight_g,

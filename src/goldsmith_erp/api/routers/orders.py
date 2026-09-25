@@ -1,6 +1,6 @@
 # src/goldsmith_erp/api/routers/orders.py
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Union
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -45,6 +45,10 @@ from goldsmith_erp.services.label_service import LabelService
 from goldsmith_erp.services.order_service import OrderService
 from goldsmith_erp.services.order_timeline import build_order_timeline
 from goldsmith_erp.services.order_workflow import counts_for_deadline
+from goldsmith_erp.services.status_report_service import (
+    StatusReportNotFoundError,
+    render_order_status_report_pdf,
+)
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -173,7 +177,12 @@ def _project_order_rows(
 )
 @require_permission(Permission.ORDER_VIEW)
 async def list_orders(
-    page: PageParams = Depends(make_page_params(legacy_default_limit=100)),
+    page: PageParams = Depends(
+        make_page_params(
+            legacy_default_limit=100,
+            sort_fields=tuple(list_queries.ORDER_SORT_FIELDS),
+        )
+    ),
     customer_id: Optional[int] = Query(None, description="Filter by customer ID"),
     status: Optional[OrderStatusEnum] = Query(
         None, description="Nach Status filtern (nur mit offset)"
@@ -212,6 +221,7 @@ async def list_orders(
             created_from=created_from,
             created_to=created_to,
             q=q,
+            sort=page.sort,
         )
         result = await list_queries.fetch_page(
             db, stmt, page, list_queries.ORDER_LIST_OPTIONS
@@ -271,7 +281,7 @@ async def get_calendar_deadlines(
         raise HTTPException(
             status_code=422, detail="Ungültiges Datumsformat. ISO-Format erwartet."
         )
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     result = []
     for order in orders:
         if not order.deadline:
@@ -486,6 +496,46 @@ async def get_order_timeline(
             endpoint=f"/api/v1/orders/{order_id}/timeline",
         )
     return timeline
+
+
+@router.get("/{order_id}/status-report.pdf", response_class=Response)
+@require_permission(Permission.CUSTOMER_UPDATE_SEND)
+async def get_order_status_report(
+    order_id: int,
+    next_steps: Optional[str] = Query(None, max_length=2000),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> Response:
+    """Statusbericht (Kundenbericht) als PDF (W6, DOM section D Option 2).
+
+    Werkstatt-Kopf, Schmuckstueck (Titel, Material, Steine), Verlauf aus
+    Status-Ereignissen und tatsaechlich verschickten Kundeninfos, die
+    zuletzt mit der Kundin/dem Kunden geteilten Fotos, ein "Wie geht es
+    weiter"-Text und die Kontaktzeile. Nie Preise, Kosten, interne Notizen
+    oder Mitarbeiternamen (CLAUDE.md). GOLDSMITH/ADMIN only (VIEWER: 403);
+    jeder Abruf wird protokolliert.
+    """
+    try:
+        pdf_bytes = await render_order_status_report_pdf(
+            db, order_id, next_steps=next_steps
+        )
+    except StatusReportNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    logger.info(
+        "Status report PDF served",
+        extra={
+            "audit": True,
+            "action": "order_status_report_pdf",
+            "order_id": order_id,
+            "user_id": current_user.id,
+        },
+    )
+    filename = f"Statusbericht_Auftrag_{order_id}.pdf"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="{filename}"'},
+    )
 
 
 @router.post("/{order_id}/location", response_model=OrderRead)

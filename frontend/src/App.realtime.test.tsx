@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { FakeWebSocket, installFakeWebSocket } from './test/fakeWebSocket';
+import { ToastProvider } from './contexts';
 
 const { getCurrentUser, clientGet } = vi.hoisted(() => ({
   getCurrentUser: vi.fn(),
@@ -37,7 +38,11 @@ const STAFF_USER = { id: 5, email: 'g@example.test', role: 'goldsmith', is_activ
 function renderAt(path: string) {
   return render(
     <MemoryRouter initialEntries={[path]}>
-      <AppRoutes />
+      {/* AppRoutes alone omits ToastProvider (owned by App.tsx); MainLayout
+          renders HidBurstNudge, which needs it, for any authenticated route. */}
+      <ToastProvider>
+        <AppRoutes />
+      </ToastProvider>
     </MemoryRouter>,
   );
 }
@@ -64,7 +69,10 @@ describe('App routing — live-update socket placement (W2-13)', () => {
   });
 
   it('opens exactly one socket in the staff shell once signed in', async () => {
-    renderAt('/login');
+    // LV-21: WebSocketProvider now mounts only inside the authenticated
+    // route tree (ProtectedRoute wrapping MainLayout), never for /login —
+    // so the "signed in" case is exercised through a protected route.
+    renderAt('/dashboard');
     await waitFor(() => expect(FakeWebSocket.instances).toHaveLength(1));
     expect(FakeWebSocket.instances[0].url).toMatch(/\/ws\/events$/);
   });
@@ -73,8 +81,30 @@ describe('App routing — live-update socket placement (W2-13)', () => {
     getCurrentUser.mockRejectedValue(
       Object.assign(new Error('401'), { response: { status: 401 } }),
     );
+    renderAt('/dashboard');
+    expect(await screen.findByRole('heading', { name: 'Anmelden' })).toBeInTheDocument();
+    expect(FakeWebSocket.instances).toHaveLength(0);
+  });
+
+  it('opens no socket on /login, even with a valid session on the device (LV-21)', async () => {
+    // Regression: /login used to sit inside the same provider tree as the
+    // protected routes, so WebSocketProvider (and the timer/activity
+    // loaders) mounted for a logged-out visitor too, firing a WS handshake
+    // that the backend rejected with 403 before any session existed.
     renderAt('/login');
     expect(await screen.findByRole('heading', { name: 'Anmelden' })).toBeInTheDocument();
     expect(FakeWebSocket.instances).toHaveLength(0);
+  });
+
+  it('fetches no running timer and no activities on /login (LV-21)', async () => {
+    // Same regression, the REST side: TimeTrackingProvider used to mount
+    // for /login too and fire GET /time-tracking/running + GET /activities
+    // as soon as it saw any userId, including one hydrated optimistically
+    // from localStorage before the session was verified.
+    renderAt('/login');
+    await screen.findByRole('heading', { name: 'Anmelden' });
+    const calledPaths = clientGet.mock.calls.map(([url]) => String(url));
+    expect(calledPaths.some((url) => url.includes('/time-tracking/running'))).toBe(false);
+    expect(calledPaths.some((url) => url.includes('/activities'))).toBe(false);
   });
 });

@@ -57,7 +57,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, cast
 
 from sqlalchemy import select
@@ -89,6 +89,7 @@ from goldsmith_erp.services.customer_message_service import (
     message_kind_for,
     resolve_recipient,
 )
+from goldsmith_erp.services.job_service import JobService
 from goldsmith_erp.services.pdf_service import PDFService
 
 logger = logging.getLogger(__name__)
@@ -247,7 +248,7 @@ def _log_financial_access(
             "entity_id": update_id,
             "order_id": order_id,
             "user_id": user_id,
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             **(extra or {}),
         },
     )
@@ -344,7 +345,7 @@ async def write_financial_audit_row(
             entity=entity,
             entity_id=entity_id,
             user_id=user_id,
-            timestamp=datetime.utcnow(),
+            timestamp=datetime.now(timezone.utc),
             details=details,
         )
         db.add(audit_log)
@@ -464,9 +465,14 @@ class CustomerUpdateService:
             photo_ids=data.photo_ids,
         )
 
+        # ARCH phase 5: the update also names its job.
+        job_id = await JobService.job_id_for(
+            db, order_id=order_id, repair_job_id=repair_job_id
+        )
         update = CustomerUpdate(
             order_id=order_id,
             repair_job_id=repair_job_id,
+            job_id=job_id,
             kind=data.kind,
             subject=subject,
             body=body,
@@ -508,7 +514,11 @@ class CustomerUpdateService:
 
     @staticmethod
     async def send(
-        db: AsyncSession, update_id: int, user_id: int
+        db: AsyncSession,
+        update_id: int,
+        user_id: int,
+        *,
+        attach_status_report: bool = False,
     ) -> CustomerUpdateSendResult:
         """
         Send (or re-attempt) a CustomerUpdate via email.
@@ -559,7 +569,9 @@ class CustomerUpdateService:
         # W6-01: the dispatch (content rules, opt-out, CAS claim, SMTP,
         # audit row) lives in CustomerMessageService, the single outbound
         # path for customer messages.
-        return await CustomerMessageService.send_update(db, update_id, user_id)
+        return await CustomerMessageService.send_update(
+            db, update_id, user_id, attach_status_report=attach_status_report
+        )
 
     @staticmethod
     async def _notify_send_failure(
@@ -677,7 +689,7 @@ class CustomerUpdateService:
 
         async with transactional(db):
             update.status = cast(Any, CustomerUpdateStatus.SENT)
-            update.sent_at = cast(Any, datetime.utcnow())
+            update.sent_at = cast(Any, datetime.now(timezone.utc))
             update.delivery_method = cast(Any, method)
             # E16: the PDF reached the customer; one audit row per message.
             await CustomerMessageService.record_manual_delivery(db, update, user_id)

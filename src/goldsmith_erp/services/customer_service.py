@@ -3,7 +3,7 @@
 import logging
 import re
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -27,6 +27,7 @@ from goldsmith_erp.db.models import (
     Gemstone,
     Invoice,
     InvoiceLineItem,
+    Job,
     MaterialUsage,
     Notification,
 )
@@ -204,6 +205,8 @@ SCRUBBABLE_FIELDS: List[ScrubTarget] = [
     ),
     # ── Final-sweep (2026-04-17) — definitive coverage ─────────────────
     ScrubTarget(OrderModel, "title", "customer_id", "orders.title"),
+    # ARCH phase 5: jobs.title copies orders.title / repair_jobs.item_description.
+    ScrubTarget(Job, "title", "customer_id", "jobs.title"),
     ScrubTarget(
         CustomerMeasurement,
         "notes",
@@ -793,7 +796,7 @@ class CustomerService:
             for field, value in update_data.items():
                 setattr(db_customer, field, value)
 
-            db_customer.updated_at = datetime.utcnow()
+            db_customer.updated_at = datetime.now(timezone.utc)
             await db.flush()
             await db.refresh(db_customer)
 
@@ -831,7 +834,7 @@ class CustomerService:
 
             # Soft delete
             db_customer.is_active = False
-            db_customer.updated_at = datetime.utcnow()
+            db_customer.updated_at = datetime.now(timezone.utc)
             await db.flush()
 
         logger.info("Customer soft deleted", extra={"customer_id": customer_id})
@@ -1639,7 +1642,7 @@ class CustomerService:
                 "scope": scope_keys,
                 "scrubbed_field_count": scrubbed_field_count,
             },
-            timestamp=datetime.utcnow(),
+            timestamp=datetime.now(timezone.utc),
         )
         db.add(audit_log)
 
@@ -1649,7 +1652,7 @@ class CustomerService:
                 request_type="erasure",
                 status="completed",
                 requested_by=performed_by,
-                completed_at=datetime.utcnow(),
+                completed_at=datetime.now(timezone.utc),
                 notes=(
                     f"Art. 17 erasure — scrubbed {counts['total']} PII "
                     f"occurrence(s) across {token_count} token(s) in "
@@ -1729,7 +1732,7 @@ class CustomerService:
             # still exists and must be held — count it as created now.
             record_date = row[1]
             if counts[table] and record_date is None:
-                record_date = datetime.utcnow()
+                record_date = datetime.now(timezone.utc)
             if record_date is not None and (newest is None or record_date > newest):
                 newest = record_date
         return counts, newest
@@ -1741,7 +1744,9 @@ class CustomerService:
         §147 Abs. 4 AO: the period starts at the end of the calendar year
         the record was created in; it then runs ``RETENTION_YEARS`` years.
         """
-        return datetime(created_at.year + RETENTION_YEARS, 12, 31, 23, 59, 59)
+        return datetime(
+            created_at.year + RETENTION_YEARS, 12, 31, 23, 59, 59, tzinfo=timezone.utc
+        )
 
     @staticmethod
     async def apply_retention_hold(
@@ -1786,7 +1791,7 @@ class CustomerService:
                     "retained_records": counts,
                     "retained_fields": [f.counter_key for f in RETAINED_RECORD_FIELDS],
                 },
-                timestamp=datetime.utcnow(),
+                timestamp=datetime.now(timezone.utc),
             )
         )
         await db.flush()
@@ -1839,7 +1844,7 @@ class CustomerService:
         if customer is None:
             return False
 
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         # Per-customer synthetic address — unique so the NOT NULL + UNIQUE
         # ``email_hash`` blind index never collides between anonymised rows.
         # Same shape UserService.anonymize_user uses for the workforce side.
@@ -1935,7 +1940,7 @@ class CustomerService:
             db: Async session (caller-owned engine; this method drives its
                 own commits/rollbacks per customer).
             now: Override the "current time" (tests). Defaults to
-                ``datetime.utcnow()``.
+                ``datetime.now(timezone.utc)``.
             storage_root: Explicit ``FileErasureService`` root (tests). When
                 omitted, the service is built from
                 ``settings.FILE_STORAGE_ROOT``.
@@ -1953,7 +1958,7 @@ class CustomerService:
             build_default_service,
         )
 
-        now = now or datetime.utcnow()
+        now = now or datetime.now(timezone.utc)
 
         # Fetch only the PK ids up front so we never hold ORM objects across
         # the per-customer commits below (avoids expired-attribute reloads).
@@ -2030,7 +2035,7 @@ class CustomerService:
                         request_type="erasure_cleanup",
                         status="completed",
                         requested_at=now,
-                        completed_at=datetime.utcnow(),
+                        completed_at=datetime.now(timezone.utc),
                         requested_by=performed_by,
                         notes=(
                             f"Art. 17 grace-period cleanup — "

@@ -287,8 +287,9 @@ const TimerWidget: React.FC<TimerWidgetProps> = ({
         {error && <div className="timer-error">{error}</div>}
 
         <div className="timer-start-form">
-          <label>Auftrag</label>
+          <label htmlFor="timer-order-select">Auftrag</label>
           <select
+            id="timer-order-select"
             value={selectedOrderId || ''}
             onChange={(e) => setSelectedOrderId(Number(e.target.value) || null)}
           >
@@ -301,8 +302,9 @@ const TimerWidget: React.FC<TimerWidgetProps> = ({
             ))}
           </select>
 
-          <label>Aktivität</label>
+          <label htmlFor="timer-activity-select">Aktivität</label>
           <select
+            id="timer-activity-select"
             value={selectedActivityId || ''}
             onChange={(e) => setSelectedActivityId(Number(e.target.value) || null)}
           >
@@ -403,6 +405,10 @@ const TimerWidget: React.FC<TimerWidgetProps> = ({
 
             <div className="stop-dialog-content">
               <div className="stop-dialog-field">
+                {/* Group label for a set of star-rating buttons, not a single
+                    form control — see renderStars(); eslint-disable is the
+                    documented jsx-a11y pattern for group labels. */}
+                {/* eslint-disable-next-line jsx-a11y/label-has-associated-control */}
                 <label>Komplexität (1-5)</label>
                 {renderStars(
                   5,
@@ -415,6 +421,7 @@ const TimerWidget: React.FC<TimerWidgetProps> = ({
               </div>
 
               <div className="stop-dialog-field">
+                {/* eslint-disable-next-line jsx-a11y/label-has-associated-control -- group label, see above */}
                 <label>Qualität (1-5)</label>
                 {renderStars(
                   5,
@@ -440,8 +447,9 @@ const TimerWidget: React.FC<TimerWidgetProps> = ({
               </div>
 
               <div className="stop-dialog-field">
-                <label>Notizen (optional)</label>
+                <label htmlFor="timer-stop-notes">Notizen (optional)</label>
                 <textarea
+                  id="timer-stop-notes"
                   value={stopData.notes}
                   onChange={(e) =>
                     setStopData({ ...stopData, notes: e.target.value })

@@ -13,10 +13,16 @@ export interface StatusBadgeProps {
   kind: StatusKind;
   status: string;
   size?: 'md' | 'lg';
+  /**
+   * Customer-facing wording (portal, emails): replaces the staff label from
+   * status.ts while tone and icon still come from the map. Staff screens
+   * never pass it.
+   */
+  label?: string;
   className?: string;
 }
 
-export function StatusBadge({ kind, status, size = 'md', className }: StatusBadgeProps) {
+export function StatusBadge({ kind, status, size = 'md', label, className }: StatusBadgeProps) {
   const found = getStatusMeta(kind, status);
   if (!found) {
     console.warn('StatusBadge: unknown status', { kind, status });
@@ -37,7 +43,7 @@ export function StatusBadge({ kind, status, size = 'md', className }: StatusBadg
   return (
     <span className={classes} data-status={status} data-kind={kind}>
       <Icon name={found?.icon ?? 'circle-help'} className="ui-status-badge__icon" />
-      <span className="ui-status-badge__label">{found?.label ?? status}</span>
+      <span className="ui-status-badge__label">{label ?? found?.label ?? status}</span>
     </span>
   );
 }

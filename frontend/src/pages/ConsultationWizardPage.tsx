@@ -1,8 +1,18 @@
+// ConsultationWizardPage — Beratung wizard (UI-UX-PLAYBOOK 5.3, W4-03).
+//
+// Step bar on top, one topic per step, "Weiter" as the single primary
+// action (bottom right, sticky on phone), "Zurück" never discards valid
+// input. Every step change saves the step's pending fields to the draft
+// (auto-save target) and a polite live region says "Wird gespeichert …" /
+// "Gespeichert". The draft loads through useQuery; saves are a mutation
+// that writes the answer back into the cache and invalidates the list.
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useToast } from '../contexts';
 import { consultationsApi } from '../api/consultations';
-import { Consultation, ConsultationUpdateInput } from '../types';
+import { queryKeys } from '../api/queryKeys';
+import type { Consultation, ConsultationUpdateInput } from '../types';
 import { WizardProgress } from '../components/consultation/WizardProgress';
 import { CustomerStep } from '../components/consultation/CustomerStep';
 import { OccasionBudgetStep } from '../components/consultation/OccasionBudgetStep';
@@ -12,6 +22,10 @@ import { MeasurementStep } from '../components/consultation/MeasurementStep';
 import { PhotoStep } from '../components/consultation/PhotoStep';
 import { SummaryStep } from '../components/consultation/SummaryStep';
 import { logError } from '../lib/logError';
+import { getErrorMessage } from '../lib/errors';
+import { useDirtyGuard } from '../lib/useDirtyGuard';
+import { Button, PageState, type PageStateValue } from '../ui';
+import { StatusBadge } from '../ui/StatusBadge';
 import '../styles/consultations.css';
 
 export interface WizardStepProps {
@@ -30,6 +44,92 @@ export const WIZARD_STEPS: { key: string; title: string }[] = [
   { key: 'summary', title: 'Zusammenfassung' },
 ];
 
+/** An existing draft resumes at step 2 (the customer is already chosen). */
+const DRAFT_DEFAULT_STEP = 2;
+
+type SaveStatus = 'idle' | 'saving' | 'saved';
+
+const NOOP = () => undefined;
+
+function parseStep(raw: string | null, hasConsultation: boolean): number {
+  // A non-numeric value (Number('abc') = NaN) must never reach
+  // WIZARD_STEPS[step - 1]; fall back to the default.
+  const value = Number(raw);
+  const parsed = Number.isFinite(value) && value >= 1 ? value : hasConsultation ? DRAFT_DEFAULT_STEP : 1;
+  return Math.min(Math.max(parsed, 1), WIZARD_STEPS.length);
+}
+
+function useConsultation(consultationId: number | null) {
+  const queryClient = useQueryClient();
+  const { showToast } = useToast();
+  const query = useQuery({
+    queryKey: queryKeys.consultations.detail(consultationId ?? 0),
+    queryFn: async () => {
+      try {
+        return await consultationsApi.getById(consultationId as number);
+      } catch (err) {
+        logError('Beratung laden fehlgeschlagen', err);
+        throw err;
+      }
+    },
+    enabled: consultationId !== null,
+  });
+
+  const save = useMutation({
+    mutationFn: (fields: ConsultationUpdateInput) => consultationsApi.update(consultationId as number, fields),
+    onSuccess: (updated) => {
+      queryClient.setQueryData(queryKeys.consultations.detail(updated.id), updated);
+      void queryClient.invalidateQueries({ queryKey: queryKeys.consultations.all, refetchType: 'none' });
+    },
+    onError: (err) => {
+      logError('Beratung speichern fehlgeschlagen', err);
+      showToast('Speichern fehlgeschlagen — bitte erneut versuchen', 'error');
+    },
+  });
+
+  const onPatch = useCallback(
+    async (fields: ConsultationUpdateInput): Promise<boolean> => {
+      if (!consultationId) return false;
+      if (Object.keys(fields).length === 0) return true;
+      return save
+        .mutateAsync(fields)
+        .then(() => true)
+        .catch(() => false);
+    },
+    // save.mutateAsync is stable across renders (TanStack Query).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [consultationId, save.mutateAsync],
+  );
+
+  const { refetch } = query;
+  const refresh = useCallback(async () => {
+    await refetch();
+  }, [refetch]);
+
+  return { query, save, onPatch, refresh };
+}
+
+function useStepFocus(step: number) {
+  // Move focus to the new step heading on every step change (Weiter,
+  // Zurück, step-bar jump), but not on first mount.
+  const headingRef = useRef<HTMLHeadingElement>(null);
+  const isFirstRender = useRef(true);
+  useEffect(() => {
+    if (isFirstRender.current) {
+      isFirstRender.current = false;
+      return;
+    }
+    headingRef.current?.focus();
+  }, [step]);
+  return headingRef;
+}
+
+const SaveIndicator: React.FC<{ status: SaveStatus }> = ({ status }) => (
+  <p className="wizard-save-status" role="status" aria-live="polite">
+    {status === 'saving' ? 'Wird gespeichert …' : status === 'saved' ? 'Gespeichert' : ''}
+  </p>
+);
+
 export const ConsultationWizardPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -37,81 +137,31 @@ export const ConsultationWizardPage: React.FC = () => {
   const { showToast } = useToast();
 
   const consultationId = id ? Number(id) : null;
-  // Validate the ?step= param: a non-numeric value (Number('abc') = NaN)
-  // must never reach WIZARD_STEPS[step - 1] — fall back to the default.
-  const rawStep = Number(searchParams.get('step'));
-  const parsedStep = Number.isFinite(rawStep) && rawStep >= 1 ? rawStep : consultationId ? 2 : 1;
-  const step = Math.min(Math.max(parsedStep, 1), WIZARD_STEPS.length);
+  const step = parseStep(searchParams.get('step'), Boolean(consultationId));
+  const { query, save, onPatch, refresh } = useConsultation(consultationId);
+  const consultation = query.data ?? null;
 
-  const [consultation, setConsultation] = useState<Consultation | null>(null);
-  const [isLoading, setIsLoading] = useState(Boolean(consultationId));
-  const [isSaving, setIsSaving] = useState(false);
   // Steps stash their pending fields here so the shared Weiter button saves
   // them. `null` is a distinct state from `{}`: it means the current step's
-  // local form state is INVALID (see OccasionBudgetStep's onFieldsChange
-  // contract) — {} means "valid, nothing changed, advance freely".
+  // local form is INVALID (see OccasionBudgetStep's onFieldsChange contract);
+  // {} means "valid, nothing changed, advance freely".
   const [pendingPatch, setPendingPatch] = useState<ConsultationUpdateInput | null>({});
-
-  const refresh = useCallback(async () => {
-    if (!consultationId) return;
-    const data = await consultationsApi.getById(consultationId);
-    setConsultation(data);
-  }, [consultationId]);
-
-  useEffect(() => {
-    if (!consultationId) return;
-    let cancelled = false;
-    (async () => {
-      try {
-        setIsLoading(true);
-        const data = await consultationsApi.getById(consultationId);
-        if (!cancelled) setConsultation(data);
-      } catch (err) {
-        logError('Beratung laden fehlgeschlagen', err);
-        if (!cancelled) showToast('Beratung konnte nicht geladen werden', 'error');
-      } finally {
-        if (!cancelled) setIsLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [consultationId, showToast]);
-
-  const onPatch = useCallback(
-    async (fields: ConsultationUpdateInput): Promise<boolean> => {
-      if (!consultationId) return false;
-      if (Object.keys(fields).length === 0) return true;
-      try {
-        setIsSaving(true);
-        const updated = await consultationsApi.update(consultationId, fields);
-        setConsultation(updated);
-        return true;
-      } catch (err) {
-        logError('Beratung speichern fehlgeschlagen', err);
-        showToast('Speichern fehlgeschlagen — bitte erneut versuchen', 'error');
-        return false;
-      } finally {
-        setIsSaving(false);
-      }
-    },
-    [consultationId, showToast]
-  );
+  const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle');
+  const isDirty = pendingPatch === null || Object.keys(pendingPatch).length > 0;
+  // Warns on reload / tab close while the step holds unsaved input.
+  useDirtyGuard(isDirty, NOOP);
 
   const goToStep = useCallback(
     (target: number) => setSearchParams({ step: String(target) }),
-    [setSearchParams]
+    [setSearchParams],
   );
 
-  // Unified navigation used by Weiter, Zurück, AND the progress-dot jump.
-  //   - pendingPatch === null (current step is INVALID): forward navigation
-  //     is blocked with an error toast; backward navigation is still
-  //     allowed and discards the invalid draft (leaving a broken step
-  //     backward is an intentional abandonment, not a save).
-  //   - pendingPatch is a (possibly empty) valid object: saved via onPatch
-  //     first regardless of direction — onPatch itself is a no-op for {} —
-  //     so a progress-dot jump backward never silently drops a valid,
-  //     unsaved edit the way the old always-discard handleBack did.
+  // Unified navigation for Weiter, Zurück and the step-bar jump.
+  //   - pendingPatch === null (current step INVALID): forward is blocked
+  //     with an error toast; backward is allowed and drops the invalid
+  //     draft (leaving a broken step backward is a deliberate abandonment).
+  //   - otherwise the (possibly empty) patch is saved first in either
+  //     direction, so going back never drops a valid, unsaved edit.
   const navigateToStep = useCallback(
     async (target: number) => {
       if (pendingPatch === null) {
@@ -123,56 +173,60 @@ export const ConsultationWizardPage: React.FC = () => {
         goToStep(target);
         return;
       }
+      const hasChanges = Object.keys(pendingPatch).length > 0;
+      if (hasChanges) setSaveStatus('saving');
       const ok = await onPatch(pendingPatch);
-      if (!ok) return;
+      if (!ok) {
+        setSaveStatus('idle');
+        return;
+      }
+      if (hasChanges) setSaveStatus('saved');
       setPendingPatch({});
       goToStep(target);
     },
-    [pendingPatch, onPatch, goToStep, step, showToast]
+    [pendingPatch, onPatch, goToStep, step, showToast],
   );
 
   const handleNext = useCallback(() => navigateToStep(step + 1), [navigateToStep, step]);
-  const handleBack = useCallback(
-    () => navigateToStep(Math.max(step - 1, 1)),
-    [navigateToStep, step]
-  );
+  const handleBack = useCallback(() => navigateToStep(Math.max(step - 1, 1)), [navigateToStep, step]);
 
-  // Defensive clear: browser back/forward (popstate) changes `step` without
-  // ever running navigateToStep — so a pendingPatch built while editing the
-  // step being left behind must never survive into the next step's Weiter
-  // save.
+  // Defensive clear: browser back/forward changes `step` without running
+  // navigateToStep, so a patch built on the step left behind must never
+  // ride into the next step's Weiter save.
   useEffect(() => {
     setPendingPatch({});
   }, [step]);
 
-  // Called by the customer step (Task 3) once a customer is chosen on /new.
+  // Called by the customer step once a customer is chosen on /new.
   const handleDraftCreated = useCallback(
-    (created: Consultation) => navigate(`/consultations/${created.id}?step=2`),
-    [navigate]
+    (created: Consultation) => navigate(`/consultations/${created.id}?step=${DRAFT_DEFAULT_STEP}`),
+    [navigate],
   );
 
   const stepProps: WizardStepProps | null = useMemo(
     () => (consultation ? { consultation, onPatch, refresh } : null),
-    [consultation, onPatch, refresh]
+    [consultation, onPatch, refresh],
   );
+  const stepHeadingRef = useStepFocus(step);
 
-  // Move focus to the new step heading whenever the step changes (Weiter,
-  // Zurück, progress-dot jump) so screen-reader/keyboard users land on the
-  // new content instead of a now-stale focus target — but not on first
-  // mount, where the natural document focus is fine.
-  const stepHeadingRef = useRef<HTMLHeadingElement>(null);
-  const isFirstStepRenderRef = useRef(true);
-  useEffect(() => {
-    if (isFirstStepRenderRef.current) {
-      isFirstStepRenderRef.current = false;
-      return;
-    }
-    stepHeadingRef.current?.focus();
-  }, [step]);
-
-  if (isLoading) return <div className="page-loading">Lade Beratung...</div>;
-  if (consultationId && !consultation)
-    return <div className="page-error">Beratung nicht gefunden</div>;
+  let loadState: PageStateValue = { status: 'ready' };
+  if (consultationId && query.isPending) loadState = { status: 'loading' };
+  if (consultationId && query.isError) {
+    loadState = {
+      status: 'error',
+      error: getErrorMessage(query.error, 'Beratung konnte nicht geladen werden.'),
+      retry: () => void query.refetch(),
+    };
+  }
+  if (loadState.status !== 'ready') {
+    return (
+      <div className="wizard-container">
+        <PageState state={loadState} skeleton="detail">
+          {null}
+        </PageState>
+      </div>
+    );
+  }
 
   const current = WIZARD_STEPS[step - 1];
   const isSummary = step === WIZARD_STEPS.length;
@@ -180,26 +234,23 @@ export const ConsultationWizardPage: React.FC = () => {
   return (
     <div className="wizard-container">
       <header className="wizard-header">
-        <h1>Beratung</h1>
-        <WizardProgress
-          steps={WIZARD_STEPS}
-          current={step}
-          onJump={consultation ? navigateToStep : undefined}
-        />
+        <div className="wizard-header__title">
+          <h1>Beratung</h1>
+          {consultation && <StatusBadge kind="consultation" status={consultation.status} />}
+        </div>
+        <WizardProgress steps={WIZARD_STEPS} current={step} onJump={consultation ? navigateToStep : undefined} />
       </header>
 
       <section className="wizard-step" aria-labelledby="wizard-step-title">
         <h2 id="wizard-step-title" tabIndex={-1} ref={stepHeadingRef}>
           {current.title}
         </h2>
-        {/* Step bodies — replaced task by task. setPendingPatch is handed to
-            form steps so their local edits ride the shared Weiter autosave. */}
+        {/* setPendingPatch is handed to form steps so their local edits ride
+            the shared Weiter auto-save. */}
         {step === 1 && (
           <CustomerStep onDraftCreated={handleDraftCreated} existingCustomerId={consultation?.customer_id} />
         )}
-        {step === 2 && stepProps && (
-          <OccasionBudgetStep {...stepProps} onFieldsChange={setPendingPatch} />
-        )}
+        {step === 2 && stepProps && <OccasionBudgetStep {...stepProps} onFieldsChange={setPendingPatch} />}
         {step === 3 && stepProps && <WishStep {...stepProps} onFieldsChange={setPendingPatch} />}
         {step === 4 && stepProps && <StyleNoGoStep {...stepProps} />}
         {step === 5 && stepProps && <MeasurementStep customerId={stepProps.consultation.customer_id} />}
@@ -207,18 +258,23 @@ export const ConsultationWizardPage: React.FC = () => {
         {step === 7 && stepProps && <SummaryStep {...stepProps} />}
       </section>
 
-      <footer className="wizard-footer">
-        {step > 1 && consultation && (
-          <button className="btn-secondary wizard-nav-btn" onClick={handleBack} disabled={isSaving}>
-            Zurück
-          </button>
-        )}
-        {!isSummary && consultation && (
-          <button className="btn-primary wizard-nav-btn" onClick={handleNext} disabled={isSaving}>
-            {isSaving ? 'Speichern...' : 'Weiter'}
-          </button>
-        )}
-      </footer>
+      {consultation && (
+        <footer className="wizard-footer">
+          {step > 1 ? (
+            <Button variant="secondary" icon="arrow-left" onClick={handleBack} disabled={save.isPending}>
+              Zurück
+            </Button>
+          ) : (
+            <span />
+          )}
+          <SaveIndicator status={save.isPending ? 'saving' : saveStatus} />
+          {!isSummary && (
+            <Button onClick={handleNext} loading={save.isPending}>
+              Weiter
+            </Button>
+          )}
+        </footer>
+      )}
     </div>
   );
 };

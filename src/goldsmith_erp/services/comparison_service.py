@@ -14,6 +14,7 @@ from __future__ import annotations
 import logging
 from collections import defaultdict
 from datetime import datetime
+from decimal import Decimal
 from typing import Dict, List, Optional, Tuple
 
 from sqlalchemy import func, select
@@ -46,13 +47,21 @@ _FINISHED_STATUSES = {OrderStatusEnum.COMPLETED, OrderStatusEnum.DELIVERED}
 # ---------------------------------------------------------------------------
 
 
-def _calc_deviation(soll: Optional[float], ist: Optional[float]) -> ComparisonMetric:
+def _calc_deviation(
+    soll: Optional[float | Decimal], ist: Optional[float | Decimal]
+) -> ComparisonMetric:
     """
     Build a ComparisonMetric from a Soll and Ist value.
 
     Returns a metric with None deviations when either value is missing or
     the Soll is zero (division by zero guard).
+
+    Soll/Ist analytics are float statistics (deviation percentages, not
+    document amounts); NUMERIC columns arrive as Decimal and are converted
+    here, once (BE-14).
     """
+    soll = float(soll) if soll is not None else None
+    ist = float(ist) if ist is not None else None
     metric = ComparisonMetric(soll=soll, ist=ist)
 
     if soll is None or ist is None:

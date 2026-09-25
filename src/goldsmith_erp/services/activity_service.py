@@ -1,5 +1,5 @@
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from sqlalchemy import delete, func, update
@@ -127,7 +127,7 @@ class ActivityService:
         """Erstellt eine neue Aktivität (Custom Activity)."""
         activity_data = activity_in.model_dump()
         db_activity = ActivityModel(
-            **activity_data, usage_count=0, created_at=datetime.utcnow()
+            **activity_data, usage_count=0, created_at=datetime.now(timezone.utc)
         )
 
         db.add(db_activity)
@@ -200,7 +200,8 @@ class ActivityService:
             update(ActivityModel)
             .where(ActivityModel.id == activity_id)
             .values(
-                usage_count=ActivityModel.usage_count + 1, last_used=datetime.utcnow()
+                usage_count=ActivityModel.usage_count + 1,
+                last_used=datetime.now(timezone.utc),
             )
         )
         await db.commit()

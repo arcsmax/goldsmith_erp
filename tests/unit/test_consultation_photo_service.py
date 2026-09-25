@@ -59,7 +59,8 @@ async def test_upload_and_list(
     assert photos[0].kind is ConsultationPhotoKind.SKETCH
     assert photos[0].id == photo.id
     assert (tmp_path / "consultations" / str(consultation.id)).exists()
-    assert (tmp_path / "consultations" / str(consultation.id) / "thumbs").exists()
+    # Content-addressed layout (ARCH phase 4): <owner>/<sha[:2]>/thumbs/.
+    assert list((tmp_path / "consultations" / str(consultation.id)).glob("*/thumbs"))
 
 
 @pytest.mark.asyncio

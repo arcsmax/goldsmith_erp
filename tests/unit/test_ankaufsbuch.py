@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 
 from goldsmith_erp.services.ankaufsbuch_service import (
     LEGAL_NOTE,
@@ -18,7 +18,8 @@ from goldsmith_erp.services.pdf_reports import (
 def _row(**overrides) -> AnkaufsbuchRow:
     values = dict(
         receipt_number="AG-00007",
-        signed_at=datetime(2026, 9, 10, 11, 5),
+        # 09:05 UTC is 11:05 in Berlin (CEST); the book prints local time.
+        signed_at=datetime(2026, 9, 10, 9, 5, tzinfo=timezone.utc),
         seller="Maria Mustermann",
         address="Hauptstr. 1, 80331 München",
         id_document="Personalausweis",

@@ -147,7 +147,11 @@ async def create_quote(
 @require_permission(Permission.QUOTE_VIEW)
 async def list_quotes(
     page: PageParams = Depends(
-        make_page_params(legacy_default_limit=50, legacy_max_limit=200)
+        make_page_params(
+            legacy_default_limit=50,
+            legacy_max_limit=200,
+            sort_fields=tuple(list_queries.QUOTE_SORT_FIELDS),
+        )
     ),
     status_filter: Optional[QuoteStatus] = Query(
         default=None,
@@ -227,6 +231,7 @@ async def _list_quotes_paged(
         created_from=created_from,
         created_to=created_to,
         q=q,
+        sort=page.sort,
     )
     result = await list_queries.fetch_page(
         db, stmt, page, list_queries.QUOTE_LIST_OPTIONS

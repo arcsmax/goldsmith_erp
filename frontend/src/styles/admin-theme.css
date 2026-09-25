@@ -52,6 +52,14 @@
   margin-bottom: 5px;
 }
 
+/* LV-12: the Kleinunternehmer checkbox rendered at the browser default
+ * (~13x18) — below the 44px touch target. */
+.theme-field-label input[type='checkbox'] {
+  width: var(--touch-min);
+  height: var(--touch-min);
+  vertical-align: middle;
+}
+
 .theme-field-hint {
   display: block;
   font-size: 0.72rem;

@@ -7,9 +7,10 @@ PNG / WEBP via magic bytes, size checking, thumbnail generation) is delegated
 to the shared `services/image_validation.py` module rather than
 re-implemented here.
 
-Storage layout:
-  {PHOTO_STORAGE_PATH}/repairs/{repair_id}/{uuid}.{ext}
-  {PHOTO_STORAGE_PATH}/repairs/{repair_id}/thumbs/{uuid}.jpg
+Storage layout (content-addressed via MediaStore since ARCH phase 4; older
+rows keep repairs/{repair_id}/{uuid}.{ext}):
+  {PHOTO_STORAGE_PATH}/repairs/{repair_id}/{sha256[:2]}/{sha256}.{ext}
+  {PHOTO_STORAGE_PATH}/repairs/{repair_id}/{sha256[:2]}/thumbs/{sha256}.jpg
 
 Order photo dirs are integer-named (e.g. {PHOTO_STORAGE_PATH}/{order_id}/...),
 so the literal "repairs" directory segment cannot collide with an order id.
@@ -29,7 +30,7 @@ Security notes:
 
 import json
 import logging
-import uuid
+from datetime import datetime
 from pathlib import Path
 from typing import Any, List, Optional, cast
 
@@ -42,13 +43,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 # services/order_service.py for the pattern this follows).
 from goldsmith_erp.core import pubsub
 from goldsmith_erp.core.config import settings
-from goldsmith_erp.db.models import RepairJob, RepairPhoto, RepairPhotoPhase
+from goldsmith_erp.db.models import (
+    MediaOwnerType,
+    RepairJob,
+    RepairPhoto,
+    RepairPhotoPhase,
+)
 from goldsmith_erp.db.transaction import transactional
-from goldsmith_erp.services.image_validation import (
-    create_thumbnail_bounded,
-    read_validated_image,
-    resolve_within_root,
-    store_processed_original,
+from goldsmith_erp.services.image_validation import resolve_within_root
+from goldsmith_erp.services.media_service import MediaService
+from goldsmith_erp.services.media_service import (
+    unlink_with_thumbnail as _unlink_with_thumbnail,
 )
 
 logger = logging.getLogger(__name__)
@@ -60,16 +65,6 @@ logger = logging.getLogger(__name__)
 def _storage_root() -> Path:
     """Return the resolved photo storage root as a Path."""
     return Path(settings.PHOTO_STORAGE_PATH).resolve()
-
-
-def _repair_dir(repair_id: int) -> Path:
-    """Return the directory for a specific repair job's photos."""
-    return _storage_root() / "repairs" / str(repair_id)
-
-
-def _thumb_dir(repair_id: int) -> Path:
-    """Return the thumbnail subdirectory for a specific repair job."""
-    return _repair_dir(repair_id) / "thumbs"
 
 
 # ─── Public service ──────────────────────────────────────────────────────────
@@ -132,55 +127,42 @@ class RepairPhotoService:
         if exists.scalar_one_or_none() is None:
             raise ValueError(f"Reparaturauftrag #{repair_id} nicht gefunden")
 
-        raw, ext = await read_validated_image(file, settings.PHOTO_MAX_SIZE_MB)
-
-        # Build storage paths — filename is a fresh uuid4, independent of the
-        # DB-assigned integer primary key (which isn't known until flush).
-        file_uuid = str(uuid.uuid4())
-        repair_dir = _repair_dir(repair_id)
-        repair_dir.mkdir(parents=True, exist_ok=True)
-        photo_path = repair_dir / f"{file_uuid}.{ext}"
-        thumb_path = _thumb_dir(repair_id) / f"{file_uuid}.jpg"
-
-        # Write the original — EXIF stripped (GDPR-19), orientation applied,
-        # off the event loop and time-bounded (SEC-18). A failure here is
-        # FATAL: storing the raw, unprocessed bytes instead would defeat the
-        # EXIF-stripping guarantee, so the upload must fail rather than
-        # silently fall back.
-        await store_processed_original(raw, ext, photo_path)
+        # Storage, EXIF stripping (fatal on failure, GDPR-19), content
+        # addressing and the thumbnail are MediaService's job (ARCH phase 4).
+        stored = await MediaService.store_upload(file, MediaOwnerType.REPAIR, repair_id)
         logger.info(
             "Repair photo saved",
             extra={
                 "repair_id": repair_id,
                 "user_id": user_id,
                 "phase": phase.value,
-                "path": str(photo_path),
-                "size_bytes": len(raw),
+                "size_bytes": stored.size,
             },
         )
 
-        # Generate thumbnail (non-fatal — log warning if it fails)
-        try:
-            await create_thumbnail_bounded(photo_path, thumb_path)
-        except Exception:
-            logger.warning(
-                "Thumbnail generation failed — photo still stored",
-                extra={"photo_path": str(photo_path)},
-                exc_info=True,
-            )
-
-        # Persist DB record — id is DB-assigned (autoincrement), unlike
-        # ConsultationPhoto's uuid4-as-pk.
+        # Legacy row (deprecated, dual-written for one release) — id is
+        # DB-assigned (autoincrement) — plus its media_assets row.
         photo = RepairPhoto(
             repair_job_id=repair_id,
             phase=phase,
-            file_path=str(photo_path),
+            file_path=str(stored.path),
             taken_by=user_id,
             notes=notes,
         )
         async with transactional(db):
             db.add(photo)
             await db.flush()  # populate photo.id/timestamp before publishing
+            await MediaService.record_asset(
+                db,
+                stored,
+                owner_type=MediaOwnerType.REPAIR,
+                owner_id=repair_id,
+                user_id=user_id,
+                caption=notes,
+                tag=phase.value,
+                legacy_id=str(photo.id),
+                taken_at=cast(Optional[datetime], photo.timestamp),
+            )
 
         # Publish AFTER commit (transactional() above already committed) so
         # other devices refresh their repair view. Reduced payload only —
@@ -291,21 +273,11 @@ class RepairPhotoService:
         original = RepairPhotoService._anchored_path_or_raise(photo)
         repair_job_id = photo.repair_job_id
 
-        if original.exists():
-            original.unlink()
-            logger.info(
-                "Repair photo file deleted",
-                extra={"photo_id": photo_id},
-            )
-        else:
-            logger.warning(
-                "Repair photo file not found on disk during deletion",
-                extra={"photo_id": photo_id, "path": str(original)},
-            )
-
-        thumb_path = original.parent / "thumbs" / f"{original.stem}.jpg"
-        if thumb_path.exists():
-            thumb_path.unlink()
+        # Media-backed rows: MediaService refcounts the shared file.
+        if not await MediaService.delete_for_legacy(
+            db, MediaOwnerType.REPAIR, str(photo_id)
+        ):
+            _unlink_with_thumbnail(original, photo_id, "Repair photo")
 
         await db.delete(photo)
         await RepairPhotoService._downgrade_checklist_items(

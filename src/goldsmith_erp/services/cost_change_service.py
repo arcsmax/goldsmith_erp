@@ -50,7 +50,8 @@ the clause, relying instead on its own whole-database write lock).
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
+from decimal import Decimal
 from typing import Any, Dict, List, Optional, cast
 
 from sqlalchemy import select
@@ -67,6 +68,7 @@ from goldsmith_erp.db.models import (
     Order,
 )
 from goldsmith_erp.db.transaction import transactional
+from goldsmith_erp.models._common import DecimalLike, dec, money
 from goldsmith_erp.models.customer_update import (
     CostChangeCreate,
     CostChangeRecordResponse,
@@ -77,6 +79,7 @@ from goldsmith_erp.services.customer_update_service import (
     CustomerUpdateService,
     write_financial_audit_row,
 )
+from goldsmith_erp.services.job_service import JobService
 
 logger = logging.getLogger(__name__)
 
@@ -146,7 +149,7 @@ class SentCostChangeConflictError(InvalidCostChangeStateError):
 # ---------------------------------------------------------------------------
 
 
-def _format_eur(value: float) -> str:
+def _format_eur(value: DecimalLike) -> str:
     formatted = f"{value:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
     return f"{formatted} €"
 
@@ -165,9 +168,9 @@ def _compose_cost_change_body(cost_change: CostChangeRequest, order_ref: str) ->
     # attributes (classic Column() style, no Mapped[] here) — at runtime,
     # on a loaded instance, they are plain float/str (cost_watch_service.py
     # precedent for this exact false-positive class).
-    original_amount = cast(float, cost_change.original_amount)
-    new_amount = cast(float, cost_change.new_amount)
-    delta_percent = cast(float, cost_change.delta_percent)
+    original_amount = cast(Decimal, cost_change.original_amount)
+    new_amount = cast(Decimal, cost_change.new_amount)
+    delta_percent = cast(Decimal, cost_change.delta_percent)
     reason = cast(str, cost_change.reason)
     line_items = cast(Optional[List[Dict[str, Any]]], cost_change.line_items)
 
@@ -206,7 +209,7 @@ def _log_financial_access(
             "entity_id": cost_change_id,
             "order_id": order_id,
             "user_id": user_id,
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             **(extra or {}),
         },
     )
@@ -250,15 +253,18 @@ class CostChangeService:
         if projected.quote_id is None or projected.quote_total is None:
             raise NoQuoteAvailableError(order_id)
 
-        original_amount = projected.quote_total
-        new_amount = data.new_amount
+        original_amount = dec(projected.quote_total)
+        new_amount = dec(data.new_amount)
         delta_percent = (
-            ((new_amount - original_amount) / original_amount) * 100.0
+            (new_amount - original_amount) / original_amount * 100
             if original_amount
-            else 0.0
+            else Decimal("0")
         )
+        # mode="json": the JSON column needs plain numbers, not Decimal.
         line_items = (
-            [item.model_dump() for item in data.line_items] if data.line_items else None
+            [item.model_dump(mode="json") for item in data.line_items]
+            if data.line_items
+            else None
         )
 
         async with transactional(db):
@@ -267,7 +273,7 @@ class CostChangeService:
                 quote_id=projected.quote_id,
                 original_amount=original_amount,
                 new_amount=new_amount,
-                delta_percent=round(delta_percent, 2),
+                delta_percent=money(delta_percent),
                 reason=data.reason,
                 line_items=line_items,
                 status=CostChangeStatus.DRAFT,
@@ -421,6 +427,10 @@ class CostChangeService:
 
             update = CustomerUpdate(
                 order_id=cost_change.order_id,
+                # ARCH phase 5: the update also names its job.
+                job_id=await JobService.job_id_for(
+                    db, order_id=cast(Optional[int], cost_change.order_id)
+                ),
                 kind=CustomerUpdateKind.COST_CHANGE,
                 subject=subject,
                 body=body,
@@ -481,7 +491,7 @@ class CostChangeService:
             cost_change.status = cast(Any, new_status)
             cost_change.response_method = cast(Any, data.response_method)
             cost_change.response_evidence = cast(Any, data.response_evidence)
-            cost_change.responded_at = cast(Any, datetime.utcnow())
+            cost_change.responded_at = cast(Any, datetime.now(timezone.utc))
             cost_change.recorded_by = cast(Any, user_id)
 
         await db.refresh(cost_change)

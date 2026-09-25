@@ -7,7 +7,7 @@ counts 2.25 h; rework after completion updates ``actual_hours``.
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
 import pytest
@@ -21,7 +21,7 @@ from goldsmith_erp.services.time_tracking_service import (
     interruption_minutes,
 )
 
-T0 = datetime(2026, 9, 25, 8, 0, 0)
+T0 = datetime(2026, 9, 25, 8, 0, 0, tzinfo=timezone.utc)
 
 
 def _intr(timestamp, resumed_at=None, duration=0):
@@ -231,12 +231,12 @@ class TestServiceArithmetic:
     async def test_next_interruption_scan_closes_the_previous_one(
         self, db_session, sample_order, sample_user, sample_activity
     ):
-        start = datetime.utcnow() - timedelta(minutes=50)
+        start = datetime.now(timezone.utc) - timedelta(minutes=50)
         entry = await _running_entry(
             db_session, sample_order, sample_user, sample_activity, start=start
         )
         first = await _open_interruption(
-            db_session, entry, datetime.utcnow() - timedelta(minutes=10)
+            db_session, entry, datetime.now(timezone.utc) - timedelta(minutes=10)
         )
 
         await TimeTrackingService.log_interruption(

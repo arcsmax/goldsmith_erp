@@ -23,7 +23,7 @@ show a "veraltet" warning instead of presenting an old price as current.
 """
 
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -59,7 +59,7 @@ _PRICE_UNAVAILABLE_DETAIL = (
 
 def _is_stale(updated_at: datetime) -> bool:
     """True when a price is older than the configured staleness threshold."""
-    age = datetime.utcnow() - updated_at
+    age = datetime.now(timezone.utc) - updated_at
     return age > timedelta(hours=settings.METAL_PRICE_STALENESS_HOURS)
 
 
@@ -177,7 +177,7 @@ async def get_metal_price_history(
         },
     )
 
-    cutoff = datetime.utcnow() - timedelta(days=days)
+    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
     stmt = (
         select(MetalPriceHistory)
         .where(

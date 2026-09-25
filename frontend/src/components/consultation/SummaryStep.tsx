@@ -20,6 +20,7 @@ import { useConfirm, useToast } from '../../contexts';
 import { logError } from '../../lib/logError';
 import AuthenticatedImage from '../AuthenticatedImage';
 import { OCCASION_LABELS, PIECE_TYPE_LABELS, PHOTO_KIND_LABELS, NO_GO_CATEGORY_LABELS } from './labels';
+import { Button, Field } from '../../ui';
 
 const budgetFormatter = new Intl.NumberFormat('de-DE', {
   style: 'currency',
@@ -265,18 +266,13 @@ export const SummaryStep: React.FC<WizardStepProps> = ({
           <h3>Status</h3>
           <p>Diese Beratung wurde bereits überführt.</p>
           <div className="summary-actions">
-            <button type="button" className="btn-secondary" onClick={() => navigate(target)}>
+            <Button icon="arrow-right" onClick={() => navigate(target)}>
               {hasOrder ? 'Zum Auftrag' : 'Zum Kostenvoranschlag'}
-            </button>
+            </Button>
             {!hasOrder && (
-              <button
-                type="button"
-                className="btn-secondary"
-                onClick={handleUnconvert}
-                disabled={isUnconverting}
-              >
-                {isUnconverting ? 'Wird zurückgesetzt…' : 'Überführung rückgängig machen'}
-              </button>
+              <Button variant="secondary" onClick={handleUnconvert} loading={isUnconverting}>
+                Überführung rückgängig machen
+              </Button>
             )}
           </div>
         </div>
@@ -397,53 +393,48 @@ export const SummaryStep: React.FC<WizardStepProps> = ({
       )}
 
       <div className="summary-actions">
-        <button
-          type="button"
-          className="btn-primary"
+        <Button
+          variant="secondary"
           onClick={() => handleConvert('quote')}
-          disabled={convertingTarget !== null}
+          disabled={convertingTarget !== null && convertingTarget !== 'quote'}
+          loading={convertingTarget === 'quote'}
         >
-          {convertingTarget === 'quote' ? 'Wird erstellt...' : 'Kostenvoranschlag erstellen'}
-        </button>
-        <button
-          type="button"
-          className="btn-primary"
+          Kostenvoranschlag erstellen
+        </Button>
+        <Button
           onClick={() => handleConvert('order')}
-          disabled={convertingTarget !== null}
+          disabled={convertingTarget !== null && convertingTarget !== 'order'}
+          loading={convertingTarget === 'order'}
         >
-          {convertingTarget === 'order' ? 'Wird angelegt...' : 'Auftrag anlegen'}
-        </button>
+          Auftrag anlegen
+        </Button>
       </div>
 
-      <div className="summary-section wizard-field">
-        <label htmlFor="follow_up_date">Neue Wiedervorlage</label>
-        <input
-          id="follow_up_date"
-          type="date"
-          value={followUpDate}
-          onChange={(e) => setFollowUpDate(e.target.value)}
-        />
+      <div className="summary-section">
+        <Field label="Neue Wiedervorlage" name="follow_up_date">
+          <input
+            id="follow_up_date"
+            type="date"
+            value={followUpDate}
+            onChange={(e) => setFollowUpDate(e.target.value)}
+          />
+        </Field>
         <div className="summary-actions">
-          <button
-            type="button"
-            className="btn-primary"
+          <Button
+            variant="secondary"
             onClick={handleSaveFollowUp}
-            disabled={!followUpDate || isSavingFollowUp}
+            disabled={!followUpDate}
+            loading={isSavingFollowUp}
           >
-            {isSavingFollowUp ? 'Speichert...' : 'Speichern & abschließen'}
-          </button>
+            Speichern & abschließen
+          </Button>
         </div>
       </div>
 
       <div className="summary-actions">
-        <button
-          type="button"
-          className="btn-secondary"
-          onClick={handleArchive}
-          disabled={isArchiving}
-        >
-          {isArchiving ? 'Archiviert...' : 'Archivieren'}
-        </button>
+        <Button variant="ghost" icon="archive" onClick={handleArchive} loading={isArchiving}>
+          Archivieren
+        </Button>
       </div>
     </div>
   );

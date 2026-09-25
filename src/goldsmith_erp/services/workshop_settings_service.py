@@ -17,7 +17,7 @@ row per request via ``middleware/audit_logging.py``.
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, cast
 
 from sqlalchemy import select
@@ -28,6 +28,7 @@ from goldsmith_erp.db.models import User as UserModel
 from goldsmith_erp.db.models import WorkshopSettings
 from goldsmith_erp.db.transaction import transactional
 from goldsmith_erp.models.workshop_settings import (
+    WorkshopPublicContact,
     WorkshopSettingsRead,
     WorkshopSettingsUpdate,
 )
@@ -115,6 +116,18 @@ class WorkshopSettingsService:
         )
 
     @staticmethod
+    async def public_contact(db: AsyncSession) -> WorkshopPublicContact:
+        """Public subset for the customer portal footer (no auth): name,
+        phone, email only — never bank/tax fields (see
+        ``WorkshopPublicContact``)."""
+        values = _values(await WorkshopSettingsService.get_row(db))
+        return WorkshopPublicContact(
+            name=values["name"],
+            phone=values["phone"],
+            email=values["email"],
+        )
+
+    @staticmethod
     async def update(
         db: AsyncSession, data: WorkshopSettingsUpdate, current_user: UserModel
     ) -> WorkshopSettingsRead:
@@ -128,7 +141,7 @@ class WorkshopSettingsService:
                 db.add(row)
             for field, value in new_values.items():
                 setattr(row, field, value)
-            row.updated_at = datetime.utcnow()
+            row.updated_at = datetime.now(timezone.utc)
             row.updated_by = current_user.id
         changed = sorted(
             field for field in _FIELDS if old_values.get(field) != new_values.get(field)

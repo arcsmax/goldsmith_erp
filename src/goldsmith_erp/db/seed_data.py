@@ -14,7 +14,7 @@ DEVELOPMENT ONLY — do not run in production.
 """
 
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy.orm import Session
 
@@ -28,6 +28,7 @@ from .models import (
     MetalPurchase,
     MetalType,
     Order,
+    OrderEvent,
     OrderStatusEnum,
     User,
     UserRole,
@@ -262,7 +263,7 @@ SAMPLE_MATERIALS = [
 
 def _build_sample_orders(customer_ids: dict, user_id: int) -> list:
     """Build sample orders referencing created customer IDs."""
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     return [
         {
             "title": "Verlobungsring Solitär",
@@ -288,7 +289,10 @@ def _build_sample_orders(customer_ids: dict, user_id: int) -> list:
             "title": "Trauringe Classic Paar",
             "description": "Klassische Trauringe in Gelbgold 750, Breite 5mm, "
             "Damenring mit 3 Brillanten à 0.03ct.",
-            "status": OrderStatusEnum.NEW,
+            # LV-05: the W2-07 order-lifecycle migration maps legacy NEW rows
+            # away; this order is priced, so it seeds as CONFIRMED (see the
+            # matching OrderEvent added in seed_orders below).
+            "status": OrderStatusEnum.CONFIRMED,
             "customer_id": customer_ids.get("Gruber", 1),
             "price": 2800.00,
             "deadline": now + timedelta(days=28),
@@ -332,7 +336,7 @@ def _build_sample_orders(customer_ids: dict, user_id: int) -> list:
 
 
 def _build_metal_purchases() -> list:
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     return [
         {
             "metal_type": MetalType.GOLD_18K,
@@ -387,7 +391,7 @@ def seed_users(db: Session) -> dict:
             last_name=data["last_name"],
             role=data["role"],
             is_active=True,
-            created_at=datetime.utcnow(),
+            created_at=datetime.now(timezone.utc),
         )
         db.add(user)
         db.flush()
@@ -425,7 +429,7 @@ def seed_activities(db: Session) -> None:
             usage_count=0,
             is_custom=False,
             is_billable=data["category"] == "fabrication",
-            created_at=datetime.utcnow(),
+            created_at=datetime.now(timezone.utc),
         )
         db.add(activity)
         created += 1
@@ -461,7 +465,7 @@ def seed_customers(db: Session) -> dict:
             source=data.get("source"),
             notes=data.get("notes"),
             is_active=True,
-            created_at=datetime.utcnow(),
+            created_at=datetime.now(timezone.utc),
         )
         db.add(customer)
         db.flush()
@@ -507,10 +511,29 @@ def seed_orders(db: Session, customer_ids: dict, admin_id: int) -> None:
         print(f"  Orders: skipped ({existing_count} already exist)")
         return
 
-    orders = _build_sample_orders(customer_ids, admin_id)
-    for data in orders:
+    orders_data = _build_sample_orders(customer_ids, admin_id)
+    orders = []
+    for data in orders_data:
         order = Order(**data)
         db.add(order)
+        orders.append(order)
+    db.flush()
+
+    # LV-05: order 1 ("Trauringe Classic Paar") above seeds directly at
+    # CONFIRMED instead of the legacy NEW status. This function bulk-inserts
+    # Order rows and bypasses services/order_workflow.transition by design,
+    # so it has to add the matching order_events row itself — otherwise the
+    # order's Historie timeline would be empty despite being confirmed.
+    confirmed_order = orders[1]
+    db.add(
+        OrderEvent(
+            order_id=confirmed_order.id,
+            from_status=None,
+            to_status=confirmed_order.status.value,
+            user_id=admin_id,
+            created_at=confirmed_order.created_at,
+        )
+    )
 
     db.commit()
     print(f"  Orders: {len(orders)} created")

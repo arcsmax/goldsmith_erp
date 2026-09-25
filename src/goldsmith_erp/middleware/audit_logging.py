@@ -35,7 +35,7 @@ History:
 import json
 import logging
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Callable, Optional, Tuple
 
 from fastapi import Request, Response
@@ -142,6 +142,9 @@ _RESOURCE_ROUTES: dict[str, Tuple[str, str, str, bool]] = {
     # W2-03: ``GET /dashboard/today`` returns customer names plus cost-change
     # amounts and quote totals (financial) for ADMIN/GOLDSMITH.
     "dashboard": ("dashboard", "financial_read", "list_accessed_financial", True),
+    # ARCH phase 5: ``GET /jobs`` / ``/jobs/{id}`` return customer names and
+    # (FINANCIAL_VIEW) the agreed price of orders and repairs.
+    "jobs": ("job", "financial_read", "list_accessed_financial", True),
     # ── Finding 2.2 / issue #39: close the "no audit coverage at all" gap ──
     # These families previously had NO audit row on reads OR writes. They are
     # registered here so the middleware covers them uniformly.
@@ -184,6 +187,11 @@ _RESOURCE_ROUTES: dict[str, Tuple[str, str, str, bool]] = {
     # ``/orders/{id}/photos`` (the documented first-segment "orders" blind
     # spot) and are NOT reachable from this middleware — see the report.
     "photos": ("order_photo", "accessed", "list_accessed", False),
+    # media (ARCH phase 4, ADR-2026-09-25-media): the unified
+    # ``/media/{id}``, ``/media/{id}/thumbnail`` serving routes, the owner
+    # listing and ``PATCH /media/{id}`` (customer_visible). Design IP, every
+    # verb audited. Ids are uuids, so entity_id stays None (as for photos).
+    "media": ("media_asset", "accessed", "list_accessed", False),
     # measurements: customer body data (PII). The list/create live under
     # ``/customers/{id}/measurements`` (already audited via the "customers"
     # entry); this entry covers the bare ``/measurements/{id}`` get/update/
@@ -204,6 +212,9 @@ _RESOURCE_ROUTES: dict[str, Tuple[str, str, str, bool]] = {
         "list_accessed",
         False,
     ),
+    # W6 outbox (ARCH-04): the admin queue view and "retry" (a write that
+    # re-sends a customer mail). Every verb audited.
+    "admin/outbox": ("outbox_message", "accessed", "list_accessed", False),
 }
 
 # Legal-basis overrides for audited families that are neither customer PII
@@ -219,9 +230,13 @@ _LEGAL_BASIS_OVERRIDES: dict[str, str] = {
         "(account administration & security monitoring)"
     ),
     "order_photo": "GDPR Article 6(1)(b) - Contract (order design documentation)",
+    "media_asset": "GDPR Article 6(1)(b) - Contract (order design documentation)",
     "measurement": "GDPR Article 6(1)(b) - Contract (customer measurement records)",
     "workshop_settings": (
         "GDPR Article 6(1)(c) - Legal obligation (§14 Abs. 4 UStG seller data)"
+    ),
+    "outbox_message": (
+        "GDPR Article 6(1)(b) - Contract (delivery of customer communication)"
     ),
 }
 
@@ -583,7 +598,7 @@ class AuditLoggingMiddleware(BaseHTTPMiddleware):
                     user_id=user_id,
                     user_email=user_email,
                     user_role=user_role,
-                    timestamp=datetime.utcnow(),
+                    timestamp=datetime.now(timezone.utc),
                     ip_address=ip_address,
                     user_agent=user_agent,
                     details=details,

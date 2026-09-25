@@ -19,6 +19,7 @@ from goldsmith_erp.db.models import (
     NoGoCategory,
     OrderTypeEnum,
 )
+from goldsmith_erp.models._common import Money
 
 
 class ConsultationPhotoRead(BaseModel):
@@ -35,8 +36,8 @@ class ConsultationPhotoRead(BaseModel):
 class ConsultationBase(BaseModel):
     occasion: ConsultationOccasion = ConsultationOccasion.OTHER
     occasion_date: Optional[date] = None
-    budget_min: Optional[float] = Field(None, ge=0)
-    budget_max: Optional[float] = Field(None, ge=0)
+    budget_min: Optional[Money] = Field(None, ge=0)
+    budget_max: Optional[Money] = Field(None, ge=0)
     piece_type: Optional[OrderTypeEnum] = None
     wishes: Optional[str] = Field(None, max_length=5000)
     materials_discussed: Optional[List[Dict[str, Any]]] = None

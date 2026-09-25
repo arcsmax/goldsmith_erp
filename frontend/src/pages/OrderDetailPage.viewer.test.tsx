@@ -12,8 +12,9 @@
 // This test pins the fix: no crash, no forbidden calls, gated tabs absent.
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { useState } from 'react';
-import { render, screen } from '@testing-library/react';
-import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { screen } from '@testing-library/react';
+import { Route, Routes } from 'react-router-dom';
+import { renderWithQuery } from '../test/queryWrapper';
 import userEvent from '@testing-library/user-event';
 import type { OrderType } from '../types';
 
@@ -111,12 +112,11 @@ function makeFullOrder(): OrderType {
 }
 
 function renderPage() {
-  return render(
-    <MemoryRouter initialEntries={['/orders/42']}>
-      <Routes>
-        <Route path="/orders/:orderId" element={<OrderDetailPage />} />
-      </Routes>
-    </MemoryRouter>
+  return renderWithQuery(
+    <Routes>
+      <Route path="/orders/:orderId" element={<OrderDetailPage />} />
+    </Routes>,
+    { route: '/orders/42' }
   );
 }
 
@@ -154,7 +154,8 @@ describe('OrderDetailPage — VIEWER role projection', () => {
 
     await userEvent.click(screen.getByRole('tab', { name: 'Arbeit' }));
 
-    expect(await screen.findByText('Feingold 999')).toBeInTheDocument();
+    // W4-03: DataTable renders the table and the phone cards (CSS picks one).
+    expect(await screen.findAllByText('Feingold 999')).not.toHaveLength(0);
     expect(screen.queryByText('Preis/Einheit')).not.toBeInTheDocument();
     expect(screen.queryByText(/undefined/)).not.toBeInTheDocument();
   });

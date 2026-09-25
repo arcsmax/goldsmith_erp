@@ -44,11 +44,12 @@ phantom reversal for an invoice that was cancelled while still a DRAFT.
 import csv
 import io
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from decimal import ROUND_HALF_UP, Decimal
 from typing import TYPE_CHECKING, List, Mapping, Optional
 
 from goldsmith_erp.core.config import settings
+from goldsmith_erp.core.timeutil import DATE_FORMAT, format_local
 
 if TYPE_CHECKING:
     # Structural typing only — this module has no runtime ORM dependency so
@@ -164,14 +165,15 @@ def _format_date_datev(dt: Optional[datetime]) -> str:
     """
     if dt is None:
         return ""
-    return dt.strftime("%d%m")
+    # Belegdatum is the workshop's (Europe/Berlin) calendar day (BE-15).
+    return format_local(dt, "%d%m")
 
 
 def _format_date_lexoffice(dt: Optional[datetime]) -> str:
     """Format date as DD.MM.YYYY for Lexoffice."""
     if dt is None:
         return ""
-    return dt.strftime("%d.%m.%Y")
+    return format_local(dt, DATE_FORMAT)
 
 
 def _reversal_booking_date(invoice: "Invoice") -> Optional[datetime]:
@@ -258,7 +260,7 @@ def export_datev_csv(
     )
     # Computed fresh on every call — never cached at import time, so a long-
     # running process exports today's date, not the date it was started.
-    created_date = datetime.utcnow().strftime("%Y%m%d")
+    created_date = datetime.now(timezone.utc).strftime("%Y%m%d")
 
     logger.info(
         "Generating DATEV export",

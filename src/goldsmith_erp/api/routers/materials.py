@@ -90,7 +90,12 @@ class StockValueResponse(BaseModel):
 )
 @require_permission(Permission.MATERIAL_VIEW)
 async def list_materials(
-    page: PageParams = Depends(make_page_params(legacy_default_limit=100)),
+    page: PageParams = Depends(
+        make_page_params(
+            legacy_default_limit=100,
+            sort_fields=tuple(list_queries.MATERIAL_SORT_FIELDS),
+        )
+    ),
     q: Optional[str] = Query(
         None,
         min_length=1,
@@ -115,7 +120,7 @@ async def list_materials(
     excludes = _material_excludes(current_user)
     if page.is_paged:
         result = await list_queries.fetch_page(
-            db, list_queries.materials_statement(q=q), page
+            db, list_queries.materials_statement(q=q, sort=page.sort), page
         )
         rows = [project(MaterialRead, m, excludes) for m in result.items]
         return page_response(rows, result.total, page)

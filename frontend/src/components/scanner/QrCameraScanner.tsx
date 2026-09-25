@@ -534,7 +534,7 @@ export function QrCameraScanner(props: QrCameraScannerProps): JSX.Element {
           <line x1="12" y1="16" x2="12.01" y2="16" />
         </svg>
       </div>
-      <h2 className="qrs-state-title">Kamera nicht verfuegbar</h2>
+      <h2 className="qrs-state-title">Kamera nicht verfügbar</h2>
       <p className="qrs-state-body">
         Auf diesem Geraet wurde keine Kamera erkannt. Bitte Code manuell eingeben.
       </p>

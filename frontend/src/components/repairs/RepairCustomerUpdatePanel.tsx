@@ -20,6 +20,7 @@ import type { CustomerUpdate, CustomerUpdateStatus } from '../../api/customer-up
 import type { RepairJob } from '../../types';
 import { useToast } from '../../contexts';
 import { logError } from '../../lib/logError';
+import { openRepairStatusReport } from './statusReport';
 
 const STATUS_LABELS: Record<CustomerUpdateStatus, string> = {
   draft: 'Entwurf',
@@ -54,6 +55,7 @@ export function RepairCustomerUpdatePanel({
   const [update, setUpdate] = useState<CustomerUpdate | null>(null);
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
+  const [downloadingReport, setDownloadingReport] = useState(false);
 
   const canHaveDraft = repair.status === 'ready' || repair.status === 'picked_up';
 
@@ -101,6 +103,18 @@ export function RepairCustomerUpdatePanel({
     }
   };
 
+  const handleDownloadStatusReport = async () => {
+    setDownloadingReport(true);
+    try {
+      await openRepairStatusReport(repair.id);
+    } catch (err) {
+      logError('Statusbericht laden fehlgeschlagen', err);
+      showToast('Statusbericht konnte nicht erstellt werden', 'error');
+    } finally {
+      setDownloadingReport(false);
+    }
+  };
+
   return (
     <div className="intake-checklist">
       <div className="intake-checklist-header">
@@ -111,6 +125,15 @@ export function RepairCustomerUpdatePanel({
           </span>
         )}
       </div>
+
+      <button
+        type="button"
+        className="btn btn-secondary btn-sm"
+        disabled={downloadingReport}
+        onClick={handleDownloadStatusReport}
+      >
+        {downloadingReport ? 'Wird erstellt…' : 'Statusbericht (PDF)'}
+      </button>
 
       {loading && <p style={{ color: 'var(--color-text-muted)' }}>Wird geladen…</p>}
 

@@ -14,7 +14,7 @@ Author: Claude AI
 Date: 2025-11-06
 """
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 from sqlalchemy import and_, func, or_, select, update
@@ -362,7 +362,7 @@ class OrderRepository(BaseRepository[Order]):
 
         # Add updated_by and updated_at
         updates["updated_by"] = self.current_user_id
-        updates["updated_at"] = datetime.utcnow()
+        updates["updated_at"] = datetime.now(timezone.utc)
 
         # Update fields
         for field, value in updates.items():
@@ -391,10 +391,10 @@ class OrderRepository(BaseRepository[Order]):
             return None
 
         order.is_deleted = True
-        order.deleted_at = datetime.utcnow()
+        order.deleted_at = datetime.now(timezone.utc)
         order.deleted_by = self.current_user_id
         order.updated_by = self.current_user_id
-        order.updated_at = datetime.utcnow()
+        order.updated_at = datetime.now(timezone.utc)
 
         await self.session.commit()
         await self.session.refresh(order)
@@ -501,7 +501,7 @@ class OrderRepository(BaseRepository[Order]):
         return await self.update_order_item(
             order_item_id,
             is_allocated=True,
-            allocated_at=datetime.utcnow(),
+            allocated_at=datetime.now(timezone.utc),
         )
 
     async def mark_material_used(
@@ -524,7 +524,7 @@ class OrderRepository(BaseRepository[Order]):
         updates = {
             "quantity_used": quantity_used,
             "is_used": True,
-            "used_at": datetime.utcnow(),
+            "used_at": datetime.now(timezone.utc),
         }
         if notes:
             updates["notes"] = notes
@@ -673,7 +673,7 @@ class OrderRepository(BaseRepository[Order]):
         order.tax_amount = tax_amount
         order.total_amount = total_amount
         order.updated_by = self.current_user_id
-        order.updated_at = datetime.utcnow()
+        order.updated_at = datetime.now(timezone.utc)
 
         await self.session.commit()
 
@@ -688,7 +688,7 @@ class OrderRepository(BaseRepository[Order]):
         Returns:
             Unique order number
         """
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         prefix = f"ORD-{now.strftime('%Y%m')}"
 
         # Get count of orders this month
@@ -746,7 +746,7 @@ class OrderRepository(BaseRepository[Order]):
         # Count overdue orders (past estimated_completion_date)
         overdue_result = await self.session.execute(
             select(func.count(Order.id))
-            .where(Order.estimated_completion_date < datetime.utcnow())
+            .where(Order.estimated_completion_date < datetime.now(timezone.utc))
             .where(Order.status.in_(["draft", "approved", "in_progress"]))
             .where(Order.is_deleted == False)
         )

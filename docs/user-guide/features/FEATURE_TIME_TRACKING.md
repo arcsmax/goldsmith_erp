@@ -359,19 +359,9 @@ Liste Ihrer Zeiteinträge:
 
 ### Unterbrechung hinzufügen
 
-1. Während **laufender Zeiterfassung**:
-   - Klicken Sie auf **"Unterbrechung"**
-2. **Grund** angeben:
-   ```
-   Beispiel: "Telefonanruf von Lieferant"
-   ```
-3. **Dauer** (optional):
-   ```
-   Beispiel: 15 Minuten
-   ```
-4. Klicken Sie auf **"Hinzufügen"**
-
-`[Screenshot: Unterbrechung hinzufügen]`
+Es gibt derzeit keinen manuellen "Unterbrechung hinzufügen"-Dialog auf der
+Auftragsseite. Unterbrechungen werden über den QR-/NFC-Scan am
+Werkbank-Platz erfasst.
 
 ### Automatische Berechnung
 
@@ -388,9 +378,9 @@ Netto-Arbeitszeit: 1:35 Stunden
 
 ### Übersicht
 
-Auf der **Auftragsdetailseite** (Tab "Zeiteinträge") sehen Sie alle Zeiten für diesen Auftrag.
+Auf der **Auftragsdetailseite** (Tab "Arbeit", Abschnitt Zeiterfassung) sehen Sie alle Zeiten für diesen Auftrag.
 
-`[Screenshot: Zeiteinträge-Tab im Auftrag]`
+`[Screenshot: Arbeit-Tab, Abschnitt Zeiterfassung]`
 
 ### Was Sie sehen
 

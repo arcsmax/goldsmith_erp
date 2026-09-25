@@ -26,7 +26,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from typing import Optional
 
 from sqlalchemy import func, select
@@ -170,7 +170,9 @@ class InventoryForecaster:
             weeks_until = None
         else:
             weeks_until = remaining_g / weekly_rate
-            depletion_date = (datetime.utcnow() + timedelta(weeks=weeks_until)).date()
+            depletion_date = (
+                datetime.now(timezone.utc) + timedelta(weeks=weeks_until)
+            ).date()
 
         logger.info(
             "Inventory depletion forecast computed",
@@ -219,7 +221,7 @@ class InventoryForecaster:
         if forecast is None:
             return None
 
-        today = datetime.utcnow().date()
+        today = datetime.now(timezone.utc).date()
 
         if forecast.depletion_date is None:
             # Stock exists but consumption is zero — no reorder needed yet.
@@ -315,7 +317,7 @@ class InventoryForecaster:
         lookback window that had at least one usage event — used for
         confidence scoring.
         """
-        cutoff = datetime.utcnow() - timedelta(days=lookback_days)
+        cutoff = datetime.now(timezone.utc) - timedelta(days=lookback_days)
 
         # Total weight consumed in the lookback window.
         stmt = (

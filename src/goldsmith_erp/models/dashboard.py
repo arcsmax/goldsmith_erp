@@ -36,6 +36,9 @@ class WorkItem(BaseModel):
     customer_id: Optional[int] = None
     customer_name: Optional[str] = None
     bag_number: Optional[str] = None
+    job_id: Optional[int] = Field(
+        default=None, description="Job spine id (GET /jobs/{id}); ARCH phase 5"
+    )
 
 
 class PendingItem(BaseModel):
@@ -51,6 +54,7 @@ class PendingItem(BaseModel):
     order_id: Optional[int] = None
     repair_id: Optional[int] = None
     quote_id: Optional[int] = None
+    job_id: Optional[int] = None
     bag_number: Optional[str] = None
     valid_until: Optional[date] = None
     # Financial: cost change new amount / quote total. Stripped for VIEWER.

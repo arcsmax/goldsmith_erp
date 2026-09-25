@@ -1,193 +1,167 @@
-// CustomersPage - Customer Management
-import React, { useEffect, useState, useCallback } from 'react';
+// CustomersPage - Customer Management on TanStack Query (W3-03).
+//
+// GET /customers/ has no Page envelope yet (no `offset`, no total), so the
+// legacy skip/limit call runs inside useQuery; search, type and status
+// filter server-side. "Weiter" is offered while a page comes back full.
+// TODO(W3-08 follow-up): switch to pagedApi once /customers/ returns Page[T].
+import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { customersApi } from '../api';
-import { Customer, CustomerListItem, CustomerCategory } from '../types';
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { customersApi } from '../api/customers';
+import { DEFAULT_PAGE_SIZE, compactParams } from '../api/paged';
+import { queryKeys, type CustomerListParams } from '../api/queryKeys';
+import type {
+  Customer,
+  CustomerCategory,
+  CustomerCreateInput,
+  CustomerUpdateInput,
+} from '../types';
 import { CustomerFormModal } from '../components/CustomerFormModal';
+import { Pager } from '../components/Pager';
 import { useToast, useConfirm } from '../contexts';
+import { getErrorMessage } from '../lib/errors';
+import { useDebouncedValue } from '../lib/useDebouncedValue';
+import { Button, PageState, type PageStateValue } from '../ui';
 import '../styles/pages.css';
 import '../styles/customers.css';
 
+const PAGE_SIZE_OPTIONS = [10, 25, 50, 100] as const;
+
+interface CustomerFilters {
+  search: string;
+  customerType: CustomerCategory | '';
+  isActive: boolean | '';
+}
+
+const NO_FILTERS: CustomerFilters = { search: '', customerType: '', isActive: '' };
+
+function listParams(filters: CustomerFilters, pageIndex: number, pageSize: number): CustomerListParams {
+  return compactParams({
+    skip: pageIndex * pageSize,
+    limit: pageSize,
+    search: filters.search.trim() || undefined,
+    customer_type: filters.customerType || undefined,
+    is_active: filters.isActive === '' ? undefined : filters.isActive,
+  }) as CustomerListParams;
+}
+
+function useCustomerMutations() {
+  const queryClient = useQueryClient();
+  const { showToast } = useToast();
+  const invalidate = () => queryClient.invalidateQueries({ queryKey: queryKeys.customers.all });
+
+  const create = useMutation({
+    mutationFn: (data: CustomerCreateInput) => customersApi.create(data),
+    onSuccess: invalidate,
+  });
+  const update = useMutation({
+    mutationFn: ({ id, data }: { id: number; data: CustomerUpdateInput }) =>
+      customersApi.update(id, data),
+    onSuccess: invalidate,
+  });
+  const remove = useMutation({
+    mutationFn: (id: number) => customersApi.delete(id),
+    onSuccess: async () => {
+      await invalidate();
+      showToast('Kunde gelöscht', 'success');
+    },
+    onError: (err) =>
+      showToast(
+        `${getErrorMessage(err, 'Kunde konnte nicht gelöscht werden')} – Tipp: Kunden mit Aufträgen können nicht gelöscht werden. Deaktivieren Sie den Kunden stattdessen.`,
+        'error',
+      ),
+  });
+  return { create, update, remove };
+}
+
 export const CustomersPage: React.FC = () => {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const { showToast } = useToast();
   const { showConfirm } = useConfirm();
-  const [customers, setCustomers] = useState<CustomerListItem[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
 
-  // Filter states
-  const [searchQuery, setSearchQuery] = useState('');
-  const [filterType, setFilterType] = useState<CustomerCategory | ''>('');
-  const [filterActive, setFilterActive] = useState<boolean | ''>('');
-
-  // Pagination states
-  const [page, setPage] = useState(0);
-  const [pageSize, setPageSize] = useState(25);
-  const [totalCount, setTotalCount] = useState(0);
-
-  // Modal states
+  const [filters, setFilters] = useState<CustomerFilters>(NO_FILTERS);
+  const debouncedSearch = useDebouncedValue(filters.search);
+  const [pageIndex, setPageIndex] = useState(0);
+  const [pageSize, setPageSize] = useState<number>(DEFAULT_PAGE_SIZE);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null);
-  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Detail/expand states
-  const [expandedCustomerId, setExpandedCustomerId] = useState<number | null>(null);
-  const [expandedCustomer, setExpandedCustomer] = useState<Customer | null>(null);
-  const [isLoadingDetail, setIsLoadingDetail] = useState(false);
+  const params = listParams({ ...filters, search: debouncedSearch }, pageIndex, pageSize);
+  const query = useQuery({
+    queryKey: queryKeys.customers.list(params),
+    queryFn: () => customersApi.getAll(params),
+    placeholderData: keepPreviousData,
+  });
+  const { create, update, remove } = useCustomerMutations();
 
-  // Fetch customers with filters
-  const fetchCustomers = useCallback(async () => {
-    try {
-      setIsLoading(true);
-      setError(null);
+  const customers = query.data ?? [];
+  const hasFilter = Boolean(filters.search || filters.customerType || filters.isActive !== '');
+  const hasNext = customers.length === pageSize;
 
-      const params: any = {
-        skip: page * pageSize,
-        limit: pageSize,
-      };
-
-      if (searchQuery) params.search = searchQuery;
-      if (filterType) params.customer_type = filterType;
-      if (filterActive !== '') params.is_active = filterActive;
-
-      const data = await customersApi.getAll(params);
-      setCustomers(data);
-      // Backend returns a plain list without a total count field.
-      // If the page is full (data.length === pageSize), at least one more page
-      // may exist, so we set the total one page beyond what we've seen.
-      // Otherwise the current page is the last one.
-      if (data.length === pageSize) {
-        setTotalCount((page + 1) * pageSize + 1);
-      } else {
-        setTotalCount(page * pageSize + data.length);
-      }
-    } catch (err: any) {
-      setError(err.response?.data?.detail || 'Fehler beim Laden der Kunden');
-    } finally {
-      setIsLoading(false);
-    }
-  }, [page, pageSize, searchQuery, filterType, filterActive]);
-
-  useEffect(() => {
-    // Debounce search
-    const timer = setTimeout(() => {
-      fetchCustomers();
-    }, 300);
-
-    return () => clearTimeout(timer);
-  }, [fetchCustomers]);
-
-  // Clear all filters
-  const handleClearFilters = () => {
-    setSearchQuery('');
-    setFilterType('');
-    setFilterActive('');
-    setPage(0);
+  const updateFilters = (patch: Partial<CustomerFilters>) => {
+    setFilters((current) => ({ ...current, ...patch }));
+    setPageIndex(0);
   };
 
-  // Handle create customer
-  const handleCreateCustomer = async (data: any) => {
+  const handleCreateCustomer = async (data: CustomerCreateInput | CustomerUpdateInput) => {
     try {
-      setIsSubmitting(true);
-      await customersApi.create(data);
+      await create.mutateAsync(data as CustomerCreateInput);
       setShowCreateModal(false);
-      setPage(0); // Reset to first page
-      await fetchCustomers();
-    } catch (err: any) {
-      throw new Error(err.response?.data?.detail || 'Fehler beim Erstellen des Kunden');
-    } finally {
-      setIsSubmitting(false);
+      setPageIndex(0);
+    } catch (err) {
+      // CustomerFormModal shows the message and keeps the form open.
+      throw new Error(getErrorMessage(err, 'Kunde konnte nicht angelegt werden'));
     }
   };
 
-  // Handle edit customer
-  const handleEditCustomer = async (data: any) => {
+  const handleEditCustomer = async (data: CustomerCreateInput | CustomerUpdateInput) => {
     if (!editingCustomer) return;
-
     try {
-      setIsSubmitting(true);
-      await customersApi.update(editingCustomer.id, data);
+      await update.mutateAsync({ id: editingCustomer.id, data });
       setEditingCustomer(null);
-      await fetchCustomers();
-    } catch (err: any) {
-      throw new Error(err.response?.data?.detail || 'Fehler beim Aktualisieren des Kunden');
-    } finally {
-      setIsSubmitting(false);
+    } catch (err) {
+      throw new Error(getErrorMessage(err, 'Kunde konnte nicht gespeichert werden'));
     }
   };
 
-  // Handle delete customer
   const handleDeleteCustomer = async (customerId: number, customerName: string) => {
     const confirmed = await showConfirm({
-      title: 'Kunden loschen',
-      message: `Mochten Sie den Kunden "${customerName}" wirklich loschen? Kunden mit aktiven Auftragen konnen nicht geloscht werden.`,
-      confirmLabel: 'Loschen',
+      title: 'Kunden löschen',
+      message: `Möchten Sie den Kunden „${customerName}“ wirklich löschen? Kunden mit aktiven Aufträgen können nicht gelöscht werden.`,
+      confirmLabel: 'Löschen',
       variant: 'danger',
     });
-
-    if (!confirmed) return;
-
-    try {
-      await customersApi.delete(customerId);
-      await fetchCustomers();
-    } catch (err: any) {
-      const errorMsg = err.response?.data?.detail || 'Fehler beim Loschen des Kunden';
-      showToast(
-        `${errorMsg} - Tipp: Kunden mit Auftragen konnen nicht geloscht werden. Deaktivieren Sie den Kunden stattdessen.`,
-        'error'
-      );
-    }
+    if (confirmed) remove.mutate(customerId);
   };
 
-  // Open edit modal
   const handleOpenEdit = async (customerId: number) => {
     try {
-      const customer = await customersApi.getById(customerId);
+      const customer = await queryClient.fetchQuery({
+        queryKey: queryKeys.customers.detail(customerId),
+        queryFn: () => customersApi.getById(customerId),
+      });
       setEditingCustomer(customer);
-    } catch (err: any) {
-      showToast('Fehler beim Laden der Kundendaten', 'error');
+    } catch (err) {
+      showToast(getErrorMessage(err, 'Kundendaten konnten nicht geladen werden'), 'error');
     }
   };
 
-  // Toggle detail row
-  const handleToggleDetail = async (customerId: number) => {
-    if (expandedCustomerId === customerId) {
-      setExpandedCustomerId(null);
-      setExpandedCustomer(null);
-      return;
-    }
-
-    try {
-      setIsLoadingDetail(true);
-      setExpandedCustomerId(customerId);
-      const customer = await customersApi.getById(customerId);
-      setExpandedCustomer(customer);
-    } catch (err: any) {
-      setExpandedCustomerId(null);
-      setExpandedCustomer(null);
-    } finally {
-      setIsLoadingDetail(false);
-    }
-  };
-
-  // Pagination
-  const totalPages = Math.ceil(totalCount / pageSize);
-  const canGoPrevious = page > 0;
-  const canGoNext = page < totalPages - 1;
-
-  if (isLoading && customers.length === 0) {
-    return <div className="page-loading">Lade Kunden...</div>;
-  }
+  const state: PageStateValue = query.isPending
+    ? { status: 'loading' }
+    : query.isError && !query.data
+      ? {
+          status: 'error',
+          error: getErrorMessage(query.error, 'Kunden konnten nicht geladen werden.'),
+          retry: () => void query.refetch(),
+        }
+      : { status: customers.length ? 'ready' : 'empty' };
 
   return (
     <div className="page-container">
       <header className="page-header">
         <h1>Kunden</h1>
-        <button
-          className="btn-primary"
-          onClick={() => setShowCreateModal(true)}
-        >
+        <button className="btn-primary" onClick={() => setShowCreateModal(true)}>
           + Neuer Kunde
         </button>
       </header>
@@ -195,23 +169,19 @@ export const CustomersPage: React.FC = () => {
       {/* Search and Filters */}
       <div className="filter-bar">
         <input
-          type="text"
+          type="search"
           className="search-input"
-          placeholder="Suchen nach Name, E-Mail oder Firma..."
-          value={searchQuery}
-          onChange={(e) => {
-            setSearchQuery(e.target.value);
-            setPage(0); // Reset to first page on search
-          }}
+          aria-label="Kunden durchsuchen"
+          placeholder="Suchen nach Name, E-Mail oder Firma …"
+          value={filters.search}
+          onChange={(e) => updateFilters({ search: e.target.value })}
         />
 
         <select
           className="filter-select"
-          value={filterType}
-          onChange={(e) => {
-            setFilterType(e.target.value as CustomerCategory | '');
-            setPage(0);
-          }}
+          aria-label="Kundentyp"
+          value={filters.customerType}
+          onChange={(e) => updateFilters({ customerType: e.target.value as CustomerCategory | '' })}
         >
           <option value="">Alle Typen</option>
           <option value="private">Privat</option>
@@ -220,11 +190,11 @@ export const CustomersPage: React.FC = () => {
 
         <select
           className="filter-select"
-          value={filterActive === '' ? '' : filterActive ? 'true' : 'false'}
+          aria-label="Kundenstatus"
+          value={filters.isActive === '' ? '' : filters.isActive ? 'true' : 'false'}
           onChange={(e) => {
             const val = e.target.value;
-            setFilterActive(val === '' ? '' : val === 'true');
-            setPage(0);
+            updateFilters({ isActive: val === '' ? '' : val === 'true' });
           }}
         >
           <option value="">Alle Status</option>
@@ -232,224 +202,145 @@ export const CustomersPage: React.FC = () => {
           <option value="false">Inaktiv</option>
         </select>
 
-        {(searchQuery || filterType || filterActive !== '') && (
-          <button
-            className="btn-clear-filters"
-            onClick={handleClearFilters}
-          >
+        {hasFilter && (
+          <button className="btn-clear-filters" onClick={() => updateFilters(NO_FILTERS)}>
             Filter zurücksetzen
           </button>
         )}
       </div>
 
-      {error && (
-        <div className="page-error">
-          {error}
-          <button onClick={fetchCustomers} className="btn-primary">
-            Erneut versuchen
-          </button>
-        </div>
-      )}
-
-      {!error && customers.length === 0 ? (
-        <div className="empty-state">
-          <p>Keine Kunden gefunden.</p>
-          {(searchQuery || filterType || filterActive !== '') ? (
-            <p className="error-hint">Versuchen Sie, die Filter zu ändern oder zurückzusetzen.</p>
+      <PageState
+        state={state}
+        skeleton="list"
+        empty={{
+          icon: 'search',
+          title: hasFilter ? 'Keine Kunden gefunden' : 'Noch keine Kunden',
+          body: hasFilter ? 'Suche oder Filter ändern.' : undefined,
+          action: hasFilter ? (
+            <Button variant="secondary" onClick={() => updateFilters(NO_FILTERS)}>
+              Filter zurücksetzen
+            </Button>
           ) : (
-            <p className="error-hint">Erstellen Sie Ihren ersten Kunden, um loszulegen.</p>
-          )}
-        </div>
-      ) : (
-        <>
-          <div className="table-container">
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>ID</th>
-                  <th>Name</th>
-                  <th>Firma</th>
-                  <th>E-Mail</th>
-                  <th>Telefon</th>
-                  <th>Typ</th>
-                  <th>Tags</th>
-                  <th>Status</th>
-                  <th>Aktionen</th>
+            <Button onClick={() => setShowCreateModal(true)}>Kunden anlegen</Button>
+          ),
+        }}
+      >
+        <div className="table-container">
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>Name</th>
+                <th>Firma</th>
+                <th>E-Mail</th>
+                <th>Telefon</th>
+                <th>Typ</th>
+                <th>Tags</th>
+                <th>Status</th>
+                <th>Aktionen</th>
+              </tr>
+            </thead>
+            <tbody>
+              {customers.map((customer) => (
+                <tr
+                  key={customer.id}
+                  style={{ cursor: 'pointer' }}
+                  onClick={() => navigate(`/customers/${customer.id}`)}
+                >
+                  <td>#{customer.id}</td>
+                  <td>
+                    <strong>
+                      {customer.first_name} {customer.last_name}
+                    </strong>
+                  </td>
+                  <td>{customer.company_name || '-'}</td>
+                  <td>{customer.email}</td>
+                  <td>{customer.phone || '-'}</td>
+                  <td>
+                    <span className="customer-type-badge">
+                      {customer.customer_type === 'private' ? '👤 Privat' : '🏢 Geschäftskunde'}
+                    </span>
+                  </td>
+                  <td>
+                    {customer.tags && customer.tags.length > 0 ? (
+                      <div>
+                        {customer.tags.map((tag) => (
+                          <span key={tag} className="customer-tag">
+                            {tag}
+                          </span>
+                        ))}
+                      </div>
+                    ) : (
+                      '-'
+                    )}
+                  </td>
+                  <td>
+                    <span className={`customer-status ${customer.is_active ? 'active' : 'inactive'}`}>
+                      {customer.is_active ? '✅ Aktiv' : '⛔ Inaktiv'}
+                    </span>
+                  </td>
+                  <td className="customer-actions">
+                    <button
+                      className="btn-action"
+                      title="Bearbeiten"
+                      aria-label="Kunden bearbeiten"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        void handleOpenEdit(customer.id);
+                      }}
+                    >
+                      <span aria-hidden="true">✏️</span>
+                    </button>
+                    <button
+                      className="btn-action btn-danger"
+                      title="Löschen"
+                      aria-label="Kunden löschen"
+                      disabled={remove.isPending}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        void handleDeleteCustomer(
+                          customer.id,
+                          `${customer.first_name} ${customer.last_name}`,
+                        );
+                      }}
+                    >
+                      <span aria-hidden="true">🗑️</span>
+                    </button>
+                  </td>
                 </tr>
-              </thead>
-              <tbody>
-                {customers.map((customer) => (
-                  <React.Fragment key={customer.id}>
-                  <tr
-                    style={{ cursor: 'pointer' }}
-                    onClick={() => navigate(`/customers/${customer.id}`)}
-                  >
-                    <td>#{customer.id}</td>
-                    <td>
-                      <strong>{customer.first_name} {customer.last_name}</strong>
-                    </td>
-                    <td>{customer.company_name || '-'}</td>
-                    <td>{customer.email}</td>
-                    <td>{customer.phone || '-'}</td>
-                    <td>
-                      <span className="customer-type-badge">
-                        {customer.customer_type === 'private' ? '👤 Privat' : '🏢 Geschäftskunde'}
-                      </span>
-                    </td>
-                    <td>
-                      {customer.tags && customer.tags.length > 0 ? (
-                        <div>
-                          {customer.tags.map((tag, idx) => (
-                            <span key={idx} className="customer-tag">{tag}</span>
-                          ))}
-                        </div>
-                      ) : (
-                        '-'
-                      )}
-                    </td>
-                    <td>
-                      <span className={`customer-status ${customer.is_active ? 'active' : 'inactive'}`}>
-                        {customer.is_active ? '✅ Aktiv' : '⛔ Inaktiv'}
-                      </span>
-                    </td>
-                    <td className="customer-actions">
-                      <button
-                        className="btn-action"
-                        title="Bearbeiten"
-                        onClick={(e) => { e.stopPropagation(); handleOpenEdit(customer.id); }}
-                      >
-                        ✏️
-                      </button>
-                      <button
-                        className="btn-action btn-danger"
-                        title="Löschen"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleDeleteCustomer(
-                            customer.id,
-                            `${customer.first_name} ${customer.last_name}`
-                          );
-                        }}
-                      >
-                        🗑️
-                      </button>
-                    </td>
-                  </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
 
-                  {/* Detail / Measurement Row */}
-                  {expandedCustomerId === customer.id && (
-                    <tr className="customer-detail-row">
-                      <td colSpan={9}>
-                        {isLoadingDetail ? (
-                          <div className="detail-loading">Lade Details...</div>
-                        ) : expandedCustomer ? (
-                          <div className="customer-detail-content">
-                            <div className="detail-section">
-                              <h4 className="detail-section-title">Mass-Bibliothek</h4>
-                              <div className="detail-badges">
-                                {expandedCustomer.ring_size != null && (
-                                  <span className="measurement-badge">
-                                    Ringgroesse: {expandedCustomer.ring_size} (EU)
-                                  </span>
-                                )}
-                                {expandedCustomer.chain_length_cm != null && (
-                                  <span className="measurement-badge">
-                                    Kettenlaenge: {expandedCustomer.chain_length_cm} cm
-                                  </span>
-                                )}
-                                {expandedCustomer.bracelet_length_cm != null && (
-                                  <span className="measurement-badge">
-                                    Armband: {expandedCustomer.bracelet_length_cm} cm
-                                  </span>
-                                )}
-                                {expandedCustomer.allergies && (
-                                  <span className="measurement-badge badge-warning">
-                                    Allergien: {expandedCustomer.allergies}
-                                  </span>
-                                )}
-                                {expandedCustomer.birthday && (
-                                  <span className="measurement-badge">
-                                    Geburtstag: {new Date(expandedCustomer.birthday).toLocaleDateString('de-DE')}
-                                  </span>
-                                )}
-                                {!expandedCustomer.ring_size && !expandedCustomer.chain_length_cm &&
-                                 !expandedCustomer.bracelet_length_cm && !expandedCustomer.allergies &&
-                                 !expandedCustomer.birthday && !expandedCustomer.preferences && (
-                                  <span className="detail-empty">Keine Masse oder Vorlieben hinterlegt.</span>
-                                )}
-                              </div>
-                            </div>
-                            {expandedCustomer.preferences && Object.keys(expandedCustomer.preferences).length > 0 && (
-                              <div className="detail-section">
-                                <h4 className="detail-section-title">Vorlieben</h4>
-                                <div className="detail-badges">
-                                  {Object.entries(expandedCustomer.preferences).map(([key, value]) => (
-                                    <span key={key} className="preference-badge">
-                                      {key}: {String(value)}
-                                    </span>
-                                  ))}
-                                </div>
-                              </div>
-                            )}
-                            {expandedCustomer.notes && (
-                              <div className="detail-section">
-                                <h4 className="detail-section-title">Notizen</h4>
-                                <p className="detail-notes">{expandedCustomer.notes}</p>
-                              </div>
-                            )}
-                          </div>
-                        ) : null}
-                      </td>
-                    </tr>
-                  )}
-                  </React.Fragment>
-                ))}
-              </tbody>
-            </table>
-          </div>
-
-          {/* Pagination */}
-          {customers.length > 0 && (
-            <div className="pagination-controls">
-              <div className="pagination-info">
-                Zeige {page * pageSize + 1}-{Math.min((page + 1) * pageSize, totalCount)} von {totalCount}
-              </div>
-
-              <div className="pagination-buttons">
-                <button
-                  onClick={() => setPage(p => p - 1)}
-                  disabled={!canGoPrevious}
-                >
-                  ◀ Zurück
-                </button>
-                <span>Seite {page + 1} von {Math.max(totalPages, 1)}</span>
-                <button
-                  onClick={() => setPage(p => p + 1)}
-                  disabled={!canGoNext}
-                >
-                  Weiter ▶
-                </button>
-              </div>
-
-              <div className="page-size-selector">
-                <label>Pro Seite:</label>
-                <select
-                  value={pageSize}
-                  onChange={(e) => {
-                    setPageSize(Number(e.target.value));
-                    setPage(0);
-                  }}
-                >
-                  <option value="10">10</option>
-                  <option value="25">25</option>
-                  <option value="50">50</option>
-                  <option value="100">100</option>
-                </select>
-              </div>
-            </div>
-          )}
-        </>
-      )}
+        <Pager
+          label="Seiten der Kundenliste"
+          pageNumber={pageIndex + 1}
+          pageCount={hasNext ? undefined : pageIndex + 1}
+          summary={`${pageIndex * pageSize + 1}–${pageIndex * pageSize + customers.length} angezeigt`}
+          hasNext={hasNext}
+          isFetching={query.isFetching}
+          onPrevious={() => setPageIndex((index) => Math.max(index - 1, 0))}
+          onNext={() => setPageIndex((index) => index + 1)}
+        />
+        <div className="page-size-selector">
+          <label htmlFor="customers-page-size">Pro Seite:</label>
+          <select
+            id="customers-page-size"
+            value={pageSize}
+            onChange={(e) => {
+              setPageSize(Number(e.target.value));
+              setPageIndex(0);
+            }}
+          >
+            {PAGE_SIZE_OPTIONS.map((size) => (
+              <option key={size} value={size}>
+                {size}
+              </option>
+            ))}
+          </select>
+        </div>
+      </PageState>
 
       {/* Create Customer Modal */}
       {showCreateModal && (
@@ -457,7 +348,7 @@ export const CustomersPage: React.FC = () => {
           isOpen={showCreateModal}
           onClose={() => setShowCreateModal(false)}
           onSubmit={handleCreateCustomer}
-          isLoading={isSubmitting}
+          isLoading={create.isPending}
         />
       )}
 
@@ -468,7 +359,7 @@ export const CustomersPage: React.FC = () => {
           onClose={() => setEditingCustomer(null)}
           onSubmit={handleEditCustomer}
           customer={editingCustomer}
-          isLoading={isSubmitting}
+          isLoading={update.isPending}
         />
       )}
     </div>

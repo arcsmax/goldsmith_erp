@@ -35,8 +35,8 @@ export const MeasurementStep: React.FC<{ customerId: number }> = ({ customerId }
     };
   }, [customerId]);
 
-  if (isLoading) return <p>Lade Kundinnendaten...</p>;
-  if (!customer) return <p>Kundin konnte nicht geladen werden.</p>;
+  if (isLoading) return <p role="status">Kundinnendaten werden geladen …</p>;
+  if (!customer) return <p role="alert">Kundin konnte nicht geladen werden.</p>;
 
   return <MeasurementPanel customer={customer} />;
 };

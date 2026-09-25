@@ -4,26 +4,13 @@
 // Supports gold_24k, silver_999, platinum_950 (the three base metals that have
 // dedicated history rows in metal_price_history).
 
-import React, { useEffect, useMemo, useState } from 'react';
-import apiClient from '../../api/client';
-import { MetalType } from '../../types';
-
-// ─── Types ──────────────────────────────────────────────────────────────────
-
-interface PricePoint {
-  fetched_at: string;
-  price_per_gram_eur: number;
-  source: string;
-}
-
-interface PriceHistoryResponse {
-  metal_type: MetalType;
-  days: number;
-  points: PricePoint[];
-  avg_7d: number;
-  avg_30d: number;
-  current_price: number;
-}
+import React, { useMemo, useState } from 'react';
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
+import type { MetalType } from '../../types';
+import { getErrorMessage } from '../../lib/errors';
+import { formatEur, MONEY_CLASS } from '../../lib/format';
+import { Card, Field, PageState, type PageStateValue } from '../../ui';
+import { priceHistoryQuery, type PricePoint } from './metalQueries';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
@@ -37,15 +24,13 @@ const SUPPORTED_METALS: { value: MetalType; label: string }[] = [
 const SVG_WIDTH = 600;
 const SVG_HEIGHT = 220;
 const PADDING = { top: 16, right: 20, bottom: 32, left: 56 };
+const DEFAULT_DAYS = 30;
+const DAY_OPTIONS = [7, 30, 90] as const;
 
 const CHART_W = SVG_WIDTH - PADDING.left - PADDING.right;
 const CHART_H = SVG_HEIGHT - PADDING.top - PADDING.bottom;
 
 // ─── Helper functions ────────────────────────────────────────────────────────
-
-function formatEur(val: number): string {
-  return new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR' }).format(val);
-}
 
 function formatDate(iso: string): string {
   return new Date(iso).toLocaleDateString('de-DE', { day: '2-digit', month: 'short' });
@@ -67,7 +52,7 @@ interface ChartProps {
 
 const LineChart: React.FC<ChartProps> = ({ points, avg7d, avg30d }) => {
   if (points.length === 0) {
-    return <p className="price-chart-no-data">Keine historischen Daten verfugbar.</p>;
+    return <p className="price-chart__note">Keine historischen Daten verfügbar.</p>;
   }
 
   const prices = points.map((p) => p.price_per_gram_eur);
@@ -109,14 +94,14 @@ const LineChart: React.FC<ChartProps> = ({ points, avg7d, avg30d }) => {
   return (
     <svg
       viewBox={`0 0 ${SVG_WIDTH} ${SVG_HEIGHT}`}
-      className="price-chart-svg"
+      className="price-chart__svg"
       role="img"
       aria-label="Preisverlauf Linienchart"
     >
       <defs>
         <linearGradient id="chartAreaGrad" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="var(--chart-line-color, #c9a227)" stopOpacity="0.25" />
-          <stop offset="100%" stopColor="var(--chart-line-color, #c9a227)" stopOpacity="0.02" />
+          <stop offset="0%" stopColor="var(--color-chart-primary)" stopOpacity="0.25" />
+          <stop offset="100%" stopColor="var(--color-chart-primary)" stopOpacity="0.02" />
         </linearGradient>
       </defs>
 
@@ -131,7 +116,7 @@ const LineChart: React.FC<ChartProps> = ({ points, avg7d, avg30d }) => {
                 y1={y}
                 x2={CHART_W}
                 y2={y}
-                stroke="var(--chart-grid-color, #e5e7eb)"
+                stroke="var(--color-border)"
                 strokeWidth={1}
               />
               <text
@@ -139,7 +124,7 @@ const LineChart: React.FC<ChartProps> = ({ points, avg7d, avg30d }) => {
                 y={parseFloat(y) + 4}
                 textAnchor="end"
                 fontSize={10}
-                fill="var(--chart-label-color, #6b7280)"
+                fill="var(--color-text-muted)"
               >
                 {formatEur(tick)}
               </text>
@@ -155,7 +140,7 @@ const LineChart: React.FC<ChartProps> = ({ points, avg7d, avg30d }) => {
             y={CHART_H + 20}
             textAnchor="middle"
             fontSize={10}
-            fill="var(--chart-label-color, #6b7280)"
+            fill="var(--color-text-muted)"
           >
             {formatDate(points[idx].fetched_at)}
           </text>
@@ -170,7 +155,7 @@ const LineChart: React.FC<ChartProps> = ({ points, avg7d, avg30d }) => {
           y1={y30d.toFixed(1)}
           x2={CHART_W}
           y2={y30d.toFixed(1)}
-          stroke="var(--chart-avg30-color, #9ca3af)"
+          stroke="var(--color-text-muted)"
           strokeWidth={1}
           strokeDasharray="4 3"
           opacity={0.8}
@@ -182,7 +167,7 @@ const LineChart: React.FC<ChartProps> = ({ points, avg7d, avg30d }) => {
           y1={y7d.toFixed(1)}
           x2={CHART_W}
           y2={y7d.toFixed(1)}
-          stroke="var(--chart-avg7-color, #6366f1)"
+          stroke="var(--color-info)"
           strokeWidth={1}
           strokeDasharray="4 3"
           opacity={0.8}
@@ -192,15 +177,15 @@ const LineChart: React.FC<ChartProps> = ({ points, avg7d, avg30d }) => {
         <polyline
           points={linePath}
           fill="none"
-          stroke="var(--chart-line-color, #c9a227)"
+          stroke="var(--color-chart-primary)"
           strokeWidth={2}
           strokeLinejoin="round"
           strokeLinecap="round"
         />
 
         {/* Axis borders */}
-        <line x1={0} y1={0} x2={0} y2={CHART_H} stroke="var(--chart-axis-color, #d1d5db)" strokeWidth={1} />
-        <line x1={0} y1={CHART_H} x2={CHART_W} y2={CHART_H} stroke="var(--chart-axis-color, #d1d5db)" strokeWidth={1} />
+        <line x1={0} y1={0} x2={0} y2={CHART_H} stroke="var(--color-border-strong)" strokeWidth={1} />
+        <line x1={0} y1={CHART_H} x2={CHART_W} y2={CHART_H} stroke="var(--color-border-strong)" strokeWidth={1} />
       </g>
     </svg>
   );
@@ -210,115 +195,76 @@ const LineChart: React.FC<ChartProps> = ({ points, avg7d, avg30d }) => {
 
 export const PriceChart: React.FC = () => {
   const [selectedMetal, setSelectedMetal] = useState<MetalType>('gold_24k' as MetalType);
-  const [selectedDays, setSelectedDays] = useState<number>(30);
-  const [data, setData] = useState<PriceHistoryResponse | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    const load = async () => {
-      setIsLoading(true);
-      setError(null);
-      try {
-        const response = await apiClient.get<PriceHistoryResponse>('/metal-prices/history', {
-          params: { metal_type: selectedMetal, days: selectedDays },
-        });
-        if (!cancelled) setData(response.data);
-      } catch (err: any) {
-        if (!cancelled) {
-          setError(
-            err?.response?.data?.detail ||
-            'Preishistorie konnte nicht geladen werden.'
-          );
-        }
-      } finally {
-        if (!cancelled) setIsLoading(false);
-      }
-    };
-
-    load();
-    return () => { cancelled = true; };
-  }, [selectedMetal, selectedDays]);
+  const [selectedDays, setSelectedDays] = useState<number>(DEFAULT_DAYS);
+  const query = useQuery({ ...priceHistoryQuery(selectedMetal, selectedDays), placeholderData: keepPreviousData });
+  const data = query.data;
 
   const metalLabel = useMemo(
     () => SUPPORTED_METALS.find((m) => m.value === selectedMetal)?.label ?? selectedMetal,
     [selectedMetal]
   );
 
-  return (
-    <div className="price-chart-container">
-      <div className="price-chart-header">
-        <h3 className="price-chart-title">Kursverlauf</h3>
+  const state: PageStateValue = query.isPending
+    ? { status: 'loading' }
+    : query.isError && !data
+      ? {
+          status: 'error',
+          error: getErrorMessage(query.error, 'Preishistorie konnte nicht geladen werden.'),
+          retry: () => void query.refetch(),
+        }
+      : { status: 'ready' };
 
-        <div className="price-chart-controls">
-          <label htmlFor="price-chart-metal" className="price-chart-label">Metall:</label>
-          <select
-            id="price-chart-metal"
-            className="price-chart-select"
-            value={selectedMetal}
-            onChange={(e) => setSelectedMetal(e.target.value as MetalType)}
-          >
+  return (
+    <Card title="Kursverlauf" className="price-chart">
+      <div className="price-chart__controls">
+        <Field label="Metall" name="price-chart-metal">
+          <select value={selectedMetal} onChange={(e) => setSelectedMetal(e.target.value as MetalType)}>
             {SUPPORTED_METALS.map((m) => (
               <option key={m.value} value={m.value}>{m.label}</option>
             ))}
           </select>
-
-          <label htmlFor="price-chart-days" className="price-chart-label">Zeitraum:</label>
-          <select
-            id="price-chart-days"
-            className="price-chart-select"
-            value={selectedDays}
-            onChange={(e) => setSelectedDays(Number(e.target.value))}
-          >
-            <option value={7}>7 Tage</option>
-            <option value={30}>30 Tage</option>
-            <option value={90}>90 Tage</option>
+        </Field>
+        <Field label="Zeitraum" name="price-chart-days">
+          <select value={selectedDays} onChange={(e) => setSelectedDays(Number(e.target.value))}>
+            {DAY_OPTIONS.map((days) => (
+              <option key={days} value={days}>{days} Tage</option>
+            ))}
           </select>
-        </div>
+        </Field>
       </div>
 
-      {isLoading && (
-        <div className="price-chart-loading">Kursdaten werden geladen...</div>
-      )}
+      <PageState state={state} skeleton="detail">
+        {data && (
+          <>
+            <dl className="price-chart__stats">
+              <div>
+                <dt>Aktuell</dt>
+                <dd className={MONEY_CLASS}>{formatEur(data.current_price)}/g</dd>
+              </div>
+              <div>
+                <dt>7-Tage-Ø</dt>
+                <dd className={MONEY_CLASS}>{formatEur(data.avg_7d)}/g</dd>
+              </div>
+              <div>
+                <dt>30-Tage-Ø</dt>
+                <dd className={MONEY_CLASS}>{formatEur(data.avg_30d)}/g</dd>
+              </div>
+            </dl>
 
-      {error && !isLoading && (
-        <div className="price-chart-error" role="alert">{error}</div>
-      )}
+            <LineChart points={data.points} avg7d={data.avg_7d} avg30d={data.avg_30d} />
 
-      {data && !isLoading && (
-        <>
-          {/* Summary stats row */}
-          <div className="price-chart-stats">
-            <div className="price-chart-stat">
-              <span className="price-chart-stat-label">Aktuell</span>
-              <span className="price-chart-stat-value primary">{formatEur(data.current_price)}/g</span>
-            </div>
-            <div className="price-chart-stat">
-              <span className="price-chart-stat-label">7-Tage-Ø</span>
-              <span className="price-chart-stat-value avg7">{formatEur(data.avg_7d)}/g</span>
-            </div>
-            <div className="price-chart-stat">
-              <span className="price-chart-stat-label">30-Tage-Ø</span>
-              <span className="price-chart-stat-value avg30">{formatEur(data.avg_30d)}/g</span>
-            </div>
-          </div>
+            <ul className="price-chart__legend">
+              <li className="price-chart__legend-item price-chart__legend-item--line">Kursverlauf {metalLabel}</li>
+              <li className="price-chart__legend-item price-chart__legend-item--avg7">7-Tage-Durchschnitt</li>
+              <li className="price-chart__legend-item price-chart__legend-item--avg30">30-Tage-Durchschnitt</li>
+            </ul>
 
-          <LineChart points={data.points} avg7d={data.avg_7d} avg30d={data.avg_30d} />
-
-          {/* Legend */}
-          <div className="price-chart-legend">
-            <span className="legend-item legend-line">Kursverlauf {metalLabel}</span>
-            <span className="legend-item legend-avg7">7-Tage-Durchschnitt</span>
-            <span className="legend-item legend-avg30">30-Tage-Durchschnitt</span>
-          </div>
-
-          <p className="price-chart-note">
-            {data.points.length} Datenpunkte | {data.days} Tage
-          </p>
-        </>
-      )}
-    </div>
+            <p className="price-chart__note">
+              {data.points.length} Datenpunkte · {data.days} Tage
+            </p>
+          </>
+        )}
+      </PageState>
+    </Card>
   );
 };

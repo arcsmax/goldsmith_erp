@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import io
-from datetime import datetime
+from datetime import datetime, timezone
 
 from PIL import Image
 
@@ -21,7 +21,8 @@ def _data(**overrides) -> HandoverData:
         order_id=42,
         title="Verlobungsring",
         customer_name="Maria Mustermann",
-        handed_over_at=datetime(2026, 9, 25, 16, 30),
+        # 14:30 UTC is 16:30 in Berlin (CEST); documents print local time.
+        handed_over_at=datetime(2026, 9, 25, 14, 30, tzinfo=timezone.utc),
         metal_label="Weißgold",
         alloy="750",
         weight_g=4.2,

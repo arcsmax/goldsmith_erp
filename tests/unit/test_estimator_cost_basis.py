@@ -307,10 +307,10 @@ class TestEstimateLaborCostBasis:
 
         assert response.insufficient_data is False
         assert response.sample_size == 5
-        assert response.hours_p50 == pytest.approx(1.0)
-        assert response.labor_cost_p50 == pytest.approx(75.00)
+        assert float(response.hours_p50) == pytest.approx(1.0)
+        assert float(response.labor_cost_p50) == pytest.approx(75.00)
         # The pre-fix bug priced 3h (1h Polieren + 2h Gravur) at 75/h = 225.00.
-        assert response.labor_cost_p50 != pytest.approx(225.00)
+        assert float(response.labor_cost_p50) != pytest.approx(225.00)
 
     async def test_p20_p80_cost_scales_from_the_corrected_p50_base(
         self, db_session, cb_customer, cb_user, polieren_activity, gravur_activity
@@ -347,15 +347,17 @@ class TestEstimateLaborCostBasis:
         # Pin the corrected p50 base explicitly -- otherwise this test
         # would pass just as well against the pre-fix 225.00 base, since
         # the p20/p80 scaling ratio is self-consistent either way.
-        assert response.labor_cost_p50 == pytest.approx(75.00)
+        assert float(response.labor_cost_p50) == pytest.approx(75.00)
         expected_p20 = round(
-            response.labor_cost_p50 * (response.hours_p20 / response.hours_p50), 2
+            float(response.labor_cost_p50) * (response.hours_p20 / response.hours_p50),
+            2,
         )
         expected_p80 = round(
-            response.labor_cost_p50 * (response.hours_p80 / response.hours_p50), 2
+            float(response.labor_cost_p50) * (response.hours_p80 / response.hours_p50),
+            2,
         )
-        assert response.labor_cost_p20 == pytest.approx(expected_p20)
-        assert response.labor_cost_p80 == pytest.approx(expected_p80)
+        assert float(response.labor_cost_p20) == pytest.approx(expected_p20)
+        assert float(response.labor_cost_p80) == pytest.approx(expected_p80)
 
 
 @pytest.mark.asyncio
@@ -390,4 +392,4 @@ async def test_blended_rate_ignores_unknown_ids_and_weights_by_known_hours(
     )
 
     # (3h * 75 + 1h * 100) / (3h + 1h) = 325 / 4 = 81.25
-    assert rate == pytest.approx(81.25)
+    assert float(rate) == pytest.approx(81.25)

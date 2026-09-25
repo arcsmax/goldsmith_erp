@@ -17,6 +17,7 @@ import { logError } from '../../lib/logError';
 // re-exported here for backwards compatibility.
 export { NO_GO_CATEGORY_LABELS } from './labels';
 import { NO_GO_CATEGORY_LABELS } from './labels';
+import { Button, Field } from '../../ui';
 
 const NO_GO_CATEGORY_KEYS = Object.keys(NO_GO_CATEGORY_LABELS) as NoGoCategory[];
 
@@ -203,7 +204,7 @@ export const StyleNoGoStep: React.FC<WizardStepProps> = ({ consultation }) => {
   };
 
   if (isLoading) {
-    return <p>Lade No-Gos und Stilprofil...</p>;
+    return <p role="status">No-Gos und Stilprofil werden geladen …</p>;
   }
 
   return (
@@ -219,23 +220,25 @@ export const StyleNoGoStep: React.FC<WizardStepProps> = ({ consultation }) => {
                   <strong>{NO_GO_CATEGORY_LABELS[noGo.category]}:</strong> {noGo.value}
                   {noGo.note && <span className="field-hint"> — {noGo.note}</span>}
                 </span>
-                <button
-                  type="button"
-                  className="btn-danger"
+                <Button
+                  variant="ghost"
+                  icon="trash"
                   onClick={() => handleDeleteNoGo(noGo)}
-                  disabled={deletingNoGoId === noGo.id}
+                  loading={deletingNoGoId === noGo.id}
                   aria-label={`${noGo.value} löschen`}
                 >
-                  {deletingNoGoId === noGo.id ? '...' : 'Löschen'}
-                </button>
+                  Löschen
+                </Button>
               </div>
             ))}
           </div>
         )}
 
         <div className="wizard-field">
-          <label>Schnellauswahl Allergien</label>
-          <div className="chip-group" role="group" aria-label="Schnellauswahl Allergien">
+          <span id="stylenogo-allergens-label" className="ui-field__label">
+            Schnellauswahl Allergien
+          </span>
+          <div className="chip-group" role="group" aria-labelledby="stylenogo-allergens-label">
             {QUICK_ALLERGENS.map((allergen) => (
               <button
                 key={allergen}
@@ -244,15 +247,14 @@ export const StyleNoGoStep: React.FC<WizardStepProps> = ({ consultation }) => {
                 onClick={() => handleQuickAllergen(allergen)}
                 disabled={addingQuickAllergen === allergen}
               >
-                {addingQuickAllergen === allergen ? '...' : allergen}
+                {addingQuickAllergen === allergen ? '…' : allergen}
               </button>
             ))}
           </div>
         </div>
 
         <form className="wizard-field-row" onSubmit={handleAddNoGo}>
-          <div className="wizard-field">
-            <label htmlFor="no_go_category">Kategorie</label>
+          <Field label="Kategorie" name="no_go_category">
             <select
               id="no_go_category"
               value={category}
@@ -265,9 +267,8 @@ export const StyleNoGoStep: React.FC<WizardStepProps> = ({ consultation }) => {
                 </option>
               ))}
             </select>
-          </div>
-          <div className="wizard-field">
-            <label htmlFor="no_go_value">Wert</label>
+          </Field>
+          <Field label="Wert" name="no_go_value">
             <input
               id="no_go_value"
               type="text"
@@ -276,9 +277,8 @@ export const StyleNoGoStep: React.FC<WizardStepProps> = ({ consultation }) => {
               placeholder="z. B. Nickel"
               disabled={isAddingNoGo}
             />
-          </div>
-          <div className="wizard-field">
-            <label htmlFor="no_go_note">Notiz (optional)</label>
+          </Field>
+          <Field label="Notiz" name="no_go_note" help="Optional">
             <input
               id="no_go_note"
               type="text"
@@ -286,10 +286,10 @@ export const StyleNoGoStep: React.FC<WizardStepProps> = ({ consultation }) => {
               onChange={(e) => setNote(e.target.value)}
               disabled={isAddingNoGo}
             />
-          </div>
-          <button type="submit" className="btn-primary" disabled={isAddingNoGo || !value.trim()}>
-            {isAddingNoGo ? 'Speichert...' : 'Hinzufügen'}
-          </button>
+          </Field>
+          <Button type="submit" variant="secondary" icon="plus" disabled={!value.trim()} loading={isAddingNoGo}>
+            No-Go hinzufügen
+          </Button>
         </form>
       </section>
 

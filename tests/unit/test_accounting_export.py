@@ -236,6 +236,10 @@ class TestDatevCreatedDatePerCall:
             def utcnow(cls):
                 return cls._now
 
+            @classmethod
+            def now(cls, tz=None):
+                return cls._now if tz is None else cls._now.replace(tzinfo=tz)
+
         monkeypatch.setattr(export_module, "datetime", _FakeDatetime)
         _FakeDatetime._now = datetime(2026, 1, 1)
         first = export_module.export_datev_csv([], revenue_accounts=DEFAULT_ACCOUNTS)

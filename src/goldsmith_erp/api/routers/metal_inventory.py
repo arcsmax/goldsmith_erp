@@ -10,7 +10,7 @@ The weight-only forecast stays on ``material:view``.
 """
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -574,7 +574,7 @@ async def get_inventory_forecast(
 
     return InventoryForecastResponse(
         forecasts=forecast_items,
-        generated_at=datetime.utcnow().date(),
+        generated_at=datetime.now(timezone.utc).date(),
         lookback_days=lookback_days,
         lead_time_days=lead_time_days,
     )

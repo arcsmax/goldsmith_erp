@@ -83,6 +83,7 @@ function Lightbox({ photos, startIndex, onClose }: LightboxProps) {
       photo.file_path.startsWith('http'));
 
   return (
+    // eslint-disable-next-line jsx-a11y/click-events-have-key-events -- backdrop dismiss is mouse-only by convention; Escape is handled by the effect above
     <div
       className="photo-lightbox-overlay"
       onClick={e => { if (e.target === e.currentTarget) onClose(); }}
@@ -124,7 +125,7 @@ function Lightbox({ photos, startIndex, onClose }: LightboxProps) {
             <div className="photo-lightbox-no-preview">
               <span style={{ fontSize: '3rem' }}>&#128247;</span>
               <p>{photo.notes ?? photo.file_path.split('/').pop()}</p>
-              <p style={{ fontSize: '0.8rem', opacity: 0.6 }}>Vorschau nicht verfuegbar</p>
+              <p style={{ fontSize: '0.8rem', opacity: 0.6 }}>Vorschau nicht verfügbar</p>
             </div>
           )}
         </div>

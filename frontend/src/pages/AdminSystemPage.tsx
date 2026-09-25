@@ -21,6 +21,7 @@ import {
 import type { ThemeSettings } from '../hooks/useTheme';
 import { applyTheme, fetchTheme, saveTheme } from '../hooks/useTheme';
 import { WorkshopSettingsSection } from '../components/admin/WorkshopSettingsSection';
+import { OutboxQueueSection } from '../components/admin/OutboxQueueSection';
 import '../styles/admin.css';
 import '../styles/admin-theme.css';
 
@@ -377,12 +378,13 @@ const EmailConfigSection: React.FC = () => {
             />
           )}
           <div style={{ marginTop: '20px' }}>
+            {/* LV-12: checkbox was 18x18, below the 44px touch target. */}
             <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', fontWeight: 600, color: '#5a4a2a' }}>
               <input
                 type="checkbox"
                 checked={draft.email_notifications_enabled ?? false}
                 onChange={(e) => setDraft((d) => ({ ...d, email_notifications_enabled: e.target.checked }))}
-                style={{ width: '18px', height: '18px', accentColor: '#7c5c1e' }}
+                style={{ width: 'var(--touch-min)', height: 'var(--touch-min)', accentColor: '#7c5c1e' }}
               />
               Kunden-E-Mails aktivieren
             </label>
@@ -776,8 +778,9 @@ const ThemeConfigSection: React.FC = () => {
 
           {/* Workshop name + logo */}
           <div className="theme-field">
-            <label className="theme-field-label">Name der Werkstatt</label>
+            <label className="theme-field-label" htmlFor="admin-workshop-name">Name der Werkstatt</label>
             <input
+              id="admin-workshop-name"
               type="text"
               className="theme-text-input"
               value={draft.workshop_name}
@@ -789,8 +792,9 @@ const ThemeConfigSection: React.FC = () => {
           </div>
 
           <div className="theme-field">
-            <label className="theme-field-label">Logo-URL (optional)</label>
+            <label className="theme-field-label" htmlFor="admin-logo-url">Logo-URL (optional)</label>
             <input
+              id="admin-logo-url"
               type="url"
               className="theme-text-input"
               value={draft.logo_url ?? ''}
@@ -801,7 +805,7 @@ const ThemeConfigSection: React.FC = () => {
               }
             />
             <span className="theme-field-hint">
-              Oeffentlich erreichbare URL zu Ihrem Logo (JPG, PNG oder SVG, max. 64 px Hoehe empfohlen).
+              Öffentlich erreichbare URL zu Ihrem Logo (JPG, PNG oder SVG, max. 64 px Höhe empfohlen).
             </span>
           </div>
 
@@ -941,6 +945,7 @@ export const AdminSystemPage: React.FC = () => {
 
       <WorkshopSettingsSection />
       <EmailConfigSection />
+      <OutboxQueueSection />
       <CustomerImportSection />
       <ThemeConfigSection />
     </div>

@@ -10,7 +10,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import React from 'react';
-import { render, screen, waitFor } from '@testing-library/react';
+import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 // Hoisted navigate mock so the react-router-dom factory below can refer to it.
@@ -40,14 +40,10 @@ vi.mock('../api', () => ({
 }));
 
 import { DashboardKPIs } from '../components/dashboard/DashboardKPIs';
-import { MemoryRouter } from 'react-router-dom';
+import { renderWithQuery } from './queryWrapper';
 
-function renderKPIs(): ReturnType<typeof render> {
-  return render(
-    <MemoryRouter>
-      <DashboardKPIs />
-    </MemoryRouter>,
-  );
+function renderKPIs() {
+  return renderWithQuery(<DashboardKPIs />);
 }
 
 beforeEach(() => {

@@ -1,0 +1,25 @@
+; Layering contracts (ARCH-09). Run with `lint-imports` from the repo root
+; (PYTHONPATH must include src/); `make lint-local` runs it too.
+[importlinter]
+root_package = goldsmith_erp
+include_external_packages = False
+
+[importlinter:contract:models-are-leaf]
+name = ORM models do not import services or routers
+type = forbidden
+source_modules =
+    goldsmith_erp.db.models
+forbidden_modules =
+    goldsmith_erp.services
+    goldsmith_erp.api
+
+[importlinter:contract:services-below-routers]
+name = Services do not import routers
+type = forbidden
+source_modules =
+    goldsmith_erp.services
+forbidden_modules =
+    goldsmith_erp.api.routers
+; Only the routers are forbidden: core.permissions imports api.deps lazily
+; (get_current_user inside require_permission), so services reach api.deps
+; through it. Removing that edge would let this contract forbid all of api.

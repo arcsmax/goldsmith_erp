@@ -42,7 +42,7 @@ from __future__ import annotations
 import logging
 import math
 import statistics
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from sqlalchemy import and_, select
@@ -299,7 +299,7 @@ class AnomalyDetector:
         running_entries: list[TimeEntryModel] = result.scalars().all()
 
         alerts = []
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
 
         for entry in running_entries:
             elapsed = int((now - entry.start_time).total_seconds() / 60)
@@ -411,7 +411,7 @@ class AnomalyDetector:
         try:
             import numpy as np
 
-            now = datetime.utcnow()
+            now = datetime.now(timezone.utc)
             hour_of_day = now.hour
             day_of_week = now.weekday()
             complexity = complexity_rating if complexity_rating is not None else 3

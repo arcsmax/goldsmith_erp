@@ -6,8 +6,13 @@ system (W6-01, ARCH-05, decision D-03: email/PDF first, no portal).
 Every Kundeninfo mail goes through here: the staff composer
 (``POST /orders/{id}/updates`` + ``/updates/{id}/send``), the repair
 one-tap send (``RepairService.send_customer_update``), the automated
-pickup/fitting mails (``automated_customer_email``) and the §649 cost-change
-notice (``CostChangeService.send``, via ``CustomerUpdateService.send``).
+pickup/fitting mails (``automated_customer_email``), the §649 cost-change
+notice (``CostChangeService.send``, via ``CustomerUpdateService.send``) and
+the Kostenvoranschlag mail (``services/quote_delivery.py``, via
+``QuoteService.send_quote``). The quote flow keeps its own PDF/email
+dispatch (a different template and attachment than the generic Kundeninfo
+mail) but routes its content check and delivery audit row through here —
+see ``check_content`` (kind ``quote_sent``) and ``record_quote_delivery``.
 Each message is a ``CustomerUpdate`` row (draft -> sent | send_failed),
 deduplicated by ``customer_updates.dedupe_key`` where the caller sets one.
 
@@ -62,7 +67,7 @@ import asyncio
 import logging
 import re
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
 from types import SimpleNamespace
@@ -81,6 +86,7 @@ from goldsmith_erp.db.models import (
     CustomerUpdate,
     CustomerUpdateKind,
     CustomerUpdateStatus,
+    MediaOwnerType,
     Order,
     OrderPhoto,
     RepairJob,
@@ -103,12 +109,20 @@ from goldsmith_erp.services.image_validation import (
     create_email_variant,
     resolve_within_root,
 )
+from goldsmith_erp.services.media_service import MediaService
+from goldsmith_erp.services.outbox_service import (
+    KIND_CUSTOMER_UPDATE,
+    OutboxService,
+    is_worker_mode,
+)
 from goldsmith_erp.services.pdf_service import PDFService
 
 logger = logging.getLogger(__name__)
 
 # Longest side of a photo attached to a customer message.
 PHOTO_MAX_PX = 1200
+# Same cap as CustomerUpdateCreate.photo_ids (max_length=20).
+MAX_MESSAGE_PHOTOS = 20
 
 AUDIT_ACTION_SENT = "customer_message_sent"
 _OPT_OUT_NOTE = "Widerspruch nach Art. 21 DSGVO: keine E-Mail-Updates"
@@ -138,6 +152,11 @@ class MessageKind(str, Enum):
     QUOTE_SENT = "quote_sent"
     COST_CHANGE = "cost_change"
     APPOINTMENT = "appointment"
+    # W6: "Statusbericht anhängen" in the composer — a contractual-basis
+    # attachment (services/status_report_service.py), never persisted as a
+    # distinct stored CustomerUpdateKind (see send_update's
+    # attach_status_report param).
+    STATUS_REPORT = "status_report"
 
 
 @dataclass(frozen=True)
@@ -174,6 +193,9 @@ MESSAGE_POLICIES: Dict[MessageKind, MessagePolicy] = {
         ConsentPurpose.PHOTO_USE,
         False,
         CustomerUpdateKind.PROGRESS,
+    ),
+    MessageKind.STATUS_REPORT: MessagePolicy(
+        LegalBasis.CONTRACT, None, False, CustomerUpdateKind.PROGRESS
     ),
 }
 
@@ -282,6 +304,28 @@ async def resolve_recipient(
         return Recipient(f"Reparatur #{repair_job_id}", None)
     customer = await _load_customer(db, cast(Optional[int], repair.customer_id))
     return Recipient(f"Reparatur {repair.repair_number}", customer)
+
+
+async def default_photo_ids(
+    db: AsyncSession,
+    kind: MessageKind,
+    order_id: Optional[int],
+    photo_ids: Optional[List[str]],
+) -> Optional[List[str]]:
+    """Explicitly ticked photos, else the order's customer-visible photos.
+
+    Ticked ids always win (unchanged behaviour). Only a photo message
+    (``PHOTO_UPDATE``) without ticked photos falls back to the photos flagged
+    "für Kunden sichtbar" (``media_assets.customer_visible``); a text-only
+    message never picks up photos implicitly, so it never starts to need
+    PHOTO_USE consent because a flag was set.
+    """
+    if photo_ids or kind is not MessageKind.PHOTO_UPDATE or order_id is None:
+        return photo_ids
+    flagged = await MediaService.customer_visible_legacy_ids(
+        db, MediaOwnerType.ORDER, order_id
+    )
+    return flagged[:MAX_MESSAGE_PHOTOS] or photo_ids
 
 
 async def load_photo_attachments(
@@ -414,7 +458,7 @@ def _log_message_event(
             "entity_id": update_id,
             "order_id": order_id,
             "user_id": user_id,
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             **(extra or {}),
         },
     )
@@ -569,6 +613,7 @@ class CustomerMessageService:
         recipient = await resolve_recipient(
             db, order_id=order_id, repair_job_id=repair_job_id
         )
+        photo_ids = await default_photo_ids(db, kind, order_id, photo_ids)
         await CustomerMessageService.check_content(
             db,
             kind=kind,
@@ -602,6 +647,7 @@ class CustomerMessageService:
         user_id: int,
         *,
         message_kind: Optional[MessageKind] = None,
+        attach_status_report: bool = False,
     ) -> CustomerUpdateSendResult:
         """
         Deliver (or re-attempt) an existing CustomerUpdate by email.
@@ -637,6 +683,11 @@ class CustomerMessageService:
         kind = message_kind or message_kind_for(
             cast(CustomerUpdateKind, update.kind), bool(photo_ids)
         )
+        if attach_status_report:
+            # W6 "Statusbericht anhaengen": classified for content rules /
+            # audit as its own contractual-basis kind, whatever the
+            # underlying stored CustomerUpdateKind (see MessageKind docstring).
+            kind = MessageKind.STATUS_REPORT
         recipient = await resolve_recipient(
             db,
             order_id=order_id,
@@ -652,12 +703,29 @@ class CustomerMessageService:
         )
         photo_variants = await load_photo_attachments(db, order_id, photo_ids)
 
+        extra_attachment: Optional[tuple[str, bytes]] = None
+        if attach_status_report:
+            from goldsmith_erp.services.status_report_service import (  # noqa: PLC0415
+                render_order_status_report_pdf,
+                render_repair_status_report_pdf,
+            )
+
+            report_bytes = (
+                await render_order_status_report_pdf(db, order_id)
+                if order_id is not None
+                else await render_repair_status_report_pdf(
+                    db, cast(int, update.repair_job_id)
+                )
+            )
+            extra_attachment = ("Statusbericht.pdf", report_bytes)
+
         early = await CustomerMessageService._pre_dispatch_result(
             db, update, recipient, user_id
         )
         if early is not None:
             return early
 
+        claimed_at = datetime.now(timezone.utc)
         async with transactional(db):
             claim_result = await db.execute(
                 sa_update(CustomerUpdate)
@@ -667,16 +735,30 @@ class CustomerMessageService:
                         [CustomerUpdateStatus.DRAFT, CustomerUpdateStatus.SEND_FAILED]
                     ),
                 )
-                .values(status=CustomerUpdateStatus.SENT, sent_at=datetime.utcnow())
+                .values(status=CustomerUpdateStatus.SENT, sent_at=claimed_at)
                 .returning(CustomerUpdate.id)
             )
             claimed_id = claim_result.scalar_one_or_none()
+            if claimed_id is not None and is_worker_mode():
+                # ARCH-04: the mail job commits with the claim or not at all.
+                await OutboxService.enqueue(
+                    db,
+                    kind=KIND_CUSTOMER_UPDATE,
+                    payload={
+                        "update_id": update_id,
+                        "user_id": user_id,
+                        "message_kind": kind.value,
+                    },
+                    dedupe_key=f"customer_update:{update_id}:{claimed_at.isoformat()}",
+                )
         if claimed_id is None:
             raise InvalidUpdateStateError(update_id, update.status.value)
         await db.refresh(update)
+        if is_worker_mode():
+            return CustomerMessageService._queued_result(update, user_id, kind)
 
         delivered = await CustomerMessageService._dispatch_email(
-            db, update, recipient, photo_variants
+            db, update, recipient, photo_variants, extra_attachment=extra_attachment
         )
 
         method: Optional[UpdateDeliveryMethod] = None
@@ -710,6 +792,31 @@ class CustomerMessageService:
             update=CustomerUpdateRead.model_validate(update),
             delivered=delivered,
             method=method,
+        )
+
+    @staticmethod
+    def _queued_result(
+        update: CustomerUpdate, user_id: int, kind: MessageKind
+    ) -> CustomerUpdateSendResult:
+        """Result for a mail handed to the outbox worker (OUTBOX_MODE=worker).
+
+        ``delivered=True`` means "accepted for delivery": the row is SENT with
+        ``delivery_method`` still NULL until the worker's SMTP send succeeds.
+        If the worker gives up, the row flips to SEND_FAILED and the sender
+        gets the same in-app notice as an inline failure.
+        """
+        _log_message_event(
+            "send_queued",
+            cast(int, update.id),
+            cast(Optional[int], update.order_id),
+            user_id,
+            extra={"message_kind": kind.value},
+        )
+        return CustomerUpdateSendResult(
+            update=CustomerUpdateRead.model_validate(update),
+            delivered=True,
+            method=UpdateDeliveryMethod.EMAIL,
+            reason="queued",
         )
 
     @staticmethod
@@ -753,6 +860,8 @@ class CustomerMessageService:
         update: CustomerUpdate,
         recipient: Recipient,
         photo_variants: List[bytes],
+        *,
+        extra_attachment: Optional[tuple[str, bytes]] = None,
     ) -> bool:
         if recipient.customer is None or not recipient.customer.email:
             return False  # a data gap the sender must act on
@@ -761,6 +870,8 @@ class CustomerMessageService:
         attachments = [
             (f"foto-{i + 1}.jpg", data) for i, data in enumerate(photo_variants)
         ]
+        if extra_attachment is not None:
+            attachments.append(extra_attachment)
         return await EmailService.send_customer_update(
             to=cast(str, recipient.customer.email),
             subject=cast(str, update.subject),
@@ -794,7 +905,7 @@ class CustomerMessageService:
                 action=AUDIT_ACTION_SENT,
                 entity="customer_update",
                 entity_id=update.id,
-                timestamp=datetime.utcnow(),
+                timestamp=datetime.now(timezone.utc),
                 details={
                     "message_kind": kind.value,
                     "delivery_method": method.value,
@@ -830,6 +941,39 @@ class CustomerMessageService:
             ),
             method=UpdateDeliveryMethod.PDF_MANUAL,
             photo_count=len(photo_ids),
+        )
+
+    @staticmethod
+    async def record_quote_delivery(
+        db: AsyncSession,
+        update: CustomerUpdate,
+        user_id: int,
+        *,
+        customer_id: Optional[int],
+        method: UpdateDeliveryMethod,
+    ) -> None:
+        """Stage the audit row for a delivered quote_sent message.
+
+        ``quote_delivery.py`` keeps its own record (``CustomerUpdate`` row,
+        found again by its fixed subject — ``Quote`` has no FK to it and
+        ``db/models.py`` is out of scope for this fix, same reasoning as
+        ``build_record`` there) and its own PDF/email dispatch, but the
+        customer is already known from ``Quote.customer_id`` — unlike
+        ``record_manual_delivery``/``send_update`` this does not resolve it
+        via ``update.order_id``/``update.repair_job_id`` (a quote need not
+        yet be attached to an order). Never called for a failed attempt: a
+        message that did not reach the customer is not audited (E16),
+        matching ``send_update``. No photos are ever attached to a quote.
+        Caller commits.
+        """
+        CustomerMessageService._add_audit_row(
+            db,
+            update=update,
+            customer_id=customer_id,
+            user_id=user_id,
+            kind=MessageKind.QUOTE_SENT,
+            method=method,
+            photo_count=0,
         )
 
     # ------------------------------------------------------------------
@@ -992,3 +1136,106 @@ class CustomerMessageService:
             photos=photos,
             workshop_name=settings.WORKSHOP_NAME,
         )
+
+
+# ----------------------------------------------------------------------
+# Outbox worker side (OUTBOX_MODE=worker, ADR-2026-09-25-outbox)
+# ----------------------------------------------------------------------
+
+
+async def _load_update(db: AsyncSession, update_id: int) -> Optional[CustomerUpdate]:
+    return (
+        await db.execute(select(CustomerUpdate).where(CustomerUpdate.id == update_id))
+    ).scalar_one_or_none()
+
+
+async def deliver_queued_update(db: AsyncSession, payload: Dict[str, Any]) -> bool:
+    """Outbox handler: send a claimed CustomerUpdate. True = done, False = retry.
+
+    Idempotent: a row that already has ``delivery_method=EMAIL`` is not sent
+    again (e.g. an admin retry after a successful manual resend). Recipient,
+    opt-out and photos are re-read at send time, so an Art. 21 objection or
+    an erasure that happened while the mail was queued is honoured.
+    """
+    update_id = int(payload["update_id"])
+    user_id = int(payload["user_id"])
+    update = await _load_update(db, update_id)
+    if update is None:
+        logger.info(
+            "Queued customer update gone; skipping", extra={"update_id": update_id}
+        )
+        return True
+    if update.delivery_method == UpdateDeliveryMethod.EMAIL:
+        return True
+    photo_ids = cast(Optional[List[str]], update.photo_ids) or []
+    kind_value = payload.get("message_kind")
+    kind = (
+        MessageKind(kind_value)
+        if kind_value
+        else message_kind_for(cast(CustomerUpdateKind, update.kind), bool(photo_ids))
+    )
+    recipient = await resolve_recipient(
+        db,
+        order_id=cast(Optional[int], update.order_id),
+        repair_job_id=cast(Optional[int], update.repair_job_id),
+    )
+    has_email = recipient.customer is None or bool(recipient.customer.email)
+    if not has_email or await CustomerMessageService.is_opted_out(
+        db, recipient.customer_id
+    ):
+        # Nothing may be mailed any more; reopen the draft for the PDF hand-over.
+        async with transactional(db):
+            update.status = cast(Any, CustomerUpdateStatus.DRAFT)
+            update.sent_at = cast(Any, None)
+        _log_message_event(
+            "send_skipped",
+            update_id,
+            cast(Optional[int], update.order_id),
+            user_id,
+            extra={"reason": "no_email" if not has_email else "opted_out"},
+        )
+        return True
+    photo_variants = await load_photo_attachments(
+        db, cast(Optional[int], update.order_id), photo_ids
+    )
+    delivered = await CustomerMessageService._dispatch_email(
+        db, update, recipient, photo_variants
+    )
+    if not delivered:
+        return False
+    async with transactional(db):
+        update.status = cast(Any, CustomerUpdateStatus.SENT)
+        update.delivery_method = cast(Any, UpdateDeliveryMethod.EMAIL)
+        CustomerMessageService._add_audit_row(
+            db,
+            update=update,
+            customer_id=recipient.customer_id,
+            user_id=user_id,
+            kind=kind,
+            method=UpdateDeliveryMethod.EMAIL,
+            photo_count=len(photo_variants),
+        )
+    _log_message_event(
+        "send_attempted",
+        update_id,
+        cast(Optional[int], update.order_id),
+        user_id,
+        extra={"delivered": True, "message_kind": kind.value, "via": "outbox"},
+    )
+    return True
+
+
+async def fail_queued_update(db: AsyncSession, payload: Dict[str, Any]) -> None:
+    """Outbox dead-letter hook: SEND_FAILED + in-app notice (never silent)."""
+    from goldsmith_erp.services.customer_update_service import (  # noqa: PLC0415
+        CustomerUpdateService,
+    )
+
+    update_id = int(payload["update_id"])
+    user_id = int(payload["user_id"])
+    update = await _load_update(db, update_id)
+    if update is None or update.delivery_method == UpdateDeliveryMethod.EMAIL:
+        return
+    async with transactional(db):
+        update.status = cast(Any, CustomerUpdateStatus.SEND_FAILED)
+    await CustomerUpdateService._notify_send_failure(db, update, user_id)

@@ -37,11 +37,11 @@ class TestTimeEntryUpdateSchema:
     def test_end_time_alone_is_accepted(self) -> None:
         assert TimeEntryUpdate(end_time=datetime.utcnow()).end_time is not None
 
-    def test_aware_end_time_is_normalised_to_naive_utc(self) -> None:
+    def test_aware_end_time_is_normalised_to_aware_utc(self) -> None:
         aware = datetime(2026, 9, 25, 10, 0, tzinfo=timezone(timedelta(hours=2)))
         update = TimeEntryUpdate(end_time=aware)
-        assert update.end_time == datetime(2026, 9, 25, 8, 0)
-        assert update.end_time.tzinfo is None
+        assert update.end_time == datetime(2026, 9, 25, 8, 0, tzinfo=timezone.utc)
+        assert update.end_time.utcoffset() == timedelta(0)
 
 
 # ---------------------------------------------------------------------------

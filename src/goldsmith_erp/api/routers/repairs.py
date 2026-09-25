@@ -37,6 +37,7 @@ from goldsmith_erp.models.customer_update import (
     CustomerUpdateRead,
     CustomerUpdateSendResult,
 )
+from goldsmith_erp.models.invoice import InvoiceResponse, RepairInvoiceCreate
 from goldsmith_erp.models.pagination import (
     Page,
     PageParams,
@@ -63,11 +64,16 @@ from goldsmith_erp.services.customer_update_service import (
 from goldsmith_erp.services.label_service import LabelService
 from goldsmith_erp.services.pdf_service import render_repair_intake_receipt_pdf
 from goldsmith_erp.services.photo_service import PhotoValidationError
+from goldsmith_erp.services.repair_invoice_service import RepairInvoiceService
 from goldsmith_erp.services.repair_photo_service import RepairPhotoService
 from goldsmith_erp.services.repair_service import (
     InvalidChecklistPhotoError,
     NoCustomerUpdateDraftError,
     RepairService,
+)
+from goldsmith_erp.services.status_report_service import (
+    StatusReportNotFoundError,
+    render_repair_status_report_pdf,
 )
 from goldsmith_erp.services.workshop_settings_service import WorkshopSettingsService
 
@@ -111,7 +117,12 @@ def _media_type_from_ext(suffix: str) -> str:
 )
 @require_permission(Permission.REPAIR_VIEW)
 async def list_repairs(
-    page: PageParams = Depends(make_page_params(legacy_default_limit=100)),
+    page: PageParams = Depends(
+        make_page_params(
+            legacy_default_limit=100,
+            sort_fields=tuple(list_queries.REPAIR_SORT_FIELDS),
+        )
+    ),
     status: Optional[RepairJobStatus] = Query(None, description="Nach Status filtern"),
     customer_id: Optional[int] = Query(None, gt=0, description="Nach Kunde filtern"),
     search: Optional[str] = Query(
@@ -139,7 +150,11 @@ async def list_repairs(
     excludes = _repair_excludes(current_user)
     if page.is_paged:
         stmt = await list_queries.repairs_statement(
-            db, status=status, customer_id=customer_id, q=q or search
+            db,
+            status=status,
+            customer_id=customer_id,
+            q=q or search,
+            sort=page.sort,
         )
         result = await list_queries.fetch_page(
             db, stmt, page, list_queries.REPAIR_LIST_OPTIONS
@@ -257,6 +272,45 @@ async def get_repair_annahmeschein(
         },
     )
     filename = f"Annahmeschein_{repair.repair_number}.pdf"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="{filename}"'},
+    )
+
+
+@router.get("/{repair_id}/status-report.pdf", response_class=Response)
+@require_permission(Permission.CUSTOMER_UPDATE_SEND)
+async def get_repair_status_report(
+    repair_id: int,
+    next_steps: Optional[str] = Query(None, max_length=2000),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> Response:
+    """Statusbericht (Kundenbericht) als PDF (W6, DOM section D Option 2).
+
+    Werkstatt-Kopf, Schmuckstueck, Verlauf (aktueller Status, tatsaechlich
+    verschickte Kundeninfos), die neuesten Reparaturfotos, ein "Wie geht es
+    weiter"-Text und die Kontaktzeile. Nie Preise, Kosten, Diagnosenotizen
+    oder Mitarbeiternamen (CLAUDE.md). GOLDSMITH/ADMIN only (VIEWER: 403);
+    jeder Abruf wird protokolliert.
+    """
+    try:
+        pdf_bytes = await render_repair_status_report_pdf(
+            db, repair_id, next_steps=next_steps
+        )
+    except StatusReportNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+    logger.info(
+        "Status report PDF served",
+        extra={
+            "audit": True,
+            "action": "repair_status_report_pdf",
+            "repair_id": repair_id,
+            "user_id": current_user.id,
+        },
+    )
+    filename = f"Statusbericht_Reparatur_{repair_id}.pdf"
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",
@@ -500,6 +554,36 @@ async def cancel_repair(
         )
     repair = await RepairService.get_repair(db, repair.id)
     return repair
+
+
+# ============================================================================
+# INVOICE (Rechnung) — ARCH-02 / ARCH phase 5
+# ============================================================================
+
+
+@router.post(
+    "/{repair_id}/invoice",
+    response_model=InvoiceResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+@require_permission(Permission.INVOICE_CREATE)
+async def create_repair_invoice(
+    repair_id: int,
+    invoice_in: RepairInvoiceCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Rechnung für eine fertige Reparatur erstellen.
+
+    Nur für Status ``ready`` oder ``picked_up`` und mit zugeordnetem Kunden.
+    Position: vereinbarter Nettopreis (tatsächliche Kosten, sonst
+    Kostenvoranschlag); Nummer, MwSt, §14-Angaben und Snapshot wie bei
+    Auftragsrechnungen. 409, wenn schon eine aktive Rechnung existiert.
+    """
+    return await RepairInvoiceService.create_invoice_for_repair(
+        db, repair_id, invoice_in, current_user
+    )
 
 
 # ============================================================================

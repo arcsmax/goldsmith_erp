@@ -23,13 +23,15 @@ from goldsmith_erp.db.models import (
     CustomerUpdateStatus,
     UpdateDeliveryMethod,
 )
+from goldsmith_erp.models._common import Money
 
 # Minimum non-whitespace length for legally/evidentially relevant free text.
 _REASON_MIN_LENGTH = 10
 _RESPONSE_EVIDENCE_MIN_LENGTH = 5
 
 # W6: why a send dispatched no email (CustomerUpdateSendResult.reason).
-NotSentReason = Literal["smtp_disabled", "no_email", "opted_out"]
+# "queued": OUTBOX_MODE=worker accepted the mail; the worker sends it.
+NotSentReason = Literal["smtp_disabled", "no_email", "opted_out", "queued"]
 
 
 def _strip_or_raise(value: str, field_label: str, min_length: int) -> str:
@@ -150,6 +152,28 @@ class CustomerUpdateRead(BaseModel):
         return v if v is not None else []
 
 
+class AttachStatusReportRequest(BaseModel):
+    """
+    Optional body of ``POST /updates/{id}/send``.
+
+    "Statusbericht anhängen" in the Kundeninfo composer (W6, DOM section D
+    Option 2): when true, the live Statusbericht PDF
+    (``status_report_service``) is generated fresh and attached to the
+    outgoing email, and the message is classified as
+    ``MessageKind.STATUS_REPORT`` (contractual basis) for the content-rule
+    and audit-log checks. Never persisted — there is no DB column for it
+    (see the model's docstring); a PDF-manual fallback caused by this same
+    send instead relies on the frontend calling the standalone
+    ``GET /orders/{id}/status-report.pdf`` / ``.../repairs/{id}/...``
+    endpoint directly, since the flag itself cannot be looked up later from
+    the stored CustomerUpdate row.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    attach_status_report: bool = False
+
+
 class MarkDeliveredRequest(BaseModel):
     """
     Schema for ``POST /updates/{id}/mark-delivered``.
@@ -232,7 +256,7 @@ class CostChangeLineItem(BaseModel):
     """One itemized line of a CostChangeRequest.line_items JSON list."""
 
     label: str = Field(..., min_length=1, max_length=200)
-    amount: float
+    amount: Money
     kind: Literal["add", "remove", "change"]
 
     model_config = ConfigDict(from_attributes=True)
@@ -250,7 +274,7 @@ class CostChangeCreate(BaseModel):
     request body.
     """
 
-    new_amount: float = Field(..., gt=0)
+    new_amount: Money = Field(..., gt=0)
     reason: str = Field(
         ..., max_length=2000, description="Begruendung fuer die Kostenaenderung"
     )
@@ -273,9 +297,9 @@ class CostChangeRead(BaseModel):
     id: int
     order_id: int
     quote_id: Optional[int] = None
-    original_amount: float
-    new_amount: float
-    delta_percent: float
+    original_amount: Money
+    new_amount: Money
+    delta_percent: Money
     reason: str
     line_items: List[CostChangeLineItem] = Field(default_factory=list)
     status: CostChangeStatus
@@ -362,15 +386,15 @@ class ProjectedCost(BaseModel):
     holds.
     """
 
-    material_cost: float = Field(..., ge=0)
-    gemstone_cost: float = Field(..., ge=0)
+    material_cost: Money = Field(..., ge=0)
+    gemstone_cost: Money = Field(..., ge=0)
     labor_minutes_billable: float = Field(..., ge=0)
-    labor_cost: float = Field(..., ge=0)
-    projected_total: float = Field(..., ge=0)
+    labor_cost: Money = Field(..., ge=0)
+    projected_total: Money = Field(..., ge=0)
     quote_id: Optional[int] = None
-    quote_total: Optional[float] = Field(None, ge=0)
-    delta_percent: Optional[float] = None
-    delta_abs: Optional[float] = None
+    quote_total: Optional[Money] = Field(None, ge=0)
+    delta_percent: Optional[Money] = None
+    delta_abs: Optional[Money] = None
     over_threshold: bool
     baseline_source: Optional[Literal["quote", "approved_change"]] = Field(
         None,

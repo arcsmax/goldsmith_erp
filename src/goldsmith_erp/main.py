@@ -17,6 +17,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from goldsmith_erp.api.routers import (
     activities,
     admin_email,
+    admin_outbox,
     admin_scan_metrics,
     admin_workshop,
     analytics,
@@ -35,10 +36,11 @@ from goldsmith_erp.api.routers import (
     health,
 )
 from goldsmith_erp.api.routers import imports as imports_router
+from goldsmith_erp.api.routers import invoices
+from goldsmith_erp.api.routers import jobs as jobs_router
+from goldsmith_erp.api.routers import materials, measurements
+from goldsmith_erp.api.routers import media as media_router
 from goldsmith_erp.api.routers import (
-    invoices,
-    materials,
-    measurements,
     metal_inventory,
     metal_prices,
     metal_types,
@@ -244,6 +246,9 @@ app.include_router(
 app.include_router(
     repairs.router, prefix=f"{settings.API_V1_STR}/repairs", tags=["repairs"]
 )  # Repair tracking (Reparaturverwaltung)
+app.include_router(  # ARCH phase 5: orders + repairs on the job spine
+    jobs_router.router, prefix=f"{settings.API_V1_STR}/jobs", tags=["jobs"]
+)
 app.include_router(
     hallmarks.router, prefix=f"{settings.API_V1_STR}", tags=["hallmarks"]
 )  # Hallmarking / Punzierung
@@ -261,6 +266,9 @@ app.include_router(
 app.include_router(
     admin_workshop.router, prefix=settings.API_V1_STR, tags=["admin-workshop"]
 )  # W2-04: Werkstatt-Stammdaten (ADMIN)
+app.include_router(
+    admin_outbox.router, prefix=settings.API_V1_STR, tags=["admin-outbox"]
+)  # W6 outbox: Nachrichten-Warteschlange (ADMIN)
 app.include_router(
     admin_scan_metrics.router,
     prefix=f"{settings.API_V1_STR}",
@@ -297,6 +305,9 @@ app.include_router(
 app.include_router(
     gemstones.router, prefix=settings.API_V1_STR, tags=["gemstones"]
 )  # W2-06: /orders/{id}/gemstones + /gemstones/{id}
+app.include_router(
+    media_router.router, prefix=f"{settings.API_V1_STR}/media", tags=["media"]
+)  # ARCH phase 4: unified media_assets (ADR-2026-09-25-media)
 
 
 async def _authenticate_websocket(websocket: WebSocket) -> int | None:
@@ -343,7 +354,14 @@ async def events_websocket_endpoint(websocket: WebSocket) -> None:
 
 @app.on_event("startup")
 async def start_background_tasks() -> None:
-    """Register long-running background tasks on application startup."""
+    """Register long-running background tasks on application startup.
+
+    With OUTBOX_MODE=worker the worker process (python -m goldsmith_erp.worker)
+    runs the monitor and sends mail, so the web process starts no loops.
+    """
+    if settings.outbox_mode == "worker":
+        logger.info("OUTBOX_MODE=worker: system monitor runs in the worker")
+        return
     asyncio.create_task(system_monitor_loop())
     logger.info("System monitor background task registered")
 

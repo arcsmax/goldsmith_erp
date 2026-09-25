@@ -12,6 +12,7 @@ from typing import List
 from pydantic import BaseModel, Field
 
 from goldsmith_erp.db.models import MetalPriceSource, MetalType
+from goldsmith_erp.models._common import Money
 
 
 class MetalPriceResponse(BaseModel):
@@ -24,7 +25,7 @@ class MetalPriceResponse(BaseModel):
     """
 
     metal_type: MetalType
-    price_per_gram: float = Field(
+    price_per_gram: Money = Field(
         ...,
         gt=0,
         description="Price in EUR per gram for this alloy",
@@ -66,7 +67,7 @@ class MetalPriceHistoryPoint(BaseModel):
     """Single data point in the price history chart series."""
 
     fetched_at: datetime = Field(..., description="When this price was recorded")
-    price_per_gram_eur: float = Field(
+    price_per_gram_eur: Money = Field(
         ..., description="Spot price in EUR/g at this timestamp"
     )
     source: MetalPriceSource = Field(..., description="Data source for this point")

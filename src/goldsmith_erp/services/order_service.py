@@ -1,6 +1,6 @@
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from fastapi import HTTPException
@@ -23,6 +23,7 @@ from goldsmith_erp.models.order import OrderCreate, OrderUpdate
 # table live in services/order_workflow.py so every status-write path runs
 # them; both guard names stay importable from here for existing callers.
 from goldsmith_erp.services import order_workflow
+from goldsmith_erp.services.job_service import JobService
 from goldsmith_erp.services.order_workflow import (  # noqa: F401
     _PUNZIERUNG_REQUIRED_TARGETS,
     PunzierungRequiredError,
@@ -243,7 +244,7 @@ class OrderService:
             payload["status_reason"] = reason
         if punzierung_verified_marks is not None:
             payload["punzierung_verified_marks"] = list(punzierung_verified_marks)
-            payload["punzierung_verified_at"] = datetime.utcnow()
+            payload["punzierung_verified_at"] = datetime.now(timezone.utc)
 
         # Use OrderUpdate so the guard path is exercised. We bypass the
         # Pydantic request schema at the Pydantic level by constructing
@@ -332,7 +333,7 @@ class OrderService:
             # verified_by_user_id (which the router threads from
             # current_user.id); never trust a client-supplied value.
             if update_data.get("punzierung_verified_at") is None:
-                update_data["punzierung_verified_at"] = datetime.utcnow()
+                update_data["punzierung_verified_at"] = datetime.now(timezone.utc)
             if verified_by_user_id is not None:
                 update_data["punzierung_verified_by"] = verified_by_user_id
 
@@ -362,7 +363,7 @@ class OrderService:
             and order.status not in _completion_statuses
         )
         if is_completing and order.completed_at is None:
-            update_data["completed_at"] = datetime.utcnow()
+            update_data["completed_at"] = datetime.now(timezone.utc)
 
         async with transactional(db):
             if update_data:
@@ -385,6 +386,9 @@ class OrderService:
                     meta={"origin": origin},
                     pending_marks=pending_marks,
                 )
+            elif update_data:
+                # ARCH phase 5: title / deadline / customer changes reach the job.
+                await JobService.sync_order(db, order)
 
             # Auto-calculate actual_hours from time entries inside the same transaction.
             # Import here to avoid circular dependency at module level.
@@ -583,8 +587,17 @@ class OrderService:
             await db.execute(
                 update(OrderModel)
                 .where(OrderModel.id == order_id)
-                .values(is_deleted=True, deleted_at=datetime.utcnow())
+                .values(is_deleted=True, deleted_at=datetime.now(timezone.utc))
             )
+            deleted = (
+                await db.execute(
+                    select(OrderModel)
+                    .where(OrderModel.id == order_id)
+                    .execution_options(populate_existing=True)
+                )
+            ).scalar_one_or_none()
+            if deleted is not None:
+                await JobService.sync_order(db, deleted)
 
         # Publish event to Redis AFTER successful transaction commit
         try:
@@ -627,7 +640,9 @@ class OrderService:
             await db.execute(
                 update(OrderModel)
                 .where(OrderModel.id == order_id)
-                .values(current_location=location, updated_at=datetime.utcnow())
+                .values(
+                    current_location=location, updated_at=datetime.now(timezone.utc)
+                )
             )
             history_entry = LocationHistory(
                 order_id=order_id,

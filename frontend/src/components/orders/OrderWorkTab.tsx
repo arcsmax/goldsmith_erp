@@ -6,7 +6,9 @@
 // FINANCIAL_VIEW, material unit prices likewise (GDPR-03, SEC-01).
 import { useEffect, type ReactNode } from 'react';
 import type { MaterialType, OrderType } from '../../types';
+import { formatEur, MONEY_CLASS } from '../../lib/format';
 import { canViewFinancials } from '../../lib/roles';
+import { DataTable, type Column } from '../../ui';
 import TimeTrackingTab from '../TimeTrackingTab';
 import { ScrapGoldTab } from '../scrap-gold';
 import { CostBreakdownCard } from './CostBreakdownCard';
@@ -24,8 +26,6 @@ interface OrderWorkTabProps {
   /** Section to scroll to once (legacy tab links such as "kosten"). */
   focusSection: WorkSection | null;
   onFocusSectionDone: () => void;
-  onOrderUpdated: (order: OrderType) => void;
-  onCostChangeUpdated: () => void;
 }
 
 interface WorkSectionProps {
@@ -37,44 +37,49 @@ interface WorkSectionProps {
 function WorkSectionBlock({ section, title, children }: WorkSectionProps) {
   const id = workSectionId(section);
   return (
-    <section id={id} className="details-section order-work-section" aria-labelledby={`${id}-title`} tabIndex={-1}>
-      <h3 id={`${id}-title`}>{title}</h3>
+    <section id={id} className="order-work-section" aria-labelledby={`${id}-title`} tabIndex={-1}>
+      <h3 id={`${id}-title`} className="order-work-section__title">
+        {title}
+      </h3>
       {children}
     </section>
   );
 }
 
-function MaterialsTable({ materials, canFinance }: { materials: MaterialType[]; canFinance: boolean }) {
-  if (materials.length === 0) {
-    return <p className="empty-message">Keine Materialien zugeordnet.</p>;
+function materialColumns(canFinance: boolean): Column<MaterialType>[] {
+  const columns: Column<MaterialType>[] = [
+    { key: 'name', header: 'Material', render: (m) => m.name },
+    { key: 'description', header: 'Beschreibung', render: (m) => m.description || '—' },
+  ];
+  // FINANCIAL_VIEW (GDPR-03): unit_price is stripped for a caller without
+  // it; the column is omitted, not hidden.
+  if (canFinance) {
+    columns.push({
+      key: 'unit_price',
+      header: 'Preis/Einheit',
+      numeric: true,
+      align: 'end',
+      render: (m) => <span className={MONEY_CLASS}>{formatEur(m.unit_price)}</span>,
+    });
   }
+  columns.push({ key: 'unit', header: 'Einheit', render: (m) => m.unit });
+  return columns;
+}
+
+function MaterialsTable({ materials, canFinance }: { materials: MaterialType[]; canFinance: boolean }) {
   return (
-    <table className="materials-table">
-      <thead>
-        <tr>
-          <th>Material</th>
-          <th>Beschreibung</th>
-          {canFinance && <th>Preis/Einheit</th>}
-          <th>Einheit</th>
-        </tr>
-      </thead>
-      <tbody>
-        {materials.map((material) => (
-          <tr key={material.id}>
-            <td>{material.name}</td>
-            <td>{material.description || '—'}</td>
-            {/* FINANCIAL_VIEW (GDPR-03): unit_price is stripped for a
-                caller without it; the column is omitted. */}
-            {canFinance && (
-              <td className="tabular-nums">
-                {material.unit_price != null ? `${material.unit_price.toFixed(2)} €` : '—'}
-              </td>
-            )}
-            <td>{material.unit}</td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
+    <DataTable
+      rows={materials}
+      columns={materialColumns(canFinance)}
+      getRowKey={(m) => m.id}
+      caption="Materialien des Auftrags"
+      empty={{
+        icon: 'gem',
+        title: 'Keine Materialien zugeordnet',
+        body: 'Materialien ordnen Sie beim Bearbeiten des Auftrags zu.',
+        headingLevel: 3,
+      }}
+    />
   );
 }
 
@@ -84,8 +89,6 @@ export function OrderWorkTab({
   role,
   focusSection,
   onFocusSectionDone,
-  onOrderUpdated,
-  onCostChangeUpdated,
 }: OrderWorkTabProps) {
   const canFinance = canViewFinancials(role);
   const isFinished = order.status === 'completed' || order.status === 'delivered';
@@ -99,8 +102,8 @@ export function OrderWorkTab({
   }, [focusSection, onFocusSectionDone]);
 
   return (
-    <div className="tab-panel">
-      <h2>Arbeit</h2>
+    <div className="order-tab-body">
+      <h2 className="ui-visually-hidden">Arbeit</h2>
 
       <WorkSectionBlock section="zeit" title="Zeiterfassung">
         <TimeTrackingTab orderId={order.id} />
@@ -118,20 +121,20 @@ export function OrderWorkTab({
 
       {order.status !== 'draft' && (
         <WorkSectionBlock section="arbeitszettel" title="Arbeitszettel">
-          <ArbeitszettelTab order={order} onOrderUpdated={onOrderUpdated} />
+          <ArbeitszettelTab order={order} />
         </WorkSectionBlock>
       )}
 
       {canFinance && (
         <WorkSectionBlock section="kosten" title="Kosten">
           <CostBreakdownCard order={order} />
-          <CostChangeSection orderId={order.id} onChanged={onCostChangeUpdated} />
+          <CostChangeSection orderId={order.id} />
         </WorkSectionBlock>
       )}
 
       {canFinance && isFinished && (
         <WorkSectionBlock section="soll-ist" title="Soll/Ist">
-          <SollIstTab orderId={order.id} orderStatus={order.status} />
+          <SollIstTab orderId={order.id} orderStatus={order.status} role={role} />
         </WorkSectionBlock>
       )}
 

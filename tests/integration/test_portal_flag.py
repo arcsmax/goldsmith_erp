@@ -16,6 +16,7 @@ from goldsmith_erp.core.config import Settings, settings
 
 LOOKUP_URL = "/api/v1/portal/lookup"
 STATUS_URL = "/api/v1/portal/status/some-token"
+CONTACT_URL = "/api/v1/portal/workshop-contact"
 
 
 @pytest.fixture(autouse=True)
@@ -52,6 +53,20 @@ async def test_portal_status_by_token_returns_404_when_disabled(
     monkeypatch.setattr(settings, "CUSTOMER_PORTAL_ENABLED", False)
 
     response = await client.get(STATUS_URL)
+
+    assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_portal_workshop_contact_returns_404_when_disabled(
+    client: AsyncClient, monkeypatch
+):
+    """The public contact endpoint is gated by the same router-wide flag —
+    it must not leak the workshop's name/phone/email while the portal is
+    off (D-03: no live portal until enabled)."""
+    monkeypatch.setattr(settings, "CUSTOMER_PORTAL_ENABLED", False)
+
+    response = await client.get(CONTACT_URL)
 
     assert response.status_code == 404
 

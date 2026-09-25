@@ -1,7 +1,7 @@
 import json
 import logging
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 from sqlalchemy import and_, case, delete, func, update
@@ -16,6 +16,7 @@ from goldsmith_erp.core.errors import (
     ForbiddenError,
     NotFoundError,
 )
+from goldsmith_erp.core.timeutil import ensure_utc, utcnow
 from goldsmith_erp.db.models import Activity as ActivityModel
 from goldsmith_erp.db.models import Interruption as InterruptionModel
 from goldsmith_erp.db.models import Order as OrderModel
@@ -202,10 +203,10 @@ class TimeTrackingService:
             order_id=entry_in.order_id,
             user_id=entry_in.user_id,
             activity_id=entry_in.activity_id,
-            start_time=datetime.utcnow(),
+            start_time=datetime.now(timezone.utc),
             location=entry_in.location,
             extra_metadata=entry_in.extra_metadata or {},
-            created_at=datetime.utcnow(),
+            created_at=datetime.now(timezone.utc),
         )
 
         db.add(db_entry)
@@ -264,8 +265,8 @@ class TimeTrackingService:
             raise ValueError("Diese Zeiterfassung wurde bereits gestoppt")
 
         # Berechne Dauer
-        if end_time is None:
-            end_time = datetime.utcnow()
+        # Naive input is read as UTC for one release (BE-15).
+        end_time = ensure_utc(end_time) if end_time is not None else utcnow()
         duration = int((end_time - entry.start_time).total_seconds() / 60)
 
         # W2-14: an interruption still open at the stop ends with the entry.
@@ -570,7 +571,7 @@ class TimeTrackingService:
             id=str(uuid.uuid4()),
             **entry_data,
             duration_minutes=duration,
-            created_at=datetime.utcnow(),
+            created_at=datetime.now(timezone.utc),
         )
 
         db.add(db_entry)
@@ -722,6 +723,7 @@ class TimeTrackingService:
         Flushes but does not commit: the caller's transaction owns the
         write. Returns the number of interruptions closed.
         """
+        at = ensure_utc(at)
         result = await db.execute(
             select(InterruptionModel).where(
                 InterruptionModel.time_entry_id == entry_id,
@@ -764,7 +766,7 @@ class TimeTrackingService:
                 code="time_entry.cross_user_forbidden",
             )
         closed = await TimeTrackingService._close_open_interruptions(
-            db, entry_id, at or datetime.utcnow()
+            db, entry_id, ensure_utc(at) if at is not None else utcnow()
         )
         await db.commit()
         return closed
@@ -909,7 +911,7 @@ class TimeTrackingService:
             time_entry_id=interruption_in.time_entry_id,
             reason=interruption_in.reason,
             duration_minutes=interruption_in.duration_minutes,
-            timestamp=datetime.utcnow(),
+            timestamp=datetime.now(timezone.utc),
         )
 
         db.add(db_interruption)
@@ -938,7 +940,7 @@ class TimeTrackingService:
         fires for the lunch-break / forgot-to-stop pattern that Meister
         Thomas flagged in the field-test brief.
         """
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         running_for = now - old_entry.start_time
         if running_for <= STALE_TIMER_THRESHOLD:
             return
@@ -1077,7 +1079,7 @@ class TimeTrackingService:
         # state can be observed by other sessions because both writes
         # land in a single commit at the end.
         # ------------------------------------------------------------------
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         old_entry_snapshot_end: Optional[datetime] = None
         # Capture id as plain string BEFORE the transaction — after rollback,
         # ORM attribute access triggers a lazy-reload that requires a greenlet
@@ -1239,7 +1241,7 @@ class TimeTrackingService:
         # In-place update — single row, no fork. An activity scan means the
         # goldsmith is back at the bench: close an open interruption (W2-14).
         await TimeTrackingService._close_open_interruptions(
-            db, entry_id, datetime.utcnow()
+            db, entry_id, datetime.now(timezone.utc)
         )
         await db.execute(
             update(TimeEntryModel)
@@ -1329,7 +1331,7 @@ class TimeTrackingService:
                 code="interruption.invalid_duration",
             )
 
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         # W2-14: a new interruption scan ends the previous open one.
         await TimeTrackingService._close_open_interruptions(db, entry_id, now)
         db_interruption = InterruptionModel(

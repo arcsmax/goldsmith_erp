@@ -13,8 +13,9 @@
 //   (f) a photosApi.getForOrder rejection is swallowed (logError, no
 //       throw) and renders the empty state instead of crashing the tab.
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { renderWithQuery } from '../../test/queryWrapper';
 import type { OrderPhoto } from '../../types';
 
 const mockGetForOrder = vi.fn();
@@ -56,7 +57,7 @@ describe('PhotoPicker', () => {
   it('renders one selectable checkbox per photo from photosApi.getForOrder', async () => {
     mockGetForOrder.mockResolvedValue({ data: makePhotos(3) });
 
-    render(<PhotoPicker orderId={1} selectedIds={[]} onChange={vi.fn()} />);
+    renderWithQuery(<PhotoPicker orderId={1} selectedIds={[]} onChange={vi.fn()} />);
 
     const checkboxes = await screen.findAllByRole('checkbox');
     expect(checkboxes).toHaveLength(3);
@@ -69,7 +70,7 @@ describe('PhotoPicker', () => {
     const onChange = vi.fn();
     const selectedIds = ['photo-2'];
 
-    render(<PhotoPicker orderId={1} selectedIds={selectedIds} onChange={onChange} />);
+    renderWithQuery(<PhotoPicker orderId={1} selectedIds={selectedIds} onChange={onChange} />);
 
     const checkboxes = await screen.findAllByRole('checkbox');
     await userEvent.click(checkboxes[0]); // photo-1, unselected
@@ -83,7 +84,7 @@ describe('PhotoPicker', () => {
     mockGetForOrder.mockResolvedValue({ data: makePhotos(3) });
     const onChange = vi.fn();
 
-    render(
+    renderWithQuery(
       <PhotoPicker orderId={1} selectedIds={['photo-1', 'photo-2']} onChange={onChange} />
     );
 
@@ -97,7 +98,7 @@ describe('PhotoPicker', () => {
     mockGetForOrder.mockResolvedValue({ data: makePhotos(3) });
     const onChange = vi.fn();
 
-    render(
+    renderWithQuery(
       <PhotoPicker
         orderId={1}
         selectedIds={['photo-1', 'photo-2']}
@@ -121,7 +122,7 @@ describe('PhotoPicker', () => {
     mockGetForOrder.mockResolvedValue({ data: makePhotos(2) });
     const onChange = vi.fn();
 
-    render(
+    renderWithQuery(
       <PhotoPicker orderId={1} selectedIds={[]} onChange={onChange} disabled />
     );
 
@@ -135,7 +136,7 @@ describe('PhotoPicker', () => {
   it('renders the empty-state guidance (not an error) without throwing when the load fails', async () => {
     mockGetForOrder.mockRejectedValue(new Error('network down'));
 
-    render(<PhotoPicker orderId={1} selectedIds={[]} onChange={vi.fn()} />);
+    renderWithQuery(<PhotoPicker orderId={1} selectedIds={[]} onChange={vi.fn()} />);
 
     expect(
       await screen.findByText(

@@ -47,7 +47,8 @@ export interface CustomerUpdateCreateInput {
 }
 
 /** Why nothing was emailed (W6): SMTP off, no address, or Art. 21 opt-out. */
-export type CustomerUpdateNotSentReason = 'smtp_disabled' | 'no_email' | 'opted_out';
+// 'queued' (OUTBOX_MODE=worker): accepted, the worker sends it (delivered=true).
+export type CustomerUpdateNotSentReason = 'smtp_disabled' | 'no_email' | 'opted_out' | 'queued';
 
 export interface CustomerUpdateSendResult {
   update: CustomerUpdate;
@@ -227,12 +228,19 @@ export const customerUpdatesApi = {
 
   /**
    * Send an existing draft update to the customer.
+   *
+   * `attachStatusReport` (W6, "Statusbericht anhängen"): attaches the live
+   * Statusbericht PDF to the outgoing email and classifies the message as
+   * the contractual-basis `status_report` kind for audit purposes.
    * POST /updates/{updateId}/send
    */
-  sendUpdate: async (updateId: number): Promise<CustomerUpdateSendResult> => {
+  sendUpdate: async (
+    updateId: number,
+    attachStatusReport = false
+  ): Promise<CustomerUpdateSendResult> => {
     const response = await apiClient.post<CustomerUpdateSendResult>(
       `/updates/${updateId}/send`,
-      {}
+      { attach_status_report: attachStatusReport }
     );
     return response.data;
   },
@@ -257,6 +265,19 @@ export const customerUpdatesApi = {
    */
   downloadUpdatePdf: async (updateId: number): Promise<Blob> => {
     const response = await apiClient.get<Blob>(`/updates/${updateId}/pdf`, {
+      responseType: 'blob',
+    });
+    return response.data;
+  },
+
+  /**
+   * Download the live customer-facing "Statusbericht" PDF for an order
+   * (W6, DOM section D Option 2). Never cached client-side — always a
+   * fresh snapshot of the order's current state.
+   * GET /orders/{orderId}/status-report.pdf
+   */
+  downloadOrderStatusReportPdf: async (orderId: number): Promise<Blob> => {
+    const response = await apiClient.get<Blob>(`/orders/${orderId}/status-report.pdf`, {
       responseType: 'blob',
     });
     return response.data;

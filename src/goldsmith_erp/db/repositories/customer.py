@@ -20,7 +20,7 @@ Date: 2025-11-06
 """
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from sqlalchemy import and_, func, or_, select, update
@@ -207,7 +207,7 @@ class CustomerRepository(BaseRepository[Customer]):
             "last_name": last_name,
             "email": email,
             "legal_basis": legal_basis,
-            "created_at": datetime.utcnow(),
+            "created_at": datetime.now(timezone.utc),
             "created_by": self.current_user_id,
             "is_active": True,
             "is_deleted": False,
@@ -279,7 +279,7 @@ class CustomerRepository(BaseRepository[Customer]):
                 setattr(customer, field, new_value)
 
         # Update audit fields
-        customer.updated_at = datetime.utcnow()
+        customer.updated_at = datetime.now(timezone.utc)
         customer.updated_by = self.current_user_id
 
         # Log each field change
@@ -343,7 +343,7 @@ class CustomerRepository(BaseRepository[Customer]):
         else:
             # Soft delete
             customer.is_deleted = True
-            customer.deleted_at = datetime.utcnow()
+            customer.deleted_at = datetime.now(timezone.utc)
             customer.deleted_by = self.current_user_id
             customer.deletion_reason = deletion_reason
 
@@ -508,7 +508,7 @@ class CustomerRepository(BaseRepository[Customer]):
         setattr(customer, field_name, consent_value)
 
         # Update consent metadata
-        customer.consent_date = datetime.utcnow()
+        customer.consent_date = datetime.now(timezone.utc)
         customer.consent_version = consent_version
         if ip_address:
             customer.consent_ip_address = ip_address
@@ -626,7 +626,7 @@ class CustomerRepository(BaseRepository[Customer]):
             user_id=user_id,
             user_email=user_email,
             user_role=user_role,
-            timestamp=datetime.utcnow(),
+            timestamp=datetime.now(timezone.utc),
             ip_address=ip_address,
             user_agent=user_agent,
             legal_basis=legal_basis,

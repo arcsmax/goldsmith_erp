@@ -3,6 +3,8 @@ import React, { Suspense, lazy } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, OrderProvider, ScannerProvider, TimeTrackingProvider, ToastProvider } from './contexts';
 import { WebSocketProvider } from './contexts/WebSocketProvider';
+import { AppQueryProvider } from './lib/queryProvider';
+import { RealtimeInvalidation } from './lib/realtimeInvalidation';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { MainLayout } from './layouts/MainLayout';
 import { ToastContainer } from './components/Toast';
@@ -63,193 +65,212 @@ const PageLoader: React.FC = () => (
 );
 
 /**
- * Staff shell — everything that needs a session. The per-user providers
- * (Auth, Scanner, TimeTracking, Order) mount ONLY here, so public routes
- * never fire /users/me, /time-tracking/running or /activities and never
- * trip the axios 401 -> /login redirect (FE-01).
+ * Staff shell — everything that needs a session. AuthProvider wraps both
+ * /login and the protected tree (LoginPage and ProtectedRoute's session
+ * probe both need useAuth; that probe's 401s are expected and stay silent).
+ * The rest of the per-user providers (Query, WebSocket, Scanner, TimeTracking,
+ * Order) mount ONLY inside ProtectedRoute, wrapping MainLayout — never for
+ * /login or /portal (LV-21). That keeps /users/me + /refresh as the only
+ * requests an unauthenticated visitor ever triggers; the WS connect and the
+ * timer/activity loaders wait for a real session.
  */
 const StaffApp: React.FC = () => (
   <AuthProvider>
-    {/* W2-13: the one live-update socket; staff shell only, never /portal. */}
-    <WebSocketProvider>
-    <ScannerProvider>
-      <TimeTrackingProvider>
-        <OrderProvider>
-          <Routes>
-            <Route path="/login" element={<LoginPage />} />
-            {/* /register route removed (fix A3, 2026-04-23).
-                Public self-registration is no longer supported; admins
-                create users via the authenticated /users page. Any
-                hard-coded /register link now falls through to the
-                catch-all → /dashboard → /login (unauthenticated). */}
+    <Routes>
+      <Route path="/login" element={<LoginPage />} />
+      {/* /register route removed (fix A3, 2026-04-23).
+          Public self-registration is no longer supported; admins
+          create users via the authenticated /users page. Any
+          hard-coded /register link now falls through to the
+          catch-all → /dashboard → /login (unauthenticated). */}
 
-            {/* Protected Routes */}
-            <Route
-              path="/"
-              element={
-                <ProtectedRoute>
-                  <MainLayout />
-                </ProtectedRoute>
-              }
-            >
-              <Route index element={<Navigate to="/dashboard" replace />} />
-              <Route path="dashboard" element={<DashboardPage />} />
+      {/* Protected Routes */}
+      <Route
+        path="/"
+        element={
+          <ProtectedRoute>
+            {/* W3-03: one QueryClient per session; unmounting on logout drops the cache. */}
+            <AppQueryProvider>
+              {/* W2-13: the one live-update socket; authenticated shell only, never /login or /portal. */}
+              <WebSocketProvider>
+                <RealtimeInvalidation />
+                <ScannerProvider>
+                  <TimeTrackingProvider>
+                    <OrderProvider>
+                      <MainLayout />
+                    </OrderProvider>
+                  </TimeTrackingProvider>
+                </ScannerProvider>
+              </WebSocketProvider>
+            </AppQueryProvider>
+          </ProtectedRoute>
+        }
+      >
+        <Route index element={<Navigate to="/dashboard" replace />} />
+        <Route path="dashboard" element={<DashboardPage />} />
 
-              {/* Kunden — ADMIN und GOLDSMITH */}
-              <Route
-                path="customers"
-                element={
-                  <ProtectedRoute requiredRoles={['ADMIN', 'GOLDSMITH']}>
-                    <CustomersPage />
-                  </ProtectedRoute>
-                }
-              />
-              <Route
-                path="customers/:id"
-                element={
-                  <ProtectedRoute requiredRoles={['ADMIN', 'GOLDSMITH']}>
-                    <CustomerDetailPage />
-                  </ProtectedRoute>
-                }
-              />
+        {/* Kunden — any authenticated role. VIEWER holds CUSTOMER_VIEW
+            (core/permissions.py) and gets a role-projected read (no design
+            IP — CustomerDetailPage's own canViewDesign gate handles that);
+            the route no longer redirects VIEWER away before it can load. */}
+        <Route
+          path="customers"
+          element={
+            <ProtectedRoute>
+              <CustomersPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="customers/:id"
+          element={
+            <ProtectedRoute>
+              <CustomerDetailPage />
+            </ProtectedRoute>
+          }
+        />
 
-              {/* Beratung — ADMIN und GOLDSMITH */}
-              <Route
-                path="consultations"
-                element={
-                  <ProtectedRoute requiredRoles={['ADMIN', 'GOLDSMITH']}>
-                    <ConsultationsPage />
-                  </ProtectedRoute>
-                }
-              />
-              {/* Static "new" segment must be registered alongside the
-                  dynamic ":id" segment below — react-router v7 ranks
-                  static path segments above dynamic ones during
-                  matching regardless of array order, so /consultations/new
-                  always resolves here and never against :id. Pinned by
-                  pages/ConsultationsRoutes.test.tsx. */}
-              <Route
-                path="consultations/new"
-                element={
-                  <ProtectedRoute requiredRoles={['ADMIN', 'GOLDSMITH']}>
-                    <ConsultationWizardPage />
-                  </ProtectedRoute>
-                }
-              />
-              <Route
-                path="consultations/:id"
-                element={
-                  <ProtectedRoute requiredRoles={['ADMIN', 'GOLDSMITH']}>
-                    <ConsultationWizardPage />
-                  </ProtectedRoute>
-                }
-              />
+        {/* Beratung — ADMIN und GOLDSMITH */}
+        <Route
+          path="consultations"
+          element={
+            <ProtectedRoute requiredRoles={['ADMIN', 'GOLDSMITH']}>
+              <ConsultationsPage />
+            </ProtectedRoute>
+          }
+        />
+        {/* Static "new" segment must be registered alongside the
+            dynamic ":id" segment below — react-router v7 ranks
+            static path segments above dynamic ones during
+            matching regardless of array order, so /consultations/new
+            always resolves here and never against :id. Pinned by
+            pages/ConsultationsRoutes.test.tsx. */}
+        <Route
+          path="consultations/new"
+          element={
+            <ProtectedRoute requiredRoles={['ADMIN', 'GOLDSMITH']}>
+              <ConsultationWizardPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="consultations/:id"
+          element={
+            <ProtectedRoute requiredRoles={['ADMIN', 'GOLDSMITH']}>
+              <ConsultationWizardPage />
+            </ProtectedRoute>
+          }
+        />
 
-              {/* Materialien — ADMIN und GOLDSMITH */}
-              <Route
-                path="materials"
-                element={
-                  <ProtectedRoute requiredRoles={['ADMIN', 'GOLDSMITH']}>
-                    <MaterialsPage />
-                  </ProtectedRoute>
-                }
-              />
+        {/* Materialien — any authenticated role. VIEWER holds
+            MATERIAL_VIEW; MaterialsPage's own canViewFinancials gate hides
+            unit prices and stock value (SEC-01). */}
+        <Route
+          path="materials"
+          element={
+            <ProtectedRoute>
+              <MaterialsPage />
+            </ProtectedRoute>
+          }
+        />
 
-              {/* Metallinventar — ADMIN und GOLDSMITH */}
-              <Route
-                path="metal-inventory"
-                element={
-                  <ProtectedRoute requiredRoles={['ADMIN', 'GOLDSMITH']}>
-                    <MetalInventoryPage />
-                  </ProtectedRoute>
-                }
-              />
+        {/* Metallinventar — any authenticated role. VIEWER holds
+            MATERIAL_VIEW for the list itself, but every metal-inventory
+            endpoint this page calls is FINANCIAL_VIEW-gated, so
+            MetalInventoryPage's own guard shows an empty state for VIEWER
+            instead of 403ing on load. */}
+        <Route
+          path="metal-inventory"
+          element={
+            <ProtectedRoute>
+              <MetalInventoryPage />
+            </ProtectedRoute>
+          }
+        />
 
-              <Route path="orders" element={<OrdersPage />} />
-              <Route path="orders/:orderId" element={<OrderDetailPage />} />
+        <Route path="orders" element={<OrdersPage />} />
+        <Route path="orders/:orderId" element={<OrderDetailPage />} />
 
-              {/* Reparaturen — ADMIN und GOLDSMITH */}
-              <Route
-                path="repairs"
-                element={
-                  <ProtectedRoute requiredRoles={['ADMIN', 'GOLDSMITH']}>
-                    <RepairsPage />
-                  </ProtectedRoute>
-                }
-              />
-              <Route
-                path="repairs/:id"
-                element={
-                  <ProtectedRoute requiredRoles={['ADMIN', 'GOLDSMITH']}>
-                    <RepairDetailPage />
-                  </ProtectedRoute>
-                }
-              />
+        {/* Reparaturen — any authenticated role. VIEWER holds REPAIR_VIEW
+            (e.g. front desk); RepairsPage's own canViewFinancials gate
+            hides pricing. */}
+        <Route
+          path="repairs"
+          element={
+            <ProtectedRoute>
+              <RepairsPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="repairs/:id"
+          element={
+            <ProtectedRoute>
+              <RepairDetailPage />
+            </ProtectedRoute>
+          }
+        />
 
-              <Route path="time-tracking" element={<TimeTrackingPage />} />
+        <Route path="time-tracking" element={<TimeTrackingPage />} />
 
-              {/* Benutzerverwaltung — nur ADMIN */}
-              <Route
-                path="users"
-                element={
-                  <ProtectedRoute requiredRoles={['ADMIN']}>
-                    <UsersPage />
-                  </ProtectedRoute>
-                }
-              />
+        {/* Benutzerverwaltung — nur ADMIN */}
+        <Route
+          path="users"
+          element={
+            <ProtectedRoute requiredRoles={['ADMIN']}>
+              <UsersPage />
+            </ProtectedRoute>
+          }
+        />
 
-              <Route path="scanner" element={<ScannerPage />} />
-              <Route path="settings" element={<UserSettingsPage />} />
-              <Route path="calendar" element={<CalendarPage />} />
+        <Route path="scanner" element={<ScannerPage />} />
+        <Route path="settings" element={<UserSettingsPage />} />
+        <Route path="calendar" element={<CalendarPage />} />
 
-              {/* Rechnungen — ADMIN und GOLDSMITH */}
-              <Route
-                path="invoices"
-                element={
-                  <ProtectedRoute requiredRoles={['ADMIN', 'GOLDSMITH']}>
-                    <InvoicesPage />
-                  </ProtectedRoute>
-                }
-              />
+        {/* Rechnungen — ADMIN und GOLDSMITH */}
+        <Route
+          path="invoices"
+          element={
+            <ProtectedRoute requiredRoles={['ADMIN', 'GOLDSMITH']}>
+              <InvoicesPage />
+            </ProtectedRoute>
+          }
+        />
 
-              {/* Angebote (Kostenvoranschlag) — ADMIN und GOLDSMITH */}
-              <Route
-                path="quotes"
-                element={
-                  <ProtectedRoute requiredRoles={['ADMIN', 'GOLDSMITH']}>
-                    <QuotesPage />
-                  </ProtectedRoute>
-                }
-              />
+        {/* Angebote (Kostenvoranschlag) — ADMIN und GOLDSMITH */}
+        <Route
+          path="quotes"
+          element={
+            <ProtectedRoute requiredRoles={['ADMIN', 'GOLDSMITH']}>
+              <QuotesPage />
+            </ProtectedRoute>
+          }
+        />
 
-              {/* Systemübersicht — nur ADMIN */}
-              <Route
-                path="admin/system"
-                element={
-                  <ProtectedRoute requiredRoles={['ADMIN']}>
-                    <AdminSystemPage />
-                  </ProtectedRoute>
-                }
-              />
+        {/* Systemübersicht — nur ADMIN */}
+        <Route
+          path="admin/system"
+          element={
+            <ProtectedRoute requiredRoles={['ADMIN']}>
+              <AdminSystemPage />
+            </ProtectedRoute>
+          }
+        />
 
-              {/* V1.1 Scan-Adoption Dashboard — nur ADMIN (Slice 13) */}
-              <Route
-                path="admin/scan-gate"
-                element={
-                  <ProtectedRoute requiredRoles={['ADMIN']}>
-                    <ScanAdoptionDashboard />
-                  </ProtectedRoute>
-                }
-              />
-            </Route>
+        {/* V1.1 Scan-Adoption Dashboard — nur ADMIN (Slice 13) */}
+        <Route
+          path="admin/scan-gate"
+          element={
+            <ProtectedRoute requiredRoles={['ADMIN']}>
+              <ScanAdoptionDashboard />
+            </ProtectedRoute>
+          }
+        />
+      </Route>
 
-            {/* Catch all - redirect to dashboard */}
-            <Route path="*" element={<Navigate to="/dashboard" replace />} />
-          </Routes>
-        </OrderProvider>
-      </TimeTrackingProvider>
-    </ScannerProvider>
-    </WebSocketProvider>
+      {/* Catch all - redirect to dashboard */}
+      <Route path="*" element={<Navigate to="/dashboard" replace />} />
+    </Routes>
   </AuthProvider>
 );
 

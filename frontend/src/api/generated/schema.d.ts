@@ -222,6 +222,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/outbox": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Outbox
+         * @description Nachrichten-Warteschlange anzeigen (nur ADMIN).
+         */
+        get: operations["list_outbox_api_v1_admin_outbox_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/outbox/{message_id}/retry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Retry Outbox Message
+         * @description Fehlgeschlagene Nachricht erneut senden (nur ADMIN).
+         */
+        post: operations["retry_outbox_message_api_v1_admin_outbox__message_id__retry_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/scan-metrics": {
         parameters: {
             query?: never;
@@ -682,7 +722,14 @@ export interface paths {
         };
         /**
          * List Customers
-         * @description List all customers with optional filtering.
+         * @description List customers with optional filtering.
+         *
+         *     With ``offset``: a ``Page`` {items, total, limit, offset, next_offset}
+         *     with ``q`` (full-email blind-index search) and ``sort``. Without it
+         *     (deprecated, one release): the legacy plain list, flagged
+         *     ``X-Deprecated-List: true``, with the existing fuzzy ``search`` (name /
+         *     company / email fragment, decrypted in Python — see
+         *     ``CustomerService.get_customers``).
          *
          *     Permissions: Requires CUSTOMER_VIEW permission.
          */
@@ -1724,6 +1771,66 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/jobs/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Jobs
+         * @description Aufträge und Reparaturen gemeinsam, seitenweise (Grundlage Kanban).
+         */
+        get: operations["list_jobs_api_v1_jobs__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/jobs/{job_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Job
+         * @description Ein Vorgang (Auftrag oder Reparatur).
+         */
+        get: operations["get_job_api_v1_jobs__job_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/jobs/{job_id}/timeline": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Job Timeline
+         * @description Verlauf eines Vorgangs; nutzt die Timeline der jeweiligen Art.
+         */
+        get: operations["get_job_timeline_api_v1_jobs__job_id__timeline_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/login/access-token": {
         parameters: {
             query?: never;
@@ -2040,6 +2147,73 @@ export interface paths {
          *     Permissions: CUSTOMER_DELETE (Admin only)
          */
         delete: operations["delete_measurement_api_v1_measurements__measurement_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/media": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Media
+         * @description Medien eines Auftrags / einer Reparatur / Beratung auflisten.
+         */
+        get: operations["list_media_api_v1_media_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/media/{media_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Media File
+         * @description Originaldatei eines Mediums ausliefern.
+         */
+        get: operations["get_media_file_api_v1_media__media_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Update Media
+         * @description „Für Kunden sichtbar“ setzen oder entfernen (GOLDSMITH/ADMIN).
+         *
+         *     Flagged photos are what the status report and a photo Kundeninfo
+         *     without ticked photos send to the customer.
+         */
+        patch: operations["update_media_api_v1_media__media_id__patch"];
+        trace?: never;
+    };
+    "/api/v1/media/{media_id}/thumbnail": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Media Thumbnail
+         * @description Miniaturansicht ausliefern (Fallback: Original).
+         */
+        get: operations["get_media_thumbnail_api_v1_media__media_id__thumbnail_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -3418,6 +3592,33 @@ export interface paths {
         patch: operations["change_order_status_api_v1_orders__order_id__status_patch"];
         trace?: never;
     };
+    "/api/v1/orders/{order_id}/status-report.pdf": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Order Status Report
+         * @description Statusbericht (Kundenbericht) als PDF (W6, DOM section D Option 2).
+         *
+         *     Werkstatt-Kopf, Schmuckstueck (Titel, Material, Steine), Verlauf aus
+         *     Status-Ereignissen und tatsaechlich verschickten Kundeninfos, die
+         *     zuletzt mit der Kundin/dem Kunden geteilten Fotos, ein "Wie geht es
+         *     weiter"-Text und die Kontaktzeile. Nie Preise, Kosten, interne Notizen
+         *     oder Mitarbeiternamen (CLAUDE.md). GOLDSMITH/ADMIN only (VIEWER: 403);
+         *     jeder Abruf wird protokolliert.
+         */
+        get: operations["get_order_status_report_api_v1_orders__order_id__status_report_pdf_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/orders/{order_id}/timeline": {
         parameters: {
             query?: never;
@@ -3665,6 +3866,26 @@ export interface paths {
          * @description Gibt den Auftragsstatus anhand eines einmaligen Lookup-Tokens zurueck. Tokens werden vom /lookup-Endpunkt generiert und sind 1 Stunde gueltig. Nützlich fuer E-Mail-Links: 'Klicken Sie hier, um Ihren Status zu sehen'.
          */
         get: operations["portal_status_by_token_api_v1_portal_status__token__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/portal/workshop-contact": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Kontaktdaten der Werkstatt (oeffentlich)
+         * @description Oeffentlicher Endpunkt — kein Login erforderlich. Liefert nur Name, Telefon und E-Mail der Werkstatt (kein Kundendaten, keine Bank- oder Steuerdaten) fuer den Fusszeilen-Kontakt des Portals.
+         */
+        get: operations["portal_workshop_contact_api_v1_portal_workshop_contact_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -4214,6 +4435,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/repairs/{repair_id}/invoice": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create Repair Invoice
+         * @description Rechnung für eine fertige Reparatur erstellen.
+         *
+         *     Nur für Status ``ready`` oder ``picked_up`` und mit zugeordnetem Kunden.
+         *     Position: vereinbarter Nettopreis (tatsächliche Kosten, sonst
+         *     Kostenvoranschlag); Nummer, MwSt, §14-Angaben und Snapshot wie bei
+         *     Auftragsrechnungen. 409, wenn schon eine aktive Rechnung existiert.
+         */
+        post: operations["create_repair_invoice_api_v1_repairs__repair_id__invoice_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/repairs/{repair_id}/label": {
         parameters: {
             query?: never;
@@ -4328,6 +4574,32 @@ export interface paths {
          *     Voraussetzung: Auftrag muss im Status APPROVED sein.
          */
         post: operations["start_repair_api_v1_repairs__repair_id__start_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/repairs/{repair_id}/status-report.pdf": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Repair Status Report
+         * @description Statusbericht (Kundenbericht) als PDF (W6, DOM section D Option 2).
+         *
+         *     Werkstatt-Kopf, Schmuckstueck, Verlauf (aktueller Status, tatsaechlich
+         *     verschickte Kundeninfos), die neuesten Reparaturfotos, ein "Wie geht es
+         *     weiter"-Text und die Kontaktzeile. Nie Preise, Kosten, Diagnosenotizen
+         *     oder Mitarbeiternamen (CLAUDE.md). GOLDSMITH/ADMIN only (VIEWER: 403);
+         *     jeder Abruf wird protokolliert.
+         */
+        get: operations["get_repair_status_report_api_v1_repairs__repair_id__status_report_pdf_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -5154,7 +5426,9 @@ export interface paths {
          *     Liefert IMMER 200 — auch bei fehlgeschlagenem Versand oder wenn SMTP
          *     nicht konfiguriert ist (``delivered=false``); der Entwurf bleibt in
          *     jedem Fall erhalten. Ein bereits verschicktes Update (Status "sent")
-         *     kann nicht erneut verschickt werden (409).
+         *     kann nicht erneut verschickt werden (409). Optionaler Body
+         *     ``{"attach_status_report": true}`` haengt den aktuellen Statusbericht
+         *     als PDF an die E-Mail an (W6, "Statusbericht anhaengen").
          */
         post: operations["send_update_api_v1_updates__update_id__send_post"];
         delete?: never;
@@ -5937,6 +6211,29 @@ export interface components {
              * @description Base64-encoded PNG of the customer's signature (optional)
              */
             signature_data?: string | null;
+        };
+        /**
+         * AttachStatusReportRequest
+         * @description Optional body of ``POST /updates/{id}/send``.
+         *
+         *     "Statusbericht anhängen" in the Kundeninfo composer (W6, DOM section D
+         *     Option 2): when true, the live Statusbericht PDF
+         *     (``status_report_service``) is generated fresh and attached to the
+         *     outgoing email, and the message is classified as
+         *     ``MessageKind.STATUS_REPORT`` (contractual basis) for the content-rule
+         *     and audit-log checks. Never persisted — there is no DB column for it
+         *     (see the model's docstring); a PDF-manual fallback caused by this same
+         *     send instead relies on the frontend calling the standalone
+         *     ``GET /orders/{id}/status-report.pdf`` / ``.../repairs/{id}/...``
+         *     endpoint directly, since the flag itself cannot be looked up later from
+         *     the stored CustomerUpdate row.
+         */
+        AttachStatusReportRequest: {
+            /**
+             * Attach Status Report
+             * @default false
+             */
+            attach_status_report: boolean;
         };
         /**
          * BatchLogResponse
@@ -7339,7 +7636,7 @@ export interface components {
             delivered: boolean;
             method?: components["schemas"]["UpdateDeliveryMethod"] | null;
             /** Reason */
-            reason?: ("smtp_disabled" | "no_email" | "opted_out") | null;
+            reason?: ("smtp_disabled" | "no_email" | "opted_out" | "queued") | null;
             update: components["schemas"]["CustomerUpdateRead"];
         };
         /**
@@ -8367,8 +8664,10 @@ export interface components {
              * Format: date-time
              */
             issue_date: string;
+            /** Job Id */
+            job_id?: number | null;
             /** Order Id */
-            order_id: number;
+            order_id?: number | null;
             /** Paid Date */
             paid_date?: string | null;
             /**
@@ -8441,14 +8740,22 @@ export interface components {
              */
             issue_date: string;
             /**
+             * Job Id
+             * @description Job (order or repair) billed (ARCH phase 5)
+             */
+            job_id?: number | null;
+            /**
              * Line Items
              * @default []
              */
             line_items: components["schemas"]["InvoiceLineItemResponse"][];
             /** Notes */
             notes?: string | null;
-            /** Order Id */
-            order_id: number;
+            /**
+             * Order Id
+             * @description Order billed; null for a repair invoice
+             */
+            order_id?: number | null;
             /** Paid Date */
             paid_date?: string | null;
             /** Payment Method */
@@ -8523,6 +8830,93 @@ export interface components {
              * @description Payment method
              */
             payment_method?: string | null;
+        };
+        /**
+         * JobCustomer
+         * @description Customer summary on a job row (name only; no contact data).
+         */
+        JobCustomer: {
+            /** Display Name */
+            display_name: string;
+            /** Id */
+            id: number;
+        };
+        /**
+         * JobKind
+         * @description What a job wraps.
+         * @enum {string}
+         */
+        JobKind: "order" | "repair";
+        /**
+         * JobListItem
+         * @description One order or repair on the job spine (kanban card).
+         */
+        JobListItem: {
+            /** Agreed Price */
+            agreed_price?: number | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            customer?: components["schemas"]["JobCustomer"] | null;
+            /** Customer Id */
+            customer_id?: number | null;
+            /** Deadline */
+            deadline?: string | null;
+            /** Id */
+            id: number;
+            kind: components["schemas"]["JobKind"];
+            /**
+             * Kind Status
+             * @description Raw order / repair status
+             */
+            kind_status: string;
+            /**
+             * Number
+             * @description AU-YYYY-NNNN (Auftrag) or REP-YYYY-NNNN
+             */
+            number: string;
+            /** On Hold Since */
+            on_hold_since?: string | null;
+            /** Order Id */
+            order_id?: number | null;
+            /** Repair Id */
+            repair_id?: number | null;
+            /** Resume Date */
+            resume_date?: string | null;
+            /** @description Unified lifecycle */
+            status: components["schemas"]["JobStatus"];
+            /** Status Label */
+            status_label: string;
+            /** Title */
+            title?: string | null;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /**
+         * JobStatus
+         * @description Unified lifecycle across orders and repairs (kanban columns).
+         * @enum {string}
+         */
+        JobStatus: "draft" | "intake" | "awaiting_approval" | "confirmed" | "in_progress" | "quality_check" | "ready" | "delivered" | "on_hold" | "cancelled";
+        /**
+         * JobTimelineRead
+         * @description Merged history of one job (delegates to the per-kind timeline).
+         */
+        JobTimelineRead: {
+            /** Items */
+            items: components["schemas"]["OrderTimelineItem"][];
+            /** Job Id */
+            job_id: number;
+            kind: components["schemas"]["JobKind"];
+            /** Order Id */
+            order_id?: number | null;
+            /** Repair Id */
+            repair_id?: number | null;
         };
         /**
          * LaborEstimateRequest
@@ -9146,6 +9540,65 @@ export interface components {
             /** Value */
             value?: number | null;
         };
+        /**
+         * MediaAssetRead
+         * @description Metadata of one media asset.
+         */
+        MediaAssetRead: {
+            /** Bytes */
+            bytes?: number | null;
+            /** Caption */
+            caption?: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Customer Visible */
+            customer_visible: boolean;
+            /** Height */
+            height?: number | null;
+            /** Id */
+            id: string;
+            kind: components["schemas"]["MediaKind"];
+            /** Legacy Id */
+            legacy_id?: string | null;
+            /** Mime */
+            mime: string;
+            /** Owner Id */
+            owner_id: number;
+            owner_type: components["schemas"]["MediaOwnerType"];
+            /** Sort Order */
+            sort_order: number;
+            /** Tag */
+            tag?: string | null;
+            /** Taken At */
+            taken_at?: string | null;
+            /** Uploaded By */
+            uploaded_by?: number | null;
+            /** Width */
+            width?: number | null;
+        };
+        /**
+         * MediaAssetUpdate
+         * @description ``PATCH /media/{id}``: only the customer-visibility flag is editable.
+         */
+        MediaAssetUpdate: {
+            /** Customer Visible */
+            customer_visible: boolean;
+        };
+        /**
+         * MediaKind
+         * @description What a media asset is.
+         * @enum {string}
+         */
+        MediaKind: "photo" | "signature" | "document";
+        /**
+         * MediaOwnerType
+         * @description What a media asset belongs to.
+         * @enum {string}
+         */
+        MediaOwnerType: "order" | "repair" | "consultation" | "customer_update";
         /**
          * MetalAllocation
          * @description Represents allocation of metal from specific purchase for order
@@ -10332,6 +10785,75 @@ export interface components {
             /** Vat Rate */
             vat_rate?: number | null;
         };
+        /** OutboxCounts */
+        OutboxCounts: {
+            /**
+             * Dead
+             * @default 0
+             */
+            dead: number;
+            /**
+             * Failed
+             * @default 0
+             */
+            failed: number;
+            /**
+             * Pending
+             * @default 0
+             */
+            pending: number;
+            /**
+             * Sent
+             * @default 0
+             */
+            sent: number;
+        };
+        /** OutboxListResponse */
+        OutboxListResponse: {
+            counts: components["schemas"]["OutboxCounts"];
+            /** Items */
+            items: components["schemas"]["OutboxMessageRead"][];
+            /**
+             * Mode
+             * @enum {string}
+             */
+            mode: "inline" | "worker";
+        };
+        /**
+         * OutboxMessageRead
+         * @description One queued message. ``payload`` holds ids only (no address/subject/body).
+         */
+        OutboxMessageRead: {
+            /** Attempts */
+            attempts: number;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Id */
+            id: number;
+            /** Kind */
+            kind: string;
+            /** Last Error */
+            last_error?: string | null;
+            /**
+             * Next Attempt At
+             * Format: date-time
+             */
+            next_attempt_at: string;
+            /** Payload */
+            payload: {
+                [key: string]: unknown;
+            };
+            /** Sent At */
+            sent_at?: string | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "pending" | "sent" | "failed" | "dead";
+        };
         /**
          * OverrideReasonCategoryEnum
          * @description Audit-filter categories for an alloy-mismatch override (A2.4 / Thomas §3).
@@ -10346,6 +10868,44 @@ export interface components {
         Page_CustomerActivityItem_: {
             /** Items */
             items: components["schemas"]["CustomerActivityItem"][];
+            /** Limit */
+            limit: number;
+            /**
+             * Next Offset
+             * @description Offset der nächsten Seite; null auf der letzten
+             */
+            next_offset?: number | null;
+            /** Offset */
+            offset: number;
+            /**
+             * Total
+             * @description Anzahl aller Treffer über alle Seiten
+             */
+            total: number;
+        };
+        /** Page[CustomerListItem] */
+        Page_CustomerListItem_: {
+            /** Items */
+            items: components["schemas"]["CustomerListItem"][];
+            /** Limit */
+            limit: number;
+            /**
+             * Next Offset
+             * @description Offset der nächsten Seite; null auf der letzten
+             */
+            next_offset?: number | null;
+            /** Offset */
+            offset: number;
+            /**
+             * Total
+             * @description Anzahl aller Treffer über alle Seiten
+             */
+            total: number;
+        };
+        /** Page[JobListItem] */
+        Page_JobListItem_: {
+            /** Items */
+            items: components["schemas"]["JobListItem"][];
             /** Limit */
             limit: number;
             /**
@@ -10502,6 +11062,8 @@ export interface components {
             customer_name?: string | null;
             /** Id */
             id: number;
+            /** Job Id */
+            job_id?: number | null;
             /**
              * Kind
              * @enum {string}
@@ -11011,6 +11573,47 @@ export interface components {
             repair_number: string;
             /** Status */
             status?: string | null;
+        };
+        /**
+         * RepairInvoiceCreate
+         * @description Body of ``POST /repairs/{id}/invoice`` (ARCH phase 5).
+         *
+         *     The line item comes from the repair's agreed NET price (actual cost,
+         *     else the accepted estimate); ``service_date`` defaults to the repair's
+         *     completion date.
+         */
+        RepairInvoiceCreate: {
+            /**
+             * Additional Line Items
+             * @description Additional line items beyond those auto-generated from the order
+             */
+            additional_line_items?: components["schemas"]["InvoiceLineItemCreate"][] | null;
+            /**
+             * Due Date
+             * Format: date-time
+             * @description Payment due date (Faelligkeitsdatum); normalised to UTC
+             */
+            due_date: string;
+            /**
+             * Notes
+             * @description Optional notes on the invoice (Anmerkungen)
+             */
+            notes?: string | null;
+            /**
+             * Payment Method
+             * @description Payment method (Zahlungsart): Ueberweisung, Bar, Karte
+             */
+            payment_method?: string | null;
+            /**
+             * Service Date
+             * @description Leistungsdatum (§14 Abs. 4 Nr. 6 UStG). Omitted: the order's completion date, else the invoice date.
+             */
+            service_date?: string | null;
+            /**
+             * Tax Rate
+             * @description VAT rate in percent (MwSt-Satz). Omitted: the workshop default (Werkstatt-Stammdaten, 19 % unless changed). Always 0 for a Kleinunternehmer (§19 UStG).
+             */
+            tax_rate?: number | null;
         };
         /**
          * RepairItemType
@@ -11621,6 +12224,22 @@ export interface components {
             created_by: number;
             /** Customer Id */
             customer_id: number;
+            /**
+             * Fine Grams By Metal
+             * @description Per-metal fine-gram breakdown (DOM-20 remainder).
+             *
+             *     ``total_fine_gold_g`` aggregates fine content across every metal
+             *     (gold, silver, platinum) into one number, which reads as "all gold"
+             *     even when the lot is mixed. This computed field re-derives an
+             *     honest per-metal split from ``items`` (each item already carries
+             *     its own alloy and fine content) without any schema change — the
+             *     full DOM-20 fix (per-metal prices stored on the row, an
+             *     Ankaufsabschlag %) still needs a migration and is tracked
+             *     separately.
+             */
+            readonly fine_grams_by_metal: {
+                [key: string]: number;
+            };
             /** Gold Price Per G */
             gold_price_per_g?: number | null;
             /** Has Identification */
@@ -12627,6 +13246,11 @@ export interface components {
             /** Id */
             id: number;
             /**
+             * Job Id
+             * @description Job spine id (GET /jobs/{id}); ARCH phase 5
+             */
+            job_id?: number | null;
+            /**
              * Kind
              * @enum {string}
              */
@@ -12640,6 +13264,23 @@ export interface components {
             status: string;
             /** Title */
             title: string;
+        };
+        /**
+         * WorkshopPublicContact
+         * @description Public subset of the workshop settings (customer portal footer).
+         *
+         *     Only the workshop's own name and how to reach it — never the bank
+         *     details, tax IDs or invoice footer text that ride along on
+         *     ``WorkshopSettingsRead``. This is the workshop's own business contact
+         *     data, not customer PII, and is served to logged-out portal visitors.
+         */
+        WorkshopPublicContact: {
+            /** Email */
+            email?: string | null;
+            /** Name */
+            name: string;
+            /** Phone */
+            phone?: string | null;
         };
         /**
          * WorkshopSettingsRead
@@ -13222,6 +13863,73 @@ export interface operations {
                     "application/json": {
                         [key: string]: unknown;
                     };
+                };
+            };
+        };
+    };
+    list_outbox_api_v1_admin_outbox_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                status?: ("pending" | "sent" | "failed" | "dead") | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OutboxListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    retry_outbox_message_api_v1_admin_outbox__message_id__retry_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                message_id: number;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OutboxMessageRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -14132,12 +14840,21 @@ export interface operations {
                 customer_type?: string | null;
                 /** @description Filter by active status */
                 is_active?: boolean | null;
-                /** @description Max records to return */
-                limit?: number;
-                /** @description Search in name, company, email */
+                /** @description Seitengröße (Standard 50, maximal 200 mit offset) */
+                limit?: number | null;
+                /** @description Offset der Seite. Wenn gesetzt, antwortet der Endpunkt mit einer Page-Hülle {items, total, limit, offset, next_offset}. */
+                offset?: number | null;
+                /** @description Volle E-Mail-Adresse, exakter Treffer über den email_hash Blind-Index (nur mit offset). Name/Firma sind verschlüsselt und daher hier nicht durchsuchbar — dafür ``search`` ohne offset verwenden. */
+                q?: string | null;
+                /** @description Search in name, company, email (nur ohne offset) */
                 search?: string | null;
-                /** @description Number of records to skip */
+                /**
+                 * @deprecated
+                 * @description Veraltet: nur ohne offset (Listenantwort).
+                 */
                 skip?: number;
+                /** @description Sortierung (nur mit offset): kommagetrennte Feldnamen, absteigend mit vorangestelltem '-' (z. B. '-created_at'). Erlaubte Felder: created_at, customer_type, is_active. Ein unbekanntes Feld ergibt 422 (code pagination.invalid_sort_field). */
+                sort?: string | null;
                 /** @description Filter by tag */
                 tag?: string | null;
             };
@@ -14155,7 +14872,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["CustomerListItem"][];
+                    "application/json": components["schemas"]["Page_CustomerListItem_"] | components["schemas"]["CustomerListItem"][];
                 };
             };
             /** @description Validation Error */
@@ -15752,6 +16469,115 @@ export interface operations {
             };
         };
     };
+    list_jobs_api_v1_jobs__get: {
+        parameters: {
+            query?: {
+                customer_id?: number | null;
+                /** @description order oder repair */
+                kind?: components["schemas"]["JobKind"] | null;
+                limit?: number;
+                offset?: number;
+                /** @description Nummer, Titel oder Kunde */
+                q?: string | null;
+                /** @description Kommagetrennt, absteigend mit '-': created_at, deadline, kind, number, status, updated_at */
+                sort?: string | null;
+                /** @description Einheitlicher Status (mehrfach möglich) */
+                status?: components["schemas"]["JobStatus"][] | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_JobListItem_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_job_api_v1_jobs__job_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: number;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobListItem"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_job_timeline_api_v1_jobs__job_id__timeline_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: number;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobTimelineRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     login_access_token_api_v1_login_access_token_post: {
         parameters: {
             query?: never;
@@ -15819,6 +16645,8 @@ export interface operations {
                  * @description Veraltet: nur ohne offset (Listenantwort).
                  */
                 skip?: number;
+                /** @description Sortierung (nur mit offset): kommagetrennte Feldnamen, absteigend mit vorangestelltem '-' (z. B. '-name'). Erlaubte Felder: name, stock, supplier. Ein unbekanntes Feld ergibt 422 (code pagination.invalid_sort_field). */
+                sort?: string | null;
             };
             header?: never;
             path?: never;
@@ -16279,6 +17107,143 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_media_api_v1_media_get: {
+        parameters: {
+            query: {
+                owner_id: number;
+                owner_type: components["schemas"]["MediaOwnerType"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MediaAssetRead"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_media_file_api_v1_media__media_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                media_id: string;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_media_api_v1_media__media_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                media_id: string;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MediaAssetUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MediaAssetRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_media_thumbnail_api_v1_media__media_id__thumbnail_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                media_id: string;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
             };
             /** @description Validation Error */
             422: {
@@ -17214,6 +18179,8 @@ export interface operations {
                  * @description Veraltet: nur ohne offset (Listenantwort).
                  */
                 skip?: number;
+                /** @description Sortierung (nur mit offset): kommagetrennte Feldnamen, absteigend mit vorangestelltem '-' (z. B. '-created_at'). Erlaubte Felder: created_at, severity, notification_type, is_read. Ein unbekanntes Feld ergibt 422 (code pagination.invalid_sort_field). */
+                sort?: string | null;
                 /** @description When true, return only unread notifications */
                 unread_only?: boolean;
             };
@@ -17428,6 +18395,8 @@ export interface operations {
                  * @description Veraltet: nur ohne offset (Listenantwort).
                  */
                 skip?: number;
+                /** @description Sortierung (nur mit offset): kommagetrennte Feldnamen, absteigend mit vorangestelltem '-' (z. B. '-created_at'). Erlaubte Felder: created_at, deadline, status, title. Ein unbekanntes Feld ergibt 422 (code pagination.invalid_sort_field). */
+                sort?: string | null;
                 /** @description Nach Status filtern (nur mit offset) */
                 status?: components["schemas"]["OrderStatusEnum"] | null;
             };
@@ -18649,6 +19618,39 @@ export interface operations {
             };
         };
     };
+    get_order_status_report_api_v1_orders__order_id__status_report_pdf_get: {
+        parameters: {
+            query?: {
+                next_steps?: string | null;
+            };
+            header?: never;
+            path: {
+                order_id: number;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_order_timeline_api_v1_orders__order_id__timeline_get: {
         parameters: {
             query?: never;
@@ -19060,6 +20062,26 @@ export interface operations {
             };
         };
     };
+    portal_workshop_contact_api_v1_portal_workshop_contact_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkshopPublicContact"];
+                };
+            };
+        };
+    };
     list_quotes_api_v1_quotes__get: {
         parameters: {
             query?: {
@@ -19080,6 +20102,8 @@ export interface operations {
                  * @description Veraltet: nur ohne offset (Listenantwort).
                  */
                 skip?: number;
+                /** @description Sortierung (nur mit offset): kommagetrennte Feldnamen, absteigend mit vorangestelltem '-' (z. B. '-created_at'). Erlaubte Felder: created_at, status, valid_until, quote_number. Ein unbekanntes Feld ergibt 422 (code pagination.invalid_sort_field). */
+                sort?: string | null;
                 /** @description Filter by quote status (draft, sent, approved, rejected, expired, converted) */
                 status?: components["schemas"]["QuoteStatus"] | null;
             };
@@ -19565,6 +20589,8 @@ export interface operations {
                  * @description Veraltet: nur ohne offset (Listenantwort).
                  */
                 skip?: number;
+                /** @description Sortierung (nur mit offset): kommagetrennte Feldnamen, absteigend mit vorangestelltem '-' (z. B. '-created_at'). Erlaubte Felder: created_at, status, estimated_completion_date, repair_number. Ein unbekanntes Feld ergibt 422 (code pagination.invalid_sort_field). */
+                sort?: string | null;
                 /** @description Nach Status filtern */
                 status?: components["schemas"]["RepairJobStatus"] | null;
             };
@@ -19977,6 +21003,43 @@ export interface operations {
             };
         };
     };
+    create_repair_invoice_api_v1_repairs__repair_id__invoice_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                repair_id: number;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RepairInvoiceCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InvoiceResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_repair_label_api_v1_repairs__repair_id__label_get: {
         parameters: {
             query?: {
@@ -20172,6 +21235,39 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["RepairJobRead"];
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_repair_status_report_api_v1_repairs__repair_id__status_report_pdf_get: {
+        parameters: {
+            query?: {
+                next_steps?: string | null;
+            };
+            header?: never;
+            path: {
+                repair_id: number;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {
@@ -21331,6 +22427,8 @@ export interface operations {
                  * @description Veraltet: nur ohne offset (Listenantwort).
                  */
                 skip?: number;
+                /** @description Sortierung (nur mit offset): kommagetrennte Feldnamen, absteigend mit vorangestelltem '-' (z. B. '-start_time'). Erlaubte Felder: start_time, end_time. Ein unbekanntes Feld ergibt 422 (code pagination.invalid_sort_field). */
+                sort?: string | null;
             };
             header?: never;
             path: {
@@ -21513,6 +22611,8 @@ export interface operations {
                  * @description Veraltet: nur ohne offset (Listenantwort).
                  */
                 skip?: number;
+                /** @description Sortierung (nur mit offset): kommagetrennte Feldnamen, absteigend mit vorangestelltem '-' (z. B. '-start_time'). Erlaubte Felder: start_time, end_time. Ein unbekanntes Feld ergibt 422 (code pagination.invalid_sort_field). */
+                sort?: string | null;
                 /** @description Filter by start date */
                 start_date?: string | null;
             };
@@ -21627,7 +22727,11 @@ export interface operations {
                 access_token?: string | null;
             };
         };
-        requestBody?: never;
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["AttachStatusReportRequest"] | null;
+            };
+        };
         responses: {
             /** @description Successful Response */
             200: {

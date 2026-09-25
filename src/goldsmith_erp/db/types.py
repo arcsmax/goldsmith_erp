@@ -50,9 +50,12 @@ statements involving it without warnings.
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timezone
 from typing import Any, Optional
 
-from sqlalchemy.types import Text, TypeDecorator
+from sqlalchemy.types import DateTime, Text, TypeDecorator
+
+from goldsmith_erp.core.timeutil import ensure_utc
 
 logger = logging.getLogger(__name__)
 
@@ -172,3 +175,54 @@ def _warn_plaintext_once() -> None:
         "is not configured. This is acceptable only in development; "
         "production startup must abort when ENCRYPTION_KEY is unset."
     )
+
+
+class UtcDateTime(TypeDecorator):
+    """Timezone-aware UTC datetime column (BE-15).
+
+    DDL is ``TIMESTAMP WITH TIME ZONE`` (``DateTime(timezone=True)``).
+
+    * bind: naive values are read as UTC (one-release grace for callers that
+      still pass ``datetime.now(timezone.utc)``-style values), aware values are
+      converted to UTC. SQLite has no time zone type and stores the string
+      of the naive UTC value; ``timezone=False`` does the same on PostgreSQL
+      for a column that must stay ``TIMESTAMP WITHOUT TIME ZONE`` (the
+      ``scan_logs.scanned_at`` partition key, which cannot change type).
+    * result: always aware UTC, so application code never sees a naive
+      value from the database, on either dialect.
+    """
+
+    impl = DateTime
+    cache_ok = True
+
+    def __init__(self, timezone: bool = True) -> None:
+        super().__init__(timezone=timezone)
+        self._store_aware = timezone
+
+    def process_bind_param(self, value: Any, dialect: Any) -> Any:
+        if value is None:
+            return None
+        if not isinstance(value, datetime):
+            raise TypeError(f"UtcDateTime expects a datetime, got {type(value)!r}")
+        aware = ensure_utc(value)
+        if dialect.name == "sqlite" or not self._store_aware:
+            return aware.replace(tzinfo=None)
+        return aware
+
+    def process_result_value(self, value: Any, dialect: Any) -> Any:
+        if value is None:
+            return None
+        return ensure_utc(value)
+
+
+class UtcDateTimeNaiveStorage(UtcDateTime):
+    """``UtcDateTime`` stored as ``TIMESTAMP WITHOUT TIME ZONE`` (naive UTC).
+
+    Only for ``scan_logs.scanned_at``: the RANGE partition key, whose type
+    PostgreSQL cannot change. Python still sees aware UTC.
+    """
+
+    cache_ok = True
+
+    def __init__(self) -> None:
+        super().__init__(timezone=False)

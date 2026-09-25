@@ -3,12 +3,20 @@
 // "Wird berechnet" for every row and "Gesamtwert: 0,00 €". Gate them in
 // code with the lib/roles.ts helpers (CLAUDE.md: never hide by CSS).
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { screen } from '@testing-library/react';
+import { renderWithQuery } from '../test/queryWrapper';
 
 const mockGetAll = vi.fn();
-vi.mock('../api', () => ({
-  ordersApi: { getAll: (...a: unknown[]) => mockGetAll(...a) },
+// W3-03: the page reads GET /orders/?offset=… through pagedApi; tests hand
+// back plain arrays, wrapped here in the Page envelope.
+vi.mock('../api/paged', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../api/paged')>()),
+  pagedApi: {
+    orders: async (...a: unknown[]) => {
+      const items = (await mockGetAll(...a)) as unknown[];
+      return { items, total: items.length, limit: 25, offset: 0, next_offset: null };
+    },
+  },
 }));
 
 let mockRole = 'VIEWER';
@@ -40,11 +48,7 @@ function order(id: number, price: number | null) {
 }
 
 function renderPage() {
-  return render(
-    <MemoryRouter>
-      <OrdersPage />
-    </MemoryRouter>,
-  );
+  return renderWithQuery(<OrdersPage />);
 }
 
 afterEach(() => {
