@@ -6,6 +6,7 @@
 // last in the menu, separated, never beside the frequent action.
 import { useEffect, useId, useRef, type KeyboardEvent } from 'react';
 import type { OrderStatus } from '../../types';
+import { Button } from '../../ui';
 import { OrderIcon, ORDER_STATUS_ICONS } from './OrderIcon';
 import { primaryNextStatus, secondaryStatuses, statusLabel } from './orderStatus';
 
@@ -73,33 +74,32 @@ export function StatusAdvanceButton({
   return (
     <div className="order-advance">
       {primary !== null && (
-        <button
-          type="button"
-          className="btn btn-primary order-advance-primary"
+        <Button
+          size="lg"
+          icon={ORDER_STATUS_ICONS[primary]}
+          className="order-advance-primary"
           onClick={() => onSelect(primary)}
-          disabled={isBusy}
-          aria-busy={isBusy || undefined}
+          loading={isBusy}
         >
-          <OrderIcon name={ORDER_STATUS_ICONS[primary]} />
           {`Weiter: ${statusLabel(primary)}`}
-        </button>
+        </Button>
       )}
       {others.length > 0 && (
         <div className="order-advance-more">
-          <button
+          <Button
             ref={toggleRef}
-            type="button"
-            className="btn btn-secondary order-advance-toggle"
+            variant="secondary"
+            size="lg"
+            icon="chevron-down"
+            className="order-advance-toggle"
             aria-haspopup="menu"
             aria-expanded={isMenuOpen}
             aria-controls={isMenuOpen ? menuId : undefined}
             onClick={() => onMenuOpenChange(!isMenuOpen)}
             disabled={isBusy}
           >
-            {/* Visually hidden below 600px, so the name stays the visible text. */}
-            <span className="order-advance-toggle-text">Weitere Statuswechsel</span>
-            <OrderIcon name="chevron-down" />
-          </button>
+            Weitere Statuswechsel
+          </Button>
           {isMenuOpen && (
             <ul
               ref={menuRef}

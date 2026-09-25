@@ -1,5 +1,11 @@
-// CostBreakdownCard - Display comprehensive cost breakdown for orders
+// CostBreakdownCard — cost breakdown of an order (material, labour, margin,
+// VAT, final price). W4-03: src/ui Card + EmptyState, formatEur with
+// tabular numerals, no emoji. Financial data: the caller renders this card
+// only for roles that may see pricing (OrderWorkTab).
 import React from 'react';
+import { formatEur, MONEY_CLASS } from '../../lib/format';
+import { Button, Card, EmptyState } from '../../ui';
+import './cost-change.css';
 
 interface OrderCostData {
   // Cost Calculation
@@ -26,8 +32,33 @@ interface CostBreakdownCardProps {
   onEdit?: () => void;
 }
 
+const DEFAULT_HOURLY_RATE = 75;
+const DEFAULT_PROFIT_MARGIN = 40;
+const DEFAULT_VAT_RATE = 19;
+const DEFAULT_SCRAP_PERCENT = 5;
+const PRICE_TOLERANCE = 0.01;
+
+interface CostLineProps {
+  label: string;
+  value: React.ReactNode;
+  emphasis?: 'total' | 'muted';
+}
+
+function CostLine({ label, value, emphasis }: CostLineProps) {
+  const className = emphasis ? `cost-summary__line cost-summary__line--${emphasis}` : 'cost-summary__line';
+  return (
+    <div className={className}>
+      <dt>{label}</dt>
+      <dd className={MONEY_CLASS}>{value}</dd>
+    </div>
+  );
+}
+
+function formatWeight(grams: number): string {
+  return `${grams.toLocaleString('de-DE', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} g`;
+}
+
 export const CostBreakdownCard: React.FC<CostBreakdownCardProps> = ({ order, onEdit }) => {
-  // Check if any cost data exists
   const hasCostData =
     order.material_cost_calculated ||
     order.material_cost_override ||
@@ -36,143 +67,115 @@ export const CostBreakdownCard: React.FC<CostBreakdownCardProps> = ({ order, onE
 
   if (!hasCostData) {
     return (
-      <div className="cost-breakdown empty">
-        <div className="empty-state">
-          <p>💰 Kosten noch nicht berechnet</p>
-          <p className="empty-hint">
-            Kosten werden automatisch berechnet, wenn Metall und Arbeitsstunden angegeben sind.
-          </p>
-        </div>
-      </div>
+      <Card title="Kostenaufstellung" headingLevel={3}>
+        <EmptyState
+          icon="calculator"
+          title="Kosten noch nicht berechnet"
+          body="Kosten werden automatisch berechnet, wenn Metall und Arbeitsstunden angegeben sind."
+          headingLevel={3}
+          action={
+            onEdit ? (
+              <Button variant="secondary" icon="pencil" onClick={onEdit}>
+                Kosten bearbeiten
+              </Button>
+            ) : undefined
+          }
+        />
+      </Card>
     );
   }
 
-  // Calculate costs
+  const hourlyRate = order.hourly_rate ?? DEFAULT_HOURLY_RATE;
   const materialCost = order.material_cost_override ?? order.material_cost_calculated ?? 0;
-  const laborCost = order.labor_cost ?? (order.labor_hours ?? 0) * (order.hourly_rate ?? 75);
+  const laborCost = order.labor_cost ?? (order.labor_hours ?? 0) * hourlyRate;
   const subtotal = materialCost + laborCost;
-  const profitMargin = order.profit_margin_percent ?? 40;
+  const profitMargin = order.profit_margin_percent ?? DEFAULT_PROFIT_MARGIN;
   const profitAmount = subtotal * (profitMargin / 100);
   const preTaxTotal = subtotal + profitAmount;
-  const vatRate = order.vat_rate ?? 19;
+  const vatRate = order.vat_rate ?? DEFAULT_VAT_RATE;
   const vatAmount = preTaxTotal * (vatRate / 100);
   const finalPrice = preTaxTotal + vatAmount;
 
-  // Calculate total weight for display
   const estimatedWeight = order.estimated_weight_g ?? 0;
-  const scrapPercent = order.scrap_percentage ?? 5;
+  const scrapPercent = order.scrap_percentage ?? DEFAULT_SCRAP_PERCENT;
   const totalWeight = estimatedWeight + estimatedWeight * (scrapPercent / 100);
 
-  // Format currency
-  const formatCurrency = (amount: number): string => {
-    return new Intl.NumberFormat('de-DE', {
-      style: 'currency',
-      currency: 'EUR',
-    }).format(amount);
-  };
-
-  // Format weight
-  const formatWeight = (grams: number): string => {
-    return `${grams.toFixed(1)}g`;
-  };
-
-  // Check if there's a price override
-  const hasManualPrice = order.price && Math.abs(order.price - finalPrice) > 0.01;
+  const hasLaborHours = order.labor_hours !== null && order.labor_hours !== undefined;
+  const hasManualPrice =
+    Boolean(order.price) && Math.abs((order.price ?? 0) - finalPrice) > PRICE_TOLERANCE;
 
   return (
-    <div className="cost-breakdown">
-      {/* Material Costs */}
-      <section className="cost-section">
-        <h3>💎 Materialkosten</h3>
-        {order.material_cost_override && (
-          <div className="cost-override-badge">✏️ Manuell überschrieben</div>
-        )}
-        <div className="cost-line">
-          <span>Materialkosten:</span>
-          <span className="cost-amount">{formatCurrency(materialCost)}</span>
-        </div>
+    <Card
+      title="Kostenaufstellung"
+      headingLevel={3}
+      className="cost-summary"
+      action={
+        onEdit ? (
+          <Button variant="secondary" icon="pencil" onClick={onEdit}>
+            Kosten bearbeiten
+          </Button>
+        ) : undefined
+      }
+    >
+      <section className="cost-summary__group" aria-labelledby="cost-summary-material">
+        <h4 id="cost-summary-material" className="cost-summary__heading">
+          Materialkosten
+        </h4>
+        {order.material_cost_override ? (
+          <p className="cost-summary__note">Manuell überschrieben</p>
+        ) : null}
+        <dl>
+          <CostLine label="Materialkosten" value={formatEur(materialCost)} />
+        </dl>
         {order.metal_type && estimatedWeight > 0 && (
-          <div className="cost-detail">
-            ({formatWeight(totalWeight)} inkl. {scrapPercent}% Verschnitt)
-          </div>
+          <p className="cost-summary__note">
+            {formatWeight(totalWeight)} inkl. {scrapPercent} % Verschnitt
+          </p>
         )}
       </section>
 
-      {/* Labor Costs */}
-      <section className="cost-section">
-        <h3>⏱️ Arbeitskosten</h3>
-        {order.labor_hours !== null && order.labor_hours !== undefined ? (
-          <>
-            <div className="cost-line">
-              <span>Arbeitsstunden:</span>
-              <span>
-                {order.labor_hours}h × {formatCurrency(order.hourly_rate ?? 75)}/h
-              </span>
-            </div>
-            <div className="cost-line">
-              <span>Arbeitskosten:</span>
-              <span className="cost-amount">{formatCurrency(laborCost)}</span>
-            </div>
-          </>
-        ) : (
-          <div className="cost-line">
-            <span>Arbeitskosten:</span>
-            <span className="cost-amount-empty">Nicht angegeben</span>
-          </div>
-        )}
+      <section className="cost-summary__group" aria-labelledby="cost-summary-labor">
+        <h4 id="cost-summary-labor" className="cost-summary__heading">
+          Arbeitskosten
+        </h4>
+        <dl>
+          {hasLaborHours ? (
+            <>
+              <CostLine
+                label="Arbeitsstunden"
+                value={`${order.labor_hours} h × ${formatEur(hourlyRate)}/h`}
+              />
+              <CostLine label="Arbeitskosten" value={formatEur(laborCost)} />
+            </>
+          ) : (
+            <CostLine label="Arbeitskosten" value="Nicht angegeben" emphasis="muted" />
+          )}
+        </dl>
       </section>
 
-      {/* Subtotal & Profit */}
-      <section className="cost-section">
-        <div className="cost-line">
-          <span>Zwischensumme:</span>
-          <span className="cost-amount">{formatCurrency(subtotal)}</span>
-        </div>
-        <div className="cost-line">
-          <span>Gewinnmarge ({profitMargin}%):</span>
-          <span className="cost-amount profit">{formatCurrency(profitAmount)}</span>
-        </div>
+      <section className="cost-summary__group" aria-label="Zwischensumme und Marge">
+        <dl>
+          <CostLine label="Zwischensumme" value={formatEur(subtotal)} />
+          <CostLine label={`Gewinnmarge (${profitMargin} %)`} value={formatEur(profitAmount)} />
+        </dl>
       </section>
 
-      {/* Total with VAT */}
-      <section className="cost-section cost-total">
-        <div className="cost-line">
-          <span>Summe vor MwSt:</span>
-          <span className="cost-amount">{formatCurrency(preTaxTotal)}</span>
-        </div>
-        <div className="cost-line">
-          <span>MwSt. ({vatRate}%):</span>
-          <span className="cost-amount">{formatCurrency(vatAmount)}</span>
-        </div>
-        <div className="cost-line cost-final">
-          <span>Endpreis (kalkuliert):</span>
-          <span className="cost-amount-large">{formatCurrency(finalPrice)}</span>
-        </div>
-
+      <section className="cost-summary__group" aria-label="Summe mit MwSt.">
+        <dl>
+          <CostLine label="Summe vor MwSt." value={formatEur(preTaxTotal)} />
+          <CostLine label={`MwSt. (${vatRate} %)`} value={formatEur(vatAmount)} />
+          <CostLine label="Endpreis (kalkuliert)" value={formatEur(finalPrice)} emphasis="total" />
+          {hasManualPrice && (
+            <CostLine label="Manueller Preis" value={formatEur(order.price)} emphasis="total" />
+          )}
+        </dl>
         {hasManualPrice && (
-          <div className="cost-manual-price">
-            <div className="cost-line">
-              <span>Manueller Preis:</span>
-              <span className="cost-amount-large manual">
-                {formatCurrency(order.price ?? 0)}
-              </span>
-            </div>
-            <div className="cost-override-note">
-              ⚠️ Abweichung vom kalkulierten Preis:{' '}
-              {formatCurrency((order.price ?? 0) - finalPrice)}
-            </div>
-          </div>
+          <p className="cost-summary__note cost-summary__note--warning">
+            Abweichung vom kalkulierten Preis:{' '}
+            <span className={MONEY_CLASS}>{formatEur((order.price ?? 0) - finalPrice)}</span>
+          </p>
         )}
       </section>
-
-      {/* Optional Edit Button */}
-      {onEdit && (
-        <div className="cost-actions">
-          <button onClick={onEdit} className="btn-edit-costs">
-            ✏️ Kosten bearbeiten
-          </button>
-        </div>
-      )}
-    </div>
+    </Card>
   );
 };

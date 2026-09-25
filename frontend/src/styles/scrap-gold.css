@@ -1,1039 +1,214 @@
-/* ==================== SCRAP GOLD (ALTGOLD) STYLES ==================== */
+/* Altgold tab (W4-03). Buttons, fields, cards, badges and tables come from
+   src/ui (styles/ui.css); this file lays out the tab and styles the shared
+   SignatureCanvas (components/SignatureCanvas.tsx, also used by the quote
+   approval), which still carries its own class names. Semantic tokens only. */
 
 .scrap-gold-tab {
-  animation: fadeIn 0.3s;
+  display: grid;
+  gap: var(--space-6);
 }
-
-/* Loading & Error */
-.scrap-gold-loading,
-.scrap-gold-error {
-  text-align: center;
-  padding: 3rem 2rem;
-  color: #666;
-}
-
-.scrap-gold-error {
-  color: #c33;
-}
-
-.scrap-gold-error .btn-retry {
-  margin-top: 1rem;
-  background: var(--color-interactive-primary);
-  color: white;
-  border: none;
-  padding: 0.75rem 1.5rem;
-  border-radius: 8px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.3s;
-}
-
-.scrap-gold-error .btn-retry:hover {
-  background: var(--color-interactive-primary-hover);
-}
-
-/* ==================== PROMPT (No scrap gold yet) ==================== */
-
-.scrap-gold-prompt {
-  text-align: center;
-  padding: 4rem 2rem;
-}
-
-.prompt-icon {
-  font-size: 4rem;
-  margin-bottom: 1rem;
-}
-
-.scrap-gold-prompt h2 {
-  font-size: 1.8rem;
-  color: #333;
-  margin-bottom: 0.75rem;
-}
-
-.scrap-gold-prompt p {
-  color: #666;
-  font-size: 1.1rem;
-  margin-bottom: 2rem;
-}
-
-.prompt-actions {
-  display: flex;
-  gap: 1rem;
-  justify-content: center;
-}
-
-.btn-prompt-yes {
-  background: linear-gradient(135deg, #C5A55A 0%, #a8893d 100%);
-  color: white;
-  border: none;
-  padding: 1rem 2.5rem;
-  border-radius: 10px;
-  font-size: 1.1rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.3s;
-}
-
-.btn-prompt-yes:hover:not(:disabled) {
-  transform: translateY(-2px);
-  box-shadow: 0 4px 16px rgba(197, 165, 90, 0.4);
-}
-
-.btn-prompt-yes:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
-.btn-prompt-no {
-  background: white;
-  color: #666;
-  border: 2px solid #e5e7eb;
-  padding: 1rem 2.5rem;
-  border-radius: 10px;
-  font-size: 1.1rem;
-  font-weight: 600;
-  cursor: default;
-  opacity: 0.5;
-}
-
-/* ==================== HEADER ==================== */
 
 .scrap-gold-header {
   display: flex;
-  justify-content: space-between;
+  flex-wrap: wrap;
   align-items: center;
-  margin-bottom: 2rem;
+  gap: var(--space-3);
+}
+
+.scrap-gold-header h2,
+.scrap-gold-section h3 {
+  margin: 0;
 }
 
 .scrap-gold-header h2 {
-  font-size: 1.5rem;
-  color: #333;
+  font-size: var(--type-xl);
+}
+
+.scrap-gold-section {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.scrap-gold-section h3 {
+  font-size: var(--type-md);
+}
+
+.scrap-gold-muted {
   margin: 0;
+  color: var(--color-text-muted);
 }
 
-/* Status Badges */
-.scrap-gold-status-badge {
-  display: inline-block;
-  padding: 0.4rem 1rem;
-  border-radius: 20px;
-  font-size: 0.85rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-}
-
-.scrap-gold-status-badge.status-received {
-  background: #dbeafe;
-  color: #1e40af;
-}
-
-.scrap-gold-status-badge.status-calculated {
-  background: #fef3c7;
-  color: #92400e;
-}
-
-.scrap-gold-status-badge.status-signed {
-  background: #d1fae5;
-  color: #065f46;
-}
-
-.scrap-gold-status-badge.status-settled {
-  background: #ede9fe;
-  color: #5b21b6;
-}
-
-/* ==================== ALLOY CALCULATOR ==================== */
-
-.alloy-calculator {
-  background: white;
-  border: 2px solid #d1fae5;
-  border-radius: 12px;
-  margin-bottom: 2rem;
-  overflow: hidden;
-}
-
-.alloy-calculator-header {
-  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
-  padding: 1rem 1.5rem;
-  color: white;
-}
-
-.alloy-calculator-header h3 {
+.scrap-gold-hint {
   margin: 0;
-  font-size: 1.1rem;
-  font-weight: 700;
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--tone-waiting-border);
+  border-radius: var(--radius-sm);
+  background: var(--tone-waiting-bg);
+  color: var(--tone-waiting-fg);
 }
 
-.alloy-calculator-form {
-  padding: 1.5rem;
-}
-
-.alloy-field {
-  margin-bottom: 1rem;
-  flex: 1;
-}
-
-.alloy-field label {
+.scrap-gold-thumb {
   display: block;
-  font-weight: 600;
-  color: #555;
-  font-size: 0.9rem;
-  margin-bottom: 0.4rem;
-  text-transform: uppercase;
-  letter-spacing: 0.3px;
+  object-fit: cover;
+  border-radius: var(--radius-sm);
 }
 
-.alloy-field input,
-.alloy-field select {
+.scrap-gold-upload input {
+  max-width: 12rem;
+  min-height: var(--touch-min);
+}
+
+.scrap-gold-form {
+  display: grid;
+  gap: var(--space-4);
+  justify-items: start;
+}
+
+.scrap-gold-form > .ui-field {
   width: 100%;
-  padding: 0.75rem 1rem;
-  border: 2px solid #e5e7eb;
-  border-radius: 8px;
-  font-size: 1rem;
-  font-family: inherit;
-  transition: border-color 0.2s;
-  box-sizing: border-box;
+  max-width: 28rem;
 }
-
-.alloy-field input:focus,
-.alloy-field select:focus {
-  outline: none;
-  border-color: #10b981;
-}
-
-.alloy-field input:disabled,
-.alloy-field select:disabled {
-  background: #f3f4f6;
-  cursor: not-allowed;
-}
-
-.alloy-field-row {
-  display: flex;
-  gap: 1rem;
-}
-
-/* Result */
-.alloy-result {
-  background: #f0fdf4;
-  border: 2px solid #bbf7d0;
-  border-radius: 8px;
-  padding: 1rem 1.5rem;
-  margin-bottom: 1rem;
-  display: flex;
-  align-items: baseline;
-  gap: 0.5rem;
-}
-
-.alloy-result-value {
-  font-size: 1.3rem;
-  font-weight: 700;
-  color: #065f46;
-}
-
-.alloy-result-percentage {
-  font-size: 1rem;
-  color: #059669;
-  font-weight: 500;
-}
-
-/* Add Button */
-.btn-add-item {
-  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
-  color: white;
-  border: none;
-  padding: 0.75rem 2rem;
-  border-radius: 8px;
-  font-size: 1rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.3s;
-  width: 100%;
-}
-
-.btn-add-item:hover:not(:disabled) {
-  transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
-}
-
-.btn-add-item:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-/* ==================== ITEMS TABLE ==================== */
-
-.scrap-gold-items-section {
-  margin-bottom: 2rem;
-}
-
-.scrap-gold-items-section h3 {
-  font-size: 1.2rem;
-  color: #333;
-  margin-bottom: 1rem;
-  font-weight: 600;
-}
-
-.scrap-gold-empty {
-  text-align: center;
-  color: #666;
-  padding: 2rem;
-  font-style: italic;
-  background: #f8f9fa;
-  border-radius: 8px;
-}
-
-.scrap-gold-items-table {
-  width: 100%;
-  border-collapse: collapse;
-}
-
-.scrap-gold-items-table th {
-  background: #f8f9fa;
-  padding: 0.875rem 1rem;
-  text-align: left;
-  font-weight: 600;
-  color: #555;
-  border-bottom: 2px solid #e5e7eb;
-  font-size: 0.9rem;
-  text-transform: uppercase;
-  letter-spacing: 0.3px;
-}
-
-.scrap-gold-items-table td {
-  padding: 0.875rem 1rem;
-  border-bottom: 1px solid #e9ecef;
-  color: #333;
-  font-size: 1rem;
-}
-
-.scrap-gold-items-table tbody tr:nth-child(even) {
-  background: #fafafa;
-}
-
-.scrap-gold-items-table tbody tr:hover {
-  background: #f0f0f0;
-}
-
-.scrap-gold-items-table .text-right {
-  text-align: right;
-  font-variant-numeric: tabular-nums;
-}
-
-.btn-remove-item {
-  background: none;
-  border: 1px solid #ef4444;
-  color: #ef4444;
-  padding: 0.4rem 0.75rem;
-  border-radius: 6px;
-  font-size: 0.85rem;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-.btn-remove-item:hover {
-  background: #ef4444;
-  color: white;
-}
-
-/* ==================== SUMMARY ==================== */
 
 .scrap-gold-summary {
-  background: #fffbeb;
-  border: 2px solid #C5A55A;
-  border-radius: 12px;
-  padding: 1.5rem;
-  margin-bottom: 2rem;
-}
-
-.scrap-gold-summary h3 {
-  margin: 0 0 1.25rem 0;
-  font-size: 1.2rem;
-  color: #92400e;
-  font-weight: 700;
-}
-
-.summary-grid {
   display: grid;
-  gap: 1rem;
+  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+  gap: var(--space-4);
+  margin: 0 0 var(--space-4);
 }
 
-.summary-item {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 0.75rem 0;
-  border-bottom: 1px solid #f3e8c8;
+.scrap-gold-summary dt {
+  color: var(--color-text-muted);
+  font-size: var(--type-sm);
 }
 
-.summary-item:last-child {
-  border-bottom: none;
-}
-
-.summary-item.total {
-  border-top: 2px solid #C5A55A;
-  padding-top: 1rem;
-  margin-top: 0.5rem;
-}
-
-.summary-item.source {
-  border-bottom: none;
-  padding-bottom: 0;
-}
-
-.summary-label {
-  font-weight: 600;
-  color: #78350f;
-  font-size: 1rem;
-}
-
-.summary-value {
-  font-weight: 600;
-  color: #333;
-  font-size: 1.1rem;
-  font-variant-numeric: tabular-nums;
-}
-
-.summary-value.highlight {
-  color: #C5A55A;
-  font-size: 1.3rem;
-  font-weight: 700;
-}
-
-.summary-value.total-value {
-  color: #92400e;
-  font-size: 1.4rem;
-  font-weight: 700;
-}
-
-.summary-input-group {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-
-.summary-price-input {
-  width: 120px;
-  padding: 0.5rem 0.75rem;
-  border: 2px solid #e5e7eb;
-  border-radius: 6px;
-  font-size: 1rem;
-  font-family: inherit;
-  text-align: right;
-  font-variant-numeric: tabular-nums;
-}
-
-.summary-price-input:focus {
-  outline: none;
-  border-color: #C5A55A;
-}
-
-.summary-price-input:disabled {
-  background: #f3f4f6;
-  cursor: not-allowed;
-}
-
-.summary-currency {
-  font-weight: 600;
-  color: #78350f;
-  font-size: 0.95rem;
-}
-
-/* Calculate Button */
-.btn-calculate {
-  background: linear-gradient(135deg, #C5A55A 0%, #a8893d 100%);
-  color: white;
-  border: none;
-  padding: 0.875rem 2rem;
-  border-radius: 8px;
-  font-size: 1rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.3s;
-  width: 100%;
-  margin-top: 1.25rem;
-}
-
-.btn-calculate:hover:not(:disabled) {
-  transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(197, 165, 90, 0.4);
-}
-
-.btn-calculate:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-/* ==================== SIGNATURE ==================== */
-
-.scrap-gold-signature {
-  margin-bottom: 2rem;
-}
-
-.scrap-gold-signature h3 {
-  font-size: 1.2rem;
-  color: #333;
-  margin-bottom: 1rem;
-  font-weight: 600;
-}
-
-.signature-area {
-  border: 2px dashed #d1d5db;
-  border-radius: 10px;
-  padding: 3rem 2rem;
-  text-align: center;
-  background: #fafafa;
-  margin-bottom: 1rem;
-  min-height: 120px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.signature-area p {
-  color: #9ca3af;
-  font-size: 1rem;
+.scrap-gold-summary dd {
   margin: 0;
-  font-style: italic;
-}
-
-.btn-sign {
-  background: #333;
-  color: white;
-  border: none;
-  padding: 0.875rem 2rem;
-  border-radius: 8px;
-  font-size: 1rem;
+  font-size: var(--type-lg);
   font-weight: 600;
-  cursor: pointer;
-  transition: all 0.3s;
-  width: 100%;
 }
 
-.btn-sign:hover:not(:disabled) {
-  background: #1a1a1a;
-  transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+.scrap-gold-summary__total dd {
+  color: var(--color-primary);
+  font-size: var(--type-xl);
 }
 
-.btn-sign:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.signature-done {
-  background: #d1fae5;
-  border: 2px solid #6ee7b7;
-  border-radius: 10px;
-  padding: 1.5rem;
-  display: flex;
-  flex-direction: column;
-  gap: 1.25rem;
-}
-
-.signature-done-info {
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-}
-
-.signature-checkmark {
-  font-size: 2rem;
-  color: #059669;
-  flex-shrink: 0;
-}
-
-.signature-done p {
-  margin: 0;
-  color: #065f46;
-  font-weight: 600;
-  font-size: 1rem;
-}
-
-/* Captured signature image (read-only, shown after signing) */
-.signature-image-wrapper {
-  background: white;
-  border: 1px solid #a7f3d0;
-  border-radius: 8px;
-  padding: 0.75rem;
-  text-align: center;
-}
-
-.signature-captured-image {
-  max-width: 100%;
-  max-height: 140px;
+.scrap-gold-signature-image {
   display: block;
-  margin: 0 auto;
-  /* Preserve ink appearance, avoid upscaling blur */
-  image-rendering: -webkit-optimize-contrast;
-  image-rendering: crisp-edges;
+  max-width: 100%;
+  margin-block: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
 }
 
-/* PDF download button — prominent but secondary to the sign action */
-.btn-pdf-download {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.5rem;
-  background: #1e293b;
-  color: #ffffff;
-  border: none;
-  border-radius: 8px;
-  padding: 0.875rem 1.75rem;
-  font-size: 1rem;
-  font-weight: 600;
-  font-family: inherit;
-  text-decoration: none;
-  cursor: pointer;
-  transition: background 0.2s, box-shadow 0.2s, transform 0.15s;
-  /* min 44px height for workshop touch targets */
-  min-height: 44px;
-  align-self: flex-start;
+/* ---- Alloy calculator ------------------------------------------------- */
+
+.alloy-calculator__form {
+  display: grid;
+  gap: var(--space-4);
+  align-items: end;
 }
 
-.btn-pdf-download:hover {
-  background: #0f172a;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
-  transform: translateY(-1px);
+@media (min-width: 600px) {
+  .alloy-calculator__form {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .alloy-calculator__full,
+  .alloy-calculator__result {
+    grid-column: 1 / -1;
+  }
 }
 
-.btn-pdf-download:focus-visible {
-  outline: 3px solid #C5A55A;
-  outline-offset: 2px;
-}
-
-/* Hint shown when signing is not yet possible */
-.signature-blocked-hint {
-  color: #6b7280;
-  font-style: italic;
-  font-size: 0.95rem;
-  padding: 1rem;
-  background: #f9fafb;
-  border-radius: 8px;
+.alloy-calculator__result {
   margin: 0;
+  font-size: var(--type-lg);
+  font-weight: 600;
 }
 
-.signature-pending {
-  /* Wrapper for canvas or blocked hint */
+.alloy-calculator__percent {
+  color: var(--color-text-muted);
+  font-size: var(--type-base);
+  font-weight: 400;
 }
 
-/* ==================== SIGNATURE CANVAS COMPONENT ==================== */
+.alloy-calculator__add {
+  justify-self: start;
+}
+
+/* ---- SignatureCanvas (shared component) ------------------------------- */
 
 .signature-canvas-wrapper {
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
+  display: grid;
+  gap: var(--space-3);
 }
 
 .signature-canvas-hint {
   margin: 0;
-  font-size: 0.9rem;
-  color: #6b7280;
-  font-style: italic;
+  color: var(--color-text-muted);
+  font-size: var(--type-sm);
 }
 
 .signature-canvas {
   display: block;
   width: 100%;
-  /* The canvas internal resolution is 600×200 — CSS scales it to fill the container.
-     touch-action: none prevents the browser scrolling while the user draws. */
+  /* The canvas resolution is fixed; CSS scales it to the container.
+     touch-action: none stops the page scrolling while the customer signs. */
   touch-action: none;
-  border: 2px solid #d1d5db;
-  border-radius: 10px;
-  background: #ffffff;
+  border: 2px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
   cursor: crosshair;
-  /* Subtle inner shadow so the field reads as an ink-on-paper surface */
-  box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.06);
-  transition: border-color 0.2s;
 }
 
-.signature-canvas:focus {
-  outline: none;
-  border-color: #C5A55A;
-}
-
-/* Indicate active drawing state */
-.signature-canvas:active {
-  border-color: #1a1a2e;
+.signature-canvas:focus-visible {
+  border-color: var(--color-focus);
 }
 
 .signature-canvas-actions {
   display: flex;
-  gap: 0.75rem;
-  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-3);
 }
 
-/* Löschen — min 44×44 px (WCAG 2.1 SC 2.5.5, workshop-safe for gloved hands) */
-.btn-sig-clear {
-  background: none;
-  border: 2px solid #d1d5db;
-  color: #6b7280;
-  padding: 0 1.25rem;
-  border-radius: 8px;
-  font-size: 0.95rem;
+/* The canvas buttons keep their own classes until SignatureCanvas moves to
+   the src/ui Button; sized and coloured like ui-button. */
+.btn-sig-clear,
+.btn-sig-save {
+  min-height: var(--touch-min);
+  min-width: var(--touch-min);
+  padding: 0 var(--space-5);
+  border-radius: var(--radius-sm);
+  font: inherit;
   font-weight: 600;
-  font-family: inherit;
   cursor: pointer;
-  transition: border-color 0.2s, color 0.2s, background 0.2s;
-  /* Explicit min dimensions — both axes must meet 44 px */
-  min-height: 44px;
-  min-width: 44px;
-  white-space: nowrap;
 }
 
-.btn-sig-clear:hover {
-  border-color: #ef4444;
-  color: #ef4444;
-  background: #fff5f5;
+.btn-sig-clear {
+  border: 1px solid var(--color-border-strong);
+  background: var(--color-surface);
+  color: var(--color-text);
 }
 
-.btn-sig-clear:focus-visible {
-  outline: 3px solid #C5A55A;
-  outline-offset: 2px;
-}
-
-/* Unterschrift bestätigen — primary action */
 .btn-sig-save {
   flex: 1;
-  background: linear-gradient(135deg, #1a1a2e 0%, #333 100%);
-  color: white;
-  border: none;
-  padding: 0 2rem;
-  border-radius: 8px;
-  font-size: 1rem;
-  font-weight: 600;
-  font-family: inherit;
-  cursor: pointer;
-  transition: opacity 0.2s, transform 0.15s, box-shadow 0.2s;
-  min-height: 44px;
-}
-
-.btn-sig-save:hover:not(:disabled) {
-  opacity: 0.9;
-  transform: translateY(-1px);
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.2);
-}
-
-.btn-sig-save:focus-visible {
-  outline: 3px solid #C5A55A;
-  outline-offset: 2px;
+  border: 1px solid var(--color-primary);
+  background: var(--color-primary);
+  color: var(--color-primary-contrast);
 }
 
 .btn-sig-save:disabled {
-  opacity: 0.4;
+  opacity: 0.5;
   cursor: not-allowed;
-  transform: none;
-  box-shadow: none;
 }
 
-/* ==================== NOTES ==================== */
-
-.scrap-gold-notes {
-  background: #f8f9fa;
-  border-radius: 10px;
-  padding: 1.5rem;
-}
-
-.scrap-gold-notes h3 {
-  font-size: 1.1rem;
-  color: #333;
-  margin: 0 0 0.75rem 0;
-  font-weight: 600;
-}
-
-.scrap-gold-notes p {
-  margin: 0;
-  color: #555;
-  line-height: 1.6;
-}
-
-/* ==================== RESPONSIVE ==================== */
-
-@media (max-width: 768px) {
-  .scrap-gold-header {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 0.75rem;
-  }
-
-  .alloy-field-row {
-    flex-direction: column;
-    gap: 0;
-  }
-
-  .scrap-gold-items-table {
-    font-size: 0.9rem;
-  }
-
-  .scrap-gold-items-table th,
-  .scrap-gold-items-table td {
-    padding: 0.625rem 0.5rem;
-  }
-
-  .summary-item {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 0.4rem;
-  }
-
-  .prompt-actions {
-    flex-direction: column;
-  }
-
-  .btn-prompt-yes,
-  .btn-prompt-no {
-    width: 100%;
-  }
-
-  /* On narrow screens the canvas fills the full width — the internal resolution
-     stays 600×200 and CSS scaling takes care of the rest. */
-  .signature-canvas-actions {
-    flex-direction: column;
-  }
-
-  .btn-sig-clear,
-  .btn-sig-save {
-    width: 100%;
-  }
-
-  .btn-pdf-download {
-    width: 100%;
-    justify-content: center;
-  }
-
-  .signature-done-info {
-    flex-wrap: wrap;
-  }
-}
-
-/* ==================== DARK THEME SUPPORT ==================== */
-
-@media (prefers-color-scheme: dark) {
-  .scrap-gold-prompt h2 {
-    color: #e5e7eb;
-  }
-
-  .scrap-gold-prompt p {
-    color: #9ca3af;
-  }
-
-  .scrap-gold-header h2 {
-    color: #e5e7eb;
-  }
-
-  .alloy-calculator {
-    background: #1f2937;
-    border-color: #065f46;
-  }
-
-  .alloy-field label {
-    color: #d1d5db;
-  }
-
-  .alloy-field input,
-  .alloy-field select {
-    background: #374151;
-    border-color: #4b5563;
-    color: #e5e7eb;
-  }
-
-  .alloy-field input:focus,
-  .alloy-field select:focus {
-    border-color: #10b981;
-  }
-
-  .alloy-result {
-    background: #064e3b;
-    border-color: #065f46;
-  }
-
-  .alloy-result-value {
-    color: #6ee7b7;
-  }
-
-  .alloy-result-percentage {
-    color: #34d399;
-  }
-
-  .scrap-gold-items-section h3 {
-    color: #e5e7eb;
-  }
-
-  .scrap-gold-empty {
-    background: #1f2937;
-    color: #9ca3af;
-  }
-
-  .scrap-gold-items-table th {
-    background: #374151;
-    color: #d1d5db;
-    border-bottom-color: #4b5563;
-  }
-
-  .scrap-gold-items-table td {
-    color: #e5e7eb;
-    border-bottom-color: #374151;
-  }
-
-  .scrap-gold-items-table tbody tr:nth-child(even) {
-    background: #1f2937;
-  }
-
-  .scrap-gold-items-table tbody tr:hover {
-    background: #374151;
-  }
-
-  .scrap-gold-summary {
-    background: #292210;
-    border-color: #C5A55A;
-  }
-
-  .scrap-gold-summary h3 {
-    color: #fbbf24;
-  }
-
-  .summary-item {
-    border-bottom-color: #44390f;
-  }
-
-  .summary-item.total {
-    border-top-color: #C5A55A;
-  }
-
-  .summary-label {
-    color: #fbbf24;
-  }
-
-  .summary-value {
-    color: #e5e7eb;
-  }
-
-  .summary-value.total-value {
-    color: #fbbf24;
-  }
-
-  .summary-price-input {
-    background: #374151;
-    border-color: #4b5563;
-    color: #e5e7eb;
-  }
-
-  .summary-price-input:focus {
-    border-color: #C5A55A;
-  }
-
-  .summary-currency {
-    color: #fbbf24;
-  }
-
-  .scrap-gold-signature h3 {
-    color: #e5e7eb;
-  }
-
-  .signature-area {
-    background: #1f2937;
-    border-color: #4b5563;
-  }
-
-  .signature-area p {
-    color: #6b7280;
-  }
-
-  .signature-done {
-    background: #064e3b;
-    border-color: #059669;
-  }
-
-  .signature-done p {
-    color: #6ee7b7;
-  }
-
-  .signature-image-wrapper {
-    background: #1f2937;
-    border-color: #059669;
-  }
-
-  .btn-pdf-download {
-    background: #334155;
-  }
-
-  .btn-pdf-download:hover {
-    background: #1e293b;
-  }
-
-  .signature-blocked-hint {
-    background: #1f2937;
-    color: #9ca3af;
-  }
-
-  .signature-canvas {
-    background: #1e293b;
-    border-color: #4b5563;
-  }
-
-  .signature-canvas:active {
-    border-color: #C5A55A;
-  }
-
-  .signature-canvas-hint {
-    color: #9ca3af;
-  }
-
-  .btn-sig-clear {
-    border-color: #4b5563;
-    color: #9ca3af;
-  }
-
+@media (hover: hover) {
   .btn-sig-clear:hover {
-    border-color: #f87171;
-    color: #f87171;
-    background: #2d1b1b;
+    border-color: var(--color-danger);
+    color: var(--color-danger);
   }
 
-  .btn-sig-save {
-    background: linear-gradient(135deg, #334155 0%, #475569 100%);
-  }
-
-  .scrap-gold-notes {
-    background: #1f2937;
-  }
-
-  .scrap-gold-notes h3 {
-    color: #e5e7eb;
-  }
-
-  .scrap-gold-notes p {
-    color: #9ca3af;
-  }
-
-  .scrap-gold-loading,
-  .scrap-gold-error {
-    color: #9ca3af;
-  }
-
-  .btn-prompt-no {
-    background: #374151;
-    color: #9ca3af;
-    border-color: #4b5563;
-  }
-
-  .scrap-gold-status-badge.status-received {
-    background: #1e3a5f;
-    color: #93c5fd;
-  }
-
-  .scrap-gold-status-badge.status-calculated {
-    background: #451a03;
-    color: #fde68a;
-  }
-
-  .scrap-gold-status-badge.status-signed {
-    background: #064e3b;
-    color: #6ee7b7;
-  }
-
-  .scrap-gold-status-badge.status-settled {
-    background: #2e1065;
-    color: #c4b5fd;
+  .btn-sig-save:hover:not(:disabled) {
+    background: var(--color-primary-hover);
   }
 }

@@ -3,16 +3,22 @@
 //
 // Selection state is CONTROLLED: the parent owns `selectedIds` and this
 // component only ever calls `onChange` with a new array (never mutates the
-// one it was given). Photos are loaded independently (own fetch, own error
-// handling) so a load failure here can never take down the parent form.
-import React, { useEffect, useState } from 'react';
+// one it was given). Photos come from the shared order-photos query (one
+// request with the Fotos tab, W4-03). A load failure is logged and shown as
+// the empty guidance, so it can never take down the parent form.
+import { useQuery } from '@tanstack/react-query';
 import { photosApi } from '../../api/photos';
 import { logError } from '../../lib/logError';
 import type { OrderPhoto } from '../../types';
+import { EmptyState, Icon, PageState } from '../../ui';
 import AuthenticatedImage from '../AuthenticatedImage';
+import { orderPhotosQuery } from './orderQueries';
 import './photo-picker.css';
 
 const DEFAULT_MAX = 20;
+
+const EMPTY_BODY =
+  'Für diesen Auftrag sind noch keine Fotos hinterlegt. Fotos werden im Tab „Fotos" hochgeladen und können hier anschließend ausgewählt werden.';
 
 export interface PhotoPickerProps {
   orderId: number;
@@ -37,6 +43,22 @@ function getPhotoLabel(photo: OrderPhoto): string {
   return `Foto vom ${formatted}`;
 }
 
+/** Same key and request as the page's photo query; logs a failed load here. */
+function usePickerPhotos(orderId: number) {
+  const base = orderPhotosQuery(orderId);
+  return useQuery({
+    queryKey: base.queryKey,
+    queryFn: async (): Promise<OrderPhoto[]> => {
+      try {
+        return (await photosApi.getForOrder(orderId)).data ?? [];
+      } catch (err: unknown) {
+        logError('PhotoPicker.load', err);
+        throw err;
+      }
+    },
+  });
+}
+
 export function PhotoPicker({
   orderId,
   selectedIds,
@@ -44,37 +66,8 @@ export function PhotoPicker({
   max = DEFAULT_MAX,
   disabled = false,
 }: PhotoPickerProps) {
-  const [photos, setPhotos] = useState<OrderPhoto[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    const load = async () => {
-      setIsLoading(true);
-      try {
-        const response = await photosApi.getForOrder(orderId);
-        if (!cancelled) {
-          setPhotos((response.data ?? []) as OrderPhoto[]);
-        }
-      } catch (err) {
-        logError('PhotoPicker.load', err);
-        if (!cancelled) {
-          setPhotos([]);
-        }
-      } finally {
-        if (!cancelled) {
-          setIsLoading(false);
-        }
-      }
-    };
-
-    load();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [orderId]);
+  const query = usePickerPhotos(orderId);
+  const photos = query.data ?? [];
 
   const handleToggle = (photoId: string) => {
     if (selectedIds.includes(photoId)) {
@@ -84,20 +77,13 @@ export function PhotoPicker({
     }
   };
 
-  if (isLoading) {
-    return (
-      <div className="photo-picker photo-picker-status" aria-live="polite">
-        Fotos werden geladen …
-      </div>
-    );
+  if (query.isPending) {
+    return <PageState state={{ status: 'loading' }} skeleton="cards" skeletonCount={3} />;
   }
 
   if (photos.length === 0) {
     return (
-      <div className="photo-picker photo-picker-status">
-        Für diesen Auftrag sind noch keine Fotos hinterlegt. Fotos werden im Tab „Fotos&quot;
-        hochgeladen und können hier anschließend ausgewählt werden.
-      </div>
+      <EmptyState icon="camera" title="Noch keine Fotos" body={EMPTY_BODY} headingLevel={3} />
     );
   }
 
@@ -129,9 +115,7 @@ export function PhotoPicker({
               aria-checked={isSelected}
               aria-label={label}
               title={label}
-              className={`photo-picker-thumb${
-                isSelected ? ' photo-picker-thumb-selected' : ''
-              }`}
+              className={`photo-picker-thumb${isSelected ? ' photo-picker-thumb-selected' : ''}`}
               onClick={() => handleToggle(photo.id)}
               disabled={isCardDisabled}
             >
@@ -141,8 +125,8 @@ export function PhotoPicker({
                 className="photo-picker-thumb-img"
               />
               {isSelected && (
-                <span className="photo-picker-thumb-check" aria-hidden="true">
-                  &#10003;
+                <span className="photo-picker-thumb-check">
+                  <Icon name="check" />
                 </span>
               )}
             </button>

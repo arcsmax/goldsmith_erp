@@ -1,9 +1,9 @@
 // W2-05 (DOM-11, DOM-11d, FE-18): QuotesPage "Versenden", approval method
 // and the ?order_id / ?quote_id hand-offs.
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { MemoryRouter } from 'react-router-dom';
+import { renderWithQuery } from '../test/queryWrapper';
 import type { Quote } from '../types';
 
 const customers = vi.hoisted(() => ({
@@ -12,7 +12,7 @@ const customers = vi.hoisted(() => ({
 }));
 
 const api = vi.hoisted(() => ({
-  getQuotes: vi.fn(),
+  getQuotesPage: vi.fn(),
   getQuote: vi.fn(),
   sendQuote: vi.fn(),
   approveQuote: vi.fn(),
@@ -63,17 +63,13 @@ function makeQuote(overrides: Partial<Quote> = {}): Quote {
 }
 
 function renderAt(url: string) {
-  return render(
-    <MemoryRouter initialEntries={[url]}>
-      <QuotesPage />
-    </MemoryRouter>
-  );
+  return renderWithQuery(<QuotesPage />, { route: url });
 }
 
 describe('QuotesPage Versenden (DOM-11)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    api.getQuotes.mockResolvedValue({ items: [], total: 0, skip: 0, limit: 50 });
+    api.getQuotesPage.mockResolvedValue({ items: [], total: 0, offset: 0, limit: 25, next_offset: null });
     api.getQuote.mockResolvedValue(makeQuote());
     api.downloadPdf.mockResolvedValue(undefined);
   });
@@ -110,6 +106,7 @@ describe('QuotesPage Versenden (DOM-11)', () => {
 
   it('a failed email shows the backend German error and keeps the draft', async () => {
     api.sendQuote.mockRejectedValue({
+      isAxiosError: true,
       response: { status: 502, data: { detail: 'E-Mail-Versand fehlgeschlagen. Der Kostenvoranschlag bleibt ein Entwurf.' } },
     });
     const user = userEvent.setup();
@@ -131,7 +128,7 @@ describe('QuotesPage Versenden (DOM-11)', () => {
 describe('QuotesPage approval method (DOM-11d)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    api.getQuotes.mockResolvedValue({ items: [], total: 0, skip: 0, limit: 50 });
+    api.getQuotesPage.mockResolvedValue({ items: [], total: 0, offset: 0, limit: 25, next_offset: null });
     api.getQuote.mockResolvedValue(makeQuote({ status: 'sent' }));
     api.approveQuote.mockResolvedValue(makeQuote({ status: 'approved' }));
   });
@@ -159,7 +156,7 @@ describe('QuotesPage approval method (DOM-11d)', () => {
 describe('QuotesPage hand-off from the order page (FE-18)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    api.getQuotes.mockResolvedValue({ items: [], total: 0, skip: 0, limit: 50 });
+    api.getQuotesPage.mockResolvedValue({ items: [], total: 0, offset: 0, limit: 25, next_offset: null });
   });
 
   it('opens the create modal pre-filled from ?order_id&customer_id', async () => {
@@ -175,7 +172,7 @@ describe('QuotesPage hand-off from the order page (FE-18)', () => {
 describe('QuotesPage customer selection (LV-02)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    api.getQuotes.mockResolvedValue({ items: [], total: 0, skip: 0, limit: 50 });
+    api.getQuotesPage.mockResolvedValue({ items: [], total: 0, offset: 0, limit: 25, next_offset: null });
   });
 
   it('never loads the whole customer list (the API caps limit at 100)', async () => {
@@ -195,7 +192,7 @@ describe('QuotesPage customer selection (LV-02)', () => {
     const submit = screen.getByRole('button', { name: 'Angebot erstellen' });
     expect(submit).toBeDisabled();
 
-    await user.type(screen.getByLabelText('Kunde (Pflichtfeld)'), 'Mus');
+    await user.type(screen.getByLabelText(/^Kunde/), 'Mus');
     await user.click(await screen.findByRole('button', { name: 'Erika Muster' }));
 
     expect(screen.getByText('Erika Muster')).toBeInTheDocument();
@@ -208,7 +205,7 @@ describe('QuotesPage customer selection (LV-02)', () => {
     const user = userEvent.setup();
     renderAt('/quotes');
     await user.click(await screen.findByRole('button', { name: 'Neues Angebot' }));
-    await user.type(screen.getByLabelText('Kunde (Pflichtfeld)'), 'Mus');
+    await user.type(screen.getByLabelText(/^Kunde/), 'Mus');
 
     await waitFor(() =>
       expect(mockShowToast).toHaveBeenCalledWith(

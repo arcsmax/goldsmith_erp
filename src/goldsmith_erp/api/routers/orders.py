@@ -177,7 +177,12 @@ def _project_order_rows(
 )
 @require_permission(Permission.ORDER_VIEW)
 async def list_orders(
-    page: PageParams = Depends(make_page_params(legacy_default_limit=100)),
+    page: PageParams = Depends(
+        make_page_params(
+            legacy_default_limit=100,
+            sort_fields=tuple(list_queries.ORDER_SORT_FIELDS),
+        )
+    ),
     customer_id: Optional[int] = Query(None, description="Filter by customer ID"),
     status: Optional[OrderStatusEnum] = Query(
         None, description="Nach Status filtern (nur mit offset)"
@@ -216,6 +221,7 @@ async def list_orders(
             created_from=created_from,
             created_to=created_to,
             q=q,
+            sort=page.sort,
         )
         result = await list_queries.fetch_page(
             db, stmt, page, list_queries.ORDER_LIST_OPTIONS

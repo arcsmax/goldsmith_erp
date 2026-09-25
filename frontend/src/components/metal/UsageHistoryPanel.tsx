@@ -1,32 +1,16 @@
-// UsageHistoryPanel.tsx
-// Shows material consumption history from GET /metal-inventory/usage.
-// Filterable by metal type. Order IDs link to the order detail page.
-import React, { useEffect, useState } from 'react';
-import { metalInventoryApi } from '../../api';
-import { MaterialUsageRead, MetalType } from '../../types';
-
-interface UsageHistoryPanelProps {
-  /** Set to a timestamp to trigger a reload after a new consumption is booked. */
-  refreshKey?: number;
-}
-
-const METAL_TYPE_LABELS: Record<MetalType, string> = {
-  gold_24k: 'Gold 24K',
-  gold_22k: 'Gold 22K',
-  gold_18k: 'Gold 18K',
-  gold_14k: 'Gold 14K',
-  gold_9k: 'Gold 9K',
-  silver_999: 'Silber 999',
-  silver_925: 'Silber 925',
-  silver_800: 'Silber 800',
-  platinum_950: 'Platin 950',
-  platinum_900: 'Platin 900',
-  palladium: 'Palladium',
-  white_gold_18k: 'Weißgold 18K',
-  white_gold_14k: 'Weißgold 14K',
-  rose_gold_18k: 'Rotgold 18K',
-  rose_gold_14k: 'Rotgold 14K',
-};
+// UsageHistoryPanel — metal consumption history from GET /metal-inventory/usage
+// (legacy plain list, W4-03). Filterable by metal type; order ids link to the
+// order detail page. A booking invalidates the ['metal-inventory'] root, so
+// the panel refreshes without a refresh key.
+import React, { useState } from 'react';
+import { Link } from 'react-router-dom';
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
+import type { MaterialUsageRead, MetalType } from '../../types';
+import { getErrorMessage } from '../../lib/errors';
+import { formatEur, MISSING_VALUE, MONEY_CLASS } from '../../lib/format';
+import { Button, DataTable, Field, type Column, type PageStateValue } from '../../ui';
+import { formatPreciseWeight, metalLabel, METAL_TYPES } from './metalLabels';
+import { usageQuery } from './metalQueries';
 
 const COSTING_METHOD_LABELS: Record<string, string> = {
   fifo: 'FIFO',
@@ -35,135 +19,102 @@ const COSTING_METHOD_LABELS: Record<string, string> = {
   specific: 'Spezifisch',
 };
 
-const formatCurrency = (amount: number): string =>
-  new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR' }).format(amount);
-
-const formatDate = (dateStr: string): string =>
-  new Date(dateStr).toLocaleDateString('de-DE', {
+function formatDateTime(iso: string): string {
+  return new Date(iso).toLocaleString('de-DE', {
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
     hour: '2-digit',
     minute: '2-digit',
   });
+}
 
-export const UsageHistoryPanel: React.FC<UsageHistoryPanelProps> = ({ refreshKey }) => {
-  const [usageRecords, setUsageRecords] = useState<MaterialUsageRead[]>([]);
+const COLUMNS: Column<MaterialUsageRead>[] = [
+  { key: 'used_at', header: 'Datum', render: (r) => <span className="ui-num">{formatDateTime(r.used_at)}</span> },
+  {
+    key: 'order',
+    header: 'Auftrag',
+    render: (r) => <Link to={`/orders/${r.order_id}`}>Auftrag #{r.order_id}</Link>,
+  },
+  { key: 'metal', header: 'Metalltyp', render: (r) => metalLabel(r.metal_type) },
+  { key: 'weight', header: 'Gewicht', numeric: true, align: 'end', render: (r) => formatPreciseWeight(r.weight_used_g) },
+  {
+    key: 'price',
+    header: 'Preis/g',
+    numeric: true,
+    align: 'end',
+    hideBelow: 'tablet',
+    render: (r) => <span className={MONEY_CLASS}>{formatEur(r.price_per_gram_at_time)}</span>,
+  },
+  {
+    key: 'cost',
+    header: 'Kosten',
+    numeric: true,
+    align: 'end',
+    render: (r) => <span className={MONEY_CLASS}>{formatEur(r.cost_at_time)}</span>,
+  },
+  {
+    key: 'method',
+    header: 'Methode',
+    hideBelow: 'tablet',
+    render: (r) => COSTING_METHOD_LABELS[r.costing_method] ?? r.costing_method,
+  },
+  { key: 'batch', header: 'Charge', hideBelow: 'tablet', render: (r) => `#${r.metal_purchase_id}` },
+  { key: 'notes', header: 'Notiz', hideBelow: 'tablet', render: (r) => r.notes ?? MISSING_VALUE },
+];
+
+interface UsageHistoryPanelProps {
+  /** Opens the booking dialog from the empty state (next action). */
+  onRecordUsage?: () => void;
+}
+
+export const UsageHistoryPanel: React.FC<UsageHistoryPanelProps> = ({ onRecordUsage }) => {
   const [filterMetalType, setFilterMetalType] = useState<MetalType | ''>('');
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const query = useQuery({ ...usageQuery(filterMetalType), placeholderData: keepPreviousData });
+  const records = query.data ?? [];
 
-  useEffect(() => {
-    fetchUsage();
-  }, [filterMetalType, refreshKey]);
-
-  const fetchUsage = async () => {
-    try {
-      setIsLoading(true);
-      setError(null);
-      const records = await metalInventoryApi.getUsageHistory({
-        metal_type: filterMetalType || undefined,
-        limit: 100,
-      });
-      setUsageRecords(records);
-    } catch (err: any) {
-      setError(
-        err.response?.data?.detail || 'Fehler beim Laden der Verbrauchshistorie.'
-      );
-    } finally {
-      setIsLoading(false);
-    }
-  };
+  let state: PageStateValue = { status: records.length ? 'ready' : 'empty' };
+  if (query.isPending) state = { status: 'loading' };
+  if (query.isError && !query.data) {
+    state = {
+      status: 'error',
+      error: getErrorMessage(query.error, 'Verbrauchshistorie konnte nicht geladen werden.'),
+      retry: () => void query.refetch(),
+    };
+  }
 
   return (
-    <section className="usage-history-panel">
-      <div className="usage-history-header">
-        <h3>Verbrauchshistorie</h3>
-        <div className="usage-history-filter">
-          <label htmlFor="usage-filter-metal">Metalltyp:</label>
-          <select
-            id="usage-filter-metal"
-            value={filterMetalType}
-            onChange={(e) => setFilterMetalType(e.target.value as MetalType | '')}
-          >
+    <section className="usage-history" aria-labelledby="usage-history-title">
+      <div className="usage-history__header">
+        <h2 id="usage-history-title">Verbrauchshistorie</h2>
+        <Field label="Metalltyp" name="usage-filter-metal">
+          <select value={filterMetalType} onChange={(e) => setFilterMetalType(e.target.value as MetalType | '')}>
             <option value="">Alle Metalle</option>
-            {(Object.entries(METAL_TYPE_LABELS) as [MetalType, string][]).map(
-              ([value, label]) => (
-                <option key={value} value={value}>
-                  {label}
-                </option>
-              )
-            )}
+            {METAL_TYPES.map((value) => (
+              <option key={value} value={value}>
+                {metalLabel(value)}
+              </option>
+            ))}
           </select>
-        </div>
+        </Field>
       </div>
-
-      {isLoading && (
-        <div className="usage-history-loading">Lade Verbrauchshistorie...</div>
-      )}
-
-      {error && (
-        <div className="usage-history-error" role="alert">
-          {error}
-        </div>
-      )}
-
-      {!isLoading && !error && usageRecords.length === 0 && (
-        <div className="usage-history-empty">
-          <p>Keine Verbrauchsdaten vorhanden{filterMetalType ? ' für diesen Metalltyp' : ''}.</p>
-        </div>
-      )}
-
-      {!isLoading && !error && usageRecords.length > 0 && (
-        <div className="table-container">
-          <table className="usage-history-table">
-            <thead>
-              <tr>
-                <th>Datum</th>
-                <th>Auftrag</th>
-                <th>Metalltyp</th>
-                <th>Gewicht</th>
-                <th>Preis/g</th>
-                <th>Kosten</th>
-                <th>Methode</th>
-                <th>Charge</th>
-                <th>Notiz</th>
-              </tr>
-            </thead>
-            <tbody>
-              {usageRecords.map((record) => (
-                <tr key={record.id}>
-                  <td className="usage-date">{formatDate(record.used_at)}</td>
-                  <td>
-                    <a
-                      href={`/orders/${record.order_id}`}
-                      className="order-link"
-                      title={`Auftrag #${record.order_id} öffnen`}
-                    >
-                      #{record.order_id}
-                    </a>
-                  </td>
-                  <td>
-                    {record.metal_type
-                      ? METAL_TYPE_LABELS[record.metal_type] ?? record.metal_type
-                      : '-'}
-                  </td>
-                  <td className="usage-weight">{record.weight_used_g.toFixed(3)} g</td>
-                  <td>{formatCurrency(record.price_per_gram_at_time)}/g</td>
-                  <td className="usage-cost">{formatCurrency(record.cost_at_time)}</td>
-                  <td>
-                    <span className="method-badge">
-                      {COSTING_METHOD_LABELS[record.costing_method] ?? record.costing_method}
-                    </span>
-                  </td>
-                  <td className="usage-batch">#{record.metal_purchase_id}</td>
-                  <td className="usage-notes">{record.notes ?? '-'}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+      <DataTable
+        rows={records}
+        columns={COLUMNS}
+        getRowKey={(r) => r.id}
+        caption="Verbrauchshistorie"
+        state={state}
+        empty={{
+          icon: 'inbox',
+          title: filterMetalType ? 'Kein Verbrauch für diesen Metalltyp' : 'Noch kein Verbrauch erfasst',
+          action: onRecordUsage ? (
+            <Button variant="secondary" onClick={onRecordUsage}>
+              Verbrauch erfassen
+            </Button>
+          ) : undefined,
+        }}
+      />
     </section>
   );
 };
+

@@ -4,13 +4,13 @@
 // next action (order, repair, cost change, customer update); repairs are
 // included; a load failure shows an error with retry instead of an empty
 // "all done"; VIEWER gets no repair links and no amounts; live hints on
-// the refetch bus reload the summary.
+// realtime invalidation (W3-03) reload the summary.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, render, screen, within } from '@testing-library/react';
+import { act, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { MemoryRouter } from 'react-router-dom';
 import { OrderProvider } from '../contexts/OrderContext';
-import { triggerRefetch } from '../lib/refetchBus';
+import { invalidateForChannel } from '../lib/realtimeInvalidation';
+import { renderWithQuery } from '../test/queryWrapper';
 import type { DashboardToday } from '../api/dashboard';
 
 const mockGetToday = vi.fn();
@@ -110,12 +110,10 @@ function makeSummary(overrides: Partial<DashboardToday> = {}): DashboardToday {
 }
 
 function renderPage() {
-  return render(
-    <MemoryRouter>
-      <OrderProvider>
-        <DashboardPage />
-      </OrderProvider>
-    </MemoryRouter>,
+  return renderWithQuery(
+    <OrderProvider>
+      <DashboardPage />
+    </OrderProvider>,
   );
 }
 
@@ -241,18 +239,14 @@ describe('DashboardPage — Heute lanes', () => {
 
   it('reloads the summary when a live order hint arrives', async () => {
     mockGetToday.mockResolvedValue(makeSummary());
-    renderPage();
+    const { client } = renderPage();
     await screen.findByRole('heading', { name: /Überfällig/ });
     expect(mockGetToday).toHaveBeenCalledTimes(1);
 
-    await act(async () => {
-      triggerRefetch('orders');
-    });
+    await act(() => invalidateForChannel(client, 'order_updates'));
     expect(mockGetToday).toHaveBeenCalledTimes(2);
 
-    await act(async () => {
-      triggerRefetch('time_tracking');
-    });
+    await act(() => invalidateForChannel(client, 'time_tracking_updates'));
     expect(mockGetToday).toHaveBeenCalledTimes(3);
   });
 });

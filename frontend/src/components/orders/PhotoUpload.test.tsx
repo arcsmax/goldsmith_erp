@@ -1,7 +1,9 @@
 // PhotoUpload — camera/upload control for the order Fotos tab (W2-01).
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { createTestQueryClient, renderWithQuery } from '../../test/queryWrapper';
+import { queryKeys } from '../../api/queryKeys';
 
 const mocks = vi.hoisted(() => ({ upload: vi.fn() }));
 vi.mock('../../api/photos', async (orig) => {
@@ -28,7 +30,7 @@ afterEach(() => {
 
 describe('PhotoUpload', () => {
   it('renders a large camera input for multiple images', () => {
-    render(<PhotoUpload orderId={42} onUploaded={vi.fn()} />);
+    renderWithQuery(<PhotoUpload orderId={42} onUploaded={vi.fn()} />);
 
     const input = screen.getByLabelText('Foto aufnehmen');
     expect(input).toHaveAttribute('type', 'file');
@@ -42,7 +44,7 @@ describe('PhotoUpload', () => {
     mocks.upload
       .mockResolvedValueOnce({ id: 'p-1' })
       .mockResolvedValueOnce({ id: 'p-2' });
-    render(<PhotoUpload orderId={42} onUploaded={onUploaded} />);
+    renderWithQuery(<PhotoUpload orderId={42} onUploaded={onUploaded} />);
 
     const first = jpeg('a.jpg');
     const second = jpeg('b.jpg');
@@ -64,7 +66,7 @@ describe('PhotoUpload', () => {
         response: { status: 422, data: { detail: 'Ungültiges Dateiformat. Erlaubt: JPEG, PNG, WEBP.' } },
       })
       .mockResolvedValueOnce({ id: 'p-2' });
-    render(<PhotoUpload orderId={42} onUploaded={onUploaded} />);
+    renderWithQuery(<PhotoUpload orderId={42} onUploaded={onUploaded} />);
 
     await userEvent.upload(screen.getByLabelText('Foto aufnehmen'), [jpeg('a.jpg'), jpeg('b.jpg')]);
 
@@ -78,7 +80,7 @@ describe('PhotoUpload', () => {
     mocks.upload.mockRejectedValueOnce({
       response: { status: 413, data: { detail: 'Anfrage zu groß. Maximum: 10 MB.' } },
     });
-    render(<PhotoUpload orderId={42} onUploaded={vi.fn()} />);
+    renderWithQuery(<PhotoUpload orderId={42} onUploaded={vi.fn()} />);
 
     await userEvent.upload(screen.getByLabelText('Foto aufnehmen'), jpeg('gross.jpg'));
 
@@ -88,7 +90,7 @@ describe('PhotoUpload', () => {
   });
 
   it('rejects a file over 8 MB before uploading', async () => {
-    render(<PhotoUpload orderId={42} onUploaded={vi.fn()} />);
+    renderWithQuery(<PhotoUpload orderId={42} onUploaded={vi.fn()} />);
     const big = jpeg('riesig.jpg');
     Object.defineProperty(big, 'size', { value: 9 * 1024 * 1024 });
 
@@ -104,12 +106,27 @@ describe('PhotoUpload', () => {
     const clickSpy = vi.spyOn(HTMLInputElement.prototype, 'click').mockImplementation(() => {});
     const onAutoOpened = vi.fn();
 
-    const { rerender } = render(
+    const { rerender } = renderWithQuery(
       <PhotoUpload orderId={42} onUploaded={vi.fn()} autoOpen onAutoOpened={onAutoOpened} />
     );
     rerender(<PhotoUpload orderId={42} onUploaded={vi.fn()} autoOpen onAutoOpened={onAutoOpened} />);
 
     expect(clickSpy).toHaveBeenCalledTimes(1);
     expect(onAutoOpened).toHaveBeenCalledTimes(1);
+  });
+
+  it('appends the new photo to the cached photo list and refreshes the Verlauf', async () => {
+    mocks.upload.mockResolvedValueOnce({ id: 'p-2' });
+    const client = createTestQueryClient();
+    client.setQueryData(queryKeys.orders.photos(42), [{ id: 'p-1' }]);
+    const invalidate = vi.spyOn(client, 'invalidateQueries');
+    renderWithQuery(<PhotoUpload orderId={42} onUploaded={vi.fn()} />, { client });
+
+    await userEvent.upload(screen.getByLabelText('Foto aufnehmen'), jpeg('a.jpg'));
+
+    await waitFor(() =>
+      expect(client.getQueryData(queryKeys.orders.photos(42))).toEqual([{ id: 'p-1' }, { id: 'p-2' }]),
+    );
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: queryKeys.orders.timeline(42) });
   });
 });

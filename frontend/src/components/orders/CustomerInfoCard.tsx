@@ -1,135 +1,109 @@
-// CustomerInfoCard - Display customer information with data fetching
-import React, { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+// CustomerInfoCard: the order's customer on the Übersicht tab.
+//
+// W4-03: data through TanStack Query (queryKeys.customers.detail, shared
+// with the customer pages), states via PageState, the profile link as a
+// ButtonLink. Contact data is PII: rendered, never logged.
+import { useQuery } from '@tanstack/react-query';
 import { customersApi } from '../../api';
+import { queryKeys } from '../../api/queryKeys';
 import type { Customer } from '../../types';
-
+import { getErrorMessage } from '../../lib/errors';
+import { ButtonLink, Card, PageState, type PageStateValue } from '../../ui';
 
 interface CustomerInfoCardProps {
   customerId: number;
 }
 
-export const CustomerInfoCard: React.FC<CustomerInfoCardProps> = ({ customerId }) => {
-  const navigate = useNavigate();
-  const [customer, setCustomer] = useState<Customer | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+function formatAddress(customer: Customer): string {
+  const cityLine =
+    customer.postal_code && customer.city
+      ? `${customer.postal_code} ${customer.city}`
+      : customer.postal_code || customer.city;
+  return [customer.street, cityLine, customer.country].filter(Boolean).join(', ');
+}
 
-  useEffect(() => {
-    fetchCustomer();
-  }, [customerId]);
-
-  const fetchCustomer = async () => {
-    try {
-      setIsLoading(true);
-      setError(null);
-      const data = await customersApi.getById(customerId);
-      setCustomer(data);
-    } catch (err: any) {
-      setError(err.response?.data?.detail || 'Fehler beim Laden der Kundendaten');
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  if (isLoading) {
-    return (
-      <div className="customer-info-card loading">
-        <div className="loading-spinner">Lade Kundendaten...</div>
-      </div>
-    );
-  }
-
-  if (error || !customer) {
-    return (
-      <div className="customer-info-card error">
-        <div className="error-message">
-          ❌ {error || 'Kunde nicht gefunden'}
-        </div>
-        <div className="customer-id-fallback">Kunde-ID: #{customerId}</div>
-      </div>
-    );
-  }
-
-  const fullName = `${customer.first_name} ${customer.last_name}`;
+function CustomerDetails({ customer }: { customer: Customer }) {
   const primaryPhone = customer.mobile || customer.phone;
-
+  const address = formatAddress(customer);
   return (
-    <div className="customer-info-card">
-      {/* Customer Name */}
-      <div className="customer-header">
-        <div className="customer-name">
-          <span className="customer-icon">👤</span>
-          {fullName}
-        </div>
-        {customer.company_name && (
-          <div className="customer-company">{customer.company_name}</div>
-        )}
-      </div>
-
-      {/* Customer Details */}
-      <div className="customer-details">
+    <>
+      <p className="customer-name">
+        {customer.first_name} {customer.last_name}
+      </p>
+      {customer.company_name && <p className="customer-company">{customer.company_name}</p>}
+      <dl className="customer-details">
         {customer.email && (
           <div className="customer-detail-line">
-            <span className="detail-icon">📧</span>
-            <a href={`mailto:${customer.email}`} className="detail-link">
-              {customer.email}
-            </a>
+            <dt>E-Mail</dt>
+            <dd>
+              <a href={`mailto:${customer.email}`} className="detail-link">
+                {customer.email}
+              </a>
+            </dd>
           </div>
         )}
-
         {primaryPhone && (
           <div className="customer-detail-line">
-            <span className="detail-icon">📱</span>
-            <a href={`tel:${primaryPhone}`} className="detail-link">
-              {primaryPhone}
-            </a>
+            <dt>Telefon</dt>
+            <dd>
+              <a href={`tel:${primaryPhone}`} className="detail-link">
+                {primaryPhone}
+              </a>
+            </dd>
           </div>
         )}
-
-        {(customer.street || customer.city || customer.postal_code || customer.country) && (
+        {address && (
           <div className="customer-detail-line">
-            <span className="detail-icon">📍</span>
-            <span className="detail-text">
-              {[
-                customer.street,
-                customer.postal_code && customer.city
-                  ? `${customer.postal_code} ${customer.city}`
-                  : customer.postal_code || customer.city,
-                customer.country,
-              ]
-                .filter(Boolean)
-                .join(', ')}
-            </span>
+            <dt>Adresse</dt>
+            <dd>{address}</dd>
           </div>
         )}
-
         <div className="customer-detail-line">
-          <span className="detail-icon">
-            {customer.customer_type === 'business' ? '🏢' : '👤'}
-          </span>
-          <span className="detail-text">
-            {customer.customer_type === 'business' ? 'Geschäftskunde' : 'Privatkunde'}
-          </span>
+          <dt>Kundenart</dt>
+          <dd>{customer.customer_type === 'business' ? 'Geschäftskunde' : 'Privatkunde'}</dd>
         </div>
-
         {!customer.is_active && (
           <div className="customer-detail-line inactive">
-            <span className="detail-icon">⛔</span>
-            <span className="detail-text">Inaktiv</span>
+            <dt>Status</dt>
+            <dd>Inaktiv</dd>
           </div>
         )}
-      </div>
-
-      {/* Link to Customer Profile */}
-      <div className="customer-actions">
-        <button
-          className="btn-customer-link"
-          onClick={() => navigate(`/customers/${customer.id}`)}
-        >
-          🔗 Kundenprofil ansehen
-        </button>
-      </div>
-    </div>
+      </dl>
+    </>
   );
-};
+}
+
+export function CustomerInfoCard({ customerId }: CustomerInfoCardProps) {
+  const query = useQuery({
+    queryKey: queryKeys.customers.detail(customerId),
+    queryFn: () => customersApi.getById(customerId),
+  });
+
+  const state: PageStateValue = query.isPending
+    ? { status: 'loading' }
+    : query.isError
+      ? {
+          status: 'error',
+          error: getErrorMessage(query.error, 'Kundendaten konnten nicht geladen werden.'),
+          retry: () => void query.refetch(),
+        }
+      : { status: 'ready' };
+
+  return (
+    // Untitled: the Übersicht section around it carries the "Kunde" heading.
+    <Card
+      className="customer-info-card"
+      action={
+        <ButtonLink to={`/customers/${customerId}`} variant="secondary">
+          Kundenprofil ansehen
+        </ButtonLink>
+      }
+    >
+      <PageState state={state} skeleton="detail" skeletonCount={3}>
+        {query.data && <CustomerDetails customer={query.data} />}
+      </PageState>
+    </Card>
+  );
+}
+
+export default CustomerInfoCard;

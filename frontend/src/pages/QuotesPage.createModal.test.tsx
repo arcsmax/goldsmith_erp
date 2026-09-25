@@ -1,9 +1,9 @@
 // LV2-07: "Neues Angebot" carries role="dialog" aria-modal="true" but
 // Escape did not close it — only clicking the backdrop or the X did.
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { MemoryRouter } from 'react-router-dom';
+import { renderWithQuery } from '../test/queryWrapper';
 
 const customers = vi.hoisted(() => ({
   getAll: vi.fn(),
@@ -11,7 +11,7 @@ const customers = vi.hoisted(() => ({
 }));
 
 const api = vi.hoisted(() => ({
-  getQuotes: vi.fn(),
+  getQuotesPage: vi.fn(),
   getQuote: vi.fn(),
   createQuote: vi.fn(),
 }));
@@ -31,17 +31,13 @@ vi.mock('../lib/logError', () => ({ logError: vi.fn() }));
 import { QuotesPage } from './QuotesPage';
 
 function renderAt(url: string) {
-  return render(
-    <MemoryRouter initialEntries={[url]}>
-      <QuotesPage />
-    </MemoryRouter>,
-  );
+  return renderWithQuery(<QuotesPage />, { route: url });
 }
 
 describe('QuotesPage — "Neues Angebot" modal Escape handling (LV2-07)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    api.getQuotes.mockResolvedValue({ items: [], total: 0, skip: 0, limit: 50 });
+    api.getQuotesPage.mockResolvedValue({ items: [], total: 0, offset: 0, limit: 25, next_offset: null });
   });
 
   it('closes the create-quote dialog on Escape', async () => {

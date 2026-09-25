@@ -47,7 +47,7 @@
 }
 .wizard-progress-step.active .wizard-progress-dot {
   background: var(--color-interactive-primary);
-  color: #fff;
+  color: var(--color-primary-contrast);
 }
 .wizard-progress-step.done .wizard-progress-dot {
   background: color-mix(in srgb, var(--color-interactive-primary) 18%, transparent);
@@ -64,11 +64,11 @@
 
 /* Step card */
 .wizard-step {
-  background: var(--background-color-page, #fff);
+  background: var(--color-surface);
   border: 1px solid color-mix(in srgb, var(--text-color-primary) 12%, transparent);
   border-radius: 14px;
   padding: 1.75rem;
-  box-shadow: 0 2px 14px rgb(0 0 0 / 0.05);
+  box-shadow: var(--shadow-1);
 }
 .wizard-step h2 {
   font-size: 1.75rem;
@@ -102,7 +102,7 @@
 .chip.selected {
   background: var(--color-interactive-primary);
   border-color: var(--color-interactive-primary);
-  color: #fff;
+  color: var(--color-primary-contrast);
 }
 .chip-removable::after { content: ' ×'; opacity: 0.7; }
 
@@ -128,8 +128,8 @@
   justify-content: space-between;
   gap: 0.75rem;
   padding: 0.7rem 1rem;
-  border-left: 4px solid #dc2626;
-  background: color-mix(in srgb, #dc2626 7%, transparent);
+  border-left: 4px solid var(--tone-danger-border);
+  background: var(--tone-danger-bg);
   border-radius: 8px;
   margin-bottom: 0.5rem;
 }
@@ -138,8 +138,9 @@
   align-items: center;
   gap: 0.75rem;
   padding: 0.9rem 1.1rem;
-  border: 2px solid #dc2626;
-  background: color-mix(in srgb, #dc2626 10%, transparent);
+  border: 2px solid var(--tone-danger-border);
+  background: var(--tone-danger-bg);
+  color: var(--tone-danger-fg);
   border-radius: 10px;
   font-weight: 600;
   margin-bottom: 1rem;
@@ -156,14 +157,11 @@
 .consultation-photo-kind {
   position: absolute; left: 6px; bottom: 6px;
   font-size: 0.7rem; padding: 0.15rem 0.5rem; border-radius: 999px;
-  background: rgb(0 0 0 / 0.65); color: #fff;
+  background: var(--color-text); color: var(--color-surface);
 }
 .consultation-photo-delete {
-  position: absolute; top: 4px; right: 4px;
-  width: 44px; height: 44px; border-radius: 50%;
-  display: flex; align-items: center; justify-content: center;
-  font-size: 1.1rem; line-height: 1;
-  border: none; background: rgb(0 0 0 / 0.6); color: #fff; cursor: pointer;
+  position: absolute; top: var(--space-1); right: var(--space-1);
+  background: var(--color-surface);
 }
 .photo-upload-tile {
   display: flex; flex-direction: column; align-items: center; justify-content: center;
@@ -186,20 +184,22 @@
   position: fixed; left: 0; right: 0; bottom: 0;
   display: flex; justify-content: space-between; gap: 1rem;
   padding: 0.9rem 1.5rem;
-  background: var(--background-color-page, #fff);
+  background: var(--color-surface);
   border-top: 1px solid color-mix(in srgb, var(--text-color-primary) 12%, transparent);
 }
-.wizard-nav-btn { min-height: 52px; min-width: 140px; font-size: 1.1rem; }
-.wizard-footer .btn-primary:only-child { margin-left: auto; }
+.wizard-footer { align-items: center; }
+.wizard-footer > :last-child { margin-left: auto; }
+.wizard-save-status { margin: 0; color: var(--color-text-muted); font-size: var(--type-sm); }
+.wizard-header__title { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); }
 
 /* Typeahead */
 .typeahead { position: relative; }
 .typeahead-results {
   position: absolute; top: 100%; left: 0; right: 0; z-index: 20;
-  background: var(--background-color-page, #fff);
+  background: var(--color-surface);
   border: 1px solid color-mix(in srgb, var(--text-color-primary) 20%, transparent);
   border-radius: 0 0 10px 10px; max-height: 320px; overflow-y: auto;
-  box-shadow: 0 8px 20px rgb(0 0 0 / 0.12);
+  box-shadow: var(--shadow-2);
   list-style: none; margin: 0; padding: 0;
 }
 .typeahead-results li { padding: 0; }
@@ -257,79 +257,14 @@
 .consultation-status-filters { margin: 0 0 1.5rem; }
 
 .consultation-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
   gap: 1rem;
 }
 
-.consultation-list-card {
-  display: block;
-  width: 100%;
-  text-align: left;
-  font: inherit;
-  color: inherit;
-  cursor: pointer;
-  background: var(--background-color-page, #fff);
-  border: 1px solid color-mix(in srgb, var(--text-color-primary) 12%, transparent);
-  border-radius: 12px;
-  padding: 1.1rem 1.25rem;
-  transition: box-shadow 120ms ease, border-color 120ms ease;
-}
-.consultation-list-card:hover,
-.consultation-list-card:focus-visible {
-  border-color: var(--color-interactive-primary);
-  box-shadow: 0 4px 14px rgb(0 0 0 / 0.08);
-}
+.consultation-list > li { min-width: 0; }
+.consultation-card__followup { color: var(--color-primary); font-weight: 600; }
 
-.consultation-list-card-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 0.75rem;
-  margin-bottom: 0.6rem;
-}
-.consultation-list-card-date {
-  font-size: 0.8rem;
-  color: color-mix(in srgb, var(--text-color-primary) 55%, transparent);
-}
-.consultation-list-card-title { margin: 0 0 0.3rem; font-size: 1.1rem; }
-.consultation-list-card-meta {
-  margin: 0;
-  color: color-mix(in srgb, var(--text-color-primary) 70%, transparent);
-}
-.consultation-list-card-followup {
-  margin: 0.5rem 0 0;
-  font-size: 0.85rem;
-  font-weight: 600;
-  color: var(--color-interactive-primary);
-}
-
-/* Namespaced (not the generic .status-badge other pages reuse per-status
-   values for) since 'draft'/'completed'/'converted'/'archived' would
-   otherwise collide with unrelated status vocabularies loaded elsewhere in
-   the same session (e.g. orders.css's .status-badge.status-completed). */
-.consultation-status-badge {
-  display: inline-block;
-  padding: 0.2rem 0.65rem;
-  border-radius: 999px;
-  font-size: 0.75rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-}
-.consultation-status-badge.status-draft {
-  background: color-mix(in srgb, var(--color-text-muted) 15%, transparent);
-  color: var(--color-text-body);
-}
-.consultation-status-badge.status-completed {
-  background: color-mix(in srgb, var(--color-success-500) 15%, transparent);
-  color: var(--color-success-600);
-}
-.consultation-status-badge.status-converted {
-  background: color-mix(in srgb, var(--color-interactive-primary) 18%, transparent);
-  color: var(--color-interactive-primary);
-}
-.consultation-status-badge.status-archived {
-  background: color-mix(in srgb, var(--color-text-muted) 10%, transparent);
-  color: var(--color-text-muted);
-}

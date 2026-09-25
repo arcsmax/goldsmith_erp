@@ -997,7 +997,7 @@
           "customers"
         ],
         "summary": "List Customers",
-        "description": "List all customers with optional filtering.\n\nPermissions: Requires CUSTOMER_VIEW permission.",
+        "description": "List customers with optional filtering.\n\nWith ``offset``: a ``Page`` {items, total, limit, offset, next_offset}\nwith ``q`` (full-email blind-index search) and ``sort``. Without it\n(deprecated, one release): the legacy plain list, flagged\n``X-Deprecated-List: true``, with the existing fuzzy ``search`` (name /\ncompany / email fragment, decrypted in Python — see\n``CustomerService.get_customers``).\n\nPermissions: Requires CUSTOMER_VIEW permission.",
         "operationId": "list_customers_api_v1_customers__get",
         "security": [
           {
@@ -1005,33 +1005,6 @@
           }
         ],
         "parameters": [
-          {
-            "name": "skip",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "minimum": 0,
-              "description": "Number of records to skip",
-              "default": 0,
-              "title": "Skip"
-            },
-            "description": "Number of records to skip"
-          },
-          {
-            "name": "limit",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "maximum": 100,
-              "minimum": 1,
-              "description": "Max records to return",
-              "default": 100,
-              "title": "Limit"
-            },
-            "description": "Max records to return"
-          },
           {
             "name": "search",
             "in": "query",
@@ -1045,10 +1018,30 @@
                   "type": "null"
                 }
               ],
-              "description": "Search in name, company, email",
+              "description": "Search in name, company, email (nur ohne offset)",
               "title": "Search"
             },
-            "description": "Search in name, company, email"
+            "description": "Search in name, company, email (nur ohne offset)"
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 254
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Volle E-Mail-Adresse, exakter Treffer über den email_hash Blind-Index (nur mit offset). Name/Firma sind verschlüsselt und daher hier nicht durchsuchbar — dafür ``search`` ohne offset verwenden.",
+              "title": "Q"
+            },
+            "description": "Volle E-Mail-Adresse, exakter Treffer über den email_hash Blind-Index (nur mit offset). Name/Firma sind verschlüsselt und daher hier nicht durchsuchbar — dafür ``search`` ohne offset verwenden."
           },
           {
             "name": "customer_type",
@@ -1105,6 +1098,79 @@
             "description": "Filter by tag"
           },
           {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Offset der Seite. Wenn gesetzt, antwortet der Endpunkt mit einer Page-Hülle {items, total, limit, offset, next_offset}.",
+              "title": "Offset"
+            },
+            "description": "Offset der Seite. Wenn gesetzt, antwortet der Endpunkt mit einer Page-Hülle {items, total, limit, offset, next_offset}."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "maximum": 100,
+                  "minimum": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Seitengröße (Standard 50, maximal 200 mit offset)",
+              "title": "Limit"
+            },
+            "description": "Seitengröße (Standard 50, maximal 200 mit offset)"
+          },
+          {
+            "name": "skip",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Veraltet: nur ohne offset (Listenantwort).",
+              "deprecated": true,
+              "default": 0,
+              "title": "Skip"
+            },
+            "description": "Veraltet: nur ohne offset (Listenantwort).",
+            "deprecated": true
+          },
+          {
+            "name": "sort",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 200
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Sortierung (nur mit offset): kommagetrennte Feldnamen, absteigend mit vorangestelltem '-' (z. B. '-created_at'). Erlaubte Felder: created_at, customer_type, is_active. Ein unbekanntes Feld ergibt 422 (code pagination.invalid_sort_field).",
+              "title": "Sort"
+            },
+            "description": "Sortierung (nur mit offset): kommagetrennte Feldnamen, absteigend mit vorangestelltem '-' (z. B. '-created_at'). Erlaubte Felder: created_at, customer_type, is_active. Ein unbekanntes Feld ergibt 422 (code pagination.invalid_sort_field)."
+          },
+          {
             "name": "access_token",
             "in": "cookie",
             "required": false,
@@ -1127,10 +1193,17 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/CustomerListItem"
-                  },
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/Page_CustomerListItem_"
+                    },
+                    {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/CustomerListItem"
+                      }
+                    }
+                  ],
                   "title": "Response List Customers Api V1 Customers  Get"
                 }
               }
@@ -2713,6 +2786,25 @@
             "deprecated": true
           },
           {
+            "name": "sort",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 200
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Sortierung (nur mit offset): kommagetrennte Feldnamen, absteigend mit vorangestelltem '-' (z. B. '-created_at'). Erlaubte Felder: created_at, deadline, status, title. Ein unbekanntes Feld ergibt 422 (code pagination.invalid_sort_field).",
+              "title": "Sort"
+            },
+            "description": "Sortierung (nur mit offset): kommagetrennte Feldnamen, absteigend mit vorangestelltem '-' (z. B. '-created_at'). Erlaubte Felder: created_at, deadline, status, title. Ein unbekanntes Feld ergibt 422 (code pagination.invalid_sort_field)."
+          },
+          {
             "name": "access_token",
             "in": "cookie",
             "required": false,
@@ -3840,6 +3932,25 @@
             },
             "description": "Veraltet: nur ohne offset (Listenantwort).",
             "deprecated": true
+          },
+          {
+            "name": "sort",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 200
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Sortierung (nur mit offset): kommagetrennte Feldnamen, absteigend mit vorangestelltem '-' (z. B. '-name'). Erlaubte Felder: name, stock, supplier. Ein unbekanntes Feld ergibt 422 (code pagination.invalid_sort_field).",
+              "title": "Sort"
+            },
+            "description": "Sortierung (nur mit offset): kommagetrennte Feldnamen, absteigend mit vorangestelltem '-' (z. B. '-name'). Erlaubte Felder: name, stock, supplier. Ein unbekanntes Feld ergibt 422 (code pagination.invalid_sort_field)."
           },
           {
             "name": "access_token",
@@ -6018,6 +6129,25 @@
             "deprecated": true
           },
           {
+            "name": "sort",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 200
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Sortierung (nur mit offset): kommagetrennte Feldnamen, absteigend mit vorangestelltem '-' (z. B. '-start_time'). Erlaubte Felder: start_time, end_time. Ein unbekanntes Feld ergibt 422 (code pagination.invalid_sort_field).",
+              "title": "Sort"
+            },
+            "description": "Sortierung (nur mit offset): kommagetrennte Feldnamen, absteigend mit vorangestelltem '-' (z. B. '-start_time'). Erlaubte Felder: start_time, end_time. Ein unbekanntes Feld ergibt 422 (code pagination.invalid_sort_field)."
+          },
+          {
             "name": "access_token",
             "in": "cookie",
             "required": false,
@@ -6245,6 +6375,25 @@
             },
             "description": "Veraltet: nur ohne offset (Listenantwort).",
             "deprecated": true
+          },
+          {
+            "name": "sort",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 200
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Sortierung (nur mit offset): kommagetrennte Feldnamen, absteigend mit vorangestelltem '-' (z. B. '-start_time'). Erlaubte Felder: start_time, end_time. Ein unbekanntes Feld ergibt 422 (code pagination.invalid_sort_field).",
+              "title": "Sort"
+            },
+            "description": "Sortierung (nur mit offset): kommagetrennte Feldnamen, absteigend mit vorangestelltem '-' (z. B. '-start_time'). Erlaubte Felder: start_time, end_time. Ein unbekanntes Feld ergibt 422 (code pagination.invalid_sort_field)."
           },
           {
             "name": "access_token",
@@ -11068,6 +11217,25 @@
             "deprecated": true
           },
           {
+            "name": "sort",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 200
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Sortierung (nur mit offset): kommagetrennte Feldnamen, absteigend mit vorangestelltem '-' (z. B. '-created_at'). Erlaubte Felder: created_at, severity, notification_type, is_read. Ein unbekanntes Feld ergibt 422 (code pagination.invalid_sort_field).",
+              "title": "Sort"
+            },
+            "description": "Sortierung (nur mit offset): kommagetrennte Feldnamen, absteigend mit vorangestelltem '-' (z. B. '-created_at'). Erlaubte Felder: created_at, severity, notification_type, is_read. Ein unbekanntes Feld ergibt 422 (code pagination.invalid_sort_field)."
+          },
+          {
             "name": "access_token",
             "in": "cookie",
             "required": false,
@@ -12823,6 +12991,25 @@
             "deprecated": true
           },
           {
+            "name": "sort",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 200
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Sortierung (nur mit offset): kommagetrennte Feldnamen, absteigend mit vorangestelltem '-' (z. B. '-created_at'). Erlaubte Felder: created_at, status, valid_until, quote_number. Ein unbekanntes Feld ergibt 422 (code pagination.invalid_sort_field).",
+              "title": "Sort"
+            },
+            "description": "Sortierung (nur mit offset): kommagetrennte Feldnamen, absteigend mit vorangestelltem '-' (z. B. '-created_at'). Erlaubte Felder: created_at, status, valid_until, quote_number. Ein unbekanntes Feld ergibt 422 (code pagination.invalid_sort_field)."
+          },
+          {
             "name": "access_token",
             "in": "cookie",
             "required": false,
@@ -13764,6 +13951,25 @@
             },
             "description": "Veraltet: nur ohne offset (Listenantwort).",
             "deprecated": true
+          },
+          {
+            "name": "sort",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 200
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Sortierung (nur mit offset): kommagetrennte Feldnamen, absteigend mit vorangestelltem '-' (z. B. '-created_at'). Erlaubte Felder: created_at, status, estimated_completion_date, repair_number. Ein unbekanntes Feld ergibt 422 (code pagination.invalid_sort_field).",
+              "title": "Sort"
+            },
+            "description": "Sortierung (nur mit offset): kommagetrennte Feldnamen, absteigend mit vorangestelltem '-' (z. B. '-created_at'). Erlaubte Felder: created_at, status, estimated_completion_date, repair_number. Ein unbekanntes Feld ergibt 422 (code pagination.invalid_sort_field)."
           },
           {
             "name": "access_token",
@@ -31910,6 +32116,54 @@
           "offset"
         ],
         "title": "Page[CustomerActivityItem]"
+      },
+      "Page_CustomerListItem_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/CustomerListItem"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Total",
+            "description": "Anzahl aller Treffer über alle Seiten"
+          },
+          "limit": {
+            "type": "integer",
+            "maximum": 200.0,
+            "minimum": 1.0,
+            "title": "Limit"
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Offset"
+          },
+          "next_offset": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Offset",
+            "description": "Offset der nächsten Seite; null auf der letzten"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "title": "Page[CustomerListItem]"
       },
       "Page_MaterialRead_": {
         "properties": {
