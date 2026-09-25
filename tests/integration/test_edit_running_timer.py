@@ -16,7 +16,7 @@ from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from goldsmith_erp.core.security import create_access_token, get_password_hash
-from goldsmith_erp.db.models import Order, TimeEntry, User, UserRole
+from goldsmith_erp.db.models import Order, TimeEntry, User, UserRole, WorkshopLocation
 from goldsmith_erp.services.running_timer_edit import EDIT_LOG_MARKER, split_notes
 
 pytestmark = pytest.mark.asyncio
@@ -42,6 +42,14 @@ async def _entry(db: AsyncSession, order, user, activity, **kw) -> TimeEntry:
     db.add(entry)
     await db.commit()
     return entry
+
+
+async def _location(db: AsyncSession, name: str, **kw) -> WorkshopLocation:
+    loc = WorkshopLocation(name=name, kind="bench", is_active=True, **kw)
+    db.add(loc)
+    await db.commit()
+    await db.refresh(loc)
+    return loc
 
 
 @pytest.fixture
@@ -86,6 +94,7 @@ class TestEditRunningTimer:
         polishing_activity,
         published,
     ):
+        loc = await _location(db_session, "Werkbank 2")
         entry = await _entry(db_session, sample_order, sample_user, sample_activity)
         resp = await client.patch(
             URL.format(entry.id),
@@ -101,6 +110,7 @@ class TestEditRunningTimer:
         assert body["activity_id"] == polishing_activity.id
         assert body["activity_name"] == polishing_activity.name
         assert body["location"] == "Werkbank 2"
+        assert body["location_id"] == loc.id
         assert body["end_time"] is None
         user_text, log = split_notes(body["notes"])
         assert user_text == "Stein sitzt locker"
@@ -210,6 +220,7 @@ class TestEditRunningTimer:
         sample_order,
         sample_activity,
     ):
+        await _location(db_session, "Labor")
         entry = await _entry(db_session, sample_order, sample_user, sample_activity)
         resp = await client.patch(
             URL.format(entry.id), headers=admin_auth_headers, json={"location": "Labor"}
@@ -271,6 +282,89 @@ class TestEditRunningTimer:
             URL.format(entry.id), headers=auth_headers, json={"user_id": 1}
         )
         assert extra.status_code == 422
+
+
+class TestEditRunningTimerLocationResolve:
+    """W8/timer-locations: PATCH resolves ``location_id``/``location`` through
+    ``LocationService.resolve``, storing both columns; an unmatched name is a
+    German 422 (the edit sheet is dropdown-backed, not legacy free text)."""
+
+    async def test_location_id_writes_both_columns(
+        self,
+        client: AsyncClient,
+        db_session: AsyncSession,
+        sample_user,
+        auth_headers,
+        sample_order,
+        sample_activity,
+    ):
+        loc = await _location(db_session, "Tresor")
+        entry = await _entry(db_session, sample_order, sample_user, sample_activity)
+        resp = await client.patch(
+            URL.format(entry.id), headers=auth_headers, json={"location_id": loc.id}
+        )
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["location_id"] == loc.id
+        assert body["location"] == "Tresor"
+
+    async def test_location_name_resolves_to_matching_id(
+        self,
+        client: AsyncClient,
+        db_session: AsyncSession,
+        sample_user,
+        auth_headers,
+        sample_order,
+        sample_activity,
+    ):
+        loc = await _location(db_session, "Werkbank 3")
+        entry = await _entry(db_session, sample_order, sample_user, sample_activity)
+        resp = await client.patch(
+            URL.format(entry.id),
+            headers=auth_headers,
+            json={"location": "Werkbank 3"},
+        )
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["location_id"] == loc.id
+        assert body["location"] == "Werkbank 3"
+
+    async def test_unknown_location_name_is_german_422(
+        self,
+        client: AsyncClient,
+        db_session: AsyncSession,
+        sample_user,
+        auth_headers,
+        sample_order,
+        sample_activity,
+    ):
+        entry = await _entry(db_session, sample_order, sample_user, sample_activity)
+        resp = await client.patch(
+            URL.format(entry.id),
+            headers=auth_headers,
+            json={"location": "Unbekannter Ort"},
+        )
+        assert resp.status_code == 422, resp.text
+        body = resp.json()
+        assert body["code"] == "location.unknown_name"
+        assert "Unbekannter Ort" in body["detail"]
+        assert "nicht gefunden" in body["detail"]
+
+    async def test_unknown_location_id_is_german_422(
+        self,
+        client: AsyncClient,
+        db_session: AsyncSession,
+        sample_user,
+        auth_headers,
+        sample_order,
+        sample_activity,
+    ):
+        entry = await _entry(db_session, sample_order, sample_user, sample_activity)
+        resp = await client.patch(
+            URL.format(entry.id), headers=auth_headers, json={"location_id": 999999}
+        )
+        assert resp.status_code == 422, resp.text
+        assert resp.json()["code"] == "location.not_found"
 
 
 class TestStartTimeBounds:

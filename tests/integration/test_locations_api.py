@@ -168,6 +168,51 @@ async def test_picker_hides_deactivated_locations_sorted(
     assert [r["name"] for r in resp.json()] == ["Alt", "Werkbank 1", "Tresor"]
 
 
+async def test_timer_start_by_name_resolves_to_matching_id(
+    client: AsyncClient,
+    db_session: AsyncSession,
+    goldsmith_auth_headers: dict,
+    test_customer,
+):
+    loc = await _location(db_session, "Tresor")
+    order = await _order(db_session, test_customer.id)
+    act = await _activity(db_session)
+
+    resp = await client.post(
+        "/api/v1/time-tracking/start",
+        json={"order_id": order.id, "activity_id": act.id, "location": "Tresor"},
+        headers=goldsmith_auth_headers,
+    )
+    assert resp.status_code in (200, 201), resp.text
+    body = resp.json()
+    assert body["location_id"] == loc.id
+    assert body["location"] == "Tresor"
+
+
+async def test_timer_start_with_unknown_location_name_is_german_422(
+    client: AsyncClient,
+    db_session: AsyncSession,
+    goldsmith_auth_headers: dict,
+    test_customer,
+):
+    order = await _order(db_session, test_customer.id)
+    act = await _activity(db_session)
+
+    resp = await client.post(
+        "/api/v1/time-tracking/start",
+        json={
+            "order_id": order.id,
+            "activity_id": act.id,
+            "location": "Unbekannter Ort",
+        },
+        headers=goldsmith_auth_headers,
+    )
+    assert resp.status_code == 422, resp.text
+    body = resp.json()
+    assert body["code"] == "location.unknown_name"
+    assert "nicht gefunden" in body["detail"]
+
+
 async def test_timer_start_by_id_writes_both_columns_and_survives_deactivation(
     client: AsyncClient,
     db_session: AsyncSession,
