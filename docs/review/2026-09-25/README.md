@@ -8,7 +8,8 @@ GDPR and design, with a fix programme for AI coding agents working in parallel w
 1. [00-SUMMARY.md](00-SUMMARY.md): verdicts, the 12 findings that matter most, scorecards, what to keep, July status, open decisions.
 2. [MASTER-FIX-PLAN.md](MASTER-FIX-PLAN.md): how to execute: branching, TDD, adversarial rounds, 83 fix items in 7 waves, Wave 1 hand-off packets, dependencies, review checkpoints, decisions.
 3. [FINDINGS-REGISTER.md](FINDINGS-REGISTER.md): one row per finding (212), corrected severity, wave, status, fix item. The tracking artifact; update it as items land.
-4. The eight reviews, for evidence (`path:line`) and full reasoning:
+4. [PROGRESS.md](PROGRESS.md): the dated changelog, decisions taken (and needing sign-off), and the open-follow-ups list — the evidence behind the counts in 00-SUMMARY.md.
+5. The eight reviews, for evidence (`path:line`) and full reasoning:
 
 | File | Topic |
 |---|---|
@@ -22,7 +23,9 @@ GDPR and design, with a fix programme for AI coding agents working in parallel w
 | [08-design-investigation.md](08-design-investigation.md) | Tokens, components, accessibility, improvement plan (DES- = I-01..I-30) |
 
 Related: `docs/design/UI-UX-PLAYBOOK.md` (design rules; Wave 4 follows its migration plan) and the
-previous audit `docs/review/2026-07-26/production-readiness.md` (its verdict is stale).
+previous audit `docs/review/2026-07-26/production-readiness.md` (its verdict is stale). The
+[live/](live/) subfolder holds LIVE-VERIFICATION-1.md and LIVE-VERIFICATION-2.md, the two
+on-the-ground verification passes (Playwright, real Postgres/Redis) against a running stack.
 
 ## Verification method
 
