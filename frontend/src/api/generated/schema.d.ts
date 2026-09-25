@@ -798,6 +798,16 @@ export interface paths {
          *     ``orders`` and ``consultations`` lists below; the ``design_data_excluded``
          *     flag documents that omission for anyone auditing a DPO response.
          *
+         *     GDPR-05 (2026-09): the export also covers invoices, quotes, Altgold,
+         *     valuations, repairs, customer updates, §649 cost changes, photo
+         *     metadata, the order status history, the customer's GDPR requests, an
+         *     access log (what/when, not who) and an Art. 15 Abs. 1 ``meta`` block
+         *     (``services/gdpr_export_service.py``). Decision D-13: what the customer
+         *     told us in a consultation (``wishes``, ``source_material``) is disclosed
+         *     in ``consultation_statements``; the goldsmith's own design work stays
+         *     withheld (Art. 15 Abs. 4). Every export writes a
+         *     ``gdpr_requests(request_type='export')`` row.
+         *
          *     Permissions: Requires CUSTOMER_DELETE permission (Admin only).
          */
         get: operations["gdpr_export_customer_api_v1_customers__customer_id__export_get"];
@@ -1652,6 +1662,9 @@ export interface paths {
          *     - Sortiert alphabetisch nach Namen
          *
          *     **Use Case**: Übersicht über alle verfügbaren Materialien.
+         *
+         *     Mit ``offset``: ``Page`` mit Gesamtzahl und ``q``-Suche. Ohne ``offset``
+         *     (veraltet): Liste mit Header ``X-Deprecated-List: true``.
          */
         get: operations["list_materials_api_v1_materials__get"];
         put?: never;
@@ -2575,6 +2588,8 @@ export interface paths {
          * @description Return the authenticated user's notifications, newest first.
          *
          *     Use ``unread_only=true`` to fetch only unread items (e.g. for notification panel).
+         *     With ``offset``: a ``Page``; without it (deprecated): the legacy list with
+         *     ``X-Deprecated-List: true`` (legacy mode ignores ``skip``, as before).
          */
         get: operations["list_notifications_api_v1_notifications__get"];
         put?: never;
@@ -2711,6 +2726,10 @@ export interface paths {
         /**
          * List Orders
          * @description Liste aller Aufträge.
+         *
+         *     With ``offset``: a ``Page`` with server-side filters and search. Without
+         *     it (deprecated, one release): the legacy plain list, flagged with
+         *     ``X-Deprecated-List: true``; only ``customer_id`` filters there.
          *
          *     VIEWER-role callers receive the list WITHOUT the seven financial fields
          *     (``price``, ``material_cost_*``, ``labor_cost``, ``hourly_rate``,
@@ -3419,6 +3438,11 @@ export interface paths {
          *
          *     Supports filtering by status and customer.
          *     Results are sorted by created_at descending (newest first).
+         *
+         *     With ``offset``: a ``Page`` (``items, total, limit, offset,
+         *     next_offset``) with date range and ``q`` search. Without it
+         *     (deprecated, one release): the legacy ``{items, total, skip, limit}``
+         *     envelope, flagged with ``X-Deprecated-List: true``.
          */
         get: operations["list_quotes_api_v1_quotes__get"];
         put?: never;
@@ -3693,6 +3717,10 @@ export interface paths {
         /**
          * List Repairs
          * @description Liste aller Reparaturauftraege mit optionalen Filtern.
+         *
+         *     Mit ``offset``: ``Page`` mit Gesamtzahl; ``q`` (oder ``search``) sucht
+         *     zusaetzlich im Kundennamen. Ohne ``offset`` (veraltet): Liste mit Header
+         *     ``X-Deprecated-List: true``.
          *
          *     Gibt kompakte ListItem-Objekte zurueck (ohne Fotos und lange Felder).
          *     Ohne FINANCIAL_VIEW (VIEWER) entfaellt ``estimated_cost``.
@@ -5170,6 +5198,20 @@ export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
         /**
+         * AccessLogExport
+         * @description C-579/21: when and what was done with the data; not by whom.
+         */
+        AccessLogExport: {
+            /** Action */
+            action: string;
+            /** Entity */
+            entity?: string | null;
+            /** Entity Id */
+            entity_id?: number | null;
+            /** Timestamp */
+            timestamp?: string | null;
+        };
+        /**
          * ActionItem
          * @description A single Quick Action entry in a ``ResolveResponse``.
          *
@@ -6106,6 +6148,18 @@ export interface components {
             wishes?: string | null;
         };
         /**
+         * ConsultationStatementExport
+         * @description D-13: what the customer told us — disclosed, unlike the design work.
+         */
+        ConsultationStatementExport: {
+            /** Consultation Id */
+            consultation_id: number;
+            /** Source Material */
+            source_material?: string | null;
+            /** Wishes */
+            wishes?: string | null;
+        };
+        /**
          * ConsultationStatus
          * @description Lifecycle of a consultation (Beratungsgespräch).
          * @enum {string}
@@ -6162,6 +6216,33 @@ export interface components {
              * @description Begruendung fuer die Kostenaenderung
              */
             reason: string;
+        };
+        /** CostChangeExport */
+        CostChangeExport: {
+            /** Created At */
+            created_at?: string | null;
+            /** Delta Percent */
+            delta_percent: number;
+            /** Id */
+            id: number;
+            /** New Amount */
+            new_amount: number;
+            /** Order Id */
+            order_id?: number | null;
+            /** Original Amount */
+            original_amount: number;
+            /** Quote Id */
+            quote_id?: number | null;
+            /** Reason */
+            reason: string;
+            /** Responded At */
+            responded_at?: string | null;
+            /** Response Evidence */
+            response_evidence?: string | null;
+            /** Response Method */
+            response_method?: string | null;
+            /** Status */
+            status?: string | null;
         };
         /**
          * CostChangeLineItem
@@ -6345,38 +6426,6 @@ export interface components {
             tags?: string[] | null;
         };
         /**
-         * CustomerGdprExport
-         * @description GDPR Art. 15 data export payload — GET /customers/{id}/export.
-         *
-         *     ``response_model`` for the export endpoint (item D, ECC-review fix
-         *     wave). See ``ConsultationExportItem`` for the design-IP structural
-         *     enforcement rationale.
-         */
-        CustomerGdprExport: {
-            /** Consents */
-            consents?: components["schemas"]["ConsentExport"][];
-            /** Consultations */
-            consultations?: components["schemas"]["ConsultationExportItem"][];
-            customer: components["schemas"]["CustomerGdprExportCustomer"];
-            /**
-             * Design Data Excluded
-             * @default true
-             */
-            design_data_excluded: boolean;
-            /** Export Date */
-            export_date: string;
-            /** Measurements */
-            measurements?: components["schemas"]["CustomerMeasurementExport"][];
-            /** No Gos */
-            no_gos?: components["schemas"]["NoGoExport"][];
-            /** Orders */
-            orders?: components["schemas"]["CustomerOrderExport"][];
-            /** Style Profile */
-            style_profile?: {
-                [key: string]: unknown;
-            };
-        };
-        /**
          * CustomerGdprExportCustomer
          * @description The ``customer`` block of the GDPR export payload.
          */
@@ -6429,6 +6478,62 @@ export interface components {
             street?: string | null;
             /** Tags */
             tags?: string[];
+        };
+        /**
+         * CustomerGdprExportFull
+         * @description Complete Art. 15 export (GDPR-05).
+         */
+        CustomerGdprExportFull: {
+            /** Access Log */
+            access_log?: components["schemas"]["AccessLogExport"][];
+            /** Consents */
+            consents?: components["schemas"]["ConsentExport"][];
+            /** Consultation Statements */
+            consultation_statements?: components["schemas"]["ConsultationStatementExport"][];
+            /** Consultations */
+            consultations?: components["schemas"]["ConsultationExportItem"][];
+            /** Cost Changes */
+            cost_changes?: components["schemas"]["CostChangeExport"][];
+            customer: components["schemas"]["CustomerGdprExportCustomer"];
+            /** Customer Updates */
+            customer_updates?: components["schemas"]["CustomerUpdateExport"][];
+            /**
+             * Design Data Excluded
+             * @default true
+             */
+            design_data_excluded: boolean;
+            /** Export Date */
+            export_date: string;
+            /** Gdpr Requests */
+            gdpr_requests?: components["schemas"]["GdprRequestExport"][];
+            /** Invoices */
+            invoices?: components["schemas"]["InvoiceExport"][];
+            /** Measurements */
+            measurements?: components["schemas"]["CustomerMeasurementExport"][];
+            /** Meta */
+            meta?: {
+                [key: string]: unknown;
+            };
+            /** No Gos */
+            no_gos?: components["schemas"]["NoGoExport"][];
+            /** Order Events */
+            order_events?: components["schemas"]["OrderEventExport"][];
+            /** Orders */
+            orders?: components["schemas"]["CustomerOrderExport"][];
+            /** Photos */
+            photos?: components["schemas"]["PhotoExport"][];
+            /** Quotes */
+            quotes?: components["schemas"]["QuoteExport"][];
+            /** Repairs */
+            repairs?: components["schemas"]["RepairExport"][];
+            /** Scrap Gold */
+            scrap_gold?: components["schemas"]["ScrapGoldExport"][];
+            /** Style Profile */
+            style_profile?: {
+                [key: string]: unknown;
+            };
+            /** Valuations */
+            valuations?: components["schemas"]["ValuationExport"][];
         };
         /**
          * CustomerListItem
@@ -6701,6 +6806,31 @@ export interface components {
             photo_ids?: string[] | null;
             /** Subject */
             subject?: string | null;
+        };
+        /** CustomerUpdateExport */
+        CustomerUpdateExport: {
+            /** Body */
+            body: string;
+            /** Created At */
+            created_at?: string | null;
+            /** Delivery Method */
+            delivery_method?: string | null;
+            /** Id */
+            id: number;
+            /** Kind */
+            kind?: string | null;
+            /** Order Id */
+            order_id?: number | null;
+            /** Photo Count */
+            photo_count: number;
+            /** Repair Job Id */
+            repair_job_id?: number | null;
+            /** Sent At */
+            sent_at?: string | null;
+            /** Status */
+            status?: string | null;
+            /** Subject */
+            subject: string;
         };
         /**
          * CustomerUpdateKind
@@ -7103,6 +7233,17 @@ export interface components {
          * @enum {string}
          */
         FinishTypeEnum: "high_polish" | "matte" | "brushed" | "hammered" | "oxidized" | "mixed";
+        /** GdprRequestExport */
+        GdprRequestExport: {
+            /** Completed At */
+            completed_at?: string | null;
+            /** Request Type */
+            request_type: string;
+            /** Requested At */
+            requested_at?: string | null;
+            /** Status */
+            status: string;
+        };
         /**
          * HallmarkCreate
          * @description Request body for creating a new hallmark record.
@@ -7499,6 +7640,37 @@ export interface components {
              */
             tax_rate: number;
         };
+        /** InvoiceExport */
+        InvoiceExport: {
+            /** Due Date */
+            due_date?: string | null;
+            /** Id */
+            id: number;
+            /** Invoice Number */
+            invoice_number: string;
+            /** Issue Date */
+            issue_date?: string | null;
+            /** Issued At */
+            issued_at?: string | null;
+            /** Line Items */
+            line_items?: components["schemas"]["LineItemExport"][];
+            /** Order Id */
+            order_id?: number | null;
+            /** Paid Date */
+            paid_date?: string | null;
+            /** Payment Method */
+            payment_method?: string | null;
+            /** Status */
+            status?: string | null;
+            /** Subtotal */
+            subtotal: number;
+            /** Tax Amount */
+            tax_amount: number;
+            /** Tax Rate */
+            tax_rate: number;
+            /** Total */
+            total: number;
+        };
         /**
          * InvoiceLineItemCreate
          * @description Schema for creating a single invoice line item (Rechnungsposition).
@@ -7809,6 +7981,17 @@ export interface components {
             overdue: number;
             /** Timers */
             timers: number;
+        };
+        /** LineItemExport */
+        LineItemExport: {
+            /** Description */
+            description: string;
+            /** Quantity */
+            quantity: number;
+            /** Total */
+            total: number;
+            /** Unit Price */
+            unit_price: number;
         };
         /**
          * LocationChangeRequest
@@ -9031,6 +9214,17 @@ export interface components {
              */
             vat_rate: number | null;
         };
+        /** OrderEventExport */
+        OrderEventExport: {
+            /** Created At */
+            created_at?: string | null;
+            /** From Status */
+            from_status?: string | null;
+            /** Order Id */
+            order_id: number;
+            /** To Status */
+            to_status: string;
+        };
         /**
          * OrderListRead
          * @description Schema for one row of the orders list (``GET /orders/``).
@@ -9513,6 +9707,120 @@ export interface components {
          * @enum {string}
          */
         OverrideReasonCategoryEnum: "charge_abweichung" | "kleinteil" | "notfall" | "sonstiges";
+        /** Page[MaterialRead] */
+        Page_MaterialRead_: {
+            /** Items */
+            items: components["schemas"]["MaterialRead"][];
+            /** Limit */
+            limit: number;
+            /**
+             * Next Offset
+             * @description Offset der nächsten Seite; null auf der letzten
+             */
+            next_offset?: number | null;
+            /** Offset */
+            offset: number;
+            /**
+             * Total
+             * @description Anzahl aller Treffer über alle Seiten
+             */
+            total: number;
+        };
+        /** Page[NotificationRead] */
+        Page_NotificationRead_: {
+            /** Items */
+            items: components["schemas"]["NotificationRead"][];
+            /** Limit */
+            limit: number;
+            /**
+             * Next Offset
+             * @description Offset der nächsten Seite; null auf der letzten
+             */
+            next_offset?: number | null;
+            /** Offset */
+            offset: number;
+            /**
+             * Total
+             * @description Anzahl aller Treffer über alle Seiten
+             */
+            total: number;
+        };
+        /** Page[OrderListRead] */
+        Page_OrderListRead_: {
+            /** Items */
+            items: components["schemas"]["OrderListRead"][];
+            /** Limit */
+            limit: number;
+            /**
+             * Next Offset
+             * @description Offset der nächsten Seite; null auf der letzten
+             */
+            next_offset?: number | null;
+            /** Offset */
+            offset: number;
+            /**
+             * Total
+             * @description Anzahl aller Treffer über alle Seiten
+             */
+            total: number;
+        };
+        /** Page[QuoteListItem] */
+        Page_QuoteListItem_: {
+            /** Items */
+            items: components["schemas"]["QuoteListItem"][];
+            /** Limit */
+            limit: number;
+            /**
+             * Next Offset
+             * @description Offset der nächsten Seite; null auf der letzten
+             */
+            next_offset?: number | null;
+            /** Offset */
+            offset: number;
+            /**
+             * Total
+             * @description Anzahl aller Treffer über alle Seiten
+             */
+            total: number;
+        };
+        /** Page[RepairJobListItem] */
+        Page_RepairJobListItem_: {
+            /** Items */
+            items: components["schemas"]["RepairJobListItem"][];
+            /** Limit */
+            limit: number;
+            /**
+             * Next Offset
+             * @description Offset der nächsten Seite; null auf der letzten
+             */
+            next_offset?: number | null;
+            /** Offset */
+            offset: number;
+            /**
+             * Total
+             * @description Anzahl aller Treffer über alle Seiten
+             */
+            total: number;
+        };
+        /** Page[TimeEntryRead] */
+        Page_TimeEntryRead_: {
+            /** Items */
+            items: components["schemas"]["TimeEntryRead"][];
+            /** Limit */
+            limit: number;
+            /**
+             * Next Offset
+             * @description Offset der nächsten Seite; null auf der letzten
+             */
+            next_offset?: number | null;
+            /** Offset */
+            offset: number;
+            /**
+             * Total
+             * @description Anzahl aller Treffer über alle Seiten
+             */
+            total: number;
+        };
         /**
          * PatchActivityRequest
          * @description Body for ``PATCH /time-tracking/{entry_id}/activity`` (Slice 5).
@@ -9563,6 +9871,21 @@ export interface components {
             title: string;
             /** Valid Until */
             valid_until?: string | null;
+        };
+        /** PhotoExport */
+        PhotoExport: {
+            /** Id */
+            id: string;
+            /** Order Id */
+            order_id?: number | null;
+            /** Phase */
+            phase?: string | null;
+            /** Repair Job Id */
+            repair_job_id?: number | null;
+            /** Source */
+            source: string;
+            /** Taken At */
+            taken_at?: string | null;
         };
         /**
          * PortalLookupRequest
@@ -9713,6 +10036,39 @@ export interface components {
              * @default 14
              */
             valid_days: number;
+        };
+        /** QuoteExport */
+        QuoteExport: {
+            /** Approved At */
+            approved_at?: string | null;
+            /** Converted At */
+            converted_at?: string | null;
+            /** Created At */
+            created_at?: string | null;
+            /** Customer Signature Present */
+            customer_signature_present: boolean;
+            /** Id */
+            id: number;
+            /** Line Items */
+            line_items?: components["schemas"]["LineItemExport"][];
+            /** Order Id */
+            order_id?: number | null;
+            /** Quote Number */
+            quote_number: string;
+            /** Rejected At */
+            rejected_at?: string | null;
+            /** Status */
+            status?: string | null;
+            /** Subtotal */
+            subtotal: number;
+            /** Tax Amount */
+            tax_amount: number;
+            /** Tax Rate */
+            tax_rate: number;
+            /** Total */
+            total: number;
+            /** Valid Until */
+            valid_until?: string | null;
         };
         /**
          * QuoteLineItemCreate
@@ -9968,6 +10324,39 @@ export interface components {
              * @description Kostenvoranschlag in EUR
              */
             estimated_cost: number;
+        };
+        /** RepairExport */
+        RepairExport: {
+            /** Actual Completion Date */
+            actual_completion_date?: string | null;
+            /** Actual Cost */
+            actual_cost?: number | null;
+            /** Bag Number */
+            bag_number: string;
+            /** Created At */
+            created_at?: string | null;
+            /** Customer Notified At */
+            customer_notified_at?: string | null;
+            /** Estimated Completion Date */
+            estimated_completion_date?: string | null;
+            /** Estimated Cost */
+            estimated_cost?: number | null;
+            /** Estimated Value */
+            estimated_value?: number | null;
+            /** Id */
+            id: number;
+            /** Item Description */
+            item_description: string;
+            /** Item Type */
+            item_type?: string | null;
+            /** Metal Type */
+            metal_type?: string | null;
+            /** Picked Up At */
+            picked_up_at?: string | null;
+            /** Repair Number */
+            repair_number: string;
+            /** Status */
+            status?: string | null;
         };
         /**
          * RepairItemType
@@ -10452,6 +10841,31 @@ export interface components {
              */
             price_source: string;
         };
+        /** ScrapGoldExport */
+        ScrapGoldExport: {
+            /** Created At */
+            created_at?: string | null;
+            /** Gold Price Per G */
+            gold_price_per_g?: number | null;
+            /** Id */
+            id: number;
+            /** Items */
+            items?: components["schemas"]["ScrapGoldItemExport"][];
+            /** Order Id */
+            order_id?: number | null;
+            /** Receipt Pdf Present */
+            receipt_pdf_present: boolean;
+            /** Signature Present */
+            signature_present: boolean;
+            /** Signed At */
+            signed_at?: string | null;
+            /** Status */
+            status?: string | null;
+            /** Total Fine Gold G */
+            total_fine_gold_g?: number | null;
+            /** Total Value Eur */
+            total_value_eur?: number | null;
+        };
         /** ScrapGoldItemCreate */
         ScrapGoldItemCreate: {
             /** @description Alloy/fineness code, e.g. 585, 750, ag925, pt950 */
@@ -10464,6 +10878,19 @@ export interface components {
              * Weight G
              * @description Total weight in grams
              */
+            weight_g: number;
+        };
+        /** ScrapGoldItemExport */
+        ScrapGoldItemExport: {
+            /** Alloy */
+            alloy?: string | null;
+            /** Description */
+            description: string;
+            /** Fine Content G */
+            fine_content_g: number;
+            /** Photo Present */
+            photo_present: boolean;
+            /** Weight G */
             weight_g: number;
         };
         /** ScrapGoldItemRead */
@@ -11383,6 +11810,33 @@ export interface components {
              * @description z.B. 'Goldschmiedemeister' oder 'Staatlich anerkannter Gutachter'
              */
             goldsmith_qualification?: string | null;
+        };
+        /** ValuationExport */
+        ValuationExport: {
+            /** Appraised Value */
+            appraised_value?: number | null;
+            /** Certificate Number */
+            certificate_number: string;
+            /** Gemstones Description */
+            gemstones_description?: string | null;
+            /** Id */
+            id: number;
+            /** Item Description */
+            item_description: string;
+            /** Metal Purity */
+            metal_purity?: string | null;
+            /** Metal Type */
+            metal_type?: string | null;
+            /** Metal Weight G */
+            metal_weight_g?: number | null;
+            /** Order Id */
+            order_id?: number | null;
+            /** Pdf Present */
+            pdf_present: boolean;
+            /** Valid Until */
+            valid_until?: string | null;
+            /** Valuation Date */
+            valuation_date?: string | null;
         };
         /**
          * ValuationRead
@@ -13077,7 +13531,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["CustomerGdprExport"];
+                    "application/json": components["schemas"]["CustomerGdprExportFull"];
                 };
             };
             /** @description Validation Error */
@@ -14244,7 +14698,16 @@ export interface operations {
     list_materials_api_v1_materials__get: {
         parameters: {
             query?: {
-                limit?: number;
+                /** @description Seitengröße (Standard 50, maximal 200 mit offset) */
+                limit?: number | null;
+                /** @description Offset der Seite. Wenn gesetzt, antwortet der Endpunkt mit einer Page-Hülle {items, total, limit, offset, next_offset}. */
+                offset?: number | null;
+                /** @description Suche in Name und Lieferant (nur mit offset) */
+                q?: string | null;
+                /**
+                 * @deprecated
+                 * @description Veraltet: nur ohne offset (Listenantwort).
+                 */
                 skip?: number;
             };
             header?: never;
@@ -14261,7 +14724,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["MaterialRead"][];
+                    "application/json": components["schemas"]["Page_MaterialRead_"] | components["schemas"]["MaterialRead"][];
                 };
             };
             /** @description Validation Error */
@@ -15632,8 +16095,15 @@ export interface operations {
     list_notifications_api_v1_notifications__get: {
         parameters: {
             query?: {
-                /** @description Maximum number of notifications to return */
-                limit?: number;
+                /** @description Seitengröße (Standard 50, maximal 200 mit offset) */
+                limit?: number | null;
+                /** @description Offset der Seite. Wenn gesetzt, antwortet der Endpunkt mit einer Page-Hülle {items, total, limit, offset, next_offset}. */
+                offset?: number | null;
+                /**
+                 * @deprecated
+                 * @description Veraltet: nur ohne offset (Listenantwort).
+                 */
+                skip?: number;
                 /** @description When true, return only unread notifications */
                 unread_only?: boolean;
             };
@@ -15651,7 +16121,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["NotificationRead"][];
+                    "application/json": components["schemas"]["Page_NotificationRead_"] | components["schemas"]["NotificationRead"][];
                 };
             };
             /** @description Validation Error */
@@ -15831,10 +16301,25 @@ export interface operations {
     list_orders_api_v1_orders__get: {
         parameters: {
             query?: {
+                /** @description Angelegt ab (nur mit offset) */
+                created_from?: string | null;
+                /** @description Angelegt bis (nur mit offset) */
+                created_to?: string | null;
                 /** @description Filter by customer ID */
                 customer_id?: number | null;
-                limit?: number;
+                /** @description Seitengröße (Standard 50, maximal 200 mit offset) */
+                limit?: number | null;
+                /** @description Offset der Seite. Wenn gesetzt, antwortet der Endpunkt mit einer Page-Hülle {items, total, limit, offset, next_offset}. */
+                offset?: number | null;
+                /** @description Suche in Nummer, Titel, Kundenname/E-Mail (nur mit offset) */
+                q?: string | null;
+                /**
+                 * @deprecated
+                 * @description Veraltet: nur ohne offset (Listenantwort).
+                 */
                 skip?: number;
+                /** @description Nach Status filtern (nur mit offset) */
+                status?: components["schemas"]["OrderStatusEnum"] | null;
             };
             header?: never;
             path?: never;
@@ -15850,7 +16335,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["OrderListRead"][];
+                    "application/json": components["schemas"]["Page_OrderListRead_"] | components["schemas"]["OrderListRead"][];
                 };
             };
             /** @description Validation Error */
@@ -17260,11 +17745,22 @@ export interface operations {
     list_quotes_api_v1_quotes__get: {
         parameters: {
             query?: {
+                /** @description Angelegt ab (nur mit offset) */
+                created_from?: string | null;
+                /** @description Angelegt bis (nur mit offset) */
+                created_to?: string | null;
                 /** @description Filter by customer ID */
                 customer_id?: number | null;
-                /** @description Page size (max 200) */
-                limit?: number;
-                /** @description Pagination offset */
+                /** @description Seitengröße (Standard 50, maximal 200 mit offset) */
+                limit?: number | null;
+                /** @description Offset der Seite. Wenn gesetzt, antwortet der Endpunkt mit einer Page-Hülle {items, total, limit, offset, next_offset}. */
+                offset?: number | null;
+                /** @description Suche in KV-Nummer und Kundenname/E-Mail (nur mit offset) */
+                q?: string | null;
+                /**
+                 * @deprecated
+                 * @description Veraltet: nur ohne offset (Listenantwort).
+                 */
                 skip?: number;
                 /** @description Filter by quote status (draft, sent, approved, rejected, expired, converted) */
                 status?: components["schemas"]["QuoteStatus"] | null;
@@ -17283,7 +17779,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["QuoteListResponse"];
+                    "application/json": components["schemas"]["Page_QuoteListItem_"] | components["schemas"]["QuoteListResponse"];
                 };
             };
             /** @description Validation Error */
@@ -17738,11 +18234,18 @@ export interface operations {
             query?: {
                 /** @description Nach Kunde filtern */
                 customer_id?: number | null;
-                /** @description Maximale Ergebnisanzahl */
-                limit?: number;
+                /** @description Seitengröße (Standard 50, maximal 200 mit offset) */
+                limit?: number | null;
+                /** @description Offset der Seite. Wenn gesetzt, antwortet der Endpunkt mit einer Page-Hülle {items, total, limit, offset, next_offset}. */
+                offset?: number | null;
+                /** @description Suche in Nr, Tüte, Beschreibung, Kunde (nur mit offset) */
+                q?: string | null;
                 /** @description Suche in Nr, Tüte, Beschreibung */
                 search?: string | null;
-                /** @description Datensaetze ueberspringen */
+                /**
+                 * @deprecated
+                 * @description Veraltet: nur ohne offset (Listenantwort).
+                 */
                 skip?: number;
                 /** @description Nach Status filtern */
                 status?: components["schemas"]["RepairJobStatus"] | null;
@@ -17761,7 +18264,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["RepairJobListItem"][];
+                    "application/json": components["schemas"]["Page_RepairJobListItem_"] | components["schemas"]["RepairJobListItem"][];
                 };
             };
             /** @description Validation Error */
@@ -19329,7 +19832,14 @@ export interface operations {
     get_time_entries_for_order_api_v1_time_tracking_order__order_id__get: {
         parameters: {
             query?: {
-                limit?: number;
+                /** @description Seitengröße (Standard 50, maximal 200 mit offset) */
+                limit?: number | null;
+                /** @description Offset der Seite. Wenn gesetzt, antwortet der Endpunkt mit einer Page-Hülle {items, total, limit, offset, next_offset}. */
+                offset?: number | null;
+                /**
+                 * @deprecated
+                 * @description Veraltet: nur ohne offset (Listenantwort).
+                 */
                 skip?: number;
             };
             header?: never;
@@ -19348,7 +19858,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["TimeEntryRead"][];
+                    "application/json": components["schemas"]["Page_TimeEntryRead_"] | components["schemas"]["TimeEntryRead"][];
                 };
             };
             /** @description Validation Error */
@@ -19504,7 +20014,14 @@ export interface operations {
             query?: {
                 /** @description Filter by end date */
                 end_date?: string | null;
-                limit?: number;
+                /** @description Seitengröße (Standard 50, maximal 200 mit offset) */
+                limit?: number | null;
+                /** @description Offset der Seite. Wenn gesetzt, antwortet der Endpunkt mit einer Page-Hülle {items, total, limit, offset, next_offset}. */
+                offset?: number | null;
+                /**
+                 * @deprecated
+                 * @description Veraltet: nur ohne offset (Listenantwort).
+                 */
                 skip?: number;
                 /** @description Filter by start date */
                 start_date?: string | null;
@@ -19525,7 +20042,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["TimeEntryRead"][];
+                    "application/json": components["schemas"]["Page_TimeEntryRead_"] | components["schemas"]["TimeEntryRead"][];
                 };
             };
             /** @description Validation Error */

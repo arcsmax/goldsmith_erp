@@ -1654,7 +1654,7 @@
           "customers"
         ],
         "summary": "Gdpr Export Customer",
-        "description": "GDPR Art. 15 — Export all personal data held for a customer.\n\nReturns the customer record along with all related data (orders,\nmeasurements, no-gos, style profile, consultation metadata) as a JSON\nobject.  Access is restricted to ADMIN role (CUSTOMER_DELETE\npermission) because the export contains raw PII.\n\nDesign-IP exclusion (V1.1, issue #14; finding 2.11): consultation\n``wishes``, ``notes``, ``source_material``, ``materials_discussed``,\nconsultation photos (sketches/reference images), AND ``order.description``\n(the design brief for a custom piece) are the GOLDSMITH's design work\nproduct, not the data subject's personal data — CLAUDE.md \"Design IP\"\nrule (\"Design descriptions in orders are business-confidential\")\nrestricts them to GOLDSMITH/ADMIN access and excludes them from data\nexports without explicit consent. They are deliberately left out of the\n``orders`` and ``consultations`` lists below; the ``design_data_excluded``\nflag documents that omission for anyone auditing a DPO response.\n\nPermissions: Requires CUSTOMER_DELETE permission (Admin only).",
+        "description": "GDPR Art. 15 — Export all personal data held for a customer.\n\nReturns the customer record along with all related data (orders,\nmeasurements, no-gos, style profile, consultation metadata) as a JSON\nobject.  Access is restricted to ADMIN role (CUSTOMER_DELETE\npermission) because the export contains raw PII.\n\nDesign-IP exclusion (V1.1, issue #14; finding 2.11): consultation\n``wishes``, ``notes``, ``source_material``, ``materials_discussed``,\nconsultation photos (sketches/reference images), AND ``order.description``\n(the design brief for a custom piece) are the GOLDSMITH's design work\nproduct, not the data subject's personal data — CLAUDE.md \"Design IP\"\nrule (\"Design descriptions in orders are business-confidential\")\nrestricts them to GOLDSMITH/ADMIN access and excludes them from data\nexports without explicit consent. They are deliberately left out of the\n``orders`` and ``consultations`` lists below; the ``design_data_excluded``\nflag documents that omission for anyone auditing a DPO response.\n\nGDPR-05 (2026-09): the export also covers invoices, quotes, Altgold,\nvaluations, repairs, customer updates, §649 cost changes, photo\nmetadata, the order status history, the customer's GDPR requests, an\naccess log (what/when, not who) and an Art. 15 Abs. 1 ``meta`` block\n(``services/gdpr_export_service.py``). Decision D-13: what the customer\ntold us in a consultation (``wishes``, ``source_material``) is disclosed\nin ``consultation_statements``; the goldsmith's own design work stays\nwithheld (Art. 15 Abs. 4). Every export writes a\n``gdpr_requests(request_type='export')`` row.\n\nPermissions: Requires CUSTOMER_DELETE permission (Admin only).",
         "operationId": "gdpr_export_customer_api_v1_customers__customer_id__export_get",
         "security": [
           {
@@ -1694,7 +1694,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/CustomerGdprExport"
+                  "$ref": "#/components/schemas/CustomerGdprExportFull"
                 }
               }
             }
@@ -2464,7 +2464,7 @@
           "orders"
         ],
         "summary": "List Orders",
-        "description": "Liste aller Aufträge.\n\nVIEWER-role callers receive the list WITHOUT the seven financial fields\n(``price``, ``material_cost_*``, ``labor_cost``, ``hourly_rate``,\n``profit_margin_percent``, ``calculated_price``). See C5 fix-plan.",
+        "description": "Liste aller Aufträge.\n\nWith ``offset``: a ``Page`` with server-side filters and search. Without\nit (deprecated, one release): the legacy plain list, flagged with\n``X-Deprecated-List: true``; only ``customer_id`` filters there.\n\nVIEWER-role callers receive the list WITHOUT the seven financial fields\n(``price``, ``material_cost_*``, ``labor_cost``, ``hourly_rate``,\n``profit_margin_percent``, ``calculated_price``). See C5 fix-plan.",
         "operationId": "list_orders_api_v1_orders__get",
         "security": [
           {
@@ -2472,26 +2472,6 @@
           }
         ],
         "parameters": [
-          {
-            "name": "skip",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "default": 0,
-              "title": "Skip"
-            }
-          },
-          {
-            "name": "limit",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "default": 100,
-              "title": "Limit"
-            }
-          },
           {
             "name": "customer_id",
             "in": "query",
@@ -2509,6 +2489,136 @@
               "title": "Customer Id"
             },
             "description": "Filter by customer ID"
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/OrderStatusEnum"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Nach Status filtern (nur mit offset)",
+              "title": "Status"
+            },
+            "description": "Nach Status filtern (nur mit offset)"
+          },
+          {
+            "name": "created_from",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Angelegt ab (nur mit offset)",
+              "title": "Created From"
+            },
+            "description": "Angelegt ab (nur mit offset)"
+          },
+          {
+            "name": "created_to",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Angelegt bis (nur mit offset)",
+              "title": "Created To"
+            },
+            "description": "Angelegt bis (nur mit offset)"
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 100
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Suche in Nummer, Titel, Kundenname/E-Mail (nur mit offset)",
+              "title": "Q"
+            },
+            "description": "Suche in Nummer, Titel, Kundenname/E-Mail (nur mit offset)"
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Offset der Seite. Wenn gesetzt, antwortet der Endpunkt mit einer Page-Hülle {items, total, limit, offset, next_offset}.",
+              "title": "Offset"
+            },
+            "description": "Offset der Seite. Wenn gesetzt, antwortet der Endpunkt mit einer Page-Hülle {items, total, limit, offset, next_offset}."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "maximum": 500,
+                  "minimum": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Seitengröße (Standard 50, maximal 200 mit offset)",
+              "title": "Limit"
+            },
+            "description": "Seitengröße (Standard 50, maximal 200 mit offset)"
+          },
+          {
+            "name": "skip",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Veraltet: nur ohne offset (Listenantwort).",
+              "deprecated": true,
+              "default": 0,
+              "title": "Skip"
+            },
+            "description": "Veraltet: nur ohne offset (Listenantwort).",
+            "deprecated": true
           },
           {
             "name": "access_token",
@@ -2533,10 +2643,17 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/OrderListRead"
-                  },
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/Page_OrderListRead_"
+                    },
+                    {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/OrderListRead"
+                      }
+                    }
+                  ],
                   "title": "Response List Orders Api V1 Orders  Get"
                 }
               }
@@ -3419,7 +3536,7 @@
           "materials"
         ],
         "summary": "List Materials",
-        "description": "Alle Materialien auflisten.\n\n- **Authentifizierung erforderlich**\n- Gibt eine Liste aller Materialien zurück (mit Pagination)\n- Sortiert alphabetisch nach Namen\n\n**Use Case**: Übersicht über alle verfügbaren Materialien.",
+        "description": "Alle Materialien auflisten.\n\n- **Authentifizierung erforderlich**\n- Gibt eine Liste aller Materialien zurück (mit Pagination)\n- Sortiert alphabetisch nach Namen\n\n**Use Case**: Übersicht über alle verfügbaren Materialien.\n\nMit ``offset``: ``Page`` mit Gesamtzahl und ``q``-Suche. Ohne ``offset``\n(veraltet): Liste mit Header ``X-Deprecated-List: true``.",
         "operationId": "list_materials_api_v1_materials__get",
         "security": [
           {
@@ -3428,24 +3545,78 @@
         ],
         "parameters": [
           {
-            "name": "skip",
+            "name": "q",
             "in": "query",
             "required": false,
             "schema": {
-              "type": "integer",
-              "default": 0,
-              "title": "Skip"
-            }
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 100
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Suche in Name und Lieferant (nur mit offset)",
+              "title": "Q"
+            },
+            "description": "Suche in Name und Lieferant (nur mit offset)"
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Offset der Seite. Wenn gesetzt, antwortet der Endpunkt mit einer Page-Hülle {items, total, limit, offset, next_offset}.",
+              "title": "Offset"
+            },
+            "description": "Offset der Seite. Wenn gesetzt, antwortet der Endpunkt mit einer Page-Hülle {items, total, limit, offset, next_offset}."
           },
           {
             "name": "limit",
             "in": "query",
             "required": false,
             "schema": {
-              "type": "integer",
-              "default": 100,
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "maximum": 500,
+                  "minimum": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Seitengröße (Standard 50, maximal 200 mit offset)",
               "title": "Limit"
-            }
+            },
+            "description": "Seitengröße (Standard 50, maximal 200 mit offset)"
+          },
+          {
+            "name": "skip",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Veraltet: nur ohne offset (Listenantwort).",
+              "deprecated": true,
+              "default": 0,
+              "title": "Skip"
+            },
+            "description": "Veraltet: nur ohne offset (Listenantwort).",
+            "deprecated": true
           },
           {
             "name": "access_token",
@@ -3470,10 +3641,17 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/MaterialRead"
-                  },
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/Page_MaterialRead_"
+                    },
+                    {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/MaterialRead"
+                      }
+                    }
+                  ],
                   "title": "Response List Materials Api V1 Materials  Get"
                 }
               }
@@ -5563,24 +5741,58 @@
             }
           },
           {
-            "name": "skip",
+            "name": "offset",
             "in": "query",
             "required": false,
             "schema": {
-              "type": "integer",
-              "default": 0,
-              "title": "Skip"
-            }
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Offset der Seite. Wenn gesetzt, antwortet der Endpunkt mit einer Page-Hülle {items, total, limit, offset, next_offset}.",
+              "title": "Offset"
+            },
+            "description": "Offset der Seite. Wenn gesetzt, antwortet der Endpunkt mit einer Page-Hülle {items, total, limit, offset, next_offset}."
           },
           {
             "name": "limit",
             "in": "query",
             "required": false,
             "schema": {
-              "type": "integer",
-              "default": 100,
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "maximum": 500,
+                  "minimum": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Seitengröße (Standard 50, maximal 200 mit offset)",
               "title": "Limit"
-            }
+            },
+            "description": "Seitengröße (Standard 50, maximal 200 mit offset)"
+          },
+          {
+            "name": "skip",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Veraltet: nur ohne offset (Listenantwort).",
+              "deprecated": true,
+              "default": 0,
+              "title": "Skip"
+            },
+            "description": "Veraltet: nur ohne offset (Listenantwort).",
+            "deprecated": true
           },
           {
             "name": "access_token",
@@ -5605,10 +5817,17 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/TimeEntryRead"
-                  },
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/Page_TimeEntryRead_"
+                    },
+                    {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/TimeEntryRead"
+                      }
+                    }
+                  ],
                   "title": "Response Get Time Entries For Order Api V1 Time Tracking Order  Order Id  Get"
                 }
               }
@@ -5751,24 +5970,58 @@
             "description": "Filter by end date"
           },
           {
-            "name": "skip",
+            "name": "offset",
             "in": "query",
             "required": false,
             "schema": {
-              "type": "integer",
-              "default": 0,
-              "title": "Skip"
-            }
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Offset der Seite. Wenn gesetzt, antwortet der Endpunkt mit einer Page-Hülle {items, total, limit, offset, next_offset}.",
+              "title": "Offset"
+            },
+            "description": "Offset der Seite. Wenn gesetzt, antwortet der Endpunkt mit einer Page-Hülle {items, total, limit, offset, next_offset}."
           },
           {
             "name": "limit",
             "in": "query",
             "required": false,
             "schema": {
-              "type": "integer",
-              "default": 100,
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "maximum": 500,
+                  "minimum": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Seitengröße (Standard 50, maximal 200 mit offset)",
               "title": "Limit"
-            }
+            },
+            "description": "Seitengröße (Standard 50, maximal 200 mit offset)"
+          },
+          {
+            "name": "skip",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Veraltet: nur ohne offset (Listenantwort).",
+              "deprecated": true,
+              "default": 0,
+              "title": "Skip"
+            },
+            "description": "Veraltet: nur ohne offset (Listenantwort).",
+            "deprecated": true
           },
           {
             "name": "access_token",
@@ -5793,10 +6046,17 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/TimeEntryRead"
-                  },
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/Page_TimeEntryRead_"
+                    },
+                    {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/TimeEntryRead"
+                      }
+                    }
+                  ],
                   "title": "Response Get Time Entries For User Api V1 Time Tracking User  User Id  Get"
                 }
               }
@@ -10262,7 +10522,7 @@
           "notifications"
         ],
         "summary": "List Notifications",
-        "description": "Return the authenticated user's notifications, newest first.\n\nUse ``unread_only=true`` to fetch only unread items (e.g. for notification panel).",
+        "description": "Return the authenticated user's notifications, newest first.\n\nUse ``unread_only=true`` to fetch only unread items (e.g. for notification panel).\nWith ``offset``: a ``Page``; without it (deprecated): the legacy list with\n``X-Deprecated-List: true`` (legacy mode ignores ``skip``, as before).",
         "operationId": "list_notifications_api_v1_notifications__get",
         "security": [
           {
@@ -10283,18 +10543,58 @@
             "description": "When true, return only unread notifications"
           },
           {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Offset der Seite. Wenn gesetzt, antwortet der Endpunkt mit einer Page-Hülle {items, total, limit, offset, next_offset}.",
+              "title": "Offset"
+            },
+            "description": "Offset der Seite. Wenn gesetzt, antwortet der Endpunkt mit einer Page-Hülle {items, total, limit, offset, next_offset}."
+          },
+          {
             "name": "limit",
             "in": "query",
             "required": false,
             "schema": {
-              "type": "integer",
-              "maximum": 200,
-              "minimum": 1,
-              "description": "Maximum number of notifications to return",
-              "default": 50,
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "maximum": 200,
+                  "minimum": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Seitengröße (Standard 50, maximal 200 mit offset)",
               "title": "Limit"
             },
-            "description": "Maximum number of notifications to return"
+            "description": "Seitengröße (Standard 50, maximal 200 mit offset)"
+          },
+          {
+            "name": "skip",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Veraltet: nur ohne offset (Listenantwort).",
+              "deprecated": true,
+              "default": 0,
+              "title": "Skip"
+            },
+            "description": "Veraltet: nur ohne offset (Listenantwort).",
+            "deprecated": true
           },
           {
             "name": "access_token",
@@ -10319,10 +10619,17 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/NotificationRead"
-                  },
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/Page_NotificationRead_"
+                    },
+                    {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/NotificationRead"
+                      }
+                    }
+                  ],
                   "title": "Response List Notifications Api V1 Notifications  Get"
                 }
               }
@@ -11887,7 +12194,7 @@
           "quotes"
         ],
         "summary": "List Quotes",
-        "description": "Angebotsliste (List quotes with optional filters).\n\nSupports filtering by status and customer.\nResults are sorted by created_at descending (newest first).",
+        "description": "Angebotsliste (List quotes with optional filters).\n\nSupports filtering by status and customer.\nResults are sorted by created_at descending (newest first).\n\nWith ``offset``: a ``Page`` (``items, total, limit, offset,\nnext_offset``) with date range and ``q`` search. Without it\n(deprecated, one release): the legacy ``{items, total, skip, limit}``\nenvelope, flagged with ``X-Deprecated-List: true``.",
         "operationId": "list_quotes_api_v1_quotes__get",
         "security": [
           {
@@ -11895,33 +12202,6 @@
           }
         ],
         "parameters": [
-          {
-            "name": "skip",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "minimum": 0,
-              "description": "Pagination offset",
-              "default": 0,
-              "title": "Skip"
-            },
-            "description": "Pagination offset"
-          },
-          {
-            "name": "limit",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "maximum": 200,
-              "minimum": 1,
-              "description": "Page size (max 200)",
-              "default": 50,
-              "title": "Limit"
-            },
-            "description": "Page size (max 200)"
-          },
           {
             "name": "status",
             "in": "query",
@@ -11960,6 +12240,118 @@
             "description": "Filter by customer ID"
           },
           {
+            "name": "created_from",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Angelegt ab (nur mit offset)",
+              "title": "Created From"
+            },
+            "description": "Angelegt ab (nur mit offset)"
+          },
+          {
+            "name": "created_to",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Angelegt bis (nur mit offset)",
+              "title": "Created To"
+            },
+            "description": "Angelegt bis (nur mit offset)"
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 100
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Suche in KV-Nummer und Kundenname/E-Mail (nur mit offset)",
+              "title": "Q"
+            },
+            "description": "Suche in KV-Nummer und Kundenname/E-Mail (nur mit offset)"
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Offset der Seite. Wenn gesetzt, antwortet der Endpunkt mit einer Page-Hülle {items, total, limit, offset, next_offset}.",
+              "title": "Offset"
+            },
+            "description": "Offset der Seite. Wenn gesetzt, antwortet der Endpunkt mit einer Page-Hülle {items, total, limit, offset, next_offset}."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "maximum": 200,
+                  "minimum": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Seitengröße (Standard 50, maximal 200 mit offset)",
+              "title": "Limit"
+            },
+            "description": "Seitengröße (Standard 50, maximal 200 mit offset)"
+          },
+          {
+            "name": "skip",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Veraltet: nur ohne offset (Listenantwort).",
+              "deprecated": true,
+              "default": 0,
+              "title": "Skip"
+            },
+            "description": "Veraltet: nur ohne offset (Listenantwort).",
+            "deprecated": true
+          },
+          {
             "name": "access_token",
             "in": "cookie",
             "required": false,
@@ -11982,7 +12374,15 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/QuoteListResponse"
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/Page_QuoteListItem_"
+                    },
+                    {
+                      "$ref": "#/components/schemas/QuoteListResponse"
+                    }
+                  ],
+                  "title": "Response List Quotes Api V1 Quotes  Get"
                 }
               }
             }
@@ -12756,7 +13156,7 @@
           "repairs"
         ],
         "summary": "List Repairs",
-        "description": "Liste aller Reparaturauftraege mit optionalen Filtern.\n\nGibt kompakte ListItem-Objekte zurueck (ohne Fotos und lange Felder).\nOhne FINANCIAL_VIEW (VIEWER) entfaellt ``estimated_cost``.",
+        "description": "Liste aller Reparaturauftraege mit optionalen Filtern.\n\nMit ``offset``: ``Page`` mit Gesamtzahl; ``q`` (oder ``search``) sucht\nzusaetzlich im Kundennamen. Ohne ``offset`` (veraltet): Liste mit Header\n``X-Deprecated-List: true``.\n\nGibt kompakte ListItem-Objekte zurueck (ohne Fotos und lange Felder).\nOhne FINANCIAL_VIEW (VIEWER) entfaellt ``estimated_cost``.",
         "operationId": "list_repairs_api_v1_repairs__get",
         "security": [
           {
@@ -12764,33 +13164,6 @@
           }
         ],
         "parameters": [
-          {
-            "name": "skip",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "minimum": 0,
-              "description": "Datensaetze ueberspringen",
-              "default": 0,
-              "title": "Skip"
-            },
-            "description": "Datensaetze ueberspringen"
-          },
-          {
-            "name": "limit",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "maximum": 500,
-              "minimum": 1,
-              "description": "Maximale Ergebnisanzahl",
-              "default": 100,
-              "title": "Limit"
-            },
-            "description": "Maximale Ergebnisanzahl"
-          },
           {
             "name": "status",
             "in": "query",
@@ -12848,6 +13221,80 @@
             "description": "Suche in Nr, Tüte, Beschreibung"
           },
           {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 100
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Suche in Nr, Tüte, Beschreibung, Kunde (nur mit offset)",
+              "title": "Q"
+            },
+            "description": "Suche in Nr, Tüte, Beschreibung, Kunde (nur mit offset)"
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Offset der Seite. Wenn gesetzt, antwortet der Endpunkt mit einer Page-Hülle {items, total, limit, offset, next_offset}.",
+              "title": "Offset"
+            },
+            "description": "Offset der Seite. Wenn gesetzt, antwortet der Endpunkt mit einer Page-Hülle {items, total, limit, offset, next_offset}."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "maximum": 500,
+                  "minimum": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Seitengröße (Standard 50, maximal 200 mit offset)",
+              "title": "Limit"
+            },
+            "description": "Seitengröße (Standard 50, maximal 200 mit offset)"
+          },
+          {
+            "name": "skip",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Veraltet: nur ohne offset (Listenantwort).",
+              "deprecated": true,
+              "default": 0,
+              "title": "Skip"
+            },
+            "description": "Veraltet: nur ohne offset (Listenantwort).",
+            "deprecated": true
+          },
+          {
             "name": "access_token",
             "in": "cookie",
             "required": false,
@@ -12870,10 +13317,17 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/RepairJobListItem"
-                  },
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/Page_RepairJobListItem_"
+                    },
+                    {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/RepairJobListItem"
+                      }
+                    }
+                  ],
                   "title": "Response List Repairs Api V1 Repairs  Get"
                 }
               }
@@ -17686,6 +18140,54 @@
   },
   "components": {
     "schemas": {
+      "AccessLogExport": {
+        "properties": {
+          "action": {
+            "type": "string",
+            "title": "Action"
+          },
+          "entity": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Entity"
+          },
+          "entity_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Entity Id"
+          },
+          "timestamp": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Timestamp"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "action"
+        ],
+        "title": "AccessLogExport",
+        "description": "C-579/21: when and what was done with the data; not by whom."
+      },
       "ActionItem": {
         "properties": {
           "id": {
@@ -19991,6 +20493,43 @@
         ],
         "title": "ConsultationRead"
       },
+      "ConsultationStatementExport": {
+        "properties": {
+          "consultation_id": {
+            "type": "integer",
+            "title": "Consultation Id"
+          },
+          "wishes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Wishes"
+          },
+          "source_material": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Material"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "consultation_id"
+        ],
+        "title": "ConsultationStatementExport",
+        "description": "D-13: what the customer told us — disclosed, unlike the design work."
+      },
       "ConsultationStatus": {
         "type": "string",
         "enum": [
@@ -20175,6 +20714,117 @@
         ],
         "title": "CostChangeCreate",
         "description": "Schema for creating a CostChangeRequest.\n\nDoes NOT carry ``order_id``: path-supplied in Task 5's router\n(``POST /orders/{id}/cost-changes``). ``original_amount`` is likewise\nabsent here — the service derives it from the order's referenceable\nQuote (Task 3's CostWatchService quote-selection rule), not from client\ninput, so a customer-facing \"prior amount\" can't be spoofed by the\nrequest body."
+      },
+      "CostChangeExport": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "order_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Order Id"
+          },
+          "quote_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quote Id"
+          },
+          "original_amount": {
+            "type": "number",
+            "title": "Original Amount"
+          },
+          "new_amount": {
+            "type": "number",
+            "title": "New Amount"
+          },
+          "delta_percent": {
+            "type": "number",
+            "title": "Delta Percent"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status"
+          },
+          "response_method": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Response Method"
+          },
+          "response_evidence": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Response Evidence"
+          },
+          "responded_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Responded At"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "original_amount",
+          "new_amount",
+          "delta_percent",
+          "reason"
+        ],
+        "title": "CostChangeExport"
       },
       "CostChangeLineItem": {
         "properties": {
@@ -20817,69 +21467,6 @@
         "title": "CustomerCreate",
         "description": "Schema for creating a new customer"
       },
-      "CustomerGdprExport": {
-        "properties": {
-          "export_date": {
-            "type": "string",
-            "title": "Export Date"
-          },
-          "customer": {
-            "$ref": "#/components/schemas/CustomerGdprExportCustomer"
-          },
-          "orders": {
-            "items": {
-              "$ref": "#/components/schemas/CustomerOrderExport"
-            },
-            "type": "array",
-            "title": "Orders"
-          },
-          "measurements": {
-            "items": {
-              "$ref": "#/components/schemas/CustomerMeasurementExport"
-            },
-            "type": "array",
-            "title": "Measurements"
-          },
-          "no_gos": {
-            "items": {
-              "$ref": "#/components/schemas/NoGoExport"
-            },
-            "type": "array",
-            "title": "No Gos"
-          },
-          "style_profile": {
-            "additionalProperties": true,
-            "type": "object",
-            "title": "Style Profile"
-          },
-          "consultations": {
-            "items": {
-              "$ref": "#/components/schemas/ConsultationExportItem"
-            },
-            "type": "array",
-            "title": "Consultations"
-          },
-          "consents": {
-            "items": {
-              "$ref": "#/components/schemas/ConsentExport"
-            },
-            "type": "array",
-            "title": "Consents"
-          },
-          "design_data_excluded": {
-            "type": "boolean",
-            "title": "Design Data Excluded",
-            "default": true
-          }
-        },
-        "type": "object",
-        "required": [
-          "export_date",
-          "customer"
-        ],
-        "title": "CustomerGdprExport",
-        "description": "GDPR Art. 15 data export payload — GET /customers/{id}/export.\n\n``response_model`` for the export endpoint (item D, ECC-review fix\nwave). See ``ConsultationExportItem`` for the design-IP structural\nenforcement rationale."
-      },
       "CustomerGdprExportCustomer": {
         "properties": {
           "id": {
@@ -21102,6 +21689,158 @@
         ],
         "title": "CustomerGdprExportCustomer",
         "description": "The ``customer`` block of the GDPR export payload."
+      },
+      "CustomerGdprExportFull": {
+        "properties": {
+          "export_date": {
+            "type": "string",
+            "title": "Export Date"
+          },
+          "customer": {
+            "$ref": "#/components/schemas/CustomerGdprExportCustomer"
+          },
+          "orders": {
+            "items": {
+              "$ref": "#/components/schemas/CustomerOrderExport"
+            },
+            "type": "array",
+            "title": "Orders"
+          },
+          "measurements": {
+            "items": {
+              "$ref": "#/components/schemas/CustomerMeasurementExport"
+            },
+            "type": "array",
+            "title": "Measurements"
+          },
+          "no_gos": {
+            "items": {
+              "$ref": "#/components/schemas/NoGoExport"
+            },
+            "type": "array",
+            "title": "No Gos"
+          },
+          "style_profile": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Style Profile"
+          },
+          "consultations": {
+            "items": {
+              "$ref": "#/components/schemas/ConsultationExportItem"
+            },
+            "type": "array",
+            "title": "Consultations"
+          },
+          "consents": {
+            "items": {
+              "$ref": "#/components/schemas/ConsentExport"
+            },
+            "type": "array",
+            "title": "Consents"
+          },
+          "design_data_excluded": {
+            "type": "boolean",
+            "title": "Design Data Excluded",
+            "default": true
+          },
+          "invoices": {
+            "items": {
+              "$ref": "#/components/schemas/InvoiceExport"
+            },
+            "type": "array",
+            "title": "Invoices"
+          },
+          "quotes": {
+            "items": {
+              "$ref": "#/components/schemas/QuoteExport"
+            },
+            "type": "array",
+            "title": "Quotes"
+          },
+          "scrap_gold": {
+            "items": {
+              "$ref": "#/components/schemas/ScrapGoldExport"
+            },
+            "type": "array",
+            "title": "Scrap Gold"
+          },
+          "valuations": {
+            "items": {
+              "$ref": "#/components/schemas/ValuationExport"
+            },
+            "type": "array",
+            "title": "Valuations"
+          },
+          "repairs": {
+            "items": {
+              "$ref": "#/components/schemas/RepairExport"
+            },
+            "type": "array",
+            "title": "Repairs"
+          },
+          "customer_updates": {
+            "items": {
+              "$ref": "#/components/schemas/CustomerUpdateExport"
+            },
+            "type": "array",
+            "title": "Customer Updates"
+          },
+          "cost_changes": {
+            "items": {
+              "$ref": "#/components/schemas/CostChangeExport"
+            },
+            "type": "array",
+            "title": "Cost Changes"
+          },
+          "photos": {
+            "items": {
+              "$ref": "#/components/schemas/PhotoExport"
+            },
+            "type": "array",
+            "title": "Photos"
+          },
+          "order_events": {
+            "items": {
+              "$ref": "#/components/schemas/OrderEventExport"
+            },
+            "type": "array",
+            "title": "Order Events"
+          },
+          "consultation_statements": {
+            "items": {
+              "$ref": "#/components/schemas/ConsultationStatementExport"
+            },
+            "type": "array",
+            "title": "Consultation Statements"
+          },
+          "gdpr_requests": {
+            "items": {
+              "$ref": "#/components/schemas/GdprRequestExport"
+            },
+            "type": "array",
+            "title": "Gdpr Requests"
+          },
+          "access_log": {
+            "items": {
+              "$ref": "#/components/schemas/AccessLogExport"
+            },
+            "type": "array",
+            "title": "Access Log"
+          },
+          "meta": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Meta"
+          }
+        },
+        "type": "object",
+        "required": [
+          "export_date",
+          "customer"
+        ],
+        "title": "CustomerGdprExportFull",
+        "description": "Complete Art. 15 export (GDPR-05)."
       },
       "CustomerListItem": {
         "properties": {
@@ -21903,6 +22642,112 @@
         "title": "CustomerUpdateCreate",
         "description": "Schema for creating a CustomerUpdate draft.\n\nDoes NOT carry ``order_id`` / ``repair_job_id``: those come from the\nURL path in Task 5's router (``POST /orders/{id}/updates`` /\n``POST /repairs/{id}/updates`` or equivalent), not the request body —\nso there is deliberately NO \"exactly one target\" validator on this\nschema. That invariant lives on the ``CustomerUpdate`` ORM model\n(enforced at the Pydantic layer that DOES see both FKs: the service\nlayer constructs the ORM row from the path-supplied target plus this\nbody). ``subject`` / ``body`` are optional — when omitted, the service\nfills them from the matching German template for ``kind``."
       },
+      "CustomerUpdateExport": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "order_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Order Id"
+          },
+          "repair_job_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Repair Job Id"
+          },
+          "kind": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Kind"
+          },
+          "subject": {
+            "type": "string",
+            "title": "Subject"
+          },
+          "body": {
+            "type": "string",
+            "title": "Body"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status"
+          },
+          "delivery_method": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Delivery Method"
+          },
+          "photo_count": {
+            "type": "integer",
+            "title": "Photo Count"
+          },
+          "sent_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sent At"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "subject",
+          "body",
+          "photo_count"
+        ],
+        "title": "CustomerUpdateExport"
+      },
       "CustomerUpdateKind": {
         "type": "string",
         "enum": [
@@ -22592,6 +23437,47 @@
         ],
         "title": "FinishTypeEnum",
         "description": "Surface finish type — correlates with polishing time in ML models."
+      },
+      "GdprRequestExport": {
+        "properties": {
+          "request_type": {
+            "type": "string",
+            "title": "Request Type"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "requested_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Requested At"
+          },
+          "completed_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completed At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "request_type",
+          "status"
+        ],
+        "title": "GdprRequestExport"
       },
       "HTTPValidationError": {
         "properties": {
@@ -23456,6 +24342,129 @@
         "title": "InvoiceCreate",
         "description": "Schema for creating an invoice from an order.\n\nThe service will auto-populate line items from the order's material,\nlabor, and gemstone data. Caller may also supply additional line items."
       },
+      "InvoiceExport": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "invoice_number": {
+            "type": "string",
+            "title": "Invoice Number"
+          },
+          "order_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Order Id"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status"
+          },
+          "issue_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Issue Date"
+          },
+          "due_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Due Date"
+          },
+          "paid_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Paid Date"
+          },
+          "issued_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Issued At"
+          },
+          "subtotal": {
+            "type": "number",
+            "title": "Subtotal"
+          },
+          "tax_rate": {
+            "type": "number",
+            "title": "Tax Rate"
+          },
+          "tax_amount": {
+            "type": "number",
+            "title": "Tax Amount"
+          },
+          "total": {
+            "type": "number",
+            "title": "Total"
+          },
+          "payment_method": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Payment Method"
+          },
+          "line_items": {
+            "items": {
+              "$ref": "#/components/schemas/LineItemExport"
+            },
+            "type": "array",
+            "title": "Line Items"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "invoice_number",
+          "subtotal",
+          "tax_rate",
+          "tax_amount",
+          "total"
+        ],
+        "title": "InvoiceExport"
+      },
       "InvoiceLineItemCreate": {
         "properties": {
           "line_type": {
@@ -24069,6 +25078,35 @@
           "timers"
         ],
         "title": "LaneCounts"
+      },
+      "LineItemExport": {
+        "properties": {
+          "description": {
+            "type": "string",
+            "title": "Description"
+          },
+          "quantity": {
+            "type": "number",
+            "title": "Quantity"
+          },
+          "unit_price": {
+            "type": "number",
+            "title": "Unit Price"
+          },
+          "total": {
+            "type": "number",
+            "title": "Total"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "description",
+          "quantity",
+          "unit_price",
+          "total"
+        ],
+        "title": "LineItemExport"
       },
       "LocationChangeRequest": {
         "properties": {
@@ -26762,6 +27800,47 @@
         "title": "OrderCreate",
         "description": "Schema für Order-Erstellung mit Validation."
       },
+      "OrderEventExport": {
+        "properties": {
+          "order_id": {
+            "type": "integer",
+            "title": "Order Id"
+          },
+          "from_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "From Status"
+          },
+          "to_status": {
+            "type": "string",
+            "title": "To Status"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "order_id",
+          "to_status"
+        ],
+        "title": "OrderEventExport"
+      },
       "OrderListRead": {
         "properties": {
           "title": {
@@ -28329,6 +29408,294 @@
         "title": "OverrideReasonCategoryEnum",
         "description": "Audit-filter categories for an alloy-mismatch override (A2.4 / Thomas §3).\n\nThe category is a structured facet joined to the freetext\n``override_reason`` so audit queries can slice 30 days of overrides\nwithout scanning plain-text reasons."
       },
+      "Page_MaterialRead_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/MaterialRead"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Total",
+            "description": "Anzahl aller Treffer über alle Seiten"
+          },
+          "limit": {
+            "type": "integer",
+            "maximum": 200.0,
+            "minimum": 1.0,
+            "title": "Limit"
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Offset"
+          },
+          "next_offset": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Offset",
+            "description": "Offset der nächsten Seite; null auf der letzten"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "title": "Page[MaterialRead]"
+      },
+      "Page_NotificationRead_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/NotificationRead"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Total",
+            "description": "Anzahl aller Treffer über alle Seiten"
+          },
+          "limit": {
+            "type": "integer",
+            "maximum": 200.0,
+            "minimum": 1.0,
+            "title": "Limit"
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Offset"
+          },
+          "next_offset": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Offset",
+            "description": "Offset der nächsten Seite; null auf der letzten"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "title": "Page[NotificationRead]"
+      },
+      "Page_OrderListRead_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/OrderListRead"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Total",
+            "description": "Anzahl aller Treffer über alle Seiten"
+          },
+          "limit": {
+            "type": "integer",
+            "maximum": 200.0,
+            "minimum": 1.0,
+            "title": "Limit"
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Offset"
+          },
+          "next_offset": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Offset",
+            "description": "Offset der nächsten Seite; null auf der letzten"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "title": "Page[OrderListRead]"
+      },
+      "Page_QuoteListItem_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/QuoteListItem"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Total",
+            "description": "Anzahl aller Treffer über alle Seiten"
+          },
+          "limit": {
+            "type": "integer",
+            "maximum": 200.0,
+            "minimum": 1.0,
+            "title": "Limit"
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Offset"
+          },
+          "next_offset": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Offset",
+            "description": "Offset der nächsten Seite; null auf der letzten"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "title": "Page[QuoteListItem]"
+      },
+      "Page_RepairJobListItem_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/RepairJobListItem"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Total",
+            "description": "Anzahl aller Treffer über alle Seiten"
+          },
+          "limit": {
+            "type": "integer",
+            "maximum": 200.0,
+            "minimum": 1.0,
+            "title": "Limit"
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Offset"
+          },
+          "next_offset": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Offset",
+            "description": "Offset der nächsten Seite; null auf der letzten"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "title": "Page[RepairJobListItem]"
+      },
+      "Page_TimeEntryRead_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/TimeEntryRead"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Total",
+            "description": "Anzahl aller Treffer über alle Seiten"
+          },
+          "limit": {
+            "type": "integer",
+            "maximum": 200.0,
+            "minimum": 1.0,
+            "title": "Limit"
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Offset"
+          },
+          "next_offset": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Offset",
+            "description": "Offset der nächsten Seite; null auf der letzten"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "title": "Page[TimeEntryRead]"
+      },
       "PatchActivityRequest": {
         "properties": {
           "activity_id": {
@@ -28476,6 +29843,69 @@
         ],
         "title": "PendingItem",
         "description": "Something waiting on the customer, or on a retry towards them."
+      },
+      "PhotoExport": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "source": {
+            "type": "string",
+            "title": "Source"
+          },
+          "order_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Order Id"
+          },
+          "repair_job_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Repair Job Id"
+          },
+          "phase": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Phase"
+          },
+          "taken_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Taken At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "source"
+        ],
+        "title": "PhotoExport"
       },
       "PortalLookupRequest": {
         "properties": {
@@ -28763,6 +30193,134 @@
         ],
         "title": "QuoteCreate",
         "description": "Schema for creating a new quote (Kostenvoranschlag erstellen).\n\nEither order_id or customer_id must be provided. When order_id is\nsupplied the service auto-generates line items from the order's cost data.\ncaller may also supply additional line items."
+      },
+      "QuoteExport": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "quote_number": {
+            "type": "string",
+            "title": "Quote Number"
+          },
+          "order_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Order Id"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status"
+          },
+          "valid_until": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Valid Until"
+          },
+          "approved_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approved At"
+          },
+          "rejected_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rejected At"
+          },
+          "converted_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Converted At"
+          },
+          "subtotal": {
+            "type": "number",
+            "title": "Subtotal"
+          },
+          "tax_rate": {
+            "type": "number",
+            "title": "Tax Rate"
+          },
+          "tax_amount": {
+            "type": "number",
+            "title": "Tax Amount"
+          },
+          "total": {
+            "type": "number",
+            "title": "Total"
+          },
+          "customer_signature_present": {
+            "type": "boolean",
+            "title": "Customer Signature Present"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "line_items": {
+            "items": {
+              "$ref": "#/components/schemas/LineItemExport"
+            },
+            "type": "array",
+            "title": "Line Items"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "quote_number",
+          "subtotal",
+          "tax_rate",
+          "tax_amount",
+          "total",
+          "customer_signature_present"
+        ],
+        "title": "QuoteExport"
       },
       "QuoteLineItemCreate": {
         "properties": {
@@ -29298,6 +30856,156 @@
         ],
         "title": "RepairDiagnoseInput",
         "description": "Schema for recording a diagnosis and cost estimate.\n\nCalled after the goldsmith has inspected the piece and determined\nwhat work is needed and what it will cost."
+      },
+      "RepairExport": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "repair_number": {
+            "type": "string",
+            "title": "Repair Number"
+          },
+          "bag_number": {
+            "type": "string",
+            "title": "Bag Number"
+          },
+          "item_description": {
+            "type": "string",
+            "title": "Item Description"
+          },
+          "item_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Item Type"
+          },
+          "metal_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Metal Type"
+          },
+          "estimated_value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Estimated Value"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status"
+          },
+          "estimated_cost": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Estimated Cost"
+          },
+          "actual_cost": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Actual Cost"
+          },
+          "estimated_completion_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Estimated Completion Date"
+          },
+          "actual_completion_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Actual Completion Date"
+          },
+          "customer_notified_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Customer Notified At"
+          },
+          "picked_up_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Picked Up At"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "repair_number",
+          "bag_number",
+          "item_description"
+        ],
+        "title": "RepairExport"
       },
       "RepairItemType": {
         "type": "string",
@@ -30438,6 +32146,114 @@
         ],
         "title": "ScrapGoldCreate"
       },
+      "ScrapGoldExport": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "order_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Order Id"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status"
+          },
+          "total_fine_gold_g": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Fine Gold G"
+          },
+          "total_value_eur": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Value Eur"
+          },
+          "gold_price_per_g": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gold Price Per G"
+          },
+          "signed_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Signed At"
+          },
+          "signature_present": {
+            "type": "boolean",
+            "title": "Signature Present"
+          },
+          "receipt_pdf_present": {
+            "type": "boolean",
+            "title": "Receipt Pdf Present"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ScrapGoldItemExport"
+            },
+            "type": "array",
+            "title": "Items"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "signature_present",
+          "receipt_pdf_present"
+        ],
+        "title": "ScrapGoldExport"
+      },
       "ScrapGoldItemCreate": {
         "properties": {
           "description": {
@@ -30475,6 +32291,46 @@
           "weight_g"
         ],
         "title": "ScrapGoldItemCreate"
+      },
+      "ScrapGoldItemExport": {
+        "properties": {
+          "description": {
+            "type": "string",
+            "title": "Description"
+          },
+          "alloy": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Alloy"
+          },
+          "weight_g": {
+            "type": "number",
+            "title": "Weight G"
+          },
+          "fine_content_g": {
+            "type": "number",
+            "title": "Fine Content G"
+          },
+          "photo_present": {
+            "type": "boolean",
+            "title": "Photo Present"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "description",
+          "weight_g",
+          "fine_content_g",
+          "photo_present"
+        ],
+        "title": "ScrapGoldItemExport"
       },
       "ScrapGoldItemRead": {
         "properties": {
@@ -32505,6 +34361,123 @@
         ],
         "title": "ValuationCreateFromOrder",
         "description": "Request body for auto-filling a certificate from an existing order.\n\nThe service reads order.title, order.alloy, order.metal_type,\norder.actual_weight_g, and linked Gemstone rows.  The goldsmith\nprovides the appraised value and their own credentials."
+      },
+      "ValuationExport": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "certificate_number": {
+            "type": "string",
+            "title": "Certificate Number"
+          },
+          "order_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Order Id"
+          },
+          "item_description": {
+            "type": "string",
+            "title": "Item Description"
+          },
+          "metal_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Metal Type"
+          },
+          "metal_weight_g": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Metal Weight G"
+          },
+          "metal_purity": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Metal Purity"
+          },
+          "gemstones_description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gemstones Description"
+          },
+          "appraised_value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Appraised Value"
+          },
+          "valuation_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Valuation Date"
+          },
+          "valid_until": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Valid Until"
+          },
+          "pdf_present": {
+            "type": "boolean",
+            "title": "Pdf Present"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "certificate_number",
+          "item_description",
+          "pdf_present"
+        ],
+        "title": "ValuationExport"
       },
       "ValuationRead": {
         "properties": {
