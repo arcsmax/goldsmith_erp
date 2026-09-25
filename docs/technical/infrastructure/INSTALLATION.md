@@ -884,10 +884,18 @@ sudo lsof -i :8000
 # Prozess beenden
 kill -9 <PID>
 
-# Oder anderen Port in podman-compose.yml:
-ports:
-  - "8080:8000"  # Backend jetzt auf 8080
+# Oder den Host-Port per .env verschieben (keine Änderung an der Compose-Datei):
+BACKEND_PORT=8080   # Backend jetzt auf localhost:8080
 ```
+
+Beide Dev-Stacks (`docker-compose.yml` und `podman-compose.yml`) lesen die
+veröffentlichten Host-Ports aus Variablen in `.env`: `DB_PORT` (Standard 5432),
+`REDIS_EXT_PORT` (6379), `BACKEND_PORT` (8000) und `FRONTEND_PORT` (3000). Nur
+der Port auf dem Host ändert sich; im Container lauschen die Dienste weiter auf
+ihren Standardports, und die Dienste erreichen sich untereinander weiter über
+`db:5432` und `redis:6379`. So läuft der Stack neben einem zweiten Postgres oder
+Redis auf demselben Rechner (LV-17). Wer `FRONTEND_PORT` ändert, muss den neuen
+Origin (z. B. `http://localhost:3001`) auch in `BACKEND_CORS_ORIGINS` eintragen.
 
 ### Problem: Podman Machine startet nicht (macOS)
 
