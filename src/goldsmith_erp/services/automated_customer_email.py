@@ -36,9 +36,25 @@ forever. ``_EventMail.occurrence_marker`` folds a per-occurrence value (e.g.
 NOT rounded) into the stored ``subject``, so a genuinely new occurrence gets
 its own subject and is never shadowed by a stale SENT row from a previous one,
 while the SAME occurrence (unchanged completed_at across retries/ticks) still
-dedupes exactly as before. A DB-level unique backstop for concurrent double
-sends of the SAME occurrence (C2.2) is tracked separately (schema change,
-out of this module's scope).
+dedupes exactly as before.
+
+DB-level backstop (C2.2, ``customer_updates.dedupe_key`` + the partial unique
+index ``uq_customer_updates_dedupe_key`` — see the migration): two truly
+concurrent ticks can both pass the app-level ``_already_handled`` check (a
+plain SELECT, racy) for the SAME occurrence and both try to create the row;
+the index rejects the second insert. ``_dedupe_key`` folds in the SAME
+``occurrence`` value ``_already_handled``/the subject already use — the two
+checks must stay in lock-step, or a genuinely NEW occurrence would collide
+against a PRIOR occurrence's still-"live" (SENT, not excluded by the index)
+key. The collision is raised as ``DuplicateDedupeKeyError`` from inside a
+SAVEPOINT in ``CustomerUpdateService.create_draft`` rather than surfacing a
+bare ``IntegrityError`` here: catching it there would be too late — a plain
+``IntegrityError`` bubbling through ``transactional()``'s catch-all triggers
+a ROOT-level ``db.rollback()`` (SQLAlchemy always rolls back to the root
+transaction, expiring every object in the session — see
+``DuplicateDedupeKeyError``'s docstring), which would leave the ``order``
+this module was called with expired and crash on its next plain attribute
+access.
 """
 
 from __future__ import annotations
@@ -49,7 +65,6 @@ from datetime import datetime
 from typing import Optional, cast
 
 from sqlalchemy import and_, select
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from goldsmith_erp.core.config import settings
@@ -193,9 +208,26 @@ async def _already_handled(
     return False
 
 
-def _dedupe_key(order_id: int, event: NotificationTypeEnum) -> str:
-    """Value for ``customer_updates.dedupe_key`` (C2.2 DB backstop)."""
-    return f"auto:order:{order_id}:{event.value}"
+def _dedupe_key(
+    order_id: int, event: NotificationTypeEnum, occurrence: Optional[str]
+) -> str:
+    """Value for ``customer_updates.dedupe_key`` (C2.2 DB backstop).
+
+    Folds in ``occurrence`` (C1.2 — see ``_EventMail.occurrence_marker``)
+    so the DB-level backstop agrees with the app-level ``_already_handled``
+    check, which already scopes its SENT lookup to the same occurrence via
+    the subject. Without this, a genuinely NEW occurrence (different
+    subject, so ``_already_handled`` correctly says "not handled yet")
+    would still collide on the FIRST occurrence's still-"live" (SENT, not
+    excluded by the partial index) dedupe_key and get rejected by the
+    unique index — the exact bug this folds in to prevent. An event with
+    no occurrence marker (``occurrence is None``) keeps the order+event
+    scoped key, matching pre-C1.2 behaviour.
+    """
+    base = f"auto:order:{order_id}:{event.value}"
+    if occurrence is None:
+        return base
+    return f"{base}:{occurrence}"
 
 
 async def _system_actor_id(db: AsyncSession) -> Optional[int]:
@@ -263,6 +295,7 @@ async def _create_and_send(
     # and notification_service lazily imports this module.
     from goldsmith_erp.services.customer_update_service import (  # noqa: PLC0415
         CustomerUpdateService,
+        DuplicateDedupeKeyError,
     )
 
     try:
@@ -277,12 +310,17 @@ async def _create_and_send(
                 photo_ids=None,  # design-IP rule: automated mails attach nothing
             ),
             user_id=actor_id,
-            dedupe_key=_dedupe_key(order_id, event),
+            dedupe_key=_dedupe_key(order_id, event, occurrence),
         )
-    except IntegrityError:
-        # C2.2: a concurrent tick created the live row for this key between
-        # our _already_handled check and this insert, so that tick sends
-        # (or already sent) the mail. Nothing was sent here.
+    except DuplicateDedupeKeyError:
+        # C2.2: a concurrent tick created the live row for this exact
+        # occurrence's key between our _already_handled check and this
+        # insert, so that tick sends (or already sent) the mail. Nothing
+        # was sent here. create_draft() raises this from inside a
+        # SAVEPOINT (not a bare IntegrityError caught here) precisely so
+        # that reaching this branch does NOT expire the `order` this
+        # function was called with, or anything else the caller's session
+        # holds — see DuplicateDedupeKeyError's docstring.
         logger.info(
             "Automated customer mail already handled by a concurrent run",
             extra={"order_id": order_id, "event": event.value},
