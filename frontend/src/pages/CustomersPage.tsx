@@ -385,7 +385,7 @@ export const CustomersPage: React.FC = () => {
                                 <div className="detail-badges">
                                   {Object.entries(expandedCustomer.preferences).map(([key, value]) => (
                                     <span key={key} className="preference-badge">
-                                      {key}: {value}
+                                      {key}: {String(value)}
                                     </span>
                                   ))}
                                 </div>

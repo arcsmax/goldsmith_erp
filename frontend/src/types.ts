@@ -1,3 +1,47 @@
+// Frontend domain types. Read schemas and enums are aliases of the
+// generated OpenAPI types (src/api/generated, FE-12 / W3-02); the rest is
+// still hand-written and migrates module by module.
+import type {
+  ApiCalendarEventType,
+  ApiConsultationOccasion,
+  ApiConsultationPhotoKind,
+  ApiConsultationStatus,
+  ApiCostingMethod,
+  ApiInvoiceLineType,
+  ApiInvoiceStatus,
+  ApiMeasurementType,
+  ApiMetalPriceSource,
+  ApiMetalType,
+  ApiNoGoCategory,
+  ApiNotificationSeverity,
+  ApiOrderStatus,
+  ApiQuoteLineType,
+  ApiQuoteStatus,
+  ApiRepairItemType,
+  ApiRepairJobStatus,
+  ApiRepairPhotoPhase,
+  ApiUser,
+  ApiUserRole,
+  ApiCustomer,
+  ApiCustomerListItem,
+  ApiOrder,
+  ApiTimeEntry,
+  ApiNotification,
+  ApiUnreadCount,
+  ApiInvoice,
+  ApiInvoiceListItem,
+  ApiQuote,
+  ApiQuoteListItem,
+  ApiOrderTypeEnum,
+  ApiActivity,
+  Schemas,
+  ApiRepairPhoto,
+  ApiRepairJob,
+  ApiRepairJobListItem,
+  ApiConsultation,
+  ApiConsultationListItem,
+} from './api/generated';
+
 // ==================== MATERIAL TYPES ====================
 
 export interface MaterialType {
@@ -47,44 +91,21 @@ export interface PurchaseListItem {
 
 export type CustomerCategory = 'private' | 'business';
 
-export interface Customer {
-  id: number;
-  first_name: string;
-  last_name: string;
-  company_name?: string | null;
-  email: string;
-  phone?: string | null;
-  mobile?: string | null;
-  street?: string | null;
-  city?: string | null;
-  postal_code?: string | null;
-  country: string;
+// The backend declares `customer_type` as `str` but its validator only
+// accepts "private" | "business", so the frontend keeps the narrow union.
+export type Customer = Omit<ApiCustomer, 'customer_type'> & {
   customer_type: CustomerCategory;
-  source?: string | null;
-  notes?: string | null;
-  tags: string[];
-  is_active: boolean;
-  ring_size?: number | null;
-  chain_length_cm?: number | null;
-  bracelet_length_cm?: number | null;
+  /**
+   * Art. 9 health data (GDPR-02 / GDPR-11). Not part of `CustomerRead`:
+   * customers.py `_customer_response` adds the key only for ADMIN/GOLDSMITH
+   * callers when an active HEALTH_DATA consent exists; otherwise it is absent.
+   */
   allergies?: string | null;
-  preferences?: Record<string, string> | null;
-  birthday?: string | null;
-  created_at: string;
-  updated_at: string;
-}
+};
 
-export interface CustomerListItem {
-  id: number;
-  first_name: string;
-  last_name: string;
-  company_name?: string | null;
-  email: string;
-  phone?: string | null;
+export type CustomerListItem = Omit<ApiCustomerListItem, 'customer_type'> & {
   customer_type: CustomerCategory;
-  tags: string[];
-  is_active: boolean;
-}
+};
 
 export interface CustomerCreateInput {
   first_name: string;
@@ -142,13 +163,7 @@ export interface CustomerStats {
 
 // Maßbibliothek — persisted per-customer body measurements
 // Values match backend MeasurementType enum exactly.
-export type MeasurementType =
-  | 'ring_size'
-  | 'chain_length'
-  | 'wrist_circumference'
-  | 'finger_circumference'
-  | 'neck_circumference'
-  | 'ankle_circumference';
+export type MeasurementType = ApiMeasurementType;
 
 export interface CustomerMeasurement {
   id: number;
@@ -165,81 +180,33 @@ export interface CustomerMeasurement {
 
 // ==================== ORDER TYPES ====================
 
-export type OrderStatus =
-  | 'new'
-  | 'draft'
-  | 'confirmed'
-  | 'in_progress'
-  | 'waiting_for_fitting'
-  | 'fitting_done'
-  | 'ready_for_setting'
-  | 'quality_check'
-  | 'completed'
-  | 'delivered'
-  // W2-07 (DOM-13): Pausiert (hold_reason, resume_date) and Storniert
-  // (cancel_reason). Labels: backend services/order_workflow.py
-  // ORDER_STATUS_LABELS until src/design/status.ts exists (Wave 4).
-  | 'on_hold'
-  | 'cancelled';
+export type OrderStatus = ApiOrderStatus;
 
 // MetalType defined in Metal Inventory section below
 
 // Values match the backend CostingMethod enum (lowercase wire values).
-export type CostingMethod = 'fifo' | 'lifo' | 'average' | 'specific';
+export type CostingMethod = ApiCostingMethod;
 
-export interface OrderType {
-  id: number;
-  title: string;
-  description: string;
-  price: number | null;
-  status: OrderStatus;
-  customer_id: number;
-  customer?: Customer; // Optional - populated when fetching with relations
-  deadline?: string | null;
-  created_at: string;
-  updated_at: string;
+/**
+ * Fields that keep their old hand-written type for now, because the
+ * components that read them (OrderDetailPage.tsx, components/orders/
+ * CostBreakdownCard + MetalInventoryCard) are owned by another work item
+ * and type their props as `number | undefined`. On the wire these are
+ * nullable (`OrderRead`: the VIEWER role projection sends `null`), and
+ * `materials` is `MaterialBase[]` ({id, name, unit_price}), not full
+ * `MaterialType`. Drop this override once those callers accept the
+ * generated types. Tracked in docs/technical/FRONTEND_API_TYPES.md.
+ */
+type OrderLegacyFields = {
   materials?: MaterialType[];
-
-  // Location
-  current_location?: string | null;
-
-  // Weight & Material
-  estimated_weight_g?: number | null;
-  actual_weight_g?: number | null;
-  scrap_percentage?: number;
-
-  // Metal Inventory
-  metal_type?: MetalType | null;
-  costing_method_used?: CostingMethod;
-  specific_metal_purchase_id?: number | null;
-
-  // Cost Calculation
-  material_cost_calculated?: number | null;
-  material_cost_override?: number | null;
-  labor_hours?: number | null;
   hourly_rate?: number;
-  labor_cost?: number | null;
-
-  // Pricing
+  scrap_percentage?: number;
+  costing_method_used?: CostingMethod;
   profit_margin_percent?: number;
   vat_rate?: number;
-  calculated_price?: number | null;
+};
 
-  // Goldsmith Intake Fields (Pflichtfelder)
-  alloy?: string | null;
-  ring_size_mm?: number | null;
-  surface_finish?: string | null;
-
-  // Classification — surfaced so the EstimatorPanel can pre-fill order_type
-  // (e.g. "bracelet") and pick the exact-match tier instead of falling
-  // through to the generic workshop tier.
-  order_type?: string | null;
-  complexity_rating?: number | null;
-  finish_type?: string | null;
-  fitting_date?: string | null;
-  has_scrap_gold?: boolean | null;
-  special_instructions?: string | null;
-}
+export type OrderType = Omit<ApiOrder, keyof OrderLegacyFields> & OrderLegacyFields;
 
 export interface OrderCreateInput {
   title: string;
@@ -301,17 +268,18 @@ export interface OrderUpdateInput {
 
 // ==================== USER TYPES ====================
 
-export type UserRole = 'ADMIN' | 'GOLDSMITH' | 'VIEWER' | 'USER';
+// Generated from the backend (FE-12): the wire values are lowercase
+// ("admin" | "goldsmith" | "viewer"); there is no "USER" role.
+export type UserRole = ApiUserRole;
 
-export interface UserType {
-  id: number;
-  email: string;
-  first_name?: string;
-  last_name?: string;
-  role: UserRole;
-  is_active: boolean;
-  created_at: string;
-}
+/**
+ * Role literal accepted by `hasRole`. The check is case-insensitive, so the
+ * uppercase spelling many callers still pass is allowed; comparisons against
+ * `user.role` itself must use the lowercase `UserRole` values.
+ */
+export type RoleName = UserRole | Uppercase<UserRole>;
+
+export type UserType = ApiUser;
 
 export interface UserCreateInput {
   email: string;
@@ -348,13 +316,13 @@ export interface AuthContextType {
   register: (userData: UserCreateInput) => Promise<void>;
   logout: () => void;
   refreshUser: () => Promise<void>;
-  hasRole: (roles: UserRole | UserRole[]) => boolean;
+  hasRole(roles: RoleName | RoleName[]): boolean;
   isAdmin: boolean;
 }
 
 // ==================== METAL INVENTORY TYPES ====================
 
-export type MetalType = 'gold_24k' | 'gold_22k' | 'gold_18k' | 'gold_14k' | 'gold_9k' | 'silver_999' | 'silver_925' | 'silver_800' | 'platinum_950' | 'platinum_900' | 'palladium' | 'white_gold_18k' | 'white_gold_14k' | 'rose_gold_18k' | 'rose_gold_14k';
+export type MetalType = ApiMetalType;
 
 // ==================== CUSTOM METAL TYPES ====================
 
@@ -515,7 +483,7 @@ export interface OrderMaterialAllocation {
   costing_method: CostingMethod;
 }
 
-export type MetalPriceSource = 'api' | 'manual' | 'fallback';
+export type MetalPriceSource = ApiMetalPriceSource;
 
 /** Matches MetalPriceResponse in backend models/metal_price.py */
 export interface MetalPriceResponse {
@@ -536,19 +504,7 @@ export interface MetalPriceListResponse {
 
 export type ActivityCategory = 'fabrication' | 'administration' | 'waiting';
 
-export interface Activity {
-  id: number;
-  name: string;
-  category: ActivityCategory;
-  icon?: string | null;
-  color?: string | null;
-  usage_count: number;
-  average_duration_minutes?: number | null;
-  last_used?: string | null;
-  is_custom: boolean;
-  created_by?: number | null;
-  created_at: string;
-}
+export type Activity = Omit<ApiActivity, 'category'> & { category: ActivityCategory };
 
 export interface ActivityCreateInput {
   name: string;
@@ -566,22 +522,7 @@ export interface ActivityUpdateInput {
   color?: string;
 }
 
-export interface TimeEntry {
-  id: string; // UUID
-  order_id: number;
-  user_id: number;
-  activity_id: number;
-  start_time: string; // ISO datetime
-  end_time?: string | null; // ISO datetime
-  duration_minutes?: number | null;
-  location?: string | null;
-  complexity_rating?: number | null; // 1-5
-  quality_rating?: number | null; // 1-5
-  rework_required: boolean;
-  notes?: string | null;
-  extra_metadata?: Record<string, any> | null;
-  created_at: string; // ISO datetime
-}
+export type TimeEntry = ApiTimeEntry;
 
 export interface TimeEntryWithDetails extends TimeEntry {
   activity?: Activity | null;
@@ -687,26 +628,11 @@ export type ActivityBreakdownData = {
 
 // ==================== NOTIFICATION TYPES ====================
 
-export type NotificationSeverity = 'INFO' | 'WARNING' | 'URGENT';
+export type NotificationSeverity = ApiNotificationSeverity;
 
-export interface Notification {
-  id: number;
-  title: string;
-  message: string;
-  severity: NotificationSeverity;
-  is_read: boolean;
-  created_at: string; // ISO datetime
-  link?: string | null; // optional deep-link (e.g. /orders/42)
-}
+export type Notification = ApiNotification;
 
-export interface NotificationUnreadCount {
-  unread_count: number;
-}
-
-export interface NotificationListResponse {
-  items: Notification[];
-  total: number;
-}
+export type NotificationUnreadCount = ApiUnreadCount;
 
 // ==================== INVOICE TYPES ====================
 
@@ -721,62 +647,19 @@ export interface NotificationListResponse {
  * (`.status-DRAFT` vs the actual `.status-draft`), and the row-level
  * action buttons (`status === 'SENT'`) were never shown.
  */
-export type InvoiceStatus = 'draft' | 'sent' | 'paid' | 'overdue' | 'cancelled';
+export type InvoiceStatus = ApiInvoiceStatus;
 
-export type InvoiceLineType = 'material' | 'labor' | 'gemstone' | 'other';
+export type InvoiceLineType = ApiInvoiceLineType;
 
-export interface InvoiceLineItem {
-  id: number;
-  invoice_id: number;
-  line_type: InvoiceLineType;
-  description: string;
-  quantity: number;
-  unit_price: number;
-  total: number;
-}
+export type InvoiceLineItem = Schemas['InvoiceLineItemResponse'];
 
 /** Full invoice including line items (used for detail view). */
-export interface Invoice {
-  id: number;
-  invoice_number: string; // RE-YYYY-NNNN
-  order_id: number;
-  customer_id: number;
-  created_by: number;
-  status: InvoiceStatus;
-  issue_date: string;   // ISO datetime
-  due_date: string;     // ISO datetime
-  paid_date?: string | null;
-  subtotal: number;     // Zwischensumme (net)
-  tax_rate: number;     // MwSt-Satz in Prozent
-  tax_amount: number;   // MwSt-Betrag
-  total: number;        // Gesamtbetrag (gross)
-  notes?: string | null;
-  payment_method?: string | null;
-  created_at: string;
-  updated_at: string;
-  line_items: InvoiceLineItem[];
-}
+export type Invoice = ApiInvoice;
 
 /** Lightweight invoice for list views. */
-export interface InvoiceListItem {
-  id: number;
-  invoice_number: string;
-  order_id: number;
-  customer_id: number;
-  status: InvoiceStatus;
-  issue_date: string;
-  due_date: string;
-  paid_date?: string | null;
-  total: number;
-  created_at: string;
-}
+export type InvoiceListItem = ApiInvoiceListItem;
 
-export interface InvoiceListResponse {
-  items: InvoiceListItem[];
-  total: number;
-  skip: number;
-  limit: number;
-}
+export type InvoiceListResponse = Schemas['InvoiceListResponse'];
 
 export interface InvoiceCreateInput {
   order_id: number;
@@ -805,19 +688,11 @@ export interface MarkPaidInput {
  * VALUES (lowercase), not its enum NAMES. The backend serialises the enum
  * value as the JSON string, so payloads carry `"draft"`, `"sent"`, etc.
  */
-export type QuoteStatus = 'draft' | 'sent' | 'approved' | 'rejected' | 'expired' | 'converted';
+export type QuoteStatus = ApiQuoteStatus;
 
-export type QuoteLineType = 'material' | 'labor' | 'gemstone' | 'other';
+export type QuoteLineType = ApiQuoteLineType;
 
-export interface QuoteLineItem {
-  id: number;
-  quote_id: number;
-  line_type: QuoteLineType;
-  description: string;
-  quantity: number;
-  unit_price: number;
-  total: number;
-}
+export type QuoteLineItem = Schemas['QuoteLineItemResponse'];
 
 /** Payload for creating/updating a quote line item (DRAFT quotes only). */
 export interface QuoteLineItemInput {
@@ -829,46 +704,12 @@ export interface QuoteLineItemInput {
 }
 
 /** Full quote including line items (used for detail view). */
-export interface Quote {
-  id: number;
-  quote_number: string; // KV-YYYY-NNNN
-  order_id?: number | null;
-  customer_id: number;
-  created_by: number;
-  status: QuoteStatus;
-  valid_until: string;    // ISO datetime
-  approved_at?: string | null;
-  rejected_at?: string | null;
-  converted_at?: string | null;
-  subtotal: number;       // Zwischensumme (net)
-  tax_rate: number;       // MwSt-Satz in Prozent
-  tax_amount: number;     // MwSt-Betrag
-  total: number;          // Gesamtbetrag (gross)
-  customer_signature_data?: string | null;
-  notes?: string | null;
-  created_at: string;
-  updated_at: string;
-  line_items: QuoteLineItem[];
-}
+export type Quote = ApiQuote;
 
 /** Lightweight quote for list views. */
-export interface QuoteListItem {
-  id: number;
-  quote_number: string;
-  order_id?: number | null;
-  customer_id: number;
-  status: QuoteStatus;
-  valid_until: string;
-  total: number;
-  created_at: string;
-}
+export type QuoteListItem = ApiQuoteListItem;
 
-export interface QuoteListResponse {
-  items: QuoteListItem[];
-  total: number;
-  skip: number;
-  limit: number;
-}
+export type QuoteListResponse = Schemas['QuoteListResponse'];
 
 export interface QuoteCreateInput {
   order_id?: number;
@@ -938,11 +779,7 @@ export interface EstimatorMetadata {
 // ==================== CALENDAR TYPES ====================
 
 /** Mirror of CalendarEventType enum from db/models.py */
-export type CalendarEventType =
-  | 'ORDER_DEADLINE'
-  | 'WORKSHOP_TASK'
-  | 'APPOINTMENT'
-  | 'REMINDER';
+export type CalendarEventType = ApiCalendarEventType;
 
 /** Traffic light status for deadline events */
 export type TrafficLight = 'green' | 'yellow' | 'red' | 'grey';
@@ -968,7 +805,7 @@ export interface CalendarEvent {
 export interface CalendarDeadlineEvent {
   id: number;
   title: string;
-  event_type: 'ORDER_DEADLINE';
+  event_type: 'order_deadline';
   start_datetime: string; // ISO datetime
   all_day: boolean;
   order_id: number;
@@ -1060,87 +897,19 @@ export interface OrderPhoto {
 
 // ==================== REPAIR TYPES ====================
 
-export type RepairJobStatus =
-  | 'received'
-  | 'diagnosed'
-  | 'quoted'
-  | 'approved'
-  | 'in_repair'
-  | 'quality_check'
-  | 'ready'
-  | 'picked_up'
-  | 'cancelled';
+export type RepairJobStatus = ApiRepairJobStatus;
 
-export type RepairItemType =
-  | 'ring'
-  | 'chain'
-  | 'bracelet'
-  | 'earring'
-  | 'watch'
-  | 'brooch'
-  | 'other';
+export type RepairItemType = ApiRepairItemType;
 
-export type RepairPhotoPhase = 'intake' | 'during_repair' | 'completed';
+export type RepairPhotoPhase = ApiRepairPhotoPhase;
 
-export interface RepairCustomerSummary {
-  id: number;
-  first_name: string;
-  last_name: string;
-  email: string;
-  phone?: string | null;
-}
+export type RepairCustomerSummary = Schemas['CustomerSummary'];
 
-export interface RepairPhoto {
-  id: number;
-  repair_job_id: number;
-  phase: RepairPhotoPhase;
-  file_path: string;
-  timestamp: string;
-  taken_by?: number | null;
-  notes?: string | null;
-}
+export type RepairPhoto = ApiRepairPhoto;
 
-export interface RepairJob {
-  id: number;
-  repair_number: string;
-  bag_number: string;
-  customer_id?: number | null;
-  customer?: RepairCustomerSummary | null;
-  received_by?: number | null;
-  item_description: string;
-  item_type: RepairItemType;
-  metal_type?: string | null;
-  estimated_value?: number | null;
-  status: RepairJobStatus;
-  diagnosis_notes?: string | null;
-  estimated_cost?: number | null;
-  actual_cost?: number | null;
-  estimated_completion_date?: string | null;
-  actual_completion_date?: string | null;
-  customer_notified_at?: string | null;
-  picked_up_at?: string | null;
-  is_deleted: boolean;
-  created_at: string;
-  updated_at: string;
-  photos: RepairPhoto[];
-  intake_checklist?: IntakeChecklistItem[] | null;
-}
+export type RepairJob = ApiRepairJob;
 
-export interface RepairJobListItem {
-  id: number;
-  repair_number: string;
-  bag_number: string;
-  customer_id?: number | null;
-  customer?: RepairCustomerSummary | null;
-  item_description: string;
-  item_type: RepairItemType;
-  metal_type?: string | null;
-  status: RepairJobStatus;
-  estimated_cost?: number | null;
-  estimated_completion_date?: string | null;
-  created_at: string;
-  updated_at: string;
-}
+export type RepairJobListItem = ApiRepairJobListItem;
 
 export interface RepairJobCreateInput {
   customer_id?: number | null;
@@ -1175,71 +944,27 @@ export interface RepairStatusUpdateInput {
  * ("na", na_reason set, >=3 chars). "open" is the initial seeded state.
  * Mirrors backend IntakeChecklistItem (src/goldsmith_erp/models/repair.py).
  */
-export type IntakeChecklistItemStatus = 'open' | 'photo' | 'na';
+export type IntakeChecklistItemStatus = Schemas['IntakeChecklistItem']['status'];
 
-export interface IntakeChecklistItem {
-  key: string;
-  label: string;
-  status: IntakeChecklistItemStatus;
-  photo_id?: number | null;
-  na_reason?: string | null;
-}
+export type IntakeChecklistItem = Schemas['IntakeChecklistItem'];
 
 // ==================== V1.1 CONSULTATION (BERATUNG) ====================
 
-export type ConsultationStatus = 'draft' | 'completed' | 'converted' | 'archived';
+export type ConsultationStatus = ApiConsultationStatus;
 
-export type ConsultationOccasion =
-  | 'engagement' | 'wedding' | 'anniversary' | 'birthday'
-  | 'self' | 'redesign' | 'repair_consult' | 'other';
+export type ConsultationOccasion = ApiConsultationOccasion;
 
-export type ConsultationPhotoKind = 'sketch' | 'reference' | 'inspiration' | 'existing_piece';
+export type ConsultationPhotoKind = ApiConsultationPhotoKind;
 
-export type NoGoCategory = 'metal' | 'stone' | 'finish' | 'design_element' | 'allergy' | 'other';
+export type NoGoCategory = ApiNoGoCategory;
 
-export type ConsultationPieceType =
-  | 'ring' | 'chain' | 'pendant' | 'earrings' | 'bracelet' | 'brooch' | 'repair' | 'custom';
+export type ConsultationPieceType = ApiOrderTypeEnum;
 
-export interface ConsultationPhoto {
-  id: string;
-  consultation_id: number;
-  order_id?: number | null;
-  kind: ConsultationPhotoKind;
-  notes?: string | null;
-  timestamp: string;
-}
+export type ConsultationPhoto = Schemas['ConsultationPhotoRead'];
 
-export interface Consultation {
-  id: number;
-  customer_id: number;
-  conducted_by: number;
-  status: ConsultationStatus;
-  occasion: ConsultationOccasion;
-  occasion_date?: string | null;
-  budget_min?: number | null;
-  budget_max?: number | null;
-  piece_type?: ConsultationPieceType | null;
-  wishes?: string | null;
-  materials_discussed?: Array<Record<string, string>> | null;
-  source_material?: string | null;
-  notes?: string | null;
-  follow_up_at?: string | null;
-  converted_quote_id?: number | null;
-  converted_order_id?: number | null;
-  photos: ConsultationPhoto[];
-  created_at: string;
-  updated_at: string;
-}
+export type Consultation = ApiConsultation;
 
-export interface ConsultationListItem {
-  id: number;
-  customer_id: number;
-  occasion: ConsultationOccasion;
-  piece_type?: ConsultationPieceType | null;
-  status: ConsultationStatus;
-  follow_up_at?: string | null;
-  created_at: string;
-}
+export type ConsultationListItem = ApiConsultationListItem;
 
 export interface ConsultationCreateInput {
   customer_id: number;

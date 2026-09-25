@@ -1,0 +1,275 @@
+{
+  "AlloyType": [
+    "999",
+    "900",
+    "750",
+    "585",
+    "375",
+    "333",
+    "ag999",
+    "ag925",
+    "ag800",
+    "pt950"
+  ],
+  "CalendarEventType": [
+    "order_deadline",
+    "workshop_task",
+    "appointment",
+    "reminder"
+  ],
+  "ConsentMethod": [
+    "in_person",
+    "written",
+    "portal"
+  ],
+  "ConsentPurpose": [
+    "health_data",
+    "photo_use",
+    "email_contact",
+    "marketing"
+  ],
+  "ConsultationOccasion": [
+    "engagement",
+    "wedding",
+    "anniversary",
+    "birthday",
+    "self",
+    "redesign",
+    "repair_consult",
+    "other"
+  ],
+  "ConsultationPhotoKind": [
+    "sketch",
+    "reference",
+    "inspiration",
+    "existing_piece"
+  ],
+  "ConsultationStatus": [
+    "draft",
+    "completed",
+    "converted",
+    "archived"
+  ],
+  "CostChangeResponseMethod": [
+    "email_reply",
+    "in_person",
+    "phone"
+  ],
+  "CostChangeStatus": [
+    "draft",
+    "sent",
+    "approved",
+    "declined",
+    "superseded"
+  ],
+  "CostingMethod": [
+    "fifo",
+    "lifo",
+    "average",
+    "specific"
+  ],
+  "CustomerUpdateKind": [
+    "progress",
+    "cost_change",
+    "ready_for_pickup",
+    "custom"
+  ],
+  "CustomerUpdateStatus": [
+    "draft",
+    "sent",
+    "send_failed"
+  ],
+  "FingerPosition": [
+    "thumb",
+    "index",
+    "middle",
+    "ring",
+    "pinky"
+  ],
+  "FinishTypeEnum": [
+    "high_polish",
+    "matte",
+    "brushed",
+    "hammered",
+    "oxidized",
+    "mixed"
+  ],
+  "HallmarkStatus": [
+    "pending",
+    "submitted",
+    "approved",
+    "rejected",
+    "stamped"
+  ],
+  "HallmarkType": [
+    "fineness_mark",
+    "makers_mark",
+    "assay_office",
+    "common_control",
+    "date_letter"
+  ],
+  "HandSide": [
+    "left",
+    "right"
+  ],
+  "HandoffStatusEnum": [
+    "pending",
+    "accepted",
+    "declined"
+  ],
+  "HandoffTypeEnum": [
+    "pass_to_next",
+    "request_review",
+    "return_for_rework",
+    "mark_complete"
+  ],
+  "InvoiceLineType": [
+    "material",
+    "labor",
+    "gemstone",
+    "other"
+  ],
+  "InvoiceStatus": [
+    "draft",
+    "sent",
+    "paid",
+    "overdue",
+    "cancelled"
+  ],
+  "MeasurementType": [
+    "ring_size",
+    "chain_length",
+    "wrist_circumference",
+    "finger_circumference",
+    "neck_circumference",
+    "ankle_circumference"
+  ],
+  "MetalPriceSource": [
+    "api",
+    "manual",
+    "fallback"
+  ],
+  "MetalType": [
+    "gold_24k",
+    "gold_22k",
+    "gold_18k",
+    "gold_14k",
+    "gold_9k",
+    "silver_999",
+    "silver_925",
+    "silver_800",
+    "platinum_950",
+    "platinum_900",
+    "palladium",
+    "white_gold_18k",
+    "white_gold_14k",
+    "rose_gold_18k",
+    "rose_gold_14k"
+  ],
+  "NoGoCategory": [
+    "metal",
+    "stone",
+    "finish",
+    "design_element",
+    "allergy",
+    "other"
+  ],
+  "NotificationSeverityEnum": [
+    "info",
+    "warning",
+    "urgent"
+  ],
+  "NotificationTypeEnum": [
+    "deadline_warning",
+    "pickup_ready",
+    "low_stock",
+    "fitting_reminder",
+    "order_status",
+    "system",
+    "handoff",
+    "comment",
+    "repair_received",
+    "repair_ready",
+    "birthday_reminder",
+    "consultation_followup",
+    "cost_alert"
+  ],
+  "OrderStatusEnum": [
+    "draft",
+    "confirmed",
+    "in_progress",
+    "waiting_for_fitting",
+    "fitting_done",
+    "ready_for_setting",
+    "quality_check",
+    "completed",
+    "delivered",
+    "on_hold",
+    "cancelled",
+    "new"
+  ],
+  "OrderTypeEnum": [
+    "ring",
+    "chain",
+    "pendant",
+    "earrings",
+    "bracelet",
+    "brooch",
+    "repair",
+    "custom"
+  ],
+  "OverrideReasonCategoryEnum": [
+    "charge_abweichung",
+    "kleinteil",
+    "notfall",
+    "sonstiges"
+  ],
+  "QuoteLineType": [
+    "material",
+    "labor",
+    "gemstone",
+    "other"
+  ],
+  "QuoteStatus": [
+    "draft",
+    "sent",
+    "approved",
+    "rejected",
+    "expired",
+    "converted"
+  ],
+  "RepairItemType": [
+    "ring",
+    "chain",
+    "bracelet",
+    "earring",
+    "watch",
+    "brooch",
+    "other"
+  ],
+  "RepairJobStatus": [
+    "received",
+    "diagnosed",
+    "quoted",
+    "approved",
+    "in_repair",
+    "quality_check",
+    "ready",
+    "picked_up",
+    "cancelled"
+  ],
+  "RepairPhotoPhase": [
+    "intake",
+    "during_repair",
+    "completed"
+  ],
+  "UpdateDeliveryMethod": [
+    "email",
+    "pdf_manual"
+  ],
+  "UserRole": [
+    "admin",
+    "goldsmith",
+    "viewer"
+  ]
+}

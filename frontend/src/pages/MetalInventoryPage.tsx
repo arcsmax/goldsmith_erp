@@ -40,7 +40,7 @@ export const MetalInventoryPage: React.FC = () => {
   const { showToast } = useToast();
   const { showConfirm } = useConfirm();
   const { user } = useAuth();
-  const isAdmin = user?.role === 'ADMIN';
+  const isAdmin = user?.role === 'admin'; // FE-12: wire value is lowercase
   // FINANCIAL_VIEW (SEC-01): every endpoint on this page — purchases,
   // statistics, usage history, allocate-preview — is financial by nature
   // and 403s a VIEWER outright, so the fetch is gated on the role, not just

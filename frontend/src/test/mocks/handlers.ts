@@ -20,6 +20,7 @@ export const mockActivities: Activity[] = [
     average_duration_minutes: 45,
     last_used: '2025-01-09T10:00:00Z',
     is_custom: false,
+    is_billable: true,
     created_at: '2025-01-01T00:00:00Z',
   },
   {
@@ -32,6 +33,7 @@ export const mockActivities: Activity[] = [
     average_duration_minutes: 60,
     last_used: '2025-01-09T09:00:00Z',
     is_custom: false,
+    is_billable: true,
     created_at: '2025-01-01T00:00:00Z',
   },
   {
@@ -44,6 +46,7 @@ export const mockActivities: Activity[] = [
     average_duration_minutes: 30,
     last_used: '2025-01-09T08:00:00Z',
     is_custom: false,
+    is_billable: true,
     created_at: '2025-01-01T00:00:00Z',
   },
   {
@@ -56,6 +59,7 @@ export const mockActivities: Activity[] = [
     average_duration_minutes: 15,
     last_used: '2025-01-09T07:00:00Z',
     is_custom: false,
+    is_billable: true,
     created_at: '2025-01-01T00:00:00Z',
   },
   {
@@ -68,6 +72,7 @@ export const mockActivities: Activity[] = [
     average_duration_minutes: 120,
     last_used: '2025-01-08T15:00:00Z',
     is_custom: false,
+    is_billable: true,
     created_at: '2025-01-01T00:00:00Z',
   },
   {
@@ -80,6 +85,7 @@ export const mockActivities: Activity[] = [
     average_duration_minutes: 25,
     last_used: '2025-01-07T11:00:00Z',
     is_custom: true,
+    is_billable: true,
     created_at: '2025-01-05T00:00:00Z',
   },
 ];

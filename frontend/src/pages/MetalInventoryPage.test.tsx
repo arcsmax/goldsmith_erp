@@ -77,3 +77,26 @@ describe('MetalInventoryPage — VIEWER role projection', () => {
     ).not.toBeInTheDocument();
   });
 });
+
+describe('MetalInventoryPage — admin-only metal type manager (FE-12)', () => {
+  // The backend serialises roles lowercase ("admin"); the page used to
+  // compare against 'ADMIN' and hid the button from every real admin.
+  it('shows "Metalltypen verwalten" for an admin (wire value "admin")', async () => {
+    mockUseAuth.mockReturnValue({ user: { role: 'admin' } });
+    mockListPurchases.mockResolvedValue([]);
+
+    render(<MetalInventoryPage />);
+
+    expect(await screen.findByText('Metalltypen verwalten')).toBeInTheDocument();
+  });
+
+  it('hides "Metalltypen verwalten" for a goldsmith', async () => {
+    mockUseAuth.mockReturnValue({ user: { role: 'goldsmith' } });
+    mockListPurchases.mockResolvedValue([]);
+
+    render(<MetalInventoryPage />);
+
+    expect(await screen.findByText('summary-cards')).toBeInTheDocument();
+    expect(screen.queryByText('Metalltypen verwalten')).not.toBeInTheDocument();
+  });
+});

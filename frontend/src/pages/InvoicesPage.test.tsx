@@ -113,6 +113,7 @@ function makeInvoice(overrides: Partial<Invoice> = {}): Invoice {
     tax_rate: 19,
     tax_amount: 19,
     total: 119,
+    scrap_gold_credit: 0,
     notes: null,
     payment_method: null,
     created_at: '2026-04-23T10:00:00Z',

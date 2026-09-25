@@ -2,12 +2,12 @@
 import React from 'react';
 import { Navigate } from 'react-router-dom';
 import { useAuth } from '../contexts';
-import { UserRole } from '../types';
+import { RoleName } from '../types';
 
 interface ProtectedRouteProps {
   children: React.ReactNode;
   /** When provided, the user must hold at least one of these roles. */
-  requiredRoles?: UserRole[];
+  requiredRoles?: RoleName[];
 }
 
 /**

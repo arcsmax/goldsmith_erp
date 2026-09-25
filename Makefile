@@ -2,7 +2,7 @@
 # Makes development easier with simple commands
 
 .PHONY: help install start stop restart logs clean build test test-integration-pg lint format seed-demo seed-production validate-compose \
-        test-backend-local test-frontend-local lint-local
+        test-backend-local test-frontend-local lint-local types types-check
 
 # Default target
 .DEFAULT_GOAL := help
@@ -205,6 +205,12 @@ check-bundle: ## V1.1 Slice 13 — scanner-route bundle-size gate (<=250 KB gzip
 	@echo "$(GREEN)Building frontend and running scanner bundle gate...$(NC)"
 	@cd frontend && yarn build
 	@node frontend/scripts/check-scanner-bundle.mjs
+
+types: ## FE-12 — regenerate frontend API types from the backend OpenAPI schema (set PYTHON= to skip poetry)
+	@node frontend/scripts/gen-api-types.mjs
+
+types-check: ## FE-12 — regenerate API types and fail if the committed ones drifted (CI gate)
+	@node frontend/scripts/gen-api-types.mjs --check
 
 # Pod operations (alternative to compose)
 pod-create: ## Create Kubernetes-style pod

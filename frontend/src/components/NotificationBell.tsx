@@ -31,11 +31,11 @@ function timeAgo(isoString: string): string {
  */
 function severityClass(severity: NotificationSeverity): string {
   switch (severity) {
-    case 'URGENT':
+    case 'urgent':
       return 'notification-item--urgent';
-    case 'WARNING':
+    case 'warning':
       return 'notification-item--warning';
-    case 'INFO':
+    case 'info':
     default:
       return 'notification-item--info';
   }
@@ -44,11 +44,11 @@ function severityClass(severity: NotificationSeverity): string {
 /** Accessible severity label shown alongside the color indicator dot. */
 function severityLabel(severity: NotificationSeverity): string {
   switch (severity) {
-    case 'URGENT':
+    case 'urgent':
       return '!';
-    case 'WARNING':
+    case 'warning':
       return '~';
-    case 'INFO':
+    case 'info':
     default:
       return 'i';
   }
