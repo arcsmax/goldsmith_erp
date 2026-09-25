@@ -99,8 +99,9 @@ class SystemHealthService:
         Check root disk usage via shutil.disk_usage.
 
         Thresholds:
-          - >= 95 % used → critical
-          - >= 80 % used → warning
+          - >= settings.HEALTH_DISK_CRITICAL_PERCENT (default 95 %) → critical
+          - >= 80 % used → warning (informational; see get_full_health for how
+            this is folded into the overall status — LV-17)
           - < 80 %        → ok
 
         Returns:
@@ -112,7 +113,7 @@ class SystemHealthService:
             free_gb = round(usage.free / (1024**3), 2)
             used_percent = round((usage.used / usage.total) * 100, 1)
 
-            if used_percent >= 95.0:
+            if used_percent >= settings.HEALTH_DISK_CRITICAL_PERCENT:
                 disk_status = "critical"
             elif used_percent >= 80.0:
                 disk_status = "warning"
@@ -150,8 +151,9 @@ class SystemHealthService:
         Combine all component checks into one report.
 
         Overall status:
-          - healthy   → all components up/ok
-          - degraded  → at least one component has a warning condition
+          - healthy   → all components up/ok (disk "warning" included, LV-17)
+          - degraded  → at least one non-disk component has a warning
+            condition (disk's routine 80 % warning does not count on its own)
           - unhealthy → at least one component is down/critical
 
         Returns:
@@ -169,16 +171,15 @@ class SystemHealthService:
         )
         disk_check = SystemHealthService.check_disk()
 
-        # Determine worst status
-        component_statuses = [
-            db_check["status"],
-            redis_check["status"],
-            disk_check["status"],
-        ]
+        # Disk's "warning" (>= 80 % used) is routine and, on its own, must not
+        # degrade the overall status (LV-17) — only "critical" disk usage
+        # (>= settings.HEALTH_DISK_CRITICAL_PERCENT) counts, alongside a
+        # down database/redis, as unhealthy.
+        non_disk_statuses = [db_check["status"], redis_check["status"]]
 
-        if "down" in component_statuses or "critical" in component_statuses:
+        if "down" in non_disk_statuses or disk_check["status"] == "critical":
             overall = "unhealthy"
-        elif "warning" in component_statuses:
+        elif "warning" in non_disk_statuses:
             overall = "degraded"
         else:
             overall = "healthy"

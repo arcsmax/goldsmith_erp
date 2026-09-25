@@ -817,11 +817,8 @@ class QuoteService:
         QuoteService._require_draft_for_send(quote)
 
         customer = await quote_delivery.load_customer(db, int(quote.customer_id))
-        recipient = (
-            quote_delivery.customer_email(customer)
-            if quote_delivery.email_delivery_enabled()
-            else None
-        )
+        await quote_delivery.check_send_allowed(db, quote, customer)
+        recipient = await quote_delivery.resolve_delivery_recipient(db, customer)
         method = UpdateDeliveryMethod.PDF_MANUAL
         if recipient is not None:
             method = UpdateDeliveryMethod.EMAIL
@@ -838,14 +835,17 @@ class QuoteService:
                 raise QuoteNotFoundError(quote_id)
             QuoteService._require_draft_for_send(locked)
             locked.status = QuoteStatus.SENT
-            db.add(
-                quote_delivery.build_record(
-                    locked,
-                    int(current_user.id),
-                    CustomerUpdateStatus.SENT,
-                    method,
-                    datetime.utcnow(),
-                )
+            record = quote_delivery.build_record(
+                locked,
+                int(current_user.id),
+                CustomerUpdateStatus.SENT,
+                method,
+                datetime.utcnow(),
+            )
+            db.add(record)
+            await db.flush()  # populate record.id for the audit row (E16)
+            await quote_delivery.record_delivery_audit(
+                db, record, int(current_user.id), int(customer.id), method
             )
 
         _log_quote_access(
