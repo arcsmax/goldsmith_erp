@@ -14,11 +14,13 @@ ab dem **16. Juni 2026** fuehren wir im ERP den neuen QR- und Barcode-Workflow e
 
 ## Verantwortlicher
 
-**Max Kull**, Goldsmith ERP (Einzelunternehmer)
+**`[AUSFUELLEN — Name der Goldschmiede]`**, Inhaberin Anne `[AUSFUELLEN — Nachname]` (Korrektur 2026-09, Entscheidung D-19: Verantwortliche ist die Werkstatt als Arbeitgeberin, nicht der Entwickler)
 `[AUSFUELLEN — eingetragene Geschaeftsadresse]`
-Datenschutzanfragen: `[AUSFUELLEN — datenschutz@yourdomain.de]`
+Datenschutzanfragen: `[AUSFUELLEN — datenschutz@…]`
 
-Max Kull ist fuer diese Werkstattgroesse auch Datenschutzbeauftragter (Selbstbestellung, < 20 Mitarbeiter, BDSG §38(1) zulaessig). Wenn euch das einen Interessenkonflikt-Eindruck macht, koennt ihr jederzeit externe DPO-Beratung beantragen — das wird dokumentiert und bei gegebenem Anlass auch umgesetzt.
+Max Kull betreibt und wartet das System im Auftrag der Werkstatt (Auftragsverarbeiter mit Vertrag nach Art. 28 DSGVO). Ein Datenschutzbeauftragter ist bei unserer Groesse nicht vorgeschrieben (§38 BDSG); bei Fragen koennt ihr jederzeit externe Beratung verlangen.
+
+> **Offener Punkt (GDPR-14, 2026-09):** Das System enthaelt eine Auswertung „Schaetzgenauigkeit je Goldschmied" (`/analytics/goldsmith-accuracy`), die ADMIN auch fuer andere Personen abrufen kann. Das widerspricht dem Abschnitt „Wofuer wir die Daten ausdruecklich NICHT nutzen". Bis zur Entscheidung der Inhaberin (Auswertung auf eigene Werte beschraenken **oder** diese Information vorher aendern) wird sie nicht fuer Personalentscheidungen genutzt. Siehe Verzeichnis V1.5-007.
 
 ---
 
