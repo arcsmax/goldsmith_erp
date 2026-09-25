@@ -108,9 +108,9 @@ class TestCreditLargerThanGross:
             user,
         )
 
-        assert invoice.total == pytest.approx(119.0)
-        assert invoice.scrap_gold_credit == pytest.approx(5000.0)
-        assert invoice.amount_due == pytest.approx(119.0 - 5000.0)
+        assert float(invoice.total) == pytest.approx(119.0)
+        assert float(invoice.scrap_gold_credit) == pytest.approx(5000.0)
+        assert float(invoice.amount_due) == pytest.approx(119.0 - 5000.0)
         assert invoice.amount_due < 0, (
             "amount_due should go negative (workshop owes customer) rather "
             "than being floored/hidden at 0 — ADR-2026-09-25 decision 3"
@@ -131,8 +131,8 @@ class TestTwoSignedScrapGoldRecordsSum:
             user,
         )
 
-        assert invoice.scrap_gold_credit == pytest.approx(150.5)
-        assert invoice.amount_due == pytest.approx(invoice.total - 150.5)
+        assert float(invoice.scrap_gold_credit) == pytest.approx(150.5)
+        assert float(invoice.amount_due) == pytest.approx(float(invoice.total) - 150.5)
 
 
 class TestCancelledInvoiceCreditIsZero:
@@ -147,7 +147,7 @@ class TestCancelledInvoiceCreditIsZero:
             InvoiceCreate(order_id=order.id, due_date=_future_due_date()),
             user,
         )
-        assert invoice.scrap_gold_credit == pytest.approx(75.0)
+        assert float(invoice.scrap_gold_credit) == pytest.approx(75.0)
 
         await InvoiceService.cancel_invoice(db_session, invoice.id, user)
         reread = await InvoiceService.get_invoice(db_session, invoice.id, user)
@@ -193,5 +193,5 @@ class TestCancelledInvoiceCreditReapplication:
             user,
         )
 
-        assert second.scrap_gold_credit == pytest.approx(40.0)
-        assert second.amount_due == pytest.approx(second.total - 40.0)
+        assert float(second.scrap_gold_credit) == pytest.approx(40.0)
+        assert float(second.amount_due) == pytest.approx(float(second.total) - 40.0)

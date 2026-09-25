@@ -1,4 +1,6 @@
 from datetime import datetime
+from decimal import ROUND_HALF_UP, Decimal
+from typing import Any
 
 from sqlalchemy import Boolean, CheckConstraint, Column, Date, DateTime
 from sqlalchemy import Enum as _SAEnum
@@ -21,6 +23,15 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship
 
 from goldsmith_erp.db.types import EncryptedString
+
+# Exact decimal column types (BE-14, ADR-2026-09-25-numeric-and-tz). Money is
+# stored to the cent, weights and quantities to the milligram / thousandth,
+# per-gram metal prices to 4 dp (a 2 dp rate times 1 kg is off by up to 5 EUR),
+# and percentages (VAT, margin, scrap loss) to 2 dp. The ORM returns Decimal.
+MONEY_NUMERIC = Numeric(12, 2)
+WEIGHT_NUMERIC = Numeric(12, 3)
+PRICE_PER_GRAM_NUMERIC = Numeric(12, 4)
+PERCENT_NUMERIC = Numeric(5, 2)
 
 
 def SAEnum(enum_class, **kwargs):
@@ -492,7 +503,7 @@ class Order(Base):
     id = Column(Integer, primary_key=True, index=True)
     title = Column(String)
     description = Column(String)
-    price = Column(Float)  # Final customer price (can be manually set)
+    price = Column(MONEY_NUMERIC)  # Final customer price (can be manually set)
     # W2-07: every status write goes through services/order_workflow.transition
     # (transition table + an OrderEvent row in the same transaction).
     # DOM-46: new orders start as DRAFT, never the legacy NEW.
@@ -514,10 +525,14 @@ class Order(Base):
     current_location = Column(String(50), nullable=True)  # Aktueller Lagerort
 
     # Weight & Material Calculation
-    estimated_weight_g = Column(Float, nullable=True)  # Estimated metal weight in grams
-    actual_weight_g = Column(Float, nullable=True)  # Actual weight after completion
+    estimated_weight_g = Column(
+        WEIGHT_NUMERIC, nullable=True
+    )  # Estimated metal weight in grams
+    actual_weight_g = Column(
+        WEIGHT_NUMERIC, nullable=True
+    )  # Actual weight after completion
     scrap_percentage = Column(
-        Float, default=5.0
+        PERCENT_NUMERIC, default=Decimal("5.0")
     )  # Material loss percentage (default 5%)
 
     # Metal Inventory Integration
@@ -533,17 +548,25 @@ class Order(Base):
 
     # Cost Calculation
     material_cost_calculated = Column(
-        Float, nullable=True
+        MONEY_NUMERIC, nullable=True
     )  # Auto-calculated material cost
-    material_cost_override = Column(Float, nullable=True)  # Manual override if needed
+    material_cost_override = Column(
+        MONEY_NUMERIC, nullable=True
+    )  # Manual override if needed
     labor_hours = Column(Float, nullable=True)  # Estimated or actual work hours
-    hourly_rate = Column(Float, default=75.00)  # Labor rate (EUR/hour)
-    labor_cost = Column(Float, nullable=True)  # labor_hours × hourly_rate
+    hourly_rate = Column(
+        MONEY_NUMERIC, default=Decimal("75.00")
+    )  # Labor rate (EUR/hour)
+    labor_cost = Column(MONEY_NUMERIC, nullable=True)  # labor_hours × hourly_rate
 
     # Pricing
-    profit_margin_percent = Column(Float, default=40.0)  # Profit margin (%)
-    vat_rate = Column(Float, default=19.0)  # VAT rate (%)
-    calculated_price = Column(Float, nullable=True)  # Auto-calculated final price
+    profit_margin_percent = Column(
+        PERCENT_NUMERIC, default=Decimal("40.0")
+    )  # Profit margin (%)
+    vat_rate = Column(PERCENT_NUMERIC, default=Decimal("19.0"))  # VAT rate (%)
+    calculated_price = Column(
+        MONEY_NUMERIC, nullable=True
+    )  # Auto-calculated final price
 
     # ML Feature Fields — required for training duration and complexity models
     order_type = Column(
@@ -728,13 +751,13 @@ class Material(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, index=True)
     description = Column(String)
-    unit_price = Column(Float)
-    stock = Column(Float)
+    unit_price = Column(MONEY_NUMERIC)
+    stock = Column(WEIGHT_NUMERIC)
     unit = Column(String)  # g, kg, stück, etc.
     image_url = Column(String(500), nullable=True)
     supplier = Column(String(200), nullable=True)
     webshop_url = Column(String(500), nullable=True)
-    min_stock = Column(Float, default=10.0, nullable=False)
+    min_stock = Column(WEIGHT_NUMERIC, default=Decimal("10.0"), nullable=False)
 
     # Beziehungen
     orders = relationship(
@@ -993,16 +1016,16 @@ class Gemstone(Base):
     type = Column(
         String(50), nullable=False
     )  # 'diamond', 'ruby', 'sapphire', 'emerald'
-    carat = Column(Float, nullable=True)  # Weight in carats
+    carat = Column(WEIGHT_NUMERIC, nullable=True)  # Weight in carats
     quality = Column(String(20), nullable=True)  # 'VS1', 'VVS2', etc. (clarity)
     color = Column(String(20), nullable=True)  # 'D', 'E', 'F' for diamonds
     cut = Column(String(50), nullable=True)  # 'Excellent', 'Very Good', 'Good'
     shape = Column(String(50), nullable=True)  # 'Round', 'Princess', 'Oval'
 
     # Cost & Quantity
-    cost = Column(Float, nullable=False)  # Purchase/estimated cost per stone
+    cost = Column(MONEY_NUMERIC, nullable=False)  # Purchase/estimated cost per stone
     quantity = Column(Integer, default=1)  # Number of identical stones
-    total_cost = Column(Float, nullable=True)  # cost × quantity
+    total_cost = Column(MONEY_NUMERIC, nullable=True)  # cost × quantity
 
     # Setting
     setting_type = Column(
@@ -1049,10 +1072,14 @@ class MetalPurchase(Base):
     metal_type = Column(SAEnum(MetalType), nullable=False, index=True)
 
     # Weight & Pricing
-    weight_g = Column(Float, nullable=False)  # Original purchase weight in grams
-    remaining_weight_g = Column(Float, nullable=False)  # Decreases as used
-    price_total = Column(Float, nullable=False)  # Total price paid (EUR)
-    price_per_gram = Column(Float, nullable=False)  # Calculated: price_total / weight_g
+    weight_g = Column(
+        WEIGHT_NUMERIC, nullable=False
+    )  # Original purchase weight in grams
+    remaining_weight_g = Column(WEIGHT_NUMERIC, nullable=False)  # Decreases as used
+    price_total = Column(MONEY_NUMERIC, nullable=False)  # Total price paid (EUR)
+    price_per_gram = Column(
+        PRICE_PER_GRAM_NUMERIC, nullable=False
+    )  # Calculated: price_total / weight_g
 
     # Supplier Information
     supplier = Column(String(200), nullable=True)
@@ -1074,16 +1101,16 @@ class MetalPurchase(Base):
     )
 
     @property
-    def used_weight_g(self) -> float:
+    def used_weight_g(self) -> Decimal:
         """Calculate how much weight has been used from this purchase"""
-        return self.weight_g - self.remaining_weight_g
+        return Decimal(str(self.weight_g)) - Decimal(str(self.remaining_weight_g))
 
     @property
     def usage_percentage(self) -> float:
         """Calculate what percentage of this batch has been used"""
         if self.weight_g == 0:
             return 100.0
-        return (self.used_weight_g / self.weight_g) * 100.0
+        return float(self.used_weight_g / Decimal(str(self.weight_g)) * 100)
 
     @property
     def is_depleted(self) -> bool:
@@ -1091,9 +1118,9 @@ class MetalPurchase(Base):
         return self.remaining_weight_g <= 0.01  # Allow 0.01g tolerance
 
     @property
-    def remaining_value(self) -> float:
+    def remaining_value(self) -> Decimal:
         """Calculate the value of remaining metal in this batch"""
-        return self.remaining_weight_g * self.price_per_gram
+        return Decimal(str(self.remaining_weight_g)) * Decimal(str(self.price_per_gram))
 
     def __repr__(self):
         return f"<MetalPurchase {self.metal_type.value} {self.weight_g}g @ {self.price_per_gram:.2f} EUR/g>"
@@ -1123,12 +1150,12 @@ class MaterialUsage(Base):
     )
 
     # Usage Details
-    weight_used_g = Column(Float, nullable=False)  # How much was consumed
+    weight_used_g = Column(WEIGHT_NUMERIC, nullable=False)  # How much was consumed
     cost_at_time = Column(
-        Float, nullable=False
+        MONEY_NUMERIC, nullable=False
     )  # Cost when used (weight * price_per_gram)
     price_per_gram_at_time = Column(
-        Float, nullable=False
+        PRICE_PER_GRAM_NUMERIC, nullable=False
     )  # Snapshot of price when used
 
     # Costing Method Used
@@ -1212,7 +1239,7 @@ class InventoryAdjustment(Base):
         String(50), nullable=False
     )  # 'loss', 'theft', 'reclamation', 'correction', 'return'
     weight_change_g = Column(
-        Float, nullable=False
+        WEIGHT_NUMERIC, nullable=False
     )  # Positive for additions, negative for reductions
 
     # Reason & Documentation
@@ -1257,9 +1284,11 @@ class ScrapGold(Base):
     )
 
     # Calculated totals
-    total_fine_gold_g = Column(Float, default=0.0)
-    total_value_eur = Column(Float, default=0.0)
-    gold_price_per_g = Column(Float, nullable=True)  # Rate used for calculation
+    total_fine_gold_g = Column(WEIGHT_NUMERIC, default=Decimal("0.0"))
+    total_value_eur = Column(MONEY_NUMERIC, default=Decimal("0.0"))
+    gold_price_per_g = Column(
+        PRICE_PER_GRAM_NUMERIC, nullable=True
+    )  # Rate used for calculation
     price_source = Column(String(50), default="fixed_rate")  # daily_rate or fixed_rate
 
     # Legal documentation
@@ -1311,8 +1340,10 @@ class ScrapGoldItem(Base):
     )
     description = Column(String(200), nullable=False)  # "Alter Ehering", "Kette"
     alloy = Column(SAEnum(AlloyType), nullable=False)
-    weight_g = Column(Float, nullable=False)  # Total weight in grams
-    fine_content_g = Column(Float, nullable=False)  # Calculated: weight * alloy/1000
+    weight_g = Column(WEIGHT_NUMERIC, nullable=False)  # Total weight in grams
+    fine_content_g = Column(
+        WEIGHT_NUMERIC, nullable=False
+    )  # Calculated: weight * alloy/1000
     photo_path = Column(String(500), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
@@ -1351,7 +1382,7 @@ class MetalPriceHistory(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     metal_type = Column(SAEnum(MetalType), nullable=False, index=True)
-    price_per_gram_eur = Column(Float, nullable=False)
+    price_per_gram_eur = Column(PRICE_PER_GRAM_NUMERIC, nullable=False)
     source = Column(
         SAEnum(MetalPriceSource), nullable=False, default=MetalPriceSource.API
     )
@@ -1503,10 +1534,18 @@ class Invoice(Base):
     service_date = Column(DateTime, nullable=True)
 
     # Amounts (Betraege)
-    subtotal = Column(Float, nullable=False, default=0.0)  # Zwischensumme (netto)
-    tax_rate = Column(Float, nullable=False, default=19.0)  # MwSt-Satz in Prozent
-    tax_amount = Column(Float, nullable=False, default=0.0)  # MwSt-Betrag
-    total = Column(Float, nullable=False, default=0.0)  # Gesamtbetrag (brutto)
+    subtotal = Column(
+        MONEY_NUMERIC, nullable=False, default=Decimal("0.0")
+    )  # Zwischensumme (netto)
+    tax_rate = Column(
+        PERCENT_NUMERIC, nullable=False, default=Decimal("19.0")
+    )  # MwSt-Satz in Prozent
+    tax_amount = Column(
+        MONEY_NUMERIC, nullable=False, default=Decimal("0.0")
+    )  # MwSt-Betrag
+    total = Column(
+        MONEY_NUMERIC, nullable=False, default=Decimal("0.0")
+    )  # Gesamtbetrag (brutto)
 
     # Optional fields
     notes = Column(Text, nullable=True)  # Anmerkungen
@@ -1572,10 +1611,10 @@ class InvoiceLineItem(Base):
         SAEnum(InvoiceLineType), nullable=False, default=InvoiceLineType.OTHER
     )
     description = Column(String(500), nullable=False)  # Beschreibung der Position
-    quantity = Column(Float, nullable=False, default=1.0)
-    unit_price = Column(Float, nullable=False)  # Einzelpreis (netto)
+    quantity = Column(WEIGHT_NUMERIC, nullable=False, default=Decimal("1.0"))
+    unit_price = Column(MONEY_NUMERIC, nullable=False)  # Einzelpreis (netto)
     total = Column(
-        Float, nullable=False
+        MONEY_NUMERIC, nullable=False
     )  # Gesamtpreis dieser Position (quantity * unit_price)
 
     # Relationships
@@ -1615,7 +1654,7 @@ class WorkshopSettings(Base):
     bic = Column(String(11), nullable=True)
     bank_name = Column(String(100), nullable=True)
     is_kleinunternehmer = Column(Boolean, nullable=False, default=False)  # §19 UStG
-    default_vat_rate = Column(Float, nullable=False, default=19.0)
+    default_vat_rate = Column(PERCENT_NUMERIC, nullable=False, default=Decimal("19.0"))
     invoice_footer = Column(Text, nullable=True)
     updated_at = Column(
         DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
@@ -1712,10 +1751,18 @@ class Quote(Base):
     converted_at = Column(DateTime, nullable=True)  # Umgewandelt am
 
     # Amounts (Betraege)
-    subtotal = Column(Float, nullable=False, default=0.0)  # Zwischensumme (netto)
-    tax_rate = Column(Float, nullable=False, default=19.0)  # MwSt-Satz in Prozent
-    tax_amount = Column(Float, nullable=False, default=0.0)  # MwSt-Betrag
-    total = Column(Float, nullable=False, default=0.0)  # Gesamtbetrag (brutto)
+    subtotal = Column(
+        MONEY_NUMERIC, nullable=False, default=Decimal("0.0")
+    )  # Zwischensumme (netto)
+    tax_rate = Column(
+        PERCENT_NUMERIC, nullable=False, default=Decimal("19.0")
+    )  # MwSt-Satz in Prozent
+    tax_amount = Column(
+        MONEY_NUMERIC, nullable=False, default=Decimal("0.0")
+    )  # MwSt-Betrag
+    total = Column(
+        MONEY_NUMERIC, nullable=False, default=Decimal("0.0")
+    )  # Gesamtbetrag (brutto)
 
     # Customer signature (base64 PNG -- stored for approved quotes)
     customer_signature_data = Column(Text, nullable=True)
@@ -1764,9 +1811,9 @@ class QuoteLineItem(Base):
         SAEnum(QuoteLineType), nullable=False, default=QuoteLineType.OTHER
     )
     description = Column(String(500), nullable=False)  # Beschreibung der Position
-    quantity = Column(Float, nullable=False, default=1.0)
-    unit_price = Column(Float, nullable=False)  # Einzelpreis (netto)
-    total = Column(Float, nullable=False)  # Gesamtpreis (quantity * unit_price)
+    quantity = Column(WEIGHT_NUMERIC, nullable=False, default=Decimal("1.0"))
+    unit_price = Column(MONEY_NUMERIC, nullable=False)  # Einzelpreis (netto)
+    total = Column(MONEY_NUMERIC, nullable=False)  # Gesamtpreis (quantity * unit_price)
 
     # Snapshot of estimator inputs/outputs (V1.3 Phase 3).
     # NULL = manual entry; non-null = estimator-sourced (immutable at API layer).
@@ -2097,7 +2144,7 @@ class RepairJob(Base):
         String(50), nullable=True
     )  # Free text: "585 Gelbgold", "Silber 925"
     estimated_value = Column(
-        Float, nullable=True
+        MONEY_NUMERIC, nullable=True
     )  # Versicherungswert des Stuecks in EUR
 
     # Status
@@ -2110,8 +2157,10 @@ class RepairJob(Base):
 
     # Diagnosis & cost
     diagnosis_notes = Column(Text, nullable=True)
-    estimated_cost = Column(Float, nullable=True)  # Kostenvoranschlag in EUR
-    actual_cost = Column(Float, nullable=True)  # Tatsaechliche Kosten nach Reparatur
+    estimated_cost = Column(MONEY_NUMERIC, nullable=True)  # Kostenvoranschlag in EUR
+    actual_cost = Column(
+        MONEY_NUMERIC, nullable=True
+    )  # Tatsaechliche Kosten nach Reparatur
 
     # Dates
     estimated_completion_date = Column(DateTime, nullable=True, index=True)
@@ -2270,8 +2319,10 @@ class Consultation(Base):
         default=ConsultationOccasion.OTHER,
     )
     occasion_date = Column(Date, nullable=True)
-    budget_min = Column(Float, nullable=True)  # Finanzdaten — Sichtbarkeitsregeln!
-    budget_max = Column(Float, nullable=True)
+    budget_min = Column(
+        MONEY_NUMERIC, nullable=True
+    )  # Finanzdaten — Sichtbarkeitsregeln!
+    budget_max = Column(MONEY_NUMERIC, nullable=True)
     piece_type = Column(SAEnum(OrderTypeEnum), nullable=True)
     wishes = Column(Text, nullable=True)  # Design-IP
     materials_discussed = Column(JSON, nullable=True)  # [{"metal": "gold_585", ...}]
@@ -2626,7 +2677,7 @@ class ValuationCertificate(Base):
 
     # Metal details
     metal_type = Column(String(100), nullable=True)  # "Gelbgold 750 (18K)"
-    metal_weight_g = Column(Float, nullable=True)  # Metallgewicht in Gramm
+    metal_weight_g = Column(WEIGHT_NUMERIC, nullable=True)  # Metallgewicht in Gramm
     metal_purity = Column(String(20), nullable=True)  # "750", "585", "950"
 
     # Gemstone summary (free-text list — mirrors what is in Gemstone rows)
@@ -3033,9 +3084,11 @@ class CostChangeRequest(Base):
         Integer, ForeignKey("quotes.id", ondelete="SET NULL"), nullable=True, index=True
     )
 
-    original_amount = Column(Float, nullable=False)  # Kostenvoranschlag-Betrag
-    new_amount = Column(Float, nullable=False)  # Neuer, voraussichtlicher Betrag
-    delta_percent = Column(Float, nullable=False)  # Computed at creation
+    original_amount = Column(MONEY_NUMERIC, nullable=False)  # Kostenvoranschlag-Betrag
+    new_amount = Column(
+        MONEY_NUMERIC, nullable=False
+    )  # Neuer, voraussichtlicher Betrag
+    delta_percent = Column(MONEY_NUMERIC, nullable=False)  # Computed at creation
 
     reason = Column(Text, nullable=False)  # scrub target — legally relevant Begründung
     # [{"label": str, "amount": float, "kind": "add"|"remove"|"change"}]
@@ -3214,7 +3267,7 @@ class OrderItem(Base):
     )
     description = Column(String(500), nullable=False)
     quantity = Column(Integer, default=1, nullable=False)
-    unit_price = Column(Float, nullable=True)
+    unit_price = Column(MONEY_NUMERIC, nullable=True)
     material_id = Column(
         Integer, ForeignKey("materials.id", ondelete="SET NULL"), nullable=True
     )
@@ -3444,8 +3497,8 @@ class EstimateAccuracy(Base):
 
     estimated_hours = Column(Float, nullable=False)
     actual_hours = Column(Float, nullable=False)
-    estimated_total = Column(Float, nullable=False)
-    actual_total = Column(Float, nullable=False)
+    estimated_total = Column(MONEY_NUMERIC, nullable=False)
+    actual_total = Column(MONEY_NUMERIC, nullable=False)
 
     # Free-form tag identifying which estimator revision produced the
     # estimate (e.g. "labor_estimator_v1") — lets calibration slice by
@@ -3583,3 +3636,51 @@ Index(
     OutboxMessage.status,
     OutboxMessage.next_attempt_at,
 )
+
+
+# ── Decimal coercion on assignment (BE-14) ─────────────────────────────────
+# Numeric columns load as Decimal, but a service that assigns a float (or an
+# int) would leave that float on the instance until the next refresh, and the
+# next ``Decimal * float`` raises TypeError. Every assignment to a Numeric
+# column is therefore converted here: floats go through ``str`` (so 0.1 stays
+# 0.1, not 0.1000000000000000055…), and the value is quantized to the column
+# scale with ROUND_HALF_UP, which is what the printed documents show.
+
+
+def _numeric_setter(scale: int) -> Any:
+    quantum = Decimal(1).scaleb(-scale)
+
+    def _coerce(target: Any, value: Any, oldvalue: Any, initiator: Any) -> Any:
+        if value is None or isinstance(value, bool):
+            return value
+        if isinstance(value, Decimal):
+            dec = value
+        elif isinstance(value, (int, float)):
+            dec = Decimal(str(value))
+        else:
+            return value
+        if not dec.is_finite():
+            raise ValueError(f"Non-finite value for Numeric column: {value!r}")
+        return dec.quantize(quantum, rounding=ROUND_HALF_UP)
+
+    return _coerce
+
+
+def _install_numeric_coercion() -> None:
+    for mapper in Base.registry.mappers:
+        for prop in mapper.column_attrs:
+            column = prop.columns[0]
+            col_type = getattr(column, "type", None)
+            if not isinstance(col_type, Numeric) or isinstance(col_type, Float):
+                continue
+            if col_type.scale is None:
+                continue
+            event.listen(
+                getattr(mapper.class_, prop.key),
+                "set",
+                _numeric_setter(col_type.scale),
+                retval=True,
+            )
+
+
+_install_numeric_coercion()

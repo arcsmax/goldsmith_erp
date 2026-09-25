@@ -441,7 +441,15 @@ class MetalPriceService:
             )
             row = result.scalar_one_or_none()
             if row is not None:
-                prices[metal] = (row.price_per_gram_eur, row.source, row.fetched_at)
+                # The spot-price tiers (API, cache, DB, fallback) share one
+                # float contract; the NUMERIC(12, 4) history row is converted
+                # at this boundary (BE-14). Money derived from it is computed
+                # in Decimal by the consumers (scrap gold, cost calculation).
+                prices[metal] = (
+                    float(row.price_per_gram_eur),
+                    row.source,
+                    row.fetched_at,
+                )
 
         return prices if len(prices) == len(_BASE_METALS) else None
 

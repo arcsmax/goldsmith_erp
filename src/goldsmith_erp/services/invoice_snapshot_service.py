@@ -52,6 +52,7 @@ from goldsmith_erp.db.models import Invoice as InvoiceModel
 from goldsmith_erp.db.models import InvoiceLineItem as InvoiceLineItemModel
 from goldsmith_erp.db.models import InvoiceStatus
 from goldsmith_erp.db.models import Order as OrderModel
+from goldsmith_erp.models._common import dec, money
 from goldsmith_erp.services.pdf_service import PDFService
 from goldsmith_erp.services.workshop_settings_service import (
     WorkshopSettingsService,
@@ -197,7 +198,8 @@ class InvoiceSnapshotService:
                 "tax_amount": _money(invoice.tax_amount),
                 "total": total,
                 "scrap_gold_credit": credit,
-                "amount_due": round(total - credit, 2),
+                # Decimal, not float round() (BE-14); JSON keeps numbers.
+                "amount_due": float(money(dec(invoice.total) - dec(scrap_gold_credit))),
             },
         }
 

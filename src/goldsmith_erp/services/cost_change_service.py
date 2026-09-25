@@ -51,6 +51,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime
+from decimal import Decimal
 from typing import Any, Dict, List, Optional, cast
 
 from sqlalchemy import select
@@ -67,6 +68,7 @@ from goldsmith_erp.db.models import (
     Order,
 )
 from goldsmith_erp.db.transaction import transactional
+from goldsmith_erp.models._common import DecimalLike, dec, money
 from goldsmith_erp.models.customer_update import (
     CostChangeCreate,
     CostChangeRecordResponse,
@@ -146,7 +148,7 @@ class SentCostChangeConflictError(InvalidCostChangeStateError):
 # ---------------------------------------------------------------------------
 
 
-def _format_eur(value: float) -> str:
+def _format_eur(value: DecimalLike) -> str:
     formatted = f"{value:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
     return f"{formatted} €"
 
@@ -165,9 +167,9 @@ def _compose_cost_change_body(cost_change: CostChangeRequest, order_ref: str) ->
     # attributes (classic Column() style, no Mapped[] here) — at runtime,
     # on a loaded instance, they are plain float/str (cost_watch_service.py
     # precedent for this exact false-positive class).
-    original_amount = cast(float, cost_change.original_amount)
-    new_amount = cast(float, cost_change.new_amount)
-    delta_percent = cast(float, cost_change.delta_percent)
+    original_amount = cast(Decimal, cost_change.original_amount)
+    new_amount = cast(Decimal, cost_change.new_amount)
+    delta_percent = cast(Decimal, cost_change.delta_percent)
     reason = cast(str, cost_change.reason)
     line_items = cast(Optional[List[Dict[str, Any]]], cost_change.line_items)
 
@@ -250,15 +252,18 @@ class CostChangeService:
         if projected.quote_id is None or projected.quote_total is None:
             raise NoQuoteAvailableError(order_id)
 
-        original_amount = projected.quote_total
-        new_amount = data.new_amount
+        original_amount = dec(projected.quote_total)
+        new_amount = dec(data.new_amount)
         delta_percent = (
-            ((new_amount - original_amount) / original_amount) * 100.0
+            (new_amount - original_amount) / original_amount * 100
             if original_amount
-            else 0.0
+            else Decimal("0")
         )
+        # mode="json": the JSON column needs plain numbers, not Decimal.
         line_items = (
-            [item.model_dump() for item in data.line_items] if data.line_items else None
+            [item.model_dump(mode="json") for item in data.line_items]
+            if data.line_items
+            else None
         )
 
         async with transactional(db):
@@ -267,7 +272,7 @@ class CostChangeService:
                 quote_id=projected.quote_id,
                 original_amount=original_amount,
                 new_amount=new_amount,
-                delta_percent=round(delta_percent, 2),
+                delta_percent=money(delta_percent),
                 reason=data.reason,
                 line_items=line_items,
                 status=CostChangeStatus.DRAFT,

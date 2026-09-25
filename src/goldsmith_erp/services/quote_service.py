@@ -15,6 +15,7 @@ All service methods are async and accept AsyncSession as first parameter.
 
 import logging
 from datetime import datetime, timedelta
+from decimal import Decimal
 from typing import List, Optional, cast
 
 from sqlalchemy import func, update
@@ -39,6 +40,7 @@ from goldsmith_erp.db.models import QuoteLineItem as QuoteLineItemModel
 from goldsmith_erp.db.models import QuoteLineType, QuoteStatus, UpdateDeliveryMethod
 from goldsmith_erp.db.models import User as UserModel
 from goldsmith_erp.db.transaction import transactional
+from goldsmith_erp.models._common import DecimalLike, dec, money
 from goldsmith_erp.models.quote import (
     ApproveQuoteRequest,
     QuoteCreate,
@@ -71,20 +73,23 @@ def _soll_from_quote_lines(line_items: list) -> dict:
     the order form (W2-06).
     """
     labor = [li for li in line_items if li.line_type == QuoteLineType.LABOR]
-    hours = round(sum(float(li.quantity or 0.0) for li in labor), 2)
-    labor_total = round(sum(float(li.total or 0.0) for li in labor), 2)
-    material_total = round(
+    hours = money(sum((dec(li.quantity) for li in labor), Decimal("0")))
+    labor_total = money(sum((dec(li.total) for li in labor), Decimal("0")))
+    material_total = money(
         sum(
-            float(li.total or 0.0)
-            for li in line_items
-            if li.line_type == QuoteLineType.MATERIAL
-        ),
-        2,
+            (
+                dec(li.total)
+                for li in line_items
+                if li.line_type == QuoteLineType.MATERIAL
+            ),
+            Decimal("0"),
+        )
     )
     soll: dict = {}
     if hours > 0 and labor_total > 0:
-        soll["labor_hours"] = hours
-        soll["hourly_rate"] = round(labor_total / hours, 2)
+        # Order.labor_hours is a Float column (hours are a measurement).
+        soll["labor_hours"] = float(hours)
+        soll["hourly_rate"] = money(labor_total / hours)
         soll["labor_cost"] = labor_total
     if material_total > 0:
         soll["material_cost_override"] = material_total
@@ -199,7 +204,7 @@ class QuoteService:
     @staticmethod
     def calculate_totals(
         line_items: List[QuoteLineItemCreate],
-        tax_rate: float,
+        tax_rate: DecimalLike,
     ) -> dict:
         """
         Calculate quote totals from line items.
@@ -209,11 +214,21 @@ class QuoteService:
           tax_amount - MwSt-Betrag
           total      - Gesamtbetrag (brutto)
         """
-        subtotal = sum(item.quantity * item.unit_price for item in line_items)
-        tax_amount = round(subtotal * (tax_rate / 100), 2)
-        total = round(subtotal + tax_amount, 2)
-        subtotal = round(subtotal, 2)
-        return {"subtotal": subtotal, "tax_amount": tax_amount, "total": total}
+        # Same Decimal / ROUND_HALF_UP algorithm as
+        # InvoiceService.calculate_totals (BE-14): the quote a customer signs
+        # and the invoice that follows it must round identically.
+        raw_subtotal = sum(
+            (dec(item.quantity) * dec(item.unit_price) for item in line_items),
+            Decimal("0"),
+        )
+        subtotal = money(raw_subtotal)
+        tax_amount = money(subtotal * dec(tax_rate) / 100)
+        total = subtotal + tax_amount
+        return {
+            "subtotal": float(subtotal),
+            "tax_amount": float(tax_amount),
+            "total": float(total),
+        }
 
     @staticmethod
     def _recompute_totals_from_items(quote: QuoteModel) -> None:
@@ -231,13 +246,13 @@ class QuoteService:
         # (classic Column() style, no Mapped[] here) — at runtime, on a
         # loaded instance, they are plain float/str (cost_change_service.py
         # precedent for this exact false-positive class).
-        tax_rate = cast(float, quote.tax_rate)
+        tax_rate = cast(Decimal, quote.tax_rate)
         items = [
             QuoteLineItemCreate(
                 line_type=cast(QuoteLineType, li.line_type),
                 description=cast(str, li.description),
-                quantity=cast(float, li.quantity),
-                unit_price=cast(float, li.unit_price),
+                quantity=cast(Decimal, li.quantity),
+                unit_price=cast(Decimal, li.unit_price),
             )
             for li in quote.line_items
         ]
@@ -278,19 +293,19 @@ class QuoteService:
                     line_type=QuoteLineType.MATERIAL,
                     description=metal_desc,
                     quantity=1.0,
-                    unit_price=round(material_cost, 2),
+                    unit_price=money(material_cost),
                 )
             )
 
         # --- Labor cost ---
         if order.labor_hours and order.labor_hours > 0:
-            hourly_rate = order.hourly_rate or 75.0
+            hourly_rate = dec(order.hourly_rate or 75)
             items.append(
                 QuoteLineItemCreate(
                     line_type=QuoteLineType.LABOR,
                     description=f"Arbeitszeit: {order.labor_hours:.2f}h x {hourly_rate:.2f} EUR/h",
                     quantity=order.labor_hours,
-                    unit_price=round(hourly_rate, 2),
+                    unit_price=money(hourly_rate),
                 )
             )
         elif order.labor_cost and order.labor_cost > 0:
@@ -299,7 +314,7 @@ class QuoteService:
                     line_type=QuoteLineType.LABOR,
                     description="Arbeitszeit",
                     quantity=1.0,
-                    unit_price=round(order.labor_cost, 2),
+                    unit_price=money(order.labor_cost),
                 )
             )
 
@@ -318,20 +333,20 @@ class QuoteService:
                 QuoteLineItemCreate(
                     line_type=QuoteLineType.GEMSTONE,
                     description=gemstone_desc,
-                    quantity=float(gemstone.quantity or 1),
-                    unit_price=round(gemstone.cost, 2),
+                    quantity=dec(gemstone.quantity or 1),
+                    unit_price=money(gemstone.cost),
                 )
             )
 
         # --- Fallback ---
         if not items:
-            fallback_price = order.price or order.calculated_price or 0.0
+            fallback_price = order.price or order.calculated_price or 0
             items.append(
                 QuoteLineItemCreate(
                     line_type=QuoteLineType.OTHER,
                     description=f"Auftrag: {order.title}",
                     quantity=1.0,
-                    unit_price=round(fallback_price, 2),
+                    unit_price=money(fallback_price),
                 )
             )
 
@@ -484,7 +499,7 @@ class QuoteService:
                     description=item.description,
                     quantity=item.quantity,
                     unit_price=item.unit_price,
-                    total=round(item.quantity * item.unit_price, 2),
+                    total=money(dec(item.quantity) * dec(item.unit_price)),
                 )
                 db.add(db_line)
 
@@ -684,7 +699,7 @@ class QuoteService:
                 description=item.description,
                 quantity=item.quantity,
                 unit_price=item.unit_price,
-                total=round(item.quantity * item.unit_price, 2),
+                total=money(dec(item.quantity) * dec(item.unit_price)),
                 estimator_metadata=item.estimator_metadata,
             )
             quote.line_items.append(db_line)
@@ -733,7 +748,7 @@ class QuoteService:
             db_line.description = item.description
             db_line.quantity = item.quantity
             db_line.unit_price = item.unit_price
-            db_line.total = round(item.quantity * item.unit_price, 2)
+            db_line.total = money(dec(item.quantity) * dec(item.unit_price))
             # estimator_metadata is immutable after creation — do NOT update it
             QuoteService._recompute_totals_from_items(quote)
             new_total = quote.total
@@ -1154,9 +1169,9 @@ class QuoteService:
         return order
 
     @staticmethod
-    def _agreed_net_price(quote: QuoteModel) -> float:
+    def _agreed_net_price(quote: QuoteModel) -> Decimal:
         """Net agreed price; 422 when the quote has none (same rule as invoices)."""
-        net_price = round(float(quote.subtotal or 0.0), 2)
+        net_price = money(quote.subtotal)
         if net_price <= 0:
             raise DomainValidationError(
                 (
@@ -1188,7 +1203,7 @@ class QuoteService:
     @staticmethod
     def _new_order_kwargs(
         quote: QuoteModel,
-        net_price: float,
+        net_price: Decimal,
         carried: "consultation_carry.CarriedOrderFields",
     ) -> dict:
         """Columns for an order created from an unlinked quote."""

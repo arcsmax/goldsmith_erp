@@ -62,7 +62,7 @@ _CENT = Decimal("0.01")
 _DEFAULT_VAT_RATE = 19.0
 
 
-def _to_cents(value: float | Decimal) -> Decimal:
+def _to_cents(value: float | int | Decimal) -> Decimal:
     """Convert a money amount to Decimal rounded half-up to cents."""
     return Decimal(str(value)).quantize(_CENT, rounding=ROUND_HALF_UP)
 
@@ -215,7 +215,7 @@ class InvoiceService:
                     line_type=InvoiceLineType(line.line_type.value),
                     description=line.description,
                     quantity=line.quantity,
-                    unit_price=float(_to_cents(line.unit_price)),
+                    unit_price=_to_cents(line.unit_price),
                 )
                 for line in converted_quote.line_items
             ]
@@ -243,7 +243,7 @@ class InvoiceService:
                 line_type=InvoiceLineType.OTHER,
                 description=f"Auftrag: {order.title}",
                 quantity=1.0,
-                unit_price=float(net_price),
+                unit_price=net_price,
             )
         ]
 
@@ -310,8 +310,8 @@ class InvoiceService:
         derived, non-persisted attributes read by InvoiceResponse.
         """
         amount_due = _to_cents(invoice.total or 0.0) - credit
-        setattr(invoice, "scrap_gold_credit", float(credit))
-        setattr(invoice, "amount_due", float(amount_due))
+        setattr(invoice, "scrap_gold_credit", credit)
+        setattr(invoice, "amount_due", amount_due)
 
     @staticmethod
     async def _attach_payment_summaries(
@@ -551,10 +551,8 @@ class InvoiceService:
                     description=item.description,
                     quantity=item.quantity,
                     unit_price=item.unit_price,
-                    total=float(
-                        _to_cents(
-                            Decimal(str(item.quantity)) * Decimal(str(item.unit_price))
-                        )
+                    total=_to_cents(
+                        Decimal(str(item.quantity)) * Decimal(str(item.unit_price))
                     ),
                 )
                 db.add(db_line)
@@ -999,10 +997,10 @@ class InvoiceService:
                 if header.get("service_date")
                 else original.service_date or original.issue_date
             ),
-            subtotal=-float(original.subtotal or 0.0),
+            subtotal=-_to_cents(original.subtotal or 0),
             tax_rate=original.tax_rate,
-            tax_amount=-float(original.tax_amount or 0.0),
-            total=-float(original.total or 0.0),
+            tax_amount=-_to_cents(original.tax_amount or 0),
+            total=-_to_cents(original.total or 0),
             notes=request.reason,
             cancels_invoice_id=original.id,
         )
@@ -1014,8 +1012,8 @@ class InvoiceService:
                 line_type=line.line_type,
                 description=line.description,
                 quantity=line.quantity,
-                unit_price=-float(line.unit_price or 0.0),
-                total=-float(line.total or 0.0),
+                unit_price=-_to_cents(line.unit_price or 0),
+                total=-_to_cents(line.total or 0),
             )
             for line in original.line_items
         ]

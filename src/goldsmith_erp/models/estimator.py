@@ -26,6 +26,7 @@ from typing import Optional
 from pydantic import BaseModel, ConfigDict, Field
 
 from goldsmith_erp.ml.labor_estimator import SimilarityLevel
+from goldsmith_erp.models._common import Money
 
 
 class LaborEstimateRequest(BaseModel):
@@ -76,14 +77,14 @@ class LaborEstimateResponse(BaseModel):
     hours_p50: Optional[float]
     hours_p20: Optional[float]
     hours_p80: Optional[float]
-    labor_cost_p50: Optional[float] = Field(
+    labor_cost_p50: Optional[Money] = Field(
         None,
         description="Single customer-facing labor cost estimate (product decision Q3)",
     )
-    labor_cost_p20: Optional[float] = Field(
+    labor_cost_p20: Optional[Money] = Field(
         None, description="Internal-only labor cost range floor"
     )
-    labor_cost_p80: Optional[float] = Field(
+    labor_cost_p80: Optional[Money] = Field(
         None, description="Internal-only labor cost range ceiling"
     )
     sample_size: int

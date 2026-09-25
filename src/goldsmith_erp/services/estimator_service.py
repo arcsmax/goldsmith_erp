@@ -52,6 +52,7 @@ never relies on them being exactly equal).
 from __future__ import annotations
 
 import logging
+from decimal import Decimal
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -63,6 +64,7 @@ from goldsmith_erp.ml.labor_estimator import (
     LaborEstimate,
     LaborEstimator,
 )
+from goldsmith_erp.models._common import dec, money
 from goldsmith_erp.models.estimator import LaborEstimateResponse
 from goldsmith_erp.services import labor_corpus_service
 from goldsmith_erp.services.cost_calculation_service import CostCalculationService
@@ -124,7 +126,7 @@ async def _known_activity_hours(
 
 async def _labor_cost_from_activity_hours(
     db: AsyncSession, activity_hours: dict[int, float]
-) -> float:
+) -> Decimal:
     """
     Convert a ``{activity_id: hours}`` breakdown into a labor cost via the
     Task-1 per-activity hourly-rate path, guarding against stale/unknown
@@ -146,7 +148,7 @@ async def _labor_cost_from_activity_hours(
 
 async def _blended_hourly_rate(
     db: AsyncSession, activity_hours: dict[int, float]
-) -> float:
+) -> Decimal:
     """
     Weighted-average EUR/hour rate across a ``{activity_id: hours}``
     breakdown (BE-10 / decision D-09): the known-activity subset's total
@@ -166,15 +168,17 @@ async def _blended_hourly_rate(
     known_activity_hours = await _known_activity_hours(db, activity_hours)
     total_known_hours = sum(known_activity_hours.values())
     if total_known_hours <= 0:
-        return settings.DEFAULT_HOURLY_RATE
+        return dec(settings.DEFAULT_HOURLY_RATE)
 
     total_known_cost = await CostCalculationService._calculate_labor_cost_per_activity(
         db, known_activity_hours
     )
-    return total_known_cost / total_known_hours
+    return total_known_cost / dec(total_known_hours)
 
 
-def _scale_cost(labor_cost_p50: float, hours_p50: float, hours_target: float) -> float:
+def _scale_cost(
+    labor_cost_p50: Decimal, hours_p50: float, hours_target: float
+) -> Decimal:
     """
     Approximate the P20/P80 labor cost by scaling ``labor_cost_p50`` by
     the ratio of ``hours_target`` to ``hours_p50``.
@@ -189,8 +193,8 @@ def _scale_cost(labor_cost_p50: float, hours_p50: float, hours_target: float) ->
     returning 0.0 rather than dividing by zero.
     """
     if hours_p50 <= 0:
-        return 0.0
-    return round(labor_cost_p50 * (hours_target / hours_p50), 2)
+        return Decimal("0.00")
+    return money(labor_cost_p50 * dec(hours_target) / dec(hours_p50))
 
 
 async def estimate_labor(
@@ -248,7 +252,7 @@ async def estimate_labor(
     # guarantees the priced total is always exactly hours_p50 hours' worth,
     # regardless of whether suggested_activities' own hours sum to it.
     blended_rate = await _blended_hourly_rate(db, estimate.suggested_activities)
-    labor_cost_p50 = round(estimate.hours_p50 * blended_rate, 2)
+    labor_cost_p50 = money(dec(estimate.hours_p50) * blended_rate)
     labor_cost_p20 = _scale_cost(labor_cost_p50, estimate.hours_p50, estimate.hours_p20)
     labor_cost_p80 = _scale_cost(labor_cost_p50, estimate.hours_p50, estimate.hours_p80)
 

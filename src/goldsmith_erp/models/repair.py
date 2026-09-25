@@ -13,6 +13,7 @@ from typing import List, Literal, Optional
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from goldsmith_erp.db.models import RepairItemType, RepairJobStatus, RepairPhotoPhase
+from goldsmith_erp.models._common import Money
 
 
 def _strip_tzinfo(value: Optional[datetime]) -> Optional[datetime]:
@@ -149,7 +150,7 @@ class RepairJobCreate(BaseModel):
     metal_type: Optional[str] = Field(
         None, max_length=100, description="Metallbezeichnung, z.B. '585 Gelbgold'"
     )
-    estimated_value: Optional[float] = Field(
+    estimated_value: Optional[Money] = Field(
         None, ge=0, description="Versicherungswert in EUR"
     )
     estimated_completion_date: Optional[datetime] = Field(
@@ -169,7 +170,7 @@ class RepairJobCreate(BaseModel):
         max_length=INTAKE_CONDITION_MAX_ITEMS,
         description="Zustand bei Annahme, z.B. ['Kratzer', 'Tragespuren']",
     )
-    estimated_cost: Optional[float] = Field(
+    estimated_cost: Optional[Money] = Field(
         None, ge=0, description="Erste Preisindikation in EUR (unverbindlich)"
     )
 
@@ -222,7 +223,7 @@ class RepairDiagnoseInput(BaseModel):
     diagnosis_notes: str = Field(
         ..., min_length=1, max_length=5000, description="Befundbeschreibung"
     )
-    estimated_cost: float = Field(..., ge=0, description="Kostenvoranschlag in EUR")
+    estimated_cost: Money = Field(..., ge=0, description="Kostenvoranschlag in EUR")
     estimated_completion_date: Optional[datetime] = Field(
         None, description="Voraussichtliches Fertigstellungsdatum (aktualisiert)"
     )
@@ -247,7 +248,7 @@ class RepairCompleteInput(BaseModel):
     Records the actual cost which may differ from the estimate.
     """
 
-    actual_cost: float = Field(..., ge=0, description="Tatsaechliche Kosten in EUR")
+    actual_cost: Money = Field(..., ge=0, description="Tatsaechliche Kosten in EUR")
     notes: Optional[str] = Field(None, max_length=2000)
 
 
@@ -286,11 +287,11 @@ class RepairJobRead(BaseModel):
     item_description: str
     item_type: RepairItemType
     metal_type: Optional[str] = None
-    estimated_value: Optional[float] = None
+    estimated_value: Optional[Money] = None
     status: RepairJobStatus
     diagnosis_notes: Optional[str] = None
-    estimated_cost: Optional[float] = None
-    actual_cost: Optional[float] = None
+    estimated_cost: Optional[Money] = None
+    actual_cost: Optional[Money] = None
     estimated_completion_date: Optional[datetime] = None
     actual_completion_date: Optional[datetime] = None
     customer_notified_at: Optional[datetime] = None
@@ -320,7 +321,7 @@ class RepairJobListItem(BaseModel):
     item_type: RepairItemType
     metal_type: Optional[str] = None
     status: RepairJobStatus
-    estimated_cost: Optional[float] = None
+    estimated_cost: Optional[Money] = None
     estimated_completion_date: Optional[datetime] = None
     created_at: datetime
     updated_at: datetime

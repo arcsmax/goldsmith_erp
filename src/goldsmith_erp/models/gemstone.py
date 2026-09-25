@@ -19,6 +19,8 @@ from typing import Dict, Literal, Optional, Tuple
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from goldsmith_erp.models._common import Money, Weight, number_default
+
 GemstoneSettingType = Literal[
     "bezel", "prong", "channel", "pave", "tension", "invisible"
 ]
@@ -58,7 +60,7 @@ class _GemstoneFields(BaseModel):
 
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
-    carat: Optional[float] = Field(None, gt=0, le=1000, description="Karat je Stein")
+    carat: Optional[Weight] = Field(None, gt=0, le=1000, description="Karat je Stein")
     color: Optional[str] = Field(None, max_length=20, description="Farbe, z.B. G")
     quality: Optional[str] = Field(
         None, max_length=20, description="Reinheit, z.B. VS1"
@@ -77,8 +79,12 @@ class GemstoneCreate(_GemstoneFields):
     type: str = Field(..., min_length=1, max_length=50, description="Steinart")
     quantity: int = Field(1, ge=1, le=10_000, description="Anzahl")
     is_customer_stone: bool = Field(False, description="Kundenstein")
-    cost: float = Field(
-        0.0, ge=0, le=1_000_000, description="Einkaufspreis je Stein (netto, EUR)"
+    cost: Money = Field(
+        number_default(0.0),
+        ge=0,
+        le=1_000_000,
+        validate_default=True,
+        description="Einkaufspreis je Stein (netto, EUR)",
     )
 
     @model_validator(mode="after")
@@ -94,7 +100,7 @@ class GemstoneUpdate(_GemstoneFields):
     type: Optional[str] = Field(None, min_length=1, max_length=50)
     quantity: Optional[int] = Field(None, ge=1, le=10_000)
     is_customer_stone: Optional[bool] = None
-    cost: Optional[float] = Field(None, ge=0, le=1_000_000)
+    cost: Optional[Money] = Field(None, ge=0, le=1_000_000)
 
 
 class GemstoneRead(BaseModel):
@@ -107,7 +113,7 @@ class GemstoneRead(BaseModel):
     type: str
     quantity: int = 1
     is_customer_stone: bool = False
-    carat: Optional[float] = None
+    carat: Optional[Weight] = None
     color: Optional[str] = None
     quality: Optional[str] = None
     cut: Optional[str] = None
@@ -117,8 +123,8 @@ class GemstoneRead(BaseModel):
     certificate_number: Optional[str] = None
     certificate_authority: Optional[str] = None
     notes: Optional[str] = None
-    cost: Optional[float] = None
-    total_cost: Optional[float] = None
+    cost: Optional[Money] = None
+    total_cost: Optional[Money] = None
 
     @field_validator("quantity", mode="before")
     @classmethod

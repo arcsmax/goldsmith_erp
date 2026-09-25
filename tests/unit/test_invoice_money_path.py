@@ -175,12 +175,12 @@ class TestQuoteConversion:
         user = await _make_user(db_session)
         customer = await _make_customer(db_session)
         quote = await _approved_quote(db_session, user, customer, net=1000.0)
-        assert quote.total == pytest.approx(1190.0)
+        assert float(quote.total) == pytest.approx(1190.0)
 
         converted = await QuoteService.convert_quote(db_session, quote.id, user)
 
         order = await db_session.get(Order, converted.order_id)
-        assert order.price == pytest.approx(1000.0)
+        assert float(order.price) == pytest.approx(1000.0)
 
     async def test_quote_convert_then_invoice_charges_vat_once(self, db_session):
         """End-to-end: 1,000 net quote -> order -> invoice total 1,190.00."""
@@ -198,9 +198,9 @@ class TestQuoteConversion:
             user,
         )
 
-        assert invoice.subtotal == pytest.approx(1000.0)
-        assert invoice.tax_amount == pytest.approx(190.0)
-        assert invoice.total == pytest.approx(1190.0)
+        assert float(invoice.subtotal) == pytest.approx(1000.0)
+        assert float(invoice.tax_amount) == pytest.approx(190.0)
+        assert float(invoice.total) == pytest.approx(1190.0)
 
     async def test_convert_quote_from_existing_order_reuses_order(self, db_session):
         user = await _make_user(db_session)
@@ -223,7 +223,7 @@ class TestQuoteConversion:
         assert converted.order_id == order.id
         assert order_count_after == order_count_before
         await db_session.refresh(order)
-        assert order.price == pytest.approx(800.0)
+        assert float(order.price) == pytest.approx(800.0)
         assert order.status == OrderStatusEnum.CONFIRMED
 
     async def test_convert_does_not_regress_order_in_progress(self, db_session):
@@ -291,8 +291,8 @@ class TestInvoiceBillsAgreedPrice:
             user,
         )
 
-        assert invoice.subtotal == pytest.approx(1120.0)
-        assert invoice.total == pytest.approx(1332.80)
+        assert float(invoice.subtotal) == pytest.approx(1120.0)
+        assert float(invoice.total) == pytest.approx(1332.80)
         assert all(li.unit_price != 500.0 for li in invoice.line_items)
 
     async def test_calculated_gross_price_is_converted_to_net(self, db_session):
@@ -315,8 +315,8 @@ class TestInvoiceBillsAgreedPrice:
             user,
         )
 
-        assert invoice.subtotal == pytest.approx(1120.16)
-        assert invoice.total == pytest.approx(1332.99)
+        assert float(invoice.subtotal) == pytest.approx(1120.16)
+        assert float(invoice.total) == pytest.approx(1332.99)
 
     async def test_converted_quote_lines_are_billed(self, db_session):
         user = await _make_user(db_session)
@@ -347,7 +347,7 @@ class TestInvoiceBillsAgreedPrice:
         ]
         assert invoice.subtotal == pytest.approx(quote.subtotal)
         assert invoice.total == pytest.approx(quote.total)
-        assert invoice.subtotal == pytest.approx(1250.0)
+        assert float(invoice.subtotal) == pytest.approx(1250.0)
 
     async def test_no_agreed_price_fails_loudly(self, db_session):
         user = await _make_user(db_session)
@@ -399,11 +399,11 @@ class TestScrapGoldCredit:
         )
 
         # VAT base is the full sale price, the credit reduces only the payable.
-        assert invoice.subtotal == pytest.approx(1000.0)
-        assert invoice.tax_amount == pytest.approx(190.0)
-        assert invoice.total == pytest.approx(1190.0)
-        assert invoice.scrap_gold_credit == pytest.approx(250.0)
-        assert invoice.amount_due == pytest.approx(940.0)
+        assert float(invoice.subtotal) == pytest.approx(1000.0)
+        assert float(invoice.tax_amount) == pytest.approx(190.0)
+        assert float(invoice.total) == pytest.approx(1190.0)
+        assert float(invoice.scrap_gold_credit) == pytest.approx(250.0)
+        assert float(invoice.amount_due) == pytest.approx(940.0)
         assert all(li.unit_price >= 0 for li in invoice.line_items)
         await db_session.refresh(scrap)
         assert scrap.status == ScrapGoldStatus.CREDITED
@@ -422,8 +422,8 @@ class TestScrapGoldCredit:
         fetched = await InvoiceService.get_invoice(db_session, created.id, user)
         items, _ = await InvoiceService.list_invoices(db_session, user)
 
-        assert fetched.amount_due == pytest.approx(940.0)
-        assert items[0].amount_due == pytest.approx(940.0)
+        assert float(fetched.amount_due) == pytest.approx(940.0)
+        assert float(items[0].amount_due) == pytest.approx(940.0)
 
     async def test_invoice_without_scrap_gold_amount_due_equals_total(self, db_session):
         user = await _make_user(db_session)
@@ -436,6 +436,6 @@ class TestScrapGoldCredit:
             user,
         )
 
-        assert invoice.scrap_gold_credit == pytest.approx(0.0)
+        assert float(invoice.scrap_gold_credit) == pytest.approx(0.0)
         assert invoice.amount_due == pytest.approx(invoice.total)
         assert invoice.status == InvoiceStatus.DRAFT

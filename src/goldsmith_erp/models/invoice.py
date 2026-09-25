@@ -18,7 +18,13 @@ from typing import List, Optional
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from goldsmith_erp.db.models import InvoiceLineType, InvoiceStatus
-from goldsmith_erp.models._common import UtcNaiveDatetime
+from goldsmith_erp.models._common import (
+    Money,
+    Percent,
+    UtcNaiveDatetime,
+    Weight,
+    number_default,
+)
 
 # ============================================================================
 # LINE ITEM SCHEMAS
@@ -37,10 +43,10 @@ class InvoiceLineItemCreate(BaseModel):
         max_length=500,
         description="Description of the line item (Beschreibung)",
     )
-    quantity: float = Field(
+    quantity: Weight = Field(
         ..., gt=0, description="Quantity (Menge) - must be positive"
     )
-    unit_price: float = Field(
+    unit_price: Money = Field(
         ..., ge=0, description="Net unit price in EUR (Einzelpreis netto)"
     )
 
@@ -62,9 +68,9 @@ class InvoiceLineItemResponse(BaseModel):
     invoice_id: int
     line_type: InvoiceLineType
     description: str
-    quantity: float
-    unit_price: float
-    total: float
+    quantity: Weight
+    unit_price: Money
+    total: Money
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -86,7 +92,7 @@ class InvoiceCreate(BaseModel):
     due_date: UtcNaiveDatetime = Field(
         ..., description="Payment due date (Faelligkeitsdatum); normalised to UTC"
     )
-    tax_rate: Optional[float] = Field(
+    tax_rate: Optional[Percent] = Field(
         default=None,
         ge=0,
         le=100,
@@ -168,15 +174,15 @@ class InvoiceResponse(BaseModel):
         default=None,
         description="Set on a cancelled invoice: its Stornorechnung (W2-04)",
     )
-    subtotal: float = Field(..., description="Zwischensumme (net)")
-    tax_rate: float = Field(..., description="MwSt-Satz in Prozent")
-    tax_amount: float = Field(..., description="MwSt-Betrag")
-    total: float = Field(..., description="Gesamtbetrag (gross)")
-    scrap_gold_credit: float = Field(
-        default=0.0,
+    subtotal: Money = Field(..., description="Zwischensumme (net)")
+    tax_rate: Percent = Field(..., description="MwSt-Satz in Prozent")
+    tax_amount: Money = Field(..., description="MwSt-Betrag")
+    total: Money = Field(..., description="Gesamtbetrag (gross)")
+    scrap_gold_credit: Money = Field(
+        default=number_default(0.0),
         description="Altgold-Gutschrift, deducted after VAT (not part of the VAT base)",
     )
-    amount_due: Optional[float] = Field(
+    amount_due: Optional[Money] = Field(
         default=None, description="Zahlbetrag = total - scrap_gold_credit"
     )
     notes: Optional[str] = None
@@ -200,9 +206,9 @@ class InvoiceListItem(BaseModel):
     due_date: datetime
     paid_date: Optional[datetime] = None
     cancels_invoice_id: Optional[int] = None
-    total: float
-    scrap_gold_credit: float = 0.0
-    amount_due: Optional[float] = None
+    total: Money
+    scrap_gold_credit: Money = number_default(0.0)
+    amount_due: Optional[Money] = None
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
