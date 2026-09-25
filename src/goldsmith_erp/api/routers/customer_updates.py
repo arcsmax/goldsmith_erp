@@ -36,6 +36,7 @@ details, IDs-only — never user free-text):
 
 import io
 import logging
+from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
@@ -46,6 +47,7 @@ from goldsmith_erp.core.permissions import Permission, require_permission
 from goldsmith_erp.db.models import Customer, Order, UpdateDeliveryMethod, User
 from goldsmith_erp.db.session import get_db
 from goldsmith_erp.models.customer_update import (
+    AttachStatusReportRequest,
     CostChangeCreate,
     CostChangeRead,
     CostChangeRecordResponse,
@@ -148,6 +150,7 @@ async def get_order_updates(
 @require_permission(Permission.CUSTOMER_UPDATE_SEND)
 async def send_update(
     update_id: int,
+    data: Optional[AttachStatusReportRequest] = None,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -157,10 +160,18 @@ async def send_update(
     Liefert IMMER 200 — auch bei fehlgeschlagenem Versand oder wenn SMTP
     nicht konfiguriert ist (``delivered=false``); der Entwurf bleibt in
     jedem Fall erhalten. Ein bereits verschicktes Update (Status "sent")
-    kann nicht erneut verschickt werden (409).
+    kann nicht erneut verschickt werden (409). Optionaler Body
+    ``{"attach_status_report": true}`` haengt den aktuellen Statusbericht
+    als PDF an die E-Mail an (W6, "Statusbericht anhaengen").
     """
+    attach_status_report = bool(data and data.attach_status_report)
     try:
-        return await CustomerUpdateService.send(db, update_id, current_user.id)
+        return await CustomerUpdateService.send(
+            db,
+            update_id,
+            current_user.id,
+            attach_status_report=attach_status_report,
+        )
     except InvalidUpdateStateError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
     except CustomerUpdateNotFoundError as exc:

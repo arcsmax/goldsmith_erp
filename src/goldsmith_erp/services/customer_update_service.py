@@ -508,7 +508,11 @@ class CustomerUpdateService:
 
     @staticmethod
     async def send(
-        db: AsyncSession, update_id: int, user_id: int
+        db: AsyncSession,
+        update_id: int,
+        user_id: int,
+        *,
+        attach_status_report: bool = False,
     ) -> CustomerUpdateSendResult:
         """
         Send (or re-attempt) a CustomerUpdate via email.
@@ -559,7 +563,9 @@ class CustomerUpdateService:
         # W6-01: the dispatch (content rules, opt-out, CAS claim, SMTP,
         # audit row) lives in CustomerMessageService, the single outbound
         # path for customer messages.
-        return await CustomerMessageService.send_update(db, update_id, user_id)
+        return await CustomerMessageService.send_update(
+            db, update_id, user_id, attach_status_report=attach_status_report
+        )
 
     @staticmethod
     async def _notify_send_failure(

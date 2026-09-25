@@ -92,8 +92,37 @@ describe('customerUpdatesApi', () => {
       mockPost.mockResolvedValue({ data: sendResult });
       const result = await customerUpdatesApi.sendUpdate(1);
 
-      expect(mockPost).toHaveBeenCalledWith('/updates/1/send', {});
+      expect(mockPost).toHaveBeenCalledWith('/updates/1/send', {
+        attach_status_report: false,
+      });
       expect(result).toEqual(sendResult);
+    });
+
+    it('POSTs attach_status_report=true when requested (W6 "Statusbericht anhängen")', async () => {
+      const sendResult: CustomerUpdateSendResult = {
+        update: { ...mockUpdate, status: 'sent' },
+        delivered: true,
+        method: 'email',
+      };
+      mockPost.mockResolvedValue({ data: sendResult });
+      await customerUpdatesApi.sendUpdate(1, true);
+
+      expect(mockPost).toHaveBeenCalledWith('/updates/1/send', {
+        attach_status_report: true,
+      });
+    });
+  });
+
+  describe('downloadOrderStatusReportPdf', () => {
+    it('GETs the order status report as a blob', async () => {
+      const blob = new Blob(['pdf'], { type: 'application/pdf' });
+      mockGet.mockResolvedValue({ data: blob });
+      const result = await customerUpdatesApi.downloadOrderStatusReportPdf(42);
+
+      expect(mockGet).toHaveBeenCalledWith('/orders/42/status-report.pdf', {
+        responseType: 'blob',
+      });
+      expect(result).toBe(blob);
     });
   });
 

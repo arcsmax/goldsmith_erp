@@ -28,6 +28,7 @@ const mockDownloadUpdatePdf = vi.fn();
 const mockGetMessageContext = vi.fn();
 const mockPreviewUpdate = vi.fn();
 const mockPreviewUpdatePdf = vi.fn();
+const mockDownloadOrderStatusReportPdf = vi.fn();
 
 vi.mock('../../api/customer-updates', () => ({
   customerUpdatesApi: {
@@ -39,6 +40,8 @@ vi.mock('../../api/customer-updates', () => ({
     getMessageContext: (...args: unknown[]) => mockGetMessageContext(...args),
     previewUpdate: (...args: unknown[]) => mockPreviewUpdate(...args),
     previewUpdatePdf: (...args: unknown[]) => mockPreviewUpdatePdf(...args),
+    downloadOrderStatusReportPdf: (...args: unknown[]) =>
+      mockDownloadOrderStatusReportPdf(...args),
   },
 }));
 
@@ -163,7 +166,7 @@ describe('KundeninfoTab', () => {
         photo_ids: [],
       })
     );
-    expect(mockSendUpdate).toHaveBeenCalledWith(42);
+    expect(mockSendUpdate).toHaveBeenCalledWith(42, false);
     await waitFor(() =>
       expect(mockShowToast).toHaveBeenCalledWith(expect.stringContaining('versendet'), 'success')
     );
@@ -186,13 +189,51 @@ describe('KundeninfoTab', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Erstellen & senden' }));
 
     await waitFor(() => expect(mockCreateUpdate).toHaveBeenCalled());
-    expect(mockSendUpdate).toHaveBeenCalledWith(43);
+    expect(mockSendUpdate).toHaveBeenCalledWith(43, false);
     await waitFor(() =>
       expect(mockShowToast).toHaveBeenCalledWith(expect.stringContaining('PDF'), 'info')
     );
     // Bug fix: SMTP-unconfigured sends must not feel like a no-op — the PDF
     // for the just-sent update is fetched and downloaded automatically.
     await waitFor(() => expect(mockDownloadUpdatePdf).toHaveBeenCalledWith(43));
+  });
+
+  it('"Statusbericht anhängen" checked sends attach_status_report=true, unchecked sends false', async () => {
+    mockUseAuth.mockReturnValue(manageAuth());
+    mockListUpdates.mockResolvedValue([]);
+    mockCreateUpdate.mockResolvedValue(makeUpdate({ id: 99, status: 'draft' }));
+    mockSendUpdate.mockResolvedValue({
+      update: makeUpdate({ id: 99, status: 'sent', delivery_method: 'email' }),
+      delivered: true,
+      method: 'email',
+    });
+
+    render(<KundeninfoTab orderId={7} />);
+    await waitFor(() => expect(mockListUpdates).toHaveBeenCalledWith(7));
+
+    const checkbox = screen.getByLabelText('Statusbericht anhängen');
+    expect(checkbox).not.toBeChecked();
+
+    await userEvent.click(checkbox);
+    expect(checkbox).toBeChecked();
+    await userEvent.click(screen.getByRole('button', { name: 'Erstellen & senden' }));
+
+    await waitFor(() => expect(mockSendUpdate).toHaveBeenCalledWith(99, true));
+  });
+
+  it('"Statusbericht (PDF)" downloads the live status report for the order', async () => {
+    mockUseAuth.mockReturnValue(manageAuth());
+    mockListUpdates.mockResolvedValue([]);
+    mockDownloadOrderStatusReportPdf.mockResolvedValue(
+      new Blob(['pdf-bytes'], { type: 'application/pdf' })
+    );
+
+    render(<KundeninfoTab orderId={9} />);
+    await waitFor(() => expect(mockListUpdates).toHaveBeenCalledWith(9));
+
+    await userEvent.click(screen.getByRole('button', { name: 'Statusbericht (PDF)' }));
+
+    await waitFor(() => expect(mockDownloadOrderStatusReportPdf).toHaveBeenCalledWith(9));
   });
 
   it('"Als Entwurf speichern" calls createUpdate only — never sendUpdate', async () => {

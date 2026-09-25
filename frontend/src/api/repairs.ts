@@ -69,6 +69,17 @@ export const repairsApi = {
   },
 
   /**
+   * Customer-facing "Statusbericht" PDF (W6, DOM section D Option 2) — a
+   * live snapshot, never cached. GOLDSMITH/ADMIN only; VIEWER gets 403.
+   */
+  getStatusReportPdf: async (id: number): Promise<Blob> => {
+    const response = await apiClient.get<Blob>(`${BASE}/${id}/status-report.pdf`, {
+      responseType: 'blob',
+    });
+    return response.data;
+  },
+
+  /**
    * Diagnose the repair piece and record the cost estimate.
    * Advances status: RECEIVED -> DIAGNOSED -> QUOTED
    */
