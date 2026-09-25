@@ -68,14 +68,14 @@ describe('ConsultationsPage', () => {
     expect(screen.getByText('Ring')).toBeInTheDocument();
     // 'Entwurf' also labels the filter chip — scope to the status badge.
     expect(
-      screen.getByText('Entwurf', { selector: '.consultation-status-badge' })
+      screen.getByText('Entwurf', { selector: '.ui-status-badge__label' })
     ).toBeInTheDocument();
     expect(screen.getByText('01.06.2026')).toBeInTheDocument();
 
     expect(screen.getByText('Geburtstag')).toBeInTheDocument();
     expect(screen.getByText('Anhänger')).toBeInTheDocument();
     expect(
-      screen.getByText('Abgeschlossen', { selector: '.consultation-status-badge' })
+      screen.getByText('Abgeschlossen', { selector: '.ui-status-badge__label' })
     ).toBeInTheDocument();
     // Follow-up date renders when set (draftItem has none, completedItem does).
     expect(screen.getByText(/15\.07\.2026/)).toBeInTheDocument();

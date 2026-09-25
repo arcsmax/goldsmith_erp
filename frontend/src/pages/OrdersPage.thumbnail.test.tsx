@@ -11,6 +11,7 @@ vi.mock('../api', () => ({
 }));
 
 vi.mock('../contexts', () => ({
+  useAuth: () => ({ user: { id: 1, role: 'GOLDSMITH' } }),
   useToast: () => ({ showToast: vi.fn() }),
   useConfirm: () => ({ showConfirm: vi.fn() }),
 }));

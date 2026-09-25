@@ -55,6 +55,7 @@ export const MainLayout: React.FC = () => {
   const canManageUsers = hasRole(['ADMIN']);
   const canManageInvoices = hasRole(['ADMIN', 'GOLDSMITH']);
   const isAdmin = hasRole(['ADMIN']);
+  const displayName = user?.first_name || user?.email;
 
   return (
     <div className="main-layout">
@@ -79,15 +80,17 @@ export const MainLayout: React.FC = () => {
 
           <GlobalSearch />
 
+          {/* LV-01: below 600px only the bell stays in the header; Scanner,
+              name and "Abmelden" move into the drawer (.sidebar-account). */}
           <div className="user-menu">
-            <Link to="/scanner" className="btn-scanner">
+            <Link to="/scanner" className="btn-scanner header-desktop-only">
               📷 Scanner
             </Link>
             <NotificationBell />
-            <span className="user-name">
-              {user?.first_name || user?.email}
+            <span className="user-name header-desktop-only">
+              {displayName}
             </span>
-            <button onClick={handleLogout} className="btn-logout">
+            <button onClick={handleLogout} className="btn-logout header-desktop-only">
               Abmelden
             </button>
           </div>
@@ -264,6 +267,19 @@ export const MainLayout: React.FC = () => {
               </Link>
             )}
           </nav>
+
+          {/* Account block: the mobile home of the header user menu (LV-01).
+              Hidden by CSS at 600px and up, where the header shows it. */}
+          <div className="sidebar-account" data-testid="sidebar-account">
+            <span className="sidebar-account__name">{displayName}</span>
+            <Link to="/scanner" className="nav-link" onClick={handleNavClick}>
+              <span className="nav-icon">📷</span>
+              Scanner
+            </Link>
+            <button type="button" onClick={handleLogout} className="sidebar-account__logout">
+              Abmelden
+            </button>
+          </div>
 
           {/* Sidebar footer: HealthDot for ADMIN — shows live system status */}
           {isAdmin && (

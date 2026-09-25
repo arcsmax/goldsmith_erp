@@ -10,6 +10,22 @@
   align-items: flex-end;
 }
 
+/* LV-15: subtitle under the page title, as on /orders. */
+.quotes-page-summary {
+  margin: var(--space-2) 0 0;
+  color: var(--color-text-muted);
+}
+
+/* LV-02: chosen customer in "Neues Angebot", with a change button. */
+.quote-customer-selected {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  min-height: var(--touch-min);
+}
+
 .form-group-inline {
   display: flex;
   flex-direction: column;

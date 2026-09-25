@@ -145,3 +145,10 @@
   width: 100%;
   &:focus { outline: 2px solid var(--ring-color-focus); outline-offset: 0px; }
 }
+
+/* Money amounts (LV-10): lib/format.ts MONEY_CLASS. Digits line up in
+ * columns and the euro sign never wraps onto its own line. */
+.money {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}

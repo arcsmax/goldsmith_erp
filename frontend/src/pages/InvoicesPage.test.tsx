@@ -269,7 +269,7 @@ describe('InvoicesPage — Bug #5 (status case-mismatch)', () => {
     // Each German label appears in the badge cells. (We scope to the
     // badge class because "Entwurf"/"Bezahlt" also appear in the status
     // filter dropdown options and "Bezahlt" is also an action button label.)
-    const badges = document.querySelectorAll('.invoices-table .invoice-status-badge');
+    const badges = document.querySelectorAll('.invoices-table .ui-status-badge');
     const badgeTexts = Array.from(badges).map((b) => b.textContent?.trim());
     expect(badgeTexts).toEqual(['Entwurf', 'Versendet', 'Bezahlt']);
 
@@ -280,7 +280,7 @@ describe('InvoicesPage — Bug #5 (status case-mismatch)', () => {
     });
   });
 
-  it('applies the lowercase CSS modifier class to status badges', async () => {
+  it('maps the lowercase backend value to the StatusBadge tone (LV-05)', async () => {
     mockGetInvoices.mockResolvedValue({
       items: [listItem({ id: 1, status: 'sent' })],
       total: 1,
@@ -290,13 +290,13 @@ describe('InvoicesPage — Bug #5 (status case-mismatch)', () => {
 
     render(<InvoicesPage />);
     await screen.findByText('Versendet');
-    // The CSS file ships the rule `.invoice-status-badge.status-sent { ... }`
-    // (lowercase). If this class is absent, the badge will render with NO
-    // color/border — the exact symptom the user reported.
-    const badge = document.querySelector('.invoices-table .invoice-status-badge');
+    // Colour now comes from <StatusBadge kind="invoice"> (design/status.ts):
+    // "sent" is the waiting tone, with an icon next to the German label.
+    const badge = document.querySelector('.invoices-table .ui-status-badge');
     expect(badge).toBeTruthy();
-    expect(badge?.className).toMatch(/\binvoice-status-badge\b/);
-    expect(badge?.className).toMatch(/\bstatus-sent\b/);
+    expect(badge?.className).toMatch(/\bui-status-badge--waiting\b/);
+    expect(badge?.getAttribute('data-status')).toBe('sent');
+    expect(badge?.querySelector('svg[aria-hidden="true"]')).toBeTruthy();
     expect(badge?.textContent?.trim()).toBe('Versendet');
   });
 

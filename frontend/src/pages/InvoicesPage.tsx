@@ -13,6 +13,7 @@ import {
   OrderType,
 } from '../types';
 import '../styles/pages.css';
+import { StatusBadge } from '../ui/StatusBadge';
 import '../styles/invoices.css';
 
 // ---------------------------------------------------------------------------
@@ -20,23 +21,6 @@ import '../styles/invoices.css';
 // ---------------------------------------------------------------------------
 
 // Status keys are the backend's lowercase enum values (see types.ts).
-const STATUS_LABELS: Record<InvoiceStatus, string> = {
-  draft: 'Entwurf',
-  sent: 'Versendet',
-  paid: 'Bezahlt',
-  overdue: 'Überfällig',
-  cancelled: 'Storniert',
-};
-
-// Colorblind-safe: label text carries the semantic meaning, color is secondary.
-function StatusBadge({ status }: { status: InvoiceStatus }) {
-  return (
-    <span className={`invoice-status-badge status-${status}`}>
-      {STATUS_LABELS[status] ?? status}
-    </span>
-  );
-}
-
 // ---------------------------------------------------------------------------
 // Date helpers
 // ---------------------------------------------------------------------------
@@ -502,7 +486,7 @@ const InvoiceDetailPanel: React.FC<InvoiceDetailPanelProps> = ({ invoiceId, onCl
           <span className="invoice-number" style={{ fontSize: '1.1rem' }}>
             {invoice.invoice_number}
           </span>
-          <StatusBadge status={invoice.status} />
+          <StatusBadge kind="invoice" status={invoice.status} />
         </div>
         <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
           <button
@@ -1055,7 +1039,7 @@ export const InvoicesPage: React.FC = () => {
                       </span>
                     </td>
                     <td data-label="Status">
-                      <StatusBadge status={invoice.status} />
+                      <StatusBadge kind="invoice" status={invoice.status} />
                     </td>
                     <td data-label="Aktionen">
                       <div

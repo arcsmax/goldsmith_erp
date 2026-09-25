@@ -2,6 +2,7 @@
 // Übergabe tab, where the handoff is accepted or declined (HandoffTab).
 import React, { useCallback, useEffect, useState } from 'react';
 import { handoffsApi } from '../../api/handoffs';
+import { getHandoffTypeLabel } from '../../design/status';
 import { logError } from '../../lib/logError';
 import { useRefetchOn } from '../../lib/refetchBus';
 import { TodayLane, TodayRow } from './TodayLane';
@@ -64,7 +65,7 @@ export const HandoffLane: React.FC = () => {
           tone="urgent"
           badge={`#${handoff.order_id}`}
           badgeLabel="Auftrag"
-          title={`Übergabe: ${handoff.handoff_type}`}
+          title={`Übergabe: ${getHandoffTypeLabel(handoff.handoff_type)}`}
           meta={[
             handoff.from_user?.full_name ? `Von ${handoff.from_user.full_name}` : null,
             handoff.notes,
