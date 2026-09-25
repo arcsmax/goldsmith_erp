@@ -169,3 +169,66 @@
   gap: 0.75rem;
   margin-top: 1.25rem;
 }
+
+/* ─── W6: consent hints + email preview ───────────────────────────────── */
+
+.kundeninfo-hints {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.kundeninfo-hint {
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--tone-info-border);
+  border-radius: var(--radius-md);
+  background: var(--tone-info-bg);
+  color: var(--tone-info-fg);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.kundeninfo-hint p {
+  margin: 0;
+}
+
+.kundeninfo-hint--blocking {
+  border-color: var(--tone-waiting-border);
+  background: var(--tone-waiting-bg);
+  color: var(--tone-waiting-fg);
+}
+
+.kundeninfo-preview {
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-md);
+  padding: var(--space-3) var(--space-4);
+  background: var(--color-surface-card);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.kundeninfo-preview-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.kundeninfo-preview-header h4 {
+  margin: 0;
+}
+
+.kundeninfo-preview-subject,
+.kundeninfo-preview-meta {
+  margin: 0;
+}
+
+.kundeninfo-preview-text {
+  margin: 0;
+  white-space: pre-wrap;
+  font-family: inherit;
+}

@@ -70,6 +70,23 @@ export const consentsApi = {
     return response.data;
   },
 
+  /** Art. 21 objection "Keine E-Mail-Updates" (W6). */
+  getEmailOptOut: async (customerId: number): Promise<boolean> => {
+    const response = await apiClient.get<{ email_opt_out: boolean }>(
+      `/customers/${customerId}/email-opt-out`
+    );
+    return response.data.email_opt_out;
+  },
+
+  /** Record (true) or lift (false) the "Keine E-Mail-Updates" objection. */
+  setEmailOptOut: async (customerId: number, optedOut: boolean): Promise<boolean> => {
+    const response = await apiClient.put<{ email_opt_out: boolean }>(
+      `/customers/${customerId}/email-opt-out`,
+      { email_opt_out: optedOut }
+    );
+    return response.data.email_opt_out;
+  },
+
   /** Withdraw the active consent for `purpose`. 404 if none is active. */
   revoke: async (customerId: number, purpose: ConsentPurpose): Promise<ConsentRecord> => {
     const response = await apiClient.delete<ConsentRecord>(

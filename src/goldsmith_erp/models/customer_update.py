@@ -28,6 +28,9 @@ from goldsmith_erp.db.models import (
 _REASON_MIN_LENGTH = 10
 _RESPONSE_EVIDENCE_MIN_LENGTH = 5
 
+# W6: why a send dispatched no email (CustomerUpdateSendResult.reason).
+NotSentReason = Literal["smtp_disabled", "no_email", "opted_out"]
+
 
 def _strip_or_raise(value: str, field_label: str, min_length: int) -> str:
     """
@@ -177,6 +180,47 @@ class CustomerUpdateSendResult(BaseModel):
     update: CustomerUpdateRead
     delivered: bool
     method: Optional[UpdateDeliveryMethod] = None
+    # W6: why nothing was emailed ("smtp_disabled", "no_email", "opted_out").
+    # None on a delivered send or a genuine SMTP failure.
+    reason: Optional[NotSentReason] = None
+
+
+# ============================================================================
+# CUSTOMER MESSAGE (W6 composer) SCHEMAS
+# ============================================================================
+
+
+class CustomerMessageContext(BaseModel):
+    """What the Kundeninfo composer needs for its consent / delivery hints."""
+
+    customer_id: Optional[int] = None
+    has_email: bool
+    photo_consent: bool
+    email_opt_out: bool
+
+
+class CustomerMessagePreview(BaseModel):
+    """Plain-text preview of the email a customer would receive."""
+
+    subject: str
+    text: str
+    delivery_method: UpdateDeliveryMethod
+    photo_count: int
+    photo_consent: bool
+    email_opt_out: bool
+    has_email: bool
+    legal_basis: str
+    # German reason when the message cannot be sent as composed
+    # (e.g. photos without PHOTO_USE consent, a price in a status update).
+    blocked_reason: Optional[str] = None
+
+
+class EmailOptOut(BaseModel):
+    """Art. 21 objection "Keine E-Mail-Updates" (GET/PUT body)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    email_opt_out: bool
 
 
 # ============================================================================

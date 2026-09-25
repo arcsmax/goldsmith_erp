@@ -80,11 +80,14 @@ export function RepairCustomerUpdatePanel({
     try {
       const result = await customerUpdatesApi.sendRepairUpdate(repair.id);
       setUpdate(result.update);
+      // W6: an Art. 21 opt-out is an expected outcome, not an error.
+      const notSentMessage =
+        result.reason === 'opted_out'
+          ? 'Kunde wünscht keine E-Mail-Updates — bitte als PDF übergeben'
+          : 'Email-Versand nicht möglich — Entwurf bleibt erhalten (PDF-Fallback über Kundeninfo)';
       showToast(
-        result.delivered
-          ? 'Kunde wurde benachrichtigt'
-          : 'Email-Versand nicht möglich — Entwurf bleibt erhalten (PDF-Fallback über Kundeninfo)',
-        result.delivered ? 'success' : 'error'
+        result.delivered ? 'Kunde wurde benachrichtigt' : notSentMessage,
+        result.delivered ? 'success' : result.reason === 'opted_out' ? 'info' : 'error'
       );
       // customer_notified_at on the repair changes ONLY when this send was
       // delivered — refetch from the parent rather than duplicating that

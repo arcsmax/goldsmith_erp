@@ -697,8 +697,9 @@ class RepairService:
 
         Sends the MOST RECENT CustomerUpdate row for this repair (the draft
         created by ``complete_repair`` when the repair reached READY) via
-        ``CustomerUpdateService.send`` — the same draft/send/dedupe path
-        used everywhere else, not a second notification mechanism.
+        ``CustomerMessageService.send_update`` (W6-01) — the single outbound
+        path for customer messages (Art. 21 opt-out, Art. 13 footer, audit
+        row), not a second notification mechanism.
 
         ``RepairJob.customer_notified_at`` is stamped with the update's
         actual ``sent_at`` ONLY when the send is delivered (email accepted
@@ -714,11 +715,11 @@ class RepairService:
             NoCustomerUpdateDraftError: no CustomerUpdate exists yet for
                 this repair (404) — most likely it hasn't reached READY.
             CustomerUpdateNotFoundError / InvalidUpdateStateError: bubbled
-                from CustomerUpdateService.send (already SENT -> 409).
+                from CustomerMessageService.send_update (already SENT -> 409).
         """
         # Late import — see _create_pickup_ready_draft's docstring.
-        from goldsmith_erp.services.customer_update_service import (  # noqa: PLC0415
-            CustomerUpdateService,
+        from goldsmith_erp.services.customer_message_service import (  # noqa: PLC0415
+            CustomerMessageService,
         )
 
         repair = await _load_repair(db, repair_id)
@@ -736,7 +737,9 @@ class RepairService:
         if latest is None:
             raise NoCustomerUpdateDraftError(repair_id)
 
-        result = await CustomerUpdateService.send(db, cast(int, latest.id), user_id)
+        result = await CustomerMessageService.send_update(
+            db, cast(int, latest.id), user_id
+        )
 
         if result.delivered and result.update.sent_at is not None:
             async with transactional(db):
