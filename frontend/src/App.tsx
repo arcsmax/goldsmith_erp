@@ -1,5 +1,5 @@
 // Main App Component with Routing
-import React, { Suspense, lazy } from 'react';
+import React, { Suspense, lazy, useCallback, useRef } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, OrderProvider, ScannerProvider, TimeTrackingProvider, ToastProvider } from './contexts';
 import { WebSocketProvider } from './contexts/WebSocketProvider';
@@ -11,6 +11,7 @@ import { ToastContainer } from './components/Toast';
 import { ConfirmDialog } from './components/ConfirmDialog';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { useTheme } from './hooks/useTheme';
+import { HidScannerListener, type HidBurstHandler } from './components/scanner';
 
 // Lazy load pages for code splitting and better performance
 // Note: Pages use named exports, so we need to destructure them
@@ -75,7 +76,21 @@ const PageLoader: React.FC = () => (
  * requests an unauthenticated visitor ever triggers; the WS connect and the
  * timer/activity loaders wait for a real session.
  */
-const StaffApp: React.FC = () => (
+const StaffApp: React.FC = () => {
+  // Bridge for the USB/keyboard-wedge scanner (2026-09 audit, scanner-
+  // tracking fix item 1): ScannerContext arms/disarms the burst-detection
+  // listener (Werkbank-Station-Modus) and exposes `onBenchScan` — supplied
+  // from here, ABOVE the provider — while `HidScannerListener`, mounted
+  // BELOW the provider, owns what happens with a detected burst (resolve,
+  // log, open the sheet) because that needs ScannerContext/TimeTracking
+  // hooks a prop defined up here can't reach. The ref is the bridge between
+  // the two without mounting a second document listener.
+  const hidBurstHandlerRef = useRef<HidBurstHandler | null>(null);
+  const handleBenchScan = useCallback<HidBurstHandler>((payload) => {
+    hidBurstHandlerRef.current?.(payload);
+  }, []);
+
+  return (
   <AuthProvider>
     <Routes>
       <Route path="/login" element={<LoginPage />} />
@@ -95,9 +110,10 @@ const StaffApp: React.FC = () => (
               {/* W2-13: the one live-update socket; authenticated shell only, never /login or /portal. */}
               <WebSocketProvider>
                 <RealtimeInvalidation />
-                <ScannerProvider>
+                <ScannerProvider onBenchScan={handleBenchScan}>
                   <TimeTrackingProvider>
                     <OrderProvider>
+                      <HidScannerListener handlerRef={hidBurstHandlerRef} />
                       <MainLayout />
                     </OrderProvider>
                   </TimeTrackingProvider>
@@ -275,7 +291,8 @@ const StaffApp: React.FC = () => (
       <Route path="*" element={<Navigate to="/dashboard" replace />} />
     </Routes>
   </AuthProvider>
-);
+  );
+};
 
 /**
  * Top-level route split: public customer routes first (no auth providers),
