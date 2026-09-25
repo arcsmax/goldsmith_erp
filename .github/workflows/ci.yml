@@ -76,6 +76,20 @@ jobs:
       - name: Type check
         working-directory: ./frontend
         run: npx tsc --noEmit
+      # FE-12 / W3-02 — the frontend API types are generated from the
+      # backend's OpenAPI schema. Regenerate them from the checked-out
+      # backend (import only: no server, DB or Redis) and fail when the
+      # committed frontend/openapi.json or src/api/generated/ differ.
+      - name: Install Poetry (API types drift gate)
+        run: pipx install poetry
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "poetry"
+      - name: Install backend dependencies (API types drift gate)
+        run: poetry install --no-interaction
+      - name: Generated API types match the backend schema
+        run: make types-check
 
   # OPS-11 — dependency-vulnerability scanning. Advisory only: the repo
   # carries a real, already-tracked backlog (OPS-06: 35 open Dependabot
