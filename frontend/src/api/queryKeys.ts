@@ -101,11 +101,6 @@ export const queryKeys = {
     /** GET /materials/?limit=… (header search index). */
     list: (limit: number) => [...queryKeys.materials.all, 'list', { limit }] as const,
   },
-  users: {
-    all: ['users'] as const,
-    /** GET /users/ (admin list, legacy skip/limit). */
-    list: () => [...queryKeys.users.all, 'list'] as const,
-  },
   calendar: {
     all: ['calendar'] as const,
     /** GET /calendar/events for one visible date range. */

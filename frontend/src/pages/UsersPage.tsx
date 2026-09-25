@@ -15,6 +15,9 @@ import { Button, DataTable, Icon, PageHeader, type Column, type PageStateValue }
 import '../styles/pages.css';
 import '../styles/users.css';
 
+/** GET /users/ is not paged; the workshop has far fewer accounts. */
+const USER_LIST_LIMIT = 100;
+
 const ROLE_LABELS: Readonly<Record<string, string>> = {
   ADMIN: 'Administrator',
   GOLDSMITH: 'Goldschmied',
@@ -91,8 +94,8 @@ export const UsersPage: React.FC = () => {
   const [selectedUser, setSelectedUser] = useState<UserType | null>(null);
 
   const usersQuery = useQuery({
-    queryKey: queryKeys.users.list(),
-    queryFn: () => usersApi.getAll(),
+    queryKey: queryKeys.users.list(0, USER_LIST_LIMIT),
+    queryFn: () => usersApi.getAll(0, USER_LIST_LIMIT),
   });
   const users = usersQuery.data ?? [];
 
