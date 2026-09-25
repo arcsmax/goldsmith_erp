@@ -49,7 +49,12 @@ export type StatusKind =
   | 'handoff'
   | 'hallmark'
   | 'scrapGold'
-  | 'customerUpdate';
+  | 'customerUpdate'
+  | 'user';
+
+/** Not a backend enum (``User.is_active`` is a plain boolean) — the two
+ * wire values a caller passes are the literal strings below. */
+export type UserActiveStatus = 'active' | 'inactive';
 
 type CostChangeStatus = Schema<'CostChangeStatus'>;
 type CustomerUpdateStatus = Schema<'CustomerUpdateStatus'>;
@@ -153,6 +158,13 @@ export const CUSTOMER_UPDATE_STATUS: StatusTable<CustomerUpdateStatus> = {
   send_failed: meta('Versand fehlgeschlagen', 'danger', 'triangle-alert'),
 };
 
+/** UsersPage account status (W7 hygiene): was a bespoke `.users-active-state`
+ * span with an icon and text, never wired into <StatusBadge>. */
+export const USER_STATUS: StatusTable<UserActiveStatus> = {
+  active: meta('Aktiv', 'done', 'circle-check'),
+  inactive: meta('Inaktiv', 'neutral', 'circle-x'),
+};
+
 export const STATUS_MAP: Readonly<Record<StatusKind, Readonly<Record<string, StatusMeta>>>> = {
   order: ORDER_STATUS,
   repair: REPAIR_STATUS,
@@ -164,6 +176,7 @@ export const STATUS_MAP: Readonly<Record<StatusKind, Readonly<Record<string, Sta
   hallmark: HALLMARK_STATUS,
   scrapGold: SCRAP_GOLD_STATUS,
   customerUpdate: CUSTOMER_UPDATE_STATUS,
+  user: USER_STATUS,
 };
 
 /**

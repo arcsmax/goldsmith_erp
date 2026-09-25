@@ -394,3 +394,48 @@ class TestAddItemHttpContract:
         assert body["total_value_eur"] == pytest.approx(
             _eur((9.25, SILVER_SPOT_EUR_PER_G))
         )
+
+    async def test_mixed_metal_lot_reports_a_per_metal_fine_gram_breakdown(
+        self, client, admin_auth_headers, sample_customer, sample_order
+    ) -> None:
+        """DOM-20 remainder: ``total_fine_gold_g`` still aggregates gold and
+        silver into one number, which reads as "all gold". The response's
+        ``fine_grams_by_metal`` must split it back out per metal so a caller
+        never has to (wrongly) treat the aggregate as pure gold."""
+        create_resp = await client.post(
+            f"/api/v1/orders/{sample_order.id}/scrap-gold",
+            json={"order_id": sample_order.id, "customer_id": sample_customer.id},
+            headers=admin_auth_headers,
+        )
+        assert create_resp.status_code == 201, create_resp.text
+        scrap_gold_id = create_resp.json()["id"]
+
+        gold_resp = await client.post(
+            f"/api/v1/scrap-gold/{scrap_gold_id}/items",
+            json={"description": "Alter Ehering", "alloy": "585", "weight_g": 15.0},
+            headers=admin_auth_headers,
+        )
+        assert gold_resp.status_code == 201, gold_resp.text
+
+        silver_resp = await client.post(
+            f"/api/v1/scrap-gold/{scrap_gold_id}/items",
+            json={"description": "Silberkette", "alloy": "ag925", "weight_g": 10.0},
+            headers=admin_auth_headers,
+        )
+        assert silver_resp.status_code == 201, silver_resp.text
+
+        get_resp = await client.get(
+            f"/api/v1/orders/{sample_order.id}/scrap-gold",
+            headers=admin_auth_headers,
+        )
+        assert get_resp.status_code == 200, get_resp.text
+        body = get_resp.json()
+
+        # The pre-existing aggregate still mixes both metals together.
+        assert float(body["total_fine_gold_g"]) == pytest.approx(15 * 0.585 + 9.25)
+
+        # The new per-metal breakdown keeps them separate.
+        breakdown = body["fine_grams_by_metal"]
+        assert breakdown.keys() == {"gold", "silver"}
+        assert breakdown["gold"] == pytest.approx(15 * 0.585)
+        assert breakdown["silver"] == pytest.approx(9.25)

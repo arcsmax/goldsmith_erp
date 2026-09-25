@@ -11,7 +11,8 @@ import { UserFormModal } from '../components/users/UserFormModal';
 import { useToast, useConfirm } from '../contexts';
 import { getErrorMessage } from '../lib/errors';
 import type { UserType, UserCreateInput, UserUpdateInput } from '../types';
-import { Button, DataTable, Icon, PageHeader, type Column, type PageStateValue } from '../ui';
+import { Button, DataTable, PageHeader, type Column, type PageStateValue } from '../ui';
+import { StatusBadge } from '../ui/StatusBadge';
 import '../styles/pages.css';
 import '../styles/users.css';
 
@@ -32,13 +33,6 @@ function roleLabel(role: string): string {
 function formatDate(value: string): string {
   return new Date(value).toLocaleDateString('de-DE');
 }
-
-const ActiveState: React.FC<{ isActive: boolean }> = ({ isActive }) => (
-  <span className="users-active-state">
-    <Icon name={isActive ? 'circle-check' : 'circle-x'} />
-    {isActive ? 'Aktiv' : 'Inaktiv'}
-  </span>
-);
 
 function useUserMutations(onSaved: () => void) {
   const queryClient = useQueryClient();
@@ -161,7 +155,11 @@ export const UsersPage: React.FC = () => {
     { key: 'first_name', header: 'Vorname', render: (u) => u.first_name || '—', hideBelow: 'tablet' },
     { key: 'last_name', header: 'Nachname', render: (u) => u.last_name || '—', hideBelow: 'tablet' },
     { key: 'role', header: 'Rolle', render: (u) => roleLabel(u.role) },
-    { key: 'active', header: 'Status', render: (u) => <ActiveState isActive={u.is_active} /> },
+    {
+      key: 'active',
+      header: 'Status',
+      render: (u) => <StatusBadge kind="user" status={u.is_active ? 'active' : 'inactive'} />,
+    },
     {
       key: 'created_at',
       header: 'Erstellt',

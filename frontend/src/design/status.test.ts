@@ -12,7 +12,7 @@ import {
 } from './status';
 import { ICON_PATHS } from '../ui/Icon';
 
-const ENUM_FOR_KIND: Readonly<Record<Exclude<StatusKind, 'scrapGold'>, string>> = {
+const ENUM_FOR_KIND: Readonly<Record<Exclude<StatusKind, 'scrapGold' | 'user'>, string>> = {
   order: 'OrderStatusEnum',
   repair: 'RepairJobStatus',
   quote: 'QuoteStatus',
@@ -41,6 +41,10 @@ describe('design/status map', () => {
     expect(Object.keys(STATUS_MAP.scrapGold).sort()).toEqual(
       ['calculated', 'credited', 'received', 'signed'],
     );
+  });
+
+  it('covers exactly the two account states (User.is_active is a plain boolean, not an enum)', () => {
+    expect(Object.keys(STATUS_MAP.user).sort()).toEqual(['active', 'inactive']);
   });
 
   it('gives every status a German label, a known icon and a tone', () => {

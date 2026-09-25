@@ -378,10 +378,6 @@ body.is-offline {
     gap: var(--space-2);
   }
 
-  .global-search__input-wrapper {
-    width: calc(100vw - var(--space-8) * 2 - var(--space-6));
-  }
-
   .sidebar-account {
     display: flex;
     flex-direction: column;

@@ -6,14 +6,17 @@
 // inside useQuery (like CustomersPage) until the backend gets `offset`.
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { invoicesApi } from '../../api/invoices';
-import { ordersApi } from '../../api/orders';
-import { compactParams } from '../../api/paged';
+import { compactParams, pagedApi } from '../../api/paged';
 import { queryKeys } from '../../api/queryKeys';
 import { logError } from '../../lib/logError';
 import type { Invoice, InvoiceCreateInput, InvoiceStatus, MarkPaidInput } from '../../types';
 
-/** The create picker loads this many orders (legacy list, FE-06 open item). */
-export const INVOICE_ORDER_PICKER_LIMIT = 500;
+/** W7 hygiene: the create picker used to fetch up to 500 orders
+ * unconditionally (legacy list). It now fetches the same 100-row page other
+ * order pickers use via the paged endpoint, plus an optional `q` search
+ * (CreateInvoiceModal's search box) so an order outside that page is still
+ * reachable by number/title/customer. */
+export const INVOICE_ORDER_PICKER_PAGE_SIZE = 100;
 
 export interface InvoiceListFilter {
   status: InvoiceStatus | '';
@@ -53,11 +56,14 @@ export function useInvoiceDetail(invoiceId: number | null) {
   });
 }
 
-/** Orders for the "Rechnung erstellen" picker; only fetched while the dialog is open. */
-export function useInvoiceableOrders(enabled: boolean) {
+/** Orders for the "Rechnung erstellen" picker; only fetched while the dialog
+ * is open. `q` (debounced by the caller) searches order number/title/
+ * customer server-side instead of loading every order. */
+export function useInvoiceableOrders(enabled: boolean, q: string = '') {
+  const params = { limit: INVOICE_ORDER_PICKER_PAGE_SIZE, offset: 0, q: q || undefined };
   return useQuery({
-    queryKey: queryKeys.orders.legacyList(INVOICE_ORDER_PICKER_LIMIT),
-    queryFn: () => ordersApi.getAll({ limit: INVOICE_ORDER_PICKER_LIMIT }),
+    queryKey: queryKeys.orders.page(params),
+    queryFn: ({ signal }) => pagedApi.orders(params, signal),
     enabled,
   });
 }

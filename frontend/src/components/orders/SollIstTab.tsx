@@ -13,6 +13,7 @@ import { useToast } from '../../contexts';
 import { getErrorMessage } from '../../lib/errors';
 import { logError } from '../../lib/logError';
 import { formatEur, MONEY_CLASS } from '../../lib/format';
+import { canViewFinancials, FINANCIAL_HIDDEN_HINT } from '../../lib/roles';
 import type { ActivityBreakdownComparison, ComparisonMetric } from '../../types';
 import {
   Button,
@@ -28,6 +29,10 @@ import {
 interface SollIstTabProps {
   orderId: number;
   orderStatus: string;
+  /** Caller's role. Defense-in-depth: the parent already hides this tab
+   * without FINANCIAL_VIEW, but Soll/Ist is financial data (prices, costs)
+   * and must not depend solely on that outer gate. */
+  role?: string | null;
 }
 
 const COMPLETED_STATUSES = ['completed', 'delivered'];
@@ -188,8 +193,9 @@ function InvoiceAction({ orderId, invoices }: { orderId: number; invoices: Recen
   );
 }
 
-export function SollIstTab({ orderId, orderStatus }: SollIstTabProps) {
-  const isEligible = COMPLETED_STATUSES.includes(orderStatus);
+export function SollIstTab({ orderId, orderStatus, role }: SollIstTabProps) {
+  const canFinance = canViewFinancials(role);
+  const isEligible = COMPLETED_STATUSES.includes(orderStatus) && canFinance;
   const comparison = useQuery({
     queryKey: queryKeys.orders.comparison(orderId),
     queryFn: () => ordersApi.getComparison(orderId),
@@ -201,6 +207,13 @@ export function SollIstTab({ orderId, orderStatus }: SollIstTabProps) {
     queryFn: fetchRecentInvoiceItems,
     enabled: isEligible,
   });
+
+  // Defense-in-depth (W3-04): this tab is financial data (SEC-01) and must
+  // never render it without FINANCIAL_VIEW, even if a future caller forgets
+  // the outer gate the parent tab currently applies.
+  if (!canFinance) {
+    return <EmptyState icon="circle-help" headingLevel={3} title={FINANCIAL_HIDDEN_HINT} />;
+  }
 
   if (!isEligible) {
     return (
