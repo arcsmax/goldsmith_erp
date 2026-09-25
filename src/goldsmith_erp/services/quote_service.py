@@ -14,7 +14,7 @@ All service methods are async and accept AsyncSession as first parameter.
 """
 
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import List, Optional, cast
 
@@ -118,7 +118,7 @@ def _log_quote_access(
             "quote_id": quote_id,
             "user_id": user_id,
             "user_role": user_role,
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             **(extra or {}),
         },
     )
@@ -471,7 +471,7 @@ class QuoteService:
 
         totals = QuoteService.calculate_totals(all_line_items, quote_in.tax_rate)
 
-        valid_until = datetime.utcnow() + timedelta(days=quote_in.valid_days)
+        valid_until = datetime.now(timezone.utc) + timedelta(days=quote_in.valid_days)
 
         async with transactional(db):
             quote_number = await QuoteService.generate_quote_number(db)
@@ -864,7 +864,7 @@ class QuoteService:
                     int(current_user.id),
                     CustomerUpdateStatus.SENT,
                     method,
-                    datetime.utcnow(),
+                    datetime.now(timezone.utc),
                 )
                 db.add(record)
                 await db.flush()  # populate record.id for the audit row (E16)
@@ -965,7 +965,7 @@ class QuoteService:
                 code="quote.approve_invalid_status",
             )
 
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         note = QuoteService._approval_note(request, now)
 
         async with transactional(db):
@@ -1012,7 +1012,7 @@ class QuoteService:
                 code="quote.reject_invalid_status",
             )
 
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         notes_update = quote.notes or ""
         if reason:
             notes_update = f"{notes_update}\n[Ablehnungsgrund] {reason}".strip()
@@ -1063,7 +1063,7 @@ class QuoteService:
         if not quote:
             return None
 
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         QuoteService._require_convertible(quote, now)
         existing_order = await QuoteService._linked_order_for_conversion(db, quote)
         net_price = QuoteService._agreed_net_price(quote)

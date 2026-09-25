@@ -2,19 +2,17 @@
 """
 Shared Pydantic helpers for API input schemas.
 
-Datetime convention (see docs/architecture/ADR-2026-09-25-price-semantics.md):
-the DB columns are ``TIMESTAMP WITHOUT TIME ZONE`` holding UTC, and the rest
-of the code compares against ``datetime.utcnow()``. The browser sends ISO
-strings with a ``Z`` suffix, which Pydantic parses as tz-aware. Every API
-datetime input is therefore normalised to naive UTC at the schema boundary:
+Datetime convention (BE-15, docs/architecture/ADR-2026-09-25-numeric-and-tz.md):
+the DB columns are ``TIMESTAMP WITH TIME ZONE`` and the application works in
+aware UTC (``core.timeutil.utcnow``). The browser sends ISO strings with a
+``Z`` suffix. Every API datetime input is normalised to aware UTC at the
+schema boundary with :data:`UtcDatetime`:
 
-- aware input  -> converted to UTC, tzinfo dropped
-- naive input  -> interpreted as UTC (unchanged)
-
-This is the same rule ``models/repair.py::_strip_tzinfo`` already applies.
+- aware input  -> converted to UTC
+- naive input  -> read as UTC (accepted for one release, then rejected)
 """
 
-from datetime import datetime, timezone
+from datetime import datetime
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Annotated, Any, Optional, Union, cast
 
@@ -22,28 +20,21 @@ from pydantic import BeforeValidator, GetJsonSchemaHandler, PlainSerializer, Typ
 from pydantic.json_schema import JsonSchemaValue
 from pydantic_core import core_schema
 
+from goldsmith_erp.core.timeutil import ensure_utc
+
 _DATETIME_ADAPTER: TypeAdapter[datetime] = TypeAdapter(datetime)
 
 
-def to_naive_utc(value: Optional[datetime]) -> Optional[datetime]:
-    """Return ``value`` as naive UTC; ``None`` passes through."""
-    if value is None:
-        return None
-    if value.tzinfo is not None:
-        return value.astimezone(timezone.utc).replace(tzinfo=None)
-    return value
-
-
-def _parse_to_naive_utc(value: object) -> object:
-    """BeforeValidator: parse str/datetime input and normalise to naive UTC."""
+def _parse_to_utc(value: object) -> object:
+    """BeforeValidator: parse str/datetime input and normalise to aware UTC."""
     if value is None:
         return None
     parsed = _DATETIME_ADAPTER.validate_python(value)
-    return to_naive_utc(parsed)
+    return ensure_utc(parsed)
 
 
-UtcNaiveDatetime = Annotated[datetime, BeforeValidator(_parse_to_naive_utc)]
-"""A datetime field that is always naive UTC after validation."""
+UtcDatetime = Annotated[datetime, BeforeValidator(_parse_to_utc)]
+"""A datetime field that is always timezone-aware UTC after validation."""
 
 
 # ── Exact decimals on the wire contract (BE-14) ────────────────────────────

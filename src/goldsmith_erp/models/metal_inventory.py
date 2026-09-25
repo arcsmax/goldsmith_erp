@@ -5,7 +5,7 @@ Provides type-safe validation for metal purchase tracking, inventory management,
 and material usage calculations.
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from decimal import ROUND_HALF_UP, Decimal
 from enum import Enum
 from typing import List, Optional
@@ -86,7 +86,9 @@ class MetalPurchaseBase(BaseModel):
 class MetalPurchaseCreate(MetalPurchaseBase):
     """Schema for creating a new metal purchase"""
 
-    date_purchased: Optional[datetime] = Field(default_factory=datetime.utcnow)
+    date_purchased: Optional[datetime] = Field(
+        default_factory=lambda: datetime.now(timezone.utc)
+    )
 
     model_config = {
         "json_schema_extra": {

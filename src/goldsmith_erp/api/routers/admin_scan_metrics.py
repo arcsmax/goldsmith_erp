@@ -138,7 +138,7 @@ class ScanMetricsResponse(BaseModel):
 
 async def _scan_adoption_pct_30d(db: AsyncSession) -> Optional[float]:
     """Primary metric — matches V1.1-scan-adoption-query.sql exactly."""
-    cutoff = datetime.utcnow() - timedelta(days=30)
+    cutoff = datetime.now(timezone.utc) - timedelta(days=30)
     stmt = (
         select(
             func.count(TimeEntry.id)
@@ -166,7 +166,7 @@ async def _scan_adoption_pct_30d(db: AsyncSession) -> Optional[float]:
 
 async def _scan_breadth_pct_7d(db: AsyncSession) -> Optional[float]:
     """Secondary metric — matches V1.1-scan-breadth-query.sql."""
-    cutoff = datetime.utcnow() - timedelta(days=7)
+    cutoff = datetime.now(timezone.utc) - timedelta(days=7)
     # We issue two distinct-count queries rather than one CASE-style query
     # because it's clearer and the cardinalities are small (< 20 users).
     scan_users_stmt = (
@@ -198,7 +198,7 @@ async def _scan_breadth_pct_7d(db: AsyncSession) -> Optional[float]:
 
 
 async def _alloy_override_count_30d(db: AsyncSession) -> int:
-    cutoff = datetime.utcnow() - timedelta(days=30)
+    cutoff = datetime.now(timezone.utc) - timedelta(days=30)
     stmt = select(func.count(MaterialUsage.id)).where(
         MaterialUsage.alloy_override.is_(True),
         MaterialUsage.created_at > cutoff,
@@ -207,7 +207,7 @@ async def _alloy_override_count_30d(db: AsyncSession) -> int:
 
 
 async def _camera_fallback_count_30d(db: AsyncSession) -> int:
-    cutoff = datetime.utcnow() - timedelta(days=30)
+    cutoff = datetime.now(timezone.utc) - timedelta(days=30)
     stmt = select(func.count(ScanLog.id)).where(
         ScanLog.fallback_reason == "camera_denied",
         ScanLog.scanned_at > cutoff,
@@ -225,7 +225,7 @@ async def _usb_hid_scan_count_30d(db: AsyncSession) -> int:
     The fallback is only exercised in unit-test fixtures where the
     backing DB is SQLite; production is always PostgreSQL.
     """
-    cutoff = datetime.utcnow() - timedelta(days=30)
+    cutoff = datetime.now(timezone.utc) - timedelta(days=30)
     dialect_name = db.bind.dialect.name if db.bind else ""
     if dialect_name == "postgresql":
         # `context ->> 'input_source'` extracts the text value.
@@ -256,7 +256,7 @@ async def _fab_tap_latency(
     Uses percentile_cont on PostgreSQL; SQLite falls back to fetching
     deltas and computing percentiles in Python (fine for < 10k rows).
     """
-    cutoff = datetime.utcnow() - timedelta(days=30)
+    cutoff = datetime.now(timezone.utc) - timedelta(days=30)
     dialect_name = db.bind.dialect.name if db.bind else ""
 
     if dialect_name == "postgresql":

@@ -66,7 +66,7 @@ import calendar
 import logging
 import sys
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING, List, Optional, Sequence
 
 from sqlalchemy import select
@@ -146,7 +146,9 @@ class RetentionRule:
             # ``anchor < 1 Jan of (year(now) - N)``. This is intentionally
             # conservative: a 2015-03 record with N=10 is retained through
             # 2025-12-31 and only becomes a candidate from 2026 onward.
-            return datetime(now.year - self.financial_year_end_years, 1, 1)
+            return datetime(
+                now.year - self.financial_year_end_years, 1, 1, tzinfo=now.tzinfo
+            )
         if self.rolling_months is not None:
             return _subtract_months(now, self.rolling_months)
         raise ValueError(  # pragma: no cover — guarded by construction
@@ -312,7 +314,7 @@ async def sweep_retention(
     continues with the next rule. The report flags any failure so the CLI can
     exit nonzero (fail-loud — CLAUDE.md).
     """
-    now = now or datetime.utcnow()
+    now = now or datetime.now(timezone.utc)
     report = RetentionSweepReport(executed=execute, now=now)
 
     for rule in rules:

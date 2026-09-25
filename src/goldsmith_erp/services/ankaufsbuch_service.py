@@ -17,13 +17,14 @@ from __future__ import annotations
 import csv
 import io
 from dataclasses import dataclass
-from datetime import date, datetime, time, timedelta
+from datetime import date, datetime, time, timedelta, timezone
 from typing import Any, List, Optional, Sequence
 
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from goldsmith_erp.core.timeutil import DATETIME_FORMAT, format_local
 from goldsmith_erp.db.models import ScrapGold, ScrapGoldStatus
 from goldsmith_erp.models.scrap_gold import ID_DOCUMENT_LABELS
 
@@ -76,7 +77,8 @@ def _de_number(value: Optional[float], digits: int = 2) -> str:
 
 
 def _de_date(value: Optional[datetime]) -> str:
-    return value.strftime("%d.%m.%Y %H:%M") if value else ""
+    # Ankaufsbuch entries show Europe/Berlin local time (BE-15).
+    return format_local(value, DATETIME_FORMAT, empty="")
 
 
 def _safe_cell(value: str) -> str:
@@ -143,8 +145,8 @@ async def load_rows(
     db: AsyncSession, date_from: date, date_to: date
 ) -> List[AnkaufsbuchRow]:
     """Signed purchases with ``signed_at`` in [date_from, date_to], oldest first."""
-    start = datetime.combine(date_from, time.min)
-    end = datetime.combine(date_to + timedelta(days=1), time.min)
+    start = datetime.combine(date_from, time.min, tzinfo=timezone.utc)
+    end = datetime.combine(date_to + timedelta(days=1), time.min, tzinfo=timezone.utc)
     result = await db.execute(
         select(ScrapGold)
         .where(

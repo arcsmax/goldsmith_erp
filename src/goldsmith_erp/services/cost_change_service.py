@@ -50,7 +50,7 @@ the clause, relying instead on its own whole-database write lock).
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any, Dict, List, Optional, cast
 
@@ -208,7 +208,7 @@ def _log_financial_access(
             "entity_id": cost_change_id,
             "order_id": order_id,
             "user_id": user_id,
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             **(extra or {}),
         },
     )
@@ -486,7 +486,7 @@ class CostChangeService:
             cost_change.status = cast(Any, new_status)
             cost_change.response_method = cast(Any, data.response_method)
             cost_change.response_evidence = cast(Any, data.response_evidence)
-            cost_change.responded_at = cast(Any, datetime.utcnow())
+            cost_change.responded_at = cast(Any, datetime.now(timezone.utc))
             cost_change.recorded_by = cast(Any, user_id)
 
         await db.refresh(cost_change)

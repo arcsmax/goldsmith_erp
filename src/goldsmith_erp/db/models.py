@@ -2,7 +2,7 @@ from datetime import datetime
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
 
-from sqlalchemy import Boolean, CheckConstraint, Column, Date, DateTime
+from sqlalchemy import Boolean, CheckConstraint, Column, Date
 from sqlalchemy import Enum as _SAEnum
 from sqlalchemy import (
     Float,
@@ -22,7 +22,8 @@ from sqlalchemy.dialects.postgresql import JSON
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship
 
-from goldsmith_erp.db.types import EncryptedString
+from goldsmith_erp.core.timeutil import ensure_utc, utcnow
+from goldsmith_erp.db.types import EncryptedString, UtcDateTime, UtcDateTimeNaiveStorage
 
 # Exact decimal column types (BE-14, ADR-2026-09-25-numeric-and-tz). Money is
 # stored to the cent, weights and quantities to the milligram / thousandth,
@@ -210,13 +211,13 @@ class User(Base):
     last_name = Column(String)
     role = Column(SAEnum(UserRole), default=UserRole.VIEWER, nullable=False, index=True)
     is_active = Column(Boolean, default=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(UtcDateTime, default=utcnow)
 
     # ── GDPR Art. 17 anonymisation infrastructure (Slice 0) ─────────────────
     # Populated by services.user_service.anonymize_user(). See
     # docs/superpowers/plans/qr-barcode-workflow/V1.1-ANONYMIZE-USER-CONTRACT.md.
     is_deleted = Column(Boolean, default=False, nullable=False, index=True)
-    deleted_at = Column(DateTime, nullable=True)
+    deleted_at = Column(UtcDateTime, nullable=True)
     # Short (16-char) HMAC tracking token. Internal correlation aid only —
     # not user-facing, not a re-identification vector on its own.
     anonymization_hash = Column(String(64), nullable=True)
@@ -318,16 +319,16 @@ class Customer(Base):
     style_profile = Column(
         JSON, nullable=True
     )  # V1.1: {metal_tones, finishes, stone_preferences, style_words}
-    birthday = Column(DateTime, nullable=True)  # For marketing/gift vouchers
+    birthday = Column(UtcDateTime, nullable=True)  # For marketing/gift vouchers
 
     # Metadata
     is_active = Column(Boolean, default=True, index=True)
-    created_at = Column(DateTime, default=datetime.utcnow, index=True)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(UtcDateTime, default=utcnow, index=True)
+    updated_at = Column(UtcDateTime, default=utcnow, onupdate=utcnow)
 
     # GDPR Art. 17 — scheduled hard-delete date (set on erasure request).
     # After this date the gdpr-cleanup.sh cron job permanently deletes the record.
-    deletion_scheduled_at = Column(DateTime, nullable=True, index=True)
+    deletion_scheduled_at = Column(UtcDateTime, nullable=True, index=True)
 
     # GDPR-01 — legal hold. Set on erasure when the customer has records that
     # §147 AO / §14b UStG / GwG §8 Abs. 4 require us to keep (invoices,
@@ -335,11 +336,11 @@ class Customer(Base):
     # NOT scrubbed (Art. 17 Abs. 3 lit. b DSGVO); this date is the earliest
     # point at which they — and the anonymised customer row they point at —
     # may be deleted. NULL = no hold.
-    retention_hold_until = Column(DateTime, nullable=True, index=True)
+    retention_hold_until = Column(UtcDateTime, nullable=True, index=True)
 
     # Soft delete
     is_deleted = Column(Boolean, default=False, nullable=False, index=True)
-    deleted_at = Column(DateTime, nullable=True)
+    deleted_at = Column(UtcDateTime, nullable=True)
     deleted_by = Column(
         Integer, ForeignKey("users.id", ondelete="RESTRICT"), nullable=True
     )
@@ -451,14 +452,14 @@ class CustomerMeasurement(Base):
     notes = Column(Text, nullable=True)
 
     # When the measurement was physically taken (not necessarily = created_at)
-    measured_at = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
+    measured_at = Column(UtcDateTime, nullable=False, default=utcnow, index=True)
 
     # Audit timestamps
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(UtcDateTime, default=utcnow, nullable=False)
     updated_at = Column(
-        DateTime,
-        default=datetime.utcnow,
-        onupdate=datetime.utcnow,
+        UtcDateTime,
+        default=utcnow,
+        onupdate=utcnow,
         nullable=False,
     )
 
@@ -521,7 +522,7 @@ class Order(Base):
         nullable=True,
         index=True,
     )
-    deadline = Column(DateTime, nullable=True, index=True)  # Deadline für Kalender
+    deadline = Column(UtcDateTime, nullable=True, index=True)  # Deadline für Kalender
     current_location = Column(String(50), nullable=True)  # Aktueller Lagerort
 
     # Weight & Material Calculation
@@ -578,7 +579,7 @@ class Order(Base):
         Float, nullable=True
     )  # Auto-calculated from time entries on completion
     completed_at = Column(
-        DateTime, nullable=True
+        UtcDateTime, nullable=True
     )  # Timestamp when order reached COMPLETED/DELIVERED
 
     # Goldsmith Intake Fields (Pflichtfelder for order confirmation)
@@ -587,7 +588,7 @@ class Order(Base):
         Float, nullable=True
     )  # Per-order ring size (mm inner circumference)
     surface_finish = Column(String(50), nullable=True)  # 'Hochglanz', 'Matt', etc.
-    fitting_date = Column(DateTime, nullable=True)  # Anprobe-Datum
+    fitting_date = Column(UtcDateTime, nullable=True)  # Anprobe-Datum
     has_scrap_gold = Column(Boolean, default=False)  # Altgold vorhanden?
     special_instructions = Column(Text, nullable=True)  # Sonderwuensche
 
@@ -595,7 +596,7 @@ class Order(Base):
     # A2.5 / A2.8 — audit evidence for Feingehaltsgesetz / DIN 8238.
     # Set by the PunzierungsCheckModal flow; marks list is populated with
     # values from A3.2 (e.g. "feingehalt_585", "meisterzeichen").
-    punzierung_verified_at = Column(DateTime(timezone=True), nullable=True)
+    punzierung_verified_at = Column(UtcDateTime, nullable=True)
     punzierung_verified_by = Column(
         Integer,
         ForeignKey(
@@ -625,11 +626,11 @@ class Order(Base):
 
     # Soft delete
     is_deleted = Column(Boolean, default=False, index=True)
-    deleted_at = Column(DateTime, nullable=True)
+    deleted_at = Column(UtcDateTime, nullable=True)
 
     # Metadata
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(UtcDateTime, default=utcnow)
+    updated_at = Column(UtcDateTime, default=utcnow, onupdate=utcnow)
 
     # Beziehungen
     customer = relationship("Customer", back_populates="orders")
@@ -714,7 +715,7 @@ class OrderEvent(Base):
         Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
     reason = Column(String(500), nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(UtcDateTime, default=utcnow, nullable=False)
     meta = Column(JSON, nullable=True)
 
     order = relationship("Order", back_populates="events")
@@ -737,8 +738,8 @@ class OrderComment(Base):
         index=True,
     )
     text = Column(Text, nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow, index=True)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(UtcDateTime, default=utcnow, index=True)
+    updated_at = Column(UtcDateTime, default=utcnow, onupdate=utcnow)
 
     # Beziehungen
     order = relationship("Order", back_populates="comments")
@@ -779,7 +780,7 @@ class Activity(Base):
     color = Column(String(7))  # Hex color #FF6B6B
     usage_count = Column(Integer, default=0, index=True)
     average_duration_minutes = Column(Float)
-    last_used = Column(DateTime)
+    last_used = Column(UtcDateTime)
     is_custom = Column(Boolean, default=False)
     is_billable = Column(
         Boolean, nullable=False, server_default=text("true"), default=True
@@ -794,7 +795,7 @@ class Activity(Base):
     created_by = Column(
         Integer, ForeignKey("users.id", ondelete="RESTRICT"), nullable=True
     )
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(UtcDateTime, default=utcnow)
 
     # Beziehungen
     creator = relationship("User", foreign_keys=[created_by])
@@ -835,8 +836,8 @@ class TimeEntry(Base):
     activity_id = Column(
         Integer, ForeignKey("activities.id"), nullable=False, index=True
     )
-    start_time = Column(DateTime, nullable=False, index=True)
-    end_time = Column(DateTime, nullable=True)
+    start_time = Column(UtcDateTime, nullable=False, index=True)
+    end_time = Column(UtcDateTime, nullable=True)
     duration_minutes = Column(Integer, nullable=True)
     location = Column(String(50))  # workbench_1, vault, etc.
     complexity_rating = Column(Integer)  # 1-5
@@ -844,7 +845,7 @@ class TimeEntry(Base):
     rework_required = Column(Boolean, default=False)
     notes = Column(Text)
     extra_metadata = Column(JSON)  # Flexible für zusätzliche Daten
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(UtcDateTime, default=utcnow)
 
     # ── Slice 2 — origin + correction tracking + retention ────────────
     # A2-origin — Lena §1 adoption metric. Values: 'manual' | 'scan' |
@@ -951,11 +952,11 @@ class Interruption(Base):
     )
     reason = Column(String(100), nullable=False)  # customer_call, material_fetch, etc.
     duration_minutes = Column(Integer, nullable=False)
-    timestamp = Column(DateTime, default=datetime.utcnow)
+    timestamp = Column(UtcDateTime, default=utcnow)
     # W2-14 / BE-19: set when work resumes; duration_minutes then holds the
     # measured minutes. NULL with duration 0 = still open. Migration
     # 20260925_w214_interrupt_resume.
-    resumed_at = Column(DateTime, nullable=True)
+    resumed_at = Column(UtcDateTime, nullable=True)
 
     # Beziehungen
     time_entry = relationship("TimeEntry", back_populates="interruptions")
@@ -969,7 +970,7 @@ class LocationHistory(Base):
     id = Column(Integer, primary_key=True, index=True)
     order_id = Column(Integer, ForeignKey("orders.id"), nullable=False, index=True)
     location = Column(String(50), nullable=False)
-    timestamp = Column(DateTime, default=datetime.utcnow, index=True)
+    timestamp = Column(UtcDateTime, default=utcnow, index=True)
     changed_by = Column(
         Integer, ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
     )
@@ -990,7 +991,7 @@ class OrderPhoto(Base):
         String(36), ForeignKey("time_entries.id", ondelete="SET NULL"), nullable=True
     )
     file_path = Column(String(500), nullable=False)
-    timestamp = Column(DateTime, default=datetime.utcnow, index=True)
+    timestamp = Column(UtcDateTime, default=utcnow, index=True)
     taken_by = Column(
         Integer, ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
     )
@@ -1066,9 +1067,7 @@ class MetalPurchase(Base):
     id = Column(Integer, primary_key=True, index=True)
 
     # Purchase Details
-    date_purchased = Column(
-        DateTime, nullable=False, default=datetime.utcnow, index=True
-    )
+    date_purchased = Column(UtcDateTime, nullable=False, default=utcnow, index=True)
     metal_type = Column(SAEnum(MetalType), nullable=False, index=True)
 
     # Weight & Pricing
@@ -1090,10 +1089,8 @@ class MetalPurchase(Base):
     lot_number = Column(String(100), nullable=True)  # For tracking/certification
 
     # Timestamps
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = Column(
-        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
-    )
+    created_at = Column(UtcDateTime, default=utcnow, nullable=False)
+    updated_at = Column(UtcDateTime, default=utcnow, onupdate=utcnow, nullable=False)
 
     # Relationships
     usage_records = relationship(
@@ -1164,8 +1161,8 @@ class MaterialUsage(Base):
     )
 
     # Timestamps
-    used_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    used_at = Column(UtcDateTime, default=utcnow, nullable=False, index=True)
+    created_at = Column(UtcDateTime, default=utcnow, nullable=False)
 
     # Notes
     notes = Column(Text, nullable=True)
@@ -1249,7 +1246,7 @@ class InventoryAdjustment(Base):
     )
 
     # Timestamps
-    adjusted_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    adjusted_at = Column(UtcDateTime, default=utcnow, nullable=False, index=True)
 
     # Relationships
     metal_purchase = relationship("MetalPurchase")
@@ -1293,12 +1290,12 @@ class ScrapGold(Base):
 
     # Legal documentation
     signature_data = Column(Text, nullable=True)  # Base64 encoded signature image
-    signed_at = Column(DateTime, nullable=True)
+    signed_at = Column(UtcDateTime, nullable=True)
     receipt_pdf_path = Column(String(500), nullable=True)
 
     notes = Column(Text, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(UtcDateTime, default=utcnow)
+    updated_at = Column(UtcDateTime, default=utcnow, onupdate=utcnow)
 
     # W2-16 / DOM-21 (decision D-16): Ankaufsbuch identification. Optional,
     # required before SIGNED above SCRAP_GOLD_ID_THRESHOLD_EUR. Number and
@@ -1314,7 +1311,7 @@ class ScrapGold(Base):
         ),
         nullable=True,
     )
-    id_checked_at = Column(DateTime, nullable=True)
+    id_checked_at = Column(UtcDateTime, nullable=True)
 
     # Relationships
     order = relationship("Order")
@@ -1345,7 +1342,7 @@ class ScrapGoldItem(Base):
         WEIGHT_NUMERIC, nullable=False
     )  # Calculated: weight * alloy/1000
     photo_path = Column(String(500), nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(UtcDateTime, default=utcnow)
 
     # Relationships
     scrap_gold = relationship("ScrapGold", back_populates="items")
@@ -1386,7 +1383,7 @@ class MetalPriceHistory(Base):
     source = Column(
         SAEnum(MetalPriceSource), nullable=False, default=MetalPriceSource.API
     )
-    fetched_at = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
+    fetched_at = Column(UtcDateTime, nullable=False, default=utcnow, index=True)
 
     def __repr__(self) -> str:
         return (
@@ -1418,8 +1415,8 @@ class CalendarEvent(Base):
     )
 
     # Time range
-    start_datetime = Column(DateTime, nullable=False, index=True)
-    end_datetime = Column(DateTime, nullable=True)
+    start_datetime = Column(UtcDateTime, nullable=False, index=True)
+    end_datetime = Column(UtcDateTime, nullable=True)
     all_day = Column(Boolean, default=False, nullable=False)
 
     # Optional link to an order
@@ -1445,11 +1442,11 @@ class CalendarEvent(Base):
     recurrence = Column(String(100), nullable=True)  # e.g. "weekly", "monthly"
 
     # Metadata
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(UtcDateTime, default=utcnow, nullable=False)
     updated_at = Column(
-        DateTime,
-        default=datetime.utcnow,
-        onupdate=datetime.utcnow,
+        UtcDateTime,
+        default=utcnow,
+        onupdate=utcnow,
         nullable=False,
     )
 
@@ -1526,12 +1523,12 @@ class Invoice(Base):
     )
 
     # Dates
-    issue_date = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
-    due_date = Column(DateTime, nullable=False, index=True)  # Faelligkeitsdatum
-    paid_date = Column(DateTime, nullable=True)  # Zahlungsdatum
+    issue_date = Column(UtcDateTime, nullable=False, default=utcnow, index=True)
+    due_date = Column(UtcDateTime, nullable=False, index=True)  # Faelligkeitsdatum
+    paid_date = Column(UtcDateTime, nullable=True)  # Zahlungsdatum
     # W2-04 (DOM-24): Leistungsdatum (§14 Abs. 4 Nr. 6 UStG). Set at
     # creation from the request, else the order's completion date.
-    service_date = Column(DateTime, nullable=True)
+    service_date = Column(UtcDateTime, nullable=True)
 
     # Amounts (Betraege)
     subtotal = Column(
@@ -1563,15 +1560,13 @@ class Invoice(Base):
     # Frozen at issue (DRAFT -> SENT, or DRAFT -> PAID): base64 PDF bytes
     # (encrypted, contains the recipient) plus SHA-256 of the raw bytes.
     # Write-once; served verbatim for every non-DRAFT invoice.
-    issued_at = Column(DateTime, nullable=True)
+    issued_at = Column(UtcDateTime, nullable=True)
     issued_pdf = Column(EncryptedString, nullable=True)
     issued_pdf_sha256 = Column(String(64), nullable=True)
 
     # Metadata
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = Column(
-        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
-    )
+    created_at = Column(UtcDateTime, default=utcnow, nullable=False)
+    updated_at = Column(UtcDateTime, default=utcnow, onupdate=utcnow, nullable=False)
 
     # Relationships
     order = relationship("Order")
@@ -1656,9 +1651,7 @@ class WorkshopSettings(Base):
     is_kleinunternehmer = Column(Boolean, nullable=False, default=False)  # §19 UStG
     default_vat_rate = Column(PERCENT_NUMERIC, nullable=False, default=Decimal("19.0"))
     invoice_footer = Column(Text, nullable=True)
-    updated_at = Column(
-        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
-    )
+    updated_at = Column(UtcDateTime, default=utcnow, onupdate=utcnow, nullable=False)
     updated_by = Column(
         Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
@@ -1744,11 +1737,11 @@ class Quote(Base):
 
     # Dates
     valid_until = Column(
-        DateTime, nullable=False, index=True
+        UtcDateTime, nullable=False, index=True
     )  # Gueltig bis (+14 Tage default)
-    approved_at = Column(DateTime, nullable=True)  # Genehmigt am
-    rejected_at = Column(DateTime, nullable=True)  # Abgelehnt am
-    converted_at = Column(DateTime, nullable=True)  # Umgewandelt am
+    approved_at = Column(UtcDateTime, nullable=True)  # Genehmigt am
+    rejected_at = Column(UtcDateTime, nullable=True)  # Abgelehnt am
+    converted_at = Column(UtcDateTime, nullable=True)  # Umgewandelt am
 
     # Amounts (Betraege)
     subtotal = Column(
@@ -1771,10 +1764,8 @@ class Quote(Base):
     notes = Column(Text, nullable=True)  # Anmerkungen
 
     # Metadata
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = Column(
-        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
-    )
+    created_at = Column(UtcDateTime, default=utcnow, nullable=False)
+    updated_at = Column(UtcDateTime, default=utcnow, onupdate=utcnow, nullable=False)
 
     # Relationships
     order = relationship("Order")
@@ -1926,9 +1917,9 @@ class Notification(Base):
 
     # Read state
     is_read = Column(Boolean, default=False, nullable=False, index=True)
-    read_at = Column(DateTime, nullable=True)
+    read_at = Column(UtcDateTime, nullable=True)
 
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    created_at = Column(UtcDateTime, default=utcnow, nullable=False, index=True)
 
     # Relationships
     user = relationship("User")
@@ -2037,8 +2028,8 @@ class OrderHandoff(Base):
     response_notes = Column(Text, nullable=True)
 
     # Timestamps
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
-    responded_at = Column(DateTime, nullable=True)  # Set when accepted/declined
+    created_at = Column(UtcDateTime, default=utcnow, nullable=False, index=True)
+    responded_at = Column(UtcDateTime, nullable=True)  # Set when accepted/declined
 
     # Relationships
     order = relationship("Order", back_populates="handoffs")
@@ -2163,22 +2154,20 @@ class RepairJob(Base):
     )  # Tatsaechliche Kosten nach Reparatur
 
     # Dates
-    estimated_completion_date = Column(DateTime, nullable=True, index=True)
-    actual_completion_date = Column(DateTime, nullable=True)
+    estimated_completion_date = Column(UtcDateTime, nullable=True, index=True)
+    actual_completion_date = Column(UtcDateTime, nullable=True)
     customer_notified_at = Column(
-        DateTime, nullable=True
+        UtcDateTime, nullable=True
     )  # When READY notification was sent
-    picked_up_at = Column(DateTime, nullable=True)
+    picked_up_at = Column(UtcDateTime, nullable=True)
 
     # Soft delete (30-day grace period before hard delete per GDPR Art. 17)
     is_deleted = Column(Boolean, default=False, nullable=False, index=True)
-    deleted_at = Column(DateTime, nullable=True)
+    deleted_at = Column(UtcDateTime, nullable=True)
 
     # Audit timestamps
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
-    updated_at = Column(
-        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
-    )
+    created_at = Column(UtcDateTime, default=utcnow, nullable=False, index=True)
+    updated_at = Column(UtcDateTime, default=utcnow, onupdate=utcnow, nullable=False)
 
     # V1.1 — Eingangs-Checkliste (repair photo-intake checklist). Seeded from
     # settings.REPAIR_INTAKE_CHECKLIST at creation; item shape documented in
@@ -2228,7 +2217,7 @@ class RepairPhoto(Base):
         SAEnum(RepairPhotoPhase), nullable=False, default=RepairPhotoPhase.INTAKE
     )
     file_path = Column(String(500), nullable=False)
-    timestamp = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    timestamp = Column(UtcDateTime, default=utcnow, nullable=False, index=True)
     taken_by = Column(
         Integer,
         ForeignKey("users.id", ondelete="SET NULL"),
@@ -2339,12 +2328,10 @@ class Consultation(Base):
     converted_order_id = Column(
         Integer, ForeignKey("orders.id", ondelete="SET NULL"), nullable=True
     )
-    follow_up_at = Column(DateTime, nullable=True)
+    follow_up_at = Column(UtcDateTime, nullable=True)
     notes = Column(Text, nullable=True)  # Design-IP
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
-    updated_at = Column(
-        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
-    )
+    created_at = Column(UtcDateTime, default=utcnow, nullable=False, index=True)
+    updated_at = Column(UtcDateTime, default=utcnow, onupdate=utcnow, nullable=False)
 
     customer = relationship("Customer")
     goldsmith = relationship("User", foreign_keys=[conducted_by])
@@ -2381,7 +2368,7 @@ class ConsultationPhoto(Base):
         default=ConsultationPhotoKind.SKETCH,
     )
     file_path = Column(String(500), nullable=False)
-    timestamp = Column(DateTime, default=datetime.utcnow, index=True)
+    timestamp = Column(UtcDateTime, default=utcnow, index=True)
     taken_by = Column(
         Integer, ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
     )
@@ -2436,7 +2423,7 @@ class CustomerNoGo(Base):
     source_consultation_id = Column(
         Integer, ForeignKey("consultations.id", ondelete="SET NULL"), nullable=True
     )
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(UtcDateTime, default=utcnow, nullable=False)
 
     # DB-level backstop for the app-side duplicate check in
     # NoGoService.add_no_go (issue #12 — closes the duplicate TOCTOU: that
@@ -2582,15 +2569,15 @@ class OrderHallmark(Base):
     certificate_number = Column(String(100), unique=True, nullable=True, index=True)
 
     # Timestamps for lifecycle steps
-    submitted_at = Column(DateTime, nullable=True)  # Eingereicht am
-    approved_at = Column(DateTime, nullable=True)  # Genehmigt am
-    stamped_at = Column(DateTime, nullable=True)  # Gestempelt am
+    submitted_at = Column(UtcDateTime, nullable=True)  # Eingereicht am
+    approved_at = Column(UtcDateTime, nullable=True)  # Genehmigt am
+    stamped_at = Column(UtcDateTime, nullable=True)  # Gestempelt am
 
     # Free-text notes (e.g. rejection reason or goldsmith observations)
     notes = Column(Text, nullable=True)
 
     # Audit
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    created_at = Column(UtcDateTime, default=utcnow, nullable=False, index=True)
     created_by = Column(
         Integer,
         ForeignKey("users.id", ondelete="SET NULL"),
@@ -2701,10 +2688,8 @@ class ValuationCertificate(Base):
     appraised_value_hmac = Column(String(64), nullable=False, index=True)
 
     # Validity
-    valuation_date = Column(
-        DateTime, nullable=False, default=datetime.utcnow, index=True
-    )
-    valid_until = Column(DateTime, nullable=False, index=True)  # +2 Jahre default
+    valuation_date = Column(UtcDateTime, nullable=False, default=utcnow, index=True)
+    valid_until = Column(UtcDateTime, nullable=False, index=True)  # +2 Jahre default
 
     # Goldsmith credentials shown on certificate
     goldsmith_name = Column(String(200), nullable=False)
@@ -2716,11 +2701,11 @@ class ValuationCertificate(Base):
     pdf_path = Column(String(500), nullable=True)
 
     # Audit
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    created_at = Column(UtcDateTime, default=utcnow, nullable=False, index=True)
     updated_at = Column(
-        DateTime,
-        default=datetime.utcnow,
-        onupdate=datetime.utcnow,
+        UtcDateTime,
+        default=utcnow,
+        onupdate=utcnow,
         nullable=False,
     )
 
@@ -2861,10 +2846,8 @@ class CustomMetalType(Base):
     # preserved for historical records (e.g. MetalPurchase rows still referencing them).
     is_active = Column(Boolean, default=True, nullable=False, index=True)
 
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = Column(
-        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
-    )
+    created_at = Column(UtcDateTime, default=utcnow, nullable=False)
+    updated_at = Column(UtcDateTime, default=utcnow, onupdate=utcnow, nullable=False)
 
     def __repr__(self) -> str:
         return (
@@ -3024,7 +3007,7 @@ class CustomerUpdate(Base):
         default=CustomerUpdateStatus.DRAFT,
         index=True,
     )
-    sent_at = Column(DateTime, nullable=True)
+    sent_at = Column(UtcDateTime, nullable=True)
     # Set at draft-creation time to the acting user (no separate created_by
     # column on this table) — remains the record's owning user even before
     # sent_at is populated.
@@ -3033,10 +3016,8 @@ class CustomerUpdate(Base):
     )
     delivery_method = Column(SAEnum(UpdateDeliveryMethod), nullable=True)
 
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
-    updated_at = Column(
-        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
-    )
+    created_at = Column(UtcDateTime, default=utcnow, nullable=False, index=True)
+    updated_at = Column(UtcDateTime, default=utcnow, onupdate=utcnow, nullable=False)
 
     # Relationships
     order = relationship("Order")
@@ -3102,18 +3083,16 @@ class CostChangeRequest(Base):
     )
     response_method = Column(SAEnum(CostChangeResponseMethod), nullable=True)
     response_evidence = Column(Text, nullable=True)  # scrub target
-    responded_at = Column(DateTime, nullable=True)
+    responded_at = Column(UtcDateTime, nullable=True)
     recorded_by = Column(
         Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
 
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    created_at = Column(UtcDateTime, default=utcnow, nullable=False, index=True)
     created_by = Column(
         Integer, ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
     )
-    updated_at = Column(
-        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
-    )
+    updated_at = Column(UtcDateTime, default=utcnow, onupdate=utcnow, nullable=False)
 
     # At-most-one-SENT-per-order invariant (security re-review fix): the
     # DB-level partial unique index is the REAL §649 single-live-notice
@@ -3181,8 +3160,8 @@ class CustomerAuditLog(Base):
     user_agent = Column(String(500), nullable=True)
     details = Column(JSON, nullable=True)
     ip_address = Column(String(45), nullable=True)
-    timestamp = Column(DateTime, default=datetime.utcnow, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    timestamp = Column(UtcDateTime, default=utcnow, nullable=True)
+    created_at = Column(UtcDateTime, default=utcnow, nullable=False)
 
 
 class GDPRRequest(Base):
@@ -3200,8 +3179,8 @@ class GDPRRequest(Base):
     customer_id = Column(Integer, nullable=True)
     request_type = Column(String(20), nullable=False)
     status = Column(String(20), nullable=False, default="pending")
-    requested_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    completed_at = Column(DateTime, nullable=True)
+    requested_at = Column(UtcDateTime, default=utcnow, nullable=False)
+    completed_at = Column(UtcDateTime, nullable=True)
     requested_by = Column(
         Integer, ForeignKey("users.id", ondelete="RESTRICT"), nullable=True
     )
@@ -3239,8 +3218,8 @@ class CustomerConsent(Base):
     purpose = Column(String(32), nullable=False, index=True)
     method = Column(String(20), nullable=False)
     wording_version = Column(String(32), nullable=True)
-    granted_at = Column(DateTime, nullable=False, default=datetime.utcnow)
-    revoked_at = Column(DateTime, nullable=True)
+    granted_at = Column(UtcDateTime, nullable=False, default=utcnow)
+    revoked_at = Column(UtcDateTime, nullable=True)
     recorded_by_user_id = Column(
         Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
@@ -3248,7 +3227,7 @@ class CustomerConsent(Base):
         Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
     note = Column(EncryptedString, nullable=True)
-    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    created_at = Column(UtcDateTime, nullable=False, default=utcnow)
 
 
 # ============================================================================
@@ -3271,7 +3250,7 @@ class OrderItem(Base):
     material_id = Column(
         Integer, ForeignKey("materials.id", ondelete="SET NULL"), nullable=True
     )
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(UtcDateTime, default=utcnow, nullable=False)
 
     order = relationship("Order", back_populates="order_items")
 
@@ -3290,7 +3269,7 @@ class OrderStatusHistory(Base):
     changed_by = Column(
         Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
-    changed_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    changed_at = Column(UtcDateTime, default=utcnow, nullable=False)
     notes = Column(String(500), nullable=True)
 
     order = relationship("Order", back_populates="status_history")
@@ -3342,8 +3321,8 @@ class BarcodeAlias(Base):
         ),
         nullable=True,
     )
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    last_scanned_at = Column(DateTime, nullable=True)
+    created_at = Column(UtcDateTime, default=utcnow, nullable=False)
+    last_scanned_at = Column(UtcDateTime, nullable=True)
     scan_count = Column(Integer, default=0, nullable=False)
 
     creator = relationship("User", foreign_keys=[created_by])
@@ -3371,7 +3350,10 @@ class ScanLog(Base):
         default=lambda: str(uuid.uuid4()),
         nullable=False,
     )
-    scanned_at = Column(DateTime, primary_key=True, nullable=False)
+    # Stays TIMESTAMP WITHOUT TIME ZONE in PostgreSQL: it is the RANGE
+    # partition key and a partition key column cannot change type. The
+    # type still stores naive UTC and hands back aware UTC (BE-15).
+    scanned_at = Column(UtcDateTimeNaiveStorage, primary_key=True, nullable=False)
     user_id = Column(
         Integer,
         ForeignKey(
@@ -3389,12 +3371,12 @@ class ScanLog(Base):
     action_taken = Column(String(50), nullable=True)
     context = Column(JSON, nullable=True)
     offline_queued = Column(Boolean, default=False, nullable=False)
-    synced_at = Column(DateTime, nullable=True)
+    synced_at = Column(UtcDateTime, nullable=True)
     idempotency_key = Column(String(36), nullable=True)
     # A1.2 — client-side FAB tap timestamp for adoption metrics.
-    client_tap_at = Column(DateTime(timezone=True), nullable=True)
+    client_tap_at = Column(UtcDateTime, nullable=True)
     # A1.3 — server-side resolution completion, pairs with client_tap_at.
-    server_resolved_at = Column(DateTime(timezone=True), nullable=True)
+    server_resolved_at = Column(UtcDateTime, nullable=True)
     # A1.4 — camera-denied / manual-fallback tracking.
     fallback_reason = Column(String(40), nullable=True)
     # A1.6 — retention bucket for future retention-engine.
@@ -3436,11 +3418,11 @@ class LabelTemplate(Base):
         ),
         nullable=True,
     )
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(UtcDateTime, default=utcnow, nullable=False)
     updated_at = Column(
-        DateTime,
-        default=datetime.utcnow,
-        onupdate=datetime.utcnow,
+        UtcDateTime,
+        default=utcnow,
+        onupdate=utcnow,
         nullable=False,
     )
 
@@ -3507,7 +3489,9 @@ class EstimateAccuracy(Base):
     # migration each time (mirrors Activity.category's free-text choice).
     estimator_version = Column(String(50), nullable=False)
 
-    created_at = Column(DateTime, server_default=func.now(), nullable=False, index=True)
+    created_at = Column(
+        UtcDateTime, server_default=func.now(), nullable=False, index=True
+    )
 
     # One-directional — no back_populates on Order, matching the
     # CostChangeRequest / CustomerUpdate precedent (no existing need to
@@ -3625,10 +3609,10 @@ class OutboxMessage(Base):
     dedupe_key = Column(String(200), nullable=True, unique=True)
     status = Column(String(20), nullable=False, default=OutboxStatus.PENDING.value)
     attempts = Column(Integer, nullable=False, default=0)
-    next_attempt_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    next_attempt_at = Column(UtcDateTime, nullable=False, default=utcnow)
     last_error = Column(String(500), nullable=True)
-    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
-    sent_at = Column(DateTime, nullable=True)
+    created_at = Column(UtcDateTime, nullable=False, default=utcnow)
+    sent_at = Column(UtcDateTime, nullable=True)
 
 
 Index(
@@ -3684,3 +3668,29 @@ def _install_numeric_coercion() -> None:
 
 
 _install_numeric_coercion()
+
+
+# ── Aware-UTC coercion on assignment (BE-15) ───────────────────────────────
+# UtcDateTime already normalises on the way to and from the database, but a
+# naive value assigned in Python (legacy callers, tests) would stay naive on
+# the instance until the next refresh and then fail to compare with aware
+# values. Assignments are therefore normalised to aware UTC right away.
+
+
+def _utc_setter(target: Any, value: Any, oldvalue: Any, initiator: Any) -> Any:
+    if isinstance(value, datetime):
+        return ensure_utc(value)
+    return value
+
+
+def _install_utc_coercion() -> None:
+    for mapper in Base.registry.mappers:
+        for prop in mapper.column_attrs:
+            column = prop.columns[0]
+            if isinstance(getattr(column, "type", None), UtcDateTime):
+                event.listen(
+                    getattr(mapper.class_, prop.key), "set", _utc_setter, retval=True
+                )
+
+
+_install_utc_coercion()

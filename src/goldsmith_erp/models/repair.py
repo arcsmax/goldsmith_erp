@@ -12,26 +12,20 @@ from typing import List, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from goldsmith_erp.core.timeutil import ensure_utc
 from goldsmith_erp.db.models import RepairItemType, RepairJobStatus, RepairPhotoPhase
 from goldsmith_erp.models._common import Money
 
 
 def _strip_tzinfo(value: Optional[datetime]) -> Optional[datetime]:
     """
-    Convert any tz-aware datetime to naive UTC.
+    Normalise to aware UTC (BE-15; the name is kept for the validators).
 
-    The browser submits ISO timestamps with a ``Z`` suffix (e.g.
-    ``2026-05-14T00:00:00.000Z``); Pydantic parses those as tz-aware.
-    The repair_jobs columns are ``TIMESTAMP WITHOUT TIME ZONE`` (asyncpg
-    refuses to bind a tz-aware datetime there). Normalise to naive UTC
-    so the DB write succeeds and stored times remain comparable to the
-    other naive timestamps in the same row (created_at / updated_at).
+    The browser submits ISO timestamps with a ``Z`` suffix; the columns are
+    ``TIMESTAMP WITH TIME ZONE`` now, so aware values are kept (converted to
+    UTC) and a naive value is read as UTC.
     """
-    if value is None:
-        return None
-    if value.tzinfo is not None:
-        value = value.astimezone(timezone.utc).replace(tzinfo=None)
-    return value
+    return ensure_utc(value)
 
 
 INTAKE_PROBLEM_MAX_LENGTH = 1000

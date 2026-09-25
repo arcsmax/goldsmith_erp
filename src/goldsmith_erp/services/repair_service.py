@@ -15,7 +15,7 @@ import json
 import logging
 import re
 import unicodedata
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, List, Optional, cast
 
 from PIL import Image
@@ -25,6 +25,7 @@ from sqlalchemy.orm import selectinload
 
 from goldsmith_erp.core import pubsub
 from goldsmith_erp.core.config import settings
+from goldsmith_erp.core.timeutil import ensure_utc
 from goldsmith_erp.db.models import (
     Customer,
     CustomerUpdate,
@@ -147,7 +148,7 @@ async def _generate_repair_number(db: AsyncSession) -> tuple[str, str]:
     Returns:
         (repair_number, bag_number) — e.g. ("REP-2026-0001", "TÜ-2026-0001")
     """
-    year = datetime.utcnow().year
+    year = datetime.now(timezone.utc).year
     prefix = f"REP-{year}-"
 
     result = await db.execute(
@@ -539,14 +540,11 @@ class RepairService:
             repair.diagnosis_notes = data.diagnosis_notes
             repair.estimated_cost = data.estimated_cost
             if data.estimated_completion_date is not None:
-                # Validator on RepairDiagnoseInput already strips tzinfo,
-                # but assert here for clarity in case a caller bypasses it.
-                ecd = data.estimated_completion_date
-                if ecd.tzinfo is not None:
-                    from datetime import timezone as _tz
-
-                    ecd = ecd.astimezone(_tz.utc).replace(tzinfo=None)
-                repair.estimated_completion_date = ecd
+                # Validator on RepairDiagnoseInput already normalises to
+                # aware UTC; ensure_utc covers a caller that bypasses it.
+                repair.estimated_completion_date = ensure_utc(
+                    data.estimated_completion_date
+                )
 
             await pubsub.publish_event(
                 "repair_updates",
@@ -621,7 +619,7 @@ class RepairService:
         as the customer having been informed. It is stamped by
         ``send_customer_update`` only once a send actually delivers.
         """
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         repair = await RepairService._transition(
             db,
             repair_id,
@@ -795,7 +793,7 @@ class RepairService:
             db,
             repair_id,
             RepairJobStatus.PICKED_UP,
-            extra_updates={"picked_up_at": datetime.utcnow()},
+            extra_updates={"picked_up_at": datetime.now(timezone.utc)},
         )
 
     @staticmethod
@@ -846,7 +844,7 @@ class RepairService:
 
         async with transactional(db):
             repair.is_deleted = True
-            repair.deleted_at = datetime.utcnow()
+            repair.deleted_at = datetime.now(timezone.utc)
 
         logger.info(
             "Repair soft-deleted",

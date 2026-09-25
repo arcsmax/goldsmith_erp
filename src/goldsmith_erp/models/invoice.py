@@ -12,7 +12,7 @@ German invoice terminology:
   Rechnungsposition  = Line item
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -21,7 +21,7 @@ from goldsmith_erp.db.models import InvoiceLineType, InvoiceStatus
 from goldsmith_erp.models._common import (
     Money,
     Percent,
-    UtcNaiveDatetime,
+    UtcDatetime,
     Weight,
     number_default,
 )
@@ -89,7 +89,7 @@ class InvoiceCreate(BaseModel):
     """
 
     order_id: int = Field(..., gt=0, description="Order ID to generate invoice from")
-    due_date: UtcNaiveDatetime = Field(
+    due_date: UtcDatetime = Field(
         ..., description="Payment due date (Faelligkeitsdatum); normalised to UTC"
     )
     tax_rate: Optional[Percent] = Field(
@@ -102,7 +102,7 @@ class InvoiceCreate(BaseModel):
             "Kleinunternehmer (§19 UStG)."
         ),
     )
-    service_date: Optional[UtcNaiveDatetime] = Field(
+    service_date: Optional[UtcDatetime] = Field(
         default=None,
         description=(
             "Leistungsdatum (§14 Abs. 4 Nr. 6 UStG). Omitted: the order's "
@@ -126,7 +126,7 @@ class InvoiceCreate(BaseModel):
     @field_validator("due_date")
     @classmethod
     def due_date_must_be_future(cls, v: datetime) -> datetime:
-        if v <= datetime.utcnow():
+        if v <= datetime.now(timezone.utc):
             raise ValueError("due_date must be in the future")
         return v
 
@@ -144,7 +144,7 @@ class InvoiceUpdate(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    due_date: Optional[UtcNaiveDatetime] = Field(None, description="Updated due date")
+    due_date: Optional[UtcDatetime] = Field(None, description="Updated due date")
     notes: Optional[str] = Field(None, max_length=2000, description="Updated notes")
     payment_method: Optional[str] = Field(
         None, max_length=50, description="Payment method"
@@ -226,7 +226,7 @@ class InvoiceListResponse(BaseModel):
 class MarkPaidRequest(BaseModel):
     """Request body for marking an invoice as paid (bezahlt)."""
 
-    paid_date: Optional[UtcNaiveDatetime] = Field(
+    paid_date: Optional[UtcDatetime] = Field(
         default=None,
         description="Actual payment date (defaults to now if omitted)",
     )

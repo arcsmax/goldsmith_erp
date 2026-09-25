@@ -16,7 +16,7 @@ All service methods are async and accept AsyncSession as first parameter.
 """
 
 import logging
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Any, Dict, Iterable, List, Optional
 
@@ -31,6 +31,7 @@ from goldsmith_erp.core.errors import (
     DomainValidationError,
     NotFoundError,
 )
+from goldsmith_erp.core.timeutil import ensure_utc
 from goldsmith_erp.db.models import Customer as CustomerModel
 from goldsmith_erp.db.models import Invoice as InvoiceModel
 from goldsmith_erp.db.models import InvoiceLineItem as InvoiceLineItemModel
@@ -126,7 +127,7 @@ def _log_financial_access(
             "invoice_id": invoice_id,
             "user_id": user_id,
             "user_role": user_role,
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             **(extra or {}),
         },
     )
@@ -530,7 +531,7 @@ class InvoiceService:
                 customer_id=order.customer_id,
                 created_by=current_user.id,
                 status=InvoiceStatus.DRAFT,
-                issue_date=datetime.utcnow(),
+                issue_date=datetime.now(timezone.utc),
                 due_date=invoice_in.due_date,
                 service_date=invoice_in.service_date or order.completed_at,
                 subtotal=totals["subtotal"],
@@ -812,7 +813,7 @@ class InvoiceService:
                 code="invoice.invalid_payment_transition",
             )
 
-        paid_at = request.paid_date or datetime.utcnow()
+        paid_at = request.paid_date or datetime.now(timezone.utc)
 
         async with transactional(db):
             was_draft = invoice.status == InvoiceStatus.DRAFT
@@ -983,7 +984,7 @@ class InvoiceService:
         """Insert the negated copy of ``original`` (flush only)."""
         original_snapshot = InvoiceSnapshotService.load(original) or {}
         header = original_snapshot.get("invoice", {})
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         storno = InvoiceModel(
             invoice_number=await InvoiceService.generate_invoice_number(db),
             order_id=original.order_id,
@@ -993,7 +994,7 @@ class InvoiceService:
             issue_date=now,
             due_date=now,
             service_date=(
-                datetime.fromisoformat(header["service_date"])
+                ensure_utc(datetime.fromisoformat(header["service_date"]))
                 if header.get("service_date")
                 else original.service_date or original.issue_date
             ),

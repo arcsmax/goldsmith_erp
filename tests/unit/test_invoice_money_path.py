@@ -118,8 +118,9 @@ class TestAwareDatetimes:
     def test_invoice_create_accepts_aware_due_date(self):
         aware = datetime.now(timezone.utc) + timedelta(days=14)
         invoice_in = InvoiceCreate(order_id=1, due_date=aware.isoformat())
-        assert invoice_in.due_date.tzinfo is None
-        assert invoice_in.due_date == aware.replace(tzinfo=None)
+        # BE-15: aware UTC end to end (was naive UTC before the tz migration)
+        assert invoice_in.due_date.utcoffset() == timedelta(0)
+        assert invoice_in.due_date == aware
 
     def test_invoice_create_converts_offset_to_utc(self):
         berlin = timezone(timedelta(hours=2))
@@ -127,7 +128,7 @@ class TestAwareDatetimes:
             hour=10, minute=0, second=0, microsecond=0
         )
         invoice_in = InvoiceCreate(order_id=1, due_date=local)
-        assert invoice_in.due_date.tzinfo is None
+        assert invoice_in.due_date.utcoffset() == timedelta(0)
         assert invoice_in.due_date.hour == 8
 
     def test_invoice_create_still_rejects_past_aware_due_date(self):
@@ -137,8 +138,13 @@ class TestAwareDatetimes:
 
     def test_invoice_update_and_mark_paid_normalize_aware(self):
         aware = datetime.now(timezone.utc) + timedelta(days=3)
-        assert InvoiceUpdate(due_date=aware).due_date.tzinfo is None
-        assert MarkPaidRequest(paid_date=aware).paid_date.tzinfo is None
+        assert InvoiceUpdate(due_date=aware).due_date.utcoffset() == timedelta(0)
+        assert MarkPaidRequest(paid_date=aware).paid_date.utcoffset() == timedelta(0)
+
+    def test_naive_input_is_read_as_utc_for_one_release(self):
+        naive = datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(days=3)
+        due = InvoiceUpdate(due_date=naive).due_date
+        assert due == naive.replace(tzinfo=timezone.utc)
 
 
 # ===========================================================================

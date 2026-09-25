@@ -1,5 +1,5 @@
 # src/goldsmith_erp/models/order.py
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any, Dict, List, Literal, Optional
 
@@ -188,7 +188,7 @@ class OrderCreate(OrderBase):
         if v is not None:
             # Allow deadlines in the past for historical orders
             # But warn if deadline is more than 10 years in the future
-            if v.year > datetime.utcnow().year + 10:
+            if v.year > datetime.now(timezone.utc).year + 10:
                 raise ValueError("Deadline cannot be more than 10 years in the future")
         return v
 

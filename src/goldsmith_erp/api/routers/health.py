@@ -5,7 +5,7 @@ Health check endpoints for monitoring and observability.
 import asyncio
 import logging
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -63,7 +63,7 @@ async def detailed_health_check(db: AsyncSession = Depends(get_db)) -> JSONRespo
     """
     health_status: Dict[str, Any] = {
         "status": "healthy",
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
         "checks": {},
     }
 
@@ -111,7 +111,7 @@ async def detailed_health_check(db: AsyncSession = Depends(get_db)) -> JSONRespo
 @router.get("/health/liveness", tags=["health"])
 async def liveness_check() -> Dict[str, str]:
     """Kubernetes liveness probe."""
-    return {"status": "alive", "timestamp": datetime.utcnow().isoformat()}
+    return {"status": "alive", "timestamp": datetime.now(timezone.utc).isoformat()}
 
 
 @router.get("/health/readiness", tags=["health"])
@@ -143,7 +143,7 @@ async def readiness_check(db: AsyncSession = Depends(get_db)) -> JSONResponse:
         status_code=status_code,
         content={
             "status": "ready" if ready else "not ready",
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "checks": checks,
         },
     )
@@ -176,7 +176,7 @@ async def startup_check(db: AsyncSession = Depends(get_db)) -> JSONResponse:
         status_code=status_code,
         content={
             "status": "started" if started else "not started",
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "checks": checks,
         },
     )
@@ -189,7 +189,7 @@ async def version_info() -> Dict[str, Any]:
         "app_name": settings.APP_NAME,
         "api_version": settings.API_V1_STR,
         "debug_mode": settings.DEBUG,
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
     }
 
 

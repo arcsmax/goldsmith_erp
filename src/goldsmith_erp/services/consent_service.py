@@ -11,7 +11,7 @@ Logs carry ids only, never the consent note or any health value.
 """
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, List, Optional, cast
 
 from sqlalchemy import delete, select, update
@@ -111,7 +111,7 @@ class ConsentService:
         if existing is not None:
             return existing
 
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         consent = CustomerConsent(
             customer_id=customer_id,
             purpose=purpose.value,
@@ -168,7 +168,10 @@ class ConsentService:
         await db.execute(
             update(CustomerConsent)
             .where(CustomerConsent.id == consent.id)
-            .values(revoked_at=datetime.utcnow(), revoked_by_user_id=revoked_by_user_id)
+            .values(
+                revoked_at=datetime.now(timezone.utc),
+                revoked_by_user_id=revoked_by_user_id,
+            )
         )
 
         if purpose is ConsentPurpose.HEALTH_DATA:
@@ -250,7 +253,7 @@ class ConsentService:
                 entity="customer_consent",
                 entity_id=consent.id,
                 details={"purpose": consent.purpose, "method": consent.method},
-                timestamp=datetime.utcnow(),
+                timestamp=datetime.now(timezone.utc),
             )
         )
         await db.flush()

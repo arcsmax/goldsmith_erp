@@ -47,7 +47,7 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, Optional
 
 import httpx
@@ -56,6 +56,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from goldsmith_erp.core.cache import get_cached, invalidate
 from goldsmith_erp.core.config import settings
+from goldsmith_erp.core.timeutil import ensure_utc
 from goldsmith_erp.db.models import MetalPriceHistory, MetalPriceSource, MetalType
 
 logger = logging.getLogger(__name__)
@@ -288,7 +289,7 @@ class MetalPriceService:
                 and no usable EUR conversion rate was provided.
             ValueError: the response format wasn't recognised.
         """
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         timeout_seconds = settings.METAL_PRICE_HTTP_TIMEOUT_SECONDS
 
         try:
@@ -458,7 +459,7 @@ class MetalPriceService:
         Dict[MetalType, tuple[float, MetalPriceSource, datetime]]
     ):
         """Return hardcoded fallback prices from settings."""
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         return {
             MetalType.GOLD_24K: (
                 settings.METAL_PRICE_FALLBACK_GOLD,
@@ -551,6 +552,6 @@ class MetalPriceService:
             prices[MetalType(metal_value)] = (
                 float(entry["price"]),
                 MetalPriceSource(entry["source"]),
-                datetime.fromisoformat(entry["updated_at"]),
+                ensure_utc(datetime.fromisoformat(entry["updated_at"])),
             )
         return prices

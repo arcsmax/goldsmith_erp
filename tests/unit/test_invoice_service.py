@@ -9,7 +9,7 @@ Tests cover:
 - Status transitions: DRAFT->SENT->PAID and PAID cannot be cancelled
 """
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -39,7 +39,7 @@ from goldsmith_erp.services.invoice_service import InvoiceService
 
 
 def _future_due_date() -> datetime:
-    return datetime.utcnow() + timedelta(days=30)
+    return datetime.now(timezone.utc) + timedelta(days=30)
 
 
 async def _make_user(db_session) -> User:
@@ -100,7 +100,7 @@ async def _make_invoice(db_session, order: Order, user: User) -> InvoiceModel:
         customer_id=order.customer_id,
         created_by=user.id,
         status=InvoiceStatus.DRAFT,
-        issue_date=datetime.utcnow(),
+        issue_date=datetime.now(timezone.utc),
         due_date=_future_due_date(),
         subtotal=500.0,
         tax_rate=19.0,
@@ -124,7 +124,7 @@ class TestGenerateInvoiceNumber:
 
     async def test_first_number_of_year_is_0001(self, db_session):
         """With no existing invoices the first number must be RE-<year>-0001."""
-        year = datetime.utcnow().year
+        year = datetime.now(timezone.utc).year
         number = await InvoiceService.generate_invoice_number(db_session)
 
         assert number == f"RE-{year}-0001"
@@ -141,7 +141,7 @@ class TestGenerateInvoiceNumber:
 
     async def test_second_number_increments(self, db_session):
         """After one invoice exists, the next number increments by 1."""
-        year = datetime.utcnow().year
+        year = datetime.now(timezone.utc).year
         user = await _make_user(db_session)
         customer = await _make_customer(db_session)
         order = await _make_order(db_session, customer)
@@ -153,7 +153,7 @@ class TestGenerateInvoiceNumber:
             customer_id=customer.id,
             created_by=user.id,
             status=InvoiceStatus.DRAFT,
-            issue_date=datetime.utcnow(),
+            issue_date=datetime.now(timezone.utc),
             due_date=_future_due_date(),
             subtotal=100.0,
             tax_rate=19.0,
@@ -168,7 +168,7 @@ class TestGenerateInvoiceNumber:
 
     async def test_sequence_zero_pads_to_four_digits(self, db_session):
         """Sequence must be zero-padded to exactly 4 digits (e.g. 0001, 0099)."""
-        year = datetime.utcnow().year
+        year = datetime.now(timezone.utc).year
         number = await InvoiceService.generate_invoice_number(db_session)
         seq_part = number.split("-")[-1]
 
@@ -422,7 +422,7 @@ class TestInvoiceNumberOnCreate:
 
     async def test_created_invoice_has_correct_number_format(self, db_session):
         """Invoice created via service must carry a properly formatted number."""
-        year = datetime.utcnow().year
+        year = datetime.now(timezone.utc).year
         user = await _make_user(db_session)
         customer = await _make_customer(db_session)
         order = await _make_order(
@@ -598,7 +598,7 @@ class TestStatusTransitions:
         order = await _make_order(db_session, customer)
         invoice = await _make_invoice(db_session, order, user)
 
-        specific_date = datetime(2026, 3, 28, 12, 0, 0)
+        specific_date = datetime(2026, 3, 28, 12, 0, 0, tzinfo=timezone.utc)
         paid_request = MarkPaidRequest(paid_date=specific_date)
         paid_invoice = await InvoiceService.mark_as_paid(
             db_session, invoice.id, paid_request, user

@@ -14,7 +14,7 @@ import asyncio
 import json
 import logging
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -24,6 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from goldsmith_erp.core import pubsub
 from goldsmith_erp.core.config import settings
 from goldsmith_erp.core.leader_lock import SYSTEM_MONITOR_LOCK_KEY, LeaderLease
+from goldsmith_erp.core.timeutil import ensure_utc
 from goldsmith_erp.db.models import (
     MetalPriceSource,
     Notification,
@@ -80,7 +81,7 @@ async def _already_notified(
     Return True if a SYSTEM notification with the same title was created for this
     user within the last ``within_hours`` hours.
     """
-    cutoff = datetime.utcnow() - timedelta(hours=within_hours)
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=within_hours)
     stmt = select(Notification).where(
         and_(
             Notification.user_id == user_id,
@@ -144,8 +145,8 @@ async def _check_backup_age(db: AsyncSession) -> None:
         )
         return
 
-    last_backup_dt = datetime.fromisoformat(timestamp_str)
-    age_hours = (datetime.utcnow() - last_backup_dt).total_seconds() / 3600
+    last_backup_dt = ensure_utc(datetime.fromisoformat(timestamp_str))
+    age_hours = (datetime.now(timezone.utc) - last_backup_dt).total_seconds() / 3600
 
     if age_hours > BACKUP_WARNING_HOURS:
         await _notify_admins(
@@ -240,7 +241,7 @@ async def _refresh_metal_prices(db: AsyncSession) -> None:
     """
     global _last_price_refresh
 
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     if _last_price_refresh is not None:
         elapsed = (now - _last_price_refresh).total_seconds()
         if elapsed < PRICE_REFRESH_INTERVAL_SECONDS:

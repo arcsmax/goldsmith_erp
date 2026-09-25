@@ -35,13 +35,14 @@ import json
 import logging
 import re
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Sequence, TextIO
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from goldsmith_erp.core.timeutil import ensure_utc
 from goldsmith_erp.db.models import Customer, GDPRRequest
 
 logger = logging.getLogger("goldsmith_erp.services.gdpr_erasure_ledger")
@@ -136,8 +137,10 @@ class LedgerEntry:
             status=str(data["status"]),
             customer_id=_optional_int(data.get("customer_id")),
             user_id=_optional_int(data.get("user_id")),
-            requested_at=datetime.fromisoformat(str(data["requested_at"])),
-            completed_at=datetime.fromisoformat(completed) if completed else None,
+            requested_at=ensure_utc(datetime.fromisoformat(str(data["requested_at"]))),
+            completed_at=(
+                ensure_utc(datetime.fromisoformat(completed)) if completed else None
+            ),
         )
 
 
@@ -362,7 +365,7 @@ async def _reerase_customer(
             request_type=REPLAY_REQUEST_TYPE,
             status="completed",
             requested_at=now,
-            completed_at=datetime.utcnow(),
+            completed_at=datetime.now(timezone.utc),
             requested_by=None,
             notes=(
                 "Art. 17 erasure re-applied after a database restore "
@@ -475,7 +478,7 @@ async def replay_erasures(
     ``since`` is the backup's timestamp (naive UTC). ``None`` replays the
     whole ledger, which is safe because replay is idempotent.
     """
-    now = now or datetime.utcnow()
+    now = now or datetime.now(timezone.utc)
     considered = [e for e in entries if since is None or e.effective_at >= since]
     report = ReplayReport(
         executed=execute,

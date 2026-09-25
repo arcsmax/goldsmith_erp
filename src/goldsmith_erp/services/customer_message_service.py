@@ -67,7 +67,7 @@ import asyncio
 import logging
 import re
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
 from types import SimpleNamespace
@@ -432,7 +432,7 @@ def _log_message_event(
             "entity_id": update_id,
             "order_id": order_id,
             "user_id": user_id,
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             **(extra or {}),
         },
     )
@@ -698,7 +698,7 @@ class CustomerMessageService:
         if early is not None:
             return early
 
-        claimed_at = datetime.utcnow()
+        claimed_at = datetime.now(timezone.utc)
         async with transactional(db):
             claim_result = await db.execute(
                 sa_update(CustomerUpdate)
@@ -878,7 +878,7 @@ class CustomerMessageService:
                 action=AUDIT_ACTION_SENT,
                 entity="customer_update",
                 entity_id=update.id,
-                timestamp=datetime.utcnow(),
+                timestamp=datetime.now(timezone.utc),
                 details={
                     "message_kind": kind.value,
                     "delivery_method": method.value,

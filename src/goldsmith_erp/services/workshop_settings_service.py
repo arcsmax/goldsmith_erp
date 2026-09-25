@@ -17,7 +17,7 @@ row per request via ``middleware/audit_logging.py``.
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, cast
 
 from sqlalchemy import select
@@ -128,7 +128,7 @@ class WorkshopSettingsService:
                 db.add(row)
             for field, value in new_values.items():
                 setattr(row, field, value)
-            row.updated_at = datetime.utcnow()
+            row.updated_at = datetime.now(timezone.utc)
             row.updated_by = current_user.id
         changed = sorted(
             field for field in _FIELDS if old_values.get(field) != new_values.get(field)

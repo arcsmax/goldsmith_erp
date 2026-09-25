@@ -65,7 +65,43 @@ Code that puts a model into a JSON column must use `model_dump(mode="json")`
 
 ## Decision 2: timezone-aware UTC datetimes (BE-15)
 
-See the second part of this ADR below (added with commit 2).
+This supersedes decision 4 of ADR-2026-09-25-price-semantics (naive UTC).
+
+- Migration `20260925_be15_tz` converts 110 naive columns to
+  `TIMESTAMP WITH TIME ZONE` (`USING col AT TIME ZONE 'UTC'`, the stored
+  values were UTC; the downgrade uses the same expression and is lossless).
+  Three columns were already aware. `scan_logs.scanned_at` stays
+  `TIMESTAMP WITHOUT TIME ZONE`: it is the RANGE partition key and
+  PostgreSQL cannot change its type; `UtcDateTimeNaiveStorage` stores naive
+  UTC there and returns aware UTC.
+- Every datetime column uses `db/types.py::UtcDateTime` (DDL
+  `DateTime(timezone=True)`): binds naive values as UTC, converts aware
+  values to UTC, and always returns aware UTC. SQLite has no time zone
+  type; it stores the naive UTC string and the type re-attaches UTC on read,
+  so tests see the same aware values as PostgreSQL. A setter listener also
+  normalises assignments, so a naive value never sits on an instance.
+- `datetime.utcnow()` is gone from `src/` (164 call sites):
+  `datetime.now(timezone.utc)`, or `core/timeutil.py::utcnow()` for column
+  defaults. Naive datetimes built in code (`datetime(...)`,
+  `datetime.combine`, `fromisoformat`) are made aware where they are
+  compared.
+- Schemas use `models/_common.py::UtcDatetime` (replaces
+  `UtcNaiveDatetime`): aware input is converted to UTC, naive input is read
+  as UTC for one release. Services that take datetimes from callers
+  (time tracking stop/resume) apply the same rule with `ensure_utc`.
+- People see Europe/Berlin: PDFs (`pdf_service._fmt_date`, the `local_date`
+  Jinja filter in the invoice and Ankaufsbeleg templates), the Ankaufsbuch,
+  labels, quote e-mails and the DATEV/Lexoffice dates go through
+  `core/timeutil.py::format_local`. An invoice issued at 23:30 UTC on
+  31 December prints 01.01. of the new year.
+
+### Wire contract
+
+The OpenAPI schema is unchanged (`string`, `format: date-time`). The JSON
+*values* now carry the offset (`2026-09-25T08:00:00Z` instead of
+`2026-09-25T08:00:00`). JavaScript's `Date` parsed the old naive strings as
+browser-local time, so the frontend displayed UTC as local time; the offset
+fixes that without a code change.
 
 ## Consequences
 
@@ -73,6 +109,9 @@ See the second part of this ADR below (added with commit 2).
   lossless for every value the upgrade produced.
 - Tests compare money with `Decimal("…")` or `float(x) == approx(…)`;
   `pytest.approx` does not accept a Decimal against a float expectation.
+- Tests still pass naive `datetime.utcnow()` values in many places; that
+  works for one release (read as UTC). Remove the naive grace and the test
+  usages in the next wave.
 - Follow-ups: sum *rounded* line totals on invoices (BE-14 fix text; it
   changes the documented sweep reference, so it needs a product decision),
   and `price_net` + `vat_rate` columns (price-semantics ADR).

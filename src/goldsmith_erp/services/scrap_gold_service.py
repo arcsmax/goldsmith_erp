@@ -1,7 +1,7 @@
 """Service for Scrap Gold (Altgold) management."""
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Dict, List, Optional, Tuple, Union
 
@@ -259,7 +259,7 @@ class ScrapGoldService:
             raise ScrapGoldIdMissingError(scrap_gold_id)
 
         scrap_gold.signature_data = signature_data
-        scrap_gold.signed_at = datetime.utcnow()
+        scrap_gold.signed_at = datetime.now(timezone.utc)
         scrap_gold.status = ScrapGoldStatus.SIGNED
         await db.commit()
         await db.refresh(scrap_gold)
@@ -286,7 +286,7 @@ class ScrapGoldService:
         scrap_gold.id_document_number = data.id_document_number
         scrap_gold.id_issuing_authority = data.id_issuing_authority
         scrap_gold.id_checked_by = checked_by
-        scrap_gold.id_checked_at = datetime.utcnow()
+        scrap_gold.id_checked_at = datetime.now(timezone.utc)
         await db.commit()
         logger.info(
             "Scrap gold identification recorded",

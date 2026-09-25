@@ -1,6 +1,6 @@
 # src/goldsmith_erp/api/routers/orders.py
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Union
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -275,7 +275,7 @@ async def get_calendar_deadlines(
         raise HTTPException(
             status_code=422, detail="Ungültiges Datumsformat. ISO-Format erwartet."
         )
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     result = []
     for order in orders:
         if not order.deadline:
