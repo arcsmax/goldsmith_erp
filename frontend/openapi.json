@@ -39296,6 +39296,17 @@
             ],
             "title": "Invoice Footer"
           },
+          "care_text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Care Text"
+          },
           "updated_at": {
             "anyOf": [
               {
@@ -39506,6 +39517,19 @@
               }
             ],
             "title": "Invoice Footer"
+          },
+          "care_text": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 2000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Care Text",
+            "description": "Pflegehinweise/next-steps default text; empty falls back to the built-in text on the handover PDF and the status report."
           }
         },
         "additionalProperties": false,

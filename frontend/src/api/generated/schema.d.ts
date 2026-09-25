@@ -13291,6 +13291,8 @@ export interface components {
             bank_name?: string | null;
             /** Bic */
             bic?: string | null;
+            /** Care Text */
+            care_text?: string | null;
             /** City */
             city?: string | null;
             /** Country */
@@ -13344,6 +13346,11 @@ export interface components {
             bank_name?: string | null;
             /** Bic */
             bic?: string | null;
+            /**
+             * Care Text
+             * @description Pflegehinweise/next-steps default text; empty falls back to the built-in text on the handover PDF and the status report.
+             */
+            care_text?: string | null;
             /** City */
             city?: string | null;
             /**
