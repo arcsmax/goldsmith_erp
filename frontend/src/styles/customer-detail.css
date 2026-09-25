@@ -77,7 +77,7 @@
   height: 56px;
   border-radius: 50%;
   background: var(--color-surface-header-gradient);
-  color: white;
+  color: var(--color-primary-contrast);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -117,13 +117,13 @@
 }
 
 .cdetail-status-badge.active {
-  background: #d1fae5;
-  color: #065f46;
+  background: var(--tone-done-bg);
+  color: var(--color-success-fg);
 }
 
 .cdetail-status-badge.inactive {
-  background: #fee2e2;
-  color: #991b1b;
+  background: var(--color-danger-bg);
+  color: var(--color-danger-fg);
 }
 
 .cdetail-type-badge {
@@ -132,8 +132,8 @@
   border-radius: 20px;
   font-size: 0.8rem;
   font-weight: 600;
-  background: var(--color-brand-cta-100);
-  color: var(--color-brand-cta-800);
+  background: var(--color-primary-subtle);
+  color: var(--color-primary-hover);
 }
 
 /* ==================== TABS ==================== */
@@ -163,7 +163,7 @@
 
 .cdetail-tab:hover {
   color: var(--color-interactive-primary);
-  background: #f3f4f6;
+  background: var(--color-surface-sunken);
 }
 
 .cdetail-tab.active {
@@ -177,7 +177,7 @@
 .cdetail-tab-content {
   background: var(--color-surface-card);
   border-radius: 12px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  box-shadow: var(--shadow-2);
 }
 
 .cdetail-panel {
@@ -227,7 +227,7 @@
 }
 
 .cdetail-section {
-  background: #f9fafb;
+  background: var(--color-surface-sunken);
   border-radius: 10px;
   padding: 1.25rem;
   border: 1px solid var(--color-border-default);
@@ -306,8 +306,8 @@
   display: inline-block;
   padding: 0.2rem 0.75rem;
   border-radius: 12px;
-  background: var(--color-brand-cta-100);
-  color: var(--color-brand-cta-800);
+  background: var(--color-primary-subtle);
+  color: var(--color-primary-hover);
   font-size: 0.78rem;
   font-weight: 600;
 }
@@ -339,7 +339,7 @@
   align-items: center;
   gap: 0.5rem;
   padding: 1.25rem 1rem;
-  background: #f9fafb;
+  background: var(--color-surface-sunken);
   border: 2px solid var(--color-border-default);
   border-radius: 10px;
   text-align: center;
@@ -385,9 +385,9 @@
   grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
   gap: 1rem;
   padding: 1.25rem 2rem;
-  background: var(--color-brand-cta-50);
-  border-top: 1px solid var(--color-brand-cta-200);
-  border-bottom: 1px solid var(--color-brand-cta-200);
+  background: var(--color-primary-subtle);
+  border-top: 1px solid var(--color-accent);
+  border-bottom: 1px solid var(--color-accent);
 }
 
 .cdetail-masse-form .form-group {
@@ -409,14 +409,14 @@
   border-radius: 8px;
   font-size: 0.95rem;
   min-height: 44px;
-  background: white;
+  background: var(--color-surface-raised);
 }
 
 .cdetail-masse-form .form-group input:focus,
 .cdetail-masse-form .form-group select:focus {
   outline: none;
   border-color: var(--color-border-focus);
-  box-shadow: 0 0 0 3px rgba(217, 119, 6, 0.1);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 10%, transparent);
 }
 
 .cdetail-masse-form__actions {
@@ -445,7 +445,7 @@
   align-items: center;
   gap: 1.25rem;
   padding: 1.25rem 1.5rem;
-  background: #f9fafb;
+  background: var(--color-surface-sunken);
   border: 1px solid var(--color-border-default);
   border-radius: 10px;
   cursor: pointer;
@@ -455,9 +455,9 @@
 }
 
 .cdetail-timeline-card:hover {
-  background: white;
+  background: var(--color-surface-raised);
   border-color: var(--color-interactive-primary);
-  box-shadow: 0 2px 8px rgba(180, 83, 9, 0.15);
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--color-primary) 15%, transparent);
   transform: translateX(4px);
 }
 
@@ -467,7 +467,7 @@
   border-radius: 50%;
   background: var(--color-interactive-primary);
   flex-shrink: 0;
-  border: 2px solid white;
+  border: 2px solid var(--color-border);
   box-shadow: 0 0 0 2px var(--color-interactive-primary);
 }
 
@@ -509,7 +509,7 @@
 
 .cdetail-timeline-price {
   font-weight: 700;
-  color: #059669;
+  color: var(--color-success);
 }
 
 .cdetail-timeline-arrow {
@@ -532,7 +532,7 @@
   align-items: center;
   gap: 1rem;
   padding: 1rem 1.25rem;
-  background: #f9fafb;
+  background: var(--color-surface-sunken);
   border: 1px solid var(--color-border-default);
   border-radius: 10px;
   flex-wrap: wrap;
@@ -541,7 +541,7 @@
 .cdetail-invoice-number {
   font-family: 'Courier New', Courier, monospace;
   font-weight: 700;
-  color: #1e40af;
+  color: var(--color-info-fg);
   font-size: 0.95rem;
   min-width: 120px;
 }
@@ -556,7 +556,7 @@
 
 .cdetail-invoice-amount {
   font-weight: 700;
-  color: #059669;
+  color: var(--color-success);
   font-size: 1rem;
   white-space: nowrap;
 }
@@ -573,7 +573,7 @@
 .cdetail-error {
   text-align: center;
   padding: 2rem;
-  color: #dc2626;
+  color: var(--color-danger);
   font-weight: 500;
 }
 

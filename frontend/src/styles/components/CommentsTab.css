@@ -22,7 +22,7 @@
 
 .comments-tab .comment-count {
   font-size: 0.9rem;
-  color: var(--text-secondary, #6b7280);
+  color: var(--text-secondary);
   font-weight: 400;
   margin-left: 0.5rem;
 }
@@ -38,33 +38,33 @@
 .new-comment-form textarea {
   flex: 1;
   padding: 0.75rem 1rem;
-  border: 1px solid var(--border-color, #d1d5db);
+  border: 1px solid var(--border-color);
   border-radius: 8px;
   font-size: 0.95rem;
   font-family: inherit;
   resize: vertical;
   min-height: 60px;
   max-height: 200px;
-  background: var(--bg-secondary, #f9fafb);
-  color: var(--text-primary, #111827);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
   transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
 .new-comment-form textarea:focus {
   outline: none;
-  border-color: var(--primary-color, #3b82f6);
-  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
-  background: var(--bg-primary, #fff);
+  border-color: var(--primary-color);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--tone-info-border) 15%, transparent);
+  background: var(--bg-primary);
 }
 
 .new-comment-form textarea::placeholder {
-  color: var(--text-secondary, #9ca3af);
+  color: var(--text-secondary);
 }
 
 .btn-add-comment {
   padding: 0.75rem 1.25rem;
-  background: var(--primary-color, #3b82f6);
-  color: white;
+  background: var(--primary-color);
+  color: var(--color-primary-contrast);
   border: none;
   border-radius: 8px;
   font-size: 0.95rem;
@@ -76,9 +76,9 @@
 }
 
 .btn-add-comment:hover:not(:disabled) {
-  background: var(--primary-dark, #2563eb);
+  background: var(--primary-dark);
   transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  box-shadow: var(--shadow-2);
 }
 
 .btn-add-comment:active:not(:disabled) {
@@ -102,15 +102,15 @@
   display: flex;
   gap: 0.75rem;
   padding: 1rem;
-  border: 1px solid var(--border-color, #e5e7eb);
+  border: 1px solid var(--border-color);
   border-radius: 10px;
-  background: var(--bg-secondary, #f9fafb);
+  background: var(--bg-secondary);
   transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
 .comment-card:hover {
-  border-color: var(--border-hover, #d1d5db);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+  border-color: var(--border-hover);
+  box-shadow: var(--shadow-2);
 }
 
 /* Avatar */
@@ -124,7 +124,7 @@
   justify-content: center;
   font-size: 0.85rem;
   font-weight: 700;
-  color: white;
+  color: var(--color-overlay-fg);
   text-transform: uppercase;
   user-select: none;
 }
@@ -146,18 +146,18 @@
 .comment-user-name {
   font-weight: 600;
   font-size: 0.9rem;
-  color: var(--text-primary, #111827);
+  color: var(--text-primary);
 }
 
 .comment-timestamp {
   font-size: 0.8rem;
-  color: var(--text-secondary, #9ca3af);
+  color: var(--text-secondary);
   white-space: nowrap;
 }
 
 .comment-text {
   font-size: 0.95rem;
-  color: var(--text-primary, #374151);
+  color: var(--text-primary);
   line-height: 1.5;
   white-space: pre-wrap;
   word-break: break-word;
@@ -183,19 +183,19 @@
   border: 1px solid transparent;
   border-radius: 4px;
   font-size: 0.8rem;
-  color: var(--text-secondary, #6b7280);
+  color: var(--text-secondary);
   cursor: pointer;
   transition: all 0.15s ease;
 }
 
 .btn-comment-action:hover {
-  background: var(--bg-hover, #e5e7eb);
-  color: var(--text-primary, #111827);
+  background: var(--bg-hover);
+  color: var(--text-primary);
 }
 
 .btn-comment-action.delete:hover {
-  background: rgba(239, 68, 68, 0.1);
-  color: #ef4444;
+  background: color-mix(in srgb, var(--color-danger) 10%, transparent);
+  color: var(--color-danger);
 }
 
 /* Inline Edit Mode */
@@ -209,20 +209,20 @@
 .comment-edit-form textarea {
   width: 100%;
   padding: 0.6rem 0.75rem;
-  border: 1px solid var(--primary-color, #3b82f6);
+  border: 1px solid var(--primary-color);
   border-radius: 6px;
   font-size: 0.95rem;
   font-family: inherit;
   resize: vertical;
   min-height: 60px;
-  background: var(--bg-primary, #fff);
-  color: var(--text-primary, #111827);
+  background: var(--bg-primary);
+  color: var(--text-primary);
   box-sizing: border-box;
 }
 
 .comment-edit-form textarea:focus {
   outline: none;
-  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--tone-info-border) 15%, transparent);
 }
 
 .comment-edit-actions {
@@ -233,8 +233,8 @@
 
 .btn-edit-save {
   padding: 0.4rem 0.9rem;
-  background: var(--primary-color, #3b82f6);
-  color: white;
+  background: var(--primary-color);
+  color: var(--color-primary-contrast);
   border: none;
   border-radius: 6px;
   font-size: 0.85rem;
@@ -244,7 +244,7 @@
 }
 
 .btn-edit-save:hover:not(:disabled) {
-  background: var(--primary-dark, #2563eb);
+  background: var(--primary-dark);
 }
 
 .btn-edit-save:disabled {
@@ -255,8 +255,8 @@
 .btn-edit-cancel {
   padding: 0.4rem 0.9rem;
   background: transparent;
-  color: var(--text-secondary, #6b7280);
-  border: 1px solid var(--border-color, #d1d5db);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-color);
   border-radius: 6px;
   font-size: 0.85rem;
   font-weight: 500;
@@ -265,15 +265,15 @@
 }
 
 .btn-edit-cancel:hover {
-  background: var(--bg-hover, #f3f4f6);
-  color: var(--text-primary, #374151);
+  background: var(--bg-hover);
+  color: var(--text-primary);
 }
 
 /* Empty State */
 .comments-empty {
   text-align: center;
   padding: 3rem 1.5rem;
-  color: var(--text-secondary, #9ca3af);
+  color: var(--text-secondary);
 }
 
 .comments-empty .empty-icon {
@@ -299,14 +299,14 @@
 }
 
 .comments-error {
-  color: #ef4444;
+  color: var(--color-danger);
 }
 
 .comments-error .btn-retry {
   margin-top: 1rem;
   padding: 0.5rem 1rem;
-  background: var(--primary-color, #3b82f6);
-  color: white;
+  background: var(--primary-color);
+  color: var(--color-primary-contrast);
   border: none;
   border-radius: 6px;
   font-size: 0.9rem;
@@ -314,7 +314,7 @@
 }
 
 .comments-error .btn-retry:hover {
-  background: var(--primary-dark, #2563eb);
+  background: var(--primary-dark);
 }
 
 /* Delete Confirmation */
@@ -324,10 +324,10 @@
   gap: 0.5rem;
   margin-top: 0.5rem;
   padding: 0.5rem 0.75rem;
-  background: rgba(239, 68, 68, 0.06);
+  background: color-mix(in srgb, var(--color-danger) 6%, transparent);
   border-radius: 6px;
   font-size: 0.85rem;
-  color: var(--text-secondary, #6b7280);
+  color: var(--text-secondary);
 }
 
 .delete-confirm span {
@@ -336,8 +336,8 @@
 
 .btn-confirm-delete {
   padding: 0.3rem 0.7rem;
-  background: #ef4444;
-  color: white;
+  background: var(--color-danger);
+  color: var(--color-danger-contrast);
   border: none;
   border-radius: 4px;
   font-size: 0.8rem;
@@ -346,57 +346,23 @@
 }
 
 .btn-confirm-delete:hover {
-  background: #dc2626;
+  background: var(--color-danger);
 }
 
 .btn-cancel-delete {
   padding: 0.3rem 0.7rem;
   background: transparent;
-  color: var(--text-secondary, #6b7280);
-  border: 1px solid var(--border-color, #d1d5db);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-color);
   border-radius: 4px;
   font-size: 0.8rem;
   cursor: pointer;
 }
 
 .btn-cancel-delete:hover {
-  background: var(--bg-hover, #f3f4f6);
+  background: var(--bg-hover);
 }
 
-/* Dark theme overrides */
-@media (prefers-color-scheme: dark) {
-  .comment-card {
-    background: var(--bg-secondary, #1f2937);
-    border-color: var(--border-color, #374151);
-  }
-
-  .comment-card:hover {
-    border-color: var(--border-hover, #4b5563);
-  }
-
-  .new-comment-form textarea {
-    background: var(--bg-secondary, #1f2937);
-    border-color: var(--border-color, #374151);
-    color: var(--text-primary, #f3f4f6);
-  }
-
-  .new-comment-form textarea:focus {
-    background: var(--bg-primary, #111827);
-  }
-
-  .comment-edit-form textarea {
-    background: var(--bg-primary, #111827);
-    color: var(--text-primary, #f3f4f6);
-  }
-
-  .btn-comment-action:hover {
-    background: var(--bg-hover, #374151);
-  }
-
-  .delete-confirm {
-    background: rgba(239, 68, 68, 0.12);
-  }
-}
 
 /* Responsive */
 @media (max-width: 600px) {
