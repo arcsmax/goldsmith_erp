@@ -10,7 +10,7 @@ import { ordersApi } from '../api';
 import apiClient from '../api/client';
 import type { MaterialType, OrderPhoto, OrderStatus } from '../types';
 import { useOrders, useToast, useAuth } from '../contexts';
-import { canViewDesign } from '../lib/roles';
+import { canCreateQuotes, canViewDesign } from '../lib/roles';
 import { CommentsTab } from '../components/CommentsTab';
 import { KundeninfoTab } from '../components/orders/KundeninfoTab';
 import { CostAlertBanner } from '../components/orders/CostAlertBanner';
@@ -85,6 +85,9 @@ export function OrderDetailPage() {
   // Fotos tab and the photo fetch are gated on the same check as the backend.
   const canDesign = canViewDesign(user?.role);
   const canChangeStatus = canChangeOrderStatus(user?.role);
+  // LV2-04: a VIEWER could see and click "Angebot erstellen", landing on
+  // /quotes only to be silently bounced to /dashboard by the route guard.
+  const canCreateQuote = canCreateQuotes(user?.role);
 
   const [order, setOrder] = useState<OrderWithStatusFields | null>(null);
   const [materials, setMaterials] = useState<MaterialType[]>([]);
@@ -349,7 +352,7 @@ export function OrderDetailPage() {
           <button className="btn-print-label" onClick={handlePrintLabel} title="Etikett mit QR-Code drucken">
             Etikett drucken
           </button>
-          {order.customer_id && (
+          {order.customer_id && canCreateQuote && (
             <button
               className="btn-create-quote"
               onClick={() => navigate(`/quotes?order_id=${order.id}&customer_id=${order.customer_id}`)}
