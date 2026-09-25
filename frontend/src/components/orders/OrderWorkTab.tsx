@@ -134,7 +134,7 @@ export function OrderWorkTab({
 
       {canFinance && isFinished && (
         <WorkSectionBlock section="soll-ist" title="Soll/Ist">
-          <SollIstTab orderId={order.id} orderStatus={order.status} />
+          <SollIstTab orderId={order.id} orderStatus={order.status} role={role} />
         </WorkSectionBlock>
       )}
 

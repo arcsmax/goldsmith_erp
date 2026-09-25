@@ -138,7 +138,7 @@ Sie beginnen mit der Arbeit am Ehering.
 
 **Hinweis**: Die UI wird in Woche 2-3 fertiggestellt. Hier beschreiben wir die geplante Funktionsweise.
 
-1. Gehen Sie zum Tab **"Zeiteinträge"**
+1. Gehen Sie zum Tab **"Arbeit"** (Abschnitt Zeiterfassung)
 2. Klicken Sie auf **"Zeit starten"**
 3. Wählen Sie **Aktivität**: "Sägen" (oder passende Aktivität)
 4. Optional: Geben Sie **Notizen** ein
@@ -153,10 +153,10 @@ Siehe: [FEATURE_TIME_TRACKING.md](FEATURE_TIME_TRACKING.md)
 
 **Arbeiten Sie am Auftrag** - das System trackt Ihre Zeit.
 
-**Wenn Sie unterbrochen werden** (z.B. Telefon):
-1. Klicken Sie auf **"Pause"** oder **"Unterbrechung hinzufügen"**
-2. Wählen Sie Grund (z.B. "Telefon")
-3. Nach der Unterbrechung: Klicken Sie auf **"Fortsetzen"**
+**Wenn Sie unterbrochen werden** (z.B. Telefon): Es gibt keinen manuellen
+"Pause"-Button mehr in der Zeiterfassung. Unterbrechungen werden derzeit
+über den QR-/NFC-Scan am Werkbank-Platz erfasst (siehe
+[FEATURE_TIME_TRACKING.md](features/FEATURE_TIME_TRACKING.md)).
 
 **Wenn Sie die Aktivität wechseln** (z.B. von Sägen zu Löten):
 1. Klicken Sie auf **"Zeit stoppen"**

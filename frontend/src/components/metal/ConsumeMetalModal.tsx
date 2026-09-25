@@ -1,18 +1,22 @@
 // ConsumeMetalModal — record metal consumption against an order (W4-03).
 // Supports FIFO, LIFO, AVERAGE and SPECIFIC costing methods; a preview call
-// shows the cost breakdown before the user commits. Orders and batches load
-// through useQuery (both legacy plain lists); preview and booking are
-// mutations, and a booking invalidates the metal-inventory root.
+// shows the cost breakdown before the user commits. Batches load through a
+// legacy plain list; orders load a search-filtered PAGE (W7 hygiene: this
+// used to fetch up to 500 orders unconditionally — now it fetches the same
+// 100-row page other order pickers use, plus a debounced `q` search so an
+// order outside that page is still reachable by number/title). Preview and
+// booking are mutations, and a booking invalidates the metal-inventory root.
 import React, { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { metalInventoryApi } from '../../api/metal-inventory';
-import { ordersApi } from '../../api/orders';
+import { pagedApi } from '../../api/paged';
 import { queryKeys } from '../../api/queryKeys';
 import type { MetalType, CostingMethod, OrderMaterialAllocation } from '../../types';
 import { useMetalTypes } from '../../hooks/useMetalTypes';
 import { getStatusLabel } from '../../design/status';
 import { getErrorMessage } from '../../lib/errors';
 import { formatEur, MONEY_CLASS } from '../../lib/format';
+import { useDebouncedValue } from '../../lib/useDebouncedValue';
 import { Button, Field, Modal } from '../../ui';
 import { formatPreciseWeight, formatWeight, METAL_TYPES, metalLabelWithPurity } from './metalLabels';
 
@@ -22,7 +26,7 @@ interface ConsumeMetalModalProps {
   onSuccess: () => void;
 }
 
-const ORDER_LIMIT = 500;
+const ORDER_PAGE_SIZE = 100;
 const ACTIVE_ORDER_STATUSES: ReadonlySet<string> = new Set([
   'in_progress',
   'confirmed',
@@ -71,10 +75,11 @@ function isComplete(form: ConsumeForm): boolean {
   return form.costingMethod !== 'specific' || Boolean(form.specificPurchaseId);
 }
 
-function useConsumeData(isOpen: boolean, metalType: MetalType | '') {
+function useConsumeData(isOpen: boolean, metalType: MetalType | '', orderSearch: string) {
+  const orderPageParams = { limit: ORDER_PAGE_SIZE, offset: 0, q: orderSearch || undefined };
   const orders = useQuery({
-    queryKey: queryKeys.orders.legacyList(ORDER_LIMIT),
-    queryFn: () => ordersApi.getAll({ limit: ORDER_LIMIT }),
+    queryKey: queryKeys.orders.page(orderPageParams),
+    queryFn: ({ signal }) => pagedApi.orders(orderPageParams, signal),
     enabled: isOpen,
   });
   const batchParams = { metal_type: metalType || undefined, include_depleted: false };
@@ -128,7 +133,9 @@ export const ConsumeMetalModal: React.FC<ConsumeMetalModalProps> = ({ isOpen, on
   const queryClient = useQueryClient();
   const { metalTypes: allMetalTypes, isLoading: isLoadingMetalTypes } = useMetalTypes();
   const [form, setForm] = useState<ConsumeForm>(EMPTY_FORM);
-  const { orders, batches } = useConsumeData(isOpen, form.metalType);
+  const [orderSearch, setOrderSearch] = useState('');
+  const debouncedOrderSearch = useDebouncedValue(orderSearch);
+  const { orders, batches } = useConsumeData(isOpen, form.metalType, debouncedOrderSearch);
 
   const preview = useMutation({
     mutationFn: (f: ConsumeForm) =>
@@ -168,6 +175,7 @@ export const ConsumeMetalModal: React.FC<ConsumeMetalModalProps> = ({ isOpen, on
   useEffect(() => {
     if (!isOpen) return;
     setForm(EMPTY_FORM);
+    setOrderSearch('');
     preview.reset();
     book.reset();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- reset only on open
@@ -180,7 +188,7 @@ export const ConsumeMetalModal: React.FC<ConsumeMetalModalProps> = ({ isOpen, on
 
   const complete = isComplete(form);
   const isDirty = form !== EMPTY_FORM;
-  const activeOrders = (orders.data ?? []).filter((o) => ACTIVE_ORDER_STATUSES.has(o.status));
+  const activeOrders = (orders.data?.items ?? []).filter((o) => ACTIVE_ORDER_STATUSES.has(o.status));
   const metalOptions =
     isLoadingMetalTypes || allMetalTypes.length === 0
       ? FALLBACK_OPTIONS
@@ -215,6 +223,16 @@ export const ConsumeMetalModal: React.FC<ConsumeMetalModalProps> = ({ isOpen, on
       }
     >
       <div className="metal-form">
+        <Field label="Auftrag suchen" name="consume-order-search">
+          <input
+            type="search"
+            placeholder="Titel, Kunde oder Nr. …"
+            value={orderSearch}
+            onChange={(e) => setOrderSearch(e.target.value)}
+            disabled={book.isPending}
+          />
+        </Field>
+
         <Field
           label="Auftrag"
           name="consume-order"

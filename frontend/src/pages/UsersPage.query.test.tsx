@@ -51,6 +51,17 @@ describe('UsersPage (query)', () => {
     expect(await screen.findAllByText('nutzer1@example.test')).not.toHaveLength(0);
     expect(screen.getByText('2 Benutzer · 1 aktiv')).toBeInTheDocument();
     expect(screen.getAllByText('Goldschmied').length).toBeGreaterThan(0);
+
+    // W7 hygiene: the account status is a <StatusBadge kind="user">, not
+    // the old bespoke `.users-active-state` span — icon + German label,
+    // never colour alone (CLAUDE.md UI rules). DataTable renders a table
+    // row and a responsive card per user, so each label appears twice.
+    for (const badge of screen.getAllByText('Aktiv')) {
+      expect(badge.closest('[data-kind="user"]')).toHaveAttribute('data-status', 'active');
+    }
+    for (const badge of screen.getAllByText('Inaktiv')) {
+      expect(badge.closest('[data-kind="user"]')).toHaveAttribute('data-status', 'inactive');
+    }
   });
 
   it('shows an empty state with an action when there are no users', async () => {

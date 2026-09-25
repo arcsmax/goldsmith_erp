@@ -7,13 +7,6 @@
   align-items: center;
 }
 
-.users-active-state {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-1);
-  color: var(--color-text);
-}
-
 .user-form-row {
   display: grid;
   grid-template-columns: 1fr 1fr;

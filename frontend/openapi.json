@@ -18066,6 +18066,28 @@
         }
       }
     },
+    "/api/v1/portal/workshop-contact": {
+      "get": {
+        "tags": [
+          "customer-portal"
+        ],
+        "summary": "Kontaktdaten der Werkstatt (oeffentlich)",
+        "description": "Oeffentlicher Endpunkt — kein Login erforderlich. Liefert nur Name, Telefon und E-Mail der Werkstatt (kein Kundendaten, keine Bank- oder Steuerdaten) fuer den Fusszeilen-Kontakt des Portals.",
+        "operationId": "portal_workshop_contact_api_v1_portal_workshop_contact_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkshopPublicContact"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/theme": {
       "get": {
         "tags": [
@@ -36633,6 +36655,15 @@
             "type": "boolean",
             "title": "Id Required",
             "readOnly": true
+          },
+          "fine_grams_by_metal": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "type": "object",
+            "title": "Fine Grams By Metal",
+            "description": "Per-metal fine-gram breakdown (DOM-20 remainder).\n\n``total_fine_gold_g`` aggregates fine content across every metal\n(gold, silver, platinum) into one number, which reads as \"all gold\"\neven when the lot is mixed. This computed field re-derives an\nhonest per-metal split from ``items`` (each item already carries\nits own alloy and fine content) without any schema change — the\nfull DOM-20 fix (per-metal prices stored on the row, an\nAnkaufsabschlag %) still needs a migration and is tracked\nseparately.",
+            "readOnly": true
           }
         },
         "type": "object",
@@ -36648,7 +36679,8 @@
           "created_at",
           "updated_at",
           "has_identification",
-          "id_required"
+          "id_required",
+          "fine_grams_by_metal"
         ],
         "title": "ScrapGoldRead"
       },
@@ -38879,6 +38911,42 @@
         ],
         "title": "WorkItem",
         "description": "An order or repair with a due date (overdue and due-soon lanes)."
+      },
+      "WorkshopPublicContact": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "phone": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Phone"
+          },
+          "email": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Email"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "title": "WorkshopPublicContact",
+        "description": "Public subset of the workshop settings (customer portal footer).\n\nOnly the workshop's own name and how to reach it — never the bank\ndetails, tax IDs or invoice footer text that ride along on\n``WorkshopSettingsRead``. This is the workshop's own business contact\ndata, not customer PII, and is served to logged-out portal visitors."
       },
       "WorkshopSettingsRead": {
         "properties": {

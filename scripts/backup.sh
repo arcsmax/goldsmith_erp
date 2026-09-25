@@ -8,7 +8,10 @@
 # Media: MEDIA_DIR (default: <project>/uploads, the host side of the
 # backend's /app/uploads mount, which holds PHOTO_STORAGE_PATH and
 # FILE_STORAGE_ROOT) is archived to goldsmith_media_<ts>.tar.gz[.gpg|.age].
-# Restore: decrypt, then `tar -xzf <file> -C <project>/uploads`.
+# A goldsmith_manifest_<ts>.sha256 is written alongside every run (dump +
+# media, when the media archive succeeded) and is checked by restore.sh.
+# Restore: scripts/restore.sh <dump-file> now also restores the matching
+# media archive (same <ts>) automatically — see restore.sh for --skip-media.
 #
 # Usage:
 #   ./scripts/backup.sh                 # encrypted backup (production)
@@ -91,6 +94,20 @@ log_info()  { echo "[$(date '+%Y-%m-%d %H:%M:%S')] INFO  $*"; }
 log_warn()  { echo "[$(date '+%Y-%m-%d %H:%M:%S')] WARN  $*" >&2; }
 log_error() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] ERROR $*" >&2; }
 
+# sha256 of a file, portable across GNU coreutils (sha256sum) and BSD/macOS
+# (shasum). Used for the manifest verified by restore.sh.
+compute_sha256() {
+    local file="$1"
+    if command -v sha256sum >/dev/null 2>&1; then
+        sha256sum "${file}" | awk '{print $1}'
+    elif command -v shasum >/dev/null 2>&1; then
+        shasum -a 256 "${file}" | awk '{print $1}'
+    else
+        echo "ERROR: neither sha256sum nor shasum is installed" >&2
+        return 1
+    fi
+}
+
 # ── Encryption mode ───────────────────────────────────────────────────────────
 backup_crypto_resolve_method || exit 2
 if [[ "${BACKUP_CRYPTO_METHOD}" == "none" ]]; then
@@ -109,6 +126,7 @@ fi
 TIMESTAMP="$(date '+%Y-%m-%d_%H%M%S')"
 BACKUP_FILE="${BACKUP_DIR}/goldsmith_erp_${TIMESTAMP}.sql.gz$(backup_crypto_suffix)"
 MEDIA_FILE="${BACKUP_DIR}/goldsmith_media_${TIMESTAMP}.tar.gz$(backup_crypto_suffix)"
+MANIFEST_FILE="${BACKUP_DIR}/goldsmith_manifest_${TIMESTAMP}.sha256"
 
 if ${DRY_RUN}; then
     echo "DRY-RUN: no dump, no files written, nothing deleted."
@@ -116,6 +134,7 @@ if ${DRY_RUN}; then
     echo "  backup file: ${BACKUP_FILE}"
     echo "  media dir  : ${MEDIA_DIR}"
     echo "  media file : ${MEDIA_FILE}"
+    echo "  manifest   : ${MANIFEST_FILE}"
     echo "  ledger file: ${ERASURE_LEDGER_FILE}"
     echo "  cloud sync : ${BACKUP_CLOUD_URL:+enabled}${BACKUP_CLOUD_URL:-disabled}"
     exit 0
@@ -211,6 +230,20 @@ else
     log_error "Media directory ${MEDIA_DIR} not found (set MEDIA_DIR). Photos are NOT backed up."
 fi
 
+# ── SHA-256 manifest ──────────────────────────────────────────────────────────
+# Covers the dump and (if produced) the media archive from this run, so
+# restore.sh can detect silent corruption/truncation independently of the
+# gzip/decrypt checks above. Not sensitive — hashes only, no key material.
+{
+    echo "# Goldsmith ERP backup manifest (sha256). Verified automatically by restore.sh."
+    echo "$(compute_sha256 "${BACKUP_FILE}")  $(basename "${BACKUP_FILE}")"
+    if ${MEDIA_OK}; then
+        echo "$(compute_sha256 "${MEDIA_FILE}")  $(basename "${MEDIA_FILE}")"
+    fi
+} > "${MANIFEST_FILE}"
+chmod 600 "${MANIFEST_FILE}"
+log_info "Manifest written: $(basename "${MANIFEST_FILE}")"
+
 # ── Retention: keep last 7 daily + 4 weekly (Sun) + 3 monthly (1st) ──────────
 apply_retention() {
     local dir="$1"
@@ -220,17 +253,24 @@ apply_retention() {
     # encrypted and plain dumps (or media archives, counted separately);
     # never matches *.partial or the ledger.
     local -a all_files=()
-    if [[ "${kind}" == "media" ]]; then
-        mapfile -t all_files < <(ls -1t \
-            "${dir}"/goldsmith_media_*.tar.gz \
-            "${dir}"/goldsmith_media_*.tar.gz.gpg \
-            "${dir}"/goldsmith_media_*.tar.gz.age 2>/dev/null || true)
-    else
-        mapfile -t all_files < <(ls -1t \
-            "${dir}"/goldsmith_erp_*.sql.gz \
-            "${dir}"/goldsmith_erp_*.sql.gz.gpg \
-            "${dir}"/goldsmith_erp_*.sql.gz.age 2>/dev/null || true)
-    fi
+    case "${kind}" in
+        media)
+            mapfile -t all_files < <(ls -1t \
+                "${dir}"/goldsmith_media_*.tar.gz \
+                "${dir}"/goldsmith_media_*.tar.gz.gpg \
+                "${dir}"/goldsmith_media_*.tar.gz.age 2>/dev/null || true)
+            ;;
+        manifest)
+            mapfile -t all_files < <(ls -1t \
+                "${dir}"/goldsmith_manifest_*.sha256 2>/dev/null || true)
+            ;;
+        *)
+            mapfile -t all_files < <(ls -1t \
+                "${dir}"/goldsmith_erp_*.sql.gz \
+                "${dir}"/goldsmith_erp_*.sql.gz.gpg \
+                "${dir}"/goldsmith_erp_*.sql.gz.age 2>/dev/null || true)
+            ;;
+    esac
 
     local -a keep=()
     local daily_count=0 weekly_count=0 monthly_count=0
@@ -279,6 +319,7 @@ apply_retention() {
 
 apply_retention "${BACKUP_DIR}"
 apply_retention "${BACKUP_DIR}" media
+apply_retention "${BACKUP_DIR}" manifest
 
 # ── Erasure ledger (GDPR-07) ──────────────────────────────────────────────────
 append_erasure_ledger() {

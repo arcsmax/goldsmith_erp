@@ -230,6 +230,31 @@ class ScrapGoldRead(BaseModel):
     def id_required(self) -> bool:
         return id_required_for(self.total_value_eur)
 
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def fine_grams_by_metal(self) -> Dict[str, Weight]:
+        """Per-metal fine-gram breakdown (DOM-20 remainder).
+
+        ``total_fine_gold_g`` aggregates fine content across every metal
+        (gold, silver, platinum) into one number, which reads as "all gold"
+        even when the lot is mixed. This computed field re-derives an
+        honest per-metal split from ``items`` (each item already carries
+        its own alloy and fine content) without any schema change — the
+        full DOM-20 fix (per-metal prices stored on the row, an
+        Ankaufsabschlag %) still needs a migration and is tracked
+        separately.
+        """
+        totals: Dict[str, Decimal] = {}
+        for item in self.items:
+            try:
+                metal_label = ALLOY_METAL_LABEL[AlloyType(item.alloy)]
+            except ValueError:
+                metal_label = "unbekannt"
+            totals[metal_label] = totals.get(metal_label, Decimal("0")) + Decimal(
+                str(item.fine_content_g)
+            )
+        return totals
+
 
 class ScrapGoldSignRequest(BaseModel):
     signature_data: str = Field(

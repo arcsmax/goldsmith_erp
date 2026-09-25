@@ -28,6 +28,7 @@ from goldsmith_erp.db.models import User as UserModel
 from goldsmith_erp.db.models import WorkshopSettings
 from goldsmith_erp.db.transaction import transactional
 from goldsmith_erp.models.workshop_settings import (
+    WorkshopPublicContact,
     WorkshopSettingsRead,
     WorkshopSettingsUpdate,
 )
@@ -112,6 +113,18 @@ class WorkshopSettingsService:
             updated_at=row.updated_at if row is not None else None,
             missing_fields=missing,
             is_complete=not missing,
+        )
+
+    @staticmethod
+    async def public_contact(db: AsyncSession) -> WorkshopPublicContact:
+        """Public subset for the customer portal footer (no auth): name,
+        phone, email only — never bank/tax fields (see
+        ``WorkshopPublicContact``)."""
+        values = _values(await WorkshopSettingsService.get_row(db))
+        return WorkshopPublicContact(
+            name=values["name"],
+            phone=values["phone"],
+            email=values["email"],
         )
 
     @staticmethod

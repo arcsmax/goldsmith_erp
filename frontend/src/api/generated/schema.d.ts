@@ -3864,6 +3864,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/portal/workshop-contact": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Kontaktdaten der Werkstatt (oeffentlich)
+         * @description Oeffentlicher Endpunkt — kein Login erforderlich. Liefert nur Name, Telefon und E-Mail der Werkstatt (kein Kundendaten, keine Bank- oder Steuerdaten) fuer den Fusszeilen-Kontakt des Portals.
+         */
+        get: operations["portal_workshop_contact_api_v1_portal_workshop_contact_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/quotes/": {
         parameters: {
             query?: never;
@@ -12138,6 +12158,22 @@ export interface components {
             created_by: number;
             /** Customer Id */
             customer_id: number;
+            /**
+             * Fine Grams By Metal
+             * @description Per-metal fine-gram breakdown (DOM-20 remainder).
+             *
+             *     ``total_fine_gold_g`` aggregates fine content across every metal
+             *     (gold, silver, platinum) into one number, which reads as "all gold"
+             *     even when the lot is mixed. This computed field re-derives an
+             *     honest per-metal split from ``items`` (each item already carries
+             *     its own alloy and fine content) without any schema change — the
+             *     full DOM-20 fix (per-metal prices stored on the row, an
+             *     Ankaufsabschlag %) still needs a migration and is tracked
+             *     separately.
+             */
+            readonly fine_grams_by_metal: {
+                [key: string]: number;
+            };
             /** Gold Price Per G */
             gold_price_per_g?: number | null;
             /** Has Identification */
@@ -13157,6 +13193,23 @@ export interface components {
             status: string;
             /** Title */
             title: string;
+        };
+        /**
+         * WorkshopPublicContact
+         * @description Public subset of the workshop settings (customer portal footer).
+         *
+         *     Only the workshop's own name and how to reach it — never the bank
+         *     details, tax IDs or invoice footer text that ride along on
+         *     ``WorkshopSettingsRead``. This is the workshop's own business contact
+         *     data, not customer PII, and is served to logged-out portal visitors.
+         */
+        WorkshopPublicContact: {
+            /** Email */
+            email?: string | null;
+            /** Name */
+            name: string;
+            /** Phone */
+            phone?: string | null;
         };
         /**
          * WorkshopSettingsRead
@@ -19934,6 +19987,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    portal_workshop_contact_api_v1_portal_workshop_contact_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkshopPublicContact"];
                 };
             };
         };

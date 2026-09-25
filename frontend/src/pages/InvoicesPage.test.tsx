@@ -49,7 +49,7 @@ vi.mock('../contexts', () => ({
 const mockGetInvoices = vi.fn();
 const mockCreateFromOrder = vi.fn();
 const mockGetInvoice = vi.fn();
-const mockOrdersGetAll = vi.fn();
+const mockOrdersPage = vi.fn();
 const mockUpdateInvoice = vi.fn();
 const mockCancelInvoice = vi.fn();
 
@@ -64,11 +64,15 @@ vi.mock('../api/invoices', () => ({
   },
 }));
 
-vi.mock('../api/orders', () => ({
-  ordersApi: {
-    getAll: (...args: unknown[]) => mockOrdersGetAll(...args),
-  },
-}));
+// W7 hygiene: the "Rechnung erstellen" order picker now fetches a bounded
+// page via pagedApi.orders (was ordersApi.getAll({ limit: 500 })).
+vi.mock('../api/paged', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../api/paged')>();
+  return {
+    ...actual,
+    pagedApi: { ...actual.pagedApi, orders: (...args: unknown[]) => mockOrdersPage(...args) },
+  };
+});
 
 vi.mock('../api/client', () => ({
   default: { get: vi.fn(), post: vi.fn(), put: vi.fn() },
@@ -112,6 +116,10 @@ function makeOrder(overrides: Partial<OrderType> = {}): OrderType {
   };
 }
 
+function makeOrdersPage(items: OrderType[]) {
+  return { items, total: items.length, limit: 100, offset: 0 };
+}
+
 function makeInvoice(overrides: Partial<Invoice> = {}): Invoice {
   return {
     id: 99,
@@ -152,9 +160,9 @@ describe('InvoicesPage — Bug #3 (generic error & dropdown filter)', () => {
     // Arrange: the user can pick a completed order (so the dropdown is
     // populated and the submit button enables), but the backend rejects
     // with a 422 because — say — the order already has an active invoice.
-    mockOrdersGetAll.mockResolvedValue([
-      makeOrder({ id: 3, status: 'completed', title: 'Ohrringe Paar' }),
-    ]);
+    mockOrdersPage.mockResolvedValue(
+      makeOrdersPage([makeOrder({ id: 3, status: 'completed', title: 'Ohrringe Paar' })])
+    );
     const backendDetail =
       'Fuer Auftrag 3 existiert bereits eine aktive Rechnung';
     mockCreateFromOrder.mockRejectedValue({
@@ -171,10 +179,11 @@ describe('InvoicesPage — Bug #3 (generic error & dropdown filter)', () => {
     fireEvent.click(screen.getByRole('button', { name: /Rechnung erstellen/i }));
 
     // Wait for the orders fetch to populate the dropdown
-    await waitFor(() => expect(mockOrdersGetAll).toHaveBeenCalled());
+    await waitFor(() => expect(mockOrdersPage).toHaveBeenCalled());
 
-    // Pick the eligible order
-    const orderSelect = await screen.findByLabelText(/Auftrag/i);
+    // Pick the eligible order. `/Auftrag/i` also matches the new "Auftrag
+    // suchen" search box (W7 hygiene), so scope to the <select> itself.
+    const orderSelect = await screen.findByLabelText(/Auftrag/i, { selector: 'select' });
     fireEvent.change(orderSelect, { target: { value: '3' } });
 
     // Submit the modal
@@ -201,22 +210,24 @@ describe('InvoicesPage — Bug #3 (generic error & dropdown filter)', () => {
     // Arrange: backend returns a mix of statuses — only completed and
     // delivered should be selectable. draft / in_progress are ineligible
     // because the backend's create_invoice_from_order guard rejects them.
-    mockOrdersGetAll.mockResolvedValue([
-      makeOrder({ id: 1, status: 'in_progress', title: 'Goldring Reparatur' }),
-      makeOrder({ id: 2, status: 'draft', title: 'Verlobungsring' }),
-      makeOrder({ id: 3, status: 'completed', title: 'Ohrringe Paar' }),
-      makeOrder({ id: 4, status: 'delivered', title: 'Trauring Paar' }),
-    ]);
+    mockOrdersPage.mockResolvedValue(
+      makeOrdersPage([
+        makeOrder({ id: 1, status: 'in_progress', title: 'Goldring Reparatur' }),
+        makeOrder({ id: 2, status: 'draft', title: 'Verlobungsring' }),
+        makeOrder({ id: 3, status: 'completed', title: 'Ohrringe Paar' }),
+        makeOrder({ id: 4, status: 'delivered', title: 'Trauring Paar' }),
+      ])
+    );
 
     renderInvoices();
     await waitFor(() => expect(mockGetInvoices).toHaveBeenCalled());
 
     fireEvent.click(screen.getByRole('button', { name: /Rechnung erstellen/i }));
-    await waitFor(() => expect(mockOrdersGetAll).toHaveBeenCalled());
+    await waitFor(() => expect(mockOrdersPage).toHaveBeenCalled());
 
-    const orderSelect = (await screen.findByLabelText(
-      /Auftrag/i
-    )) as HTMLSelectElement;
+    const orderSelect = (await screen.findByLabelText(/Auftrag/i, {
+      selector: 'select',
+    })) as HTMLSelectElement;
 
     // Visible options: placeholder + the 2 eligible orders
     const optionValues = Array.from(orderSelect.options).map((o) => o.value);
