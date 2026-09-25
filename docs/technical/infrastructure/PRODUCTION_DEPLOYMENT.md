@@ -259,6 +259,97 @@ Unit-Dateien und Policy-Hintergrund):
 
 ---
 
+## Schritt 8 – Upgrade, Rollback und Restore-Drill (OPS-08)
+
+`make update` baut die Container aus dem aktuellen Checkout neu und führt
+danach `alembic upgrade head` aus (`Makefile:update`). Es gibt **kein**
+Registry-Image, das zurückgerollt werden könnte — "App-Rollback" bedeutet hier:
+den vorherigen Codestand auschecken und neu bauen.
+
+### Vor jedem Upgrade: Backup
+
+```bash
+make backup-now                       # scripts/backup.sh — komprimiert, geprüft
+git rev-parse HEAD > /tmp/goldsmith-pre-update-commit   # für den Rollback-Fall
+```
+
+`make update` ruft `scripts/backup.sh` seit diesem Änderungssatz automatisch
+vor dem Neubau auf; ein Upgrade ohne aktuelles Backup ist dennoch nicht
+empfohlen (ein manuelles `make backup-now` unmittelbar davor kostet Sekunden).
+
+### DB-Rollback (Alembic)
+
+Migrationsdateien liegen unter `alembic/versions/` und sind datumsbasiert
+benannt (z. B. `20260401_v1_initial_schema.py` … `20260925_w207_order_events.py`,
+25 Dateien Stand dieses Audits) — **nicht** `001_...`/`002_...` wie im
+veralteten `docs/DEPLOYMENT.md`. Die Kette ist nicht immer alphabetisch gleich
+der Revisions-Reihenfolge; `alembic history` ist die verbindliche Quelle:
+
+```bash
+poetry run alembic current                 # aktueller Stand
+poetry run alembic history --indicate-current
+poetry run alembic downgrade -1            # eine Migration zurück
+poetry run alembic downgrade <revision>    # zu einer bestimmten Revision
+```
+
+⚠️ Ein `downgrade` kann Spalten/Tabellen löschen, die die neuere Anwendung
+geschrieben hat (Datenverlust für diese Migration). Immer zuerst das
+Backup aus dem Schritt oben sichern; bei Zweifel stattdessen aus dem Backup
+restaurieren (`make restore FILE=...`) statt `downgrade` auf eine
+produktive DB mit neueren Daten anzuwenden.
+
+### App-Rollback (fehlgeschlagenes Deployment)
+
+Kein CI/CD-Image-Tag, kein Blue/Green — der Codestand selbst ist die
+"Version". Bei einem fehlgeschlagenen `make update`:
+
+```bash
+git log --oneline -5                        # letzten guten Commit finden
+git checkout <letzter-guter-commit-oder-tag>
+poetry run alembic downgrade <passende Revision>   # falls die neue Migration schon lief
+make update                                 # baut den alten Stand neu, migriert (No-op falls schon zurück)
+```
+
+Ohne Schema-Änderung im fehlgeschlagenen Release genügt `git checkout` +
+`make prod-restart` (kein DB-Rollback nötig).
+
+### Restore-Drill
+
+Der DSGVO-Löschjob macht eine Wiederherstellung besonders heikel (ein altes
+Backup kann bereits gelöschte Kunden zurückbringen). Ablauf und die
+empfohlene **vierteljährliche** Restore-Probe (Backup einspielen, Löschjournal
+erneut abspielen) stehen in
+[GDPR_ERASURE_RETENTION.md, „Backups und Löschung"](../GDPR_ERASURE_RETENTION.md) —
+dieselbe Übung dient auch als Test, dass ein Upgrade-Rollback tatsächlich
+funktioniert, nicht nur der DSGVO-Fall.
+
+### Log-Rotation
+
+Alle fünf Dienste in `podman-compose.prod.yml` sind bereits mit
+`logging: driver: json-file, max-size: 10m, max-file: 3` konfiguriert (max.
+~30 MB Logs pro Container, älteste Datei wird automatisch verworfen) — es ist
+keine zusätzliche `logrotate`-Einrichtung nötig. Zugriff:
+
+```bash
+make prod-logs                       # alle Dienste folgen
+podman logs goldsmith-backend-prod --tail 200
+```
+
+### Zwei Betriebshinweise (SEC-F8, SEC-F10)
+
+- **Keine weiteren Web-Apps auf derselben IP/Host betreiben.** Das Auth-Cookie
+  nutzt `SameSite=Strict` auf einer IP-adressierten Seite; ein anderer Dienst
+  auf demselben Host (andere Portnummer) gilt dem Browser als "same site" und
+  könnte das Cookie sehen. Der Produktions-Host ist für die ERP allein.
+- **Demo-Konten vor Produktivbetrieb rotieren/löschen.** Falls eine mit
+  `make seed-demo` befüllte Datenbank jemals zu einer echten werden soll: die
+  Demo-Mitarbeiterkonten teilen sich das Passwort `demo2026!`
+  (`scripts/seed_demo.py`) — vor dem ersten echten Kundendatensatz löschen oder
+  die Passwörter individuell setzen. Siehe
+  [DATABASE_SEEDING.md](DATABASE_SEEDING.md).
+
+---
+
 ## Deployment-Checkliste
 
 - [ ] `./setup.sh` gelaufen, `.env.production` mit `600` vorhanden.
@@ -278,3 +369,4 @@ Unit-Dateien und Policy-Hintergrund):
 - [PRODUCTION_TLS.md](PRODUCTION_TLS.md) – Caddy TLS-Proxy + CA-Vertrauen.
 - [DATABASE_SEEDING.md](DATABASE_SEEDING.md) – Produktions- vs. Demo-Seed.
 - [GDPR_ERASURE_RETENTION.md](../GDPR_ERASURE_RETENTION.md) – Löschung, Aufbewahrung, Backups.
+- [ADR: Single-box deployment, migrate-on-boot](../../architecture/ADR-2026-09-25-single-box-deployment.md) – warum ein Host, kein SaaS.

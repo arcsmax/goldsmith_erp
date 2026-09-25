@@ -11,8 +11,11 @@ import { test, expect, Page } from '@playwright/test';
  * Frontend: http://localhost:3000
  */
 
-const ADMIN_EMAIL = 'admin@goldschmiede.de';
-const ADMIN_PASSWORD = 'Admin123!';
+// Defaults match scripts/seed_demo.py's admin/inhaber account (the single
+// source of truth is src/goldsmith_erp/db/seed_credentials.py); override via
+// env vars if a different seeded environment is targeted.
+const ADMIN_EMAIL = process.env.E2E_ADMIN_EMAIL ?? 'demo-inhaber@werkstatt.de';
+const ADMIN_PASSWORD = process.env.E2E_ADMIN_PASSWORD ?? 'demo2026!';
 
 // Helper: login once and reuse auth state
 async function login(page: Page) {

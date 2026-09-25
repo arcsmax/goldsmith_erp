@@ -1,14 +1,14 @@
-// Reparaturverwaltung — list view with status filter, search, and intake modal
-import React, { useCallback, useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+// Reparaturverwaltung — list view with status filter, search, and the
+// counter intake (W2-12). `?neu=1` opens the intake, `&customer_id=` pre-
+// selects the customer (link from the customer page's Verlauf).
+import { useCallback, useEffect, useState } from 'react';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { repairsApi } from '../api/repairs';
-import type {
-  Customer,
-  RepairItemType,
-  RepairJobCreateInput,
-  RepairJobListItem,
-  RepairJobStatus,
-} from '../types';
+import { RepairIntakeScreen } from '../components/repairs/RepairIntakeScreen';
+import { useAuth } from '../contexts';
+import { canViewFinancials } from '../lib/roles';
+import { logError } from '../lib/logError';
+import type { RepairItemType, RepairJobListItem, RepairJobStatus } from '../types';
 import { REPAIR_STATUS, statusLabelsFor } from '../design/status';
 import { StatusBadge } from '../ui/StatusBadge';
 import { formatEur, MONEY_CLASS } from '../lib/format';
@@ -47,214 +47,33 @@ function formatDate(dateStr: string | null | undefined): string {
   });
 }
 
-// ─── New Repair Modal ────────────────────────────────────────────────────────
 
-interface NewRepairModalProps {
-  onClose: () => void;
-  onCreated: (repair: RepairJobListItem) => void;
-}
-
-const ITEM_TYPES: RepairItemType[] = [
-  'ring', 'chain', 'bracelet', 'earring', 'watch', 'brooch', 'other',
+const ALL_STATUSES: RepairJobStatus[] = [
+  'received', 'diagnosed', 'quoted', 'approved',
+  'in_repair', 'quality_check', 'ready', 'picked_up', 'cancelled',
 ];
 
-function NewRepairModal({ onClose, onCreated }: NewRepairModalProps) {
-  const [form, setForm] = useState<RepairJobCreateInput>({
-    customer_id: undefined,
-    item_description: '',
-    item_type: 'ring',
-    metal_type: '',
-    estimated_value: undefined,
-    estimated_completion_date: undefined,
-  });
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const handleChange = (
-    e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>
-  ) => {
-    const { name, value } = e.target;
-    setForm(prev => ({
-      ...prev,
-      [name]:
-        name === 'customer_id' || name === 'estimated_value'
-          ? value === '' ? undefined : Number(value)
-          : value || (name === 'metal_type' ? '' : undefined),
-    }));
-  };
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!form.item_description.trim()) {
-      setError('Bitte Beschreibung eingeben.');
-      return;
-    }
-    setSaving(true);
-    setError(null);
-    try {
-      const payload: RepairJobCreateInput = {
-        ...form,
-        metal_type: form.metal_type || undefined,
-        estimated_completion_date: form.estimated_completion_date
-          ? new Date(form.estimated_completion_date).toISOString()
-          : undefined,
-      };
-      const created = await repairsApi.create(payload);
-      // Cast full RepairJob to list item shape for the table
-      onCreated(created as unknown as RepairJobListItem);
-    } catch (err: unknown) {
-      const msg =
-        err instanceof Error ? err.message : 'Fehler beim Speichern.';
-      setError(msg);
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  // Close on Escape
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-    };
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
-  }, [onClose]);
-
-  return (
-    <div className="modal-overlay" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="modal-box" role="dialog" aria-modal="true" aria-labelledby="modal-title">
-        <div className="modal-header">
-          <h2 id="modal-title">Neue Reparatur</h2>
-          <button className="modal-close" onClick={onClose} aria-label="Schließen">&#x2715;</button>
-        </div>
-
-        <form onSubmit={handleSubmit}>
-          <div className="modal-body">
-            {error && <div className="repairs-error">{error}</div>}
-
-            <div className="form-group">
-              <label className="form-label" htmlFor="item_description">
-                Beschreibung <span className="required">*</span>
-              </label>
-              <textarea
-                id="item_description"
-                name="item_description"
-                className="form-textarea"
-                placeholder="z.B. Ehering Gelbgold 585, Stein lose — Neufassung erforderlich"
-                value={form.item_description}
-                onChange={handleChange}
-                required
-                rows={3}
-              />
-            </div>
-
-            <div className="form-row">
-              <div className="form-group">
-                <label className="form-label" htmlFor="item_type">
-                  Art <span className="required">*</span>
-                </label>
-                <select
-                  id="item_type"
-                  name="item_type"
-                  className="form-select"
-                  value={form.item_type}
-                  onChange={handleChange}
-                >
-                  {ITEM_TYPES.map(t => (
-                    <option key={t} value={t}>{ITEM_TYPE_LABELS[t]}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="form-group">
-                <label className="form-label" htmlFor="metal_type">Metall</label>
-                <input
-                  id="metal_type"
-                  name="metal_type"
-                  className="form-input"
-                  placeholder="z.B. 585 Gelbgold"
-                  value={form.metal_type ?? ''}
-                  onChange={handleChange}
-                />
-              </div>
-            </div>
-
-            <div className="form-row">
-              <div className="form-group">
-                <label className="form-label" htmlFor="customer_id">Kunden-ID</label>
-                <input
-                  id="customer_id"
-                  name="customer_id"
-                  type="number"
-                  min={1}
-                  className="form-input"
-                  placeholder="Optional"
-                  value={form.customer_id ?? ''}
-                  onChange={handleChange}
-                />
-              </div>
-
-              <div className="form-group">
-                <label className="form-label" htmlFor="estimated_value">
-                  Versicherungswert (EUR)
-                </label>
-                <input
-                  id="estimated_value"
-                  name="estimated_value"
-                  type="number"
-                  min={0}
-                  step={0.01}
-                  className="form-input"
-                  placeholder="Optional"
-                  value={form.estimated_value ?? ''}
-                  onChange={handleChange}
-                />
-              </div>
-            </div>
-
-            <div className="form-group">
-              <label className="form-label" htmlFor="estimated_completion_date">
-                Voraussichtliche Fertigstellung
-              </label>
-              <input
-                id="estimated_completion_date"
-                name="estimated_completion_date"
-                type="date"
-                className="form-input"
-                value={
-                  form.estimated_completion_date
-                    ? form.estimated_completion_date.slice(0, 10)
-                    : ''
-                }
-                onChange={handleChange}
-              />
-            </div>
-          </div>
-
-          <div className="modal-footer">
-            <button type="button" className="btn btn-secondary" onClick={onClose}>
-              Abbrechen
-            </button>
-            <button type="submit" className="btn btn-primary" disabled={saving}>
-              {saving ? 'Wird gespeichert…' : 'Reparatur anlegen'}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
-  );
-}
+const INTAKE_PARAM = 'neu';
+const CUSTOMER_PARAM = 'customer_id';
 
 // ─── Main Page ───────────────────────────────────────────────────────────────
 
 export function RepairsPage() {
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const showPrice = canViewFinancials(user?.role);
+  const [searchParams, setSearchParams] = useSearchParams();
   const [repairs, setRepairs] = useState<RepairJobListItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<RepairJobStatus | ''>('');
   const [searchTerm, setSearchTerm] = useState('');
-  const [showModal, setShowModal] = useState(false);
+
+  const isIntakeOpen = searchParams.get(INTAKE_PARAM) === '1';
+  const intakeCustomerId = Number(searchParams.get(CUSTOMER_PARAM)) || undefined;
+
+  const openIntake = () => setSearchParams({ [INTAKE_PARAM]: '1' });
+  const closeIntake = () => setSearchParams({}, { replace: true });
 
   const loadRepairs = useCallback(async () => {
     setLoading(true);
@@ -270,7 +89,8 @@ export function RepairsPage() {
       const data = await repairsApi.getAll(params);
       setRepairs(data);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Fehler beim Laden.');
+      logError('RepairsPage.load', err);
+      setError('Reparaturen konnten nicht geladen werden.');
     } finally {
       setLoading(false);
     }
@@ -281,26 +101,15 @@ export function RepairsPage() {
     return () => clearTimeout(timer);
   }, [loadRepairs, searchTerm]);
 
-  const handleCreated = (repair: RepairJobListItem) => {
-    setRepairs(prev => [repair, ...prev]);
-    setShowModal(false);
-  };
-
-  const handleRowClick = (id: number) => {
-    navigate(`/repairs/${id}`);
-  };
-
-  const ALL_STATUSES: RepairJobStatus[] = [
-    'received', 'diagnosed', 'quoted', 'approved',
-    'in_repair', 'quality_check', 'ready', 'picked_up', 'cancelled',
-  ];
+  // FE-17: after the intake, go straight to the new repair.
+  const handleIntakeDone = (repairId: number) => navigate(`/repairs/${repairId}`);
 
   return (
     <div className="repairs-page">
       <div className="repairs-header">
         <h1>Reparaturen</h1>
-        <button className="btn-new-repair" onClick={() => setShowModal(true)}>
-          + Neue Reparatur
+        <button type="button" className="btn-new-repair" onClick={openIntake}>
+          Neue Reparatur
         </button>
       </div>
 
@@ -326,23 +135,32 @@ export function RepairsPage() {
         </select>
       </div>
 
-      {error && <div className="repairs-error">{error}</div>}
+      {error && (
+        <div className="repairs-error" role="alert">
+          {error}
+          <button type="button" className="btn-secondary" onClick={loadRepairs}>
+            Erneut versuchen
+          </button>
+        </div>
+      )}
 
       {loading ? (
-        <div className="repairs-loading">Laden…</div>
+        <div className="repairs-loading" role="status">Wird geladen…</div>
       ) : repairs.length === 0 ? (
         <div className="repairs-empty">
-          <div className="repairs-empty-icon">&#128295;</div>
           <h3>Keine Reparaturen gefunden</h3>
           <p>
             {statusFilter || searchTerm
               ? 'Passen Sie die Filter an oder suchen Sie nach einem anderen Begriff.'
-              : 'Legen Sie den ersten Reparaturauftrag über die Schaltfläche oben an.'}
+              : 'Nehmen Sie die erste Reparatur an der Theke an.'}
           </p>
+          <button type="button" className="btn-primary" onClick={openIntake}>
+            Neue Reparatur annehmen
+          </button>
         </div>
       ) : (
         <div className="repairs-table-wrapper">
-          <table className="repairs-table">
+          <table className="repairs-table" aria-label="Reparaturen">
             <thead>
               <tr>
                 <th>Nr.</th>
@@ -350,15 +168,18 @@ export function RepairsPage() {
                 <th>Kunde</th>
                 <th>Gegenstand</th>
                 <th>Status</th>
-                <th>Deadline</th>
-                <th>KVA</th>
-                <th>Aktionen</th>
+                <th>Zugesagt bis</th>
+                {showPrice && <th>KVA</th>}
               </tr>
             </thead>
             <tbody>
               {repairs.map(r => (
-                <tr key={r.id} onClick={() => handleRowClick(r.id)}>
-                  <td className="repair-number-cell">{r.repair_number}</td>
+                <tr key={r.id}>
+                  <td className="repair-number-cell">
+                    <Link to={`/repairs/${r.id}`} className="repair-row-link">
+                      {r.repair_number}
+                    </Link>
+                  </td>
                   <td className="repair-bag-cell">{r.bag_number}</td>
                   <td>
                     {r.customer
@@ -367,11 +188,7 @@ export function RepairsPage() {
                   </td>
                   <td className="repair-description-cell" title={r.item_description}>
                     <span>{ITEM_TYPE_LABELS[r.item_type]}</span>
-                    {r.metal_type && (
-                      <span style={{ color: 'var(--color-text-muted)', marginLeft: '0.3rem', fontSize: '0.8rem' }}>
-                        {r.metal_type}
-                      </span>
-                    )}
+                    {r.metal_type && <span className="repair-metal">{r.metal_type}</span>}
                   </td>
                   <td>
                     <StatusBadge kind="repair" status={r.status} />
@@ -381,18 +198,7 @@ export function RepairsPage() {
                   >
                     {formatDate(r.estimated_completion_date)}
                   </td>
-                  <td className={MONEY_CLASS}>{formatEur(r.estimated_cost)}</td>
-                  <td>
-                    <div className="repair-actions" onClick={e => e.stopPropagation()}>
-                      <button
-                        className="btn-repair-action"
-                        onClick={() => handleRowClick(r.id)}
-                        title="Details anzeigen"
-                      >
-                        Details
-                      </button>
-                    </div>
-                  </td>
+                  {showPrice && <td className={MONEY_CLASS}>{formatEur(r.estimated_cost)}</td>}
                 </tr>
               ))}
             </tbody>
@@ -400,10 +206,11 @@ export function RepairsPage() {
         </div>
       )}
 
-      {showModal && (
-        <NewRepairModal
-          onClose={() => setShowModal(false)}
-          onCreated={handleCreated}
+      {isIntakeOpen && (
+        <RepairIntakeScreen
+          onClose={closeIntake}
+          onDone={handleIntakeDone}
+          initialCustomerId={intakeCustomerId}
         />
       )}
     </div>

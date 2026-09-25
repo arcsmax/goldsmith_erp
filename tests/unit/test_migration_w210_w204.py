@@ -98,7 +98,9 @@ def test_chain_is_linear_w207_w210_w204():
     assert _w204().revision == _W204
     assert _w204().down_revision == _W210
     script = ScriptDirectory.from_config(Config(str(_ROOT / "alembic.ini")))
-    assert script.get_heads() == [_W204]
+    # W2-06/W2-14/W2-16 build on top of W2-04; the chain stays linear.
+    assert len(script.get_heads()) == 1
+    assert _W204 in {rev.revision for rev in script.walk_revisions()}
 
 
 # --------------------------------------------------------------------------

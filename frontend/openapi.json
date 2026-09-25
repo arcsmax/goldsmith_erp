@@ -1647,6 +1647,98 @@
         }
       }
     },
+    "/api/v1/customers/{customer_id}/activity": {
+      "get": {
+        "tags": [
+          "customers",
+          "customers"
+        ],
+        "summary": "Get Customer Activity",
+        "description": "Kundenverlauf (Kunde 360°, W2-12 / DOM-38): Aufträge, Reparaturen,\nKostenvoranschläge, Rechnungen und Kundeninfos, neueste zuerst.\n\nServerseitig nach ``customer_id`` gefiltert und über alle Arten hinweg\ngepaged (``Page``-Hülle). Jede Art erscheint nur mit ihrer\nAnsichtsberechtigung (VIEWER: Aufträge und Reparaturen); ``amount``\nnur mit FINANCIAL_VIEW.",
+        "operationId": "get_customer_activity_api_v1_customers__customer_id__activity_get",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "customer_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Customer Id"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Offset der Seite",
+              "default": 0,
+              "title": "Offset"
+            },
+            "description": "Offset der Seite"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "description": "Seitengröße (maximal 200)",
+              "default": 50,
+              "title": "Limit"
+            },
+            "description": "Seitengröße (maximal 200)"
+          },
+          {
+            "name": "access_token",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Access Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_CustomerActivityItem_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/customers/{customer_id}/export": {
       "get": {
         "tags": [
@@ -3516,6 +3608,63 @@
                 }
               }
             }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/orders/{order_id}/handover-pdf": {
+      "get": {
+        "tags": [
+          "orders"
+        ],
+        "summary": "Get Handover Pdf",
+        "description": "Abholprotokoll als PDF (W2-11, DOM-35).\n\nFoto, Metall, Steine (ohne Einkaufspreis), Material, Pflegehinweise,\nGewährleistung und Unterschriftszeilen. Nur für fertiggestellte oder\nausgelieferte Aufträge; Design-Daten, daher DESIGN_VIEW.",
+        "operationId": "get_handover_pdf_api_v1_orders__order_id__handover_pdf_get",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "order_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Order Id"
+            }
+          },
+          {
+            "name": "access_token",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Access Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response"
           },
           "422": {
             "description": "Validation Error",
@@ -7787,6 +7936,173 @@
                 "schema": {
                   "$ref": "#/components/schemas/ScrapGoldRead"
                 }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/scrap-gold/{scrap_gold_id}/identification": {
+      "put": {
+        "tags": [
+          "scrap-gold"
+        ],
+        "summary": "Set Identification",
+        "description": "Ausweisdaten des Verkäufers erfassen (W2-16, vor der Unterschrift).",
+        "operationId": "set_identification_api_v1_scrap_gold__scrap_gold_id__identification_put",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "scrap_gold_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Scrap Gold Id"
+            }
+          },
+          {
+            "name": "access_token",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Access Token"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScrapGoldIdentification"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScrapGoldRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/scrap-gold/ankaufsbuch": {
+      "get": {
+        "tags": [
+          "scrap-gold"
+        ],
+        "summary": "Export Ankaufsbuch",
+        "description": "Ankaufsbuch Altgold als CSV oder PDF (nur ADMIN, W2-16).\n\nEnthält die entschlüsselten Ausweisdaten aller unterschriebenen Ankäufe\nim Zeitraum. Rechtliche Anforderungen vom Steuerberater zu bestätigen.",
+        "operationId": "export_ankaufsbuch_api_v1_scrap_gold_ankaufsbuch_get",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "date_from",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date",
+              "description": "Erster Tag (YYYY-MM-DD)",
+              "title": "Date From"
+            },
+            "description": "Erster Tag (YYYY-MM-DD)"
+          },
+          {
+            "name": "date_to",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date",
+              "description": "Letzter Tag (YYYY-MM-DD)",
+              "title": "Date To"
+            },
+            "description": "Letzter Tag (YYYY-MM-DD)"
+          },
+          {
+            "name": "format",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "csv",
+                "pdf"
+              ],
+              "type": "string",
+              "description": "csv oder pdf",
+              "default": "csv",
+              "title": "Format"
+            },
+            "description": "csv oder pdf"
+          },
+          {
+            "name": "access_token",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Access Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
               }
             }
           },
@@ -13701,6 +14017,63 @@
         }
       }
     },
+    "/api/v1/repairs/{repair_id}/annahmeschein.pdf": {
+      "get": {
+        "tags": [
+          "repairs"
+        ],
+        "summary": "Get Repair Annahmeschein",
+        "description": "Annahmeschein (Reparaturannahme) als PDF (W2-12, DOM-08).\n\nEnthaelt Werkstattdaten, Kunde, Stueck, Zustand, Fotos der Annahme als\nMiniaturen, Preisindikation, Termine und Unterschriftszeilen. Fotos sind\nDesign-IP, daher DESIGN_VIEW (VIEWER: 403); die Preisindikation nur mit\nFINANCIAL_VIEW. Eine Unterschrift wird noch nicht gespeichert (keine\nSpalte, siehe W2-12-Bericht): der Schein wird auf Papier unterschrieben.",
+        "operationId": "get_repair_annahmeschein_api_v1_repairs__repair_id__annahmeschein_pdf_get",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "repair_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Repair Id"
+            }
+          },
+          {
+            "name": "access_token",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Access Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/repairs/{repair_id}/intake-checklist": {
       "put": {
         "tags": [
@@ -16837,7 +17210,7 @@
           "theme"
         ],
         "summary": "Theme-Einstellungen aktualisieren (nur ADMIN)",
-        "description": "Replaces all theme settings.\n\nOnly users with the ADMIN role may call this endpoint.\nThe new settings are validated by Pydantic before being persisted.",
+        "description": "Replaces all theme settings.\n\nOnly users with the ADMIN role may call this endpoint.\nThe new settings are validated by Pydantic before being persisted, and\nevery text-bearing colour (primary_color, primary_dark,\nheader_gradient_start, header_gradient_end) must meet the WCAG AA\nminimum contrast ratio (4.5:1) against white text — the frontend already\nsilently drops a failing colour and falls back to the default token\n(useTheme.ts's setTextBearingColour), so the backend rejects it outright\ninstead of persisting a value the UI would never actually apply.",
         "operationId": "update_theme_api_v1_theme_put",
         "security": [
           {
@@ -17791,6 +18164,352 @@
         }
       }
     },
+    "/api/v1/orders/{order_id}/message-context": {
+      "get": {
+        "tags": [
+          "customer-updates"
+        ],
+        "summary": "Einwilligungs- und Zustellhinweise fuer die Kundeninfo",
+        "description": "E-Mail vorhanden? Einwilligung Fotonutzung? Widerspruch gegen E-Mails?",
+        "operationId": "get_order_message_context_api_v1_orders__order_id__message_context_get",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "order_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Order Id"
+            }
+          },
+          {
+            "name": "access_token",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Access Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomerMessageContext"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/orders/{order_id}/updates/preview": {
+      "post": {
+        "tags": [
+          "customer-updates"
+        ],
+        "summary": "Kundeninfo-Vorschau (E-Mail-Text)",
+        "description": "Zeigt den E-Mail-Text, den der Kunde erhalten wuerde (inkl. Fusszeile).\nSpeichert nichts. Verstoesse (Fotos ohne Einwilligung, Preise) stehen in\n``blocked_reason`` statt als Fehler.",
+        "operationId": "preview_order_update_api_v1_orders__order_id__updates_preview_post",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "order_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Order Id"
+            }
+          },
+          {
+            "name": "access_token",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Access Token"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CustomerUpdateCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomerMessagePreview"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/orders/{order_id}/updates/preview/pdf": {
+      "post": {
+        "tags": [
+          "customer-updates"
+        ],
+        "summary": "Kundeninfo-Vorschau als PDF",
+        "description": "Liefert den Inhalt des Entwurfs als PDF fuer Kunden ohne E-Mail. Speichert\nnichts und markiert nichts als zugestellt. Fotos nur mit Einwilligung (422).",
+        "operationId": "preview_order_update_pdf_api_v1_orders__order_id__updates_preview_pdf_post",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "order_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Order Id"
+            }
+          },
+          {
+            "name": "access_token",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Access Token"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CustomerUpdateCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/customers/{customer_id}/email-opt-out": {
+      "get": {
+        "tags": [
+          "customer-updates"
+        ],
+        "summary": "Widerspruch gegen E-Mail-Updates abfragen",
+        "description": "``email_opt_out=true``: Kunde erhaelt keine E-Mail-Updates (Art. 21).",
+        "operationId": "get_customer_email_opt_out_api_v1_customers__customer_id__email_opt_out_get",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "customer_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Customer Id"
+            }
+          },
+          {
+            "name": "access_token",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Access Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EmailOptOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "customer-updates"
+        ],
+        "summary": "Widerspruch gegen E-Mail-Updates erfassen oder aufheben",
+        "description": "Erfasst den Widerspruch \"Keine E-Mail-Updates\" (Art. 21 DSGVO) als\nwiderrufene Einwilligung \"E-Mail-Kontakt\", oder hebt ihn auf. Solange er\nbesteht, gehen Kundeninfos nur als PDF (manuelle Uebergabe) raus.",
+        "operationId": "set_customer_email_opt_out_api_v1_customers__customer_id__email_opt_out_put",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "customer_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Customer Id"
+            }
+          },
+          {
+            "name": "access_token",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Access Token"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EmailOptOut"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EmailOptOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/orders/{order_id}/cost-changes": {
       "post": {
         "tags": [
@@ -18322,6 +19041,275 @@
                 }
               }
             }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/orders/{order_id}/gemstones": {
+      "get": {
+        "tags": [
+          "gemstones"
+        ],
+        "summary": "List Gemstones",
+        "description": "Steine eines Auftrags.",
+        "operationId": "list_gemstones_api_v1_orders__order_id__gemstones_get",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "order_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Order Id"
+            }
+          },
+          {
+            "name": "access_token",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Access Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/GemstoneRead"
+                  },
+                  "title": "Response List Gemstones Api V1 Orders  Order Id  Gemstones Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "gemstones"
+        ],
+        "summary": "Create Gemstone",
+        "description": "Stein zum Auftrag hinzufügen.",
+        "operationId": "create_gemstone_api_v1_orders__order_id__gemstones_post",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "order_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Order Id"
+            }
+          },
+          {
+            "name": "access_token",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Access Token"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GemstoneCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GemstoneRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/gemstones/{gemstone_id}": {
+      "patch": {
+        "tags": [
+          "gemstones"
+        ],
+        "summary": "Update Gemstone",
+        "description": "Stein bearbeiten.",
+        "operationId": "update_gemstone_api_v1_gemstones__gemstone_id__patch",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "gemstone_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Gemstone Id"
+            }
+          },
+          {
+            "name": "access_token",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Access Token"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GemstoneUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GemstoneRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "gemstones"
+        ],
+        "summary": "Delete Gemstone",
+        "description": "Stein entfernen.",
+        "operationId": "delete_gemstone_api_v1_gemstones__gemstone_id__delete",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "gemstone_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Gemstone Id"
+            }
+          },
+          {
+            "name": "access_token",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Access Token"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
           },
           "422": {
             "description": "Validation Error",
@@ -21434,6 +22422,92 @@
         "title": "CustomMetalTypeUpdate",
         "description": "Partial update payload — all fields optional."
       },
+      "CustomerActivityItem": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "order",
+              "repair",
+              "quote",
+              "invoice",
+              "customer_update"
+            ],
+            "title": "Kind"
+          },
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "occurred_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Occurred At"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "reference": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reference"
+          },
+          "amount": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Amount"
+          },
+          "order_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Order Id"
+          },
+          "repair_job_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Repair Job Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "kind",
+          "id",
+          "occurred_at",
+          "status",
+          "title"
+        ],
+        "title": "CustomerActivityItem",
+        "description": "One row of GET /customers/{id}/activity (newest first).\n\n``amount`` (order price, repair cost, quote/invoice total) is removed\nfor callers without FINANCIAL_VIEW. Quotes, invoices and customer\nupdates are only listed for callers holding their view permission.\n``order_id`` / ``repair_job_id`` point at the parent a row links to\n(invoices and customer updates have no page of their own)."
+      },
       "CustomerCreate": {
         "properties": {
           "first_name": {
@@ -22208,6 +23282,100 @@
         ],
         "title": "CustomerMeasurementExport",
         "description": "One entry in the export payload's ``measurements`` list."
+      },
+      "CustomerMessageContext": {
+        "properties": {
+          "customer_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Customer Id"
+          },
+          "has_email": {
+            "type": "boolean",
+            "title": "Has Email"
+          },
+          "photo_consent": {
+            "type": "boolean",
+            "title": "Photo Consent"
+          },
+          "email_opt_out": {
+            "type": "boolean",
+            "title": "Email Opt Out"
+          }
+        },
+        "type": "object",
+        "required": [
+          "has_email",
+          "photo_consent",
+          "email_opt_out"
+        ],
+        "title": "CustomerMessageContext",
+        "description": "What the Kundeninfo composer needs for its consent / delivery hints."
+      },
+      "CustomerMessagePreview": {
+        "properties": {
+          "subject": {
+            "type": "string",
+            "title": "Subject"
+          },
+          "text": {
+            "type": "string",
+            "title": "Text"
+          },
+          "delivery_method": {
+            "$ref": "#/components/schemas/UpdateDeliveryMethod"
+          },
+          "photo_count": {
+            "type": "integer",
+            "title": "Photo Count"
+          },
+          "photo_consent": {
+            "type": "boolean",
+            "title": "Photo Consent"
+          },
+          "email_opt_out": {
+            "type": "boolean",
+            "title": "Email Opt Out"
+          },
+          "has_email": {
+            "type": "boolean",
+            "title": "Has Email"
+          },
+          "legal_basis": {
+            "type": "string",
+            "title": "Legal Basis"
+          },
+          "blocked_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Blocked Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "subject",
+          "text",
+          "delivery_method",
+          "photo_count",
+          "photo_consent",
+          "email_opt_out",
+          "has_email",
+          "legal_basis"
+        ],
+        "title": "CustomerMessagePreview",
+        "description": "Plain-text preview of the email a customer would receive."
       },
       "CustomerOrderExport": {
         "properties": {
@@ -23122,6 +24290,22 @@
                 "type": "null"
               }
             ]
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "smtp_disabled",
+                  "no_email",
+                  "opted_out"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
           }
         },
         "type": "object",
@@ -23580,6 +24764,21 @@
         "title": "EmailConfigUpdate",
         "description": "Partial update for SMTP configuration. Omitted fields are left unchanged."
       },
+      "EmailOptOut": {
+        "properties": {
+          "email_opt_out": {
+            "type": "boolean",
+            "title": "Email Opt Out"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "email_opt_out"
+        ],
+        "title": "EmailOptOut",
+        "description": "Art. 21 objection \"Keine E-Mail-Updates\" (GET/PUT body)."
+      },
       "EmailTestRequest": {
         "properties": {
           "to": {
@@ -23707,6 +24906,503 @@
           "status"
         ],
         "title": "GdprRequestExport"
+      },
+      "GemstoneCreate": {
+        "properties": {
+          "carat": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 1000.0,
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Carat",
+            "description": "Karat je Stein"
+          },
+          "color": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 20
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Color",
+            "description": "Farbe, z.B. G"
+          },
+          "quality": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 20
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quality",
+            "description": "Reinheit, z.B. VS1"
+          },
+          "cut": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 50
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cut",
+            "description": "Schliff"
+          },
+          "shape": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 50
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Shape",
+            "description": "Form, z.B. rund"
+          },
+          "setting_type": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "bezel",
+                  "prong",
+                  "channel",
+                  "pave",
+                  "tension",
+                  "invisible"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Setting Type",
+            "description": "Fassungsart"
+          },
+          "certificate_number": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 100
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Certificate Number"
+          },
+          "certificate_authority": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 50
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Certificate Authority"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 1000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          },
+          "type": {
+            "type": "string",
+            "maxLength": 50,
+            "minLength": 1,
+            "title": "Type",
+            "description": "Steinart"
+          },
+          "quantity": {
+            "type": "integer",
+            "maximum": 10000.0,
+            "minimum": 1.0,
+            "title": "Quantity",
+            "description": "Anzahl",
+            "default": 1
+          },
+          "is_customer_stone": {
+            "type": "boolean",
+            "title": "Is Customer Stone",
+            "description": "Kundenstein",
+            "default": false
+          },
+          "cost": {
+            "type": "number",
+            "maximum": 1000000.0,
+            "minimum": 0.0,
+            "title": "Cost",
+            "description": "Einkaufspreis je Stein (netto, EUR)",
+            "default": 0.0
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "type"
+        ],
+        "title": "GemstoneCreate",
+        "description": "Body for ``POST /orders/{order_id}/gemstones``."
+      },
+      "GemstoneRead": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "order_id": {
+            "type": "integer",
+            "title": "Order Id"
+          },
+          "type": {
+            "type": "string",
+            "title": "Type"
+          },
+          "quantity": {
+            "type": "integer",
+            "title": "Quantity",
+            "default": 1
+          },
+          "is_customer_stone": {
+            "type": "boolean",
+            "title": "Is Customer Stone",
+            "default": false
+          },
+          "carat": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Carat"
+          },
+          "color": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Color"
+          },
+          "quality": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quality"
+          },
+          "cut": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cut"
+          },
+          "shape": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Shape"
+          },
+          "setting_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Setting Type"
+          },
+          "certificate_number": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Certificate Number"
+          },
+          "certificate_authority": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Certificate Authority"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          },
+          "cost": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cost"
+          },
+          "total_cost": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Cost"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "order_id",
+          "type"
+        ],
+        "title": "GemstoneRead",
+        "description": "A stone as returned to the caller (role projection strips fields)."
+      },
+      "GemstoneUpdate": {
+        "properties": {
+          "carat": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 1000.0,
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Carat",
+            "description": "Karat je Stein"
+          },
+          "color": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 20
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Color",
+            "description": "Farbe, z.B. G"
+          },
+          "quality": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 20
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quality",
+            "description": "Reinheit, z.B. VS1"
+          },
+          "cut": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 50
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cut",
+            "description": "Schliff"
+          },
+          "shape": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 50
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Shape",
+            "description": "Form, z.B. rund"
+          },
+          "setting_type": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "bezel",
+                  "prong",
+                  "channel",
+                  "pave",
+                  "tension",
+                  "invisible"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Setting Type",
+            "description": "Fassungsart"
+          },
+          "certificate_number": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 100
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Certificate Number"
+          },
+          "certificate_authority": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 50
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Certificate Authority"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 1000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          },
+          "type": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 50,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Type"
+          },
+          "quantity": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 10000.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quantity"
+          },
+          "is_customer_stone": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Is Customer Stone"
+          },
+          "cost": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 1000000.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cost"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "GemstoneUpdate",
+        "description": "Body for ``PATCH /gemstones/{gemstone_id}`` (only sent fields change)."
       },
       "HTTPValidationError": {
         "properties": {
@@ -29704,6 +31400,54 @@
         "title": "OverrideReasonCategoryEnum",
         "description": "Audit-filter categories for an alloy-mismatch override (A2.4 / Thomas §3).\n\nThe category is a structured facet joined to the freetext\n``override_reason`` so audit queries can slice 30 days of overrides\nwithout scanning plain-text reasons."
       },
+      "Page_CustomerActivityItem_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/CustomerActivityItem"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Total",
+            "description": "Anzahl aller Treffer über alle Seiten"
+          },
+          "limit": {
+            "type": "integer",
+            "maximum": 200.0,
+            "minimum": 1.0,
+            "title": "Limit"
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Offset"
+          },
+          "next_offset": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Offset",
+            "description": "Offset der nächsten Seite; null auf der letzten"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "title": "Page[CustomerActivityItem]"
+      },
       "Page_MaterialRead_": {
         "properties": {
           "items": {
@@ -31380,7 +33124,42 @@
               }
             ],
             "title": "Estimated Completion Date",
-            "description": "Voraussichtliches Fertigstellungsdatum"
+            "description": "Zugesagter Fertigstellungstermin"
+          },
+          "customer_problem": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 1000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Customer Problem",
+            "description": "Vom Kunden geschildertes Problem"
+          },
+          "condition_notes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 12,
+            "title": "Condition Notes",
+            "description": "Zustand bei Annahme, z.B. ['Kratzer', 'Tragespuren']"
+          },
+          "estimated_cost": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Estimated Cost",
+            "description": "Erste Preisindikation in EUR (unverbindlich)"
           }
         },
         "type": "object",
@@ -32550,6 +34329,41 @@
         ],
         "title": "ScrapGoldExport"
       },
+      "ScrapGoldIdentification": {
+        "properties": {
+          "id_document_type": {
+            "type": "string",
+            "enum": [
+              "personalausweis",
+              "reisepass",
+              "aufenthaltstitel",
+              "sonstiges"
+            ],
+            "title": "Id Document Type"
+          },
+          "id_document_number": {
+            "type": "string",
+            "maxLength": 40,
+            "minLength": 4,
+            "title": "Id Document Number"
+          },
+          "id_issuing_authority": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 2,
+            "title": "Id Issuing Authority"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id_document_type",
+          "id_document_number",
+          "id_issuing_authority"
+        ],
+        "title": "ScrapGoldIdentification",
+        "description": "Body for ``PUT /scrap-gold/{id}/identification`` (W2-16).\n\nDocument number and issuing authority are PII: stored encrypted, never\nlogged, shown in reads only as the last four characters."
+      },
       "ScrapGoldItemCreate": {
         "properties": {
           "description": {
@@ -32790,6 +34604,72 @@
             "type": "string",
             "format": "date-time",
             "title": "Updated At"
+          },
+          "id_document_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Id Document Type"
+          },
+          "id_document_number_last4": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Id Document Number Last4"
+          },
+          "id_issuing_authority": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Id Issuing Authority"
+          },
+          "id_checked_by": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Id Checked By"
+          },
+          "id_checked_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Id Checked At"
+          },
+          "has_identification": {
+            "type": "boolean",
+            "title": "Has Identification",
+            "readOnly": true
+          },
+          "id_required": {
+            "type": "boolean",
+            "title": "Id Required",
+            "readOnly": true
           }
         },
         "type": "object",
@@ -32803,7 +34683,9 @@
           "total_value_eur",
           "price_source",
           "created_at",
-          "updated_at"
+          "updated_at",
+          "has_identification",
+          "id_required"
         ],
         "title": "ScrapGoldRead"
       },
@@ -33117,8 +34999,8 @@
             "type": "string",
             "pattern": "^#[0-9a-fA-F]{6}$",
             "title": "Primary Color",
-            "description": "Hauptfarbe (CSS hex, z. B. #d97706)",
-            "default": "#d97706"
+            "description": "Hauptfarbe (CSS hex, z. B. #b45309)",
+            "default": "#b45309"
           },
           "primary_dark": {
             "type": "string",
@@ -33132,7 +35014,7 @@
             "pattern": "^#[0-9a-fA-F]{6}$",
             "title": "Header Gradient Start",
             "description": "Header-Verlauf Startfarbe",
-            "default": "#d97706"
+            "default": "#b45309"
           },
           "header_gradient_end": {
             "type": "string",

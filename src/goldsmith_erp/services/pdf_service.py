@@ -464,6 +464,30 @@ def _draw_invoice_notes(pdf: "_GoldsmithPDF", notes: str) -> None:
     pdf.ln(2)
 
 
+def _draw_gemstones(pdf: "_GoldsmithPDF", gemstones: Optional[list[Any]]) -> None:
+    """W2-06 (DOM-04): the stones of the piece, one German line each.
+
+    Description only (type, count, ct, colour/clarity, shape, Fassungsart,
+    Kundenstein); never the purchase cost, which is internal data.
+    """
+    if not gemstones:
+        return
+    from goldsmith_erp.models.gemstone import describe_gemstone  # noqa: PLC0415
+
+    pdf.ln(2)
+    pdf.section_title("Steine")
+    pdf.set_font(_FONT, "", 9)
+    pdf.set_text_color(*_DARK)
+    for stone in gemstones:
+        pdf.set_x(pdf.l_margin)
+        pdf.multi_cell(
+            pdf.w - pdf.l_margin - pdf.r_margin,
+            4.5,
+            f"• {describe_gemstone(stone)}"[:300],
+        )
+    pdf.ln(2)
+
+
 def _bank_line(seller: Mapping[str, Any]) -> str:
     parts = [
         _safe_str(seller.get("bank_name")),
@@ -513,6 +537,7 @@ def _render_invoice_fpdf(
     workshop_name: str,
     altgold_credit: float = 0.0,
     seller: Optional[Mapping[str, Any]] = None,
+    gemstones: Optional[list[Any]] = None,
 ) -> bytes:
     """Build a §14 Abs. 4 UStG complete invoice PDF with fpdf2 (W2-04)."""
     seller_data: Mapping[str, Any] = seller or {"name": workshop_name}
@@ -533,6 +558,7 @@ def _render_invoice_fpdf(
     notes = _safe_str(getattr(invoice, "notes", None))
     if notes:
         _draw_invoice_notes(pdf, notes)
+    _draw_gemstones(pdf, gemstones)
     _draw_payment_block(
         pdf, invoice, seller_data, max(float(altgold_credit or 0.0), 0.0)
     )
@@ -789,6 +815,7 @@ def _render_quote_fpdf(
     customer: Any,
     line_items: list[Any],
     workshop_name: str,
+    gemstones: Optional[list[Any]] = None,
 ) -> bytes:
     """Build a Kostenvoranschlag PDF with fpdf2 and return raw bytes."""
     import base64
@@ -950,6 +977,8 @@ def _render_quote_fpdf(
         pdf.set_text_color(*_DARK)
         pdf.multi_cell(175, 4.5, notes[:400])
         pdf.ln(2)
+
+    _draw_gemstones(pdf, gemstones)
 
     # ── Signature line ────────────────────────────────────────────────────────
     pdf.ln(6)
@@ -1437,9 +1466,13 @@ class PDFService:
         workshop_name: str,
         altgold_credit: float = 0.0,
         seller: Optional[Mapping[str, Any]] = None,
+        gemstones: Optional[list[Any]] = None,
     ) -> bytes:
         """
         Render a German Rechnung (or Stornorechnung) as PDF.
+
+        W2-06: ``gemstones`` (optional) prints a "Steine" block with the
+        description of every stone (no purchase cost).
 
         W2-04: ``seller`` is the Werkstatt-Stammdaten block from the invoice
         snapshot; with it the PDF carries every §14 Abs. 4 UStG element
@@ -1470,6 +1503,7 @@ class PDFService:
             workshop_name=workshop_name,
             altgold_credit=altgold_credit,
             seller=seller,
+            gemstones=gemstones,
         )
 
     @staticmethod
@@ -1513,9 +1547,12 @@ class PDFService:
         customer: Any,
         line_items: list[Any],
         workshop_name: str,
+        gemstones: Optional[list[Any]] = None,
     ) -> bytes:
         """
         Render a German Kostenvoranschlag as PDF.
+
+        W2-06: ``gemstones`` (optional) prints a "Steine" block.
 
         Args:
             quote:         QuoteResponse-like object (quote_number, created_at,
@@ -1538,6 +1575,7 @@ class PDFService:
             customer=customer,
             line_items=line_items,
             workshop_name=workshop_name,
+            gemstones=gemstones,
         )
 
     @staticmethod
@@ -1571,6 +1609,28 @@ class PDFService:
             customer=customer,
             workshop_name=workshop_name,
         )
+
+    @staticmethod
+    def render_ankaufsbuch_pdf(
+        rows: list[Any], date_from: Any, date_to: Any, workshop_name: str
+    ) -> bytes:
+        """W2-16: Ankaufsbuch Altgold for a period (see services/pdf_reports.py)."""
+        from goldsmith_erp.services.pdf_reports import (  # noqa: PLC0415
+            render_ankaufsbuch_pdf,
+        )
+
+        logger.info("Rendering Ankaufsbuch PDF", extra={"row_count": len(rows)})
+        return render_ankaufsbuch_pdf(rows, date_from, date_to, workshop_name)
+
+    @staticmethod
+    def render_handover_pdf(data: Any, workshop_name: str) -> bytes:
+        """W2-11: Abholprotokoll for a delivered order (services/pdf_reports.py)."""
+        from goldsmith_erp.services.pdf_reports import (  # noqa: PLC0415
+            render_handover_pdf,
+        )
+
+        logger.info("Rendering handover PDF", extra={"order_id": data.order_id})
+        return render_handover_pdf(data, workshop_name)
 
     @staticmethod
     def render_customer_update_pdf(
@@ -1620,3 +1680,234 @@ class PDFService:
             photos=photos,
             workshop_name=workshop_name,
         )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Annahmeschein (repair intake receipt, W2-12 / DOM-08)
+# ─────────────────────────────────────────────────────────────────────────────
+
+_ANNAHME_ITEM_TYPE_LABELS = {
+    "ring": "Ring",
+    "chain": "Kette",
+    "bracelet": "Armband",
+    "earring": "Ohrringe",
+    "watch": "Uhr",
+    "brooch": "Brosche",
+    "other": "Sonstiges",
+}
+_ANNAHME_CHECK_LABELS = {"photo": "Foto", "na": "entfällt", "open": "offen"}
+_ANNAHME_THUMB_W_MM = 42.0
+_ANNAHME_THUMB_MAX_H_MM = 42.0
+_ANNAHME_THUMB_GAP_MM = 4.0
+_ANNAHME_THUMBS_PER_ROW = 4
+_ANNAHME_SIGNATURE_BOX = (10.0, 60.0, 25.0)  # x, width, height in mm
+_ANNAHME_TERMS_MIN_SPACE_MM = 40.0
+_ANNAHME_PRICE_NOTE = (
+    "Die Preisindikation ist unverbindlich. Den verbindlichen "
+    "Kostenvoranschlag erhalten Sie nach der Diagnose."
+)
+# DRAFT wording, to be confirmed by the workshop owner (see W2-12 report).
+_ANNAHME_STONE_CLAUSE = (
+    "Haftung für Steine: Bei der Bearbeitung können sich Steine lösen oder "
+    "beschädigt werden (z. B. durch Spannungen, Einschlüsse oder Vorschäden). "
+    "Dafür übernehmen wir keine Haftung, außer bei Vorsatz oder grober "
+    "Fahrlässigkeit."
+)
+_ANNAHME_PICKUP_NOTE = (
+    "Bitte bringen Sie diesen Annahmeschein zur Abholung mit. Die Tütennummer "
+    "identifiziert Ihr Stück in der Werkstatt."
+)
+
+
+def _annahme_item_type(repair: Any) -> str:
+    raw = getattr(getattr(repair, "item_type", None), "value", None)
+    raw = raw or _safe_str(getattr(repair, "item_type", None))
+    return _ANNAHME_ITEM_TYPE_LABELS.get(raw, raw)
+
+
+def _annahme_header(
+    pdf: "_GoldsmithPDF", repair: Any, workshop: Mapping[str, Any]
+) -> None:
+    name = _safe_str(workshop.get("name")) or "Goldschmiede"
+    pdf.set_font(_FONT_B, "", 15)
+    pdf.set_text_color(*_GOLD)
+    pdf.cell(110, 9, name)
+    pdf.set_font(_FONT_B, "", 13)
+    pdf.set_text_color(*_DARK)
+    pdf.cell(0, 9, "Annahmeschein", align="R", ln=True)
+    pdf.set_font(_FONT, "", 8.5)
+    pdf.set_text_color(*_GRAY)
+    for line in _seller_address_lines(workshop):
+        pdf.cell(0, 4, line, ln=True)
+    pdf.set_text_color(*_DARK)
+    pdf.ln(2)
+    pdf.gold_rule()
+    pdf.ln(3)
+    pdf.kv_row("Reparaturnummer", _safe_str(repair.repair_number))
+    pdf.kv_row("Tütennummer", _safe_str(repair.bag_number))
+    pdf.kv_row("Angenommen am", _fmt_date(getattr(repair, "created_at", None)))
+    promised = _fmt_date(getattr(repair, "estimated_completion_date", None))
+    pdf.kv_row("Zugesagt bis", promised or "wird mitgeteilt")
+    pdf.ln(3)
+
+
+def _annahme_customer(pdf: "_GoldsmithPDF", customer: Any) -> None:
+    pdf.section_title("Kundin/Kunde")
+    if customer is None:
+        pdf.kv_row("Name", "Laufkundschaft (nicht erfasst)")
+        pdf.ln(2)
+        return
+    first = _safe_str(getattr(customer, "first_name", None))
+    last = _safe_str(getattr(customer, "last_name", None))
+    pdf.kv_row("Name", f"{first} {last}".strip())
+    phone = _safe_str(getattr(customer, "phone", None)) or _safe_str(
+        getattr(customer, "mobile", None)
+    )
+    if phone:
+        pdf.kv_row("Telefon", phone)
+    pdf.ln(2)
+
+
+def _annahme_piece(pdf: "_GoldsmithPDF", repair: Any, include_price: bool) -> None:
+    pdf.section_title("Schmuckstück")
+    pdf.kv_row("Art", _annahme_item_type(repair))
+    if getattr(repair, "metal_type", None):
+        pdf.kv_row("Metall", _safe_str(repair.metal_type))
+    pdf.set_font(_FONT, "", 9)
+    _paragraph(pdf, _safe_str(getattr(repair, "item_description", None)))
+    pdf.ln(2)
+    if include_price and getattr(repair, "estimated_cost", None) is not None:
+        pdf.kv_row("Preisindikation", _fmt_eur(repair.estimated_cost))
+        pdf.set_font(_FONT, "", 8)
+        pdf.set_text_color(*_GRAY)
+        _paragraph(pdf, _ANNAHME_PRICE_NOTE)
+        pdf.set_text_color(*_DARK)
+        pdf.ln(2)
+
+
+def _annahme_checklist(pdf: "_GoldsmithPDF", repair: Any) -> None:
+    items = getattr(repair, "intake_checklist", None) or []
+    if not items:
+        return
+    pdf.section_title("Eingangs-Checkliste")
+    for item in items:
+        status = _ANNAHME_CHECK_LABELS.get(item.get("status", "open"), "offen")
+        if item.get("status") == "na" and item.get("na_reason"):
+            status = f"{status}: {item['na_reason']}"
+        pdf.kv_row(_safe_str(item.get("label")), status, label_w=75)
+    pdf.ln(2)
+
+
+def _annahme_thumb_size(photo: bytes) -> Optional[tuple[float, float]]:
+    try:
+        with Image.open(io.BytesIO(photo)) as img:
+            w_px, h_px = img.size
+    except Exception:
+        logger.warning("Could not read Annahmeschein photo", exc_info=True)
+        return None
+    if w_px <= 0 or h_px <= 0:
+        return None
+    h_mm = min(_ANNAHME_THUMB_W_MM * h_px / w_px, _ANNAHME_THUMB_MAX_H_MM)
+    return h_mm * w_px / h_px, h_mm
+
+
+def _annahme_photos(pdf: "_GoldsmithPDF", photos: list[bytes]) -> None:
+    """Thumbnails in rows of four; unreadable photos are skipped and logged."""
+    if not photos:
+        return
+    pdf.section_title(f"Zustand bei Annahme: Fotos ({len(photos)})")
+    x, row_h, col = pdf.l_margin, 0.0, 0
+    for photo in photos:
+        size = _annahme_thumb_size(photo)
+        if size is None:
+            continue
+        w_mm, h_mm = size
+        bottom = pdf.get_y() + _ANNAHME_THUMB_MAX_H_MM
+        if col == 0 and bottom > pdf.page_break_trigger:
+            pdf.add_page()
+        rect = (x, pdf.get_y(), w_mm, h_mm)
+        try:
+            _embed_image_bytes(pdf, photo, rect, suffix=".jpg")
+        except Exception:
+            logger.warning("Could not embed Annahmeschein photo", exc_info=True)
+            continue
+        row_h, col = max(row_h, h_mm), col + 1
+        x += _ANNAHME_THUMB_W_MM + _ANNAHME_THUMB_GAP_MM
+        if col == _ANNAHME_THUMBS_PER_ROW:
+            pdf.set_y(pdf.get_y() + row_h + _ANNAHME_THUMB_GAP_MM)
+            x, row_h, col = pdf.l_margin, 0.0, 0
+    if col:
+        pdf.set_y(pdf.get_y() + row_h + _ANNAHME_THUMB_GAP_MM)
+
+
+def _annahme_terms_and_signature(
+    pdf: "_GoldsmithPDF", signature_png: Optional[bytes]
+) -> None:
+    x, width, height = _ANNAHME_SIGNATURE_BOX
+    if pdf.get_y() + height + _ANNAHME_TERMS_MIN_SPACE_MM > pdf.page_break_trigger:
+        pdf.add_page()
+    pdf.section_title("Bedingungen")
+    pdf.set_font(_FONT, "", 8.5)
+    _paragraph(pdf, _ANNAHME_STONE_CLAUSE)
+    _paragraph(pdf, _ANNAHME_PICKUP_NOTE)
+    pdf.ln(4)
+    top = pdf.get_y()
+    if signature_png:
+        _embed_png_signature(pdf, signature_png, (x, top, width, height))
+    line_y = top + height + 1
+    pdf.set_draw_color(*_GRAY)
+    pdf.line(x, line_y, x + width + 20, line_y)
+    pdf.line(120, line_y, 200, line_y)
+    pdf.set_y(line_y + 1)
+    pdf.set_font(_FONT, "", 8)
+    pdf.cell(110, 4, "Unterschrift Kundin/Kunde")
+    pdf.cell(0, 4, "Unterschrift Werkstatt", ln=True)
+
+
+def render_repair_intake_receipt_pdf(
+    repair: Any,
+    customer: Any,
+    workshop: Mapping[str, Any],
+    photos: list[bytes],
+    signature_png: Optional[bytes] = None,
+    include_price: bool = False,
+) -> bytes:
+    """
+    Render the Annahmeschein (repair intake receipt) as PDF (W2-12, DOM-08).
+
+    Args:
+        repair:        RepairJob-like object (repair_number, bag_number,
+                       item_type, item_description, metal_type,
+                       estimated_cost, estimated_completion_date, created_at,
+                       intake_checklist).
+        customer:      Customer-like object or None (walk-in not recorded).
+        workshop:      Werkstatt-Stammdaten
+                       (``WorkshopSettingsService.seller_block``).
+        photos:        JPEG thumbnails of the INTAKE-phase photos.
+        signature_png: Optional PNG of the customer's signature; without it
+                       the receipt carries empty lines for pen and paper.
+        include_price: True only for FINANCIAL_VIEW holders.
+
+    Returns:
+        Raw PDF bytes.
+    """
+    # Numbers only: the description and customer data are never logged.
+    logger.info(
+        "Rendering repair intake receipt PDF",
+        extra={
+            "repair_number": _safe_str(getattr(repair, "repair_number", None)),
+            "photo_count": len(photos),
+            "has_signature": bool(signature_png),
+        },
+    )
+    name = _safe_str(workshop.get("name")) or "Goldschmiede"
+    footer = f"{name}  |  Annahmeschein {_safe_str(repair.repair_number)}"
+    pdf = _GoldsmithPDF(workshop_name=name, footer_text=footer)
+    pdf.set_title(f"Annahmeschein {_safe_str(repair.repair_number)}")
+    _annahme_header(pdf, repair, workshop)
+    _annahme_customer(pdf, customer)
+    _annahme_piece(pdf, repair, include_price)
+    _annahme_checklist(pdf, repair)
+    _annahme_photos(pdf, photos)
+    _annahme_terms_and_signature(pdf, signature_png)
+    return bytes(pdf.output())

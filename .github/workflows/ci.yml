@@ -96,6 +96,12 @@ jobs:
         run: poetry install --no-interaction
       - name: Generated API types match the backend schema
         run: make types-check
+      # DES-08 — the hex-literal count outside brand-tokens.css may only
+      # shrink. Was only runnable by hand before this; see
+      # frontend/scripts/hex-ratchet.mjs and frontend/.hex-baseline.
+      - name: Hex-literal ratchet (no new hardcoded colours)
+        working-directory: ./frontend
+        run: node scripts/hex-ratchet.mjs
 
   # OPS-11 — dependency-vulnerability scanning. Advisory only: the repo
   # carries a real, already-tracked backlog (OPS-06: 35 open Dependabot

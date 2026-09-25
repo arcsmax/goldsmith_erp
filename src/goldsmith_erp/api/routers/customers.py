@@ -31,6 +31,7 @@ from goldsmith_erp.models.consultation import (
     StyleProfileUpdate,
 )
 from goldsmith_erp.models.customer import (
+    CustomerActivityItem,
     CustomerCreate,
     CustomerListItem,
     CustomerRead,
@@ -38,10 +39,21 @@ from goldsmith_erp.models.customer import (
     CustomerWithOrders,
 )
 from goldsmith_erp.models.gdpr_export import CustomerGdprExportFull
+from goldsmith_erp.models.pagination import (
+    DEFAULT_PAGE_LIMIT,
+    MAX_PAGE_LIMIT,
+    Page,
+    PageParams,
+    page_response,
+)
 from goldsmith_erp.services.consent_service import (
     ConsentCustomerNotFoundError,
     ConsentService,
     HealthDataConsentRequiredError,
+)
+from goldsmith_erp.services.customer_activity_service import (
+    CustomerActivityService,
+    visible_kinds,
 )
 from goldsmith_erp.services.customer_service import CustomerService, RetentionHold
 from goldsmith_erp.services.file_erasure_service import FileErasureService
@@ -249,6 +261,59 @@ async def get_customer_statistics(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to get customer statistics",
         )
+
+
+@router.get("/{customer_id}/activity", response_model=Page[CustomerActivityItem])
+async def get_customer_activity(
+    customer_id: int,
+    offset: int = Query(0, ge=0, description="Offset der Seite"),
+    limit: int = Query(
+        DEFAULT_PAGE_LIMIT,
+        ge=1,
+        le=MAX_PAGE_LIMIT,
+        description=f"Seitengröße (maximal {MAX_PAGE_LIMIT})",
+    ),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_permission(Permission.CUSTOMER_VIEW)),
+):
+    """
+    Kundenverlauf (Kunde 360°, W2-12 / DOM-38): Aufträge, Reparaturen,
+    Kostenvoranschläge, Rechnungen und Kundeninfos, neueste zuerst.
+
+    Serverseitig nach ``customer_id`` gefiltert und über alle Arten hinweg
+    gepaged (``Page``-Hülle). Jede Art erscheint nur mit ihrer
+    Ansichtsberechtigung (VIEWER: Aufträge und Reparaturen); ``amount``
+    nur mit FINANCIAL_VIEW.
+    """
+    if not await CustomerActivityService.customer_exists(db, customer_id):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Customer {customer_id} not found",
+        )
+    page = await CustomerActivityService.list_activity(
+        db,
+        customer_id=customer_id,
+        kinds=visible_kinds(current_user),
+        limit=limit,
+        offset=offset,
+    )
+    include_amounts = can_view_financial(current_user)
+    exclude = None if include_amounts else {"amount"}
+    rows = [item.model_dump(exclude=exclude) for item in page.items]
+    if include_amounts:
+        logger.info(
+            "Customer activity with financial data served",
+            extra={
+                "audit": True,
+                "action": "customer_activity_financial_view",
+                "customer_id": customer_id,
+                "user_id": current_user.id,
+                "rows": len(rows),
+            },
+        )
+    return page_response(
+        rows, page.total, PageParams(limit=limit, offset=offset, is_paged=True)
+    )
 
 
 @router.post("/", response_model=CustomerRead, status_code=status.HTTP_201_CREATED)

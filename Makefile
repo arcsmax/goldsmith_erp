@@ -296,7 +296,9 @@ prod-status: ## Show production container status and health
 	@$(PROD_COMPOSE) exec -T redis redis-cli ping \
 		&& echo "$(GREEN)Redis: OK$(NC)" || echo "$(YELLOW)Redis: nicht erreichbar$(NC)"
 
-update: ## Pull latest images, rebuild, and restart production services
+update: ## Backup, then pull latest images, rebuild, and restart production services (OPS-08)
+	@echo "$(GREEN)Update: Backup vor dem Upgrade…$(NC)"
+	@bash scripts/backup.sh || (echo "$(YELLOW)Backup fehlgeschlagen — Update abgebrochen. Siehe docs/technical/infrastructure/PRODUCTION_DEPLOYMENT.md Schritt 8.$(NC)" && exit 1)
 	@echo "$(GREEN)Update: Container neu bauen und starten…$(NC)"
 	@$(PROD_COMPOSE) build --no-cache
 	@$(PROD_COMPOSE) up -d --remove-orphans
@@ -337,3 +339,6 @@ install-timers: ## OPS-07 — install + enable + start all compliance systemd us
 
 timers-status: ## OPS-07 — show status of the installed compliance timers (systemctl --user list-timers)
 	@bash scripts/install-timers.sh --status
+
+worktree-status: ## OPS-14 — report stale git worktrees/branches (read-only, never removes anything)
+	@bash scripts/list-stale-worktrees.sh

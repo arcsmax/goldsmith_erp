@@ -11,6 +11,10 @@ import {
   NoGoConflict,
   StyleProfile,
 } from '../types';
+import type { Schema } from './generated';
+
+export type CustomerActivityItem = Schema<'CustomerActivityItem'>;
+export type CustomerActivityPage = Schema<'Page_CustomerActivityItem_'>;
 
 export const customersApi = {
   /**
@@ -55,6 +59,21 @@ export const customersApi = {
    */
   getById: async (id: number): Promise<Customer> => {
     const response = await apiClient.get<Customer>(`/customers/${id}`);
+    return response.data;
+  },
+
+  /**
+   * Customer 360 history (W2-12): orders, repairs, quotes, invoices and
+   * customer updates, newest first, paged server-side. Amounts are absent
+   * for callers without FINANCIAL_VIEW.
+   */
+  getActivity: async (
+    id: number,
+    params: { offset: number; limit: number },
+  ): Promise<CustomerActivityPage> => {
+    const response = await apiClient.get<CustomerActivityPage>(`/customers/${id}/activity`, {
+      params,
+    });
     return response.data;
   },
 

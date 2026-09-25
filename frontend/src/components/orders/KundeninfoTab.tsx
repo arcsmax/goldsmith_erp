@@ -9,10 +9,17 @@
 // gets 403), so it is only called for `isAdmin`. For everyone else the
 // honest source of truth is the per-send `delivered` flag returned by
 // `sendUpdate`/`createUpdate` → `sendUpdate`.
+//
+// W6 "Update mit Fotos": the composer loads the customer's message context
+// (PHOTO_USE consent, email address, Art. 21 opt-out), blocks sending photos
+// without the consent (text-only stays possible), previews the email text and
+// downloads the same content as PDF for customers without email.
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useAuth, useToast } from '../../contexts';
 import { customerUpdatesApi } from '../../api/customer-updates';
 import type {
+  CustomerMessageContext,
+  CustomerMessagePreview,
   CustomerUpdate,
   CustomerUpdateCreateInput,
   CustomerUpdateKind,
@@ -20,8 +27,10 @@ import type {
   CustomerUpdateStatus,
 } from '../../api/customer-updates';
 import { getEmailConfig } from '../../api/admin';
+import { extractErrorDetail } from '../../api/consents';
 import { logError } from '../../lib/logError';
 import { PhotoPicker } from './PhotoPicker';
+import { ComposerHints, MessagePreviewBox } from './KundeninfoMessageAids';
 import './kundeninfo.css';
 
 export interface KundeninfoTabProps {
@@ -109,6 +118,13 @@ export function KundeninfoTab({ orderId, customerName, initialDraft }: Kundeninf
   const [actionLoading, setActionLoading] = useState(false);
   const [smtpConfigured, setSmtpConfigured] = useState<boolean | null>(null);
   const [form, setForm] = useState<ComposeForm>(initialDraft ?? EMPTY_FORM);
+  const [messageContext, setMessageContext] = useState<CustomerMessageContext | null>(null);
+  const [preview, setPreview] = useState<CustomerMessagePreview | null>(null);
+
+  // A preview describes one exact form state; any edit makes it stale.
+  useEffect(() => {
+    setPreview(null);
+  }, [form]);
 
   useEffect(() => {
     if (initialDraft) setForm({ ...initialDraft, photoIds: [...initialDraft.photoIds] });
@@ -171,6 +187,28 @@ export function KundeninfoTab({ orderId, customerName, initialDraft }: Kundeninf
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [orderId, canManage]);
 
+  // W6: consent / delivery hints. A failure only hides the hints; the
+  // backend still enforces the rules on create/send.
+  useEffect(() => {
+    if (!canManage) {
+      setMessageContext(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const context = await customerUpdatesApi.getMessageContext(orderId);
+        if (!cancelled) setMessageContext(context ?? null);
+      } catch (err) {
+        logError('KundeninfoTab.loadMessageContext', err);
+        if (!cancelled) setMessageContext(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [orderId, canManage]);
+
   // getEmailConfig is ADMIN-only backend-side — never call it as GOLDSMITH.
   useEffect(() => {
     if (!isAdmin) {
@@ -205,7 +243,9 @@ export function KundeninfoTab({ orderId, customerName, initialDraft }: Kundeninf
         return;
       }
       showToast(
-        'Als PDF erstellt — bitte manuell an den Kunden übergeben.',
+        result.reason === 'opted_out'
+          ? 'Kunde wünscht keine E-Mail-Updates — PDF erstellt, bitte manuell übergeben.'
+          : 'Als PDF erstellt — bitte manuell an den Kunden übergeben.',
         'info'
       );
       // SMTP is unconfigured, so nothing was actually sent — surface the PDF
@@ -297,7 +337,7 @@ export function KundeninfoTab({ orderId, customerName, initialDraft }: Kundeninf
       await loadHistory(orderId);
     } catch (err) {
       logError('KundeninfoTab.createUpdate', err);
-      showToast('Entwurf konnte nicht gespeichert werden.', 'error');
+      showToast(extractErrorDetail(err) ?? 'Entwurf konnte nicht gespeichert werden.', 'error');
     } finally {
       setActionLoading(false);
     }
@@ -314,11 +354,46 @@ export function KundeninfoTab({ orderId, customerName, initialDraft }: Kundeninf
       await loadHistory(orderId);
     } catch (err) {
       logError('KundeninfoTab.createAndSend', err);
-      showToast('Update konnte nicht erstellt oder gesendet werden.', 'error');
+      showToast(
+        extractErrorDetail(err) ?? 'Update konnte nicht erstellt oder gesendet werden.',
+        'error'
+      );
     } finally {
       setActionLoading(false);
     }
   }, [actionLoading, buildInput, handleSendResult, loadHistory, orderId, resetForm, showToast]);
+
+  const handlePreview = useCallback(async () => {
+    if (actionLoading) return;
+    setActionLoading(true);
+    try {
+      setPreview(await customerUpdatesApi.previewUpdate(orderId, buildInput()));
+    } catch (err) {
+      logError('KundeninfoTab.previewUpdate', err);
+      showToast(extractErrorDetail(err) ?? 'Vorschau konnte nicht erstellt werden.', 'error');
+    } finally {
+      setActionLoading(false);
+    }
+  }, [actionLoading, buildInput, orderId, showToast]);
+
+  const handlePreviewPdf = useCallback(async () => {
+    if (actionLoading) return;
+    setActionLoading(true);
+    try {
+      const blob = await customerUpdatesApi.previewUpdatePdf(orderId, buildInput());
+      downloadBlob(blob, `kundeninfo_vorschau_${orderId}.pdf`);
+    } catch (err) {
+      logError('KundeninfoTab.previewUpdatePdf', err);
+      showToast(extractErrorDetail(err) ?? 'PDF-Vorschau konnte nicht erstellt werden.', 'error');
+    } finally {
+      setActionLoading(false);
+    }
+  }, [actionLoading, buildInput, orderId, showToast]);
+
+  // Photos without PHOTO_USE consent are refused server-side (422); block
+  // the buttons up front. Unknown context (null) leaves it to the backend.
+  const photosBlocked =
+    form.photoIds.length > 0 && messageContext !== null && !messageContext.photo_consent;
 
   if (!canManage) {
     return (
@@ -456,12 +531,37 @@ export function KundeninfoTab({ orderId, customerName, initialDraft }: Kundeninf
           disabled={actionLoading}
         />
 
+        <ComposerHints
+          context={messageContext}
+          photosSelected={form.photoIds.length > 0}
+          onRemovePhotos={() => setForm({ ...form, photoIds: [] })}
+          disabled={actionLoading}
+        />
+
+        {preview && <MessagePreviewBox preview={preview} onClose={() => setPreview(null)} />}
+
         <div className="kundeninfo-compose-actions">
           <button
             type="button"
             className="btn btn-secondary"
-            onClick={() => void handleSaveDraft()}
+            onClick={() => void handlePreview()}
             disabled={actionLoading}
+          >
+            Vorschau anzeigen
+          </button>
+          <button
+            type="button"
+            className="btn btn-secondary"
+            onClick={() => void handlePreviewPdf()}
+            disabled={actionLoading || photosBlocked}
+          >
+            Vorschau als PDF
+          </button>
+          <button
+            type="button"
+            className="btn btn-secondary"
+            onClick={() => void handleSaveDraft()}
+            disabled={actionLoading || photosBlocked}
           >
             Als Entwurf speichern
           </button>
@@ -469,7 +569,7 @@ export function KundeninfoTab({ orderId, customerName, initialDraft }: Kundeninf
             type="button"
             className="btn btn-primary"
             onClick={() => void handleCreateAndSend()}
-            disabled={actionLoading}
+            disabled={actionLoading || photosBlocked}
           >
             Erstellen & senden
           </button>

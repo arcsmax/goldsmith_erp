@@ -11,9 +11,9 @@ Tests cover:
 
 from datetime import timedelta
 
+import jwt
 import pytest
 from fastapi import HTTPException
-from jose import JWTError, jwt
 
 from goldsmith_erp.api.deps import get_current_admin_user, get_current_user
 from goldsmith_erp.core.config import settings
