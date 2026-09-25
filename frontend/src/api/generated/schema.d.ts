@@ -5042,7 +5042,16 @@ export interface paths {
         delete: operations["delete_time_entry_api_v1_time_tracking__entry_id__delete"];
         options?: never;
         head?: never;
-        patch?: never;
+        /**
+         * Edit Running Entry
+         * @description Laufenden Timer bearbeiten (Aktivität, Auftrag, Ort, Notiz, Startzeit).
+         *
+         *     Nur eigene Einträge, außer ADMIN. 409 wenn der Eintrag gestoppt ist,
+         *     422 bei unmöglicher Startzeit (Zukunft, vor dem Ende der vorherigen
+         *     Zeiterfassung, älter als 24 h). Jede Änderung schreibt eine Zeile ins
+         *     Änderungsprotokoll der Notiz und ein ``entry_edited``-Event.
+         */
+        patch: operations["edit_running_entry_api_v1_time_tracking__entry_id__patch"];
         trace?: never;
     };
     "/api/v1/time-tracking/{entry_id}/activity": {
@@ -11892,6 +11901,91 @@ export interface components {
             ring_size_eu?: number | null;
             /** Unit */
             unit?: string | null;
+        };
+        /**
+         * RunningTimeEntryEdit
+         * @description PATCH body for a RUNNING entry (edit a timer while it runs).
+         *
+         *     Every field is optional; only the fields sent are changed. ``location``
+         *     may be sent as ``null`` to clear it. ``start_time`` bounds (not in the
+         *     future, not before the previous entry's end, within 24 h) need the
+         *     database and run in the service (422).
+         */
+        RunningTimeEntryEdit: {
+            /** Activity Id */
+            activity_id?: number | null;
+            /** Location */
+            location?: string | null;
+            /** Notes */
+            notes?: string | null;
+            /** Order Id */
+            order_id?: number | null;
+            /** Start Time */
+            start_time?: string | null;
+        };
+        /**
+         * RunningTimeEntryRead
+         * @description The running timer with display names, so a widget can show the
+         *     current activity and job without a second request.
+         */
+        RunningTimeEntryRead: {
+            /**
+             * Activity Id
+             * @description Activity ID (must be positive)
+             */
+            activity_id: number;
+            /** Activity Name */
+            activity_name?: string | null;
+            /** Complexity Rating */
+            complexity_rating?: number | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Duration Minutes */
+            duration_minutes?: number | null;
+            /** End Time */
+            end_time?: string | null;
+            /** Extra Metadata */
+            extra_metadata?: {
+                [key: string]: unknown;
+            } | null;
+            /** Id */
+            id: string;
+            /**
+             * Is Paused
+             * @default false
+             */
+            is_paused: boolean;
+            /**
+             * Location
+             * @description Storage location (1-50 characters)
+             */
+            location?: string | null;
+            /**
+             * Notes
+             * @description Notes (max 2000 characters)
+             */
+            notes?: string | null;
+            /**
+             * Order Id
+             * @description Order ID (must be positive)
+             */
+            order_id: number;
+            /** Order Title */
+            order_title?: string | null;
+            /** Quality Rating */
+            quality_rating?: number | null;
+            /** Rework Required */
+            rework_required: boolean;
+            /**
+             * Start Time
+             * Format: date-time
+             */
+            start_time: string;
+            /** User Id */
+            user_id: number;
         };
         /**
          * ScanContext
@@ -22157,6 +22251,43 @@ export interface operations {
             };
         };
     };
+    edit_running_entry_api_v1_time_tracking__entry_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                entry_id: string;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RunningTimeEntryEdit"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunningTimeEntryRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     patch_activity_api_v1_time_tracking__entry_id__activity_patch: {
         parameters: {
             query?: never;
@@ -22518,7 +22649,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["TimeEntryRead"] | null;
+                    "application/json": components["schemas"]["RunningTimeEntryRead"] | null;
                 };
             };
             /** @description Validation Error */

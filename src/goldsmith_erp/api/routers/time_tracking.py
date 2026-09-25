@@ -29,6 +29,8 @@ from goldsmith_erp.models.scanner import (
     SwitchTimerRequest,
 )
 from goldsmith_erp.models.time_entry import (
+    RunningTimeEntryEdit,
+    RunningTimeEntryRead,
     TimeEntryCreate,
     TimeEntryRead,
     TimeEntryStart,
@@ -83,6 +85,23 @@ async def _with_pause_state(db: AsyncSession, entry: TimeEntryModel) -> TimeEntr
     return read.model_copy(update={"is_paused": is_paused})
 
 
+async def _running_read(
+    db: AsyncSession, entry: TimeEntryModel
+) -> RunningTimeEntryRead:
+    """The running timer plus activity / order display names.
+
+    ``activity`` and ``order`` are selectinloaded by the service getters.
+    """
+    base = await _with_pause_state(db, entry)
+    activity = getattr(entry, "activity", None)
+    order = getattr(entry, "order", None)
+    return RunningTimeEntryRead(
+        **base.model_dump(),
+        activity_name=getattr(activity, "name", None),
+        order_title=getattr(order, "title", None),
+    )
+
+
 @router.post("/start", response_model=TimeEntryRead)
 @require_permission(Permission.TIME_TRACK)
 async def start_time_tracking(
@@ -131,7 +150,7 @@ async def stop_time_tracking(
         raise HTTPException(status_code=400, detail=str(e))
 
 
-@router.get("/running", response_model=Optional[TimeEntryRead])
+@router.get("/running", response_model=Optional[RunningTimeEntryRead])
 @require_permission(Permission.TIME_VIEW_OWN)
 async def get_running_entry(
     db: AsyncSession = Depends(get_db),
@@ -141,7 +160,7 @@ async def get_running_entry(
     entry = await TimeTrackingService.get_running_entry(db, current_user.id)
     if entry is None:
         return None
-    return await _with_pause_state(db, entry)
+    return await _running_read(db, entry)
 
 
 _TIME_ENTRY_LIST_MODEL = Union[Page[TimeEntryRead], List[TimeEntryRead]]
@@ -318,6 +337,30 @@ async def update_time_entry(
     if not entry:
         raise HTTPException(status_code=404, detail="Time entry not found")
     return entry
+
+
+@router.patch("/{entry_id}", response_model=RunningTimeEntryRead)
+@require_permission(Permission.TIME_TRACK)
+async def edit_running_entry(
+    entry_id: str,
+    body: RunningTimeEntryEdit,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> RunningTimeEntryRead:
+    """Laufenden Timer bearbeiten (Aktivität, Auftrag, Ort, Notiz, Startzeit).
+
+    Nur eigene Einträge, außer ADMIN. 409 wenn der Eintrag gestoppt ist,
+    422 bei unmöglicher Startzeit (Zukunft, vor dem Ende der vorherigen
+    Zeiterfassung, älter als 24 h). Jede Änderung schreibt eine Zeile ins
+    Änderungsprotokoll der Notiz und ein ``entry_edited``-Event.
+    """
+    await _get_owned_entry(db, entry_id, current_user)
+    entry = await TimeTrackingService.edit_running_entry(
+        db, entry_id, body, current_user
+    )
+    if entry is None:
+        raise HTTPException(status_code=404, detail="Time entry not found")
+    return await _running_read(db, entry)
 
 
 @router.delete("/{entry_id}")

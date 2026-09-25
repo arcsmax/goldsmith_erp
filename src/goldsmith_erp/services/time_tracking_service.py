@@ -24,12 +24,14 @@ from goldsmith_erp.db.models import TimeEntry as TimeEntryModel
 from goldsmith_erp.db.models import User as UserModel
 from goldsmith_erp.models.interruption import InterruptionCreate
 from goldsmith_erp.models.time_entry import (
+    RunningTimeEntryEdit,
     TimeEntryCreate,
     TimeEntryStart,
     TimeEntryStop,
     TimeEntryUpdate,
     TimeSummaryStats,
 )
+from goldsmith_erp.services import running_timer_edit
 from goldsmith_erp.services.activity_service import ActivityService
 
 logger = logging.getLogger(__name__)
@@ -1269,6 +1271,50 @@ class TimeTrackingService:
             failure_context={"entry_id": entry_id},
         )
 
+        return reloaded
+
+    @staticmethod
+    async def edit_running_entry(
+        db: AsyncSession,
+        entry_id: str,
+        edit: RunningTimeEntryEdit,
+        user: UserModel,
+    ) -> Optional[TimeEntryModel]:
+        """Edit a RUNNING entry in place (activity, order, location, notes,
+        start time) and publish ``entry_edited`` on ``time_tracking_updates``.
+
+        Ownership (owner or ADMIN) is gated by the router. Validation, the
+        change-log line and the write live in ``services.running_timer_edit``.
+        """
+        result = await running_timer_edit.edit_running_entry(db, entry_id, edit, user)
+        # The router loaded the entry (and its activity / order) before the
+        # UPDATE; expire so the reload does not serve the stale relationships.
+        cached = await db.get(TimeEntryModel, entry_id)
+        if cached is not None:
+            db.expire(cached)
+        reloaded = await TimeTrackingService.get_time_entry(db, entry_id)
+        if not result.changed_fields or reloaded is None:
+            return reloaded
+
+        if "activity_id" in result.changed_fields:
+            await ActivityService.increment_usage(db, reloaded.activity_id)
+
+        await TimeTrackingService._safe_publish(
+            db=db,
+            channel="time_tracking_updates",
+            payload={
+                "action": "entry_edited",
+                "source": "manual",
+                "user_id": reloaded.user_id,
+                "edited_by": user.id,
+                "entry_id": entry_id,
+                "order_id": reloaded.order_id,
+                "activity_id": reloaded.activity_id,
+                "fields": list(result.changed_fields),
+            },
+            user_id=user.id,
+            failure_context={"entry_id": entry_id},
+        )
         return reloaded
 
     @staticmethod

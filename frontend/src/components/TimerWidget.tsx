@@ -13,18 +13,20 @@
 // net hours.
 import React, { useEffect, useState } from 'react';
 
-import { timeTrackingApi } from '../api/time-tracking';
+import { timeTrackingApi, type RunningTimeEntry } from '../api/time-tracking';
 import { getErrorMessage } from '../lib/errors';
 import { Button, Icon, IconButton } from '../ui';
 import { StatusBadge } from '../ui/StatusBadge';
-import { TimeEntry, TimeEntryStopInput } from '../types';
+import { TimeEntryStopInput } from '../types';
 import { parseUTC } from '../utils/formatters';
+import { RunningTimerEditSheet } from './time-tracking/RunningTimerEditSheet';
 import { TimerStartForm } from './time-tracking/TimerStartForm';
 import { TimerStopDialog } from './time-tracking/TimerStopDialog';
 import '../styles/components/TimerWidget.css';
 
 interface TimerWidgetProps {
-  runningEntry: TimeEntry | null;
+  /** activity_name / order_title (GET /running) are shown when present. */
+  runningEntry: RunningTimeEntry | null;
   onStop: () => void;
   onRefresh?: () => void;
   /** D-15: manually pause the running entry. Optional so existing callers
@@ -49,7 +51,7 @@ function formatElapsed(seconds: number): string {
   return hours > 0 ? `${hours}:${mmss}` : mmss;
 }
 
-function useElapsedSeconds(entry: TimeEntry | null): number {
+function useElapsedSeconds(entry: RunningTimeEntry | null): number {
   const [elapsed, setElapsed] = useState(0);
   useEffect(() => {
     if (!entry) return undefined;
@@ -60,6 +62,14 @@ function useElapsedSeconds(entry: TimeEntry | null): number {
     return () => clearInterval(interval);
   }, [entry]);
   return elapsed;
+}
+
+/** "Auftrag #12 – Ring weiten · Polieren" (names from GET /running when present). */
+export function describeRunning(entry: RunningTimeEntry): string {
+  const job = entry.order_title
+    ? `Auftrag #${entry.order_id} – ${entry.order_title}`
+    : `Auftrag #${entry.order_id}`;
+  return entry.activity_name ? `${job} · ${entry.activity_name}` : job;
 }
 
 function isAlreadyStopped(err: unknown): boolean {
@@ -80,6 +90,7 @@ const TimerWidget: React.FC<TimerWidgetProps> = ({
   const [isCollapsed, setIsCollapsed] = useState(true);
   const [showStartForm, setShowStartForm] = useState(false);
   const [showStopDialog, setShowStopDialog] = useState(false);
+  const [showEditSheet, setShowEditSheet] = useState(false);
   const [isBusy, setIsBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -184,7 +195,12 @@ const TimerWidget: React.FC<TimerWidgetProps> = ({
             </div>
             {isPaused && <StatusBadge kind="timeEntry" status="paused" size="lg" />}
             <div className="timer-time">{elapsedLabel}</div>
-            <div className="timer-activity">Auftrag #{runningEntry.order_id}</div>
+            <div className="timer-activity">{describeRunning(runningEntry)}</div>
+            {runningEntry.location && (
+              <div className="timer-label">
+                <span>Ort: {runningEntry.location}</span>
+              </div>
+            )}
           </div>
 
           <div className="timer-controls">
@@ -211,6 +227,15 @@ const TimerWidget: React.FC<TimerWidgetProps> = ({
                     Pause
                   </Button>
                 )}
+            <Button
+              size="lg"
+              variant="secondary"
+              icon="pencil"
+              disabled={isBusy}
+              onClick={() => setShowEditSheet(true)}
+            >
+              Bearbeiten
+            </Button>
             <Button size="lg" icon="check" disabled={isBusy} onClick={() => setShowStopDialog(true)}>
               Stopp
             </Button>
@@ -229,6 +254,14 @@ const TimerWidget: React.FC<TimerWidgetProps> = ({
           </p>
         )}
       </section>
+
+      {showEditSheet && (
+        <RunningTimerEditSheet
+          entry={runningEntry}
+          onClose={() => setShowEditSheet(false)}
+          onSaved={() => onRefresh?.()}
+        />
+      )}
 
       <TimerStopDialog
         open={showStopDialog}

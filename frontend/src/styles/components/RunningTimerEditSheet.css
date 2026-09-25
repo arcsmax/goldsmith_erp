@@ -1,0 +1,64 @@
+/* "Timer bearbeiten" sheet (components/time-tracking/RunningTimerEditSheet).
+ * Layout only; buttons, fields and the sheet frame are src/ui primitives.
+ * Semantic tokens only, no hex. */
+
+.timer-edit {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.timer-edit__row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding-bottom: var(--space-3);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.timer-edit__summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.timer-edit__summary > div {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.timer-edit__label {
+  font-size: var(--type-sm);
+  font-weight: 600;
+  color: var(--color-text-muted);
+}
+
+.timer-edit__value {
+  font-size: var(--type-base);
+  color: var(--color-text);
+}
+
+.timer-edit-jobs {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.timer-edit-jobs__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.timer-edit-jobs__paging {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
