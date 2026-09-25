@@ -70,6 +70,22 @@ describe('DataTable', () => {
     expect(header).toHaveClass('ui-hide-below-desktop');
   });
 
+  // LV3-06: hideBelow only reaches 1024px (the playbook's widest
+  // breakpoint), so a column that is still too wide to keep at 1280px+
+  // needs a page-scoped CSS hook instead — className passes it through.
+  it('adds a caller-supplied className to the header and cells for a page CSS hook', () => {
+    const columns: Column<Row>[] = [
+      ...COLUMNS,
+      { key: 'note', header: 'Notiz', render: () => 'x', className: 'materials-col-hide-tablet-up' },
+    ];
+    renderTable({ columns });
+    const table = screen.getByRole('table');
+    const header = within(table).getByRole('columnheader', { name: 'Notiz' });
+    expect(header).toHaveClass('materials-col-hide-tablet-up');
+    const cell = within(table).getAllByText('x')[0].closest('td');
+    expect(cell).toHaveClass('materials-col-hide-tablet-up');
+  });
+
   it('exposes aria-sort on sortable headers and toggles via a button', async () => {
     const onSortChange = vi.fn();
     const user = userEvent.setup();

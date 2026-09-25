@@ -94,7 +94,12 @@ function applyFilters(rows: MetalPurchaseListItem[], f: ListFilters): MetalPurch
 function buildColumns(canEdit: boolean, onEdit: (p: MetalPurchaseListItem) => void): Column<MetalPurchaseListItem>[] {
   const columns: Column<MetalPurchaseListItem>[] = [
     { key: 'metal', header: 'Metalltyp', render: (p) => metalLabel(p.metal_type) },
-    { key: 'id', header: 'ID', hideBelow: 'tablet', render: (p) => `#${p.id}` },
+    // LV3-06: id and lot (batch code) are the lowest-value columns at
+    // tablet-and-up widths — see the identical MaterialsPage.tsx comment
+    // and .orders-col-description in orders.css for the precedent this
+    // mirrors (hideBelow tops out at 1024px, so it can't hide a column
+    // specifically at the 1280px width where this table overflowed).
+    { key: 'id', header: 'ID', className: 'metal-col-hide-tablet-up', render: (p) => `#${p.id}` },
     { key: 'date', header: 'Datum', render: (p) => <span className="ui-num">{formatDate(p.date_purchased)}</span> },
     { key: 'weight', header: 'Gewicht', numeric: true, align: 'end', hideBelow: 'tablet', render: (p) => formatWeight(p.weight_g) },
     {
@@ -139,7 +144,7 @@ function buildColumns(canEdit: boolean, onEdit: (p: MetalPurchaseListItem) => vo
       ),
     },
     { key: 'supplier', header: 'Lieferant', hideBelow: 'tablet', render: (p) => p.supplier || MISSING_VALUE },
-    { key: 'lot', header: 'Charge', hideBelow: 'tablet', render: (p) => <code>{p.lot_number || MISSING_VALUE}</code> },
+    { key: 'lot', header: 'Charge', className: 'metal-col-hide-tablet-up', render: (p) => <code>{p.lot_number || MISSING_VALUE}</code> },
   ];
   if (canEdit) {
     columns.push({

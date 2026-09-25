@@ -57,6 +57,21 @@
   overflow: hidden;
 }
 
+/* LV3-06: at 1280px the table (id + description alongside every other
+ * column) ran wider than its card. hideBelow tops out at 1024px, so it
+ * cannot hide a column specifically at 1280+; mirrors the fix already
+ * applied to the orders table's own lowest-value column
+ * (.orders-col-description in orders.css): hidden in the actual <table>
+ * from 600px up, still shown in the phone card below 600px (DataTable
+ * only excludes hideBelow:'tablet' columns from the card — these columns
+ * don't set hideBelow, so they stay in it). Only the 600px breakpoint is
+ * used (playbook: 600/1024 only). */
+@media (min-width: 600px) {
+  .materials-col-hide-tablet-up {
+    display: none;
+  }
+}
+
 .materials-stock {
   display: inline-flex;
   align-items: center;

@@ -34,6 +34,16 @@ export type Column<T> = {
   /** Right-aligned, tabular numerals (prices, weights, hours, dates). */
   numeric?: boolean;
   sortable?: boolean;
+  /**
+   * Extra class on this column's `<th>`/`<td>` for a page-scoped CSS hook
+   * (e.g. permanently hiding the lowest-value column at tablet-and-up
+   * widths — `hideBelow` alone tops out at 1024px, the playbook's widest
+   * breakpoint, so it cannot express "desktop is too crowded for this
+   * column too"; see `.orders-col-description` in orders.css for the
+   * precedent this mirrors). Never used for layout/spacing — those still
+   * come from the shared scales.
+   */
+  className?: string;
 };
 
 export interface DataTableProps<T> {
@@ -74,6 +84,7 @@ function cellClasses<T>(column: Column<T>): string {
     column.numeric && 'ui-num',
     (column.align === 'end' || (column.numeric && column.align !== 'start')) && 'ui-align-end',
     column.hideBelow && `ui-hide-below-${column.hideBelow}`,
+    column.className,
   );
 }
 
