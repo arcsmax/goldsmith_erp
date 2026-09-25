@@ -65,6 +65,17 @@
   align-items: center;
 }
 
+/* LV2-03: the global `.table-container { overflow: hidden }` (pages.css)
+ * clipped TAGS mid-word ("Stammkund", "Geschaeftsk") at 1280 and hid the
+ * Status/Aktionen columns after it, with no scroll cue — the 9-column table
+ * (ID/Name/Firma/E-Mail/Telefon/Typ/Tags/Status/Aktionen) is wider than the
+ * container. Same fix as invoices.css: let the row scroll horizontally
+ * instead of clipping it. */
+.filter-bar + .table-container {
+  overflow-x: auto;
+  overflow-y: visible;
+}
+
 .search-input {
   flex: 1;
   min-width: 250px;
