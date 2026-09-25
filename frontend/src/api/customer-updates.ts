@@ -47,7 +47,8 @@ export interface CustomerUpdateCreateInput {
 }
 
 /** Why nothing was emailed (W6): SMTP off, no address, or Art. 21 opt-out. */
-export type CustomerUpdateNotSentReason = 'smtp_disabled' | 'no_email' | 'opted_out';
+// 'queued' (OUTBOX_MODE=worker): accepted, the worker sends it (delivered=true).
+export type CustomerUpdateNotSentReason = 'smtp_disabled' | 'no_email' | 'opted_out' | 'queued';
 
 export interface CustomerUpdateSendResult {
   update: CustomerUpdate;

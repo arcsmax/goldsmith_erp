@@ -11,6 +11,7 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import sessionmaker
 
 from goldsmith_erp.core.config import settings
 from goldsmith_erp.db.models import (
@@ -23,7 +24,6 @@ from goldsmith_erp.db.models import (
     UpdateDeliveryMethod,
 )
 from goldsmith_erp.services.outbox_service import OutboxService
-from tests.integration.conftest import TestSessionLocal
 from tests.integration.test_quote_send import (
     QUOTES_URL,
     _create_quote,
@@ -35,12 +35,21 @@ from tests.integration.test_quote_send import (
 pytestmark = pytest.mark.asyncio
 
 
+@pytest.fixture
+def session_factory(db_session):
+    """Worker sessions on the engine ``db_session`` uses (not a conftest copy)."""
+    return sessionmaker(
+        bind=db_session.bind, class_=AsyncSession, expire_on_commit=False
+    )
+
+
 async def _outbox(db: AsyncSession) -> list[OutboxMessage]:
     db.expire_all()
     return list((await db.execute(select(OutboxMessage))).scalars().all())
 
 
 async def test_send_queues_then_worker_emails_exactly_once(
+    session_factory,
     client: AsyncClient,
     db_session: AsyncSession,
     admin_auth_headers: dict,
@@ -61,8 +70,8 @@ async def test_send_queues_then_worker_emails_exactly_once(
     (row,) = await _outbox(db_session)
     assert (row.kind, row.status) == ("quote_email", OutboxStatus.PENDING.value)
 
-    assert await OutboxService.run_once(TestSessionLocal) == 1
-    assert await OutboxService.run_once(TestSessionLocal) == 0
+    assert await OutboxService.run_once(session_factory) == 1
+    assert await OutboxService.run_once(session_factory) == 0
     assert capture.calls == 1
 
     records = await _records_for(db_session, quote["quote_number"])
@@ -72,6 +81,7 @@ async def test_send_queues_then_worker_emails_exactly_once(
 
 
 async def test_dead_letter_reverts_quote_to_draft(
+    session_factory,
     client: AsyncClient,
     db_session: AsyncSession,
     admin_auth_headers: dict,
@@ -88,7 +98,7 @@ async def test_dead_letter_reverts_quote_to_draft(
         f"{QUOTES_URL}{quote['id']}/send", headers=admin_auth_headers
     )
     assert resp.status_code == 200, resp.text
-    await OutboxService.run_once(TestSessionLocal)
+    await OutboxService.run_once(session_factory)
 
     (row,) = await _outbox(db_session)
     assert row.status == OutboxStatus.DEAD.value

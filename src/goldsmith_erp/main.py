@@ -17,6 +17,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from goldsmith_erp.api.routers import (
     activities,
     admin_email,
+    admin_outbox,
     admin_scan_metrics,
     admin_workshop,
     analytics,
@@ -261,6 +262,9 @@ app.include_router(
 app.include_router(
     admin_workshop.router, prefix=settings.API_V1_STR, tags=["admin-workshop"]
 )  # W2-04: Werkstatt-Stammdaten (ADMIN)
+app.include_router(
+    admin_outbox.router, prefix=settings.API_V1_STR, tags=["admin-outbox"]
+)  # W6 outbox: Nachrichten-Warteschlange (ADMIN)
 app.include_router(
     admin_scan_metrics.router,
     prefix=f"{settings.API_V1_STR}",

@@ -21,6 +21,7 @@ import {
 import type { ThemeSettings } from '../hooks/useTheme';
 import { applyTheme, fetchTheme, saveTheme } from '../hooks/useTheme';
 import { WorkshopSettingsSection } from '../components/admin/WorkshopSettingsSection';
+import { OutboxQueueSection } from '../components/admin/OutboxQueueSection';
 import '../styles/admin.css';
 import '../styles/admin-theme.css';
 
@@ -941,6 +942,7 @@ export const AdminSystemPage: React.FC = () => {
 
       <WorkshopSettingsSection />
       <EmailConfigSection />
+      <OutboxQueueSection />
       <CustomerImportSection />
       <ThemeConfigSection />
     </div>

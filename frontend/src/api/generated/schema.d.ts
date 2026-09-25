@@ -222,6 +222,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/outbox": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Outbox
+         * @description Nachrichten-Warteschlange anzeigen (nur ADMIN).
+         */
+        get: operations["list_outbox_api_v1_admin_outbox_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/outbox/{message_id}/retry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Retry Outbox Message
+         * @description Fehlgeschlagene Nachricht erneut senden (nur ADMIN).
+         */
+        post: operations["retry_outbox_message_api_v1_admin_outbox__message_id__retry_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/scan-metrics": {
         parameters: {
             query?: never;
@@ -7283,7 +7323,7 @@ export interface components {
             delivered: boolean;
             method?: components["schemas"]["UpdateDeliveryMethod"] | null;
             /** Reason */
-            reason?: ("smtp_disabled" | "no_email" | "opted_out") | null;
+            reason?: ("smtp_disabled" | "no_email" | "opted_out" | "queued") | null;
             update: components["schemas"]["CustomerUpdateRead"];
         };
         /**
@@ -10274,6 +10314,75 @@ export interface components {
             /** Vat Rate */
             vat_rate?: number | null;
         };
+        /** OutboxCounts */
+        OutboxCounts: {
+            /**
+             * Dead
+             * @default 0
+             */
+            dead: number;
+            /**
+             * Failed
+             * @default 0
+             */
+            failed: number;
+            /**
+             * Pending
+             * @default 0
+             */
+            pending: number;
+            /**
+             * Sent
+             * @default 0
+             */
+            sent: number;
+        };
+        /** OutboxListResponse */
+        OutboxListResponse: {
+            counts: components["schemas"]["OutboxCounts"];
+            /** Items */
+            items: components["schemas"]["OutboxMessageRead"][];
+            /**
+             * Mode
+             * @enum {string}
+             */
+            mode: "inline" | "worker";
+        };
+        /**
+         * OutboxMessageRead
+         * @description One queued message. ``payload`` holds ids only (no address/subject/body).
+         */
+        OutboxMessageRead: {
+            /** Attempts */
+            attempts: number;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Id */
+            id: number;
+            /** Kind */
+            kind: string;
+            /** Last Error */
+            last_error?: string | null;
+            /**
+             * Next Attempt At
+             * Format: date-time
+             */
+            next_attempt_at: string;
+            /** Payload */
+            payload: {
+                [key: string]: unknown;
+            };
+            /** Sent At */
+            sent_at?: string | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "pending" | "sent" | "failed" | "dead";
+        };
         /**
          * OverrideReasonCategoryEnum
          * @description Audit-filter categories for an alloy-mismatch override (A2.4 / Thomas §3).
@@ -13151,6 +13260,73 @@ export interface operations {
                     "application/json": {
                         [key: string]: unknown;
                     };
+                };
+            };
+        };
+    };
+    list_outbox_api_v1_admin_outbox_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                status?: ("pending" | "sent" | "failed" | "dead") | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OutboxListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    retry_outbox_message_api_v1_admin_outbox__message_id__retry_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                message_id: number;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OutboxMessageRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

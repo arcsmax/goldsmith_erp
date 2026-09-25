@@ -17,6 +17,8 @@ from datetime import datetime, timedelta
 
 import pytest
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import sessionmaker
 
 from goldsmith_erp.core.config import settings
 from goldsmith_erp.db.models import (
@@ -41,10 +43,17 @@ from goldsmith_erp.services.outbox_service import (
     OutboxService,
     backoff_seconds,
 )
-from tests.conftest import TestSessionLocal
 
 SUBJECT = "Ihr Ring ist fertig"
 BODY = "Sie können ihn ab morgen abholen."
+
+
+@pytest.fixture
+def session_factory(db_session):
+    """Worker sessions on the engine ``db_session`` uses (not a conftest copy)."""
+    return sessionmaker(
+        bind=db_session.bind, class_=AsyncSession, expire_on_commit=False
+    )
 
 
 class _CapturingSend:
@@ -164,7 +173,7 @@ class TestLeasing:
         assert [backoff_seconds(n) for n in (1, 2, 3, 4)] == [10, 20, 40, 50]
 
     async def test_failure_schedules_retry_with_backoff(
-        self, db_session, fake_handler, monkeypatch
+        self, session_factory, db_session, fake_handler, monkeypatch
     ):
         monkeypatch.setattr(settings, "OUTBOX_BACKOFF_BASE_SECONDS", 60.0)
         fake_handler["result"] = False
@@ -172,27 +181,29 @@ class TestLeasing:
         await db_session.commit()
 
         before = datetime.utcnow()
-        await OutboxService.run_once(TestSessionLocal)
+        await OutboxService.run_once(session_factory)
         await db_session.refresh(msg)
         assert msg.status == OutboxStatus.FAILED.value
         assert msg.attempts == 1
         assert msg.last_error == "delivery_failed"
         assert msg.next_attempt_at >= before + timedelta(seconds=59)
         # Not due yet: a second run does not call the handler.
-        await OutboxService.run_once(TestSessionLocal)
+        await OutboxService.run_once(session_factory)
         assert fake_handler["calls"] == 1
 
-    async def test_exception_is_recorded_as_class_name(self, db_session, fake_handler):
+    async def test_exception_is_recorded_as_class_name(
+        self, session_factory, db_session, fake_handler
+    ):
         fake_handler["result"] = RuntimeError("secret@customer.example")
         msg = await OutboxService.enqueue(db_session, kind="test", payload={})
         await db_session.commit()
-        await OutboxService.run_once(TestSessionLocal)
+        await OutboxService.run_once(session_factory)
         await db_session.refresh(msg)
         assert msg.status == OutboxStatus.FAILED.value
         assert msg.last_error == "RuntimeError"
 
     async def test_dead_after_max_attempts_and_on_dead_runs(
-        self, db_session, fake_handler, monkeypatch
+        self, session_factory, db_session, fake_handler, monkeypatch
     ):
         monkeypatch.setattr(settings, "OUTBOX_MAX_ATTEMPTS", 2)
         fake_handler["result"] = False
@@ -200,7 +211,7 @@ class TestLeasing:
         await db_session.commit()
 
         for _ in range(2):
-            await OutboxService.run_once(TestSessionLocal)
+            await OutboxService.run_once(session_factory)
             await db_session.refresh(msg)
             msg.next_attempt_at = datetime.utcnow() - timedelta(seconds=1)
             await db_session.commit()
@@ -212,15 +223,17 @@ class TestLeasing:
         # Dead rows are never leased again.
         assert await OutboxService.lease_due(db_session, limit=10) == []
 
-    async def test_unknown_kind_is_dead_lettered(self, db_session):
+    async def test_unknown_kind_is_dead_lettered(self, session_factory, db_session):
         msg = await OutboxService.enqueue(db_session, kind="nope", payload={})
         await db_session.commit()
-        await OutboxService.run_once(TestSessionLocal)
+        await OutboxService.run_once(session_factory)
         await db_session.refresh(msg)
         assert msg.status == OutboxStatus.DEAD.value
         assert msg.last_error == "unknown_kind"
 
-    async def test_admin_retry_revives_dead_row(self, db_session, fake_handler):
+    async def test_admin_retry_revives_dead_row(
+        self, session_factory, db_session, fake_handler
+    ):
         msg = await OutboxService.enqueue(db_session, kind="test", payload={})
         msg.status = OutboxStatus.DEAD.value
         msg.attempts = 6
@@ -229,7 +242,7 @@ class TestLeasing:
         await OutboxService.retry(db_session, msg.id)
         await db_session.refresh(msg)
         assert (msg.status, msg.attempts) == (OutboxStatus.PENDING.value, 0)
-        await OutboxService.run_once(TestSessionLocal)
+        await OutboxService.run_once(session_factory)
         await db_session.refresh(msg)
         assert msg.status == OutboxStatus.SENT.value
 
@@ -263,7 +276,7 @@ class TestWorkerModeCustomerMessages:
         assert await _rows(db_session) == []
 
     async def test_message_is_queued_then_sent_exactly_once(
-        self, db_session, sample_order, sample_user, smtp, worker_mode
+        self, session_factory, db_session, sample_order, sample_user, smtp, worker_mode
     ):
         result = await CustomerMessageService.send_message(
             db_session,
@@ -281,8 +294,8 @@ class TestWorkerModeCustomerMessages:
         # Payload carries ids only.
         assert set(row.payload) == {"update_id", "user_id", "message_kind"}
 
-        assert await OutboxService.run_once(TestSessionLocal) == 1
-        assert await OutboxService.run_once(TestSessionLocal) == 0
+        assert await OutboxService.run_once(session_factory) == 1
+        assert await OutboxService.run_once(session_factory) == 0
         assert len(smtp.sent_messages) == 1
 
         await db_session.refresh(row)
@@ -295,7 +308,14 @@ class TestWorkerModeCustomerMessages:
         assert len([a for a in audits if a.action == "customer_message_sent"]) == 1
 
     async def test_status_change_pickup_mail_leaves_pending_row(
-        self, db_session, sample_order, sample_user, admin_user, smtp, worker_mode
+        self,
+        session_factory,
+        db_session,
+        sample_order,
+        sample_user,
+        admin_user,
+        smtp,
+        worker_mode,
     ):
         """Order completed -> pickup scan -> customer message -> outbox row."""
         sample_order.status = "completed"
@@ -310,8 +330,8 @@ class TestWorkerModeCustomerMessages:
         (row,) = await _rows(db_session)
         assert row.status == OutboxStatus.PENDING.value
 
-        await OutboxService.run_once(TestSessionLocal)
-        await OutboxService.run_once(TestSessionLocal)
+        await OutboxService.run_once(session_factory)
+        await OutboxService.run_once(session_factory)
         assert len(smtp.sent_messages) == 1
 
     async def test_rollback_of_the_claim_leaves_no_row(
@@ -337,7 +357,14 @@ class TestWorkerModeCustomerMessages:
         assert await _rows(db_session) == []
 
     async def test_dead_letter_marks_update_send_failed(
-        self, db_session, sample_order, sample_user, smtp, worker_mode, monkeypatch
+        self,
+        session_factory,
+        db_session,
+        sample_order,
+        sample_user,
+        smtp,
+        worker_mode,
+        monkeypatch,
     ):
         monkeypatch.setattr(settings, "OUTBOX_MAX_ATTEMPTS", 1)
         smtp.fail = True
@@ -349,7 +376,7 @@ class TestWorkerModeCustomerMessages:
             body=BODY,
             user_id=sample_user.id,
         )
-        await OutboxService.run_once(TestSessionLocal)
+        await OutboxService.run_once(session_factory)
         (row,) = await _rows(db_session)
         await db_session.refresh(row)
         assert row.status == OutboxStatus.DEAD.value
@@ -359,6 +386,7 @@ class TestWorkerModeCustomerMessages:
 
     async def test_worker_logs_carry_no_pii(
         self,
+        session_factory,
         db_session,
         sample_order,
         sample_customer,
@@ -376,7 +404,7 @@ class TestWorkerModeCustomerMessages:
             body=BODY,
             user_id=sample_user.id,
         )
-        await OutboxService.run_once(TestSessionLocal)
+        await OutboxService.run_once(session_factory)
         outbox_records = [
             r for r in caplog.records if r.name.endswith("outbox_service")
         ]

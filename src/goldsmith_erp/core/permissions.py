@@ -82,6 +82,9 @@ class Permission(str, Enum):
     # W2-04: Werkstatt-Stammdaten (seller data on every Rechnung). ADMIN only
     # (ADMIN holds every permission; no other role is granted this one).
     WORKSHOP_SETTINGS_MANAGE = "workshop_settings:manage"
+    # W6 outbox (ARCH-04): view the mail queue and retry failed/dead rows.
+    # ADMIN only (ADMIN holds every permission; no other role gets this).
+    OUTBOX_MANAGE = "outbox:manage"
 
     # ML permissions
     ML_PREDICT = "ml:predict"  # Predict duration for orders (all authenticated users)
