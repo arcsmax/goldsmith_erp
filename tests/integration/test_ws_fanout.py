@@ -174,7 +174,7 @@ class TestAuth:
 
     def test_revoked_token_rejected(self, ws_client, goldsmith_user, fake_redis):
         """A token blocklisted at logout must not open a live channel."""
-        from jose import jwt
+        import jwt
 
         from goldsmith_erp.core.config import settings
         from goldsmith_erp.core.security import ALGORITHM

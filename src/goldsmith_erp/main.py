@@ -4,11 +4,11 @@ import os
 from pathlib import Path
 from typing import List
 
+import jwt
 import uvicorn
 from fastapi import FastAPI, Request, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from jose import JWTError, jwt
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
@@ -305,7 +305,7 @@ async def _authenticate_websocket(websocket: WebSocket) -> int | None:
         if not user_id:
             return None
         parsed_user_id = int(user_id)
-    except (JWTError, ValueError, TypeError):
+    except (jwt.InvalidTokenError, ValueError, TypeError):
         return None
     if await is_token_revoked(payload):
         logger.info("Revoked token refused on WebSocket", extra={"user_id": user_id})

@@ -13,8 +13,8 @@ Tests cover:
 
 from datetime import datetime, timedelta
 
+import jwt
 import pytest
-from jose import JWTError, jwt
 
 from goldsmith_erp.core.config import settings
 from goldsmith_erp.core.security import (
@@ -128,7 +128,7 @@ class TestJWTTokenCreation:
         assert payload["sub"] == "123"
 
         # Should fail with wrong key
-        with pytest.raises(JWTError):
+        with pytest.raises(jwt.InvalidTokenError):
             jwt.decode(token, "wrong-secret-key", algorithms=[ALGORITHM])
 
     def test_token_default_expiration(self):
@@ -191,10 +191,10 @@ class TestTokenValidation:
         assert payload["sub"] == "123"
 
     def test_invalid_token_raises_error(self):
-        """Test that invalid token raises JWTError"""
+        """Test that invalid token raises InvalidTokenError"""
         invalid_token = "this.is.not.a.valid.jwt.token"
 
-        with pytest.raises(JWTError):
+        with pytest.raises(jwt.InvalidTokenError):
             jwt.decode(invalid_token, settings.SECRET_KEY, algorithms=[ALGORITHM])
 
     def test_token_with_wrong_signature_raises_error(self):
@@ -203,17 +203,17 @@ class TestTokenValidation:
         token = create_access_token(data={"sub": "123"})
 
         # Try to decode with different key
-        with pytest.raises(JWTError):
+        with pytest.raises(jwt.InvalidTokenError):
             jwt.decode(token, "different-secret-key", algorithms=[ALGORITHM])
 
     def test_expired_token_raises_error(self):
-        """Test that expired token raises JWTError"""
+        """Test that expired token raises InvalidTokenError"""
         # Create token that expired 1 hour ago
         token = create_access_token(
             data={"sub": "123"}, expires_delta=timedelta(hours=-1)  # Already expired!
         )
 
-        with pytest.raises(JWTError):
+        with pytest.raises(jwt.InvalidTokenError):
             jwt.decode(token, settings.SECRET_KEY, algorithms=[ALGORITHM])
 
     def test_tampered_payload_raises_error(self):
@@ -223,7 +223,7 @@ class TestTokenValidation:
         # Tamper with token by changing a character
         tampered_token = token[:-5] + "XXXXX"
 
-        with pytest.raises(JWTError):
+        with pytest.raises(jwt.InvalidTokenError):
             jwt.decode(tampered_token, settings.SECRET_KEY, algorithms=[ALGORITHM])
 
 
@@ -383,5 +383,5 @@ class TestSecurityBestPractices:
         tampered_token = jwt.encode(payload, "wrong-key", algorithm=ALGORITHM)
 
         # Verification should fail
-        with pytest.raises(JWTError):
+        with pytest.raises(jwt.InvalidTokenError):
             jwt.decode(tampered_token, settings.SECRET_KEY, algorithms=[ALGORITHM])
