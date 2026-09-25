@@ -14,6 +14,7 @@ import { PhotoCompare } from '../components/PhotoCompare';
 import type { PhotoItem } from '../components/PhotoCompare';
 import { IntakeChecklist } from '../components/repairs/IntakeChecklist';
 import { RepairCustomerUpdatePanel } from '../components/repairs/RepairCustomerUpdatePanel';
+import { openAnnahmeschein } from '../components/repairs/annahmeschein';
 import { useAuth, useConfirm, useToast } from '../contexts';
 import { logError } from '../lib/logError';
 import { canViewDesign } from '../lib/roles';
@@ -643,7 +644,22 @@ export function RepairDetailPage() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const canDesign = canViewDesign(user?.role);
+  const { showToast } = useToast();
   const repairId = Number(id);
+  const [isPrinting, setIsPrinting] = useState(false);
+
+  // W2-12: reprint the intake receipt (DESIGN_VIEW: it carries the photos).
+  const handlePrintAnnahmeschein = async () => {
+    setIsPrinting(true);
+    try {
+      await openAnnahmeschein(repairId);
+    } catch (err) {
+      logError('RepairDetailPage.annahmeschein', err);
+      showToast('Annahmeschein konnte nicht geladen werden. Bitte erneut versuchen.', 'error');
+    } finally {
+      setIsPrinting(false);
+    }
+  };
 
   const [repair, setRepair] = useState<RepairJob | null>(null);
   const [loading, setLoading] = useState(true);
@@ -756,6 +772,16 @@ export function RepairDetailPage() {
             Tüte: {repair.bag_number}
           </span>
         </div>
+        {canDesign && (
+          <button
+            type="button"
+            className="btn btn-secondary repair-annahmeschein-btn"
+            onClick={handlePrintAnnahmeschein}
+            disabled={isPrinting}
+          >
+            {isPrinting ? 'Wird geladen…' : 'Annahmeschein drucken'}
+          </button>
+        )}
       </div>
 
       {/* Meta strip */}
@@ -770,7 +796,9 @@ export function RepairDetailPage() {
         </div>
         <div className="repair-meta-item">
           <span className="repair-meta-label">Gegenstand</span>
-          <span className="repair-meta-value">{repair.item_description}</span>
+          <span className="repair-meta-value repair-meta-value--multiline">
+            {repair.item_description}
+          </span>
         </div>
         {repair.estimated_completion_date && (
           <div className="repair-meta-item">

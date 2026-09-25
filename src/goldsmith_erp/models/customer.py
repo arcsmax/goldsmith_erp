@@ -2,7 +2,7 @@
 
 import re
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import (
     BaseModel,
@@ -426,3 +426,31 @@ class CustomerGdprExport(BaseModel):
     # ConsultationExportItem — always True (the export endpoint has no
     # code path that includes design IP).
     design_data_excluded: bool = True
+
+
+# ============================================================================
+# Customer 360 activity (W2-12, DOM-38)
+# ============================================================================
+
+CustomerActivityKind = Literal["order", "repair", "quote", "invoice", "customer_update"]
+
+
+class CustomerActivityItem(BaseModel):
+    """One row of GET /customers/{id}/activity (newest first).
+
+    ``amount`` (order price, repair cost, quote/invoice total) is removed
+    for callers without FINANCIAL_VIEW. Quotes, invoices and customer
+    updates are only listed for callers holding their view permission.
+    ``order_id`` / ``repair_job_id`` point at the parent a row links to
+    (invoices and customer updates have no page of their own).
+    """
+
+    kind: CustomerActivityKind
+    id: int
+    occurred_at: datetime
+    status: str
+    title: str
+    reference: Optional[str] = None
+    amount: Optional[float] = None
+    order_id: Optional[int] = None
+    repair_job_id: Optional[int] = None

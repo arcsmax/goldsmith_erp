@@ -11,6 +11,7 @@ import {
 
 export interface InvoiceFilterParams {
   status?: string;
+  customer_id?: number; // server-side filter (W2-12, DOM-38)
   from?: string; // ISO date string
   to?: string;   // ISO date string
   skip?: number;

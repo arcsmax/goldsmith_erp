@@ -1398,3 +1398,307 @@
     border-radius: 8px;
   }
 }
+
+/* ============================================================
+   LIST — row link, metal hint (W2-12: rows are links, not <tr onClick>)
+   ============================================================ */
+
+.repair-row-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--touch-min);
+  color: var(--color-primary);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.repair-row-link:hover {
+  text-decoration: underline;
+}
+
+.repair-row-link:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+.repair-metal {
+  margin-left: var(--space-1);
+  color: var(--color-text-muted);
+  font-size: var(--type-sm);
+}
+
+/* ============================================================
+   COUNTER INTAKE (W2-12) — one screen, tablet first
+   ============================================================ */
+
+.repair-intake-overlay {
+  z-index: var(--z-modal);
+}
+
+.repair-intake.modal-box {
+  max-width: 960px;
+  max-height: 96vh;
+}
+
+.repair-intake__close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: var(--touch-min);
+  min-height: var(--touch-min);
+  background: none;
+  border: none;
+  border-radius: var(--radius-md);
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+
+.repair-intake__close svg,
+.intake-camera svg,
+.intake-receipt svg {
+  width: var(--space-5);
+  height: var(--space-5);
+}
+
+.repair-intake__close:focus-visible,
+.intake-chip:focus-visible,
+.intake-camera:focus-within {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+.repair-intake__body {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-5);
+}
+
+.repair-intake__footer {
+  position: sticky;
+  bottom: 0;
+  background: var(--color-surface-raised);
+}
+
+.repair-intake__footer .btn-primary,
+.repair-intake__footer .btn-secondary,
+.intake-actions .btn-primary,
+.intake-actions .btn-secondary,
+.intake-customer-card .btn-secondary,
+.intake-customer-search .btn-secondary {
+  min-height: var(--touch-comfort);
+  padding: 0 var(--space-5);
+  font-size: var(--type-base);
+}
+
+.intake-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.intake-section h3 {
+  margin: 0;
+  font-size: var(--type-md);
+  color: var(--color-text);
+}
+
+.intake-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.intake-chip {
+  min-height: var(--touch-min);
+  padding: 0 var(--space-4);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-pill);
+  background: var(--color-surface-raised);
+  color: var(--color-text);
+  font-size: var(--type-base);
+  cursor: pointer;
+  transition: background var(--duration-fast) var(--ease-standard);
+}
+
+.intake-chip[aria-pressed='true'] {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: var(--color-primary-contrast);
+}
+
+.intake-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  font-size: var(--type-sm);
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.intake-field input,
+.intake-field textarea {
+  min-height: var(--touch-min);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-raised);
+  color: var(--color-text);
+  font-size: var(--type-base);
+  font-weight: 400;
+}
+
+.intake-field--money input {
+  font-variant-numeric: tabular-nums;
+}
+
+.intake-field-row {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--space-3);
+}
+
+.intake-error {
+  margin: 0;
+  color: var(--color-danger-fg);
+  font-size: var(--type-sm);
+  font-weight: 600;
+}
+
+.intake-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-3);
+}
+
+.intake-customer-search__row {
+  display: flex;
+  gap: var(--space-2);
+  align-items: flex-start;
+}
+
+.intake-customer-search__row .typeahead {
+  flex: 1;
+}
+
+.intake-customer-search__row .typeahead input {
+  width: 100%;
+  min-height: var(--touch-comfort);
+  padding: 0 var(--space-3);
+  font-size: var(--type-base);
+}
+
+.intake-customer-card {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-sunken);
+}
+
+.intake-customer-card__name {
+  margin: 0;
+  font-size: var(--type-md);
+  font-weight: 700;
+}
+
+.intake-customer-card__meta {
+  margin: 0;
+  color: var(--color-text-muted);
+}
+
+.intake-camera {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  align-self: flex-start;
+  min-height: var(--touch-comfort);
+  padding: 0 var(--space-5);
+  font-size: var(--type-base);
+  cursor: pointer;
+}
+
+.intake-camera__input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.intake-photos {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.intake-photo {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.intake-photo img {
+  width: var(--space-8);
+  height: var(--space-8);
+  object-fit: cover;
+  border-radius: var(--radius-sm);
+}
+
+.intake-receipt {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.intake-receipt h3 {
+  margin: 0;
+  font-size: var(--type-lg);
+}
+
+.intake-receipt__numbers {
+  margin: 0;
+  font-size: var(--type-md);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 1024px) {
+  .repair-intake-overlay {
+    padding: 0;
+  }
+
+  .repair-intake.modal-box {
+    max-width: none;
+    max-height: none;
+    height: 100%;
+    border-radius: 0;
+  }
+}
+
+@media (max-width: 600px) {
+  .repair-intake__body,
+  .intake-field-row {
+    grid-template-columns: 1fr;
+  }
+
+  .intake-customer-search__row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}
+
+/* W2-12: intake notes are separate lines of the description; reprint button. */
+.repair-meta-value--multiline {
+  white-space: pre-line;
+}
+
+.repair-annahmeschein-btn {
+  min-height: var(--touch-min);
+}

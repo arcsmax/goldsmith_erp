@@ -1647,6 +1647,98 @@
         }
       }
     },
+    "/api/v1/customers/{customer_id}/activity": {
+      "get": {
+        "tags": [
+          "customers",
+          "customers"
+        ],
+        "summary": "Get Customer Activity",
+        "description": "Kundenverlauf (Kunde 360°, W2-12 / DOM-38): Aufträge, Reparaturen,\nKostenvoranschläge, Rechnungen und Kundeninfos, neueste zuerst.\n\nServerseitig nach ``customer_id`` gefiltert und über alle Arten hinweg\ngepaged (``Page``-Hülle). Jede Art erscheint nur mit ihrer\nAnsichtsberechtigung (VIEWER: Aufträge und Reparaturen); ``amount``\nnur mit FINANCIAL_VIEW.",
+        "operationId": "get_customer_activity_api_v1_customers__customer_id__activity_get",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "customer_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Customer Id"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Offset der Seite",
+              "default": 0,
+              "title": "Offset"
+            },
+            "description": "Offset der Seite"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "description": "Seitengröße (maximal 200)",
+              "default": 50,
+              "title": "Limit"
+            },
+            "description": "Seitengröße (maximal 200)"
+          },
+          {
+            "name": "access_token",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Access Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_CustomerActivityItem_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/customers/{customer_id}/export": {
       "get": {
         "tags": [
@@ -13701,6 +13793,63 @@
         }
       }
     },
+    "/api/v1/repairs/{repair_id}/annahmeschein.pdf": {
+      "get": {
+        "tags": [
+          "repairs"
+        ],
+        "summary": "Get Repair Annahmeschein",
+        "description": "Annahmeschein (Reparaturannahme) als PDF (W2-12, DOM-08).\n\nEnthaelt Werkstattdaten, Kunde, Stueck, Zustand, Fotos der Annahme als\nMiniaturen, Preisindikation, Termine und Unterschriftszeilen. Fotos sind\nDesign-IP, daher DESIGN_VIEW (VIEWER: 403); die Preisindikation nur mit\nFINANCIAL_VIEW. Eine Unterschrift wird noch nicht gespeichert (keine\nSpalte, siehe W2-12-Bericht): der Schein wird auf Papier unterschrieben.",
+        "operationId": "get_repair_annahmeschein_api_v1_repairs__repair_id__annahmeschein_pdf_get",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "repair_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Repair Id"
+            }
+          },
+          {
+            "name": "access_token",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Access Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/repairs/{repair_id}/intake-checklist": {
       "put": {
         "tags": [
@@ -17791,6 +17940,352 @@
         }
       }
     },
+    "/api/v1/orders/{order_id}/message-context": {
+      "get": {
+        "tags": [
+          "customer-updates"
+        ],
+        "summary": "Einwilligungs- und Zustellhinweise fuer die Kundeninfo",
+        "description": "E-Mail vorhanden? Einwilligung Fotonutzung? Widerspruch gegen E-Mails?",
+        "operationId": "get_order_message_context_api_v1_orders__order_id__message_context_get",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "order_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Order Id"
+            }
+          },
+          {
+            "name": "access_token",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Access Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomerMessageContext"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/orders/{order_id}/updates/preview": {
+      "post": {
+        "tags": [
+          "customer-updates"
+        ],
+        "summary": "Kundeninfo-Vorschau (E-Mail-Text)",
+        "description": "Zeigt den E-Mail-Text, den der Kunde erhalten wuerde (inkl. Fusszeile).\nSpeichert nichts. Verstoesse (Fotos ohne Einwilligung, Preise) stehen in\n``blocked_reason`` statt als Fehler.",
+        "operationId": "preview_order_update_api_v1_orders__order_id__updates_preview_post",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "order_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Order Id"
+            }
+          },
+          {
+            "name": "access_token",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Access Token"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CustomerUpdateCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomerMessagePreview"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/orders/{order_id}/updates/preview/pdf": {
+      "post": {
+        "tags": [
+          "customer-updates"
+        ],
+        "summary": "Kundeninfo-Vorschau als PDF",
+        "description": "Liefert den Inhalt des Entwurfs als PDF fuer Kunden ohne E-Mail. Speichert\nnichts und markiert nichts als zugestellt. Fotos nur mit Einwilligung (422).",
+        "operationId": "preview_order_update_pdf_api_v1_orders__order_id__updates_preview_pdf_post",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "order_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Order Id"
+            }
+          },
+          {
+            "name": "access_token",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Access Token"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CustomerUpdateCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/customers/{customer_id}/email-opt-out": {
+      "get": {
+        "tags": [
+          "customer-updates"
+        ],
+        "summary": "Widerspruch gegen E-Mail-Updates abfragen",
+        "description": "``email_opt_out=true``: Kunde erhaelt keine E-Mail-Updates (Art. 21).",
+        "operationId": "get_customer_email_opt_out_api_v1_customers__customer_id__email_opt_out_get",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "customer_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Customer Id"
+            }
+          },
+          {
+            "name": "access_token",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Access Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EmailOptOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "customer-updates"
+        ],
+        "summary": "Widerspruch gegen E-Mail-Updates erfassen oder aufheben",
+        "description": "Erfasst den Widerspruch \"Keine E-Mail-Updates\" (Art. 21 DSGVO) als\nwiderrufene Einwilligung \"E-Mail-Kontakt\", oder hebt ihn auf. Solange er\nbesteht, gehen Kundeninfos nur als PDF (manuelle Uebergabe) raus.",
+        "operationId": "set_customer_email_opt_out_api_v1_customers__customer_id__email_opt_out_put",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "customer_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Customer Id"
+            }
+          },
+          {
+            "name": "access_token",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Access Token"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EmailOptOut"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EmailOptOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/orders/{order_id}/cost-changes": {
       "post": {
         "tags": [
@@ -21434,6 +21929,92 @@
         "title": "CustomMetalTypeUpdate",
         "description": "Partial update payload — all fields optional."
       },
+      "CustomerActivityItem": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "order",
+              "repair",
+              "quote",
+              "invoice",
+              "customer_update"
+            ],
+            "title": "Kind"
+          },
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "occurred_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Occurred At"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "reference": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reference"
+          },
+          "amount": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Amount"
+          },
+          "order_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Order Id"
+          },
+          "repair_job_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Repair Job Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "kind",
+          "id",
+          "occurred_at",
+          "status",
+          "title"
+        ],
+        "title": "CustomerActivityItem",
+        "description": "One row of GET /customers/{id}/activity (newest first).\n\n``amount`` (order price, repair cost, quote/invoice total) is removed\nfor callers without FINANCIAL_VIEW. Quotes, invoices and customer\nupdates are only listed for callers holding their view permission.\n``order_id`` / ``repair_job_id`` point at the parent a row links to\n(invoices and customer updates have no page of their own)."
+      },
       "CustomerCreate": {
         "properties": {
           "first_name": {
@@ -22208,6 +22789,100 @@
         ],
         "title": "CustomerMeasurementExport",
         "description": "One entry in the export payload's ``measurements`` list."
+      },
+      "CustomerMessageContext": {
+        "properties": {
+          "customer_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Customer Id"
+          },
+          "has_email": {
+            "type": "boolean",
+            "title": "Has Email"
+          },
+          "photo_consent": {
+            "type": "boolean",
+            "title": "Photo Consent"
+          },
+          "email_opt_out": {
+            "type": "boolean",
+            "title": "Email Opt Out"
+          }
+        },
+        "type": "object",
+        "required": [
+          "has_email",
+          "photo_consent",
+          "email_opt_out"
+        ],
+        "title": "CustomerMessageContext",
+        "description": "What the Kundeninfo composer needs for its consent / delivery hints."
+      },
+      "CustomerMessagePreview": {
+        "properties": {
+          "subject": {
+            "type": "string",
+            "title": "Subject"
+          },
+          "text": {
+            "type": "string",
+            "title": "Text"
+          },
+          "delivery_method": {
+            "$ref": "#/components/schemas/UpdateDeliveryMethod"
+          },
+          "photo_count": {
+            "type": "integer",
+            "title": "Photo Count"
+          },
+          "photo_consent": {
+            "type": "boolean",
+            "title": "Photo Consent"
+          },
+          "email_opt_out": {
+            "type": "boolean",
+            "title": "Email Opt Out"
+          },
+          "has_email": {
+            "type": "boolean",
+            "title": "Has Email"
+          },
+          "legal_basis": {
+            "type": "string",
+            "title": "Legal Basis"
+          },
+          "blocked_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Blocked Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "subject",
+          "text",
+          "delivery_method",
+          "photo_count",
+          "photo_consent",
+          "email_opt_out",
+          "has_email",
+          "legal_basis"
+        ],
+        "title": "CustomerMessagePreview",
+        "description": "Plain-text preview of the email a customer would receive."
       },
       "CustomerOrderExport": {
         "properties": {
@@ -23122,6 +23797,22 @@
                 "type": "null"
               }
             ]
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "smtp_disabled",
+                  "no_email",
+                  "opted_out"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
           }
         },
         "type": "object",
@@ -23579,6 +24270,21 @@
         "type": "object",
         "title": "EmailConfigUpdate",
         "description": "Partial update for SMTP configuration. Omitted fields are left unchanged."
+      },
+      "EmailOptOut": {
+        "properties": {
+          "email_opt_out": {
+            "type": "boolean",
+            "title": "Email Opt Out"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "email_opt_out"
+        ],
+        "title": "EmailOptOut",
+        "description": "Art. 21 objection \"Keine E-Mail-Updates\" (GET/PUT body)."
       },
       "EmailTestRequest": {
         "properties": {
@@ -29704,6 +30410,54 @@
         "title": "OverrideReasonCategoryEnum",
         "description": "Audit-filter categories for an alloy-mismatch override (A2.4 / Thomas §3).\n\nThe category is a structured facet joined to the freetext\n``override_reason`` so audit queries can slice 30 days of overrides\nwithout scanning plain-text reasons."
       },
+      "Page_CustomerActivityItem_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/CustomerActivityItem"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Total",
+            "description": "Anzahl aller Treffer über alle Seiten"
+          },
+          "limit": {
+            "type": "integer",
+            "maximum": 200.0,
+            "minimum": 1.0,
+            "title": "Limit"
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Offset"
+          },
+          "next_offset": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Offset",
+            "description": "Offset der nächsten Seite; null auf der letzten"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "title": "Page[CustomerActivityItem]"
+      },
       "Page_MaterialRead_": {
         "properties": {
           "items": {
@@ -31380,7 +32134,42 @@
               }
             ],
             "title": "Estimated Completion Date",
-            "description": "Voraussichtliches Fertigstellungsdatum"
+            "description": "Zugesagter Fertigstellungstermin"
+          },
+          "customer_problem": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 1000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Customer Problem",
+            "description": "Vom Kunden geschildertes Problem"
+          },
+          "condition_notes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 12,
+            "title": "Condition Notes",
+            "description": "Zustand bei Annahme, z.B. ['Kratzer', 'Tragespuren']"
+          },
+          "estimated_cost": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Estimated Cost",
+            "description": "Erste Preisindikation in EUR (unverbindlich)"
           }
         },
         "type": "object",
