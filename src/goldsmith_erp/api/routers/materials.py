@@ -4,9 +4,9 @@ import itertools
 import logging
 import uuid
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional, Union
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlalchemy import select
@@ -17,6 +17,7 @@ from goldsmith_erp.api.role_projection import (
     ExcludeSpec,
     build_excludes,
     ensure_financial_view,
+    project,
     project_response,
 )
 from goldsmith_erp.core.config import settings
@@ -30,6 +31,14 @@ from goldsmith_erp.models.material import (
     MaterialUpdate,
     MaterialWithStock,
 )
+from goldsmith_erp.models.pagination import (
+    Page,
+    PageParams,
+    legacy_list_response,
+    make_page_params,
+    page_response,
+)
+from goldsmith_erp.services import list_queries
 from goldsmith_erp.services.material_service import MaterialService
 from goldsmith_erp.services.photo_service import (
     _MAX_MAGIC_BYTES,
@@ -74,11 +83,20 @@ class StockValueResponse(BaseModel):
 # ==================== MATERIAL CRUD ENDPOINTS ====================
 
 
-@router.get("/", response_model=List[MaterialRead])
+@router.get(
+    "/",
+    # W3-08: Page[...] when ``offset`` is sent, the legacy list otherwise.
+    response_model=Union[Page[MaterialRead], List[MaterialRead]],
+)
 @require_permission(Permission.MATERIAL_VIEW)
 async def list_materials(
-    skip: int = 0,
-    limit: int = 100,
+    page: PageParams = Depends(make_page_params(legacy_default_limit=100)),
+    q: Optional[str] = Query(
+        None,
+        min_length=1,
+        max_length=100,
+        description="Suche in Name und Lieferant (nur mit offset)",
+    ),
     db: AsyncSession = Depends(get_db),
     current_user: UserModel = Depends(get_current_user),
 ):
@@ -90,9 +108,19 @@ async def list_materials(
     - Sortiert alphabetisch nach Namen
 
     **Use Case**: Übersicht über alle verfügbaren Materialien.
+
+    Mit ``offset``: ``Page`` mit Gesamtzahl und ``q``-Suche. Ohne ``offset``
+    (veraltet): Liste mit Header ``X-Deprecated-List: true``.
     """
-    materials = await MaterialService.get_materials(db, skip, limit)
-    return project_response(MaterialRead, materials, _material_excludes(current_user))
+    excludes = _material_excludes(current_user)
+    if page.is_paged:
+        result = await list_queries.fetch_page(
+            db, list_queries.materials_statement(q=q), page
+        )
+        rows = [project(MaterialRead, m, excludes) for m in result.items]
+        return page_response(rows, result.total, page)
+    materials = await MaterialService.get_materials(db, page.offset, page.limit)
+    return legacy_list_response([project(MaterialRead, m, excludes) for m in materials])
 
 
 @router.post("/", response_model=MaterialRead, status_code=status.HTTP_201_CREATED)
