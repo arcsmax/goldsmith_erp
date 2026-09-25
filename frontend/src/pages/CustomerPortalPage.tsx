@@ -1,235 +1,70 @@
 /**
- * CustomerPortalPage
+ * CustomerPortalPage — public self-service status lookup (playbook 5.6, W4-03).
  *
- * Public self-service page — no login required.
- * Customers enter their order/repair reference number and email address
- * to check the current status of their piece.
+ * No login, no staff providers, no query client: the page mounts outside the
+ * authenticated shell (App.tsx, FE-01) and makes exactly one request, the
+ * lookup. The backend 404s the whole portal router while
+ * CUSTOMER_PORTAL_ENABLED is off; a disabled portal therefore reads the same
+ * as an unknown reference ("nicht gefunden"), so nothing is enumerable.
  *
- * Design: glass morphism card on dark gradient background.
- * Mobile-first: every interactive element meets the 44×44px touch target minimum.
+ * Customer-facing: formal "Sie", plain language, large type, same tokens as
+ * the app, only customer-safe data (see PortalStatusResult).
  */
-
 import React, { useState } from 'react';
+import { PortalStatusResult, type PortalStatusResponse } from '../components/portal/PortalStatusResult';
+import { Button, Field } from '../ui';
 import '../styles/portal.css';
 
-// ── Types ─────────────────────────────────────────────────────────────────────
+/** Shown until workshop branding is available to logged-out visitors (open item). */
+const WORKSHOP_NAME = 'Goldschmiede';
+const LOOKUP_URL = '/api/v1/portal/lookup';
 
-interface PortalStatusResponse {
-  reference_number: string;
-  record_type: 'order' | 'repair';
-  status_key: string;
-  status_label: string;
-  item_title: string;
-  current_step: number;
-  total_steps: number;
-  step_label: string;
-  pipeline_labels: string[];
-  estimated_completion: string | null;
-  is_complete: boolean;
-  lookup_token?: string;
+const MESSAGES = {
+  notFound:
+    'Wir haben keinen Auftrag mit dieser Nummer und E-Mail-Adresse gefunden. Bitte prüfen Sie beide Angaben.',
+  tooMany: 'Zu viele Anfragen. Bitte warten Sie einen Moment und versuchen Sie es dann erneut.',
+  failed: 'Das hat leider nicht geklappt. Bitte versuchen Sie es später noch einmal.',
+  offline: 'Keine Verbindung. Bitte prüfen Sie Ihre Internetverbindung.',
+} as const;
+
+type LookupResult = { ok: true; data: PortalStatusResponse } | { ok: false; message: string };
+
+async function lookupStatus(referenceNumber: string, email: string): Promise<LookupResult> {
+  const response = await fetch(LOOKUP_URL, {
+    method: 'POST',
+    // A6: never send auth cookies on this public endpoint. The same-origin
+    // default WOULD attach an active staff session cookie — a cross-privilege
+    // leak. See docs/fix-plan/2026-04-23/A6-portal-fetch.md.
+    credentials: 'omit',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ reference_number: referenceNumber.trim(), email: email.trim() }),
+  });
+  if (response.status === 404) return { ok: false, message: MESSAGES.notFound };
+  if (response.status === 429) return { ok: false, message: MESSAGES.tooMany };
+  if (!response.ok) return { ok: false, message: MESSAGES.failed };
+  return { ok: true, data: (await response.json()) as PortalStatusResponse };
 }
-
-// ── Badge helpers ──────────────────────────────────────────────────────────────
-
-function getBadgeClass(statusKey: string, isComplete: boolean): string {
-  if (statusKey === 'cancelled') return 'portal-status-badge portal-status-badge--cancelled';
-  if (isComplete) return 'portal-status-badge portal-status-badge--complete';
-  if (
-    statusKey === 'waiting_for_fitting' ||
-    statusKey === 'quoted' ||
-    statusKey === 'approved'
-  ) return 'portal-status-badge portal-status-badge--waiting';
-  return 'portal-status-badge portal-status-badge--in-progress';
-}
-
-function getProgressClass(isComplete: boolean): string {
-  return isComplete
-    ? 'portal-progress-fill portal-progress-fill--complete'
-    : 'portal-progress-fill';
-}
-
-function getDotClass(dotIndex: number, currentStep: number, isComplete: boolean): string {
-  // dotIndex is 0-based, currentStep is 1-based
-  if (isComplete) return 'portal-step-dot portal-step-dot--done-complete';
-  if (dotIndex < currentStep - 1) return 'portal-step-dot portal-step-dot--done';
-  if (dotIndex === currentStep - 1) return 'portal-step-dot portal-step-dot--current';
-  return 'portal-step-dot';
-}
-
-// ── Diamond ring SVG icon ─────────────────────────────────────────────────────
-
-const RingIcon: React.FC = () => (
-  <svg viewBox="0 0 24 24" aria-hidden="true">
-    <path d="M8.5 3h7l1.5 4H7L8.5 3zm-1.6 5h10.2l-5.1 9L6.9 8zM12 10l-3 5.3A7 7 0 1 0 12 10zm0 2a5 5 0 1 1 0 10A5 5 0 0 1 12 12z"/>
-  </svg>
-);
-
-// ── Sub-components ────────────────────────────────────────────────────────────
-
-interface StatusResultProps {
-  data: PortalStatusResponse;
-  onReset: () => void;
-}
-
-const StatusResult: React.FC<StatusResultProps> = ({ data, onReset }) => {
-  const progressPercent =
-    data.total_steps > 0
-      ? Math.round((Math.max(0, data.current_step) / data.total_steps) * 100)
-      : 0;
-
-  const recordTypeLabel = data.record_type === 'repair' ? 'Reparatur' : 'Auftrag';
-
-  return (
-    <div className="portal-result">
-      <button className="portal-back-btn" onClick={onReset} type="button">
-        ← Neue Suche
-      </button>
-
-      <div className="portal-result-header">
-        <div>
-          <div className="portal-ref-number">
-            {recordTypeLabel} {data.reference_number}
-          </div>
-          <div className="portal-item-title">{data.item_title}</div>
-        </div>
-        <span className={getBadgeClass(data.status_key, data.is_complete)}>
-          <span className="portal-status-badge-dot" aria-hidden="true" />
-          {data.status_label}
-        </span>
-      </div>
-
-      {/* Progress bar */}
-      <div className="portal-progress-section" role="status" aria-label={`Schritt ${data.current_step} von ${data.total_steps}: ${data.step_label}`}>
-        <div className="portal-step-info">
-          <span className="portal-step-text">
-            {data.current_step > 0
-              ? `Schritt ${data.current_step} von ${data.total_steps}`
-              : 'Storniert'}
-          </span>
-          <span className="portal-step-label">{data.step_label}</span>
-        </div>
-
-        <div className="portal-progress-track" role="progressbar" aria-valuenow={progressPercent} aria-valuemin={0} aria-valuemax={100}>
-          <div
-            className={getProgressClass(data.is_complete)}
-            style={{ width: `${progressPercent}%` }}
-          />
-        </div>
-
-        <div className="portal-steps-row" aria-hidden="true">
-          {data.pipeline_labels.map((_, i) => (
-            <div
-              key={i}
-              className={getDotClass(i, data.current_step, data.is_complete)}
-              title={data.pipeline_labels[i]}
-            />
-          ))}
-        </div>
-      </div>
-
-      {/* Detail rows */}
-      <div className="portal-details">
-        <div className="portal-detail-row">
-          <span className="portal-detail-icon" aria-hidden="true">
-            {data.record_type === 'repair' ? '🔧' : '💍'}
-          </span>
-          <span className="portal-detail-label">Typ</span>
-          <span className="portal-detail-value">{recordTypeLabel}</span>
-        </div>
-
-        <div className="portal-detail-row">
-          <span className="portal-detail-icon" aria-hidden="true">📋</span>
-          <span className="portal-detail-label">Status</span>
-          <span className="portal-detail-value">{data.status_label}</span>
-        </div>
-
-        {data.estimated_completion && (
-          <div className="portal-detail-row">
-            <span className="portal-detail-icon" aria-hidden="true">📅</span>
-            <span className="portal-detail-label">Voraussichtlich fertig</span>
-            <span className="portal-detail-value">{data.estimated_completion}</span>
-          </div>
-        )}
-
-        {data.is_complete && data.status_key !== 'cancelled' && (
-          <div className="portal-detail-row">
-            <span className="portal-detail-icon" aria-hidden="true">✅</span>
-            <span className="portal-detail-label">Bereit zur Abholung</span>
-            <span className="portal-detail-value" style={{ color: '#4ade80' }}>
-              Ihr Stueck wartet auf Sie
-            </span>
-          </div>
-        )}
-      </div>
-
-      {/* Contact footer */}
-      <div className="portal-contact-footer">
-        Bei Fragen kontaktieren Sie uns gerne:{' '}
-        <a href="mailto:info@goldschmiede.de">info@goldschmiede.de</a>
-        {' '}oder telefonisch unter{' '}
-        <a href="tel:+4900000000">+49 0 000 000</a>
-      </div>
-    </div>
-  );
-};
-
-// ── Main page component ───────────────────────────────────────────────────────
 
 export const CustomerPortalPage: React.FC = () => {
   const [referenceNumber, setReferenceNumber] = useState('');
   const [email, setEmail] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<PortalStatusResponse | null>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
-    setLoading(true);
-
+    setIsLoading(true);
     try {
-      const response = await fetch('/api/v1/portal/lookup', {
-        method: 'POST',
-        // A6: never send auth cookies on this public endpoint. The browser
-        // default for same-origin fetch is 'same-origin' which WOULD attach
-        // any active session cookie — a cross-privilege leak if a logged-in
-        // employee views the public portal. See
-        // docs/fix-plan/2026-04-23/A6-portal-fetch.md.
-        credentials: 'omit',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          reference_number: referenceNumber.trim(),
-          email: email.trim(),
-        }),
-      });
-
-      if (response.status === 404) {
-        setError(
-          'Auftrag nicht gefunden. Bitte pruefen Sie Ihre Auftragsnummer und E-Mail-Adresse.'
-        );
-        return;
-      }
-
-      if (response.status === 429) {
-        setError(
-          'Zu viele Anfragen. Bitte warten Sie kurz und versuchen Sie es erneut.'
-        );
-        return;
-      }
-
-      if (!response.ok) {
-        setError('Ein Fehler ist aufgetreten. Bitte versuchen Sie es spaeter erneut.');
-        return;
-      }
-
-      const data: PortalStatusResponse = await response.json();
-      setResult(data);
+      const outcome = await lookupStatus(referenceNumber, email);
+      if (outcome.ok) setResult(outcome.data);
+      else setError(outcome.message);
     } catch {
-      setError(
-        'Verbindung zum Server nicht möglich. Bitte prüfen Sie Ihre Internetverbindung.'
-      );
+      // Network failure: fetch rejected before any response (no PII logged).
+      setError(MESSAGES.offline);
     } finally {
-      setLoading(false);
+      setIsLoading(false);
     }
   };
 
@@ -240,97 +75,77 @@ export const CustomerPortalPage: React.FC = () => {
     setEmail('');
   };
 
+  const canSubmit = referenceNumber.trim() !== '' && email.trim() !== '';
+
   return (
-    <main className="portal-page">
-      {/* Branding header */}
+    <div className="portal-page">
       <header className="portal-header">
-        <div className="portal-brand-mark" aria-hidden="true">
-          <RingIcon />
-        </div>
-        <div className="portal-workshop-name">Goldschmiede</div>
-        <div className="portal-tagline">Auftragsstatus prüfen</div>
+        <p className="portal-workshop-name">{WORKSHOP_NAME}</p>
+        <p className="portal-tagline">Auftragsstatus</p>
       </header>
 
-      {/* Glass card */}
-      <div className="portal-card" role="region" aria-label="Auftragssuche">
+      <main className="portal-card">
         {result ? (
-          <StatusResult data={result} onReset={handleReset} />
+          <PortalStatusResult data={result} onReset={handleReset} />
         ) : (
-          <form onSubmit={handleSubmit} noValidate>
-            <h1 className="portal-form-title">Status prüfen</h1>
+          <form onSubmit={handleSubmit} noValidate aria-labelledby="portal-form-title">
+            <h1 id="portal-form-title" className="portal-form-title">
+              Status prüfen
+            </h1>
             <p className="portal-form-subtitle">
-              Geben Sie Ihre Auftragsnummer oder Reparaturnummer sowie Ihre E-Mail-Adresse ein.
+              Wie weit ist Ihr Schmuckstück? Geben Sie die Nummer von Ihrem Auftragsschein und Ihre E-Mail-Adresse ein.
             </p>
 
-            <div className="portal-field">
-              <label htmlFor="portal-ref" className="portal-label">
-                Auftragsnummer oder Reparaturnummer
-              </label>
+            <Field
+              label="Auftragsnummer oder Reparaturnummer"
+              name="reference_number"
+              required
+              help="Zum Beispiel 4287 oder REP-2026-0042."
+            >
               <input
                 id="portal-ref"
-                className="portal-input"
                 type="text"
                 value={referenceNumber}
                 onChange={(e) => setReferenceNumber(e.target.value)}
-                placeholder="z.B. 4287 oder REP-2026-0042"
                 autoComplete="off"
                 autoCapitalize="characters"
                 spellCheck={false}
-                required
-                disabled={loading}
-                aria-required="true"
+                disabled={isLoading}
               />
-            </div>
+            </Field>
 
-            <div className="portal-field">
-              <label htmlFor="portal-email" className="portal-label">
-                E-Mail-Adresse
-              </label>
+            <Field label="E-Mail-Adresse" name="email" required inputMode="email">
               <input
                 id="portal-email"
-                className="portal-input"
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="ihre@email.de"
                 autoComplete="email"
-                required
-                disabled={loading}
-                aria-required="true"
-                inputMode="email"
+                disabled={isLoading}
               />
-            </div>
+            </Field>
 
             {error && (
-              <div className="portal-error" role="alert" aria-live="assertive">
-                <span className="portal-error-icon" aria-hidden="true">⚠</span>
-                <span>{error}</span>
-              </div>
+              <p className="portal-error" role="alert">
+                {error}
+              </p>
             )}
 
-            <button
-              type="submit"
-              className="portal-submit-btn"
-              disabled={loading || !referenceNumber.trim() || !email.trim()}
-              aria-busy={loading}
-            >
-              {loading ? (
-                <>
-                  <span className="portal-spinner" aria-hidden="true" />
-                  Suche...
-                </>
-              ) : (
-                'Status prüfen'
-              )}
-            </button>
+            <Button type="submit" size="lg" block loading={isLoading} disabled={!canSubmit}>
+              {isLoading ? 'Wird gesucht…' : 'Status prüfen'}
+            </Button>
           </form>
         )}
-      </div>
+      </main>
 
       <footer className="portal-footer">
-        Goldschmied ERP &mdash; Kundenstatus-Portal
+        <p>
+          Fragen? Schreiben Sie uns an{' '}
+          <a href="mailto:info@goldschmiede.de">info@goldschmiede.de</a> oder rufen Sie uns an:{' '}
+          <a href="tel:+4900000000">+49 0 000 000</a>
+        </p>
       </footer>
-    </main>
+    </div>
   );
 };
 

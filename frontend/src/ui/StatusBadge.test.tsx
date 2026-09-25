@@ -8,6 +8,15 @@ afterEach(() => {
 });
 
 describe('StatusBadge', () => {
+  it('shows a customer-facing label when given, keeping tone and icon from the map', () => {
+    const { container } = render(
+      <StatusBadge kind="order" status="ready_for_setting" label="In Arbeit" />,
+    );
+    expect(screen.getByText('In Arbeit')).toBeInTheDocument();
+    expect(screen.queryByText('Bereit zum Fassen')).not.toBeInTheDocument();
+    expect(container.firstElementChild).toHaveClass('ui-status-badge--progress');
+  });
+
   it('shows the German label, never the raw enum value', () => {
     render(<StatusBadge kind="order" status="confirmed" />);
     expect(screen.getByText('Bestätigt')).toBeInTheDocument();
