@@ -1,10 +1,11 @@
 // "Rechnung erstellen" (W4-03): react-hook-form + zod on the Modal primitive.
 // A backend rejection (order already invoiced, not eligible) stays inline in
 // the dialog so the input can be fixed instead of starting over.
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import type { InvoiceCreateInput } from '../../types';
+import { useDebouncedValue } from '../../lib/useDebouncedValue';
 import { Button, Field, Modal } from '../../ui';
 import {
   DEFAULT_PAYMENT_TERM_DAYS,
@@ -40,7 +41,9 @@ export const CreateInvoiceModal: React.FC<CreateInvoiceModalProps> = ({
   onClose,
   onSubmit,
 }) => {
-  const orders = useInvoiceableOrders(open);
+  const [orderSearch, setOrderSearch] = useState('');
+  const debouncedOrderSearch = useDebouncedValue(orderSearch);
+  const orders = useInvoiceableOrders(open, debouncedOrderSearch);
   const form = useForm<CreateInvoiceValues>({
     defaultValues: defaults(),
     resolver: zodResolver(createInvoiceSchema),
@@ -48,10 +51,15 @@ export const CreateInvoiceModal: React.FC<CreateInvoiceModalProps> = ({
   const { register, handleSubmit, reset, watch, formState } = form;
   const { errors, isDirty, isSubmitting } = formState;
   const orderId = watch('order_id');
-  const eligibleOrders = (orders.data ?? []).filter((o) => INVOICEABLE_ORDER_STATUSES.includes(o.status));
+  const eligibleOrders = (orders.data?.items ?? []).filter((o) =>
+    INVOICEABLE_ORDER_STATUSES.includes(o.status),
+  );
 
   useEffect(() => {
-    if (open) reset(defaults());
+    if (open) {
+      reset(defaults());
+      setOrderSearch('');
+    }
   }, [open, reset]);
 
   const submit = handleSubmit((values) => onSubmit(toCreateInput(values)));
@@ -79,6 +87,15 @@ export const CreateInvoiceModal: React.FC<CreateInvoiceModalProps> = ({
             {submitError}
           </div>
         )}
+
+        <Field label="Auftrag suchen" name="order_search">
+          <input
+            type="search"
+            placeholder="Titel, Kunde oder Nr. …"
+            value={orderSearch}
+            onChange={(e) => setOrderSearch(e.target.value)}
+          />
+        </Field>
 
         {orders.isPending ? (
           <p className="ui-field__help" aria-live="polite">
