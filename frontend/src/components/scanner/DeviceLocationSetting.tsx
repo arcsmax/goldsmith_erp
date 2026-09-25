@@ -1,11 +1,13 @@
 // "Standort dieses Geräts" — the bench location a tablet reports with every
 // scan (scan tracking, 2026-09 audit). Chosen once per device and kept in
-// localStorage (lib/deviceId.ts); without it the scan falls back to the
-// running timer's location.
+// localStorage (lib/deviceId.ts) as the configured workshop location (W8
+// dropdown, id + name); without it the scan falls back to the running
+// timer's location.
 import React, { useState } from 'react';
 
-import { getDeviceLocation, MAX_LOCATION_LENGTH, setDeviceLocation } from '../../lib/deviceId';
-import { Button, Icon, usePromptDialog } from '../../ui';
+import { getDeviceLocationEntry, setDeviceLocation } from '../../lib/deviceId';
+import { Button, Icon } from '../../ui';
+import { useLocationPrompt } from './LocationPrompt';
 import '../../styles/components/ScanTracking.css';
 
 export interface DeviceLocationSettingProps {
@@ -14,24 +16,22 @@ export interface DeviceLocationSettingProps {
 }
 
 export const DeviceLocationSetting: React.FC<DeviceLocationSettingProps> = ({ onChange }) => {
-  const [location, setLocation] = useState<string | null>(() => getDeviceLocation());
-  const { prompt, dialog } = usePromptDialog();
+  const [entry, setEntry] = useState(() => getDeviceLocationEntry());
+  const { promptLocation, dialog } = useLocationPrompt();
+  const location = entry?.name ?? null;
 
   const choose = async (): Promise<void> => {
-    const typed = await prompt({
+    const picked = await promptLocation({
       title: 'Standort dieses Geräts',
-      label: 'Standort',
-      description:
-        'Jeder Scan auf diesem Gerät wird mit diesem Standort erfasst. Leer lassen, um ihn zu entfernen.',
-      help: 'z. B. Werkbank 2, Empfang, Tresor',
-      defaultValue: location ?? '',
+      description: 'Jeder Scan auf diesem Gerät wird mit diesem Standort erfasst.',
       confirmLabel: 'Standort speichern',
-      maxLength: MAX_LOCATION_LENGTH,
+      current: entry,
+      allowClear: entry !== null,
     });
-    if (typed === null) return;
-    const saved = setDeviceLocation(typed);
-    setLocation(saved);
-    onChange?.(saved);
+    if (picked === null) return;
+    const saved = setDeviceLocation(picked.name ? picked : null);
+    setEntry(saved);
+    onChange?.(saved?.name ?? null);
   };
 
   return (

@@ -90,6 +90,11 @@ const UNKNOWN: ResolveResponse = {
   status_hint: null,
 };
 
+const LOCATIONS = [
+  { id: 1, name: 'Werkbank 3', kind: 'bench', is_active: true, sort_order: 0, created_at: '2026-09-01T00:00:00Z' },
+  { id: 2, name: 'Tresor', kind: 'safe', is_active: true, sort_order: 1, created_at: '2026-09-01T00:00:00Z' },
+];
+
 let resolveResult: ResolveResponse | Error = orderResolve();
 let locationError: Error | null = null;
 let rowCounter = 0;
@@ -112,7 +117,9 @@ beforeEach(() => {
   resolveResult = orderResolve();
   locationError = null;
   rowCounter = 0;
-  mocks.apiGet.mockReset().mockResolvedValue({ data: [] });
+  mocks.apiGet.mockReset().mockImplementation(async (url: string) =>
+    url === '/locations' ? { data: LOCATIONS } : { data: [] },
+  );
   mocks.apiPost.mockReset().mockImplementation(async (url: string, body: Record<string, unknown>) => {
     if (url === '/scan/resolve') {
       if (resolveResult instanceof Error) throw resolveResult;
@@ -218,16 +225,17 @@ describe('scan tracking: decode → log → sheet', () => {
     const user = userEvent.setup();
     await user.click(await screen.findByTestId('qa-action-change_location'));
     const dialog = await screen.findByRole('dialog', { name: 'Standort setzen' });
-    const input = within(dialog).getByLabelText(/Standort/);
-    await user.clear(input);
-    await user.type(input, 'Tresor');
+    const select = within(dialog).getByLabelText(/Standort/);
+    await within(dialog).findByRole('option', { name: 'Tresor' });
+    await user.selectOptions(select, '2');
     await user.click(within(dialog).getByRole('button', { name: 'Standort setzen' }));
 
     await waitFor(() => expect(logRows()).toHaveLength(2));
-    expect(posts('/orders/42/location')[0].body).toEqual({ location: 'Tresor' });
+    expect(posts('/orders/42/location')[0].body).toEqual({ location: 'Tresor', location_id: 2 });
     const action = logRows()[1];
     expect(action.action_taken).toBe('change_location');
     expect((action.context as ScanContext).current_location).toBe('Tresor');
+    expect((action.context as ScanContext).location_id).toBe(2);
     expect((action.context as ScanContext).action_result).toBe('ok');
   });
 
@@ -238,7 +246,8 @@ describe('scan tracking: decode → log → sheet', () => {
     const user = userEvent.setup();
     await user.click(await screen.findByTestId('qa-action-change_location'));
     const dialog = await screen.findByRole('dialog', { name: 'Standort setzen' });
-    await user.type(within(dialog).getByLabelText(/Standort/), 'Tresor');
+    await within(dialog).findByRole('option', { name: 'Tresor' });
+    await user.selectOptions(within(dialog).getByLabelText(/Standort/), '2');
     await user.click(within(dialog).getByRole('button', { name: 'Standort setzen' }));
 
     expect(await screen.findByTestId('qa-error')).toHaveTextContent('nicht gespeichert');
@@ -274,12 +283,26 @@ describe('device location on the scanner page', () => {
     expect(screen.getByTestId('scanner-device-location-value')).toHaveTextContent('nicht festgelegt');
     await user.click(screen.getByTestId('scanner-device-location-edit'));
     const dialog = await screen.findByRole('dialog', { name: 'Standort dieses Geräts' });
-    await user.type(within(dialog).getByLabelText(/Standort/), 'Werkbank 3');
+    await within(dialog).findByRole('option', { name: 'Werkbank 3' });
+    await user.selectOptions(within(dialog).getByLabelText(/Standort/), '1');
     await user.click(within(dialog).getByRole('button', { name: 'Standort speichern' }));
 
     expect(screen.getByTestId('scanner-device-location-value')).toHaveTextContent('Werkbank 3');
     expect(getDeviceLocation()).toBe('Werkbank 3');
-    expect(localStorage.getItem('scan_device_location')).toBe('Werkbank 3');
+    expect(JSON.parse(localStorage.getItem('scan_device_location') ?? 'null')).toEqual({
+      id: 1,
+      name: 'Werkbank 3',
+    });
+  });
+
+  it('sends the device location id with every scan', async () => {
+    setDeviceLocation({ id: 1, name: 'Werkbank 3' });
+    renderScanner();
+    await typeCode('42');
+    await screen.findByTestId('qa-modal-v2');
+    const ctx = logRows()[0].context as ScanContext;
+    expect(ctx.location_id).toBe(1);
+    expect(ctx.current_location).toBe('Werkbank 3');
   });
 });
 

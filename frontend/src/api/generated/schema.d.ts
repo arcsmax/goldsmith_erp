@@ -9161,6 +9161,8 @@ export interface components {
             action_taken?: string | null;
             /** Location */
             location?: string | null;
+            /** Location Id */
+            location_id?: number | null;
             /**
              * Scanned At
              * Format: date-time
@@ -11361,6 +11363,8 @@ export interface components {
             input_source?: string | null;
             /** Location */
             location?: string | null;
+            /** Location Id */
+            location_id?: number | null;
             /** Parent Scan Id */
             parent_scan_id?: string | null;
             /**
@@ -12299,6 +12303,8 @@ export interface components {
              * @enum {string}
              */
             input_source: "camera" | "usb_hid" | "manual";
+            /** Location Id */
+            location_id?: number | null;
             /** Parent Scan Id */
             parent_scan_id?: string | null;
             /** Running Timer Id */
@@ -12337,6 +12343,8 @@ export interface components {
             input_source?: string | null;
             /** Location */
             location?: string | null;
+            /** Location Id */
+            location_id?: number | null;
             /** Parent Scan Id */
             parent_scan_id?: string | null;
             /** Raw Payload */

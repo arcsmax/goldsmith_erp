@@ -31,6 +31,7 @@ from goldsmith_erp.db.models import (
     RepairItemType,
     RepairJob,
     RepairJobStatus,
+    WorkshopLocation,
 )
 
 LOG_URL = "/api/v1/scan/log"
@@ -43,6 +44,7 @@ PIECE_SCAN_KEYS = {
     "user_id",
     "user_name",
     "location",
+    "location_id",
     "action_taken",
     "action_result",
     "input_source",
@@ -491,3 +493,47 @@ class TestActionSheet:
     async def test_unknown_payload_has_no_actions(self, client, goldsmith_auth_headers):
         ids = await self._actions(client, goldsmith_auth_headers, "ALT-0815")
         assert ids == []
+
+
+class TestWorkshopLocation:
+    """W8 ``workshop_locations``: a scan may name its location by id."""
+
+    @pytest_asyncio.fixture
+    async def bench(self, db_session: AsyncSession) -> WorkshopLocation:
+        location = WorkshopLocation(
+            name=f"Werkbank {uuid.uuid4().hex[:4]}", kind="bench", is_active=True
+        )
+        db_session.add(location)
+        await db_session.commit()
+        await db_session.refresh(location)
+        return location
+
+    @pytest.mark.asyncio
+    async def test_location_id_is_resolved_to_its_name(
+        self, client, goldsmith_auth_headers, piece_order, bench
+    ):
+        body = _scan_body("order", piece_order.id, location="veraltet")
+        body["context"]["location_id"] = bench.id
+        await _log(client, goldsmith_auth_headers, body)
+        item = (
+            await client.get(
+                f"/api/v1/orders/{piece_order.id}/scans", headers=goldsmith_auth_headers
+            )
+        ).json()["items"][0]
+        assert item["location_id"] == bench.id
+        assert item["location"] == bench.name
+
+    @pytest.mark.asyncio
+    async def test_unknown_location_id_never_loses_the_scan(
+        self, client, goldsmith_auth_headers, piece_order
+    ):
+        body = _scan_body("order", piece_order.id, location="Werkbank 9")
+        body["context"]["location_id"] = 987654
+        await _log(client, goldsmith_auth_headers, body)
+        item = (
+            await client.get(
+                f"/api/v1/orders/{piece_order.id}/scans", headers=goldsmith_auth_headers
+            )
+        ).json()["items"][0]
+        assert item["location_id"] is None
+        assert item["location"] == "Werkbank 9"

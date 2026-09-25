@@ -23,7 +23,7 @@
 // scanner page mounts) via POST /scan/log/batch. Idempotency keys make the
 // retries safe.
 import { logScanBatch, logScanEvent } from '../../api/scanner';
-import { getDeviceId, getDeviceLocation, normaliseLocation } from '../../lib/deviceId';
+import { getDeviceId, getDeviceLocationEntry, normaliseLocation } from '../../lib/deviceId';
 import { logError } from '../../lib/logError';
 import type { ResolveResponse, ScanContext, ScanEvent } from '../../types/scanner';
 
@@ -56,14 +56,21 @@ export interface TrackedScan {
   scanId: string | null;
 }
 
+export interface ScanLocation {
+  name: string | null;
+  /** workshop_locations id when the location came from the device setting. */
+  id: number | null;
+}
+
 /** Where this scan happened: device bench → station → running timer → null. */
-export function resolveScanLocation(sources: LocationSources): string | null {
-  return (
-    getDeviceLocation() ??
+export function resolveScanLocation(sources: LocationSources): ScanLocation {
+  const device = getDeviceLocationEntry();
+  if (device !== null) return { name: device.name, id: device.id };
+  const name =
     normaliseLocation(sources.stationLocation) ??
     normaliseLocation(sources.runningEntry?.location) ??
-    null
-  );
+    null;
+  return { name, id: null };
 }
 
 export function detectDeviceType(): 'mobile' | 'desktop' | 'tablet' {
@@ -78,10 +85,12 @@ export function detectDeviceType(): 'mobile' | 'desktop' | 'tablet' {
 
 /** The ScanContext sent with resolve and with every log row. */
 export function buildScanContext(source: TrackedSource, sources: LocationSources): ScanContext {
+  const location = resolveScanLocation(sources);
   return {
     running_timer_id: sources.runningEntry?.id ?? null,
     current_order_id: sources.runningEntry?.order_id ?? null,
-    current_location: resolveScanLocation(sources),
+    current_location: location.name,
+    ...(location.id !== null ? { location_id: location.id } : {}),
     device_type: detectDeviceType(),
     input_source: source,
     device_id: getDeviceId(),
@@ -197,7 +206,7 @@ export async function recordAction(
   tracked: TrackedScan,
   actionId: string,
   result: ActionResult,
-  location?: string | null,
+  location?: { name: string | null; id: number | null },
 ): Promise<void> {
   const baseContext = tracked.event.context ?? {};
   const event: ScanEvent = {
@@ -209,7 +218,9 @@ export async function recordAction(
       ...baseContext,
       ...(tracked.scanId !== null ? { parent_scan_id: tracked.scanId } : {}),
       action_result: result,
-      ...(location !== undefined ? { current_location: location } : {}),
+      ...(location !== undefined
+        ? { current_location: location.name, location_id: location.id ?? undefined }
+        : {}),
     },
   };
   await send(event);

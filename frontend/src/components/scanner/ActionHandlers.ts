@@ -50,6 +50,7 @@ import {
   type PunzierungsCheckPayload,
 } from '../qc/PunzierungsCheckModal';
 import { ActivityPickerModal } from './ActivityPickerModal';
+import type { PickedLocation } from './LocationPrompt';
 import { orderPhotoCaptureLink } from '../orders/orderDeepLink';
 
 // ---------------------------------------------------------------------------
@@ -71,7 +72,7 @@ export interface ActionHooks {
    * "Standort setzen": ask for the piece's new location (prefilled with the
    * scan's location). Resolves null when the user cancels.
    */
-  promptLocation?: (current: string | null) => Promise<string | null>;
+  promptLocation?: (current: PickedLocation | null) => Promise<PickedLocation | null>;
 }
 
 /**
@@ -80,7 +81,7 @@ export interface ActionHooks {
  */
 export interface ActionOutcome {
   result?: 'ok' | 'cancelled';
-  location?: string | null;
+  location?: { name: string | null; id: number | null };
 }
 
 export interface ActionHandlerContext {
@@ -360,15 +361,23 @@ async function handleChangeLocation(ctx: ActionHandlerContext): Promise<ActionOu
   if (ctx.hooks.promptLocation === undefined) {
     throw new Error('Standort-Auswahl ist hier nicht verfügbar.');
   }
-  const typed = await ctx.hooks.promptLocation(ctx.scanContext.current_location ?? null);
-  const chosen = typed === null ? '' : typed.trim().slice(0, MAX_PIECE_LOCATION);
-  if (chosen.length === 0) return { result: 'cancelled' };
+  const current = ctx.scanContext.current_location
+    ? { id: ctx.scanContext.location_id ?? null, name: ctx.scanContext.current_location }
+    : null;
+  const picked = await ctx.hooks.promptLocation(current);
+  const name = picked === null ? '' : picked.name.trim().slice(0, MAX_PIECE_LOCATION);
+  if (picked === null || name.length === 0) return { result: 'cancelled' };
   if (entity.entity_type === 'order') {
-    await apiClient.post(`/orders/${entity.entity_id}/location`, { location: chosen });
+    // W8: the configured location id wins server side; the name is the
+    // legacy text kept in sync for one release.
+    await apiClient.post(`/orders/${entity.entity_id}/location`, {
+      location: name,
+      ...(picked.id !== null ? { location_id: picked.id } : {}),
+    });
   }
-  ctx.hooks.toast(`Standort gesetzt: ${chosen}`, 'success');
+  ctx.hooks.toast(`Standort gesetzt: ${name}`, 'success');
   ctx.hooks.closeOverlay();
-  return { location: chosen };
+  return { location: { name, id: picked.id } };
 }
 
 /** "Übergabe": the order's handoff section (Arbeit tab). */

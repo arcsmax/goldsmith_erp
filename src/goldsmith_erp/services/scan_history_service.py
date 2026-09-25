@@ -94,6 +94,11 @@ def _context(row: ScanLogModel) -> Dict[str, Any]:
     return ctx if isinstance(ctx, dict) else {}
 
 
+def _ctx_int(row: Any, key: str) -> Optional[int]:
+    value = _context(row).get(key)
+    return value if isinstance(value, int) and not isinstance(value, bool) else None
+
+
 def _ctx_str(row: ScanLogModel, key: str) -> Optional[str]:
     value = _context(row).get(key)
     return value if isinstance(value, str) and value else None
@@ -111,6 +116,7 @@ def to_piece_scan(row: Any, user: Optional[UserModel]) -> PieceScanRead:
         user_id=row.user_id,
         user_name=user_display_name(user),
         location=_ctx_str(row, "current_location"),
+        location_id=_ctx_int(row, "location_id"),
         action_taken=row.action_taken,
         action_result=_ctx_str(row, "action_result"),
         input_source=_ctx_str(row, "input_source"),
@@ -259,6 +265,7 @@ class ScanHistoryService:
             user_id=row.user_id,
             user_name=user_display_name(user),
             location=_ctx_str(row, "current_location"),
+            location_id=_ctx_int(row, "location_id"),
             action_taken=row.action_taken,
         )
 

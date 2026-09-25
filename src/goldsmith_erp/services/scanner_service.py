@@ -59,6 +59,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
+from goldsmith_erp.core.errors import DomainValidationError
 from goldsmith_erp.db.models import Activity as ActivityModel
 from goldsmith_erp.db.models import Material as MaterialModel
 from goldsmith_erp.db.models import MetalPurchase as MetalPurchaseModel
@@ -75,6 +76,7 @@ from goldsmith_erp.models.scanner import (
     ScanContext,
     ScanLogCreate,
 )
+from goldsmith_erp.services.location_service import LocationService
 
 logger = logging.getLogger(__name__)
 
@@ -414,6 +416,7 @@ class ScannerService:
             if existing is not None:
                 return existing
 
+        event = await _resolve_scan_location(db, event)
         db_row = _build_scan_log_row(user_id, event)
 
         try:
@@ -1239,6 +1242,34 @@ async def _find_by_idempotency_key(
         select(ScanLogModel).where(ScanLogModel.idempotency_key == key)
     )
     return result.scalar_one_or_none()
+
+
+async def _resolve_scan_location(
+    db: AsyncSession, event: ScanLogCreate
+) -> ScanLogCreate:
+    """Name the scan's workshop location from its ``location_id`` (W8).
+
+    A scan must never be lost over its location: an unknown or deactivated
+    id is dropped (the client's text label stays) and logged, instead of
+    failing the insert.
+    """
+    context = event.context
+    if context is None or context.location_id is None:
+        return event
+    try:
+        location_id, name = await LocationService.resolve(
+            db, context.location_id, context.current_location
+        )
+    except DomainValidationError:
+        logger.warning(
+            "Scan location id not usable, keeping the text label",
+            extra={"location_id": context.location_id},
+        )
+        location_id, name = None, context.current_location
+    resolved = context.model_copy(
+        update={"location_id": location_id, "current_location": name}
+    )
+    return event.model_copy(update={"context": resolved})
 
 
 def _build_scan_log_row(

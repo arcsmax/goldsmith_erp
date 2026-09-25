@@ -474,12 +474,15 @@ describe('navigation-only handlers', () => {
 
   it('change_location asks for the location and stores it on the order', async () => {
     const ctx = baseContext(orderResponse(42));
-    const promptLocation = vi.fn().mockResolvedValue('  Tresor ');
+    const promptLocation = vi.fn().mockResolvedValue({ id: 3, name: 'Tresor' });
     ctx.hooks = { ...ctx.hooks, promptLocation };
     const outcome = await ACTION_HANDLERS.change_location(ctx);
     expect(promptLocation).toHaveBeenCalled();
-    expect(apiClient.post).toHaveBeenCalledWith('/orders/42/location', { location: 'Tresor' });
-    expect(outcome).toEqual({ location: 'Tresor' });
+    expect(apiClient.post).toHaveBeenCalledWith('/orders/42/location', {
+      location: 'Tresor',
+      location_id: 3,
+    });
+    expect(outcome).toEqual({ location: { name: 'Tresor', id: 3 } });
     expect(ctx.hooks.closeOverlay).toHaveBeenCalled();
   });
 

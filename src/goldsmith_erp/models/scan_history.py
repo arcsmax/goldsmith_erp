@@ -32,6 +32,7 @@ class LastScanRead(BaseModel):
     user_id: int
     user_name: str
     location: Optional[str] = None
+    location_id: Optional[int] = None
     action_taken: Optional[str] = None
 
 
@@ -45,6 +46,7 @@ class PieceScanRead(BaseModel):
     user_id: int
     user_name: str
     location: Optional[str] = None
+    location_id: Optional[int] = None
     action_taken: Optional[str] = None
     action_result: Optional[str] = None
     input_source: Optional[str] = None

@@ -53,7 +53,6 @@ import { useOptionalAuth } from '../../contexts/AuthContext';
 import type { ResolveResponse, Transport } from '../../types/scanner';
 import { QuickActionModalV2 } from './QuickActionModalV2';
 import {
-  MAX_PIECE_LOCATION,
   dispatchAction,
   isSupportedAction,
   type ActionHooks,
@@ -65,9 +64,9 @@ import {
   takeHandedOffScan,
   type TrackedScan,
 } from './scanTracking';
+import { useLocationPrompt } from './LocationPrompt';
 import { ModalStackHost } from '../../lib/modal-stack';
 import { useToast } from '../../contexts/ToastContext';
-import { usePromptDialog } from '../../ui';
 import { useNavigate } from 'react-router-dom';
 import '../../styles/components/ScanOverlay.css';
 
@@ -160,7 +159,7 @@ export const ScanOverlay: React.FC<ScanOverlayProps> = ({ transport }) => {
   const [scannedPayload, setScannedPayload] = useState<string>('');
   // The logged scan the sheet's actions follow up (parent_scan_id).
   const trackedRef = useRef<TrackedScan | null>(null);
-  const { prompt, dialog: promptDialog } = usePromptDialog();
+  const { promptLocation, dialog: promptDialog } = useLocationPrompt();
   const showToast = useOptionalToast();
 
   const overlayRef = useRef<HTMLDivElement | null>(null);
@@ -193,15 +192,12 @@ export const ScanOverlay: React.FC<ScanOverlayProps> = ({ transport }) => {
         // Errors surface on the sheet's banner; confirmations as a toast.
         showToast?.(message, severity ?? 'info');
       },
-      promptLocation: (current: string | null) =>
-        prompt({
+      promptLocation: (current) =>
+        promptLocation({
           title: 'Standort setzen',
-          label: 'Standort',
-          help: 'z. B. Werkbank 2, Tresor, Poliererei',
-          defaultValue: current ?? '',
+          description: 'Wo liegt das Stück jetzt?',
           confirmLabel: 'Standort setzen',
-          required: true,
-          maxLength: MAX_PIECE_LOCATION,
+          current,
         }),
       closeOverlay: () => {
         setLastResolveResponse(null);
@@ -213,7 +209,7 @@ export const ScanOverlay: React.FC<ScanOverlayProps> = ({ transport }) => {
         await refreshRunningEntry();
       },
     }),
-    [navigate, closeScanner, refreshRunningEntry, showToast, prompt],
+    [navigate, closeScanner, refreshRunningEntry, showToast, promptLocation],
   );
 
   const scanContextFor = useCallback(

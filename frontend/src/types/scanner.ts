@@ -11,6 +11,8 @@ export interface ScanContext {
   running_timer_id: string | null;
   current_order_id: number | null;
   current_location: string | null;
+  /** W8 workshop location id; the server names it in current_location. */
+  location_id?: number;
   device_type: 'mobile' | 'desktop' | 'tablet';
   input_source: 'camera' | 'usb_hid' | 'manual';
   client_version?: string;

@@ -106,6 +106,9 @@ class ScanContext(StrictRequestBase):
     running_timer_id: Optional[str] = Field(default=None, max_length=36)
     current_order_id: Optional[int] = Field(default=None, gt=0)
     current_location: Optional[str] = Field(default=None, max_length=100)
+    # Configured workshop location (W8 ``workshop_locations``); the server
+    # resolves it to the location's name in ``current_location``.
+    location_id: Optional[int] = Field(default=None, gt=0)
     device_type: Optional[DeviceType] = None
     input_source: InputSource = "manual"
     client_version: Optional[str] = Field(

@@ -29451,6 +29451,17 @@
             ],
             "title": "Location"
           },
+          "location_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Location Id"
+          },
           "action_taken": {
             "anyOf": [
               {
@@ -35047,6 +35058,17 @@
             ],
             "title": "Location"
           },
+          "location_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Location Id"
+          },
           "action_taken": {
             "anyOf": [
               {
@@ -37305,6 +37327,18 @@
             ],
             "title": "Current Location"
           },
+          "location_id": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Location Id"
+          },
           "device_type": {
             "anyOf": [
               {
@@ -37466,6 +37500,17 @@
               }
             ],
             "title": "Location"
+          },
+          "location_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Location Id"
           },
           "action_taken": {
             "anyOf": [
