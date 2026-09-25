@@ -34544,6 +34544,16 @@
             "type": "integer",
             "title": "Customer Id"
           },
+          "customer": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/JobCustomer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "status": {
             "$ref": "#/components/schemas/QuoteStatus"
           },

@@ -11358,6 +11358,7 @@ export interface components {
              * Format: date-time
              */
             created_at: string;
+            customer?: components["schemas"]["JobCustomer"] | null;
             /** Customer Id */
             customer_id: number;
             /** Id */

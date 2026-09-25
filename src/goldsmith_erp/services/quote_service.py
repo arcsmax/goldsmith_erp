@@ -552,7 +552,12 @@ class QuoteService:
 
         Returns (items, total_count) for pagination.
         """
-        base_query = select(QuoteModel).options(selectinload(QuoteModel.line_items))
+        base_query = select(QuoteModel).options(
+            selectinload(QuoteModel.line_items),
+            # LV2-06: eager-load for the resolved customer display name
+            # instead of "Kunde #<id>" (job_list_item's _customer_summary).
+            selectinload(QuoteModel.customer),
+        )
         count_query = select(func.count(QuoteModel.id))
 
         if status is not None:

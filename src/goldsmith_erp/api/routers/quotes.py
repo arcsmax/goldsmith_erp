@@ -60,6 +60,7 @@ from goldsmith_erp.models.quote import (
     QuoteResponse,
     QuoteUpdate,
     RejectQuoteRequest,
+    quote_list_item,
 )
 from goldsmith_erp.services import list_queries
 from goldsmith_erp.services.quote_delivery import (
@@ -207,8 +208,12 @@ async def list_quotes(
         customer_id=customer_id,
     )
     legacy = QuoteListResponse.model_validate(
-        {"items": items, "total": total, "skip": page.offset, "limit": page.limit},
-        from_attributes=True,
+        {
+            "items": [quote_list_item(r) for r in items],
+            "total": total,
+            "skip": page.offset,
+            "limit": page.limit,
+        }
     )
     return legacy_list_response(legacy.model_dump())
 
@@ -252,7 +257,7 @@ async def _list_quotes_paged(
             "result_count": len(result.items),
         },
     )
-    rows = [QuoteListItem.model_validate(r).model_dump() for r in result.items]
+    rows = [quote_list_item(r).model_dump() for r in result.items]
     return page_response(rows, result.total, page)
 
 

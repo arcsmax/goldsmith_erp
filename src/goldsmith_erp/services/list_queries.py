@@ -289,7 +289,13 @@ async def jobs_statement(
 # Quotes
 # --------------------------------------------------------------------------- #
 
-QUOTE_LIST_OPTIONS: tuple[ORMOption, ...] = (selectinload(QuoteModel.line_items),)
+QUOTE_LIST_OPTIONS: tuple[ORMOption, ...] = (
+    selectinload(QuoteModel.line_items),
+    # LV2-06: the list row resolves a customer display name (job_list_item's
+    # _customer_summary) instead of showing "Kunde #<id>" — needs the
+    # relationship eager-loaded to avoid a lazy-load per row (N+1).
+    selectinload(QuoteModel.customer),
+)
 
 # W3-sort: subtotal/tax_amount/total stay off the whitelist (financial data).
 QUOTE_SORT_FIELDS: dict[str, Any] = {
