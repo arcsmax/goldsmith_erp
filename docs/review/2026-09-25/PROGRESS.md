@@ -317,6 +317,72 @@ report recorded after its own fix, not a re-run by this pass.
 - **LV-21 regressed**: the pass-1 fix reduced console noise, but `WebSocketProvider`/`TimeTrackingProvider`/`ScannerProvider`/`OrderProvider` were still mounted above `ProtectedRoute`, firing a WS connection (403) plus two 401 fetches *before* login — worse than the original probe noise. Fixed by moving those providers inside `ProtectedRoute` (`5839e68`), which also closes LV2-08.
 - Evidence/gotchas: demo credentials `demo-goldschmied`/`demo-inhaber` ("Petra", admin)/`demo-buero` ("Lisa", viewer), password `demo2026!`, cookie-based auth. A concurrent `git merge` mid-`vitest run` produced 3 spurious failures in `customer-updates.test.ts`, confirmed a false positive on isolated re-run (918/918 clean).
 
+### W2X — post-W2 open-items batch: alloy vocabulary, Altgold GDPR export, timer pause/resume, VIEWER repairs gate, gemstone PDFs
+- Findings: W2-09 (partial), W2-16 (GDPR export), D-15 (timer pause/resume), plus items 2/4/6/7 of the post-W2 open-items list. Commits: `aac9bcc` (hallmark vocabulary + order-intake picker recognize Silver 935/Palladium 950/500), `86e6e78` (GDPR Art.15 export now includes `id_document_type/number/issuing_authority/id_checked_at` + a new retention-schedule row), `5242fc0` (server-side timer pause/resume), `aef4ffb` (hide "Neue Reparatur" from VIEWER), `fdbdcb1` (pass order gemstones into quote and invoice PDF renderers), `ef476b9` (`/status` docstring describes `hallmark_required` + nicht-punziert path; orphaned `frontend/src/api/hallmarks.ts` removed), `e3fecba` (resolve `OrderFormModal.tsx`'s last 5 ESLint errors), `2870b90` (carry order gemstones through `InvoiceSubject` after the merge).
+- Closes the last ESLint blocker flagged in Wave 3 — `yarn lint`/CI `lint-frontend` is 0 errors project-wide after `e3fecba` — plus several small Wave 2 gaps left open at the time (Altgold GDPR export, VIEWER repairs access, PDF gemstones, dead OrderHallmark client).
+- Left open: `AlloyType` enum extension itself was SKIPPED (needs a migration, out of scope — still blocks `ScrapGoldItem.alloy` persistence for the newly-recognized marks); item 6 (workshop-editable Pflegehinweise/care text) also SKIPPED, no free-text column exists; `scrap_gold_service.py`'s `_price_for_item`/`_recalculate_totals` still indexes the raw 3-metal spot-price dict and will `KeyError` (not the typed `MetalPriceError`) if `AlloyType` ever gains palladium; TimerWidget's "frozen ticker while paused" UI polish not built and it still shows emoji icons (⏸️▶️⏹️) against the playbook's ban; the full ~4000-test backend suite was **not** re-run after this final merge (targeted slice only) — recommended before merging to `main`.
+- Evidence: final targeted re-run post-merge `pytest -k "invoice or quote or gemstone"` 1483 passed/2 skipped, exit 0; `tsc` 0; vitest (touched files only) 71 passed, exit 0.
+
+### W3 — TanStack Query foundation (Orders, Customers, Dashboard)
+- Commits: `9844726` (TanStack Query foundation with realtime invalidation), `18e5a0e` (OrdersPage on paged queries), `56c0eaa` (DashboardPage one query per mount), `e437c2a`, `8f2be0f` (Customers reference page).
+- Establishes the query/cache pattern (one query per mount, realtime invalidation wired to the WS event bus) that the later W4-03 page migrations followed.
+- Evidence: `yarn vitest run --reporter=dot` 118 files/949 tests, exit 0; `yarn lint` 183 problems (5 pre-existing OrderFormModal errors, since resolved above), exit 1 at the time; `node scripts/hex-ratchet.mjs` 2086 (baseline 2087), exit 0.
+
+### W3-03 / W3 sort+paging — restore the Orders sort control; paged customers
+- Finding: W3-03 (sort control regressed by the TanStack pass). Commits: `ed8e67f` (backend: `sort` parameter added across 6 paged list endpoints, plus a newly paged `/customers/`), `3f9fea9` (frontend: sort control reconnected to the API).
+- Applies the existing legacy-list-fallback-on-`offset` contract (see Decisions) uniformly to orders/repairs/quotes/materials/time-entries/notifications/customers.
+- Evidence: `test_pagination_sort.py` 15 passed; full backend suite 4186 passed/12 skipped/1 xfailed, exit 0 (525.57s); vitest 118 files/949 passed, exit 0; `tsc` 0.
+
+### W3-11 / BE-14 / BE-15 — NUMERIC money and tz-aware datetimes, end to end
+- Findings: BE-14, BE-15. Commits: `9448e0b` (money columns as `Numeric`/`Decimal` end to end), `82d285e` (timezone-aware datetimes end to end).
+- Uncovered a pre-existing PostgreSQL-only outbox-migration idempotency bug (the h9 round-trip test from an empty DB) — fixed separately by `ff4dccc`.
+- Left open: a naive-datetime grace period is still accepted end-to-end (~200 `datetime.utcnow()` calls remain in tests, to be removed next release); BE-14's "sum of *rounded* line totals" was not applied — needs a product/Steuerberater decision; `cli/gdpr_replay_erasures.parse_since` still returns naive UTC.
+- Evidence: pytest FINAL 4171 passed/12 skipped/1 xfailed, exit 0; mypy 12 pre-existing errors (same baseline), exit 1 (expected); PG integration suite 897 passed/1 failed (the h9 roundtrip bug, fixed next). After `ff4dccc`: `pytest -k "migration or outbox"` 137 passed/1 skipped, exit 0; PG h9-roundtrip 1 passed, exit 0; full backend suite 4171 passed/12 skipped/1 xfailed, exit 0; vitest 957 passed, exit 0; `tsc` 0.
+
+### ARCH-09 — split `db/models.py` into a domain package
+- Commits: `0b30d88` (turn `db/models.py` into a package; move base/coercion/time-tracking), `925e1e6` (order models), `eca1b06` (users/customers), `4ccd863` (invoice/quote), `eeab0bd` (materials/metals/scrap gold), `766e594` (repair/consultation), `76c46cf` (comms/system, finishes the split), `40589a6` (import-linter contracts), `e372d9d` (docs note on the package layout and layering contracts).
+- Left open: convert models to `Mapped[]` module-by-module; remove the `core.permissions → api.deps` edge then widen import-linter contract 2; add `lint-imports` to CI; fix pre-existing PG drift (`scan_logs` partitions/types/index); `scripts/seed_data.py` imports a nonexistent `DataRetentionPolicy`.
+- Evidence: pytest FINAL 4186 passed/12 skipped/1 xfailed, exit 0; mypy 12 errors, same baseline (diffed identical), exit 1 (expected); `lint-imports` 2 kept/0 broken; `alembic check` non-empty but an identical old-vs-new-metadata diff (pre-existing PG drift only).
+
+### W4-03 — page migration playbook, remaining waves (order detail through nav/admin/order form)
+- **Order detail** — done, `df98c05`. Cut CSS 2069→614 lines, hex 182→0.
+- **Quotes + invoices** — done, `8fd80c6`, `e4a3ee1` (+ `ac4cd79` post-merge query-key fix). QuotesPage 1389→135 lines, InvoicesPage 1151→185.
+- **Group E** (consultations, materials, metal inventory, scrap gold) — done, `2844331`, `45acdc0`, `3afcbfe`, `836a975`. In-scope hex 418→1.
+- **Group F** (calendar, users, auth, portal, header overlays) — done, `9f824a7`, `d2354a9`, `9c8d8a3`, `b837990`, `286a813`. Hex 207→0 in-scope.
+- **Repairs** — done, `7759bcd`. useEffect fetches 4→0, hex 67→19 (shared PhotoCompare lightbox styles remain).
+- **Bench UI** (scanner + time tracking, Werkbank-Modus) — done, `78f0176`.
+- **Nav / admin panels / order form** — done, `8c89281`, `4aa1c58`, `2ec97d6` (W3-06, react-hook-form + zod), `71674ab`, `a5a6546` (tz-aware timestamps in date helpers), plus the Werkstatt-Board nav entry `b8795e2`.
+- Screenshot loop (playbook 7d, 1280/390) NOT run in any worktree (no live stack available); the hex-baseline file was deliberately not force-updated by individual agents to avoid cross-branch conflicts — the orchestrator locked it in afterward (`c9523b9`, then `69d966c` "lock in hex ratchet baseline after page migrations").
+- Left open (by group): stones on a new order still can't be added until it's saved, stone-deletion UX needs a product call, the Scan FAB isn't in the phone tab-bar centre yet, Altgold has no standalone route, `orders.css` still has dead rules, `adminKeys` sits outside the shared `queryKeys.ts`, `SystemStatusPanel` health labels aren't in `status.ts`, `ScanAdoptionDashboard.tsx` still has ~20 colour literals, the tab bar's "Mehr" slot needs a button item (fix-w4-page-admin-nav-form.md); CSS still leaks into out-of-scope pages (`.detail-item`, `.btn-pdf-download`, `.btn-retry`), `useMetalTypes`'s module cache wasn't migrated to a query, materials sort/low-stock filters stayed page-local, the scrap-gold manual gold-price input is still read-only, `StyleNoGoStep` keeps a plain `<label>` (fix-w4-page-group-e.md); portal's `status_label` still triggers a StatusBadge unknown-key console warning and `RegisterPage` exists with no route (fix-w4-page-group-f.md); repair Verlauf still synthesizes its own timeline instead of switching to the new `/jobs/{job_id}/timeline` now that `job_id` exists, `repairKeys` sits outside `queryKeys.ts`, status-step gating still uses `canCreateRepairs` pending a real `canEditRepairs`, `IntakeChecklist` is only partly on primitives, and intake's dirty-dialog prompts are inconsistent (Abbrechen vs. Escape/close) (fix-w4-page-repairs.md); bench mode has no footer/nav-hiding or user-menu toggle, `ScanOverlay` isn't on the `src/ui` Sheet, the time-entry list lost its free-text/activity/duration-sort filters (no server param), `TimeEntryFormModal` still parses/submits naive UTC, `status.ts` has no "Läuft" `StatusKind`, and `orderEntriesQuery` has no consumer yet (fix-w4-page-bench.md); quotes/invoices still have no realtime channel and `/invoices/` still has no Page envelope (legacy skip/limit) — same root cause as the quotes-list "Kunde #id" gap tracked in Open follow-ups.
+- Evidence: order detail — vitest 119 files/954 passed, exit 0; tsc 0; lint 5 errors (OrderFormModal only, since resolved), exit 1 at the time; build 0; hex-ratchet 1881, exit 0. Quotes+invoices — vitest 983 passed (from 949), exit 0; tsc 0; hex-ratchet 1500, exit 0. Group E — vitest 125 files/984 passed; tsc 0; hex-ratchet 1083, exit 0. Group F — vitest 123 files/971 passed; tsc 0; hex-ratchet 1674, exit 0. Repairs — vitest 137 files/1064 passed; tsc 0; lint 0 errors/122 warnings; hex-ratchet 1034 (baseline 1082). Bench — vitest 140 files/1077 passed; tsc 0; lint 0 errors/84 warnings; build 0; hex-ratchet 753 (baseline 1082). Nav/admin/order-form — vitest 1076 tests (from 1021 baseline); tsc 0 throughout; lint 0 errors/119 warnings final; hex-ratchet 893 (own baseline 941).
+
+### ARCH-02 — Jobs spine (numbering, invoicing, timeline, kanban board)
+- Commits: `82fd186` (jobs spine table, backfill migration, service-side sync — part 1), `f745267` (attach invoices/updates/media/events by job; repair invoicing — part 2), `e407eb6` (`GET /jobs` list, job detail and timeline — part 3), `b601211` (ADR: jobs spine migration plan, sync rules, retirement path — part 4), `4cc90ef` (backfill jobs in seed and at startup), `3353092` (Rechnung erstellen for repairs), `a44d942` (Werkstatt board — a kanban view over jobs, W6).
+- The `jobs` table now owns human-facing numbering for both orders and repairs (see Decisions) and becomes the attachment point for invoices, updates, media and events; a real per-job timeline endpoint now exists.
+- Left open: `job_id` columns stay nullable (make NOT NULL once `count_missing()`=0 in prod); quote-delivery records still get no `job_id`; the Werkstatt board only supports input-free repair transitions (diagnose/approve/complete still need the detail page), has no drag-and-drop, and issues 8 requests per load (one per column); the startup job-backfill logs and continues on failure rather than stopping startup.
+- Evidence: backend baseline 4239 passed; FINAL 4366 passed/12 skipped/1 xfailed, exit 0; mypy Success (41 modules); lint-imports 2 kept/0 broken; PG integration suite 943 passed/2 skipped; vitest 131 files/1007 passed, exit 0; tsc 0. Follow-ups pass: pytest FINAL 4371 passed/12 skipped/1 xfailed (baseline 4366), exit 0; vitest 134 files/1023 passed, exit 0; tsc 0; lint 5 errors (OrderFormModal, unchanged at the time); hex-ratchet 1082 (baseline 1082, unchanged).
+
+### ARCH phase 4 — Media (media_assets, MediaStore, MediaService, customer_visible)
+- Commits: `503c81f` (`media_assets` table, `MediaStore`, `MediaService`), `4e85439` (`customer_visible` flag used by messages and the status report).
+- Follow-up: `restore.sh` didn't restore the media archive — fixed (manifest + restore logic added; no sha given in the report, see fix-w6-restore-media.md directly).
+- Left open: no orphan sweep (soft-delete doesn't cascade to `media_assets`, polymorphic/no FK); `customer_service`'s erasure scrub only clears legacy `notes` (caption clearing is via the separate erasure pass); PDF/email/scanner/thumbnail readers still read the legacy photo tables (dual-write not retired); media restore is not erasure-replay-aware (a restored archive can resurrect a file for an already-erased customer) — a documented, not-fixed gap; `compute_sha256()` is duplicated in `backup.sh`/`restore.sh` instead of the shared lib.
+- Evidence: backend suite commit-1 4232 passed; FINAL 4239 passed/12 skipped/1 xfailed, exit 0; vitest 994 passed (after an MSW handler fix), exit 0; `tests/scripts` 71 passed. Restore: `pytest tests/scripts/` FINAL 82 passed, exit 0; manual gpg round-trip + tamper-detection smoke tests all exit 0/expected non-zero on corruption.
+
+### Repair/job realtime fan-out
+- Commit: `7fa6f41` — forwards `repair_updates` and a new `job_updates` channel to staff sockets, closing gaps both fix-w4-page-repairs.md and fix-w6-jobs-followups.md had flagged open (repair_updates was published but never subscribed/routed by `ws_manager.py`).
+- Left open: `job_updates` fires inside the caller's open transaction, not strictly post-commit (callers out of scope) — a documented compromise.
+- Evidence: targeted pytest (`ws or websocket or realtime or pubsub or repair or job`) 354 passed/4067 deselected, exit 0; full suite launched in background, not confirmed complete before the report was written (context budget); vitest targeted 53+13 passed, exit 0; tsc 0.
+
+### W7-06 hygiene backlog — 8/8 explicit candidates
+- Findings/items closed: W1-04 follow-up, W3-04 (defense-in-depth), DOM-20 remainder, FE-06 (order pickers), portal hardcoded contact, StatusBadge user kind, dead CSS, stale docs. Commits: `f3d0b1f` (App.tsx route guards relaxed for VIEWER — Materials/MetalInventory/Customers/Repairs, each destination page already gates financial/design sections), `f4c2d5c` (SollIstTab internal FINANCIAL_VIEW guard, defense-in-depth), `e7f6913` (per-metal fine-gold breakdown added to the scrap-gold read response — no schema/migration change, so the fuller DOM-20 ask still needs one), `df4cfb3` (ConsumeMetalModal + CreateInvoiceModal use the paged+search endpoint instead of loading 500 orders), `6a08f1f` (portal serves the real workshop contact instead of a hardcoded placeholder), `4a1c7f1` (UsersPage account status via `<StatusBadge kind="user">`), `e22e925` (remove dead CSS rules with zero class usages), `2b20d6a` (docs: remove mentions of the removed Pause button and the old 14-tab order page).
+- Left open: the rest of W7-06's own file list (sanitize_text blocklist, `async_sessionmaker`/`get_db` annotation, `.dict()` calls, blocking `write_bytes`, notification-scanner N+1, `metal_inventory.py detail=str(e)`, `health.py` exception text, remaining `window.prompt`/`confirm`, QrCameraScanner hooks, unmemoised context values, scan sounds not precached, LoginPage 429 message, deep-link `from` lost at login) plus `order_materials` ondelete/`orders.status` index/unbounded String columns (need a migration) — all deferred; the ~120-row Wave1-7 open-follow-ups backlog table was scanned but left untouched; a few `FEATURE_X.md` doc links missing the `features/` path were noticed, not fixed.
+- Evidence: pytest FINAL (post-merge re-run) 4191 passed/12 skipped/1 xfailed, exit 0 (identical to the mid-pass run); vitest 130 files/1005 passed, exit 0; lint 5 errors (OrderFormModal, pre-existing at the time); lint-imports 2 kept/0 broken; hex-ratchet 1082 (baseline 2087, down 1005), exit 0.
+
+### Final state on the pushed head — full-suite totals and third live pass
+- **Final verified numbers**: backend 4408 tests passed, frontend 1092 tests passed, `yarn lint` 0 errors, hex-literal ratchet 2113 → 612, `make types-check` and `lint-imports` both clean.
+- **Third live pass**: a fresh-database migration to head succeeded, a downgrade/upgrade round trip succeeded, `scripts/seed_demo.py` succeeded, and the PostgreSQL integration suite passed 952 (its screenshot portion was interrupted mid-run, which is not counted as a failure).
+- PR #51 remains the draft PR / review vehicle for `audit/2026-09-fixes` vs. `main` at this state.
+
 ## (b) Decisions taken during execution
 
 Each needs a named person's confirmation before it should be treated as final
@@ -351,6 +417,15 @@ and the scratch reports' own "Assumption"/"Decision followed" sections.
 | **lodash pinned to 4.18.1, not Dependabot's suggested 4.18.0** | 4.18.0 broke `vite build`'s service-worker generation via workbox-build's `lodash/template` use; 4.18.1 clears the same advisory without that regression. | Max (informational) |
 | **Ruff runs in CI but stays non-blocking** | `ruff check` gates nothing yet (`--exit-zero` against a 994-error baseline) — a deliberate choice to surface findings without blocking merges while the baseline is burned down. | Max |
 | **Demo/seed credentials unified** | One canonical set (`demo-inhaber@werkstatt.de`/`demo2026!` plus the other `DEMO_USERS`) now used by every seed script and the 3 previously-hardcoded Playwright specs, closing a drift that caused a run of live-verification and E2E failures. | Max (informational) |
+| **Kundeninfo "ticked photos win"** | `default_photo_ids`: ticked ids always win; a `PHOTO_UPDATE` with no ticks falls back to flagged (`customer_visible`) photos; a text-only message never auto-attaches photos. Chosen because the literal "flagged always wins" rule would force text-only messages to also require PHOTO_USE consent. **Not yet confirmed with Max.** | Anne, Max (fix-w6-media.md) |
+| **Repair costs billed net** | `RepairJob.estimated_cost`/`actual_cost` billed NET per the task's instruction, undocumented elsewhere; recorded in `docs/architecture/ADR-2026-09-25-jobs-spine.md`. | Steuerberater/workshop, re: PAngV/gross consumer-price rules (fix-w6-jobs-spine.md) |
+| **Outbox inline vs. worker mode (confirmed default)** | `settings.outbox_mode = OUTBOX_MODE or (inline if DEBUG else worker)` — inline in dev/DEBUG, worker/queue in prod, overridable via `OUTBOX_MODE`. | Max (fix-w6-outbox.md) |
+| **Order numbers via jobs (jobs spine)** | The `jobs` table now owns numbering: `AU-YYYY-NNNN` for orders, `REP-YYYY-NNNN` for repairs, via `number_sequences`; repair numbering moved off its old scheme onto this. | Max (fix-w6-jobs-spine.md) |
+| **Media `customer_visible` flag** | Drives which photos a Kundeninfo/status-report may show without an explicit tick (see the ticked-photos-win decision above); landed in `4e85439`. | Anna, Max (fix-w6-media.md) |
+| **Legacy list fallback keyed on `offset` (confirmed applied uniformly)** | Every new paged filter/sort param (`sort`, `status`, `created_from`, `q`, …) is accepted-but-silently-ignored when the caller doesn't supply `offset` (legacy plain-list mode); only sending `offset` opts into the new Page-envelope behavior with full validation (422 on an unknown sort field). Now confirmed applied uniformly across orders/repairs/quotes/materials/time-entries/notifications/customers. | Max (fix-w3-sort-paging.md, extends the W3-08 decision above) |
+| **No speculative migrations** | Several items were deliberately left un-fixed rather than add a migration outside a task's stated scope: `AlloyType` enum extension, `attach_status_report` kept request-only/not persisted, the workshop care-text column, `job_id` columns staying nullable. | Max (cross-cutting; multiple reports) |
+| **python-jose → PyJWT was a pure exception-type swap** | `JWTError` → `jwt.InvalidTokenError` only, no logic change, to preserve the existing catch-all behavior. | Max (informational; fix-w7-hygiene-backend.md) |
+| **hex-ratchet baseline never force-updated by individual worktree agents** | `node scripts/hex-ratchet.mjs --update` was deliberately skipped by every worktree agent to avoid cross-branch conflicts; the orchestrator locks it in periodically instead (`c9523b9` at 1082, `69d966c` after the page migrations, down to 612 by the final pass). | Max (informational; cross-cutting) |
 
 ## (c) Open follow-ups
 
@@ -364,15 +439,13 @@ that point; see the changelog above for exactly which commit closed them.
 
 | Item | Source report | Severity guess | Suggested wave |
 |---|---|---|---|
-| `App.tsx` route guards are stricter than the backend's new VIEWER model (blocks `/materials`, `/metal-inventory`, `/customers(/:id)`, `/repairs(/:id)` outright) | fix-w1b-viewer-ui.md | M | W1-04 follow-up / product decision |
-| `SollIstTab.tsx` has no internal `FINANCIAL_VIEW` guard, relies solely on the parent tab being hidden | fix-w1b-viewer-ui.md | M | W3-04 (defense-in-depth) |
 | `cap_drop: [ALL]` (+ minimal `cap_add`) not added to any compose service — needs a live container runtime to boot-test | fix-w1-01-02-deploy.md | L | W5-03 |
 | Image digest pinning (sha256) instead of exact tags | fix-w1-01-02-deploy.md | L | deliberate, separate process |
 | BE-25: quotes still build lines from a separate, cost-based, hardcoded-rate path; no shared `LineItemBuilder` | fix-w1-money-path.md | M | W3-11 |
 | `QuoteService.calculate_totals` still uses float + `round()`, unlike the Decimal `InvoiceService.calculate_totals` | fix-w1-money-path.md | M | W3-11 (still in progress) |
 | Existing orders from earlier quote conversions may hold gross values in `Order.price` under the new NET semantics — needs a one-off data review before go-live | fix-w1-money-path.md | H | pre-go-live data migration |
 | Invoice `tax_rate` defaults to 19% even when a converted quote used a different rate | fix-w1-money-path.md | M | W2-04 (not addressed there) |
-| `total_fine_gold_g` still mixes metals into one aggregate; no Ankaufsabschlag % field | fix-w1-altgold.md | M | W2-16 (still needs a schema migration) |
+| `total_fine_gold_g` mixed-metal breakdown — **partially fixed**: `e7f6913` added a computed per-metal breakdown to the read response; still no schema/migration change, no Ankaufsabschlag % field | fix-w1-altgold.md, fix-w7-backlog.md (DOM-20 remainder) | M | W2-16 (still needs a schema migration) |
 | BE-21: monitor still shares one DB session across its 4 scans — one error aborts the rest of that tick | fix-w1-email-loop.md | M | W1-12 follow-up, unowned |
 | No per-order customer-email opt-out column (Art. 21 opt-out via consent rows exists instead, W6-02) | fix-w1-email-loop.md | M | superseded by W6-02's approach |
 | SEND_FAILED automated mail retries once per day forever while SMTP stays misconfigured | fix-w1-email-loop.md | L | unowned |
@@ -406,11 +479,10 @@ that point; see the changelog above for exactly which commit closed them.
 | Approval evidence stored as text in `quote.notes`, not a dedicated column | fix-w2-05-quote-send.md | L | not stated |
 | Approve/decline link in customer email not built | fix-w2-05-quote-send.md | M | W6-07 |
 | Gemstones/weight not carried into order on quote conversion | fix-w2-05-quote-send.md | M | W2-06 |
-| Gemstones not wired into quote/invoice PDF renderer callers | fix-w2-06-14-16-11.md | M | not stated |
 | Legacy/custom metal types (333, 900 gold) missing from the alloy/color picker | fix-w2-06-14-16-11.md | M | needs a MetalType enum value |
 | New orders can't add gemstones until after creation | fix-w2-06-14-16-11.md | M | not stated |
-| TimerWidget server-side pause/resume (D-15) not built; `InterruptionRead` lacks `resumed_at` | fix-w2-06-14-16-11.md | M | not stated |
-| GDPR Art.15 export + 5yr retention of scrap-gold ID fields not implemented; no admin export UI | fix-w2-06-14-16-11.md | M | GDPR/customer service |
+| TimerWidget server-side pause/resume (D-15) — **backend fixed** (`5242fc0`, fix-w2x-open-items.md); still open: the "frozen ticker while paused" UI polish not built, emoji icons (⏸️▶️⏹️) remain against the playbook's ban, `InterruptionRead` still lacks `resumed_at` | fix-w2-06-14-16-11.md, fix-w2x-open-items.md | M | not stated |
+| GDPR Art.15 export of scrap-gold ID fields — **fixed** (`86e6e78`: export now includes `id_document_type/number/issuing_authority/id_checked_at` + a retention-schedule row, fix-w2x-open-items.md); still open: no admin export UI | fix-w2-06-14-16-11.md, fix-w2x-open-items.md | L | GDPR/customer service |
 | Handover care text hardcoded (not workshop-editable) | fix-w2-06-14-16-11.md | L | needs a WorkshopSettings column |
 | `quote_service.convert_quote` still creates orders with `status=CONFIRMED` directly, bypassing the transition table | fix-w2-07-lifecycle.md | M | not stated |
 | `customer_portal.py`/`scanner_service` label/status maps lack on_hold/cancelled | fix-w2-07-lifecycle.md | M | not stated |
@@ -418,8 +490,7 @@ that point; see the changelog above for exactly which commit closed them.
 | Order-lifecycle migration not exercised on PostgreSQL | fix-w2-07-lifecycle.md | H | before deploy |
 | Status label map duplicated across multiple pages with stale labels | fix-w2-08-order-page.md | M | Wave 4 `src/design/status.ts` |
 | `PRIMARY_NEXT_STATUS` choices are a product guess | fix-w2-08-order-page.md | Decision | needs Anne/@goldsmith check |
-| `AlloyType` enum missing bare 935 (Ag935) and Palladium | fix-w2-09-hallmark.md | M | W2-16 owner |
-| `frontend/src/api/hallmarks.ts` (orphaned OrderHallmark client) confirmed dead, not removed | fix-w2-09-hallmark.md | L | cleanup wave |
+| `AlloyType` enum still missing bare 935 (Ag935) and Palladium values — hallmark **vocabulary** recognition for these marks landed (`aac9bcc`, fix-w2x-open-items.md), but the enum extension itself was skipped (needs a migration), so `ScrapGoldItem.alloy` still can't persist them | fix-w2-09-hallmark.md, fix-w2x-open-items.md | M | W2-16 owner |
 | D-12 Auftragsnummer not built; counter service ready for WG/REP adoption | fix-w2-10-04-customers-invoices.md | L | not stated |
 | Storno reversal in DATEV/Lexoffice export booked under the original's date | fix-w2-10-04-customers-invoices.md | M | accounting_export_service |
 | `InvoicesPage.tsx` has no Storno button/badge yet | fix-w2-10-04-customers-invoices.md | M | not stated |
@@ -431,7 +502,7 @@ that point; see the changelog above for exactly which commit closed them.
 | Consultations missing from customer Verlauf despite DOM-38 mentioning them | fix-w2-12-repair-intake.md | M | small follow-up |
 | Customer-activity UNION verified on SQLite only, not against PostgreSQL | fix-w2-12-repair-intake.md | M | pre-deploy verification |
 | Remaining WS hardening: reject `?token=` query auth, check `is_active`, Origin check, lifespan-managed task cancellation | fix-w2-13-realtime.md | M | W3-10 |
-| Unrouted realtime channels: `repair_updates`, `material_updates`, `consultation_updates`, `metal_price_updates`, `anomaly_alerts` | fix-w2-13-realtime.md | M | W2-13 follow-up / W3-10 |
+| Unrouted realtime channels: `material_updates`, `consultation_updates`, `metal_price_updates`, `anomaly_alerts` (`repair_updates` and a new `job_updates` channel are now routed to staff sockets — fixed by `7fa6f41`, fix-w6-repair-realtime.md) | fix-w2-13-realtime.md | M | W2-13 follow-up / W3-10 |
 | Dashboard/Orders/OrderDetail/Repairs pages don't call the new `useRefetchOn` bus yet | fix-w2-13-realtime.md | M | owned by their pages |
 | `OrderLegacyFields` kept on `OrderType` until legacy callers migrate | fix-w3-api-types.md | M | W3 follow-up |
 | Input types (Create/Update) for materials, metal inventory, calendar, estimator, time-stats still hand-written | fix-w3-api-types.md | M | W3 extension |
@@ -439,7 +510,6 @@ that point; see the changelog above for exactly which commit closed them.
 | Customer-name search decrypts all active customers per `q` (O(N)) | fix-w3-backend-contract.md | M/H | future DB migration wave |
 | Customers/invoices lists not paginated; activities/comments/users/calendar not paged at all | fix-w3-backend-contract.md | M | future wave |
 | 63 router except-blocks not yet migrated to `DomainError` | fix-w3-backend-contract.md | L | gradual cleanup |
-| **`OrderFormModal.tsx` — 5 ESLint errors remain**, sole blocker to `yarn lint`/CI `lint-frontend` going green | fix-w3-eslint-remainder.md | H | W3 (next agent) |
 | `ActiveTimerWidget` div→button visual delta (global button reset CSS) not verified in a browser | fix-w3-eslint.md | M | W3 visual QA |
 | Backend theme default #d97706 not AA — **closed by W7 hygiene**, `7c30827` | fix-w4-01-tokens.md | — | resolved |
 | `@axe-core/playwright` not installed; `a11y-smoke.spec.ts` skipped, no automated axe run | fix-w4-01-tokens.md | M | W4 (after a dependency bump) |
@@ -488,18 +558,40 @@ that point; see the changelog above for exactly which commit closed them.
 | E17: Art. 30 entry + DSFA screening not added to the VVT doc | fix-w6b-comms.md | M | VVT doc edit |
 | `attach_status_report` not persisted (no DB column/migration) | fix-w6c-status-report.md | L | future migration |
 | Repair photos have no consent/selection precedent; latest 6 shown unconditionally | fix-w6c-status-report.md | M | product decision |
-| Repair timeline thin — no `RepairEvent`/status-history table | fix-w6c-status-report.md | M | needs a new model/table |
+| Repair timeline — a real per-job timeline endpoint now exists (`GET /jobs/{job_id}/timeline`, `e407eb6`, ARCH-02 part 3), but the Repair Verlauf UI still synthesizes its own timeline instead of switching to it | fix-w6c-status-report.md, fix-w4-page-repairs.md | M | wire Verlauf onto `/jobs/{job_id}/timeline` |
 | `docs/DEPLOYMENT.md`/`DEPLOYMENT_LOCAL.md` show stale sample credentials | fix-w7-hygiene-backend.md | L | doc fix |
-| `repair_updates` published but not subscribed/routed by `ws_manager.py` | fix-w7-hygiene-photos.md | M | ws_manager.py wiring |
 | Route remaining out-of-scope components through `<StatusBadge>` (CostChangeSection, KundeninfoTab, RepairCustomerUpdatePanel, HandoffTab, hallmarks.ts, ScrapGoldTab, CustomerDetailPage) | fix-live-frontend.md | M | Wave 3/4 frontend consistency |
 | Delete unused old badge CSS (`.quote-status-badge*`, `.invoice-status-badge*`, `.consultation-status-badge*`) | fix-live-frontend.md | L | Wave 4 cleanup |
-| Quotes list "Kunde" column shows raw `#id`, not a name; `ConsumeMetalModal.tsx`/`InvoicesPage.tsx` still call `customersApi.getAll({limit:500})` | fix-live-frontend.md, fix-live2.md (LV2-06) | M | Wave 3/4 (backend join + frontend) |
+| Quotes list "Kunde" column shows raw `#id`, not a name; `ConsumeMetalModal.tsx`/`InvoicesPage.tsx` still call `customersApi.getAll({limit:500})`; quotes/invoices still have no realtime channel; `/invoices/` still has no Page envelope (legacy skip/limit) | fix-live-frontend.md, fix-live2.md (LV2-06), fix-w4-page-quotes-invoices.md | M | Wave 3/4 (backend join + frontend) |
 | `layout.css` retains old 768px/480px media queries alongside the new 600/1024 breakpoints | fix-live-frontend.md | L | Wave 3 cleanup |
 | `convert_quote` race: loser gets 409 or 422 depending on `FOR UPDATE` lock timing — inconsistent status code | fix-live-backend.md | M | product/API decision |
 | LV-12 remaining sub-44px controls: header "System" button, invoices status select, invoices PDF button | fix-live2.md | L | Wave 3 frontend |
 | LV2-05: order-detail tab strip at 390px has no gap/scroll cue | fix-live2.md | L | Wave 3, needs live browser verification |
 | LV-19 at 1280: AKTIONEN column still clipped, FAB still overlaps a row | fix-live2.md | L | Wave 3, needs re-verification |
 | Wire `tests/integration/test_pg_concurrency.py` into the required CI pipeline | fix-live-backend.md | M | Wave 3 CI |
+
+**Since checkpoint 2 (new open items from the ~25 later fix branches):**
+
+| Item | Source report | Severity guess | Suggested wave |
+|---|---|---|---|
+| `TimerWidget.tsx:62` `runningEntry.start_time + 'Z'` unconditional — will double-apply the tz offset on an already-Z-suffixed value | fix-w3-outbox-migration.md | M | owned by another agent |
+| Naive-datetime grace period still accepted end-to-end (~200 `datetime.utcnow()` calls remain in tests); remove next release | fix-w3-numeric-tz.md | L | next release |
+| BE-14 "sum of *rounded* line totals" not applied — needs a product/Steuerberater decision | fix-w3-numeric-tz.md | M | product/Steuerberater decision |
+| `cli/gdpr_replay_erasures.parse_since` still returns naive UTC | fix-w3-numeric-tz.md | L | cleanup |
+| Bench (W4-03) residue: no footer/nav-hiding or user-menu toggle for bench mode; `ScanOverlay` not on the `src/ui` Sheet; time-entry list lost free-text/activity/duration-sort filters (no server param); `TimeEntryFormModal` still parses/submits naive UTC; `status.ts` has no "Läuft" `StatusKind`; `orderEntriesQuery` has no consumer yet | fix-w4-page-bench.md | M | Wave 4 continuation |
+| Nav/admin/order-form (W4-03) residue: stones on a new order not editable same-step; stone-deletion UX needs a product call; Scan FAB not yet in the phone tab-bar centre; Altgold has no standalone route; `orders.css` has dead rules; `adminKeys` outside shared `queryKeys.ts`; `SystemStatusPanel` health labels not in `status.ts`; `ScanAdoptionDashboard.tsx` ~20 colour literals; tab bar "Mehr" slot needs a button item | fix-w4-page-admin-nav-form.md | M | Wave 4 continuation |
+| Group-E (W4-03) residue: CSS leaks into out-of-scope pages (`.detail-item`, `.btn-pdf-download`, `.btn-retry`); `useMetalTypes` module cache not migrated to a query; materials sort/low-stock filter page-local only; scrap-gold manual gold-price input read-only (no API field); `StyleNoGoStep` keeps a plain `<label>` | fix-w4-page-group-e.md | M | Wave 4 continuation |
+| Portal `status_label` via StatusBadge triggers an unknown-key console warning; `RegisterPage` exists with no route | fix-w4-page-group-f.md | L | cleanup |
+| Repairs-UI (W4-03) residue: `repairKeys` outside shared `queryKeys.ts`; status-step gating uses `canCreateRepairs` pending a real `canEditRepairs`; `IntakeChecklist` only partly on primitives; inconsistent dirty-dialog prompts (intake "Abbrechen" vs. Escape/close) | fix-w4-page-repairs.md | M | Wave 4 continuation |
+| ARCH-09 follow-ups: convert models to `Mapped[]` module-by-module; remove the `core.permissions → api.deps` edge then widen import-linter contract 2; add `lint-imports` to CI; fix pre-existing PG drift (`scan_logs` partitions/types/index); `scripts/seed_data.py` imports a nonexistent `DataRetentionPolicy` | fix-w6-models-split.md | M/L | dedicated cleanup |
+| Jobs spine (ARCH-02): `job_id` columns stay nullable (make NOT NULL once `count_missing()`=0 in prod); quote-delivery records get no `job_id` | fix-w6-jobs-spine.md | M | pre-prod hardening |
+| Werkstatt board: only input-free repair transitions (diagnose/approve/complete still need the detail page), no drag-and-drop, 8 requests/load (one per column); startup job-backfill logs and continues on failure rather than stopping startup | fix-w6-jobs-followups.md | M | Wave 6 continuation |
+| `job_updates` publish fires inside the caller's open transaction, not strictly post-commit (callers out of scope) — documented compromise | fix-w6-repair-realtime.md | M | documented compromise |
+| Media: no orphan sweep (soft-delete doesn't cascade to `media_assets`, polymorphic/no FK); `customer_service` scrub only clears legacy `notes`; PDF/email/scanner/thumbnail readers still read legacy photo tables (dual-write not retired) | fix-w6-media.md | M | dedicated pass |
+| Media restore not erasure-replay-aware (a restored archive can resurrect a file for an already-erased customer) — documented known gap, not fixed; `compute_sha256()` duplicated in `backup.sh`/`restore.sh` instead of the shared lib | fix-w6-restore-media.md | M | dedicated pass |
+| `test_migration_w210_w204.py::test_chain_is_linear_w207_w210_w204` failed once pre-merge, passed isolated post-merge — possible ordering flake, not investigated (migrations out of scope) | fix-w6b-comms.md | L | investigate ordering |
+| Full ~4000-test backend suite not re-run after the W2X final merge (targeted slice only) — recommended before merging to `main` | fix-w2x-open-items.md | H | pre-merge-to-main verification |
+| `scrap_gold_service.py`'s `_price_for_item`/`_recalculate_totals` indexes the raw 3-metal spot-price dict; will `KeyError` (not the typed `MetalPriceError` contract) if `AlloyType` ever gains palladium | fix-w2x-open-items.md | M | Wave 2 continuation |
 
 ## (d) How to verify locally
 
@@ -532,19 +624,31 @@ poetry run pytest -q tests/adversarial/ -rxX
 # PostgreSQL-dependent paths (migrations, partial indexes, FOR UPDATE,
 # tz-aware columns, the two-session concurrency suite) — set up a real PG
 # instance (the live-verification passes used a throwaway Postgres 15
-# container on 127.0.0.1:5434):
+# container on 127.0.0.1:5434, Redis on 127.0.0.1:6391):
 export TEST_DATABASE_URL=postgresql+asyncpg://user:pass@localhost:5432/goldsmith_test
 export MIGRATION_DATABASE_URL=postgresql+psycopg2://user:pass@localhost:5432/goldsmith_test
 poetry run pytest -q tests/integration/<file>
 poetry run pytest -q tests/integration/test_pg_concurrency.py
 poetry run alembic upgrade head && poetry run alembic downgrade -1 && poetry run alembic upgrade head
 
+# Exact PG/Redis env-var form used by the live-verification and worktree
+# integration runs (port/creds/db throwaway, matches the live containers):
+export TEST_DATABASE_URL=postgresql+asyncpg://user:pass@127.0.0.1:5434/goldsmith_test
+export REDIS_URL=redis://127.0.0.1:6391/<n>            # n varies (0/1/5/…) per parallel worktree
+export MIGRATION_DATABASE_URL=postgresql://user:pass@127.0.0.1:5434/goldsmith    # or a scratch DB name
+export MIGRATION_TEST_DATABASE_URL=...                  # used by test_migration_h9_roundtrip specifically
+pytest tests/integration -x --maxfail=10                # the live-verification passes' own PG-suite invocation
+
 # Frontend:
 cd frontend
-yarn lint                          # ESLint 9; 5 errors remain in OrderFormModal.tsx
+yarn lint                          # ESLint 9; 0 errors project-wide as of the final pass (was 5, all OrderFormModal.tsx)
+yarn eslint .
+yarn lint:fix
 yarn vitest run                    # full suite
 yarn vitest run <path>              # a single file
+yarn vitest run --reporter=dot
 npx tsc --noEmit
+yarn tsc --noEmit -p tsconfig.json
 node node_modules/vite/bin/vite.js build   # `yarn build` itself still exits
                                              # 127 in a fresh checkout — FE-25,
                                              # unresolved; this is the documented
@@ -553,9 +657,25 @@ cd ..
 
 # Generated-types drift gate and combined local gates:
 make types-check                   # fails if frontend/src/api/generated/schema.d.ts drifts from the live OpenAPI spec
-make lint-local                    # local equivalent of the CI lint job (backend + frontend)
+make types                         # PYTHON=<venv python> make types — regenerates openapi.json + schema.d.ts
+make lint-local                    # local equivalent of the CI lint job (backend + frontend); this is CLAUDE.md's
+                                    # own invocation of lint-imports too, see below
 make test-local                    # local equivalent of the CI test job
 make install-timers                # installs the GDPR/retention/health-watchdog systemd timers
+node scripts/hex-ratchet.mjs                 # check the hex-literal count against baseline
+node scripts/hex-ratchet.mjs --update        # only the orchestrator runs this (see Decisions) — not individual agents
+
+# lint-imports (import-linter; config: .importlinter at repo root):
+lint-imports
+PYTHONPATH=src poetry run lint-imports
+# In a worktree, `poetry run lint-imports` has been observed to try to create a NEW venv instead of
+# reusing the pinned one — call the pinned venv's binary directly with an explicit --config instead:
+/path/to/goldsmith-erp-<hash>-py3.11/bin/lint-imports --config <worktree>/.importlinter
+
+# Worker entrypoint (transactional outbox, ARCH-04/05/12):
+python -m goldsmith_erp.worker
+python -m goldsmith_erp.worker --once
+python -m goldsmith_erp.worker --healthcheck
 ```
 
 Every fix agent ran from a git worktree with no `.env` file, so `Settings()`
@@ -564,18 +684,25 @@ needs the four env vars above set explicitly or it refuses to boot
 
 ## (e) Checkpoint for Max
 
-Waves 1 and 2 are functionally complete (all items landed, several partial and
-documented above and in `MASTER-FIX-PLAN.md`). Waves 3, 5 and 6 are mostly
-landed; Wave 4 has its tokens and component-primitive foundation in place but
-no page has migrated onto it yet; Wave 7 is almost entirely backlog except for
-some hygiene work that landed opportunistically. Two pieces of work were still
-running as this pass was written: the W3-11 Numeric/tz migration, and a
-post-Wave-2 open-items agent (dedupe/interaction fixes). Before treating this
-as a release candidate:
+Waves 1, 2, 3, 5 and 6 are now substantially complete (jobs spine, media,
+transactional outbox, quote-email routing, customer status report PDF all
+landed since the last checkpoint). Wave 4's page-migration playbook (W4-03)
+is now done for every page group (order detail, quotes/invoices, groups E and
+F, repairs, bench UI, nav/admin/order form). Wave 7 is still mostly backlog
+except for the hygiene work that landed opportunistically (W7-06's 8/8
+explicit candidates, backend hygiene). **Final verified state on the pushed
+head:** backend 4408 tests passed, frontend 1092 tests passed, `yarn lint` 0
+errors, hex-literal ratchet 2113 → 612, `make types-check` and `lint-imports`
+both clean; a third live pass confirmed a fresh-database migration to head, a
+downgrade/upgrade round trip, a successful seed, and a 952-passed PostgreSQL
+integration suite (its screenshot portion was interrupted, not a failure).
+Before treating this as a release candidate:
 
-1. **Run `/code-review ultra` on PR #51** (the review vehicle for `audit/2026-09-fixes` vs. `main`) now that Waves 1, 2, 3, 5 and 6 are substantially complete. This is user-triggered — the orchestrator that produced this document cannot run it.
-2. Work through the **Decisions** table above with the named people. In addition to the original Wave 1 decisions (NET price semantics, Altgold VAT treatment, invoice retention periods, allergy consent wording), Wave 2-7 added several more that need sign-off before go-live: the PHOTO_USE-consent-vs-privacy-notice tension in customer messaging, the outbox mode default, the legacy-list-fallback-on-`offset` API contract, and the fact that Auftragsnummer and repair-intake signature capture were both explicitly *not* built despite being named as "yes" decisions (D-12) or expected features.
-3. Treat the **H-severity open follow-ups** as blockers for any production cutover, not backlog: the pre-go-live `Order.price` data review for pre-NET-semantics orders, the order-lifecycle migration never run on PostgreSQL, E7/E8 (recipient confirmation and SMTP TLS) in customer messaging, W5-06 (column encryption), and a live restore drill for the encrypted-backup path.
-4. **`OrderFormModal.tsx`'s 5 remaining ESLint errors are the single blocker to a fully green `yarn lint`/CI `lint-frontend`** — assign it before closing out Wave 3.
-5. The full findings register and master fix plan now distinguish `fixed`, `partial: <what's left>`, and `open` — re-run this same method (reports first, commits second, never invent a status) after Wave 4's page migrations and Wave 6/7's remaining items land.
-6. A fix-item report (`fix-w7-hygiene-backend.md`) documented declining a mid-task message purporting to be "the coordinator" asking it to expand scope — worth a quick human read of that report as a sanity check on the multi-agent process itself, not because anything appears to have gone wrong.
+1. **Run `/code-review ultra` on PR #51** (the review vehicle for `audit/2026-09-fixes` vs. `main`) now that Waves 1–3, 5, 6 and the Wave 4 page-migration playbook are all substantially complete. This is user-triggered — the orchestrator that produced this document cannot run it.
+2. **Sign off on the Decisions table** (section (b)) with the named people. It now covers the original Wave 1 decisions (NET price semantics, Altgold VAT treatment, invoice retention periods, allergy consent wording) plus the newer cross-cutting ones added this pass: Kundeninfo "ticked photos win", repair costs billed net, the outbox inline-vs-worker default, order numbers via the jobs spine, the media `customer_visible` flag, and the legacy-list-fallback-on-`offset` API contract (now confirmed applied uniformly) — plus the still-open fact that Auftragsnummer and repair-intake signature capture were both explicitly *not* built despite being named as "yes" decisions (D-12) or expected features.
+3. **Get the outstanding adviser sign-offs** named throughout the Decisions table and the GDPR ops item: Steuerberater (DATEV account mapping, Altgold VAT treatment, invoice/Altgold retention periods, BE-14 rounding), lawyer/Anna (allergy-consent wording, D-13, GDPR-14/15), and Datenschutzberater (the PHOTO_USE-consent-vs-privacy-notice tension in customer messaging). None of these are code changes — they block go-live regardless of test status.
+4. **Run a live restore drill** for the encrypted-backup path (`backup.sh`/`restore.sh`, now including the media archive) — still never exercised end-to-end against a real environment.
+5. **Do a screenshot review of the migrated pages** (W4-03: order detail, quotes/invoices, group E, group F, repairs, bench UI, nav/admin/order form) — the playbook's own screenshot loop (1280×800 / 390×844) was never run in any worktree, since no live stack was available to the page-migration agents.
+6. Treat the **H-severity open follow-ups** as blockers for any production cutover, not backlog: the pre-go-live `Order.price` data review for pre-NET-semantics orders, the order-lifecycle migration never run on PostgreSQL, E7/E8 (recipient confirmation and SMTP TLS) in customer messaging, W5-06 (column encryption), and the restore drill in item 4 above.
+7. The full findings register and master fix plan now distinguish `fixed`, `partial: <what's left>`, and `open` — re-run this same method (reports first, commits second, never invent a status) after any further wave lands.
+8. A fix-item report (`fix-w7-hygiene-backend.md`) documented declining a mid-task message purporting to be "the coordinator" asking it to expand scope — worth a quick human read of that report as a sanity check on the multi-agent process itself, not because anything appears to have gone wrong.

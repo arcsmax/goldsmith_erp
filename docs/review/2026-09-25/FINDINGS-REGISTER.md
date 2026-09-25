@@ -23,7 +23,7 @@ This is the tracking artifact for the September 2026 audit. One row per finding.
 - **`open`** — no scratch report or commit claims this finding was touched. This includes findings whose owning fix item is still running (see [MASTER-FIX-PLAN.md](MASTER-FIX-PLAN.md) section 0 for the in-progress list) as well as findings in waves 2-7 that have not started.
 - This pass covers waves 1-7 where evidence exists (see [PROGRESS.md](PROGRESS.md) for the full changelog, the ~53 fix-item scratch reports and the 2 live-verification rounds read to build it). No row was set to `fixed`/`partial` on the strength of a commit message alone where a scratch report contradicted it; per this task's method, the report is the source of truth on any disagreement. Severities and wave/fix-item assignments are unchanged from the original synthesis. Two items were still running as this pass was written and are not reflected past what had landed: W3-11 (Numeric/tz migration) and the post-W2 open-items agent — see [MASTER-FIX-PLAN.md](MASTER-FIX-PLAN.md) section 0.
 
-**Counts after this pass (waves 1-7, 2026-09-25):** fixed 107, partial 42, open 63.
+**Counts after this pass (waves 1-7, 2026-09-25):** fixed 108, partial 47, open 57 (212 total).
 
 ## Register
 
@@ -57,7 +57,7 @@ This is the tracking artifact for the September 2026 audit. One row per finding.
 | FE-11 | HIGH | Service worker caches PII/prices, survives logout | 04 | Y | 1 | fixed (775c3c0, 1d57dc8) | W1-14 |
 | DOM-10 | HIGH | Customer emails sent per staff user and repeated | 05 | Y | 1 | fixed (4fb66d7, 9af6d05) | W1-12 |
 | DOM-19 | HIGH | Altgold add-item sends number; API wants string; 925 maps to 0 | 05 | Y | 1 | fixed (9639f64, 33ddd44) | W1-08 |
-| DOM-20 | HIGH | Mixed-metal Altgold valued entirely at gold price | 05 | Y | 1 | partial: valuation now per-metal-price-correct (33ddd44); total_fine_gold_g still aggregates across metals, no per-metal breakdown (needs schema change) | W1-08 |
+| DOM-20 | HIGH | Mixed-metal Altgold valued entirely at gold price | 05 | Y | 1 | partial: valuation now per-metal-price-correct (33ddd44); a computed per-metal fine-gram breakdown was added to the read response (e7f6913), but `total_fine_gold_g` itself still aggregates across metals — a full fix still needs a schema change | W1-08 |
 | GDPR-03 | HIGH | VIEWER reads repair costs, insurance values, revenue, prices | 07 | Y | 1 | fixed (fd15807, 083b1f9) | W1-04 |
 | GDPR-04 | HIGH | Design IP and photos readable by VIEWER | 07 | Y | 1 | fixed (fd15807, 083b1f9) | W1-04 |
 | VER-01 | HIGH | Repair-ready notification sends customer name to every user incl. VIEWER | VFD | Y (new) | 1 | fixed (4fb66d7) | W1-12 |
@@ -97,18 +97,18 @@ This is the tracking artifact for the September 2026 audit. One row per finding.
 | DOM-01 | HIGH | No way to upload order photos; scanner photo goes nowhere | 05 | Y | 2 | fixed (8f8e1b9, f5cf713) | W2-01 |
 | DOM-02 | HIGH | Walk-in customers without email cannot be created | 05 | Y | 2 | fixed (16eb65a) | W2-10 |
 | DOM-03 | HIGH | Consultation conversion drops deadline, type, metal, measurements, photos | 05 | Y | 2 | fixed (ef3b1f8) | W2-05 |
-| DOM-04 | HIGH | No gemstone capture (4C, Fassung, customer stone) | 05 | Y | 2 | partial: gemstone capture (4C, Fassung, Kundenstein) built (a57beac); not wired into quote/invoice PDF rendering, and a new order must be saved before stones can be added | W2-06 |
+| DOM-04 | HIGH | No gemstone capture (4C, Fassung, customer stone) | 05 | Y | 2 | partial: gemstone capture (4C, Fassung, Kundenstein) built (a57beac) and now passed into quote/invoice PDF rendering (fdbdcb1); a new order must still be saved before stones can be added | W2-06 |
 | DOM-11 | HIGH | Quote "Versenden" only flips status, sends nothing | 05 | Y | 2 | fixed (34d1cfb) | W2-05 |
 | DOM-11b | HIGH | Quote-to-order conversion drops lines, metal, weight, deadline | 05 | Y | 2 | fixed (ef3b1f8) | W2-05 |
 | DOM-12 | HIGH | Repairs get no customer updates; false customer_notified_at | 05 | Y | 2 | fixed (664231b, 718791a) | W2-02 |
 | DOM-13 | HIGH | No Storniert or Pausiert order statuses | 05 | Y | 2 | fixed (34d1c6d, e5511ef) | W2-07 |
 | DOM-14 | HIGH | Overdue orders ranked lowest on dashboard | 05 | Y | 2 | fixed (9bb29ba, f6b4c57) | W2-03 |
 | DOM-15 | HIGH | Dashboard ignores repairs and customer-pending items | 05 | Y | 2 | fixed (9bb29ba, f6b4c57) | W2-03 |
-| DOM-22 | HIGH | Hallmark vocabulary too narrow, forces false Feingehalt records | 05 | Y | 2 | fixed (70d799b) | W2-09 |
+| DOM-22 | HIGH | Hallmark vocabulary too narrow, forces false Feingehalt records | 05 | Y | 2 | partial: original false-Feingehalt defect fixed (70d799b); hallmark vocabulary and the order intake picker extended to recognize Silver 935 and Palladium 950/500 (aac9bcc), but the `AlloyType` enum itself was not extended (needs a migration), so `ScrapGoldItem.alloy` still cannot persist these marks | W2-09 |
 | DOM-24 | HIGH | Invoice PDF lacks §14 UStG seller data and Leistungsdatum | 05 | Y | 2 | partial: WorkshopSettings/NumberSequence back full §14 UStG invoice content and gap-free numbering (4286fc2); `templates/invoice.html` preview not updated to the new layout, and issuing with incomplete Werkstatt-Stammdaten only warns rather than blocking | W2-04 |
 | BE-16 | MEDIUM | Sequential numbers use unlocked MAX+1; break at 10,000 | 03 | N | 2 | fixed (4286fc2) | W2-04 |
 | BE-19 | MEDIUM | Interruptions never reduce time; actual_hours frozen at completion | 03 | N | 2 | fixed (93889f8) | W2-14 |
-| BE-20 | MEDIUM | Events published to unsubscribed channels; Redis lacks timeouts | 03 | N | 2 | partial: fan-out hub with Redis timeouts and bool return landed (c8065f8, faa106e); repair_updates, material_updates, consultation_updates, metal_price_updates and anomaly_alerts still have no subscriber | W2-13 |
+| BE-20 | MEDIUM | Events published to unsubscribed channels; Redis lacks timeouts | 03 | N | 2 | partial: fan-out hub with Redis timeouts and bool return landed (c8065f8, faa106e); `repair_updates` and the new `job_updates` channel are now forwarded to staff sockets (7fa6f41, publish still fires inside the caller's open transaction rather than strictly post-commit); `material_updates`, `consultation_updates`, `metal_price_updates` and `anomaly_alerts` still have no subscriber | W2-13 |
 | BE-22 | MEDIUM | Metal price feed treats USD as EUR; Pt priced at 999 | 03 | N | 2 | fixed (60a8289) | W2-15 |
 | FE-17 | MEDIUM | Walk-in repair intake takes customer as numeric ID | 04 | N | 2 | fixed (470d3b0, 3b91696) | W2-12 |
 | FE-18 | MEDIUM | Cross-page hand-offs pass query params nobody reads | 04 | N | 2 | partial: send-quote flow now records agreement evidence (34d1cfb); `/quotes` still ignores `?quote_id` and the dashboard's quote row opens the list, not the specific quote (fix-w2-03-dashboard.md) | W2-05 |
@@ -121,7 +121,7 @@ This is the tracking artifact for the September 2026 audit. One row per finding.
 | DOM-16 | MEDIUM | Order history tab does not show status history | 05 | N | 2 | fixed (962edbd, 487d3e2) | W2-08 |
 | DOM-17 | MEDIUM | 13 tabs on the order page | 05 | N | 2 | fixed (72b9e9e): order page collapsed from up to 14 tabs to 5 | W2-08 |
 | DOM-18 | MEDIUM | Status change is 9 free buttons, no next-step guidance | 05 | N | 2 | fixed (b033057, 1aa8f0b): "Weiter" button plus a reason dialog for hold/cancel | W2-08 |
-| DOM-21 | MEDIUM | No ID capture or Ankaufsbuch for Altgold buy-ins | 05 | N | 2 | fixed (abd162c): Altgold ID capture and Ankaufsbuch export; GDPR export/retention of the captured ID fields still open (W2-16 follow-up) | W2-16 |
+| DOM-21 | MEDIUM | No ID capture or Ankaufsbuch for Altgold buy-ins | 05 | N | 2 | fixed (abd162c, 86e6e78): Altgold ID capture and Ankaufsbuch export; GDPR Art. 15 export now includes `id_document_type`/`number`/`issuing_authority`/`id_checked_at` plus a retention-schedule row | W2-16 |
 | DOM-23 | MEDIUM | Punzierung hard gate, scanner-only, raw error on order page | 05 | N | 2 | fixed (70d799b, 3938c25) | W2-09 |
 | DOM-24b | MEDIUM | No Storno/credit-note flow; issued invoices editable | 05 | N | 2 | fixed (4286fc2): Storno/credit-note flow with immutable linkage | W2-04 |
 | DOM-30 | MEDIUM | Customer updates manual only; no milestone prompts | 05 | N | 2 | fixed (1aa8f0b, 72b9e9e) | W2-08 |
@@ -130,31 +130,31 @@ This is the tracking artifact for the September 2026 audit. One row per finding.
 | DOM-38 | MEDIUM | Customer 360 misses repairs, consultations, quotes; invoices capped 200 | 05 | N | 2 | partial: Verlauf tab merges orders/repairs/quotes/invoices/updates (3340086, 49e2efd); consultations still missing from the merged view, invoices still capped at 200 | W2-12 |
 | DOM-11d | LOW | Quote approvable from DRAFT without recorded agreement method | 05 | N | 2 | fixed (34d1cfb): `response_method` required to approve a quote | W2-05 |
 | DOM-15c | LOW | No receivables or monthly revenue glance | 05 | N | 2 | open | W2-03 |
-| DOM-44 | LOW † | Two unconnected hallmark systems (OrderHallmark register unused) | 05 | N | 2 | open: `frontend/src/api/hallmarks.ts` (orphaned OrderHallmark client) confirmed still dead by fix-w2-09-hallmark.md, not removed | W2-09 |
+| DOM-44 | LOW † | Two unconnected hallmark systems (OrderHallmark register unused) | 05 | N | 2 | fixed (ef476b9): orphaned `frontend/src/api/hallmarks.ts` (OrderHallmark client) removed, alongside a stale `/status` docstring update | W2-09 |
 | DOM-46 | LOW † | Legacy NEW status still default and in labels | 05 | N | 2 | fixed (34d1c6d) | W2-07 |
 | ARCH-03 | HIGH | Repository layer is 1.8k LOC dead code; routers run SQL | 01 | Y | 3 | open | W3-09 |
 | ARCH-04 | HIGH | Background work in web process; 2 workers duplicate it | 01 | Y | 3 | partial: advisory-lock leader election for the system monitor (22612fb) plus a full transactional outbox and worker process (c4e4090, d41625b, f55fbaf, 1409dc8) now landed; lifespan-managed task cancellation in the web process (W3-10) still pending | W3-10 (outbox W6-01) |
-| BE-14 | HIGH | Float money and round() cause cent errors on documents | 03 | Y | 3 | partial: invoice calculate_totals now Decimal/ROUND_HALF_UP (f827746); quote_service.calculate_totals and the full Numeric-column migration (~70 Float money columns) still pending (W3-11) | W3-11 |
-| FE-06 | HIGH | Lists, pickers, dashboards silently cap at 100/200 rows | 04 | Y | 3 | partial: `Page[T]` envelope with server-side filter/search live for orders, repairs, quotes, materials, time-tracking, notifications (7e48494, 8dff361); frontend does not yet send `offset` or consume the envelope; customers, invoices, activities, comments, users and calendar endpoints remain unpaginated | W3-08 |
+| BE-14 | HIGH | Float money and round() cause cent errors on documents | 03 | Y | 3 | partial: money columns now `Numeric`/`Decimal` end to end (9448e0b), building on the earlier invoice-only fix (f827746); summing *rounded* line totals is not applied — needs a product/Steuerberater decision | W3-11 |
+| FE-06 | HIGH | Lists, pickers, dashboards silently cap at 100/200 rows | 04 | Y | 3 | partial: `Page[T]` envelope with server-side filter/search live for orders, repairs, quotes, materials, time-tracking, notifications and now customers (7e48494, 8dff361, ed8e67f); order and invoice pickers (`ConsumeMetalModal`, `CreateInvoiceModal`) now use paged+search instead of loading up to 500 rows (df4cfb3); invoices, activities, comments, users and calendar endpoints remain unpaginated | W3-08 |
 | ARCH-06 | MEDIUM | No frontend server-state layer; lists truncate, never refresh | 01 | N | 3 | open | W3-03 |
 | ARCH-07 | MEDIUM | API types hand-maintained on both sides, no generated contract | 01 | N | 3 | fixed (f532896, d0cbb13, 8dff361) | W3-02 |
 | ARCH-08 | MEDIUM | Inconsistent pagination, error envelope, prefixes, exception mapping | 01 | N | 3 | partial: `DomainError` hierarchy with one handler, and the `Page[T]` envelope, both landed (5183407, 7e48494, 8dff361); 63 router except-blocks still hand-map errors instead of raising `DomainError` | W3-07 (pagination W3-08) |
 | ARCH-11 | MEDIUM | Real-time fan-out per socket, no lifecycle, partly unused | 01 | N | 3 | partial: one Redis subscriber per process (was per-socket) via the new RealtimeHub (c8065f8); lifespan-managed task cancellation still pending (W3-10) | W3-10 |
-| BE-15 | MEDIUM | Timezone-aware inputs reach naive columns (fails on PG) | 03 | N | 3 | partial: UtcNaiveDatetime normalisation applied to invoice due_date/paid_date and time-entry end_time; app-wide sweep of ~98 naive DateTime columns still pending (W3-11) | W3-11 |
+| BE-15 | MEDIUM | Timezone-aware inputs reach naive columns (fails on PG) | 03 | N | 3 | partial: timezone-aware datetimes applied end to end (82d285e), building on the earlier invoice/time-entry-only fix; a naive-datetime grace period is still accepted at ~200 `datetime.utcnow()` call sites in tests (to be removed next release), and `cli/gdpr_replay_erasures.parse_since` still returns naive UTC | W3-11 |
 | FE-12 | MEDIUM | Role enum casing drift hides admin metal-type manager | 04 | N | 3 | fixed (f532896): generated types fixed the uppercase/lowercase role-enum casing drift | W3-02 |
 | FE-14 | MEDIUM | ErrorBoundary retry never reloads; resets on every re-render | 04 | N | 3 | open | W3-01 |
-| FE-15 | MEDIUM | No ESLint at all; hooks rules unenforced | 04 | N | 3 | partial: ESLint 9 with react-hooks and jsx-a11y rolled out (445b5bd, 1f0c253, ee852ed); 5 errors remain in `OrderFormModal.tsx` (owned by another in-flight agent) | W3-06 |
-| FE-16 | MEDIUM | Forms: mixed validation, raw axios errors, no dirty guard | 04 | N | 3 | open | W3-05 |
+| FE-15 | MEDIUM | No ESLint at all; hooks rules unenforced | 04 | N | 3 | fixed (445b5bd, 1f0c253, ee852ed, e3fecba): ESLint 9 with react-hooks and jsx-a11y rolled out; the remaining 5 `OrderFormModal.tsx` errors resolved by e3fecba, project-wide 0 ESLint errors | W3-06 |
+| FE-16 | MEDIUM | Forms: mixed validation, raw axios errors, no dirty guard | 04 | N | 3 | partial: order form rebuilt on react-hook-form + zod, split into extracted sections (2ec97d6); other forms across the app not yet confirmed migrated | W3-05 |
 | FE-20 | MEDIUM | No cancellation or dedupe; 54 copies of loading boilerplate | 04 | N | 3 | open | W3-03 |
 | SEC-F5 | MEDIUM † | PUT /admin/email-config changes one worker only, lost on restart | 02 | N | 3 | open | W3-10 |
 | SEC-12 | LOW | WebSocket auth skips revocation and is_active; accepts ?token= | 02 | N | 3 | partial: unchanged since W2-13 — `/ws/events` checks token revocation; `?token=` query auth, `is_active` and Origin checks still pending (W3-10 not started) | W3-10 |
 | SEC-16 | LOW | Unbounded limit on 7 list endpoints | 02 | N | 3 | fixed (7e48494): legacy (non-paged) list responses now capped at limit ≤500 | W3-08 |
 | BE-24 | LOW | Dead repository layer references non-existent columns | 03 | N | 3 | open | W3-09 |
-| BE-26 | LOW | Unlimited list endpoints; stray test DBs in repo root | 03 | N | 3 | partial: unbounded-limit part addressed for the 6 paged endpoints via the `Page[T]` cap (7e48494); customers/invoices lists and the stray test-DB cleanup remain | W3-08 |
+| BE-26 | LOW | Unlimited list endpoints; stray test DBs in repo root | 03 | N | 3 | partial: unbounded-limit part addressed for the 6 paged endpoints via the `Page[T]` cap (7e48494), and `/customers/` is now paged too (ed8e67f); the invoices list and the stray test-DB cleanup remain | W3-08 |
 | FE-22 | LOW | Dead components, eager recharts, public sourcemaps | 04 | N | 3 | open | W3-01 |
 | FE-23 | LOW | Accessibility mechanics: clickable divs, tabs without roles | 04 | N | 3 | partial: many clickable-div/static-interaction and label-association defects fixed via the ESLint jsx-a11y rollout (445b5bd, 1f0c253, ee852ed); 5 remain in `OrderFormModal.tsx` | W3-04 |
 | FE-24 | LOW | Derived state in effects; 13 status-label maps drift | 04 | N | 3 | open | W3-04 |
-| OPS-13 | LOW | Frontend ESLint config missing; issue #33 open | 06 | N | 3 | partial: same ESLint rollout as FE-15; 5 errors remain in `OrderFormModal.tsx`, `yarn lint`/CI `lint-frontend` not yet green | W3-06 |
+| OPS-13 | LOW | Frontend ESLint config missing; issue #33 open | 06 | N | 3 | fixed: same ESLint rollout as FE-15 (445b5bd, 1f0c253, ee852ed, e3fecba); project-wide 0 ESLint errors | W3-06 |
 | DES-01 | HIGH | Primary CTA, links, active nav fail AA contrast | 08 | Y | 4 | partial: primary-colour token and the backend theme default both moved to AA contrast (54f9c3b, 7c30827); a few hardcoded non-token hex values remain in `order-detail.css`/`dashboard.css` | W4-01 |
 | DES-02 | HIGH | Focus ring 2.15:1; 33 outline:none | 08 | N | 4 | fixed (54f9c3b): global `:focus-visible` ring overrides 35 pre-existing `outline:none` rules, 0 introduced AA failures; ring width shipped at 2px vs. the playbook's 3px, flagged not reconciled | W4-01 |
 | DES-03 | HIGH | 6 of 10 order statuses unstyled; 8+ badge systems | 08 | Y | 4 | fixed (54f9c3b, dc83d95): full tone coverage for 10 order + 9 repair statuses | W4-02 |
@@ -208,19 +208,19 @@ This is the tracking artifact for the September 2026 audit. One row per finding.
 | SEC-F7 | LOW † | Caddy internal root CA not in backup plan | 02 | N | 5 | open | W5-05 |
 | SEC-F8 | LOW † | SameSite=Strict on IP site: never co-host other web apps | 02 | N | 5 | fixed (2d748f6) | W5-11 |
 | SEC-F10 | LOW † | Demo seed accounts use known password demo2026! | 02 | N | 5 | fixed (2d748f6): documented as a known limitation | W5-11 |
-| OPS-08 | LOW | docs/DEPLOYMENT.md stale and misleading | 06 | N | 5 | fixed (2d748f6): stale DEPLOYMENT.md archived, rollback and log rotation documented | W5-11 |
+| OPS-08 | LOW | docs/DEPLOYMENT.md stale and misleading | 06 | N | 5 | partial: stale DEPLOYMENT.md archived, rollback and log rotation documented (2d748f6); `docs/DEPLOYMENT.md`/`DEPLOYMENT_LOCAL.md` still show stale sample credentials (`admin123`) even after seed credentials were unified elsewhere (4b2d1ec) | W5-11 |
 | OPS-09 | LOW | Redis publish-to-WebSocket path fully mocked in tests | 06 | N | 5 | open | W5-04 |
 | OPS-10 | LOW | "Passes on PostgreSQL" xfail claim never checked | 06 | N | 5 | open | W5-02 |
 | OPS-11 | LOW | No dependency vulnerability scan in CI | 06 | N | 5 | fixed (a3642f1): advisory pip-audit/yarn audit added | W5-02 |
 | OPS-12 | LOW | ruff and pylint not run in CI | 06 | N | 5 | fixed (a3642f1): ruff added to the CI lint job, non-blocking baseline | W5-02 |
 | OPS-14 | LOW | Seven stale worktrees and stray alembic_backup/ | 06 | N | 5 | fixed (c3df1a4): read-only stale-worktree/branch reporter | W5-13 |
 | GDPR-18 | LOW | Encryption hardening: tolerate_plaintext, no rotation path | 07 | N | 5 | open | W5-06 |
-| ARCH-02 | HIGH | Order and RepairJob duplicate aggregates; repairs cannot be invoiced | 01 | Y | 6 | open | W6-04 |
+| ARCH-02 | HIGH | Order and RepairJob duplicate aggregates; repairs cannot be invoiced | 01 | Y | 6 | partial: jobs spine landed — jobs table, backfill migration and service-side sync (82fd186); invoices/updates/media/events attached by job, repair invoicing (f745267); `GET /jobs` list/detail/timeline (e407eb6); seed/startup backfill (4cc90ef); Werkstatt kanban board over jobs (a44d942); repairs can now be invoiced via "Rechnung erstellen" (3353092); ADR at `docs/architecture/ADR-2026-09-25-jobs-spine.md` (b601211); `job_id` columns stay nullable pending a `NOT NULL` migration once backfill coverage is complete, quote-delivery records get no `job_id`, and the kanban board has no drag-and-drop and issues one request per column | W6-04 |
 | ARCH-05 | HIGH | Customer communication is a side effect of staff notifications | 01 | Y | 6 | fixed (777137d, 2669451): CustomerMessageService is the single outbound customer path; quotes routed through it too | W6-02 |
 | DOM-29 | HIGH | Customer cannot approve or decline in one click | 05 | Y | 6 | open | W6-07 |
-| ARCH-09 | MEDIUM | db/models.py and services are growing god-modules | 01 | N | 6 | open | W6-05 |
-| ARCH-10 | MEDIUM | Three unrelated photo models; local filesystem assumption | 01 | N | 6 | open | W6-03 |
-| FE-21 | MEDIUM | Portal thin: placeholder contacts, raw ISO dates, no token route | 04 | N | 6 | open | W6-07 |
+| ARCH-09 | MEDIUM | db/models.py and services are growing god-modules | 01 | N | 6 | partial: `db/models.py` split into a domain package (users/customers, materials/metals/scrap-gold, orders, invoices/quotes, repairs/consultations, comms/system) with import-linter layering contracts (0b30d88, eca1b06, eeab0bd, 925e1e6, 4ccd863, 766e594, 76c46cf, 40589a6); `services/` still growing as god-modules; follow-ups (convert models to `Mapped[]`, tighten the layering contract, add `lint-imports` to CI, fix pre-existing PG schema drift, `scripts/seed_data.py`'s nonexistent `DataRetentionPolicy` import) not done | W6-05 |
+| ARCH-10 | MEDIUM | Three unrelated photo models; local filesystem assumption | 01 | N | 6 | partial: unified `media_assets` table, `MediaStore` and `MediaService`, plus a `customer_visible` flag used by messages and the status report (503c81f, 4e85439); legacy photo tables not retired — PDF/email/scanner/thumbnail readers still read them (dual-write), and there is no orphan sweep for soft-deleted media | W6-03 |
+| FE-21 | MEDIUM | Portal thin: placeholder contacts, raw ISO dates, no token route | 04 | N | 6 | partial: portal now serves the real workshop contact instead of a hardcoded placeholder (6a08f1f); raw ISO dates and the missing token route are still open | W6-07 |
 | DOM-31 | MEDIUM | Portal link never rendered in emails; tokens expire in 1 h | 05 | N | 6 | open | W6-07 |
 | GDPR-12 | MEDIUM | Public portal leaks design text, enumerable, broken rate limit | 07 | N | 6 | open | W6-07 |
 | DOM-32 | LOW | No post-pickup feedback or rating | 05 | N | 6 | open | W6-06 |
