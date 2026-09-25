@@ -55,6 +55,16 @@ class Invoice(Base):
             ),
             sqlite_where=text("status <> 'cancelled' AND cancels_invoice_id IS NULL"),
         ),
+        # ARCH phase 5: the same rule per job, which also covers repairs.
+        Index(
+            "uq_invoices_one_active_per_job",
+            "job_id",
+            unique=True,
+            postgresql_where=text(
+                "status <> 'cancelled' AND cancels_invoice_id IS NULL"
+            ),
+            sqlite_where=text("status <> 'cancelled' AND cancels_invoice_id IS NULL"),
+        ),
     )
 
     id = Column(Integer, primary_key=True, index=True)
@@ -72,11 +82,18 @@ class Invoice(Base):
         index=True,
     )
 
-    # Links
+    # Links. ARCH phase 5: a repair invoice has no order (order_id NULL);
+    # job_id is set on every invoice (order or repair).
     order_id = Column(
         Integer,
         ForeignKey("orders.id", ondelete="RESTRICT"),
-        nullable=False,
+        nullable=True,
+        index=True,
+    )
+    job_id = Column(
+        Integer,
+        ForeignKey("jobs.id", ondelete="RESTRICT"),
+        nullable=True,
         index=True,
     )
     customer_id = Column(
@@ -142,6 +159,7 @@ class Invoice(Base):
 
     # Relationships
     order = relationship("Order")
+    job = relationship("Job")
     customer = relationship("Customer")
     creator = relationship("User")
     line_items = relationship(

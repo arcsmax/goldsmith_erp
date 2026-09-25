@@ -80,15 +80,9 @@ class InvoiceLineItemResponse(BaseModel):
 # ============================================================================
 
 
-class InvoiceCreate(BaseModel):
-    """
-    Schema for creating an invoice from an order.
+class InvoiceCreateBase(BaseModel):
+    """Fields shared by order and repair invoices (ARCH phase 5)."""
 
-    The service will auto-populate line items from the order's material,
-    labor, and gemstone data. Caller may also supply additional line items.
-    """
-
-    order_id: int = Field(..., gt=0, description="Order ID to generate invoice from")
     due_date: UtcDatetime = Field(
         ..., description="Payment due date (Faelligkeitsdatum); normalised to UTC"
     )
@@ -131,6 +125,26 @@ class InvoiceCreate(BaseModel):
         return v
 
 
+class InvoiceCreate(InvoiceCreateBase):
+    """
+    Schema for creating an invoice from an order.
+
+    The service will auto-populate line items from the order's material,
+    labor, and gemstone data. Caller may also supply additional line items.
+    """
+
+    order_id: int = Field(..., gt=0, description="Order ID to generate invoice from")
+
+
+class RepairInvoiceCreate(InvoiceCreateBase):
+    """Body of ``POST /repairs/{id}/invoice`` (ARCH phase 5).
+
+    The line item comes from the repair's agreed NET price (actual cost,
+    else the accepted estimate); ``service_date`` defaults to the repair's
+    completion date.
+    """
+
+
 class InvoiceUpdate(BaseModel):
     """
     Schema for updating an existing invoice.
@@ -156,7 +170,12 @@ class InvoiceResponse(BaseModel):
 
     id: int
     invoice_number: str = Field(..., description="Rechnungsnummer (RE-YYYY-NNNN)")
-    order_id: int
+    order_id: Optional[int] = Field(
+        default=None, description="Order billed; null for a repair invoice"
+    )
+    job_id: Optional[int] = Field(
+        default=None, description="Job (order or repair) billed (ARCH phase 5)"
+    )
     customer_id: int
     created_by: int
     status: InvoiceStatus
@@ -199,7 +218,8 @@ class InvoiceListItem(BaseModel):
 
     id: int
     invoice_number: str
-    order_id: int
+    order_id: Optional[int] = None
+    job_id: Optional[int] = None
     customer_id: int
     status: InvoiceStatus
     issue_date: datetime

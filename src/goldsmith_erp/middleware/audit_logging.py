@@ -142,6 +142,9 @@ _RESOURCE_ROUTES: dict[str, Tuple[str, str, str, bool]] = {
     # W2-03: ``GET /dashboard/today`` returns customer names plus cost-change
     # amounts and quote totals (financial) for ADMIN/GOLDSMITH.
     "dashboard": ("dashboard", "financial_read", "list_accessed_financial", True),
+    # ARCH phase 5: ``GET /jobs`` / ``/jobs/{id}`` return customer names and
+    # (FINANCIAL_VIEW) the agreed price of orders and repairs.
+    "jobs": ("job", "financial_read", "list_accessed_financial", True),
     # ── Finding 2.2 / issue #39: close the "no audit coverage at all" gap ──
     # These families previously had NO audit row on reads OR writes. They are
     # registered here so the middleware covers them uniformly.

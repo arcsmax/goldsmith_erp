@@ -36,7 +36,9 @@ from goldsmith_erp.api.routers import (
     health,
 )
 from goldsmith_erp.api.routers import imports as imports_router
-from goldsmith_erp.api.routers import invoices, materials, measurements
+from goldsmith_erp.api.routers import invoices
+from goldsmith_erp.api.routers import jobs as jobs_router
+from goldsmith_erp.api.routers import materials, measurements
 from goldsmith_erp.api.routers import media as media_router
 from goldsmith_erp.api.routers import (
     metal_inventory,
@@ -244,6 +246,9 @@ app.include_router(
 app.include_router(
     repairs.router, prefix=f"{settings.API_V1_STR}/repairs", tags=["repairs"]
 )  # Repair tracking (Reparaturverwaltung)
+app.include_router(  # ARCH phase 5: orders + repairs on the job spine
+    jobs_router.router, prefix=f"{settings.API_V1_STR}/jobs", tags=["jobs"]
+)
 app.include_router(
     hallmarks.router, prefix=f"{settings.API_V1_STR}", tags=["hallmarks"]
 )  # Hallmarking / Punzierung

@@ -140,7 +140,10 @@ def test_revision_is_the_single_head_on_top_of_be15():
     assert module.revision == _REVISION
     assert module.down_revision == "20260925_be15_tz"
     script = ScriptDirectory.from_config(Config(str(_ROOT / "alembic.ini")))
-    assert script.get_heads() == [_REVISION]
+    # Later revisions build on arch4; it must be in the single head's history.
+    heads = script.get_heads()
+    assert len(heads) == 1
+    assert _REVISION in {r.revision for r in script.iterate_revisions(heads[0], "base")}
 
 
 def test_upgrade_copies_rows_and_recomputes_sha256(engine, media_root, caplog):

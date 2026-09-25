@@ -132,6 +132,15 @@ from goldsmith_erp.db.models.media import (
     MediaKind,
     MediaOwnerType,
 )
+from goldsmith_erp.db.models.jobs import (
+    JOB_KIND_VALUES,
+    JOB_STATUS_VALUES,
+    Job,
+    JobKind,
+    JobStatus,
+    ORDER_NUMBER_KIND,
+    REPAIR_NUMBER_KIND,
+)
 from goldsmith_erp.db.models.time_tracking import (
     Activity,
     EstimateAccuracy,
@@ -192,7 +201,14 @@ __all__ = [
     "InvoiceStatus",
     "LabelTemplate",
     "LocationHistory",
+    "JOB_KIND_VALUES",
+    "JOB_STATUS_VALUES",
+    "Job",
+    "JobKind",
+    "JobStatus",
     "MEDIA_KIND_VALUES",
+    "ORDER_NUMBER_KIND",
+    "REPAIR_NUMBER_KIND",
     "MEDIA_OWNER_TYPE_VALUES",
     "MONEY_NUMERIC",
     "Material",

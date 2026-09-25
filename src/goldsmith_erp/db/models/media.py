@@ -77,6 +77,13 @@ class MediaAsset(Base):
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     owner_type = Column(String(20), nullable=False)
     owner_id = Column(Integer, nullable=False)
+    # ARCH phase 5: the job of an order/repair owner (NULL otherwise).
+    job_id = Column(
+        Integer,
+        ForeignKey("jobs.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
     kind = Column(String(20), nullable=False, default=MediaKind.PHOTO.value)
     storage_key = Column(String(500), nullable=False)
     mime = Column(String(100), nullable=False)

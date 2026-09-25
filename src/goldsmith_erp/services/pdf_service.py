@@ -356,7 +356,12 @@ def _invoice_meta_rows(invoice: Any) -> list[tuple[str, str]]:
     ]
     if not _is_storno(invoice):
         rows.append(("Fälligkeitsdatum:", _fmt_date(invoice.due_date)))
-    rows.append(("Auftragsnummer:", str(invoice.order_id)))
+    reference = getattr(invoice, "reference", None)
+    if reference:
+        label = getattr(invoice, "reference_label", None) or "Auftragsnummer:"
+        rows.append((label, str(reference)))
+    else:
+        rows.append(("Auftragsnummer:", str(invoice.order_id)))
     if getattr(invoice, "payment_method", None):
         rows.append(("Zahlungsart:", str(invoice.payment_method)))
     return rows

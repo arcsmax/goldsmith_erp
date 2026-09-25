@@ -260,6 +260,13 @@ class CustomerUpdate(Base):
         nullable=True,
         index=True,
     )
+    # ARCH phase 5: the job of the order or repair above (backfilled).
+    job_id = Column(
+        Integer,
+        ForeignKey("jobs.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
 
     kind = Column(SAEnum(CustomerUpdateKind), nullable=False)
     subject = Column(String(300), nullable=False)

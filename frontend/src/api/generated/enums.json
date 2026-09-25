@@ -136,6 +136,22 @@
     "overdue",
     "cancelled"
   ],
+  "JobKind": [
+    "order",
+    "repair"
+  ],
+  "JobStatus": [
+    "draft",
+    "intake",
+    "awaiting_approval",
+    "confirmed",
+    "in_progress",
+    "quality_check",
+    "ready",
+    "delivered",
+    "on_hold",
+    "cancelled"
+  ],
   "MeasurementType": [
     "ring_size",
     "chain_length",

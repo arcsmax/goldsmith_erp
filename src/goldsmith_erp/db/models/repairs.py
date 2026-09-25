@@ -90,6 +90,13 @@ class RepairJob(Base):
         nullable=True,
         index=True,
     )
+    # ARCH phase 5: the job spine row (services/job_service keeps it in sync).
+    job_id = Column(
+        Integer,
+        ForeignKey("jobs.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
 
     # Item details
     item_description = Column(Text, nullable=False)
@@ -145,6 +152,7 @@ class RepairJob(Base):
     # Relationships
     customer = relationship("Customer")
     received_by_user = relationship("User", foreign_keys=[received_by])
+    job = relationship("Job", back_populates="repair", foreign_keys=[job_id])
     photos = relationship(
         "RepairPhoto",
         back_populates="repair_job",

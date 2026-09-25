@@ -38,6 +38,11 @@ _BORN_AWARE_AFTER_BE15 = {
     ("media_assets", "taken_at"),
     ("media_assets", "created_at"),
     ("media_assets", "deleted_at"),
+    # ARCH phase 5: 20260925_arch5_jobs.
+    ("jobs", "deadline"),
+    ("jobs", "on_hold_since"),
+    ("jobs", "created_at"),
+    ("jobs", "updated_at"),
 }
 
 

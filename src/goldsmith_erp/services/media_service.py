@@ -49,6 +49,7 @@ from goldsmith_erp.services.image_validation import (
     create_thumbnail_bounded,
     read_validated_image,
 )
+from goldsmith_erp.services.job_service import JobService
 from goldsmith_erp.services.media_store import (
     EXT_TO_MIME,
     LocalMediaStore,
@@ -59,6 +60,18 @@ from goldsmith_erp.services.media_store import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+async def _job_id_for_owner(
+    db: AsyncSession, owner_type: MediaOwnerType, owner_id: int
+) -> Optional[int]:
+    """ARCH phase 5: the job of an order / repair owner (None otherwise)."""
+    if owner_type is MediaOwnerType.ORDER:
+        return await JobService.job_id_for(db, order_id=owner_id)
+    if owner_type is MediaOwnerType.REPAIR:
+        return await JobService.job_id_for(db, repair_job_id=owner_id)
+    return None
+
 
 # Owner type -> (view permission, edit permission). DESIGN_VIEW is required
 # on top of the view permission for every read (photos are design IP).
@@ -221,6 +234,7 @@ class MediaService:
         asset = MediaAsset(
             owner_type=owner_type.value,
             owner_id=owner_id,
+            job_id=await _job_id_for_owner(db, owner_type, owner_id),
             kind=MediaKind.PHOTO.value,
             storage_key=stored.key,
             mime=stored.mime,
