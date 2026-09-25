@@ -18,13 +18,14 @@ from typing import List, Optional, Union
 from fastapi import APIRouter, Depends
 from fastapi import File as FastAPIFile
 from fastapi import Form, HTTPException, Query, UploadFile, status
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from goldsmith_erp.api.deps import get_current_user
 from goldsmith_erp.api.role_projection import (
     ExcludeSpec,
     build_excludes,
+    can_view_financial,
     project,
     project_response,
 )
@@ -60,6 +61,7 @@ from goldsmith_erp.services.customer_update_service import (
     InvalidUpdateStateError,
 )
 from goldsmith_erp.services.label_service import LabelService
+from goldsmith_erp.services.pdf_service import render_repair_intake_receipt_pdf
 from goldsmith_erp.services.photo_service import PhotoValidationError
 from goldsmith_erp.services.repair_photo_service import RepairPhotoService
 from goldsmith_erp.services.repair_service import (
@@ -67,6 +69,7 @@ from goldsmith_erp.services.repair_service import (
     NoCustomerUpdateDraftError,
     RepairService,
 )
+from goldsmith_erp.services.workshop_settings_service import WorkshopSettingsService
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -209,6 +212,56 @@ async def get_repair_label(
         label_height_mm=height_mm,
     )
     return HTMLResponse(content=html, status_code=200)
+
+
+@router.get("/{repair_id}/annahmeschein.pdf", response_class=Response)
+@require_permission(Permission.DESIGN_VIEW)
+async def get_repair_annahmeschein(
+    repair_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> Response:
+    """Annahmeschein (Reparaturannahme) als PDF (W2-12, DOM-08).
+
+    Enthaelt Werkstattdaten, Kunde, Stueck, Zustand, Fotos der Annahme als
+    Miniaturen, Preisindikation, Termine und Unterschriftszeilen. Fotos sind
+    Design-IP, daher DESIGN_VIEW (VIEWER: 403); die Preisindikation nur mit
+    FINANCIAL_VIEW. Eine Unterschrift wird noch nicht gespeichert (keine
+    Spalte, siehe W2-12-Bericht): der Schein wird auf Papier unterschrieben.
+    """
+    repair = await RepairService.get_repair(db, repair_id)
+    if repair is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Reparaturauftrag #{repair_id} nicht gefunden",
+        )
+    include_price = can_view_financial(current_user)
+    workshop = await WorkshopSettingsService.seller_block(db)
+    photos = await RepairService.intake_thumbnails(db, repair)
+    pdf_bytes = render_repair_intake_receipt_pdf(
+        repair=repair,
+        customer=repair.customer,
+        workshop=workshop,
+        photos=photos,
+        signature_png=None,
+        include_price=include_price,
+    )
+    logger.info(
+        "Annahmeschein PDF served",
+        extra={
+            "audit": True,
+            "action": "repair_annahmeschein_pdf",
+            "repair_id": repair_id,
+            "user_id": current_user.id,
+            "financial_data": include_price,
+        },
+    )
+    filename = f"Annahmeschein_{repair.repair_number}.pdf"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="{filename}"'},
+    )
 
 
 # ============================================================================

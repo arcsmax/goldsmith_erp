@@ -33,6 +33,11 @@ def _strip_tzinfo(value: Optional[datetime]) -> Optional[datetime]:
     return value
 
 
+INTAKE_PROBLEM_MAX_LENGTH = 1000
+INTAKE_CONDITION_MAX_ITEMS = 12
+INTAKE_CONDITION_MAX_LENGTH = 80
+
+
 # ============================================================================
 # REPAIR PHOTO SCHEMAS
 # ============================================================================
@@ -148,7 +153,24 @@ class RepairJobCreate(BaseModel):
         None, ge=0, description="Versicherungswert in EUR"
     )
     estimated_completion_date: Optional[datetime] = Field(
-        None, description="Voraussichtliches Fertigstellungsdatum"
+        None, description="Zugesagter Fertigstellungstermin"
+    )
+    # W2-12 counter intake (FE-17, DOM-08). No dedicated columns yet: the
+    # service folds problem and condition into item_description (see
+    # repair_service.compose_intake_description); the price indication is
+    # stored as estimated_cost and replaced by the KVA at diagnosis.
+    customer_problem: Optional[str] = Field(
+        None,
+        max_length=INTAKE_PROBLEM_MAX_LENGTH,
+        description="Vom Kunden geschildertes Problem",
+    )
+    condition_notes: List[str] = Field(
+        default_factory=list,
+        max_length=INTAKE_CONDITION_MAX_ITEMS,
+        description="Zustand bei Annahme, z.B. ['Kratzer', 'Tragespuren']",
+    )
+    estimated_cost: Optional[float] = Field(
+        None, ge=0, description="Erste Preisindikation in EUR (unverbindlich)"
     )
 
     _strip_tz_completion = field_validator("estimated_completion_date", mode="after")(
@@ -163,6 +185,30 @@ class RepairJobCreate(BaseModel):
         if not v:
             raise ValueError("Beschreibung darf nicht leer sein")
         return v
+
+    @field_validator("customer_problem")
+    @classmethod
+    def sanitize_problem(cls, v: Optional[str]) -> Optional[str]:
+        """Blank problem text counts as not given."""
+        if v is None:
+            return None
+        return v.strip() or None
+
+    @field_validator("condition_notes")
+    @classmethod
+    def sanitize_conditions(cls, v: List[str]) -> List[str]:
+        """Trim, drop blanks and duplicates, cap each note's length."""
+        cleaned: List[str] = []
+        for note in v:
+            text = note.strip()
+            if len(text) > INTAKE_CONDITION_MAX_LENGTH:
+                raise ValueError(
+                    f"Zustandsnotiz ist zu lang (max. {INTAKE_CONDITION_MAX_LENGTH} "
+                    "Zeichen)"
+                )
+            if text and text not in cleaned:
+                cleaned.append(text)
+        return cleaned
 
 
 class RepairDiagnoseInput(BaseModel):

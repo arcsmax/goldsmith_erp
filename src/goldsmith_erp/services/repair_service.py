@@ -9,6 +9,8 @@ Stage transitions are validated — a job cannot skip stages forward (though
 cancellation is always allowed from any active state).
 """
 
+import asyncio
+import io
 import json
 import logging
 import re
@@ -16,6 +18,7 @@ import unicodedata
 from datetime import datetime
 from typing import Any, List, Optional, cast
 
+from PIL import Image
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -47,6 +50,7 @@ from goldsmith_erp.models.repair import (
     RepairJobCreate,
     RepairStatusUpdate,
 )
+from goldsmith_erp.services.repair_photo_service import RepairPhotoService
 
 logger = logging.getLogger(__name__)
 
@@ -166,6 +170,56 @@ async def _generate_repair_number(db: AsyncSession) -> tuple[str, str]:
     return repair_number, bag_number
 
 
+ANNAHMESCHEIN_MAX_PHOTOS = 8
+ANNAHMESCHEIN_THUMB_PX = 400
+
+
+def _read_thumbnail(photo: RepairPhoto) -> Optional[bytes]:
+    """JPEG thumbnail bytes of one photo, or None (logged) if unreadable.
+
+    Uses the stored 200 px thumbnail; when it is missing (thumbnail creation
+    is non-fatal at upload) the original is downscaled in memory, so the
+    Annahmeschein never embeds a full-size photo.
+    """
+    try:
+        original = RepairPhotoService._anchored_path_or_raise(photo)
+        thumb = original.parent / "thumbs" / f"{original.stem}.jpg"
+        if thumb.exists():
+            return thumb.read_bytes()
+        with Image.open(original) as img:
+            img.thumbnail((ANNAHMESCHEIN_THUMB_PX, ANNAHMESCHEIN_THUMB_PX))
+            buf = io.BytesIO()
+            img.convert("RGB").save(buf, format="JPEG")
+            return buf.getvalue()
+    except (OSError, ValueError):
+        logger.warning(
+            "Annahmeschein: repair photo unreadable, skipped",
+            extra={"photo_id": photo.id, "repair_id": photo.repair_job_id},
+            exc_info=True,
+        )
+        return None
+
+
+INTAKE_PROBLEM_PREFIX = "Kundenangabe: "
+INTAKE_CONDITION_PREFIX = "Zustand bei Annahme: "
+
+
+def compose_intake_description(data: RepairJobCreate) -> str:
+    """Item description plus the counter-intake notes (W2-12, FE-17).
+
+    RepairJob has no columns for the customer's own words or the condition
+    at intake yet (migrations are serialized elsewhere), so both are kept
+    as labelled lines of ``item_description``. Everything that shows the
+    description (detail page, Annahmeschein, label) then shows them too.
+    """
+    lines = [data.item_description]
+    if data.customer_problem:
+        lines.append(f"{INTAKE_PROBLEM_PREFIX}{data.customer_problem}")
+    if data.condition_notes:
+        lines.append(f"{INTAKE_CONDITION_PREFIX}{', '.join(data.condition_notes)}")
+    return "\n".join(lines)
+
+
 async def _load_repair(db: AsyncSession, repair_id: int) -> Optional[RepairJob]:
     """Load a single repair job with all relationships eager-loaded."""
     result = await db.execute(
@@ -190,6 +244,20 @@ class RepairService:
     async def get_repair(db: AsyncSession, repair_id: int) -> Optional[RepairJob]:
         """Fetch a single repair job by primary key."""
         return await _load_repair(db, repair_id)
+
+    @staticmethod
+    async def intake_thumbnails(db: AsyncSession, repair: RepairJob) -> List[bytes]:
+        """JPEG thumbnails of the repair's INTAKE photos for the Annahmeschein.
+
+        ``repair.photos`` is already eager-loaded by ``get_repair``; ``db`` is
+        accepted for the service-method convention. File reads run in a
+        worker thread so they never block the event loop.
+        """
+        intake = [
+            photo for photo in repair.photos if photo.phase == RepairPhotoPhase.INTAKE
+        ][:ANNAHMESCHEIN_MAX_PHOTOS]
+        loaded = [await asyncio.to_thread(_read_thumbnail, photo) for photo in intake]
+        return [data for data in loaded if data is not None]
 
     @staticmethod
     async def list_repairs(
@@ -271,10 +339,11 @@ class RepairService:
             bag_number=bag_number,
             customer_id=data.customer_id,
             received_by=user_id,
-            item_description=data.item_description,
+            item_description=compose_intake_description(data),
             item_type=data.item_type,
             metal_type=data.metal_type,
             estimated_value=data.estimated_value,
+            estimated_cost=data.estimated_cost,
             estimated_completion_date=data.estimated_completion_date,
             status=RepairJobStatus.RECEIVED,
             intake_checklist=seeded_checklist,
