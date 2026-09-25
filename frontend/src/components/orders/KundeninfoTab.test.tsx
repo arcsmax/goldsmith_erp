@@ -25,6 +25,9 @@ const mockCreateUpdate = vi.fn();
 const mockSendUpdate = vi.fn();
 const mockMarkDelivered = vi.fn();
 const mockDownloadUpdatePdf = vi.fn();
+const mockGetMessageContext = vi.fn();
+const mockPreviewUpdate = vi.fn();
+const mockPreviewUpdatePdf = vi.fn();
 
 vi.mock('../../api/customer-updates', () => ({
   customerUpdatesApi: {
@@ -33,6 +36,9 @@ vi.mock('../../api/customer-updates', () => ({
     sendUpdate: (...args: unknown[]) => mockSendUpdate(...args),
     markDelivered: (...args: unknown[]) => mockMarkDelivered(...args),
     downloadUpdatePdf: (...args: unknown[]) => mockDownloadUpdatePdf(...args),
+    getMessageContext: (...args: unknown[]) => mockGetMessageContext(...args),
+    previewUpdate: (...args: unknown[]) => mockPreviewUpdate(...args),
+    previewUpdatePdf: (...args: unknown[]) => mockPreviewUpdatePdf(...args),
   },
 }));
 
@@ -318,5 +324,167 @@ describe('KundeninfoTab', () => {
     expect(screen.getByTestId('photo-picker-stub')).toHaveTextContent('2 Fotos ausgewählt');
     expect(mockCreateUpdate).not.toHaveBeenCalled();
     expect(mockSendUpdate).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// W6 "Update mit Fotos": consent hint, preview, PDF preview
+// ---------------------------------------------------------------------------
+
+function messageContext(overrides: Record<string, unknown> = {}) {
+  return {
+    customer_id: 3,
+    has_email: true,
+    photo_consent: false,
+    email_opt_out: false,
+    ...overrides,
+  };
+}
+
+const PHOTO_DRAFT = {
+  kind: 'progress' as const,
+  subject: 'Zwischenstand',
+  body: 'Der Stein ist gefasst.',
+  photoIds: ['p1'],
+};
+
+describe('KundeninfoTab — W6 composer aids', () => {
+  it('shows the consent hint and blocks sending photos without PHOTO_USE consent', async () => {
+    mockUseAuth.mockReturnValue(manageAuth());
+    mockListUpdates.mockResolvedValue([]);
+    mockGetMessageContext.mockResolvedValue(messageContext());
+
+    render(<KundeninfoTab orderId={21} initialDraft={PHOTO_DRAFT} />);
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Keine Einwilligung „Fotonutzung“ erfasst'
+    );
+    expect(mockGetMessageContext).toHaveBeenCalledWith(21);
+    expect(screen.getByRole('button', { name: 'Erstellen & senden' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Als Entwurf speichern' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Vorschau als PDF' })).toBeDisabled();
+  });
+
+  it('"Fotos entfernen" clears the photos so a text-only update can be sent', async () => {
+    const user = userEvent.setup();
+    mockUseAuth.mockReturnValue(manageAuth());
+    mockListUpdates.mockResolvedValue([]);
+    mockGetMessageContext.mockResolvedValue(messageContext());
+
+    render(<KundeninfoTab orderId={22} initialDraft={PHOTO_DRAFT} />);
+
+    await user.click(await screen.findByRole('button', { name: 'Fotos entfernen' }));
+
+    expect(screen.getByTestId('photo-picker-stub')).toHaveTextContent('0 Fotos ausgewählt');
+    expect(screen.getByRole('button', { name: 'Erstellen & senden' })).toBeEnabled();
+    // The hint stays as information (role=status), no longer blocking.
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('does not block photos when PHOTO_USE consent exists', async () => {
+    mockUseAuth.mockReturnValue(manageAuth());
+    mockListUpdates.mockResolvedValue([]);
+    mockGetMessageContext.mockResolvedValue(messageContext({ photo_consent: true }));
+
+    render(<KundeninfoTab orderId={23} initialDraft={PHOTO_DRAFT} />);
+
+    await waitFor(() => expect(mockGetMessageContext).toHaveBeenCalled());
+    expect(screen.queryByText(/Keine Einwilligung/)).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Erstellen & senden' })).toBeEnabled();
+  });
+
+  it('shows the opt-out hint when the customer objected to email updates', async () => {
+    mockUseAuth.mockReturnValue(manageAuth());
+    mockListUpdates.mockResolvedValue([]);
+    mockGetMessageContext.mockResolvedValue(
+      messageContext({ photo_consent: true, email_opt_out: true })
+    );
+
+    render(<KundeninfoTab orderId={24} />);
+
+    expect(await screen.findByText(/Kunde wünscht keine E-Mail-Updates/)).toBeInTheDocument();
+  });
+
+  it('"Vorschau anzeigen" renders the email text returned by the backend', async () => {
+    const user = userEvent.setup();
+    mockUseAuth.mockReturnValue(manageAuth());
+    mockListUpdates.mockResolvedValue([]);
+    mockGetMessageContext.mockResolvedValue(messageContext({ photo_consent: true }));
+    mockPreviewUpdate.mockResolvedValue({
+      subject: 'Zwischenstand',
+      text: 'Liebe/r Max Mustermann,\nDer Stein ist gefasst.\nDatenschutz: …',
+      delivery_method: 'email',
+      photo_count: 1,
+      photo_consent: true,
+      email_opt_out: false,
+      has_email: true,
+      legal_basis: 'Art. 6(1)(a) DSGVO (Einwilligung)',
+      blocked_reason: null,
+    });
+
+    render(<KundeninfoTab orderId={25} initialDraft={PHOTO_DRAFT} />);
+
+    await user.click(await screen.findByRole('button', { name: 'Vorschau anzeigen' }));
+
+    const preview = await screen.findByRole('region', { name: 'Vorschau der Kundeninfo' });
+    expect(within(preview).getByText(/Der Stein ist gefasst\./)).toBeInTheDocument();
+    expect(within(preview).getByText('1 Foto als Anhang')).toBeInTheDocument();
+    expect(mockPreviewUpdate).toHaveBeenCalledWith(25, {
+      kind: 'progress',
+      subject: 'Zwischenstand',
+      body: 'Der Stein ist gefasst.',
+      photo_ids: ['p1'],
+    });
+    expect(mockCreateUpdate).not.toHaveBeenCalled();
+  });
+
+  it('"Vorschau als PDF" downloads the unsaved content without creating an update', async () => {
+    const user = userEvent.setup();
+    mockUseAuth.mockReturnValue(manageAuth());
+    mockListUpdates.mockResolvedValue([]);
+    mockGetMessageContext.mockResolvedValue(messageContext({ has_email: false }));
+    mockPreviewUpdatePdf.mockResolvedValue(new Blob(['%PDF'], { type: 'application/pdf' }));
+
+    render(
+      <KundeninfoTab
+        orderId={26}
+        initialDraft={{ ...PHOTO_DRAFT, photoIds: [] }}
+      />
+    );
+
+    expect(await screen.findByText(/Keine E-Mail-Adresse hinterlegt/)).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Vorschau als PDF' }));
+
+    await waitFor(() =>
+      expect(mockPreviewUpdatePdf).toHaveBeenCalledWith(26, {
+        kind: 'progress',
+        subject: 'Zwischenstand',
+        body: 'Der Stein ist gefasst.',
+        photo_ids: [],
+      })
+    );
+    expect(mockCreateUpdate).not.toHaveBeenCalled();
+    expect(mockSendUpdate).not.toHaveBeenCalled();
+  });
+
+  it('shows the German 422 detail when the backend refuses the update', async () => {
+    const user = userEvent.setup();
+    mockUseAuth.mockReturnValue(manageAuth());
+    mockListUpdates.mockResolvedValue([]);
+    mockGetMessageContext.mockResolvedValue(messageContext({ photo_consent: true }));
+    mockCreateUpdate.mockRejectedValue({
+      response: { status: 422, data: { detail: 'Preise dürfen nur in Kostenvoranschlag …' } },
+    });
+
+    render(<KundeninfoTab orderId={27} initialDraft={{ ...PHOTO_DRAFT, photoIds: [] }} />);
+
+    await user.click(await screen.findByRole('button', { name: 'Als Entwurf speichern' }));
+
+    await waitFor(() =>
+      expect(mockShowToast).toHaveBeenCalledWith(
+        'Preise dürfen nur in Kostenvoranschlag …',
+        'error'
+      )
+    );
   });
 });

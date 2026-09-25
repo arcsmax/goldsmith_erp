@@ -46,10 +46,36 @@ export interface CustomerUpdateCreateInput {
   photo_ids?: string[];
 }
 
+/** Why nothing was emailed (W6): SMTP off, no address, or Art. 21 opt-out. */
+export type CustomerUpdateNotSentReason = 'smtp_disabled' | 'no_email' | 'opted_out';
+
 export interface CustomerUpdateSendResult {
   update: CustomerUpdate;
   delivered: boolean;
   method?: UpdateDeliveryMethod | null;
+  reason?: CustomerUpdateNotSentReason | null;
+}
+
+/** Consent / delivery hints for the Kundeninfo composer (W6). */
+export interface CustomerMessageContext {
+  customer_id?: number | null;
+  has_email: boolean;
+  photo_consent: boolean;
+  email_opt_out: boolean;
+}
+
+/** Plain-text preview of the email the customer would get (W6). */
+export interface CustomerMessagePreview {
+  subject: string;
+  text: string;
+  delivery_method: UpdateDeliveryMethod;
+  photo_count: number;
+  photo_consent: boolean;
+  email_opt_out: boolean;
+  has_email: boolean;
+  legal_basis: string;
+  /** German reason when the message cannot be sent as composed. */
+  blocked_reason?: string | null;
 }
 
 export interface CostChangeLineItem {
@@ -159,6 +185,43 @@ export const customerUpdatesApi = {
     input: CustomerUpdateCreateInput
   ): Promise<CustomerUpdate> => {
     const response = await apiClient.post<CustomerUpdate>(`/orders/${orderId}/updates`, input);
+    return response.data;
+  },
+
+  /**
+   * Consent / delivery hints for the composer (photo consent, email, opt-out).
+   * GET /orders/{orderId}/message-context
+   */
+  getMessageContext: async (orderId: number): Promise<CustomerMessageContext> => {
+    const response = await apiClient.get<CustomerMessageContext>(
+      `/orders/${orderId}/message-context`
+    );
+    return response.data;
+  },
+
+  /**
+   * Preview the email text of an unsaved composer draft (stores nothing).
+   * POST /orders/{orderId}/updates/preview
+   */
+  previewUpdate: async (
+    orderId: number,
+    input: CustomerUpdateCreateInput
+  ): Promise<CustomerMessagePreview> => {
+    const response = await apiClient.post<CustomerMessagePreview>(
+      `/orders/${orderId}/updates/preview`,
+      input
+    );
+    return response.data;
+  },
+
+  /**
+   * The same unsaved content as PDF, for customers without email.
+   * POST /orders/{orderId}/updates/preview/pdf
+   */
+  previewUpdatePdf: async (orderId: number, input: CustomerUpdateCreateInput): Promise<Blob> => {
+    const response = await apiClient.post<Blob>(`/orders/${orderId}/updates/preview/pdf`, input, {
+      responseType: 'blob',
+    });
     return response.data;
   },
 
