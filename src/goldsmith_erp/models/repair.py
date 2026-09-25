@@ -216,7 +216,7 @@ class CustomerSummary(BaseModel):
     id: int
     first_name: str
     last_name: str
-    email: str
+    email: Optional[str] = None  # W2-10: customers may have no email
     phone: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)

@@ -227,3 +227,47 @@ export const getScanMetrics = async (): Promise<ScanMetrics> => {
   const response = await apiClient.get<ScanMetrics>('/admin/scan-metrics');
   return response.data;
 };
+
+// ---------------------------------------------------------------------------
+// W2-04: Werkstatt-Stammdaten (seller data on every Rechnung, §14 UStG)
+// ---------------------------------------------------------------------------
+
+export interface WorkshopSettingsInput {
+  name: string;
+  owner_name?: string | null;
+  street?: string | null;
+  postal_code?: string | null;
+  city?: string | null;
+  country?: string | null;
+  phone?: string | null;
+  email?: string | null;
+  tax_number?: string | null;
+  vat_id?: string | null;
+  iban?: string | null;
+  bic?: string | null;
+  bank_name?: string | null;
+  is_kleinunternehmer: boolean;
+  default_vat_rate: number;
+  invoice_footer?: string | null;
+}
+
+export interface WorkshopSettings extends WorkshopSettingsInput {
+  updated_at: string | null;
+  /** §14 Abs. 4 UStG seller fields still missing (German labels). */
+  missing_fields: string[];
+  is_complete: boolean;
+}
+
+/** Werkstatt-Stammdaten lesen (ADMIN only). */
+export const getWorkshopSettings = async (): Promise<WorkshopSettings> => {
+  const response = await apiClient.get<WorkshopSettings>('/admin/workshop-settings');
+  return response.data;
+};
+
+/** Werkstatt-Stammdaten speichern (ADMIN only). */
+export const updateWorkshopSettings = async (
+  data: WorkshopSettingsInput
+): Promise<WorkshopSettings> => {
+  const response = await apiClient.put<WorkshopSettings>('/admin/workshop-settings', data);
+  return response.data;
+};

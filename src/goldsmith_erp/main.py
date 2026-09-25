@@ -18,6 +18,7 @@ from goldsmith_erp.api.routers import (
     activities,
     admin_email,
     admin_scan_metrics,
+    admin_workshop,
     analytics,
     auth,
     calendar,
@@ -256,6 +257,9 @@ app.include_router(
 app.include_router(
     admin_email.router, prefix=f"{settings.API_V1_STR}", tags=["admin-email"]
 )  # Email/SMTP admin configuration
+app.include_router(
+    admin_workshop.router, prefix=settings.API_V1_STR, tags=["admin-workshop"]
+)  # W2-04: Werkstatt-Stammdaten (ADMIN)
 app.include_router(
     admin_scan_metrics.router,
     prefix=f"{settings.API_V1_STR}",

@@ -86,11 +86,22 @@ class InvoiceCreate(BaseModel):
     due_date: UtcNaiveDatetime = Field(
         ..., description="Payment due date (Faelligkeitsdatum); normalised to UTC"
     )
-    tax_rate: float = Field(
-        default=19.0,
+    tax_rate: Optional[float] = Field(
+        default=None,
         ge=0,
         le=100,
-        description="VAT rate in percent (MwSt-Satz, default 19%)",
+        description=(
+            "VAT rate in percent (MwSt-Satz). Omitted: the workshop default "
+            "(Werkstatt-Stammdaten, 19 % unless changed). Always 0 for a "
+            "Kleinunternehmer (§19 UStG)."
+        ),
+    )
+    service_date: Optional[UtcNaiveDatetime] = Field(
+        default=None,
+        description=(
+            "Leistungsdatum (§14 Abs. 4 Nr. 6 UStG). Omitted: the order's "
+            "completion date, else the invoice date."
+        ),
     )
     notes: Optional[str] = Field(
         None, max_length=2000, description="Optional notes on the invoice (Anmerkungen)"
@@ -146,6 +157,17 @@ class InvoiceResponse(BaseModel):
     issue_date: datetime
     due_date: datetime
     paid_date: Optional[datetime] = None
+    service_date: Optional[datetime] = Field(
+        default=None, description="Leistungsdatum (§14 Abs. 4 Nr. 6 UStG)"
+    )
+    cancels_invoice_id: Optional[int] = Field(
+        default=None,
+        description="Set on a Stornorechnung: the invoice it cancels (W2-04)",
+    )
+    cancelled_by_invoice_id: Optional[int] = Field(
+        default=None,
+        description="Set on a cancelled invoice: its Stornorechnung (W2-04)",
+    )
     subtotal: float = Field(..., description="Zwischensumme (net)")
     tax_rate: float = Field(..., description="MwSt-Satz in Prozent")
     tax_amount: float = Field(..., description="MwSt-Betrag")
@@ -177,6 +199,7 @@ class InvoiceListItem(BaseModel):
     issue_date: datetime
     due_date: datetime
     paid_date: Optional[datetime] = None
+    cancels_invoice_id: Optional[int] = None
     total: float
     scrap_gold_credit: float = 0.0
     amount_due: Optional[float] = None
@@ -203,4 +226,14 @@ class MarkPaidRequest(BaseModel):
     )
     payment_method: Optional[str] = Field(
         None, max_length=50, description="Payment method used"
+    )
+
+
+class StornoRequest(BaseModel):
+    """Request body for POST /invoices/{id}/storno (W2-04, DOM-24b)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    reason: Optional[str] = Field(
+        None, max_length=500, description="Grund der Stornierung (Stornogrund)"
     )

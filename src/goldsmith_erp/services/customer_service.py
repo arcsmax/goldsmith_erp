@@ -48,7 +48,12 @@ from goldsmith_erp.db.models import (
     ValuationCertificate,
 )
 from goldsmith_erp.db.transaction import transactional
-from goldsmith_erp.models.customer import CustomerCreate, CustomerUpdate
+from goldsmith_erp.models.customer import (
+    CONTACT_REQUIRED_MESSAGE,
+    CustomerCreate,
+    CustomerUpdate,
+    has_contact,
+)
 from goldsmith_erp.services.consent_service import ConsentService
 
 logger = logging.getLogger(__name__)
@@ -695,19 +700,23 @@ class CustomerService:
             db, None, customer_in.allergies
         )
         async with transactional(db):
-            # Check if email already exists (via blind-index)
-            existing = await CustomerService.get_customer_by_email(
-                db, customer_in.email
-            )
-            if existing:
-                raise ValueError(
-                    "Ein Kunde mit dieser E-Mail-Adresse existiert bereits"
-                )
-
             customer_data = customer_in.model_dump()
-            # Derive blind-index tag from the plaintext email so equality
-            # lookups keep working against the encrypted column.
-            customer_data["email_hash"] = hmac_blind_index(customer_in.email)
+            # W2-10: email is optional; uniqueness (blind index) applies
+            # only when one is given.
+            if customer_in.email:
+                existing = await CustomerService.get_customer_by_email(
+                    db, customer_in.email
+                )
+                if existing:
+                    raise ValueError(
+                        "Ein Kunde mit dieser E-Mail-Adresse existiert bereits"
+                    )
+                # Derive blind-index tag from the plaintext email so equality
+                # lookups keep working against the encrypted column.
+                customer_data["email_hash"] = hmac_blind_index(customer_in.email)
+            else:
+                customer_data["email"] = None
+                customer_data["email_hash"] = None
             db_customer = CustomerModel(**customer_data)
 
             db.add(db_customer)
@@ -754,17 +763,30 @@ class CustomerService:
             if not db_customer:
                 return None
 
+            # W2-10: the customer must keep at least one contact channel.
+            if not has_contact(
+                update_data.get("email", db_customer.email),
+                update_data.get("phone", db_customer.phone),
+                update_data.get("mobile", db_customer.mobile),
+            ):
+                raise ValueError(CONTACT_REQUIRED_MESSAGE)
+
             # Check email uniqueness if email is being updated
             if "email" in update_data and update_data["email"] != db_customer.email:
-                existing = await CustomerService.get_customer_by_email(
-                    db, update_data["email"]
-                )
-                if existing:
-                    raise ValueError(
-                        "Ein Kunde mit dieser E-Mail-Adresse existiert bereits"
+                new_email = update_data["email"]
+                if new_email:
+                    existing = await CustomerService.get_customer_by_email(
+                        db, new_email
                     )
-                # Keep the blind-index in lock-step with the new email.
-                update_data["email_hash"] = hmac_blind_index(update_data["email"])
+                    if existing:
+                        raise ValueError(
+                            "Ein Kunde mit dieser E-Mail-Adresse existiert bereits"
+                        )
+                # Keep the blind-index in lock-step with the new email
+                # (NULL when the address is removed).
+                update_data["email_hash"] = (
+                    hmac_blind_index(new_email) if new_email else None
+                )
 
             # Apply updates — ORM-level EncryptedString re-encrypts PII
             # columns on flush, so no service-layer encrypt step needed.

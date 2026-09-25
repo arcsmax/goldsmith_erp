@@ -16,7 +16,7 @@ import logging
 import os
 import tempfile
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Mapping, Optional
 
 from fpdf import FPDF
 from jinja2 import Environment, FileSystemLoader, select_autoescape
@@ -212,198 +212,330 @@ class _GoldsmithPDF(FPDF):
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def _render_invoice_fpdf(
-    invoice: Any,
-    customer: Any,
-    line_items: list[Any],
-    workshop_name: str,
-    altgold_credit: float = 0.0,
-) -> bytes:
-    """Build an invoice PDF with fpdf2 and return raw bytes."""
+KLEINUNTERNEHMER_NOTE = "Gemäß § 19 UStG wird keine Umsatzsteuer berechnet."
+_HOME_COUNTRY = "Deutschland"
 
-    footer_text = f"{workshop_name}  |  Rechnung {invoice.invoice_number}"
-    pdf = _GoldsmithPDF(workshop_name=workshop_name, footer_text=footer_text)
 
-    # ── Page top: workshop name + RECHNUNG title ──────────────────────────────
+def _paragraph(pdf: "_GoldsmithPDF", text: str) -> None:
+    """Full-width wrapped text that returns to the left margin afterwards."""
+    pdf.set_x(pdf.l_margin)
+    pdf.multi_cell(0, 4.5, text, new_x="LMARGIN", new_y="NEXT")
+
+
+def _fmt_rate(rate: Any) -> str:
+    """VAT rate as German percent label: 19 -> '19 %', 7.5 -> '7,5 %'."""
+    try:
+        value = float(rate)
+    except (TypeError, ValueError):
+        return "0 %"
+    if value == int(value):
+        return f"{int(value)} %"
+    return f"{value:.1f}".replace(".", ",") + " %"
+
+
+def _place(postal_code: Any, city: Any) -> str:
+    return " ".join(part for part in (_safe_str(postal_code), _safe_str(city)) if part)
+
+
+def _seller_address_lines(seller: Mapping[str, Any]) -> list[str]:
+    """§14 Abs. 4 Nr. 1 UStG: the seller's full name and address."""
+    lines = []
+    if seller.get("owner_name"):
+        lines.append(f"Inhaber/in: {seller['owner_name']}")
+    lines.append(_safe_str(seller.get("street")))
+    lines.append(_place(seller.get("postal_code"), seller.get("city")))
+    country = _safe_str(seller.get("country"))
+    if country and country != _HOME_COUNTRY:
+        lines.append(country)
+    if seller.get("phone"):
+        lines.append(f"Tel. {seller['phone']}")
+    if seller.get("email"):
+        lines.append(_safe_str(seller.get("email")))
+    if not seller.get("street") and seller.get("contact"):
+        lines.append(_safe_str(seller.get("contact")))
+    return [line for line in lines if line]
+
+
+def _seller_tax_lines(seller: Mapping[str, Any]) -> list[str]:
+    """§14 Abs. 4 Nr. 2 UStG: Steuernummer or USt-IdNr. (both if set)."""
+    lines = []
+    if seller.get("tax_number"):
+        lines.append(f"Steuernummer: {seller['tax_number']}")
+    if seller.get("vat_id"):
+        lines.append(f"USt-IdNr.: {seller['vat_id']}")
+    return lines
+
+
+def _recipient_lines(customer: Any) -> list[str]:
+    lines = [
+        _safe_str(getattr(customer, "company_name", None)),
+        _safe_str(getattr(customer, "address", None)),
+        _safe_str(getattr(customer, "city", None)),
+    ]
+    country = _safe_str(getattr(customer, "country", None))
+    if country and country != _HOME_COUNTRY:
+        lines.append(country)
+    return [line for line in lines if line]
+
+
+def _is_storno(invoice: Any) -> bool:
+    return bool(getattr(invoice, "cancels_invoice_number", None))
+
+
+def _draw_invoice_header(
+    pdf: "_GoldsmithPDF", invoice: Any, workshop_name: str
+) -> None:
     pdf.set_font(_FONT_B, "", 18)
     pdf.set_text_color(*_GOLD)
     pdf.cell(110, 10, workshop_name)
-
-    pdf.set_font(_FONT_B, "", 22)
+    pdf.set_font(_FONT_B, "", 20)
     pdf.set_text_color(60, 60, 60)
-    pdf.cell(0, 10, "RECHNUNG", align="R", ln=True)
-
-    pdf.set_font(_FONT, "", 8)
-    pdf.set_text_color(*_GRAY)
-    pdf.cell(110, 5, "Goldschmiede & Atelier")
+    title = "STORNORECHNUNG" if _is_storno(invoice) else "RECHNUNG"
+    pdf.cell(0, 10, title, align="R", ln=True)
     pdf.set_font(_FONT_B, "", 10)
     pdf.set_text_color(*_GOLD)
     pdf.cell(0, 5, invoice.invoice_number, align="R", ln=True)
     pdf.set_text_color(*_DARK)
-
     pdf.gold_rule()
     pdf.ln(4)
 
-    # ── Address columns ───────────────────────────────────────────────────────
+
+def _draw_column(
+    pdf: "_GoldsmithPDF", x: float, label: str, name: str, lines: list[str]
+) -> None:
+    pdf.set_x(x)
+    pdf.set_font(_FONT_B, "", 7)
+    pdf.set_text_color(*_GRAY)
+    pdf.cell(90, 4, label, ln=True)
+    pdf.set_text_color(*_DARK)
+    pdf.set_x(x)
+    pdf.set_font(_FONT_B, "", 10)
+    pdf.cell(90, 5, name, ln=True)
+    pdf.set_font(_FONT, "", 9)
+    for line in lines:
+        pdf.set_x(x)
+        pdf.cell(90, 4.5, line, ln=True)
+
+
+def _draw_address_block(
+    pdf: "_GoldsmithPDF",
+    seller: Mapping[str, Any],
+    customer: Any,
+    workshop_name: str,
+) -> None:
     x_left = pdf.get_x()
-    y_addr = pdf.get_y()
-
-    # Left column: workshop (Rechnungssteller)
-    pdf.set_xy(x_left, y_addr)
-    pdf.set_font(_FONT_B, "", 7)
-    pdf.set_text_color(*_GRAY)
-    pdf.cell(90, 4, "RECHNUNGSSTELLER", ln=True)
-    pdf.set_text_color(*_DARK)
-    pdf.set_font(_FONT_B, "", 10)
-    pdf.cell(90, 5, workshop_name, ln=True)
-    pdf.set_font(_FONT, "", 9)
-
-    # Right column: customer (Rechnungsempfänger)
-    pdf.set_xy(x_left + 100, y_addr)
-    pdf.set_font(_FONT_B, "", 7)
-    pdf.set_text_color(*_GRAY)
-    pdf.cell(90, 4, "RECHNUNGSEMPFÄNGER", ln=True)
-    cust_y = pdf.get_y()
-    pdf.set_xy(x_left + 100, cust_y)
-    pdf.set_text_color(*_DARK)
-
-    customer_name = _safe_str(getattr(customer, "name", "Kunde"))
-    pdf.set_font(_FONT_B, "", 10)
-    pdf.cell(90, 5, customer_name, ln=True)
-    pdf.set_xy(x_left + 100, pdf.get_y())
-    pdf.set_font(_FONT, "", 9)
-
-    for attr in ("address", "city", "email", "phone"):
-        val = _safe_str(getattr(customer, attr, None))
-        if val:
-            pdf.set_xy(x_left + 100, pdf.get_y())
-            pdf.cell(90, 4.5, val, ln=True)
-
-    # Move below address block
-    pdf.set_y(max(pdf.get_y(), y_addr + 28))
+    y_top = pdf.get_y()
+    seller_lines = _seller_address_lines(seller) + _seller_tax_lines(seller)
+    _draw_column(pdf, x_left, "RECHNUNGSSTELLER", workshop_name, seller_lines)
+    y_seller_end = pdf.get_y()
+    pdf.set_xy(x_left + 100, y_top)
+    customer_name = _safe_str(getattr(customer, "name", "")) or "Kunde"
+    _draw_column(
+        pdf,
+        x_left + 100,
+        "RECHNUNGSEMPFÄNGER",
+        customer_name,
+        _recipient_lines(customer),
+    )
+    pdf.set_xy(x_left, max(pdf.get_y(), y_seller_end, y_top + 28))
     pdf.ln(4)
 
-    # ── Invoice meta (right-aligned table) ───────────────────────────────────
-    meta: list[tuple[str, str]] = [
-        ("Rechnungsdatum:", _fmt_date(invoice.issue_date)),
-        ("Fälligkeitsdatum:", _fmt_date(invoice.due_date)),
-        ("Auftragsnummer:", str(invoice.order_id)),
-    ]
-    if getattr(invoice, "payment_method", None):
-        meta.append(("Zahlungsart:", str(invoice.payment_method)))
 
-    for label, value in meta:
+def _invoice_meta_rows(invoice: Any) -> list[tuple[str, str]]:
+    service_date = getattr(invoice, "service_date", None) or invoice.issue_date
+    rows = [
+        ("Rechnungsnummer:", invoice.invoice_number),
+        ("Rechnungsdatum:", _fmt_date(invoice.issue_date)),
+        ("Leistungsdatum:", _fmt_date(service_date)),
+    ]
+    if not _is_storno(invoice):
+        rows.append(("Fälligkeitsdatum:", _fmt_date(invoice.due_date)))
+    rows.append(("Auftragsnummer:", str(invoice.order_id)))
+    if getattr(invoice, "payment_method", None):
+        rows.append(("Zahlungsart:", str(invoice.payment_method)))
+    return rows
+
+
+def _draw_invoice_meta(pdf: "_GoldsmithPDF", invoice: Any) -> None:
+    if _is_storno(invoice):
+        original_date = _fmt_date(getattr(invoice, "cancels_invoice_date", None))
+        text = f"Storno zur Rechnung {invoice.cancels_invoice_number}"
+        if original_date:
+            text += f" vom {original_date}"
+        pdf.set_font(_FONT_B, "", 10)
+        pdf.cell(0, 6, text, ln=True)
+        reason = _safe_str(getattr(invoice, "storno_reason", None))
+        if reason:
+            pdf.set_font(_FONT, "", 9)
+            _paragraph(pdf, f"Grund: {reason[:300]}")
+        pdf.ln(2)
+    for label, value in _invoice_meta_rows(invoice):
         pdf.set_font(_FONT, "", 9)
         pdf.set_text_color(*_GRAY)
         pdf.cell(155, 4.5, label, align="R")
         pdf.set_text_color(*_DARK)
         pdf.set_font(_FONT_B, "", 9)
         pdf.cell(0, 4.5, value, align="R", ln=True)
-
     pdf.ln(5)
 
-    # ── Line items table ──────────────────────────────────────────────────────
-    col_pos = 12
-    col_desc = 88
-    col_qty = 22
-    col_unit = 28
-    col_total = 28
 
+def _draw_line_items(pdf: "_GoldsmithPDF", line_items: list[Any]) -> None:
+    """§14 Abs. 4 Nr. 5 UStG: quantity and kind of each delivery/service."""
+    widths = (12, 78, 18, 36, 34)
     pdf.filled_header_row(
         [
-            ("Pos.", col_pos, "C"),
-            ("Beschreibung", col_desc, "L"),
-            ("Menge", col_qty, "R"),
-            ("Einzelpreis", col_unit, "R"),
-            ("Gesamtpreis", col_total, "R"),
+            ("Pos.", widths[0], "C"),
+            ("Beschreibung", widths[1], "L"),
+            ("Menge", widths[2], "R"),
+            ("Einzelpreis netto", widths[3], "R"),
+            ("Gesamt netto", widths[4], "R"),
         ]
     )
-
     for i, item in enumerate(line_items):
-        even = i % 2 == 0
         pdf.table_data_row(
             [
-                (str(i + 1), col_pos, "C"),
-                (_safe_str(item.description)[:65], col_desc, "L"),
-                (_fmt_num(item.quantity), col_qty, "R"),
-                (_fmt_eur(item.unit_price), col_unit, "R"),
-                (_fmt_eur(item.total), col_total, "R"),
+                (str(i + 1), widths[0], "C"),
+                (_safe_str(item.description)[:65], widths[1], "L"),
+                (_fmt_num(item.quantity), widths[2], "R"),
+                (_fmt_eur(item.unit_price), widths[3], "R"),
+                (_fmt_eur(item.total), widths[4], "R"),
             ],
-            even=even,
+            even=i % 2 == 0,
         )
-
-    # Divider below table
     pdf.set_draw_color(180, 180, 180)
     pdf.line(10, pdf.get_y(), 200, pdf.get_y())
     pdf.set_draw_color(0, 0, 0)
     pdf.ln(4)
 
-    # ── Totals (right-aligned) ────────────────────────────────────────────────
-    label_w = 140
-    value_w = 38
 
-    def _total_row(
-        label: str, value: str, bold: bool = False, gold_bg: bool = False
-    ) -> None:
-        if gold_bg:
-            pdf.set_fill_color(*_GOLD)
-            pdf.set_text_color(255, 255, 255)
-            pdf.set_font(_FONT_B, "", 11)
-        else:
-            pdf.set_fill_color(255, 255, 255)
-            pdf.set_text_color(*(_DARK if bold else _GRAY))
-            pdf.set_font(_FONT_B if bold else _FONT, "", 9)
-        pdf.cell(label_w, 6, label, fill=gold_bg)
-        pdf.cell(value_w, 6, value, align="R", fill=gold_bg, ln=True)
-        pdf.set_text_color(*_DARK)
+def _total_row(
+    pdf: "_GoldsmithPDF", label: str, value: str, highlight: bool = False
+) -> None:
+    if highlight:
+        pdf.set_fill_color(*_GOLD)
+        pdf.set_text_color(255, 255, 255)
+        pdf.set_font(_FONT_B, "", 11)
+    else:
         pdf.set_fill_color(255, 255, 255)
-
-    _total_row("Zwischensumme (netto):", _fmt_eur(invoice.subtotal))
-
-    if altgold_credit > 0:
-        pdf.set_text_color(*_GOLD)
+        pdf.set_text_color(*_GRAY)
         pdf.set_font(_FONT, "", 9)
-        pdf.cell(label_w, 5, "Gutschrift Altgold:")
-        pdf.cell(value_w, 5, f"–{_fmt_eur(altgold_credit)}", align="R", ln=True)
-        pdf.set_text_color(*_DARK)
+    pdf.cell(140, 6, label, fill=highlight)
+    pdf.cell(38, 6, value, align="R", fill=highlight, ln=True)
+    pdf.set_text_color(*_DARK)
+    pdf.set_fill_color(255, 255, 255)
 
-    _total_row(
-        f"MwSt {invoice.tax_rate:.0f}%:",
-        _fmt_eur(invoice.tax_amount),
-    )
-    _total_row("Gesamtbetrag:", _fmt_eur(invoice.total), gold_bg=True)
+
+def _draw_invoice_totals(
+    pdf: "_GoldsmithPDF", invoice: Any, is_kleinunternehmer: bool, altgold_credit: float
+) -> None:
+    """§14 Abs. 4 Nr. 7/8 UStG: net per rate, rate, VAT amount, gross."""
+    if is_kleinunternehmer:
+        _total_row(pdf, "Gesamtbetrag:", _fmt_eur(invoice.total), highlight=True)
+        pdf.set_font(_FONT, "", 9)
+        _paragraph(pdf, KLEINUNTERNEHMER_NOTE)
+    else:
+        rate = _fmt_rate(invoice.tax_rate)
+        _total_row(pdf, f"Nettobetrag {rate}:", _fmt_eur(invoice.subtotal))
+        _total_row(pdf, f"Umsatzsteuer {rate}:", _fmt_eur(invoice.tax_amount))
+        _total_row(
+            pdf, "Gesamtbetrag (brutto):", _fmt_eur(invoice.total), highlight=True
+        )
+    if altgold_credit > 0:
+        # Post-tax deduction (ADR 2026-09-25, BE-03): not part of the VAT base.
+        amount_due = float(invoice.total) - altgold_credit
+        _total_row(pdf, "abzüglich Gutschrift Altgold:", f"–{_fmt_eur(altgold_credit)}")
+        _total_row(pdf, "Zahlbetrag:", _fmt_eur(amount_due))
     pdf.ln(4)
 
-    # ── Notes ─────────────────────────────────────────────────────────────────
-    notes = _safe_str(getattr(invoice, "notes", None))
-    if notes:
-        pdf.set_fill_color(*_LIGHT_GOLD_BG)
-        pdf.set_draw_color(*_GOLD)
-        pdf.set_line_width(0.5)
-        y_note = pdf.get_y()
-        # Left gold border bar
-        pdf.rect(10, y_note, 2, 14, style="F")
-        pdf.set_x(15)
-        pdf.set_font(_FONT_B, "", 7.5)
-        pdf.set_text_color(*_GOLD)
-        pdf.cell(0, 5, "HINWEISE", ln=True)
-        pdf.set_x(15)
-        pdf.set_font(_FONT, "", 9)
-        pdf.set_text_color(*_DARK)
-        pdf.multi_cell(175, 4.5, notes[:400])
-        pdf.ln(2)
 
-    # ── Payment instruction ───────────────────────────────────────────────────
+def _draw_invoice_notes(pdf: "_GoldsmithPDF", notes: str) -> None:
+    pdf.set_fill_color(*_LIGHT_GOLD_BG)
+    pdf.set_draw_color(*_GOLD)
+    pdf.set_line_width(0.5)
+    pdf.rect(10, pdf.get_y(), 2, 14, style="F")
+    pdf.set_x(15)
+    pdf.set_font(_FONT_B, "", 7.5)
+    pdf.set_text_color(*_GOLD)
+    pdf.cell(0, 5, "HINWEISE", ln=True)
+    pdf.set_x(15)
+    pdf.set_font(_FONT, "", 9)
+    pdf.set_text_color(*_DARK)
+    pdf.multi_cell(175, 4.5, notes[:400])
+    pdf.ln(2)
+
+
+def _bank_line(seller: Mapping[str, Any]) -> str:
+    parts = [
+        _safe_str(seller.get("bank_name")),
+        f"IBAN {seller['iban']}" if seller.get("iban") else "",
+        f"BIC {seller['bic']}" if seller.get("bic") else "",
+    ]
+    text = ", ".join(part for part in parts if part)
+    return f"Bankverbindung: {text}" if seller.get("iban") else ""
+
+
+def _draw_payment_block(
+    pdf: "_GoldsmithPDF",
+    invoice: Any,
+    seller: Mapping[str, Any],
+    altgold_credit: float,
+) -> None:
     pdf.set_font(_FONT, "", 9)
     pdf.set_text_color(*_GRAY)
-    payment_text = (
-        f"Bitte überweisen Sie den Gesamtbetrag von {_fmt_eur(invoice.total)} "
-        f"bis zum {_fmt_date(invoice.due_date)}. "
-        f"Verwendungszweck: {invoice.invoice_number}"
-    )
-    pdf.multi_cell(0, 4.5, payment_text)
+    amount_due = float(invoice.total) - altgold_credit
+    if _is_storno(invoice):
+        _paragraph(
+            pdf,
+            f"Diese Stornorechnung hebt die Rechnung {invoice.cancels_invoice_number} "
+            "auf. Bereits gezahlte Beträge werden erstattet.",
+        )
+    elif amount_due > 0:
+        _paragraph(
+            pdf,
+            f"Bitte überweisen Sie den Betrag von {_fmt_eur(amount_due)} "
+            f"bis zum {_fmt_date(invoice.due_date)}. "
+            f"Verwendungszweck: {invoice.invoice_number}",
+        )
+    bank = _bank_line(seller)
+    if bank:
+        _paragraph(pdf, bank)
+    footer = _safe_str(seller.get("invoice_footer"))
+    if footer:
+        pdf.ln(2)
+        _paragraph(pdf, footer[:1000])
     pdf.set_text_color(*_DARK)
 
+
+def _render_invoice_fpdf(
+    invoice: Any,
+    customer: Any,
+    line_items: list[Any],
+    workshop_name: str,
+    altgold_credit: float = 0.0,
+    seller: Optional[Mapping[str, Any]] = None,
+) -> bytes:
+    """Build a §14 Abs. 4 UStG complete invoice PDF with fpdf2 (W2-04)."""
+    seller_data: Mapping[str, Any] = seller or {"name": workshop_name}
+    kind = "Stornorechnung" if _is_storno(invoice) else "Rechnung"
+    footer_text = f"{workshop_name}  |  {kind} {invoice.invoice_number}"
+    pdf = _GoldsmithPDF(workshop_name=workshop_name, footer_text=footer_text)
+
+    _draw_invoice_header(pdf, invoice, workshop_name)
+    _draw_address_block(pdf, seller_data, customer, workshop_name)
+    _draw_invoice_meta(pdf, invoice)
+    _draw_line_items(pdf, line_items)
+    _draw_invoice_totals(
+        pdf,
+        invoice,
+        bool(seller_data.get("is_kleinunternehmer")),
+        max(float(altgold_credit or 0.0), 0.0),
+    )
+    notes = _safe_str(getattr(invoice, "notes", None))
+    if notes:
+        _draw_invoice_notes(pdf, notes)
+    _draw_payment_block(
+        pdf, invoice, seller_data, max(float(altgold_credit or 0.0), 0.0)
+    )
     return bytes(pdf.output())
 
 
@@ -1304,9 +1436,15 @@ class PDFService:
         line_items: list[Any],
         workshop_name: str,
         altgold_credit: float = 0.0,
+        seller: Optional[Mapping[str, Any]] = None,
     ) -> bytes:
         """
-        Render a German Rechnung as PDF.
+        Render a German Rechnung (or Stornorechnung) as PDF.
+
+        W2-04: ``seller`` is the Werkstatt-Stammdaten block from the invoice
+        snapshot; with it the PDF carries every §14 Abs. 4 UStG element
+        (seller address + Steuernummer/USt-IdNr., Leistungsdatum, net per
+        rate, VAT, gross, or the §19 UStG note for a Kleinunternehmer).
 
         Args:
             invoice:        InvoiceResponse-like object (invoice_number, issue_date,
@@ -1331,6 +1469,7 @@ class PDFService:
             line_items=line_items,
             workshop_name=workshop_name,
             altgold_credit=altgold_credit,
+            seller=seller,
         )
 
     @staticmethod

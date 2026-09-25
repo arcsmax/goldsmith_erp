@@ -111,7 +111,7 @@ export interface CustomerCreateInput {
   first_name: string;
   last_name: string;
   company_name?: string;
-  email: string;
+  email?: string;
   phone?: string;
   mobile?: string;
   street?: string;

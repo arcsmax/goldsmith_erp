@@ -20,6 +20,13 @@ Decision D-06 / assumption A4 (docs/review/2026-09-25/MASTER-FIX-PLAN.md):
 4. **Legacy rows.** Invoices created before W1-10 get a snapshot from the
    then-current data (``backfilled: true``) — by the migration for issued
    invoices, lazily here for anything the migration did not cover.
+5. **Seller (W2-04, §14 Abs. 4 Nr. 1/2 UStG).** The seller block is the
+   Werkstatt-Stammdaten (``WorkshopSettingsService.seller_block``). A DRAFT
+   picks up the current settings when it is issued (and in the DRAFT
+   preview); from then on the frozen PDF never changes. Version 2 adds the
+   seller address/tax/bank fields, ``service_date`` (Leistungsdatum) and,
+   on a Stornorechnung, the cancelled invoice's number and date. Version 1
+   snapshots still render (missing fields are simply not printed).
 
 §14 Abs. 4 UStG / §146 Abs. 4 AO: an issued invoice must not change after
 the fact; GDPR Art. 17(3)(b) lets it be retained after an erasure request.
@@ -46,10 +53,14 @@ from goldsmith_erp.db.models import InvoiceLineItem as InvoiceLineItemModel
 from goldsmith_erp.db.models import InvoiceStatus
 from goldsmith_erp.db.models import Order as OrderModel
 from goldsmith_erp.services.pdf_service import PDFService
+from goldsmith_erp.services.workshop_settings_service import (
+    WorkshopSettingsService,
+    missing_fields,
+)
 
 logger = logging.getLogger(__name__)
 
-SNAPSHOT_VERSION = 1
+SNAPSHOT_VERSION = 2
 
 # The ORM models use legacy ``Column()`` declarations, which mypy types as
 # ``Column[...]`` rather than the runtime value; handle rows as ``Any``.
@@ -93,9 +104,27 @@ def _recipient(customer: Optional[CustomerRow]) -> Dict[str, Optional[str]]:
     }
 
 
-def _seller() -> Dict[str, Optional[str]]:
-    # W2-04 extends this with address, tax number and bank details.
+def _legacy_seller() -> Dict[str, Any]:
+    """Seller block when no settings were passed (pure callers, tests)."""
     return {"name": settings.WORKSHOP_NAME, "contact": settings.WORKSHOP_CONTACT}
+
+
+def _service_date(invoice: InvoiceRow, order: Optional[OrderRow]) -> Optional[str]:
+    """Leistungsdatum: explicit, else the order's completion, else issue date."""
+    value = getattr(invoice, "service_date", None)
+    if value is None and order is not None:
+        value = getattr(order, "completed_at", None)
+    return _iso(value or invoice.issue_date)
+
+
+def _warn_if_seller_incomplete(invoice: InvoiceRow, seller: Dict[str, Any]) -> None:
+    """Log loudly when an invoice is issued without the §14 seller data."""
+    missing = missing_fields(seller)
+    if missing:
+        logger.warning(
+            "Invoice issued with incomplete Werkstatt-Stammdaten (§14 UStG)",
+            extra={"invoice_id": invoice.id, "missing_fields": missing},
+        )
 
 
 def _lines(line_items: Iterable[Any]) -> List[Dict[str, Any]]:
@@ -127,8 +156,15 @@ class InvoiceSnapshotService:
         *,
         scrap_gold_credit: Decimal | float = 0.0,
         backfilled: bool = False,
+        seller: Optional[Dict[str, Any]] = None,
+        cancels: Optional[InvoiceRow] = None,
+        storno_reason: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """Return the snapshot document for ``invoice`` (pure, no I/O)."""
+        """Return the snapshot document for ``invoice`` (pure, no I/O).
+
+        ``seller``: the Werkstatt-Stammdaten block (W2-04); ``cancels``: the
+        original invoice when ``invoice`` is its Stornorechnung.
+        """
         credit = float(scrap_gold_credit)
         total = _money(invoice.total)
         return {
@@ -136,18 +172,23 @@ class InvoiceSnapshotService:
             "backfilled": backfilled,
             "captured_at": datetime.utcnow().isoformat(),
             "recipient": _recipient(customer),
-            "seller": _seller(),
+            "seller": dict(seller) if seller is not None else _legacy_seller(),
             "invoice": {
                 "invoice_number": invoice.invoice_number,
                 "order_id": invoice.order_id,
                 "order_title": order.title if order is not None else None,
                 "issue_date": _iso(invoice.issue_date),
                 "due_date": _iso(invoice.due_date),
-                "service_date": _iso(
-                    getattr(order, "completed_at", None) if order else None
-                ),
+                "service_date": _service_date(invoice, order),
                 "notes": invoice.notes,
                 "payment_method": invoice.payment_method,
+                "cancels_invoice_number": (
+                    cancels.invoice_number if cancels is not None else None
+                ),
+                "cancels_invoice_date": (
+                    _iso(cancels.issue_date) if cancels is not None else None
+                ),
+                "storno_reason": storno_reason,
             },
             "lines": _lines(line_items),
             "totals": {
@@ -194,6 +235,20 @@ class InvoiceSnapshotService:
         header["notes"] = invoice.notes
         header["payment_method"] = invoice.payment_method
         invoice.snapshot = InvoiceSnapshotService.dump({**snapshot, "invoice": header})
+
+    @staticmethod
+    def refresh_draft_seller(invoice: InvoiceRow, seller: Dict[str, Any]) -> None:
+        """Put the current seller block into a DRAFT snapshot (W2-04).
+
+        No-op once frozen: an issued invoice keeps the seller it was issued
+        with, whatever the settings say later.
+        """
+        snapshot = InvoiceSnapshotService.load(invoice)
+        if snapshot is None or InvoiceSnapshotService.is_frozen(invoice):
+            return
+        invoice.snapshot = InvoiceSnapshotService.dump(
+            {**snapshot, "seller": dict(seller)}
+        )
 
     @staticmethod
     async def ensure_snapshot(db: AsyncSession, invoice: InvoiceRow) -> None:
@@ -245,6 +300,7 @@ class InvoiceSnapshotService:
             order,
             scrap_gold_credit=credit,
             backfilled=True,
+            seller=await WorkshopSettingsService.seller_block(db),
         )
         invoice.snapshot = InvoiceSnapshotService.dump(snapshot)
         logger.warning(
@@ -263,6 +319,10 @@ class InvoiceSnapshotService:
             return
         await InvoiceSnapshotService.ensure_snapshot(db, invoice)
         InvoiceSnapshotService.sync_draft_fields(invoice)
+        # W2-04: the issued document carries the seller data valid at issue.
+        seller = await WorkshopSettingsService.seller_block(db)
+        InvoiceSnapshotService.refresh_draft_seller(invoice, seller)
+        _warn_if_seller_incomplete(invoice, seller)
         pdf_bytes = InvoiceSnapshotService.render(invoice)
         invoice.issued_pdf = base64.b64encode(pdf_bytes).decode("ascii")
         invoice.issued_pdf_sha256 = hashlib.sha256(pdf_bytes).hexdigest()
@@ -282,14 +342,21 @@ class InvoiceSnapshotService:
     # ------------------------------------------------------------------
 
     @staticmethod
-    def render(invoice: InvoiceRow) -> bytes:
-        """Render the invoice PDF from its snapshot (never the live customer)."""
+    def render(
+        invoice: InvoiceRow, seller_override: Optional[Dict[str, Any]] = None
+    ) -> bytes:
+        """Render the invoice PDF from its snapshot (never the live customer).
+
+        ``seller_override`` is used for the DRAFT preview only (current
+        settings without writing them into the snapshot).
+        """
         snapshot = InvoiceSnapshotService.load(invoice)
         if snapshot is None:
             raise ValueError(f"Invoice {invoice.id} has no snapshot")
         header = snapshot["invoice"]
         totals = snapshot["totals"]
         recipient = snapshot["recipient"]
+        seller = dict(seller_override or snapshot.get("seller") or {})
         city = " ".join(
             part
             for part in (recipient.get("postal_code"), recipient.get("city"))
@@ -301,8 +368,12 @@ class InvoiceSnapshotService:
                 order_id=header["order_id"],
                 issue_date=_parse_dt(header["issue_date"]),
                 due_date=_parse_dt(header["due_date"]),
+                service_date=_parse_dt(header.get("service_date")),
                 notes=header["notes"],
                 payment_method=header["payment_method"],
+                cancels_invoice_number=header.get("cancels_invoice_number"),
+                cancels_invoice_date=_parse_dt(header.get("cancels_invoice_date")),
+                storno_reason=header.get("storno_reason"),
                 subtotal=totals["subtotal"],
                 tax_rate=totals["tax_rate"],
                 tax_amount=totals["tax_amount"],
@@ -310,11 +381,15 @@ class InvoiceSnapshotService:
             ),
             customer=SimpleNamespace(
                 name=recipient.get("name") or "",
+                company_name=recipient.get("company_name") or "",
                 address=recipient.get("street") or "",
                 city=city,
+                country=recipient.get("country") or "",
             ),
             line_items=[SimpleNamespace(**line) for line in snapshot["lines"]],
-            workshop_name=snapshot["seller"]["name"],
+            workshop_name=seller.get("name") or settings.WORKSHOP_NAME,
+            seller=seller,
+            altgold_credit=float(totals.get("scrap_gold_credit") or 0.0),
         )
 
     @staticmethod
@@ -330,7 +405,9 @@ class InvoiceSnapshotService:
             if not invoice.snapshot:
                 await InvoiceSnapshotService.ensure_snapshot(db, invoice)
                 await db.commit()
-            return InvoiceSnapshotService.render(invoice)
+            return InvoiceSnapshotService.render(
+                invoice, seller_override=await WorkshopSettingsService.seller_block(db)
+            )
 
         if not InvoiceSnapshotService.is_frozen(invoice):
             await InvoiceSnapshotService.freeze(db, invoice)

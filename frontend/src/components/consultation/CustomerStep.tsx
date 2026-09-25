@@ -44,7 +44,7 @@ const CustomerCard: React.FC<{ customer: SelectedCustomer; readOnly?: boolean }>
       <p className="customer-confirm-name">
         {customer.first_name} {customer.last_name}
       </p>
-      <p className="customer-confirm-email">{customer.email}</p>
+      {customer.email && <p className="customer-confirm-email">{customer.email}</p>}
       {ringSize != null && <p className="customer-confirm-ring">Ringgröße: {ringSize}</p>}
       {readOnly && <p className="customer-confirm-hint">Kundin dieser Beratung</p>}
     </div>

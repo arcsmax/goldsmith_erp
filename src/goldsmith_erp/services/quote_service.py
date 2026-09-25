@@ -46,6 +46,10 @@ from goldsmith_erp.models.quote import (
     QuoteUpdate,
 )
 from goldsmith_erp.services import consultation_carry, order_workflow, quote_delivery
+from goldsmith_erp.services.number_sequence_service import (
+    QUOTE_KIND,
+    NumberSequenceService,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -178,32 +182,14 @@ class QuoteService:
     @staticmethod
     async def generate_quote_number(db: AsyncSession) -> str:
         """
-        Generate the next sequential quote number for the current year.
+        Next sequential quote number for the current Europe/Berlin year.
 
-        Format: KV-YYYY-NNNN (e.g. KV-2026-0001)
+        Format: KV-YYYY-NNNN (e.g. KV-2026-0001).
 
-        Uses SELECT MAX inside the current transaction — safe for the ERP's
-        low-concurrency usage. A DB sequence would be preferable at scale.
+        W2-04 (BE-16): drawn from the row-locked ``number_sequences`` counter
+        inside the caller's transaction (see number_sequence_service).
         """
-        year = datetime.utcnow().year
-        prefix = f"KV-{year}-"
-
-        result = await db.execute(
-            select(func.max(QuoteModel.quote_number)).where(
-                QuoteModel.quote_number.like(f"{prefix}%")
-            )
-        )
-        last_number: Optional[str] = result.scalar_one_or_none()
-
-        if last_number:
-            try:
-                seq = int(last_number.split("-")[-1]) + 1
-            except (ValueError, IndexError):
-                seq = 1
-        else:
-            seq = 1
-
-        return f"{prefix}{seq:04d}"
+        return await NumberSequenceService.next_number(db, QUOTE_KIND)
 
     # -------------------------------------------------------------------------
     # Total calculation

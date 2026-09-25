@@ -20,6 +20,7 @@ import {
 } from '../api/admin';
 import type { ThemeSettings } from '../hooks/useTheme';
 import { applyTheme, fetchTheme, saveTheme } from '../hooks/useTheme';
+import { WorkshopSettingsSection } from '../components/admin/WorkshopSettingsSection';
 import '../styles/admin.css';
 import '../styles/admin-theme.css';
 
@@ -938,6 +939,7 @@ export const AdminSystemPage: React.FC = () => {
         </>
       )}
 
+      <WorkshopSettingsSection />
       <EmailConfigSection />
       <CustomerImportSection />
       <ThemeConfigSection />

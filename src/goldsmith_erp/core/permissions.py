@@ -79,6 +79,9 @@ class Permission(str, Enum):
 
     # System permissions
     SYSTEM_CONFIG = "system:config"
+    # W2-04: Werkstatt-Stammdaten (seller data on every Rechnung). ADMIN only
+    # (ADMIN holds every permission; no other role is granted this one).
+    WORKSHOP_SETTINGS_MANAGE = "workshop_settings:manage"
 
     # ML permissions
     ML_PREDICT = "ml:predict"  # Predict duration for orders (all authenticated users)

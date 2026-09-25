@@ -100,12 +100,15 @@ def _events(engine) -> list[dict]:
     return out
 
 
-def test_revision_is_the_single_head_on_top_of_c22():
+def test_revision_sits_on_top_of_c22_in_the_single_chain():
     module = _load_migration()
     assert module.revision == _REVISION
     assert module.down_revision == "20260925_c22_cu_dedupe"
     script = ScriptDirectory.from_config(Config(str(_ROOT / "alembic.ini")))
-    assert script.get_heads() == [_REVISION]
+    # W2-10 / W2-04 build on top of this revision; the chain stays linear.
+    assert len(script.get_heads()) == 1
+    chain = {rev.revision for rev in script.walk_revisions()}
+    assert _REVISION in chain
 
 
 def test_upgrade_adds_columns_and_events_table(sqlite_engine):

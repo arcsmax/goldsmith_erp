@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import Boolean, Column, Date, DateTime
+from sqlalchemy import Boolean, CheckConstraint, Column, Date, DateTime
 from sqlalchemy import Enum as _SAEnum
 from sqlalchemy import (
     Float,
@@ -248,6 +248,15 @@ class Customer(Base):
     """
 
     __tablename__ = "customers"
+    __table_args__ = (
+        Index(
+            "ix_customers_email_hash",
+            "email_hash",
+            unique=True,
+            postgresql_where=text("email_hash IS NOT NULL"),
+            sqlite_where=text("email_hash IS NOT NULL"),
+        ),
+    )
 
     id = Column(Integer, primary_key=True, index=True)
     # Basic Info — PII, encrypted at rest (C1).
@@ -260,8 +269,13 @@ class Customer(Base):
     # deterministic). ``email_hash`` is the HMAC-SHA-256 blind-index tag;
     # it carries the uniqueness constraint and is the column we equality-
     # search on. See ``core.encryption.hmac_blind_index``.
-    email = Column(EncryptedString, nullable=False)
-    email_hash = Column(String(64), nullable=False, unique=True, index=True)
+    # W2-10 (DOM-02, D-11): email is optional (walk-in / phone-only
+    # customers). Uniqueness applies only when an email is present: the
+    # partial unique index ``ix_customers_email_hash`` below covers
+    # ``WHERE email_hash IS NOT NULL``. A customer needs at least one of
+    # email / phone / mobile (enforced in models/customer.py + service).
+    email = Column(EncryptedString, nullable=True)
+    email_hash = Column(String(64), nullable=True)
     phone = Column(EncryptedString, nullable=True)
     mobile = Column(EncryptedString, nullable=True)
 
@@ -364,9 +378,13 @@ def _customer_before_update(_mapper, _connection, target: "Customer") -> None:
     """Keep ``email_hash`` in lock-step with ``email`` on update.
 
     If the email was changed but the hash wasn't recomputed, derive it
-    here. Cheap — one HMAC per update.
+    here. Cheap — one HMAC per update. W2-10: a cleared email clears the
+    hash too, so the partial unique index never keeps a stale tag.
     """
-    if target.email and not target.email_hash:
+    if not target.email:
+        target.email_hash = None
+        return
+    if not target.email_hash:
         from goldsmith_erp.core.encryption import hmac_blind_index  # noqa: PLC0415
 
         target.email_hash = hmac_blind_index(target.email)
@@ -1397,11 +1415,35 @@ class Invoice(Base):
     """
 
     __tablename__ = "invoices"
+    __table_args__ = (
+        # W2-04 (BE-16): at most one live invoice per order. Cancelled
+        # originals and Stornorechnungen (cancels_invoice_id set) are
+        # excluded, so a corrected invoice can follow a Storno.
+        Index(
+            "uq_invoices_one_active_per_order",
+            "order_id",
+            unique=True,
+            postgresql_where=text(
+                "status <> 'cancelled' AND cancels_invoice_id IS NULL"
+            ),
+            sqlite_where=text("status <> 'cancelled' AND cancels_invoice_id IS NULL"),
+        ),
+    )
 
     id = Column(Integer, primary_key=True, index=True)
 
-    # Rechnungsnummer: RE-2026-0001 (unique, generated on creation)
+    # Rechnungsnummer: RE-2026-0001 (unique). W2-04: drawn from the
+    # per-year ``number_sequences`` counter (services/number_sequence_service).
     invoice_number = Column(String(20), unique=True, nullable=False, index=True)
+
+    # W2-04 (DOM-24b): a Stornorechnung points at the invoice it cancels.
+    # The original is never edited; it only moves to CANCELLED.
+    cancels_invoice_id = Column(
+        Integer,
+        ForeignKey("invoices.id", ondelete="RESTRICT"),
+        nullable=True,
+        index=True,
+    )
 
     # Links
     order_id = Column(
@@ -1429,6 +1471,9 @@ class Invoice(Base):
     issue_date = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
     due_date = Column(DateTime, nullable=False, index=True)  # Faelligkeitsdatum
     paid_date = Column(DateTime, nullable=True)  # Zahlungsdatum
+    # W2-04 (DOM-24): Leistungsdatum (§14 Abs. 4 Nr. 6 UStG). Set at
+    # creation from the request, else the order's completion date.
+    service_date = Column(DateTime, nullable=True)
 
     # Amounts (Betraege)
     subtotal = Column(Float, nullable=False, default=0.0)  # Zwischensumme (netto)
@@ -1508,6 +1553,66 @@ class InvoiceLineItem(Base):
 
     # Relationships
     invoice = relationship("Invoice", back_populates="line_items")
+
+
+# ============================================================================
+# W2-04: WORKSHOP SETTINGS (Werkstatt-Stammdaten) AND NUMBER SEQUENCES
+# ============================================================================
+
+
+class WorkshopSettings(Base):
+    """Seller master data printed on every Rechnung (§14 Abs. 4 UStG).
+
+    Singleton (``id`` is always 1, enforced by a CHECK constraint). Holds
+    only the workshop's own business data, no customer PII. Edited by ADMIN
+    via ``GET/PUT /admin/workshop-settings``; every change is audit-logged.
+    Invoices copy these fields into their snapshot at creation and at issue,
+    so later edits never change an issued invoice.
+    """
+
+    __tablename__ = "workshop_settings"
+    __table_args__ = (CheckConstraint("id = 1", name="ck_workshop_settings_singleton"),)
+
+    id = Column(Integer, primary_key=True, default=1)
+    name = Column(String(200), nullable=False, default="")
+    owner_name = Column(String(200), nullable=True)
+    street = Column(String(200), nullable=True)
+    postal_code = Column(String(20), nullable=True)
+    city = Column(String(100), nullable=True)
+    country = Column(String(100), nullable=True, default="Deutschland")
+    phone = Column(String(50), nullable=True)
+    email = Column(String(255), nullable=True)
+    tax_number = Column(String(50), nullable=True)  # Steuernummer
+    vat_id = Column(String(20), nullable=True)  # USt-IdNr.
+    iban = Column(String(34), nullable=True)
+    bic = Column(String(11), nullable=True)
+    bank_name = Column(String(100), nullable=True)
+    is_kleinunternehmer = Column(Boolean, nullable=False, default=False)  # §19 UStG
+    default_vat_rate = Column(Float, nullable=False, default=19.0)
+    invoice_footer = Column(Text, nullable=True)
+    updated_at = Column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+    )
+    updated_by = Column(
+        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+
+
+class NumberSequence(Base):
+    """Gap-free per-year counter for human-facing document numbers.
+
+    One row per (kind, year), e.g. ("RE", 2026). ``last_value`` is bumped
+    with a single row-locking ``UPDATE ... RETURNING`` inside the caller's
+    transaction, so concurrent creates serialise on the row and a rolled
+    back create gives its number back. See
+    services/number_sequence_service.py (BE-16, decision D-12).
+    """
+
+    __tablename__ = "number_sequences"
+
+    kind = Column(String(10), primary_key=True)
+    year = Column(Integer, primary_key=True)
+    last_value = Column(Integer, nullable=False, default=0)
 
 
 # ============================================================================
