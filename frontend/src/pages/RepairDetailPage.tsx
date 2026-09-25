@@ -1,6 +1,7 @@
 // Reparatur Detailansicht — status actions, photo tabs, diagnosis, history
 import React, { useCallback, useEffect, useId, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
+import { jobsApi } from '../api/jobs';
 import { repairPhotoPath, repairPhotoThumbPath, repairsApi } from '../api/repairs';
 import type {
   RepairCompleteInput,
@@ -15,9 +16,12 @@ import type { PhotoItem } from '../components/PhotoCompare';
 import { IntakeChecklist } from '../components/repairs/IntakeChecklist';
 import { RepairCustomerUpdatePanel } from '../components/repairs/RepairCustomerUpdatePanel';
 import { openAnnahmeschein } from '../components/repairs/annahmeschein';
+import { DEFAULT_PAYMENT_TERM_DAYS, inDaysIso } from '../components/invoices/invoiceFormat';
 import { useAuth, useConfirm, useToast } from '../contexts';
 import { logError } from '../lib/logError';
-import { canViewDesign } from '../lib/roles';
+import { getErrorMessage } from '../lib/errors';
+import { canViewDesign, canViewFinancials } from '../lib/roles';
+import { Button } from '../ui/Button';
 import { StatusBadge } from '../ui/StatusBadge';
 import { formatEur, MONEY_CLASS } from '../lib/format';
 import '../styles/repairs.css';
@@ -655,6 +659,9 @@ function DetailsTab({ repair }: { repair: RepairJob }) {
 
 type Tab = 'details' | 'fotos' | 'diagnose' | 'historie';
 
+/** Statuses the backend bills (POST /repairs/{id}/invoice, ARCH-02). */
+const INVOICEABLE_STATUSES: readonly string[] = ['ready', 'picked_up'];
+
 export function RepairDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -663,6 +670,8 @@ export function RepairDetailPage() {
   const { showToast } = useToast();
   const repairId = Number(id);
   const [isPrinting, setIsPrinting] = useState(false);
+  const [isInvoicing, setIsInvoicing] = useState(false);
+  const canInvoice = canViewFinancials(user?.role);
 
   // W2-12: reprint the intake receipt (DESIGN_VIEW: it carries the photos).
   const handlePrintAnnahmeschein = async () => {
@@ -674,6 +683,24 @@ export function RepairDetailPage() {
       showToast('Annahmeschein konnte nicht geladen werden. Bitte erneut versuchen.', 'error');
     } finally {
       setIsPrinting(false);
+    }
+  };
+
+  // ARCH-02: bill a finished repair; 409 (already invoiced) and 422 (not
+  // billable) come back as German backend messages.
+  const handleCreateInvoice = async () => {
+    setIsInvoicing(true);
+    try {
+      const invoice = await jobsApi.invoiceRepair(repairId, {
+        due_date: new Date(inDaysIso(DEFAULT_PAYMENT_TERM_DAYS)).toISOString(),
+      });
+      showToast('Rechnung erstellt', 'success');
+      navigate(`/invoices?invoice_id=${invoice.id}`);
+    } catch (err) {
+      logError('RepairDetailPage.createInvoice', err);
+      showToast(getErrorMessage(err, 'Rechnung konnte nicht erstellt werden.'), 'error');
+    } finally {
+      setIsInvoicing(false);
     }
   };
 
@@ -797,6 +824,11 @@ export function RepairDetailPage() {
           >
             {isPrinting ? 'Wird geladen…' : 'Annahmeschein drucken'}
           </button>
+        )}
+        {canInvoice && INVOICEABLE_STATUSES.includes(repair.status) && repair.customer_id != null && (
+          <Button icon="receipt" onClick={handleCreateInvoice} loading={isInvoicing}>
+            Rechnung erstellen
+          </Button>
         )}
       </div>
 
