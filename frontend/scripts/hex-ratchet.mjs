@@ -16,6 +16,17 @@
  *   node scripts/hex-ratchet.mjs --list     also print per-file counts
  *
  * Exit codes: 0 = count <= baseline, 1 = count grew, 2 = setup error.
+ *
+ * Allowlist (W4 phase 4). After phase 4 no stylesheet outside brand-tokens.css
+ * holds a colour literal (src/test/noColourLiterals.test.ts enforces that).
+ * The literals still counted here are justified runtime or generated values:
+ *   api/generated/schema.d.ts        12  OpenAPI docstrings ("e.g. #FF6B6B"), generated
+ *   components/CommentsTab.tsx       10  per-user avatar palette, picked at runtime
+ *   hooks/useTheme.ts                 8  admin theme defaults and contrast-check inputs
+ *   components/SignatureCanvas.tsx    4  canvas ink and paper; the signature PNG is
+ *                                        a document and must not follow the theme
+ *   components/metal/MetalTypeManager.tsx 1  colour-picker default swatch
+ * Anything else is a regression: use a semantic token instead.
  */
 import { readFileSync, readdirSync, writeFileSync, existsSync } from 'node:fs';
 import { join, relative, dirname } from 'node:path';

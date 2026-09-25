@@ -42,17 +42,17 @@
 
 .filter-group label {
   font-weight: 600;
-  color: #666;
+  color: var(--color-text-muted);
   font-size: 0.85rem;
 }
 
 .filter-group select {
   padding: 0.75rem 1rem;
-  border: 2px solid #e5e7eb;
+  border: 2px solid var(--color-border);
   border-radius: 8px;
   font-size: 1rem;
   cursor: pointer;
-  background: white;
+  background: var(--color-surface-raised);
   transition: all 0.3s;
   min-width: 150px;
 }
@@ -60,7 +60,7 @@
 .filter-group select:focus {
   outline: none;
   border-color: var(--color-border-focus);
-  box-shadow: 0 0 0 3px rgba(217, 119, 6, 0.1);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 10%, transparent);
 }
 
 /* ==================== STATUS BADGES ==================== */
@@ -86,19 +86,19 @@
 }
 
 .orders-table th {
-  background: #f8f9fa;
+  background: var(--color-surface-sunken);
   padding: 1rem;
   text-align: left;
   font-weight: 600;
-  color: #666;
-  border-bottom: 2px solid #e9ecef;
+  color: var(--color-text-muted);
+  border-bottom: 2px solid var(--color-border);
   font-size: 0.9rem;
 }
 
 .orders-table td {
   padding: 1rem;
-  border-bottom: 1px solid #e9ecef;
-  color: #333;
+  border-bottom: 1px solid var(--color-border);
+  color: var(--color-text);
 }
 
 .orders-table tbody tr {
@@ -107,7 +107,7 @@
 }
 
 .orders-table tbody tr:hover {
-  background: #f8f9fa;
+  background: var(--color-surface-sunken);
 }
 
 /* ==================== ORDER ACTIONS ==================== */
@@ -118,8 +118,8 @@
 }
 
 .btn-icon {
-  background: white;
-  border: 2px solid #e5e7eb;
+  background: var(--color-surface-raised);
+  border: 2px solid var(--color-border);
   padding: 0.6rem 0.875rem;
   border-radius: 6px;
   cursor: pointer;
@@ -134,19 +134,19 @@
 }
 
 .btn-icon:hover {
-  background: #f3f4f6;
+  background: var(--color-surface-sunken);
   border-color: var(--color-interactive-primary);
   color: var(--color-interactive-primary);
 }
 
 .btn-icon.btn-edit:hover {
-  border-color: #3b82f6;
-  color: #3b82f6;
+  border-color: var(--tone-info-border);
+  color: var(--color-info);
 }
 
 .btn-icon.btn-delete:hover {
-  border-color: #ef4444;
-  color: #ef4444;
+  border-color: var(--color-danger);
+  color: var(--color-danger);
 }
 
 /* ==================== PAGINATION ==================== */
@@ -157,11 +157,11 @@
   align-items: center;
   margin-top: 1.5rem;
   padding: 1rem 0;
-  border-top: 2px solid #e5e7eb;
+  border-top: 2px solid var(--color-border);
 }
 
 .pagination-info {
-  color: #666;
+  color: var(--color-text-muted);
   font-size: 0.95rem;
 }
 
@@ -169,13 +169,13 @@
 
 .price-display {
   font-weight: 700;
-  color: #059669;
+  color: var(--color-success);
   font-size: 1.1rem;
 }
 
 .price-calculated {
   font-size: 0.85rem;
-  color: #666;
+  color: var(--color-text-muted);
   font-style: italic;
 }
 
@@ -239,14 +239,14 @@
   gap: 0.4rem;
   padding: 0.75rem 1rem;
   border-radius: 8px;
-  background: #f8f9fa;
-  border: 1px solid #e5e7eb;
+  background: var(--color-surface-sunken);
+  border: 1px solid var(--color-border);
   font-size: 0.9rem;
 }
 
 .pflichtfelder-label {
   font-weight: 600;
-  color: #374151;
+  color: var(--color-text);
 }
 
 .pflichtfelder-count {
@@ -256,17 +256,17 @@
 }
 
 .pflichtfelder-count--ok {
-  background: #d1fae5;
-  color: #065f46;
+  background: var(--tone-done-bg);
+  color: var(--color-success-fg);
 }
 
 .pflichtfelder-count--warn {
-  background: #fef3c7;
-  color: #92400e;
+  background: var(--color-primary-subtle);
+  color: var(--color-primary-hover);
 }
 
 .pflichtfelder-missing {
-  color: #92400e;
+  color: var(--color-primary-hover);
   font-size: 0.85rem;
 }
 
@@ -276,7 +276,7 @@
   gap: 0.65rem;
   cursor: pointer;
   font-weight: 500;
-  color: #374151;
+  color: var(--color-text);
 }
 
 .checkbox-label input[type="checkbox"] {

@@ -67,18 +67,18 @@ const tileBaseStyle: React.CSSProperties = {
   flexDirection: 'column',
   gap: '0.4rem',
   padding: '1.25rem 1.5rem',
-  background: '#ffffff',
-  border: '1px solid #d4d4d8',
+  background: 'var(--color-surface-raised)',
+  border: '1px solid var(--color-border)',
   borderRadius: '0.5rem',
   minHeight: '140px',
-  boxShadow: '0 1px 2px rgba(0, 0, 0, 0.04)',
+  boxShadow: 'var(--shadow-1)',
 };
 
 const statusColors: Record<'ok' | 'yellow' | 'halt' | 'na', string> = {
-  ok: '#22c55e',
-  yellow: '#eab308',
-  halt: '#ef4444',
-  na: '#9ca3af',
+  ok: 'var(--tone-done-border)',
+  yellow: 'var(--tone-waiting-border)',
+  halt: 'var(--tone-danger-border)',
+  na: 'var(--tone-neutral-border)',
 };
 
 interface TileProps {
@@ -102,16 +102,16 @@ const Tile: React.FC<TileProps> = ({ title, subtitle, value, status = 'na', foot
           background: statusColors[status],
         }}
       />
-      <span style={{ fontSize: '0.85rem', fontWeight: 600, color: '#52525b' }}>
+      <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--color-text-muted)' }}>
         {title}
       </span>
     </div>
-    <span style={{ fontSize: '2rem', fontWeight: 700, color: '#18181b', lineHeight: 1.1 }}>
+    <span style={{ fontSize: '2rem', fontWeight: 700, color: 'var(--color-text)', lineHeight: 1.1 }}>
       {value}
     </span>
-    <span style={{ fontSize: '0.78rem', color: '#71717a' }}>{subtitle}</span>
+    <span style={{ fontSize: '0.78rem', color: 'var(--color-text-muted)' }}>{subtitle}</span>
     {footnote ? (
-      <span style={{ fontSize: '0.72rem', color: '#9ca3af', marginTop: 'auto' }}>
+      <span style={{ fontSize: '0.72rem', color: 'var(--color-text-muted)', marginTop: 'auto' }}>
         {footnote}
       </span>
     ) : null}
@@ -151,7 +151,7 @@ export const ScanAdoptionDashboard: React.FC = () => {
     <div style={{ padding: '1.5rem', maxWidth: '1200px', margin: '0 auto' }}>
       <header style={{ marginBottom: '1.5rem' }}>
         <h1 style={{ fontSize: '1.5rem', margin: '0 0 0.25rem' }}>Scan-Adoption Dashboard</h1>
-        <p style={{ color: '#52525b', margin: '0 0 0.75rem', fontSize: '0.9rem' }}>
+        <p style={{ color: 'var(--color-text-muted)', margin: '0 0 0.75rem', fontSize: '0.9rem' }}>
           V1.1 30-Tage-Akzeptanz-Gate. Sechs Metriken laut Spec §14.a.
           Nur ADMIN-Zugriff.
         </p>
@@ -162,8 +162,8 @@ export const ScanAdoptionDashboard: React.FC = () => {
             disabled={loading}
             style={{
               padding: '0.4rem 0.9rem',
-              background: '#18181b',
-              color: '#ffffff',
+              background: 'var(--color-text)',
+              color: 'var(--color-surface-raised)',
               border: 'none',
               borderRadius: '0.35rem',
               cursor: loading ? 'not-allowed' : 'pointer',
@@ -173,7 +173,7 @@ export const ScanAdoptionDashboard: React.FC = () => {
             {loading ? 'Lädt…' : 'Aktualisieren'}
           </button>
           {lastLoadedAt ? (
-            <span style={{ color: '#71717a' }}>
+            <span style={{ color: 'var(--color-text-muted)' }}>
               Zuletzt geladen: {lastLoadedAt.toLocaleString('de-DE')}
             </span>
           ) : null}
@@ -185,9 +185,9 @@ export const ScanAdoptionDashboard: React.FC = () => {
           role="alert"
           style={{
             padding: '0.75rem 1rem',
-            background: '#fef2f2',
-            border: '1px solid #fecaca',
-            color: '#991b1b',
+            background: 'var(--color-danger-bg)',
+            border: '1px solid var(--tone-danger-border)',
+            color: 'var(--color-danger-fg)',
             borderRadius: '0.5rem',
             marginBottom: '1rem',
           }}
@@ -304,8 +304,8 @@ export const ScanAdoptionDashboard: React.FC = () => {
         style={{
           marginTop: '2rem',
           fontSize: '0.78rem',
-          color: '#71717a',
-          borderTop: '1px solid #e4e4e7',
+          color: 'var(--color-text-muted)',
+          borderTop: '1px solid var(--color-border)',
           paddingTop: '1rem',
         }}
       >

@@ -750,6 +750,16 @@ Lowest dark pairs: text 5.48 (`--color-danger` on raised), UI 3.97 (`--color-bor
 | `--tone-waiting-border` `#f97316` | `--tone-waiting-bg` `#431407` | 5.58 | 3 |
 | `--tone-waiting-fg` `#fed7aa` | `--tone-waiting-bg` `#431407` | 11.56 | 4.5 |
 
+### B.2 Tokens added in phase 4 (W4-04, computed)
+Phase 4 moved every stylesheet outside `brand-tokens.css` onto semantic tokens (hex ratchet 585 to 35; the 35 left are runtime or generated values, see the allowlist comment in `frontend/scripts/hex-ratchet.mjs`). `frontend/src/test/noColourLiterals.test.ts` fails if any stylesheet other than `brand-tokens.css` holds a hex, `rgb()`, `hsl()`, `white` or `black` literal. Four tokens were added; each has the same role in both themes and is covered by `themeTokens.test.ts`.
+
+| Token | Light | Dark | Use | Pair and ratio (both themes) |
+|---|---|---|---|---|
+| `--color-shadow` | `#1e293b` | `#000000` | ink for `color-mix()` tints and multi-layer shadows (same ink as `--shadow-1..3`) | decorative, no text pair |
+| `--color-overlay-bg` | `#111111` | `#111111` | photo lightbox frame; photos stay dark-framed in both themes | `--color-overlay-fg` on it 18.88 (min 4.5) |
+| `--color-overlay-fg` | `#ffffff` | `#ffffff` | text and icons on photos, scrims and runtime avatar swatches | on `--color-overlay-bg` 18.88; 50% mix on `#111111` 5.33 |
+| `--color-overlay-danger` | `#b91c1c` | `#b91c1c` | delete button hover over a photo | `--color-overlay-fg` on it 6.47 (min 4.5) |
+
 ## Appendix C. Open questions
 1. **Tailwind or plain CSS.** The design-investigation (I-25) recommends removing the Tailwind import because the team writes plain CSS and the layer conflict caused invisible buttons (`buttons.css:4-23`). This playbook keeps the `@theme static` block because it is what exists; if Tailwind is removed, the primitives move to `:root` unchanged and nothing else in the playbook changes. Owner: Max.
 2. **Typeface.** IBM Plex (OFL, tabular figures, good German glyphs) is proposed as a "technical workshop ledger" direction. Confirm with Anne, or keep system fonts for legibility.

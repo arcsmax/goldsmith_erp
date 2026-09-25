@@ -306,7 +306,7 @@ export const MeasurementPanel: React.FC<{
             <div
               className="cdetail-masse-form__error"
               role="alert"
-              style={{ color: 'var(--color-error, #b91c1c)', marginTop: '0.5rem' }}
+              style={{ color: 'var(--color-error)', marginTop: '0.5rem' }}
             >
               {submitError}
             </div>

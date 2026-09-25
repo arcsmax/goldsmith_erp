@@ -56,6 +56,9 @@ const PAIRS: readonly Pair[] = [
   // Legacy warning text on its banner: light #b8651a on #fff4e6 is 3.72 today
   // (AlloyMismatchModal, QrCameraScanner; open item), dark passes.
   ['--color-warning-600', '--color-warning-bg', TEXT, ['dark']],
+  // Photo and swatch overlays (W4 phase 4): same values in both themes
+  ['--color-overlay-fg', '--color-overlay-bg', TEXT],
+  ['--color-overlay-fg', '--color-overlay-danger', TEXT],
   // Boundaries and focus
   ['--color-border-strong', '--color-surface', UI],
   ['--color-border-strong', '--color-surface-raised', UI],
