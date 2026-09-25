@@ -4,8 +4,9 @@
 //               with the latest photos ticked. Nothing is sent without an
 //               explicit tap on "Erstellen & senden" (consent per send).
 //   delivered → "Übergabe dokumentieren?" links to the handover step on the
-//               Kunde tab (the handover PDF itself is W2-11).
-import { useId } from 'react';
+//               Kunde tab; W2-11 adds the Abholprotokoll PDF and the
+//               Wertgutachten as `children` (DeliveredActions).
+import { useId, type ReactNode } from 'react';
 import type { CustomerUpdateKind } from '../../api/customer-updates';
 import type { OrderPhoto, OrderType } from '../../types';
 
@@ -62,6 +63,8 @@ interface MilestonePromptProps {
   milestone: Milestone;
   onAction: () => void;
   onDismiss: () => void;
+  /** Extra next actions shown under the text (W2-11). */
+  children?: ReactNode;
 }
 
 const COPY: Record<Milestone, { title: string; body: string; action: string }> = {
@@ -77,7 +80,7 @@ const COPY: Record<Milestone, { title: string; body: string; action: string }> =
   },
 };
 
-export function MilestonePrompt({ milestone, onAction, onDismiss }: MilestonePromptProps) {
+export function MilestonePrompt({ milestone, onAction, onDismiss, children }: MilestonePromptProps) {
   const titleId = useId();
   const copy = COPY[milestone];
   return (
@@ -87,6 +90,7 @@ export function MilestonePrompt({ milestone, onAction, onDismiss }: MilestonePro
           {copy.title}
         </h2>
         <p>{copy.body}</p>
+        {children}
       </div>
       <div className="milestone-prompt-actions">
         <button type="button" className="btn btn-primary milestone-prompt-action" onClick={onAction}>

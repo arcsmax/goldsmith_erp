@@ -3136,6 +3136,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/orders/{order_id}/handover-pdf": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Handover Pdf
+         * @description Abholprotokoll als PDF (W2-11, DOM-35).
+         *
+         *     Foto, Metall, Steine (ohne Einkaufspreis), Material, Pflegehinweise,
+         *     Gewährleistung und Unterschriftszeilen. Nur für fertiggestellte oder
+         *     ausgelieferte Aufträge; Design-Daten, daher DESIGN_VIEW.
+         */
+        get: operations["get_handover_pdf_api_v1_orders__order_id__handover_pdf_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/orders/{order_id}/label": {
         parameters: {
             query?: never;
@@ -17788,6 +17812,37 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["HandoffRead"][];
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_handover_pdf_api_v1_orders__order_id__handover_pdf_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                order_id: number;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {

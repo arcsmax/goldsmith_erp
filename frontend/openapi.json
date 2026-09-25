@@ -3530,6 +3530,63 @@
         }
       }
     },
+    "/api/v1/orders/{order_id}/handover-pdf": {
+      "get": {
+        "tags": [
+          "orders"
+        ],
+        "summary": "Get Handover Pdf",
+        "description": "Abholprotokoll als PDF (W2-11, DOM-35).\n\nFoto, Metall, Steine (ohne Einkaufspreis), Material, Pflegehinweise,\nGewährleistung und Unterschriftszeilen. Nur für fertiggestellte oder\nausgelieferte Aufträge; Design-Daten, daher DESIGN_VIEW.",
+        "operationId": "get_handover_pdf_api_v1_orders__order_id__handover_pdf_get",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "order_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Order Id"
+            }
+          },
+          {
+            "name": "access_token",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Access Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/materials/": {
       "get": {
         "tags": [

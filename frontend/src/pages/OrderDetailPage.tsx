@@ -31,6 +31,7 @@ import {
   type Milestone,
 } from '../components/orders/MilestonePrompt';
 import { OrderTimeline } from '../components/orders/OrderTimeline';
+import { DeliveredActions } from '../components/orders/DeliveredActions';
 import { OrderTabs, OrderTabPanel } from '../components/orders/OrderTabs';
 import { OrderOverviewTab, type OrderWithStatusFields } from '../components/orders/OrderOverviewTab';
 import { OrderWorkTab } from '../components/orders/OrderWorkTab';
@@ -305,7 +306,16 @@ export function OrderDetailPage() {
           milestone={milestone}
           onAction={handleMilestoneAction}
           onDismiss={() => setMilestone(null)}
-        />
+        >
+          {milestone === 'delivered' && (
+            <DeliveredActions
+              orderId={order.id}
+              price={order.price}
+              role={user?.role}
+              userName={[user?.first_name, user?.last_name].filter(Boolean).join(' ')}
+            />
+          )}
+        </MilestonePrompt>
       )}
 
       <CostAlertBanner
