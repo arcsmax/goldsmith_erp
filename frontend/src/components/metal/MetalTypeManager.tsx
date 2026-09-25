@@ -1,22 +1,19 @@
 /**
- * MetalTypeManager — ADMIN-only section for managing custom metal types.
+ * MetalTypeManager — ADMIN-only dialog for custom metal types (W4-03).
  *
- * Renders a table of all metal types (built-in shown as read-only, custom
- * types editable/deactivatable).  A "Neuer Metalltyp" button opens a form
- * for creating or editing entries.
- *
- * Props:
- *   isOpen   — controls visibility (rendered by MetalInventoryPage)
- *   onClose  — callback to hide the manager
+ * Lists all metal types (built-in ones read-only, custom ones editable and
+ * deactivatable). "Metalltyp anlegen" opens an inline form. The list comes
+ * from the shared useMetalTypes cache; saves are mutations that clear that
+ * cache and refresh it.
  */
-import React, { useState, useEffect } from 'react';
-import { metalTypesApi } from '../../api';
-import {
-  MetalTypeOption,
-  CustomMetalTypeCreate,
-  CustomMetalTypeUpdate,
-} from '../../types';
+import React, { useEffect, useState } from 'react';
+import { useMutation } from '@tanstack/react-query';
+import { metalTypesApi } from '../../api/metal-types';
+import type { MetalTypeOption, CustomMetalTypeCreate, CustomMetalTypeUpdate } from '../../types';
 import { useMetalTypes, invalidateMetalTypesCache } from '../../hooks/useMetalTypes';
+import { useConfirm, useToast } from '../../contexts';
+import { getErrorMessage } from '../../lib/errors';
+import { Button, Field, Modal } from '../../ui';
 
 interface MetalTypeManagerProps {
   isOpen: boolean;
@@ -30,6 +27,14 @@ interface FormState {
   base_metal: string;
   color: string;
 }
+
+/** Data value for the colour picker (a native colour input needs a hex value). */
+const DEFAULT_SWATCH = '#D4A843';
+const HEX_COLOUR = /^#[0-9A-Fa-f]{6}$/;
+const CODE_PATTERN = /^[a-z0-9_]+$/;
+const CODE_MAX_LENGTH = 50;
+const PER_MILLE = 1000;
+const PERCENT = 100;
 
 const EMPTY_FORM: FormState = {
   code: '',
@@ -46,542 +51,346 @@ const BASE_METAL_LABELS: Record<string, string> = {
   palladium: 'Palladium',
 };
 
+const UMLAUT_MAP: Record<string, string> = { ä: 'ae', ö: 'oe', ü: 'ue', ß: 'ss' };
+
 function slugify(name: string): string {
   return name
     .toLowerCase()
     .trim()
-    .replace(/[äöüß]/g, (c) =>
-      ({ ä: 'ae', ö: 'oe', ü: 'ue', ß: 'ss' }[c] ?? c)
-    )
+    .replace(/[äöüß]/g, (c) => UMLAUT_MAP[c] ?? c)
     .replace(/[^a-z0-9]+/g, '_')
     .replace(/^_+|_+$/g, '')
-    .slice(0, 50);
+    .slice(0, CODE_MAX_LENGTH);
+}
+
+function parseRatio(value: string): number {
+  return parseFloat(value.replace(',', '.'));
+}
+
+function validate(form: FormState): Partial<FormState> {
+  const errors: Partial<FormState> = {};
+  if (!form.display_name.trim()) errors.display_name = 'Anzeigename fehlt.';
+  if (!form.code.trim()) errors.code = 'Code fehlt.';
+  else if (!CODE_PATTERN.test(form.code)) errors.code = 'Nur Kleinbuchstaben, Ziffern und _ erlaubt.';
+  const ratio = parseRatio(form.fine_content_ratio);
+  if (Number.isNaN(ratio) || ratio < 0 || ratio > 1) {
+    errors.fine_content_ratio = 'Feingehalt muss zwischen 0,000 und 1,000 liegen.';
+  }
+  if (form.color && !HEX_COLOUR.test(form.color)) {
+    errors.color = `Farbe muss ein Hex-Code sein (z. B. ${DEFAULT_SWATCH}).`;
+  }
+  return errors;
+}
+
+function formFromOption(option: MetalTypeOption): FormState {
+  return {
+    code: option.code,
+    display_name: option.display_name,
+    fine_content_ratio: String(option.fine_content_ratio),
+    base_metal: option.base_metal,
+    color: option.color ?? '',
+  };
+}
+
+function formatFineness(ratio: number): string {
+  return `${(ratio * PER_MILLE).toFixed(0)} ‰ (${(ratio * PERCENT).toFixed(1).replace('.', ',')} %)`;
+}
+
+interface TypeFormProps {
+  editing: MetalTypeOption | null;
+  isSaving: boolean;
+  onCancel: () => void;
+  onSave: (form: FormState) => void;
+}
+
+const MetalTypeForm: React.FC<TypeFormProps> = ({ editing, isSaving, onCancel, onSave }) => {
+  const [form, setForm] = useState<FormState>(() => (editing ? formFromOption(editing) : EMPTY_FORM));
+  const [errors, setErrors] = useState<Partial<FormState>>({});
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+    const { name, value } = e.target;
+    setForm((prev) => ({
+      ...prev,
+      [name]: value,
+      // Create mode: derive the code from the display name.
+      ...(name === 'display_name' && !editing ? { code: slugify(value) } : {}),
+    }));
+    setErrors((prev) => ({ ...prev, [name]: undefined }));
+  };
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const found = validate(form);
+    setErrors(found);
+    const firstInvalid = Object.keys(found)[0];
+    if (firstInvalid) {
+      document.getElementById(`mt-${firstInvalid}`)?.focus();
+      return;
+    }
+    onSave(form);
+  };
+
+  const ratio = parseRatio(form.fine_content_ratio);
+  const ratioHelp = ratio >= 0 && ratio <= 1 ? `= ${formatFineness(ratio)}` : undefined;
+
+  return (
+    <form onSubmit={handleSubmit} className="metal-type-form" noValidate>
+      <h3 className="metal-type-form__title">{editing ? 'Metalltyp bearbeiten' : 'Metalltyp anlegen'}</h3>
+      <div className="metal-form metal-form--grid">
+        <Field label="Anzeigename" name="display_name" required error={errors.display_name}>
+          <input
+            id="mt-display_name"
+            type="text"
+            value={form.display_name}
+            onChange={handleChange}
+            placeholder="z. B. Roségold 333"
+          />
+        </Field>
+        <Field
+          label="Code"
+          name="code"
+          required
+          error={errors.code}
+          help={editing ? 'Der Code lässt sich nicht ändern.' : 'Wird aus dem Anzeigenamen erzeugt.'}
+        >
+          <input
+            id="mt-code"
+            type="text"
+            value={form.code}
+            onChange={handleChange}
+            placeholder="rose_gold_333"
+            readOnly={Boolean(editing)}
+          />
+        </Field>
+        <Field
+          label="Feingehalt (0,000 bis 1,000)"
+          name="fine_content_ratio"
+          required
+          inputMode="decimal"
+          error={errors.fine_content_ratio}
+          help={ratioHelp}
+        >
+          <input
+            id="mt-fine_content_ratio"
+            type="text"
+            value={form.fine_content_ratio}
+            onChange={handleChange}
+            placeholder="0,333"
+          />
+        </Field>
+        <Field label="Basismetall" name="base_metal" required>
+          <select value={form.base_metal} onChange={handleChange}>
+            {Object.entries(BASE_METAL_LABELS).map(([value, label]) => (
+              <option key={value} value={value}>
+                {label}
+              </option>
+            ))}
+          </select>
+        </Field>
+        <div className="metal-type-form__colour">
+          <Field label="Farbe" name="color" error={errors.color} help="Optional, als Hex-Code.">
+            <input id="mt-color" type="text" value={form.color} onChange={handleChange} placeholder={DEFAULT_SWATCH} />
+          </Field>
+          <input
+            type="color"
+            aria-label="Farbe auswählen"
+            className="metal-type-form__picker"
+            value={form.color || DEFAULT_SWATCH}
+            onChange={(e) => setForm((prev) => ({ ...prev, color: e.target.value }))}
+          />
+        </div>
+      </div>
+      <div className="metal-type-form__actions">
+        <Button variant="secondary" onClick={onCancel} disabled={isSaving}>
+          Abbrechen
+        </Button>
+        <Button type="submit" loading={isSaving}>
+          {editing ? 'Metalltyp speichern' : 'Metalltyp anlegen'}
+        </Button>
+      </div>
+    </form>
+  );
+};
+
+const Swatch: React.FC<{ color: string }> = ({ color }) => (
+  // Runtime value: the swatch shows the stored colour of the metal type.
+  <span className="metal-swatch" style={{ background: color }} aria-hidden="true" />
+);
+
+function useTypeMutations(onSaved: () => void) {
+  const { refresh } = useMetalTypes();
+  const { showToast } = useToast();
+  const afterChange = () => {
+    invalidateMetalTypesCache();
+    refresh();
+  };
+
+  const save = useMutation({
+    mutationFn: async ({ editing, form }: { editing: MetalTypeOption | null; form: FormState }) => {
+      const common = {
+        display_name: form.display_name,
+        fine_content_ratio: parseRatio(form.fine_content_ratio),
+        base_metal: form.base_metal,
+        color: form.color || null,
+      };
+      if (editing && editing.id != null) {
+        await metalTypesApi.update(editing.id, common satisfies CustomMetalTypeUpdate);
+        return 'Metalltyp gespeichert';
+      }
+      await metalTypesApi.create({ ...common, code: form.code } satisfies CustomMetalTypeCreate);
+      return 'Metalltyp angelegt';
+    },
+    onSuccess: (message) => {
+      afterChange();
+      onSaved();
+      showToast(message, 'success');
+    },
+    onError: (err) =>
+      showToast(
+        getErrorMessage(err, 'Metalltyp konnte nicht gespeichert werden. Bitte den Code auf Duplikate prüfen.'),
+        'error',
+      ),
+  });
+
+  const deactivate = useMutation({
+    mutationFn: (id: number) => metalTypesApi.remove(id),
+    onSuccess: () => {
+      afterChange();
+      showToast('Metalltyp deaktiviert', 'success');
+    },
+    onError: (err) => showToast(getErrorMessage(err, 'Metalltyp konnte nicht deaktiviert werden.'), 'error'),
+  });
+
+  return { save, deactivate };
 }
 
 export const MetalTypeManager: React.FC<MetalTypeManagerProps> = ({ isOpen, onClose }) => {
-  const { metalTypes, isLoading, error, refresh } = useMetalTypes();
-
-  const [editingType, setEditingType] = useState<MetalTypeOption | null>(null);
+  const { metalTypes, isLoading, error } = useMetalTypes();
+  const { showConfirm } = useConfirm();
+  const [editing, setEditing] = useState<MetalTypeOption | null>(null);
   const [isFormOpen, setIsFormOpen] = useState(false);
-  const [formData, setFormData] = useState<FormState>(EMPTY_FORM);
-  const [formErrors, setFormErrors] = useState<Partial<FormState>>({});
-  const [isSaving, setIsSaving] = useState(false);
-  const [apiError, setApiError] = useState<string | null>(null);
-  const [successMsg, setSuccessMsg] = useState<string | null>(null);
-
-  // Reset on open/close
-  useEffect(() => {
-    if (!isOpen) {
-      setIsFormOpen(false);
-      setEditingType(null);
-      setApiError(null);
-      setSuccessMsg(null);
-    }
-  }, [isOpen]);
-
-  if (!isOpen) return null;
-
-  // ---------------------------------------------------------------------------
-  // Form helpers
-  // ---------------------------------------------------------------------------
-
-  const openCreate = () => {
-    setEditingType(null);
-    setFormData(EMPTY_FORM);
-    setFormErrors({});
-    setApiError(null);
-    setIsFormOpen(true);
-  };
-
-  const openEdit = (option: MetalTypeOption) => {
-    setEditingType(option);
-    setFormData({
-      code: option.code,
-      display_name: option.display_name,
-      fine_content_ratio: String(option.fine_content_ratio),
-      base_metal: option.base_metal,
-      color: option.color ?? '',
-    });
-    setFormErrors({});
-    setApiError(null);
-    setIsFormOpen(true);
-  };
 
   const closeForm = () => {
     setIsFormOpen(false);
-    setEditingType(null);
+    setEditing(null);
   };
+  const { save, deactivate } = useTypeMutations(closeForm);
 
-  const handleChange = (
-    e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>
-  ) => {
-    const { name, value } = e.target;
-    setFormData((prev) => {
-      const next = { ...prev, [name]: value };
-      // Auto-generate code from display_name in create mode
-      if (name === 'display_name' && !editingType) {
-        next.code = slugify(value);
-      }
-      return next;
-    });
-    if (formErrors[name as keyof FormState]) {
-      setFormErrors((prev) => ({ ...prev, [name]: undefined }));
-    }
-  };
-
-  const validate = (): boolean => {
-    const errors: Partial<FormState> = {};
-    if (!formData.display_name.trim()) errors.display_name = 'Anzeigename ist erforderlich';
-    if (!formData.code.trim()) {
-      errors.code = 'Code ist erforderlich';
-    } else if (!/^[a-z0-9_]+$/.test(formData.code)) {
-      errors.code = 'Nur Kleinbuchstaben, Ziffern und _ erlaubt';
-    }
-    const ratio = parseFloat(formData.fine_content_ratio);
-    if (isNaN(ratio) || ratio < 0 || ratio > 1) {
-      errors.fine_content_ratio = 'Feingehalt muss zwischen 0.000 und 1.000 liegen';
-    }
-    if (formData.color && !/^#[0-9A-Fa-f]{6}$/.test(formData.color)) {
-      errors.color = 'Farbe muss ein gültiger Hex-Code sein (z.B. #D4A843)';
-    }
-    setFormErrors(errors);
-    return Object.keys(errors).length === 0;
-  };
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!validate()) return;
-
-    setIsSaving(true);
-    setApiError(null);
-
-    try {
-      if (editingType && editingType.id != null) {
-        // Update existing custom type
-        const update: CustomMetalTypeUpdate = {
-          display_name: formData.display_name,
-          fine_content_ratio: parseFloat(formData.fine_content_ratio),
-          base_metal: formData.base_metal,
-          color: formData.color || null,
-        };
-        await metalTypesApi.update(editingType.id, update);
-        setSuccessMsg(`Metalltyp "${formData.display_name}" wurde aktualisiert.`);
-      } else {
-        // Create new custom type
-        const create: CustomMetalTypeCreate = {
-          code: formData.code,
-          display_name: formData.display_name,
-          fine_content_ratio: parseFloat(formData.fine_content_ratio),
-          base_metal: formData.base_metal,
-          color: formData.color || null,
-        };
-        await metalTypesApi.create(create);
-        setSuccessMsg(`Metalltyp "${formData.display_name}" wurde erstellt.`);
-      }
-
-      invalidateMetalTypesCache();
-      refresh();
-      closeForm();
-    } catch (err: unknown) {
-      const msg =
-        err instanceof Error
-          ? err.message
-          : 'Speichern fehlgeschlagen. Bitte prüfen Sie den Code auf Duplikate.';
-      setApiError(msg);
-    } finally {
-      setIsSaving(false);
-    }
-  };
+  useEffect(() => {
+    if (isOpen) return;
+    setIsFormOpen(false);
+    setEditing(null);
+  }, [isOpen]);
 
   const handleDeactivate = async (option: MetalTypeOption) => {
     if (option.id == null || option.is_builtin) return;
-    if (!window.confirm(`Metalltyp "${option.display_name}" deaktivieren?`)) return;
-
-    setApiError(null);
-    try {
-      await metalTypesApi.remove(option.id);
-      invalidateMetalTypesCache();
-      refresh();
-      setSuccessMsg(`Metalltyp "${option.display_name}" wurde deaktiviert.`);
-    } catch (err: unknown) {
-      const msg =
-        err instanceof Error ? err.message : 'Deaktivierung fehlgeschlagen.';
-      setApiError(msg);
-    }
+    const confirmed = await showConfirm({
+      title: 'Metalltyp deaktivieren',
+      message: `Möchten Sie den Metalltyp „${option.display_name}“ deaktivieren?`,
+      confirmLabel: 'Deaktivieren',
+      variant: 'danger',
+    });
+    if (confirmed) deactivate.mutate(option.id);
   };
 
-  // ---------------------------------------------------------------------------
-  // Rendering
-  // ---------------------------------------------------------------------------
-
-  const finePercent = parseFloat(formData.fine_content_ratio);
-
   return (
-    // eslint-disable-next-line jsx-a11y/click-events-have-key-events -- backdrop dismiss is mouse-only by convention
-    <div
-      className="modal-overlay"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="metal-type-manager-title"
-      onClick={onClose}
+    <Modal
+      open={isOpen}
+      onClose={onClose}
+      title="Metalltypen verwalten"
+      size="lg"
+      isDirty={isFormOpen}
+      footer={
+        <Button variant="secondary" onClick={onClose}>
+          Schließen
+        </Button>
+      }
     >
-      {/* eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions -- stops the backdrop's onClose from firing when clicking inside the dialog; not itself interactive */}
-      <div
-        className="modal-content metal-type-manager-modal"
-        style={{ maxWidth: '900px', width: '95vw' }}
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* Header */}
-        <div className="modal-header">
-          <h2 id="metal-type-manager-title">Metalltypen verwalten</h2>
-          <button className="modal-close" onClick={onClose} aria-label="Schliessen">
-            x
-          </button>
+      {error && (
+        <p className="metal-form__error" role="alert">
+          {error}
+        </p>
+      )}
+      {isFormOpen ? (
+        <MetalTypeForm
+          key={editing?.code ?? 'new'}
+          editing={editing}
+          isSaving={save.isPending}
+          onCancel={closeForm}
+          onSave={(form) => save.mutate({ editing, form })}
+        />
+      ) : (
+        <div className="metal-type-toolbar">
+          <Button icon="plus" onClick={() => setIsFormOpen(true)}>
+            Metalltyp anlegen
+          </Button>
         </div>
+      )}
 
-        <div style={{ padding: '1rem 1.5rem' }}>
-          {/* Feedback messages */}
-          {successMsg && (
-            <div
-              style={{
-                background: 'var(--color-success, #e8f5e9)',
-                color: 'var(--color-success-text, #2e7d32)',
-                padding: '0.75rem 1rem',
-                borderRadius: '6px',
-                marginBottom: '1rem',
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-              }}
-            >
-              <span>{successMsg}</span>
-              <button
-                style={{ background: 'none', border: 'none', cursor: 'pointer', fontWeight: 700 }}
-                onClick={() => setSuccessMsg(null)}
-              >
-                x
-              </button>
-            </div>
-          )}
-          {apiError && (
-            <div
-              style={{
-                background: 'var(--color-error-bg, #ffebee)',
-                color: 'var(--color-error, #c62828)',
-                padding: '0.75rem 1rem',
-                borderRadius: '6px',
-                marginBottom: '1rem',
-              }}
-            >
-              {apiError}
-            </div>
-          )}
-          {error && (
-            <div style={{ color: 'var(--color-error, #c62828)', marginBottom: '1rem' }}>
-              {error}
-            </div>
-          )}
-
-          {/* Toolbar */}
-          {!isFormOpen && (
-            <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '1rem' }}>
-              <button className="btn-primary" onClick={openCreate}>
-                + Neuer Metalltyp
-              </button>
-            </div>
-          )}
-
-          {/* Create / Edit form */}
-          {isFormOpen && (
-            <form
-              onSubmit={handleSubmit}
-              style={{
-                background: 'var(--color-surface-secondary, #f8f9fa)',
-                padding: '1.25rem',
-                borderRadius: '8px',
-                marginBottom: '1.5rem',
-                border: '1px solid var(--color-border, #dee2e6)',
-              }}
-            >
-              <h3 style={{ margin: '0 0 1rem' }}>
-                {editingType ? 'Metalltyp bearbeiten' : 'Neuer Metalltyp'}
-              </h3>
-
-              <div
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: '1fr 1fr',
-                  gap: '1rem',
-                }}
-              >
-                {/* Display Name */}
-                <div className="form-group">
-                  <label htmlFor="mt_display_name">
-                    Anzeigename <span className="required">*</span>
-                  </label>
-                  <input
-                    id="mt_display_name"
-                    name="display_name"
-                    type="text"
-                    value={formData.display_name}
-                    onChange={handleChange}
-                    placeholder="z.B. Roségold 333"
-                    className={formErrors.display_name ? 'error' : ''}
-                  />
-                  {formErrors.display_name && (
-                    <span className="error-text">{formErrors.display_name}</span>
-                  )}
-                </div>
-
-                {/* Code */}
-                <div className="form-group">
-                  <label htmlFor="mt_code">
-                    Code <span className="required">*</span>
-                    {!editingType && (
-                      <span style={{ fontSize: '0.75rem', color: 'var(--color-muted, #666)', marginLeft: '0.5rem' }}>
-                        (wird automatisch generiert)
+      {isLoading ? (
+        <p role="status">Metalltypen werden geladen …</p>
+      ) : (
+        <div className="ui-table-scroll">
+          <table className="ui-table">
+            <caption className="ui-visually-hidden">Metalltypen</caption>
+            <thead>
+              <tr>
+                <th>Anzeigename</th>
+                <th>Code</th>
+                <th>Basismetall</th>
+                <th className="ui-align-end">Feingehalt</th>
+                <th>Typ</th>
+                <th>Aktionen</th>
+              </tr>
+            </thead>
+            <tbody>
+              {metalTypes.map((option) => (
+                <tr key={option.code} className={option.is_builtin ? 'metal-type-row--builtin' : undefined}>
+                  <td>
+                    <span className="metal-type-name">
+                      {option.color && <Swatch color={option.color} />}
+                      {option.display_name}
+                    </span>
+                  </td>
+                  <td>
+                    <code>{option.code}</code>
+                  </td>
+                  <td>{BASE_METAL_LABELS[option.base_metal] ?? option.base_metal}</td>
+                  <td className="ui-align-end ui-num">{formatFineness(option.fine_content_ratio)}</td>
+                  <td>{option.is_builtin ? 'Standard' : 'Benutzerdefiniert'}</td>
+                  <td>
+                    {option.is_builtin ? (
+                      <span className="metal-muted">Schreibgeschützt</span>
+                    ) : (
+                      <span className="metal-actions">
+                        <Button
+                          variant="secondary"
+                          icon="pencil"
+                          aria-label={`${option.display_name} bearbeiten`}
+                          onClick={() => {
+                            setEditing(option);
+                            setIsFormOpen(true);
+                          }}
+                        >
+                          Bearbeiten
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          onClick={() => void handleDeactivate(option)}
+                          disabled={deactivate.isPending}
+                        >
+                          Deaktivieren
+                        </Button>
                       </span>
                     )}
-                  </label>
-                  <input
-                    id="mt_code"
-                    name="code"
-                    type="text"
-                    value={formData.code}
-                    onChange={handleChange}
-                    placeholder="rose_gold_333"
-                    readOnly={!!editingType}
-                    className={formErrors.code ? 'error' : ''}
-                    style={editingType ? { opacity: 0.6, cursor: 'not-allowed' } : {}}
-                  />
-                  {formErrors.code && (
-                    <span className="error-text">{formErrors.code}</span>
-                  )}
-                </div>
-
-                {/* Feingehalt */}
-                <div className="form-group">
-                  <label htmlFor="mt_fine">
-                    Feingehalt (0.000 – 1.000) <span className="required">*</span>
-                  </label>
-                  <input
-                    id="mt_fine"
-                    name="fine_content_ratio"
-                    type="number"
-                    step="0.001"
-                    min="0"
-                    max="1"
-                    value={formData.fine_content_ratio}
-                    onChange={handleChange}
-                    placeholder="0.333"
-                    className={formErrors.fine_content_ratio ? 'error' : ''}
-                  />
-                  {!isNaN(finePercent) && finePercent >= 0 && finePercent <= 1 && (
-                    <span style={{ fontSize: '0.8rem', color: 'var(--color-muted, #666)' }}>
-                      = {(finePercent * 1000).toFixed(0)}‰ = {(finePercent * 100).toFixed(1)} %
-                    </span>
-                  )}
-                  {formErrors.fine_content_ratio && (
-                    <span className="error-text">{formErrors.fine_content_ratio}</span>
-                  )}
-                </div>
-
-                {/* Basismetall */}
-                <div className="form-group">
-                  <label htmlFor="mt_base_metal">
-                    Basismetall <span className="required">*</span>
-                  </label>
-                  <select
-                    id="mt_base_metal"
-                    name="base_metal"
-                    value={formData.base_metal}
-                    onChange={handleChange}
-                  >
-                    {Object.entries(BASE_METAL_LABELS).map(([value, label]) => (
-                      <option key={value} value={value}>
-                        {label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                {/* Color */}
-                <div className="form-group">
-                  <label htmlFor="mt_color">Farbe (optional)</label>
-                  <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-                    <input
-                      id="mt_color"
-                      name="color"
-                      type="color"
-                      value={formData.color || '#D4A843'}
-                      onChange={(e) =>
-                        handleChange({
-                          ...e,
-                          target: { ...e.target, name: 'color', value: e.target.value },
-                        } as React.ChangeEvent<HTMLInputElement>)
-                      }
-                      style={{ width: '48px', height: '36px', padding: '2px', cursor: 'pointer' }}
-                    />
-                    <input
-                      name="color"
-                      type="text"
-                      value={formData.color}
-                      onChange={handleChange}
-                      placeholder="#D4A843"
-                      style={{ flex: 1 }}
-                      className={formErrors.color ? 'error' : ''}
-                    />
-                  </div>
-                  {formErrors.color && (
-                    <span className="error-text">{formErrors.color}</span>
-                  )}
-                </div>
-              </div>
-
-              <div className="modal-actions" style={{ marginTop: '1rem' }}>
-                <button type="button" className="btn-secondary" onClick={closeForm} disabled={isSaving}>
-                  Abbrechen
-                </button>
-                <button type="submit" className="btn-primary" disabled={isSaving}>
-                  {isSaving ? 'Wird gespeichert...' : editingType ? 'Speichern' : 'Erstellen'}
-                </button>
-              </div>
-            </form>
-          )}
-
-          {/* Table */}
-          {isLoading ? (
-            <p>Lade Metalltypen...</p>
-          ) : (
-            <table className="metal-inventory-table" style={{ width: '100%' }}>
-              <thead>
-                <tr>
-                  <th>Anzeigename</th>
-                  <th>Code</th>
-                  <th>Basismetall</th>
-                  <th>Feingehalt</th>
-                  <th>Farbe</th>
-                  <th>Typ</th>
-                  <th>Aktionen</th>
+                  </td>
                 </tr>
-              </thead>
-              <tbody>
-                {metalTypes.map((option) => (
-                  <tr
-                    key={option.code}
-                    style={option.is_builtin ? { opacity: 0.65 } : {}}
-                  >
-                    <td>
-                      {option.color && (
-                        <span
-                          style={{
-                            display: 'inline-block',
-                            width: '12px',
-                            height: '12px',
-                            borderRadius: '50%',
-                            background: option.color,
-                            border: '1px solid rgba(0,0,0,0.2)',
-                            marginRight: '6px',
-                            verticalAlign: 'middle',
-                          }}
-                        />
-                      )}
-                      {option.display_name}
-                    </td>
-                    <td>
-                      <code style={{ fontSize: '0.8rem' }}>{option.code}</code>
-                    </td>
-                    <td>{BASE_METAL_LABELS[option.base_metal] ?? option.base_metal}</td>
-                    <td>
-                      {(option.fine_content_ratio * 1000).toFixed(0)}‰
-                      <span style={{ color: 'var(--color-muted, #888)', marginLeft: '4px', fontSize: '0.8rem' }}>
-                        ({(option.fine_content_ratio * 100).toFixed(1)} %)
-                      </span>
-                    </td>
-                    <td>
-                      {option.color ? (
-                        <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                          <span
-                            style={{
-                              display: 'inline-block',
-                              width: '20px',
-                              height: '20px',
-                              borderRadius: '4px',
-                              background: option.color,
-                              border: '1px solid rgba(0,0,0,0.2)',
-                            }}
-                          />
-                          <code style={{ fontSize: '0.75rem' }}>{option.color}</code>
-                        </span>
-                      ) : (
-                        <span style={{ color: 'var(--color-muted, #aaa)' }}>—</span>
-                      )}
-                    </td>
-                    <td>
-                      {option.is_builtin ? (
-                        <span
-                          style={{
-                            fontSize: '0.75rem',
-                            background: 'var(--color-primary-light, #e3f2fd)',
-                            color: 'var(--color-primary, #1565c0)',
-                            padding: '2px 6px',
-                            borderRadius: '4px',
-                          }}
-                        >
-                          Standard
-                        </span>
-                      ) : (
-                        <span
-                          style={{
-                            fontSize: '0.75rem',
-                            background: 'var(--color-success-light, #e8f5e9)',
-                            color: 'var(--color-success-dark, #2e7d32)',
-                            padding: '2px 6px',
-                            borderRadius: '4px',
-                          }}
-                        >
-                          Benutzerdefiniert
-                        </span>
-                      )}
-                    </td>
-                    <td>
-                      {option.is_builtin ? (
-                        <span style={{ color: 'var(--color-muted, #aaa)', fontSize: '0.8rem' }}>
-                          schreibgeschutzt
-                        </span>
-                      ) : (
-                        <div style={{ display: 'flex', gap: '0.5rem' }}>
-                          <button
-                            className="btn-secondary"
-                            style={{ padding: '4px 10px', fontSize: '0.8rem' }}
-                            onClick={() => openEdit(option)}
-                          >
-                            Bearbeiten
-                          </button>
-                          <button
-                            style={{
-                              padding: '4px 10px',
-                              fontSize: '0.8rem',
-                              background: 'var(--color-error, #dc3545)',
-                              color: '#fff',
-                              border: 'none',
-                              borderRadius: '4px',
-                              cursor: 'pointer',
-                            }}
-                            onClick={() => handleDeactivate(option)}
-                          >
-                            Deaktivieren
-                          </button>
-                        </div>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
+              ))}
+            </tbody>
+          </table>
         </div>
-      </div>
-    </div>
+      )}
+    </Modal>
   );
 };
+

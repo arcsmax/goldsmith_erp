@@ -24,6 +24,11 @@ export interface CustomerListParams {
   is_active?: boolean;
 }
 
+export interface MetalPurchaseListParams {
+  metal_type?: string;
+  include_depleted?: boolean;
+}
+
 export interface DateRange {
   start_date: string;
   end_date: string;
@@ -65,6 +70,17 @@ export const queryKeys = {
     all: ['metal-inventory'] as const,
     statistics: () => [...queryKeys.metalInventory.all, 'statistics'] as const,
     purchases: () => [...queryKeys.metalInventory.all, 'purchases'] as const,
+    /** GET /metal-inventory/purchases with filters (legacy plain list, no Page envelope). */
+    purchaseList: (params: MetalPurchaseListParams) =>
+      [...queryKeys.metalInventory.all, 'purchases', 'list', params] as const,
+    /** GET /metal-inventory/usage (legacy plain list). */
+    usage: (params: { metal_type?: string; limit: number }) =>
+      [...queryKeys.metalInventory.all, 'usage', params] as const,
+    forecast: () => [...queryKeys.metalInventory.all, 'forecast'] as const,
+    /** GET /metal-prices (spot prices; kept under this root so a booking refreshes them too). */
+    spotPrices: () => [...queryKeys.metalInventory.all, 'spot-prices'] as const,
+    priceHistory: (metalType: string, days: number) =>
+      [...queryKeys.metalInventory.all, 'price-history', { metalType, days }] as const,
   },
   materials: {
     all: ['materials'] as const,
