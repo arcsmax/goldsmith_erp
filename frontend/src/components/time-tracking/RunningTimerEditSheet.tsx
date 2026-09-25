@@ -18,7 +18,7 @@ import type { Activity } from '../../types';
 import { parseUTC } from '../../utils/formatters';
 import { Button, Field, Sheet } from '../../ui';
 import ActivityPicker from '../ActivityPicker';
-import LocationPicker from '../LocationPicker';
+import { LocationPicker } from '../LocationPicker';
 import { JobPicker } from './JobPicker';
 import '../../styles/components/RunningTimerEditSheet.css';
 import { buildEditPayload, draftFromEntry, resolveStartTime, type EditDraft } from './runningTimerEdit';
@@ -183,12 +183,12 @@ export const RunningTimerEditSheet: React.FC<RunningTimerEditSheetProps> = ({ en
           onToggle={() => toggle('location')}
         >
           <LocationPicker
-            currentLocation={draft.location}
-            onSelectLocation={(location: string) => {
-              update({ location });
+            value={draft.locationId}
+            currentName={draft.location}
+            onChange={(location) => {
+              update({ locationId: location?.id ?? null, location: location?.name ?? null });
               setOpenPicker(null);
             }}
-            onCancel={() => setOpenPicker(null)}
           />
         </SummaryRow>
 

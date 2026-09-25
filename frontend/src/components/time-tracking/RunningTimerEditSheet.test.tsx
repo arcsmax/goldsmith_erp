@@ -15,6 +15,7 @@ import { START_TIME_MESSAGES, buildEditPayload, draftFromEntry, splitNotes } fro
 
 const editRunning = vi.fn();
 const jobsPage = vi.fn();
+const getActiveLocations = vi.fn();
 
 vi.mock('../../api/time-tracking', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../api/time-tracking')>();
@@ -32,6 +33,14 @@ vi.mock('../../api/jobs', async (importOriginal) => {
   return {
     ...actual,
     jobsApi: { ...actual.jobsApi, page: (...args: unknown[]) => jobsPage(...args) },
+  };
+});
+
+vi.mock('../../api/locations', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../api/locations')>();
+  return {
+    ...actual,
+    getActiveLocations: (...args: unknown[]) => getActiveLocations(...args),
   };
 });
 
@@ -67,6 +76,11 @@ const renderSheet = (entry = makeEntry(), onClose = vi.fn()) =>
 beforeEach(() => {
   editRunning.mockReset();
   jobsPage.mockReset();
+  getActiveLocations.mockReset();
+  getActiveLocations.mockResolvedValue([
+    { id: 5, name: 'Tresor', kind: 'other', is_active: true, sort_order: 10, created_at: '2026-09-01T08:00:00Z' },
+    { id: 9, name: 'Werkbank 1', kind: 'bench', is_active: true, sort_order: 20, created_at: '2026-09-01T08:00:00Z' },
+  ]);
   jobsPage.mockResolvedValue({
     items: [
       {
@@ -162,6 +176,22 @@ describe('RunningTimerEditSheet', () => {
     await waitFor(() => expect(onClose).toHaveBeenCalled());
     expect(client.getQueryData(queryKeys.timer.running(7))).toEqual(saved);
     expect(jobsPage).toHaveBeenCalledWith(expect.objectContaining({ kind: 'order', limit: 10, offset: 0 }), expect.anything());
+  });
+
+  it('changes the Standort through the id-based picker and sends location_id', async () => {
+    const user = userEvent.setup();
+    const saved = makeEntry({ location: 'Tresor', location_id: 5 });
+    editRunning.mockResolvedValue(saved);
+    renderSheet(makeEntry({ location: 'Werkbank 1', location_id: 9 }));
+
+    await user.click(screen.getByRole('button', { name: 'Ort ändern' }));
+    const select = await screen.findByLabelText('Standort');
+    await user.selectOptions(select, '5');
+
+    await user.click(screen.getByRole('button', { name: 'Änderungen speichern' }));
+
+    await waitFor(() => expect(editRunning).toHaveBeenCalledTimes(1));
+    expect(editRunning).toHaveBeenCalledWith('entry-1', { location_id: 5 });
   });
 
   it('shows the German start-time error and does not submit', async () => {

@@ -8,8 +8,10 @@ import { useQuery } from '@tanstack/react-query';
 
 import { activitiesQuery, orderPickerQuery } from '../../api/timeTrackingQueries';
 import { timeTrackingApi } from '../../api/time-tracking';
+import { getDeviceLocationId, setDeviceLocationId } from '../../lib/deviceLocation';
 import { getErrorMessage } from '../../lib/errors';
 import { Button, Field, IconButton } from '../../ui';
+import { LocationPicker } from '../LocationPicker';
 
 export interface TimerStartFormProps {
   onClose: () => void;
@@ -27,6 +29,8 @@ export const TimerStartForm: React.FC<TimerStartFormProps> = ({ onClose, onStart
   const activities = useQuery(activitiesQuery(false));
   const [orderId, setOrderId] = useState<number | null>(null);
   const [activityId, setActivityId] = useState<number | null>(null);
+  // Preselect the device's remembered Standort; the goldsmith just confirms it.
+  const [locationId, setLocationId] = useState<number | null>(() => getDeviceLocationId());
   const [isStarting, setIsStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -40,7 +44,13 @@ export const TimerStartForm: React.FC<TimerStartFormProps> = ({ onClose, onStart
     setIsStarting(true);
     setError(null);
     try {
-      await timeTrackingApi.start({ order_id: orderId, activity_id: activityId });
+      await timeTrackingApi.start({
+        order_id: orderId,
+        activity_id: activityId,
+        location_id: locationId ?? undefined,
+      });
+      // Remember this device's Standort for next time (or forget it if cleared).
+      setDeviceLocationId(locationId);
       onStarted();
     } catch (err) {
       if (isAlreadyRunning(err)) {
@@ -99,6 +109,8 @@ export const TimerStartForm: React.FC<TimerStartFormProps> = ({ onClose, onStart
             ))}
           </select>
         </Field>
+
+        <LocationPicker value={locationId} onChange={(location) => setLocationId(location?.id ?? null)} />
 
         <Button
           size="lg"

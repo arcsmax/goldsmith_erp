@@ -20,6 +20,8 @@ export interface EditDraft {
   activityId: number;
   orderId: number;
   location: string | null;
+  /** Standort id (dropdown-backed); null clears it or a legacy name has no match. */
+  locationId: number | null;
   notes: string;
   /** Local wall-clock "HH:MM". */
   startTime: string;
@@ -46,6 +48,7 @@ export function draftFromEntry(entry: RunningTimeEntry): EditDraft {
     activityId: entry.activity_id,
     orderId: entry.order_id,
     location: entry.location ?? null,
+    locationId: entry.location_id ?? null,
     notes: splitNotes(entry.notes)[0],
     startTime: toLocalTime(parseUTC(entry.start_time)),
   };
@@ -79,7 +82,10 @@ export function buildEditPayload(
   const payload: RunningTimeEntryEditInput = {};
   if (draft.activityId !== initial.activityId) payload.activity_id = draft.activityId;
   if (draft.orderId !== initial.orderId) payload.order_id = draft.orderId;
-  if (draft.location !== initial.location) payload.location = draft.location;
+  // The dropdown hands back an id; sending it alone is enough (the server
+  // resolves the name from it -- see services/running_timer_edit.py). Only
+  // "cleared to no Standort" needs the null sent explicitly.
+  if (draft.locationId !== initial.locationId) payload.location_id = draft.locationId;
   if (draft.notes.trim() !== initial.notes.trim()) payload.notes = draft.notes.trim();
   if (draft.startTime !== initial.startTime) {
     const resolved = resolveStartTime(draft.startTime, parseUTC(entry.start_time), now);

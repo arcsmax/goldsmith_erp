@@ -12040,15 +12040,24 @@ export interface components {
          * @description PATCH body for a RUNNING entry (edit a timer while it runs).
          *
          *     Every field is optional; only the fields sent are changed. ``location``
-         *     may be sent as ``null`` to clear it. ``start_time`` bounds (not in the
-         *     future, not before the previous entry's end, within 24 h) need the
-         *     database and run in the service (422).
+         *     may be sent as ``null`` to clear it. ``location_id`` (the Standort
+         *     dropdown) or ``location`` (a name) is resolved through
+         *     ``LocationService.resolve``; a name that matches no configured Standort
+         *     is a 422 (see ``services.running_timer_edit.resolve_location``).
+         *     ``start_time`` bounds (not in the future, not before the previous
+         *     entry's end, within 24 h) need the database and run in the service
+         *     (422).
          */
         RunningTimeEntryEdit: {
             /** Activity Id */
             activity_id?: number | null;
             /** Location */
             location?: string | null;
+            /**
+             * Location Id
+             * @description Configured workshop location (Standort) id
+             */
+            location_id?: number | null;
             /** Notes */
             notes?: string | null;
             /** Order Id */
