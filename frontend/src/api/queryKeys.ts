@@ -7,7 +7,7 @@
  * the list, the pages and the details of that domain. Realtime hints
  * invalidate by root (lib/realtimeInvalidation.ts):
  *
- *   order_updates          → orders, dashboard, handoffs
+ *   order_updates          → orders, dashboard, handoffs, calendar
  *   time_tracking_updates  → timer, dashboard
  *   notifications          → notifications, handoffs
  *

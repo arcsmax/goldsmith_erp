@@ -89,7 +89,7 @@ const remove = useMutation({
 
 | Channel | Invalidated roots |
 |---|---|
-| `order_updates` | `['orders']`, `['dashboard']`, `['handoffs']` |
+| `order_updates` | `['orders']`, `['dashboard']`, `['handoffs']`, `['calendar']` |
 | `time_tracking_updates` | `['timer']`, `['dashboard']` |
 | `notifications` | `['notifications']`, `['handoffs']` |
 
@@ -133,5 +133,5 @@ await act(() => invalidateForChannel(client, 'order_updates')); // realtime hint
 
 Still to migrate: RepairsPage, RepairDetailPage, OrderDetailPage, QuotesPage, InvoicesPage,
 MaterialsPage, MetalInventoryPage, TimeTrackingPage and TimeTrackingContext, CustomerDetailPage,
-CalendarPage, UsersPage, AdminSystemPage, ConsultationsPage, NotificationBell, and the unused
+AdminSystemPage, ConsultationsPage, and the unused
 `DeadlinesWidget`.
