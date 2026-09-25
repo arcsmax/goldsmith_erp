@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy.orm import selectinload
 
+from goldsmith_erp.core.errors import ConflictError
 from goldsmith_erp.db.models import AlloyType
 from goldsmith_erp.db.models import MetalPriceSource as MetalPriceSourceModel
 from goldsmith_erp.db.models import MetalType
@@ -45,11 +46,15 @@ _LOCKED_MESSAGE = (
 )
 
 
-class ScrapGoldLockedError(ValueError):
+class ScrapGoldLockedError(ConflictError):
     """Raised when a signed/credited Altgold record would be altered (409)."""
 
     def __init__(self, scrap_gold_id: int) -> None:
-        super().__init__(_LOCKED_MESSAGE)
+        super().__init__(
+            _LOCKED_MESSAGE,
+            code="scrap_gold.locked",
+            extra={"scrap_gold_id": scrap_gold_id},
+        )
         self.scrap_gold_id = scrap_gold_id
 
 
