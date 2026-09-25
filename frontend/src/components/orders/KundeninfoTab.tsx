@@ -27,6 +27,16 @@ import './kundeninfo.css';
 export interface KundeninfoTabProps {
   orderId: number;
   customerName?: string | null;
+  /**
+   * Pre-fills the compose form (W2-08 milestone prompt, DOM-30). A new
+   * object re-applies it. Nothing is sent until the user taps a button.
+   */
+  initialDraft?: {
+    kind: CustomerUpdateKind;
+    subject: string;
+    body: string;
+    photoIds: string[];
+  } | null;
 }
 
 const KIND_LABELS: Record<CustomerUpdateKind, string> = {
@@ -89,7 +99,7 @@ function downloadBlob(blob: Blob, filename: string): void {
   window.URL.revokeObjectURL(url);
 }
 
-export function KundeninfoTab({ orderId, customerName }: KundeninfoTabProps) {
+export function KundeninfoTab({ orderId, customerName, initialDraft }: KundeninfoTabProps) {
   const { hasRole, isAdmin } = useAuth();
   const { showToast } = useToast();
   const canManage = hasRole(['ADMIN', 'GOLDSMITH']);
@@ -98,7 +108,11 @@ export function KundeninfoTab({ orderId, customerName }: KundeninfoTabProps) {
   const [isLoadingHistory, setIsLoadingHistory] = useState(canManage);
   const [actionLoading, setActionLoading] = useState(false);
   const [smtpConfigured, setSmtpConfigured] = useState<boolean | null>(null);
-  const [form, setForm] = useState<ComposeForm>(EMPTY_FORM);
+  const [form, setForm] = useState<ComposeForm>(initialDraft ?? EMPTY_FORM);
+
+  useEffect(() => {
+    if (initialDraft) setForm({ ...initialDraft, photoIds: [...initialDraft.photoIds] });
+  }, [initialDraft]);
 
   // Guards against out-of-order responses + setState-after-unmount, mirroring
   // the applyIfCurrent/actionLoading pattern in QuotesPage.tsx: a response

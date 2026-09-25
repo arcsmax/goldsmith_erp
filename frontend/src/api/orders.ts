@@ -1,6 +1,41 @@
 // Orders API Service
 import apiClient from './client';
-import { OrderType, OrderCreateInput, OrderUpdateInput, OrderComparison } from '../types';
+import {
+  OrderType,
+  OrderCreateInput,
+  OrderUpdateInput,
+  OrderComparison,
+  OrderStatus,
+} from '../types';
+
+/** Body of PATCH /orders/{id}/status (backend `OrderStatusChange`, W2-07). */
+export interface OrderStatusChangeInput {
+  status: OrderStatus;
+  /** Required for on_hold and cancelled (max 500 characters). */
+  reason?: string;
+  /** Expected resume date for on_hold, YYYY-MM-DD, not in the past. */
+  resume_date?: string;
+}
+
+export type OrderTimelineKind = 'status' | 'customer_update' | 'photo' | 'time_entry';
+
+/** One entry of GET /orders/{id}/timeline (backend `OrderTimelineItem`). */
+export interface OrderTimelineItem {
+  kind: OrderTimelineKind;
+  id: string;
+  /** ISO timestamp; the backend writes naive UTC (no offset). */
+  at: string;
+  user_id?: number | null;
+  summary: string;
+  /** Role-projected by the backend: no prices, no customer free text. */
+  data: Record<string, unknown>;
+}
+
+/** GET /orders/{id}/timeline: merged history, ascending by time. */
+export interface OrderTimeline {
+  order_id: number;
+  items: OrderTimelineItem[];
+}
 
 /**
  * One row of GET /orders/. `first_photo_id` is the order's oldest photo
@@ -67,13 +102,21 @@ export const ordersApi = {
   },
 
   /**
-   * Update order status
+   * Change the status through the backend transition table (W2-07/W2-08).
+   * 409 INVALID_STATUS_TRANSITION carries a German message and the allowed
+   * next statuses; 422 means a missing reason or an invalid resume date.
    */
-  updateStatus: async (
-    id: number,
-    status: 'new' | 'in_progress' | 'completed' | 'delivered'
-  ): Promise<OrderType> => {
-    const response = await apiClient.patch<OrderType>(`/orders/${id}/status`, { status });
+  changeStatus: async (id: number, change: OrderStatusChangeInput): Promise<OrderType> => {
+    const response = await apiClient.patch<OrderType>(`/orders/${id}/status`, change);
+    return response.data;
+  },
+
+  /**
+   * Order history: status events, Kundeninfos, photos and time entries,
+   * ascending by time and role-projected by the backend (W2-07/W2-08).
+   */
+  getTimeline: async (id: number): Promise<OrderTimeline> => {
+    const response = await apiClient.get<OrderTimeline>(`/orders/${id}/timeline`);
     return response.data;
   },
 

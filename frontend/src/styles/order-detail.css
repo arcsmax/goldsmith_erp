@@ -115,36 +115,45 @@
   background: #92400e;
 }
 
-/* Tabs */
+/* Tabs (W2-08: five WAI-ARIA tabs, glove-sized) */
 .order-tabs {
   display: flex;
-  gap: 0.5rem;
-  margin-bottom: 2rem;
-  border-bottom: 2px solid #e5e7eb;
+  gap: var(--space-1);
+  margin-bottom: var(--space-5);
+  border-bottom: 2px solid var(--color-border);
   overflow-x: auto;
 }
 
-.tab {
+.order-tabs .tab {
+  min-height: var(--touch-comfort);
+  min-width: var(--touch-comfort);
   background: none;
   border: none;
-  padding: 1rem 1.5rem;
+  padding: var(--space-3) var(--space-5);
   cursor: pointer;
-  font-size: 1rem;
+  font-size: var(--type-md);
   font-weight: 500;
-  color: #666;
+  color: var(--color-text-muted);
   border-bottom: 3px solid transparent;
-  transition: all 0.3s;
+  transition: color var(--duration-fast), border-color var(--duration-fast);
   white-space: nowrap;
 }
 
-.tab:hover {
-  color: var(--color-interactive-primary);
-  background: #f3f4f6;
+@media (hover: hover) {
+  .order-tabs .tab:hover {
+    color: var(--color-primary);
+    background: var(--color-surface-sunken);
+  }
 }
 
-.tab.active {
-  color: var(--color-interactive-primary);
-  border-bottom-color: var(--color-interactive-primary);
+.order-tabs .tab:focus-visible {
+  outline: 2px solid var(--color-border-focus);
+  outline-offset: -2px;
+}
+
+.order-tabs .tab.active {
+  color: var(--color-primary);
+  border-bottom-color: var(--color-primary);
   font-weight: 600;
 }
 
@@ -237,45 +246,6 @@
   font-style: italic;
 }
 
-/* Status Tab */
-.status-info {
-  margin-bottom: 2rem;
-  font-size: 1.1rem;
-}
-
-.status-buttons {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: 1rem;
-}
-
-.status-btn {
-  padding: 1.5rem;
-  border: 3px solid #e5e7eb;
-  background: white;
-  border-radius: 12px;
-  cursor: pointer;
-  font-size: 1rem;
-  font-weight: 600;
-  transition: all 0.3s;
-}
-
-.status-btn:hover:not(:disabled) {
-  transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-}
-
-.status-btn.active {
-  background: var(--color-surface-header-gradient);
-  color: white;
-  border-color: transparent;
-}
-
-.status-btn:disabled {
-  cursor: not-allowed;
-  opacity: 0.6;
-}
-
 /* Notes Tab */
 .notes-textarea {
   width: 100%;
@@ -291,59 +261,6 @@
 .notes-textarea:focus {
   outline: none;
   border-color: var(--color-border-focus);
-}
-
-/* History Tab */
-.timeline {
-  position: relative;
-  padding-left: 2rem;
-  margin-top: 1rem;
-}
-
-.timeline::before {
-  content: '';
-  position: absolute;
-  left: 0.5rem;
-  top: 0;
-  bottom: 0;
-  width: 2px;
-  background: #e5e7eb;
-}
-
-.timeline-item {
-  position: relative;
-  margin-bottom: 2rem;
-  padding-left: 2rem;
-}
-
-.timeline-marker {
-  position: absolute;
-  left: 0;
-  top: 0.25rem;
-  width: 1rem;
-  height: 1rem;
-  background: var(--color-interactive-primary);
-  border-radius: 50%;
-  border: 3px solid white;
-  box-shadow: 0 0 0 2px var(--color-interactive-primary);
-}
-
-.timeline-content {
-  background: #f8f9fa;
-  padding: 1rem;
-  border-radius: 8px;
-}
-
-.timeline-date {
-  font-size: 0.9rem;
-  color: #666;
-  margin: 0 0 0.5rem 0;
-  font-weight: 600;
-}
-
-.timeline-content p:last-child {
-  margin: 0;
-  color: #333;
 }
 
 /* Details Sections */
@@ -1129,10 +1046,6 @@
     grid-template-columns: 1fr;
   }
 
-  .status-buttons {
-    grid-template-columns: 1fr;
-  }
-
   .cost-line,
   .metal-info-line {
     flex-direction: column;
@@ -1820,4 +1733,331 @@
   max-width: 100%;
   max-height: 80vh;
   object-fit: contain;
+}
+
+/* ==================== W2-08: next action, timeline, prompts ==================== */
+/* Tokens only (UI-UX-PLAYBOOK 3); no colour literals in this block. */
+
+.order-icon {
+  width: 1.25em;
+  height: 1.25em;
+  flex: none;
+}
+
+.order-detail-header {
+  flex-wrap: wrap;
+  gap: var(--space-4);
+}
+
+.order-title .status-badge {
+  margin-top: var(--space-2);
+}
+
+.header-right {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.order-advance {
+  display: flex;
+  align-items: stretch;
+  gap: var(--space-2);
+}
+
+.order-advance-primary {
+  min-height: var(--touch-comfort);
+  padding: var(--space-3) var(--space-5);
+  font-size: var(--type-md);
+  gap: var(--space-2);
+}
+
+.order-advance-more {
+  position: relative;
+}
+
+.order-advance-toggle {
+  min-height: var(--touch-comfort);
+  min-width: var(--touch-comfort);
+  justify-content: center;
+  font-size: var(--type-base);
+}
+
+.order-advance-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + var(--space-1));
+  z-index: var(--z-header);
+  min-width: 16rem;
+  margin: 0;
+  padding: var(--space-1);
+  list-style: none;
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-2);
+}
+
+.order-advance-menu button {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  min-height: var(--touch-min);
+  padding: var(--space-2) var(--space-3);
+  border: none;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--color-text);
+  font-size: var(--type-base);
+  text-align: left;
+  cursor: pointer;
+}
+
+.order-advance-menu button:focus-visible {
+  outline: 2px solid var(--color-border-focus);
+  outline-offset: -2px;
+}
+
+@media (hover: hover) {
+  .order-advance-menu button:hover {
+    background: var(--color-surface-sunken);
+  }
+}
+
+.order-advance-menu-danger {
+  margin-top: var(--space-1);
+  padding-top: var(--space-1);
+  border-top: 1px solid var(--color-border);
+}
+
+.order-advance-menu-danger button {
+  color: var(--tone-danger-fg);
+}
+
+.order-status-error {
+  flex-basis: 100%;
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  color: var(--tone-danger-fg);
+  background: var(--tone-danger-bg);
+  border: 1px solid var(--tone-danger-border);
+  border-radius: var(--radius-md);
+}
+
+/* Milestone prompt (DOM-30) */
+.milestone-prompt {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  margin-bottom: var(--space-5);
+  padding: var(--space-4) var(--space-5);
+  background: var(--tone-done-bg);
+  border: 1px solid var(--tone-done-border);
+  border-radius: var(--radius-md);
+  color: var(--tone-done-fg);
+}
+
+.milestone-prompt-title {
+  margin: 0 0 var(--space-1);
+  font-size: var(--type-lg);
+}
+
+.milestone-prompt-text p {
+  margin: 0;
+}
+
+.milestone-prompt-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.milestone-prompt-action {
+  min-height: var(--touch-comfort);
+  font-size: var(--type-base);
+}
+
+/* Übersicht */
+.order-overview-status {
+  margin: 0 0 var(--space-2);
+}
+
+.order-overview-reason {
+  margin: 0 0 var(--space-1);
+  color: var(--color-text);
+}
+
+.order-work-section:focus-visible {
+  outline: 2px solid var(--color-border-focus);
+  outline-offset: var(--space-1);
+}
+
+.order-detail-container .tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Verlauf timeline (DOM-16) */
+.order-timeline {
+  position: relative;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.order-timeline::before {
+  content: '';
+  position: absolute;
+  left: calc(var(--touch-min) / 2 - 1px);
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--color-border);
+}
+
+.order-timeline-item {
+  position: relative;
+  display: flex;
+  gap: var(--space-4);
+  padding-bottom: var(--space-5);
+}
+
+.order-timeline-marker {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: var(--touch-min);
+  height: var(--touch-min);
+  border-radius: var(--radius-pill);
+  border: 2px solid var(--tone-neutral-border);
+  background: var(--tone-neutral-bg);
+  color: var(--tone-neutral-fg);
+}
+
+.order-timeline-item.kind-status .order-timeline-marker {
+  border-color: var(--tone-progress-border);
+  background: var(--tone-progress-bg);
+  color: var(--tone-progress-fg);
+}
+
+.order-timeline-item.kind-photo .order-timeline-marker {
+  border-color: var(--tone-check-border);
+  background: var(--tone-check-bg);
+  color: var(--tone-check-fg);
+}
+
+.order-timeline-item.kind-customer_update .order-timeline-marker {
+  border-color: var(--tone-info-border);
+  background: var(--tone-info-bg);
+  color: var(--tone-info-fg);
+}
+
+.order-timeline-body {
+  flex: 1;
+  min-width: 0;
+  padding-top: var(--space-1);
+}
+
+.order-timeline-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-2);
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--type-sm);
+}
+
+.order-timeline-kind {
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.order-timeline-head time {
+  font-variant-numeric: tabular-nums;
+}
+
+.order-timeline-summary {
+  margin: var(--space-1) 0 0;
+  font-size: var(--type-md);
+  color: var(--color-text);
+}
+
+.order-timeline-detail {
+  margin: var(--space-1) 0 0;
+  color: var(--color-text-muted);
+}
+
+.order-timeline-state {
+  padding: var(--space-5) 0;
+  color: var(--color-text-muted);
+}
+
+.order-timeline-empty-title {
+  margin: 0 0 var(--space-1);
+  font-size: var(--type-md);
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+/* Status change dialog (reuses confirm-dialog-* from toast.css) */
+.status-change-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin-bottom: var(--space-3);
+}
+
+.status-change-field label {
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.status-change-required {
+  font-weight: 400;
+  color: var(--color-text-muted);
+}
+
+.status-change-field textarea,
+.status-change-field input {
+  min-height: var(--touch-min);
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--type-base);
+  font-family: inherit;
+  color: var(--color-text);
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+}
+
+.status-change-error {
+  margin: 0 0 var(--space-3);
+  color: var(--tone-danger-fg);
+}
+
+@media (max-width: 600px) {
+  .header-right,
+  .order-advance {
+    width: 100%;
+  }
+
+  .order-advance-primary {
+    flex: 1;
+    justify-content: center;
+  }
+
+  /* Visually hidden, still the button's accessible name. */
+  .order-advance-toggle-text {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
 }

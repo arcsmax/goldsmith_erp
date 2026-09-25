@@ -293,4 +293,30 @@ describe('KundeninfoTab', () => {
     expect(mockListUpdates).not.toHaveBeenCalled();
     expect(mockGetEmailConfig).not.toHaveBeenCalled();
   });
+
+  // W2-08 / DOM-30: the "Fertiggestellt" milestone prompt pre-fills the
+  // compose form; sending stays an explicit tap (consent per send).
+  it('pre-fills the compose form from initialDraft without sending anything', async () => {
+    mockUseAuth.mockReturnValue(manageAuth());
+    mockListUpdates.mockResolvedValue([]);
+
+    render(
+      <KundeninfoTab
+        orderId={14}
+        initialDraft={{
+          kind: 'ready_for_pickup',
+          subject: 'Ihr Auftrag ist fertig',
+          body: 'Guten Tag,',
+          photoIds: ['p3', 'p2'],
+        }}
+      />
+    );
+
+    expect(await screen.findByLabelText('Betreff')).toHaveValue('Ihr Auftrag ist fertig');
+    expect(screen.getByLabelText('Art')).toHaveValue('ready_for_pickup');
+    expect(screen.getByLabelText('Nachricht')).toHaveValue('Guten Tag,');
+    expect(screen.getByTestId('photo-picker-stub')).toHaveTextContent('2 Fotos ausgewählt');
+    expect(mockCreateUpdate).not.toHaveBeenCalled();
+    expect(mockSendUpdate).not.toHaveBeenCalled();
+  });
 });
