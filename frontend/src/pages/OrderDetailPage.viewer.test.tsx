@@ -52,6 +52,18 @@ vi.mock('../components/orders/CostAlertBanner', () => ({
 vi.mock('../components/orders/CustomerInfoCard', () => ({
   CustomerInfoCard: () => <div>customer-info</div>,
 }));
+// W2-08: the Arbeit tab mounts these together; each has its own API calls.
+vi.mock('../components/TimeTrackingTab', () => ({ default: () => <div>time-tracking</div> }));
+vi.mock('../components/scrap-gold', () => ({ ScrapGoldTab: () => <div>scrap-gold</div> }));
+vi.mock('../components/orders/HandoffTab', () => ({ default: () => <div>handoff</div> }));
+vi.mock('../components/orders/ArbeitszettelTab', () => ({ default: () => <div>arbeitszettel</div> }));
+vi.mock('../components/orders/SollIstTab', () => ({ SollIstTab: () => <div>soll-ist</div> }));
+vi.mock('../components/orders/CostBreakdownCard', () => ({
+  CostBreakdownCard: () => <div>cost-breakdown</div>,
+}));
+vi.mock('../components/orders/CostChangeSection', () => ({
+  CostChangeSection: () => <div>cost-change</div>,
+}));
 
 import { OrderDetailPage } from './OrderDetailPage';
 
@@ -117,9 +129,13 @@ describe('OrderDetailPage — VIEWER role projection', () => {
 
     expect(await screen.findAllByText('Ring mit Solitär')).not.toHaveLength(0);
     expect(mockGetForOrder).not.toHaveBeenCalled();
-    expect(screen.queryByText(/Fotos \(/)).not.toBeInTheDocument();
-    expect(screen.queryByText('💰 Kosten')).not.toBeInTheDocument();
-    expect(screen.queryByText('📊 Soll/Ist')).not.toBeInTheDocument();
+    expect(screen.queryByRole('tab', { name: /Fotos/ })).not.toBeInTheDocument();
+
+    // W2-08: Kosten and Soll/Ist are sections of the Arbeit tab now.
+    await userEvent.click(screen.getByRole('tab', { name: 'Arbeit' }));
+    expect(screen.queryByRole('heading', { name: 'Kosten' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Soll/Ist' })).not.toBeInTheDocument();
+    expect(screen.queryByText('cost-breakdown')).not.toBeInTheDocument();
   });
 
   it('omits Beschreibung/Preis rows and does not crash on the Materialien tab for VIEWER', async () => {
@@ -132,7 +148,7 @@ describe('OrderDetailPage — VIEWER role projection', () => {
     expect(screen.queryByText('Beschreibung:')).not.toBeInTheDocument();
     expect(screen.queryByText('Preis:')).not.toBeInTheDocument();
 
-    await userEvent.click(screen.getByText('💎 Materialien'));
+    await userEvent.click(screen.getByRole('tab', { name: 'Arbeit' }));
 
     expect(await screen.findByText('Feingold 999')).toBeInTheDocument();
     expect(screen.queryByText('Preis/Einheit')).not.toBeInTheDocument();
@@ -148,10 +164,12 @@ describe('OrderDetailPage — VIEWER role projection', () => {
 
     expect(await screen.findAllByText('Ring mit Solitär')).not.toHaveLength(0);
     expect(mockGetForOrder).toHaveBeenCalledWith(42);
-    expect(screen.getByText(/Fotos \(/)).toBeInTheDocument();
-    expect(screen.getByText('💰 Kosten')).toBeInTheDocument();
-    expect(screen.getByText('📊 Soll/Ist')).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: /Fotos \(/ })).toBeInTheDocument();
     expect(screen.getByText('Beschreibung:')).toBeInTheDocument();
     expect(screen.getByText('Preis:')).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('tab', { name: 'Arbeit' }));
+    expect(screen.getByRole('heading', { name: 'Kosten' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Soll/Ist' })).toBeInTheDocument();
   });
 });

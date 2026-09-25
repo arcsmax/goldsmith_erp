@@ -224,10 +224,11 @@ describe('OrderDetailPage — scanner deep link', () => {
     expect(clickSpy).not.toHaveBeenCalled();
   });
 
-  it('?edit=status opens the Status tab', async () => {
+  // W2-08: the Status tab is gone; status changes live in the header.
+  it('?edit=status opens the status menu in the header', async () => {
     mockUseAuth.mockReturnValue({ user: { role: 'GOLDSMITH' } });
     renderPage('/orders/42?edit=status');
 
-    expect(await screen.findByText('Status ändern')).toBeInTheDocument();
+    expect(await screen.findByRole('menu', { name: 'Weitere Statuswechsel' })).toBeInTheDocument();
   });
 });
