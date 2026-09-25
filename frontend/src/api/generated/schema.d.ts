@@ -821,6 +821,32 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/customers/{customer_id}/email-opt-out": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Widerspruch gegen E-Mail-Updates abfragen
+         * @description ``email_opt_out=true``: Kunde erhaelt keine E-Mail-Updates (Art. 21).
+         */
+        get: operations["get_customer_email_opt_out_api_v1_customers__customer_id__email_opt_out_get"];
+        /**
+         * Widerspruch gegen E-Mail-Updates erfassen oder aufheben
+         * @description Erfasst den Widerspruch "Keine E-Mail-Updates" (Art. 21 DSGVO) als
+         *     widerrufene Einwilligung "E-Mail-Kontakt", oder hebt ihn auf. Solange er
+         *     besteht, gehen Kundeninfos nur als PDF (manuelle Uebergabe) raus.
+         */
+        put: operations["set_customer_email_opt_out_api_v1_customers__customer_id__email_opt_out_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/customers/{customer_id}/export": {
         parameters: {
             query?: never;
@@ -3180,6 +3206,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/orders/{order_id}/message-context": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Einwilligungs- und Zustellhinweise fuer die Kundeninfo
+         * @description E-Mail vorhanden? Einwilligung Fotonutzung? Widerspruch gegen E-Mails?
+         */
+        get: operations["get_order_message_context_api_v1_orders__order_id__message_context_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/orders/{order_id}/photos": {
         parameters: {
             query?: never;
@@ -3337,6 +3383,49 @@ export interface paths {
          *     photo_ids muessen OrderPhoto-UUIDs DIESES Auftrags sein.
          */
         post: operations["create_order_update_api_v1_orders__order_id__updates_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/orders/{order_id}/updates/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Kundeninfo-Vorschau (E-Mail-Text)
+         * @description Zeigt den E-Mail-Text, den der Kunde erhalten wuerde (inkl. Fusszeile).
+         *     Speichert nichts. Verstoesse (Fotos ohne Einwilligung, Preise) stehen in
+         *     ``blocked_reason`` statt als Fehler.
+         */
+        post: operations["preview_order_update_api_v1_orders__order_id__updates_preview_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/orders/{order_id}/updates/preview/pdf": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Kundeninfo-Vorschau als PDF
+         * @description Liefert den Inhalt des Entwurfs als PDF fuer Kunden ohne E-Mail. Speichert
+         *     nichts und markiert nichts als zugestellt. Fotos nur mit Einwilligung (422).
+         */
+        post: operations["preview_order_update_pdf_api_v1_orders__order_id__updates_preview_pdf_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -6723,6 +6812,43 @@ export interface components {
             value: number;
         };
         /**
+         * CustomerMessageContext
+         * @description What the Kundeninfo composer needs for its consent / delivery hints.
+         */
+        CustomerMessageContext: {
+            /** Customer Id */
+            customer_id?: number | null;
+            /** Email Opt Out */
+            email_opt_out: boolean;
+            /** Has Email */
+            has_email: boolean;
+            /** Photo Consent */
+            photo_consent: boolean;
+        };
+        /**
+         * CustomerMessagePreview
+         * @description Plain-text preview of the email a customer would receive.
+         */
+        CustomerMessagePreview: {
+            /** Blocked Reason */
+            blocked_reason?: string | null;
+            delivery_method: components["schemas"]["UpdateDeliveryMethod"];
+            /** Email Opt Out */
+            email_opt_out: boolean;
+            /** Has Email */
+            has_email: boolean;
+            /** Legal Basis */
+            legal_basis: string;
+            /** Photo Consent */
+            photo_consent: boolean;
+            /** Photo Count */
+            photo_count: number;
+            /** Subject */
+            subject: string;
+            /** Text */
+            text: string;
+        };
+        /**
          * CustomerOrderExport
          * @description One entry in the export payload's ``orders`` list.
          *
@@ -7035,6 +7161,8 @@ export interface components {
             /** Delivered */
             delivered: boolean;
             method?: components["schemas"]["UpdateDeliveryMethod"] | null;
+            /** Reason */
+            reason?: ("smtp_disabled" | "no_email" | "opted_out") | null;
             update: components["schemas"]["CustomerUpdateRead"];
         };
         /**
@@ -7328,6 +7456,14 @@ export interface components {
              * @description SMTP authentication username
              */
             smtp_user?: string | null;
+        };
+        /**
+         * EmailOptOut
+         * @description Art. 21 objection "Keine E-Mail-Updates" (GET/PUT body).
+         */
+        EmailOptOut: {
+            /** Email Opt Out */
+            email_opt_out: boolean;
         };
         /**
          * EmailTestRequest
@@ -13928,6 +14064,76 @@ export interface operations {
             };
         };
     };
+    get_customer_email_opt_out_api_v1_customers__customer_id__email_opt_out_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                customer_id: number;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EmailOptOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    set_customer_email_opt_out_api_v1_customers__customer_id__email_opt_out_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                customer_id: number;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EmailOptOut"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EmailOptOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     gdpr_export_customer_api_v1_customers__customer_id__export_get: {
         parameters: {
             query?: never;
@@ -17648,6 +17854,39 @@ export interface operations {
             };
         };
     };
+    get_order_message_context_api_v1_orders__order_id__message_context_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                order_id: number;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CustomerMessageContext"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_photos_api_v1_orders__order_id__photos_get: {
         parameters: {
             query?: never;
@@ -17948,6 +18187,80 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CustomerUpdateRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    preview_order_update_api_v1_orders__order_id__updates_preview_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                order_id: number;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CustomerUpdateCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CustomerMessagePreview"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    preview_order_update_pdf_api_v1_orders__order_id__updates_preview_pdf_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                order_id: number;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CustomerUpdateCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
             /** @description Validation Error */
