@@ -14,12 +14,20 @@ DOM-19 / DOM-20 fix: the alloy contract is now the shared, database-backed
   drift out of sync with each other.
 """
 
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
-from typing import Dict, List, Optional
+from typing import Dict, List, Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    computed_field,
+    field_validator,
+    model_validator,
+)
 
+from goldsmith_erp.core.config import settings
 from goldsmith_erp.db.models import AlloyType, MetalType
 
 # ---------------------------------------------------------------------------
@@ -127,6 +135,57 @@ class ScrapGoldUpdate(BaseModel):
     notes: Optional[str] = None
 
 
+#: W2-16 / DOM-21: accepted identity documents for the Ankaufsbuch.
+IdDocumentType = Literal[
+    "personalausweis", "reisepass", "aufenthaltstitel", "sonstiges"
+]
+
+ID_DOCUMENT_LABELS: Dict[str, str] = {
+    "personalausweis": "Personalausweis",
+    "reisepass": "Reisepass",
+    "aufenthaltstitel": "Aufenthaltstitel",
+    "sonstiges": "Sonstiges Ausweisdokument",
+}
+
+
+def id_required_for(total_value_eur: Optional[float]) -> bool:
+    """True when a purchase of this value needs ID data before signing (D-16)."""
+    return float(total_value_eur or 0.0) > float(settings.SCRAP_GOLD_ID_THRESHOLD_EUR)
+
+
+class ScrapGoldIdentification(BaseModel):
+    """Body for ``PUT /scrap-gold/{id}/identification`` (W2-16).
+
+    Document number and issuing authority are PII: stored encrypted, never
+    logged, shown in reads only as the last four characters.
+    """
+
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    id_document_type: IdDocumentType
+    id_document_number: str = Field(..., min_length=4, max_length=40)
+    id_issuing_authority: str = Field(..., min_length=2, max_length=200)
+
+    @field_validator("id_document_number")
+    @classmethod
+    def _no_inner_whitespace(cls, v: str) -> str:
+        return "".join(v.split()).upper()
+
+
+class AnkaufsbuchQuery(BaseModel):
+    """Period of an Ankaufsbuch export (both days inclusive)."""
+
+    date_from: date
+    date_to: date
+    format: Literal["csv", "pdf"] = "csv"
+
+    @model_validator(mode="after")
+    def _ordered(self) -> "AnkaufsbuchQuery":
+        if self.date_from > self.date_to:
+            raise ValueError("Das Startdatum muss vor dem Enddatum liegen.")
+        return self
+
+
 class ScrapGoldRead(BaseModel):
     id: int
     order_id: int
@@ -144,8 +203,31 @@ class ScrapGoldRead(BaseModel):
     items: List[ScrapGoldItemRead] = []
     created_at: datetime
     updated_at: datetime
+    # W2-16: identification, number masked to its last four characters.
+    id_document_type: Optional[str] = None
+    id_document_number_last4: Optional[str] = Field(
+        None, validation_alias="id_document_number"
+    )
+    id_issuing_authority: Optional[str] = None
+    id_checked_by: Optional[int] = None
+    id_checked_at: Optional[datetime] = None
 
-    model_config = {"from_attributes": True}
+    model_config = {"from_attributes": True, "populate_by_name": True}
+
+    @field_validator("id_document_number_last4", mode="after")
+    @classmethod
+    def _mask(cls, v: Optional[str]) -> Optional[str]:
+        return v[-4:] if v else None
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def has_identification(self) -> bool:
+        return bool(self.id_document_type and self.id_document_number_last4)
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def id_required(self) -> bool:
+        return id_required_for(self.total_value_eur)
 
 
 class ScrapGoldSignRequest(BaseModel):

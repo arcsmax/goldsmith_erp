@@ -1611,6 +1611,28 @@ class PDFService:
         )
 
     @staticmethod
+    def render_ankaufsbuch_pdf(
+        rows: list[Any], date_from: Any, date_to: Any, workshop_name: str
+    ) -> bytes:
+        """W2-16: Ankaufsbuch Altgold for a period (see services/pdf_reports.py)."""
+        from goldsmith_erp.services.pdf_reports import (  # noqa: PLC0415
+            render_ankaufsbuch_pdf,
+        )
+
+        logger.info("Rendering Ankaufsbuch PDF", extra={"row_count": len(rows)})
+        return render_ankaufsbuch_pdf(rows, date_from, date_to, workshop_name)
+
+    @staticmethod
+    def render_handover_pdf(data: Any, workshop_name: str) -> bytes:
+        """W2-11: Abholprotokoll for a delivered order (services/pdf_reports.py)."""
+        from goldsmith_erp.services.pdf_reports import (  # noqa: PLC0415
+            render_handover_pdf,
+        )
+
+        logger.info("Rendering handover PDF", extra={"order_id": data.order_id})
+        return render_handover_pdf(data, workshop_name)
+
+    @staticmethod
     def render_customer_update_pdf(
         update: Any,
         order_ref: str,

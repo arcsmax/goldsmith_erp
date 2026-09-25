@@ -135,6 +135,10 @@ class Permission(str, Enum):
     # permission today. Add SCRAP_GOLD_MANAGE only if those writes ever need
     # to diverge from ORDER_EDIT.
     SCRAP_GOLD_VIEW = "scrap_gold:view"
+    # W2-16 (DOM-21): the Ankaufsbuch export carries decrypted seller ID
+    # data for every purchase of a period -> ADMIN only (ADMIN holds every
+    # permission; no other role is granted this one).
+    SCRAP_GOLD_EXPORT = "scrap_gold:export"
 
     # Customer update permissions (Kundeninfo — V1.2, GOLDSMITH + ADMIN only)
     CUSTOMER_UPDATE_VIEW = "customer_update:view"  # View update history/drafts

@@ -7803,6 +7803,173 @@
         }
       }
     },
+    "/api/v1/scrap-gold/{scrap_gold_id}/identification": {
+      "put": {
+        "tags": [
+          "scrap-gold"
+        ],
+        "summary": "Set Identification",
+        "description": "Ausweisdaten des Verkäufers erfassen (W2-16, vor der Unterschrift).",
+        "operationId": "set_identification_api_v1_scrap_gold__scrap_gold_id__identification_put",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "scrap_gold_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Scrap Gold Id"
+            }
+          },
+          {
+            "name": "access_token",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Access Token"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScrapGoldIdentification"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScrapGoldRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/scrap-gold/ankaufsbuch": {
+      "get": {
+        "tags": [
+          "scrap-gold"
+        ],
+        "summary": "Export Ankaufsbuch",
+        "description": "Ankaufsbuch Altgold als CSV oder PDF (nur ADMIN, W2-16).\n\nEnthält die entschlüsselten Ausweisdaten aller unterschriebenen Ankäufe\nim Zeitraum. Rechtliche Anforderungen vom Steuerberater zu bestätigen.",
+        "operationId": "export_ankaufsbuch_api_v1_scrap_gold_ankaufsbuch_get",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "date_from",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date",
+              "description": "Erster Tag (YYYY-MM-DD)",
+              "title": "Date From"
+            },
+            "description": "Erster Tag (YYYY-MM-DD)"
+          },
+          {
+            "name": "date_to",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date",
+              "description": "Letzter Tag (YYYY-MM-DD)",
+              "title": "Date To"
+            },
+            "description": "Letzter Tag (YYYY-MM-DD)"
+          },
+          {
+            "name": "format",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "csv",
+                "pdf"
+              ],
+              "type": "string",
+              "description": "csv oder pdf",
+              "default": "csv",
+              "title": "Format"
+            },
+            "description": "csv oder pdf"
+          },
+          {
+            "name": "access_token",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Access Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/scrap-gold/alloy-calculator": {
       "get": {
         "tags": [
@@ -33316,6 +33483,41 @@
         ],
         "title": "ScrapGoldExport"
       },
+      "ScrapGoldIdentification": {
+        "properties": {
+          "id_document_type": {
+            "type": "string",
+            "enum": [
+              "personalausweis",
+              "reisepass",
+              "aufenthaltstitel",
+              "sonstiges"
+            ],
+            "title": "Id Document Type"
+          },
+          "id_document_number": {
+            "type": "string",
+            "maxLength": 40,
+            "minLength": 4,
+            "title": "Id Document Number"
+          },
+          "id_issuing_authority": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 2,
+            "title": "Id Issuing Authority"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id_document_type",
+          "id_document_number",
+          "id_issuing_authority"
+        ],
+        "title": "ScrapGoldIdentification",
+        "description": "Body for ``PUT /scrap-gold/{id}/identification`` (W2-16).\n\nDocument number and issuing authority are PII: stored encrypted, never\nlogged, shown in reads only as the last four characters."
+      },
       "ScrapGoldItemCreate": {
         "properties": {
           "description": {
@@ -33556,6 +33758,72 @@
             "type": "string",
             "format": "date-time",
             "title": "Updated At"
+          },
+          "id_document_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Id Document Type"
+          },
+          "id_document_number_last4": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Id Document Number Last4"
+          },
+          "id_issuing_authority": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Id Issuing Authority"
+          },
+          "id_checked_by": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Id Checked By"
+          },
+          "id_checked_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Id Checked At"
+          },
+          "has_identification": {
+            "type": "boolean",
+            "title": "Has Identification",
+            "readOnly": true
+          },
+          "id_required": {
+            "type": "boolean",
+            "title": "Id Required",
+            "readOnly": true
           }
         },
         "type": "object",
@@ -33569,7 +33837,9 @@
           "total_value_eur",
           "price_source",
           "created_at",
-          "updated_at"
+          "updated_at",
+          "has_identification",
+          "id_required"
         ],
         "title": "ScrapGoldRead"
       },

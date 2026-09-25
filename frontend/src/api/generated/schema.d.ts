@@ -4334,6 +4334,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/scrap-gold/{scrap_gold_id}/identification": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Set Identification
+         * @description Ausweisdaten des Verkäufers erfassen (W2-16, vor der Unterschrift).
+         */
+        put: operations["set_identification_api_v1_scrap_gold__scrap_gold_id__identification_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/scrap-gold/{scrap_gold_id}/items": {
         parameters: {
             query?: never;
@@ -4463,6 +4483,29 @@ export interface paths {
          * @description Feingold-Gehalt einer Legierung berechnen (Hilfstool).
          */
         get: operations["calculate_alloy_api_v1_scrap_gold_alloy_calculator_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/scrap-gold/ankaufsbuch": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Export Ankaufsbuch
+         * @description Ankaufsbuch Altgold als CSV oder PDF (nur ADMIN, W2-16).
+         *
+         *     Enthält die entschlüsselten Ausweisdaten aller unterschriebenen Ankäufe
+         *     im Zeitraum. Rechtliche Anforderungen vom Steuerberater zu bestätigen.
+         */
+        get: operations["export_ankaufsbuch_api_v1_scrap_gold_ankaufsbuch_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -11146,6 +11189,24 @@ export interface components {
             /** Total Value Eur */
             total_value_eur?: number | null;
         };
+        /**
+         * ScrapGoldIdentification
+         * @description Body for ``PUT /scrap-gold/{id}/identification`` (W2-16).
+         *
+         *     Document number and issuing authority are PII: stored encrypted, never
+         *     logged, shown in reads only as the last four characters.
+         */
+        ScrapGoldIdentification: {
+            /** Id Document Number */
+            id_document_number: string;
+            /**
+             * Id Document Type
+             * @enum {string}
+             */
+            id_document_type: "personalausweis" | "reisepass" | "aufenthaltstitel" | "sonstiges";
+            /** Id Issuing Authority */
+            id_issuing_authority: string;
+        };
         /** ScrapGoldItemCreate */
         ScrapGoldItemCreate: {
             /** @description Alloy/fineness code, e.g. 585, 750, ag925, pt950 */
@@ -11208,8 +11269,22 @@ export interface components {
             customer_id: number;
             /** Gold Price Per G */
             gold_price_per_g?: number | null;
+            /** Has Identification */
+            readonly has_identification: boolean;
             /** Id */
             id: number;
+            /** Id Checked At */
+            id_checked_at?: string | null;
+            /** Id Checked By */
+            id_checked_by?: number | null;
+            /** Id Document Number Last4 */
+            id_document_number_last4?: string | null;
+            /** Id Document Type */
+            id_document_type?: string | null;
+            /** Id Issuing Authority */
+            id_issuing_authority?: string | null;
+            /** Id Required */
+            readonly id_required: boolean;
             /**
              * Items
              * @default []
@@ -19831,6 +19906,43 @@ export interface operations {
             };
         };
     };
+    set_identification_api_v1_scrap_gold__scrap_gold_id__identification_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                scrap_gold_id: number;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ScrapGoldIdentification"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScrapGoldRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     add_item_api_v1_scrap_gold__scrap_gold_id__items_post: {
         parameters: {
             query?: never;
@@ -20061,6 +20173,44 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AlloyCalculation"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    export_ankaufsbuch_api_v1_scrap_gold_ankaufsbuch_get: {
+        parameters: {
+            query: {
+                /** @description Erster Tag (YYYY-MM-DD) */
+                date_from: string;
+                /** @description Letzter Tag (YYYY-MM-DD) */
+                date_to: string;
+                /** @description csv oder pdf */
+                format?: "csv" | "pdf";
+            };
+            header?: never;
+            path?: never;
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
             /** @description Validation Error */

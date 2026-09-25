@@ -9,7 +9,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy.orm import selectinload
 
-from goldsmith_erp.core.errors import ConflictError
+from goldsmith_erp.core.config import settings
+from goldsmith_erp.core.errors import ConflictError, DomainValidationError
 from goldsmith_erp.db.models import AlloyType
 from goldsmith_erp.db.models import MetalPriceSource as MetalPriceSourceModel
 from goldsmith_erp.db.models import MetalType
@@ -20,8 +21,10 @@ from goldsmith_erp.models.scrap_gold import (
     ALLOY_BASE_METAL,
     ALLOY_FINENESS,
     ScrapGoldCreate,
+    ScrapGoldIdentification,
     ScrapGoldItemCreate,
     ScrapGoldUpdate,
+    id_required_for,
 )
 from goldsmith_erp.services.metal_price_service import MetalPriceService
 
@@ -44,6 +47,23 @@ _LOCKED_MESSAGE = (
     "Altgold-Eintrag ist bereits vom Kunden unterschrieben und kann nicht "
     "mehr geaendert werden (nur Notizen)."
 )
+
+
+def _fmt_threshold() -> str:
+    amount = f"{float(settings.SCRAP_GOLD_ID_THRESHOLD_EUR):,.2f}"
+    return amount.replace(",", "X").replace(".", ",").replace("X", ".") + " €"
+
+
+class ScrapGoldIdMissingError(DomainValidationError):
+    """W2-16 / D-16: above the threshold the seller's ID must be recorded (422)."""
+
+    def __init__(self, scrap_gold_id: int) -> None:
+        super().__init__(
+            f"Ankauf über {_fmt_threshold()}: Bitte zuerst die Ausweisdaten des "
+            "Verkäufers erfassen (Ausweisart, Nummer, ausstellende Behörde).",
+            code="scrap_gold.id_required",
+            extra={"scrap_gold_id": scrap_gold_id},
+        )
 
 
 class ScrapGoldLockedError(ConflictError):
@@ -228,6 +248,14 @@ class ScrapGoldService:
         if not scrap_gold:
             return None
         ensure_editable(scrap_gold)
+        if id_required_for(scrap_gold.total_value_eur) and not (
+            scrap_gold.id_document_type and scrap_gold.id_document_number
+        ):
+            logger.info(
+                "Scrap gold signature refused: ID data missing above threshold",
+                extra={"scrap_gold_id": scrap_gold_id},
+            )
+            raise ScrapGoldIdMissingError(scrap_gold_id)
 
         scrap_gold.signature_data = signature_data
         scrap_gold.signed_at = datetime.utcnow()
@@ -236,6 +264,34 @@ class ScrapGoldService:
         await db.refresh(scrap_gold)
         logger.info(f"Scrap gold {scrap_gold_id} signed by customer")
         return scrap_gold
+
+    @staticmethod
+    async def set_identification(
+        db: AsyncSession,
+        scrap_gold_id: int,
+        data: ScrapGoldIdentification,
+        checked_by: int,
+    ) -> Optional[ScrapGoldModel]:
+        """Record the seller's ID for the Ankaufsbuch (W2-16, DOM-21).
+
+        Only before signing (BE-11: the signed record is the document).
+        Values are PII: encrypted by the column type, never logged.
+        """
+        scrap_gold = await ScrapGoldService.get_by_id(db, scrap_gold_id)
+        if not scrap_gold:
+            return None
+        ensure_editable(scrap_gold)
+        scrap_gold.id_document_type = data.id_document_type
+        scrap_gold.id_document_number = data.id_document_number
+        scrap_gold.id_issuing_authority = data.id_issuing_authority
+        scrap_gold.id_checked_by = checked_by
+        scrap_gold.id_checked_at = datetime.utcnow()
+        await db.commit()
+        logger.info(
+            "Scrap gold identification recorded",
+            extra={"scrap_gold_id": scrap_gold_id, "user_id": checked_by},
+        )
+        return await ScrapGoldService.get_by_id(db, scrap_gold_id)
 
     @staticmethod
     async def update(

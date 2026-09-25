@@ -1271,10 +1271,27 @@ class ScrapGold(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
+    # W2-16 / DOM-21 (decision D-16): Ankaufsbuch identification. Optional,
+    # required before SIGNED above SCRAP_GOLD_ID_THRESHOLD_EUR. Number and
+    # issuing authority are PII -> EncryptedString. Migration
+    # 20260925_w216_altgold_id.
+    id_document_type = Column(String(30), nullable=True)
+    id_document_number = Column(EncryptedString, nullable=True)
+    id_issuing_authority = Column(EncryptedString, nullable=True)
+    id_checked_by = Column(
+        Integer,
+        ForeignKey(
+            "users.id", name="fk_scrap_gold_id_checked_by_users", ondelete="SET NULL"
+        ),
+        nullable=True,
+    )
+    id_checked_at = Column(DateTime, nullable=True)
+
     # Relationships
     order = relationship("Order")
     customer = relationship("Customer")
-    creator = relationship("User")
+    creator = relationship("User", foreign_keys=[created_by])
+    id_checker = relationship("User", foreign_keys=[id_checked_by])
     items = relationship(
         "ScrapGoldItem", back_populates="scrap_gold", cascade="all, delete-orphan"
     )
