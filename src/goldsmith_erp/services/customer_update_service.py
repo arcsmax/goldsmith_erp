@@ -89,6 +89,7 @@ from goldsmith_erp.services.customer_message_service import (
     message_kind_for,
     resolve_recipient,
 )
+from goldsmith_erp.services.job_service import JobService
 from goldsmith_erp.services.pdf_service import PDFService
 
 logger = logging.getLogger(__name__)
@@ -464,9 +465,14 @@ class CustomerUpdateService:
             photo_ids=data.photo_ids,
         )
 
+        # ARCH phase 5: the update also names its job.
+        job_id = await JobService.job_id_for(
+            db, order_id=order_id, repair_job_id=repair_job_id
+        )
         update = CustomerUpdate(
             order_id=order_id,
             repair_job_id=repair_job_id,
+            job_id=job_id,
             kind=data.kind,
             subject=subject,
             body=body,

@@ -1,4 +1,8 @@
-"""Merged order history for ``GET /orders/{id}/timeline`` (W2-07, ARCH-01).
+"""Merged order / repair history (W2-07, ARCH-01; repairs: ARCH phase 5).
+
+``GET /orders/{id}/timeline`` and ``GET /jobs/{id}/timeline`` use
+:func:`build_order_timeline`; a repair job uses :func:`build_repair_timeline`
+(repair events, its Kundeninfo and, with DESIGN_VIEW, its photos).
 
 Sources, merged ascending by time:
 - ``order_events`` (status changes, creation, migration backfill);
@@ -25,9 +29,11 @@ from goldsmith_erp.db.models import (
     CustomerUpdateKind,
     OrderEvent,
     OrderPhoto,
+    RepairPhoto,
     TimeEntry,
 )
 from goldsmith_erp.models.order import OrderTimelineItem, OrderTimelineRead
+from goldsmith_erp.services import repair_workflow
 from goldsmith_erp.services.order_workflow import label_for
 
 _UPDATE_KIND_LABELS: dict[CustomerUpdateKind, str] = {
@@ -53,23 +59,38 @@ def _safe_label(status: Optional[str]) -> Optional[str]:
         return status
 
 
+def _safe_repair_label(status: Optional[str]) -> Optional[str]:
+    if status is None:
+        return None
+    try:
+        return repair_workflow.label_for(status)
+    except ValueError:
+        return status
+
+
+def _labeler(event: Any) -> Any:
+    return _safe_repair_label if event.repair_job_id is not None else _safe_label
+
+
 def _status_summary(event_row: OrderEvent) -> str:
     event: Any = event_row  # Column-style model attributes
-    to_label = _safe_label(event.to_status) or event.to_status
+    label = _labeler(event)
+    to_label = label(event.to_status) or event.to_status
     if event.from_status is None:
         prefix = "Status übernommen" if event.reason == "backfill" else "Angelegt"
         return f"{prefix}: {to_label}"
-    return f"{_safe_label(event.from_status)} → {to_label}"
+    return f"{label(event.from_status)} → {to_label}"
 
 
 def _event_item(event_row: OrderEvent) -> OrderTimelineItem:
     event: Any = event_row  # Column-style model attributes
     meta: dict[str, Any] = event.meta or {}
+    label = _labeler(event)
     data: dict[str, Any] = {
         "from_status": event.from_status,
         "to_status": event.to_status,
-        "from_label": _safe_label(event.from_status),
-        "to_label": _safe_label(event.to_status),
+        "from_label": label(event.from_status),
+        "to_label": label(event.to_status),
         "reason": event.reason,
     }
     data.update({key: meta[key] for key in _EVENT_META_KEYS if key in meta})
@@ -175,4 +196,50 @@ async def build_order_timeline(
     return OrderTimelineRead(order_id=order_id, items=items)
 
 
-__all__ = ["build_order_timeline"]
+def _repair_photo_item(photo_row: RepairPhoto) -> OrderTimelineItem:
+    photo: Any = photo_row  # Column-style model attributes
+    return OrderTimelineItem(
+        kind="photo",
+        id=f"repair-photo-{photo.id}",
+        at=photo.timestamp,
+        user_id=photo.taken_by,
+        summary="Foto aufgenommen",
+        data={
+            "photo_id": photo.id,
+            "phase": getattr(photo.phase, "value", photo.phase),
+        },
+    )
+
+
+async def build_repair_timeline(
+    db: AsyncSession,
+    repair_job_id: int,
+    *,
+    financial: bool,
+    design: bool,
+) -> list[OrderTimelineItem]:
+    """Merged history of one repair, projected like the order timeline.
+
+    Sources: repair lifecycle events (``order_events.repair_job_id``), the
+    repair's Kundeninfo and, with ``design``, its photos. Time entries
+    attach to orders only, so a repair has none.
+    """
+    events = await _fetch_all(
+        db, select(OrderEvent).where(OrderEvent.repair_job_id == repair_job_id)
+    )
+    updates = await _fetch_all(
+        db,
+        select(CustomerUpdate).where(CustomerUpdate.repair_job_id == repair_job_id),
+    )
+    items: list[OrderTimelineItem] = [_event_item(e) for e in events]
+    items.extend(_update_item(u, financial=financial) for u in updates)
+    if design:
+        photos = await _fetch_all(
+            db, select(RepairPhoto).where(RepairPhoto.repair_job_id == repair_job_id)
+        )
+        items.extend(_repair_photo_item(p) for p in photos)
+    items.sort(key=lambda item: (item.at, _KIND_ORDER[item.kind], item.id))
+    return items
+
+
+__all__ = ["build_order_timeline", "build_repair_timeline"]

@@ -79,6 +79,7 @@ from goldsmith_erp.services.customer_update_service import (
     CustomerUpdateService,
     write_financial_audit_row,
 )
+from goldsmith_erp.services.job_service import JobService
 
 logger = logging.getLogger(__name__)
 
@@ -426,6 +427,10 @@ class CostChangeService:
 
             update = CustomerUpdate(
                 order_id=cost_change.order_id,
+                # ARCH phase 5: the update also names its job.
+                job_id=await JobService.job_id_for(
+                    db, order_id=cast(Optional[int], cost_change.order_id)
+                ),
                 kind=CustomerUpdateKind.COST_CHANGE,
                 subject=subject,
                 body=body,

@@ -16,9 +16,10 @@ All service methods are async and accept AsyncSession as first parameter.
 """
 
 import logging
+from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from decimal import ROUND_HALF_UP, Decimal
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Awaitable, Callable, Dict, Iterable, List, Optional, Union
 
 from sqlalchemy import extract, func
 from sqlalchemy.exc import IntegrityError
@@ -45,12 +46,14 @@ from goldsmith_erp.db.models import User as UserModel
 from goldsmith_erp.db.transaction import transactional
 from goldsmith_erp.models.invoice import (
     InvoiceCreate,
+    InvoiceCreateBase,
     InvoiceLineItemCreate,
     InvoiceUpdate,
     MarkPaidRequest,
     StornoRequest,
 )
 from goldsmith_erp.services.invoice_snapshot_service import InvoiceSnapshotService
+from goldsmith_erp.services.job_service import JobService
 from goldsmith_erp.services.number_sequence_service import (
     INVOICE_KIND,
     NumberSequenceService,
@@ -61,6 +64,37 @@ logger = logging.getLogger(__name__)
 
 _CENT = Decimal("0.01")
 _DEFAULT_VAT_RATE = 19.0
+
+
+@dataclass(frozen=True)
+class InvoiceSubject:
+    """What an invoice bills: an order or a repair (ARCH phase 5).
+
+    ``title`` / ``completed_at`` feed the snapshot (``order_title``,
+    Leistungsdatum default); ``reference`` / ``reference_label`` replace
+    the "Auftragsnummer" row on the PDF when set (repairs).
+    """
+
+    order_id: Optional[int]
+    customer_id: int
+    customer: Any
+    title: Optional[str]
+    completed_at: Optional[datetime]
+    reference: Optional[str] = None
+    reference_label: Optional[str] = None
+
+    @staticmethod
+    def for_order(order: Any) -> "InvoiceSubject":
+        return InvoiceSubject(
+            order_id=int(order.id),
+            customer_id=order.customer_id,
+            customer=order.customer,
+            title=order.title,
+            completed_at=order.completed_at,
+        )
+
+
+JobSync = Callable[[AsyncSession], Awaitable[Any]]
 
 
 def _to_cents(value: float | int | Decimal) -> Decimal:
@@ -321,7 +355,7 @@ class InvoiceService:
         """Batch-load Altgold credits for invoices (one query, no N+1)."""
         if not invoices:
             return
-        order_ids = {inv.order_id for inv in invoices}
+        order_ids = {inv.order_id for inv in invoices if inv.order_id is not None}
         result = await db.execute(
             select(ScrapGoldModel).where(
                 ScrapGoldModel.order_id.in_(order_ids),
@@ -472,17 +506,21 @@ class InvoiceService:
         seller = await WorkshopSettingsService.seller_block(db)
         totals = InvoiceService.calculate_totals(all_line_items, tax_rate)
 
+        async def sync_job(session: AsyncSession) -> Any:
+            return await JobService.sync_order(session, order)
+
         try:
             db_invoice = await InvoiceService._persist_new_invoice(
                 db,
                 invoice_in,
-                order,
+                InvoiceSubject.for_order(order),
                 current_user,
                 all_line_items,
                 totals,
                 tax_rate,
                 seller,
                 scrap_golds,
+                sync_job=sync_job,
             )
         except IntegrityError as exc:
             logger.warning(
@@ -512,28 +550,36 @@ class InvoiceService:
     @staticmethod
     async def _persist_new_invoice(
         db: AsyncSession,
-        invoice_in: InvoiceCreate,
-        order: OrderModel,
+        invoice_in: Union[InvoiceCreate, InvoiceCreateBase],
+        subject: InvoiceSubject,
         current_user: UserModel,
         all_line_items: List[InvoiceLineItemCreate],
         totals: dict,
         tax_rate: float,
         seller: Dict[str, Any],
         scrap_golds: List[ScrapGoldModel],
+        *,
+        sync_job: JobSync,
     ) -> InvoiceModel:
-        """Insert invoice + lines + snapshot in one transaction."""
+        """Insert invoice + lines + snapshot in one transaction.
+
+        ``sync_job`` creates/refreshes the billed job inside the same
+        transaction (ARCH phase 5); the invoice gets its ``job_id``.
+        """
         async with transactional(db):
+            job = await sync_job(db)
             invoice_number = await InvoiceService.generate_invoice_number(db)
 
             db_invoice = InvoiceModel(
                 invoice_number=invoice_number,
-                order_id=invoice_in.order_id,
-                customer_id=order.customer_id,
+                order_id=subject.order_id,
+                job_id=job.id,
+                customer_id=subject.customer_id,
                 created_by=current_user.id,
                 status=InvoiceStatus.DRAFT,
                 issue_date=datetime.now(timezone.utc),
                 due_date=invoice_in.due_date,
-                service_date=invoice_in.service_date or order.completed_at,
+                service_date=invoice_in.service_date or subject.completed_at,
                 subtotal=totals["subtotal"],
                 tax_rate=tax_rate,
                 tax_amount=totals["tax_amount"],
@@ -565,8 +611,8 @@ class InvoiceService:
                 InvoiceSnapshotService.build(
                     db_invoice,
                     db_lines,
-                    order.customer,
-                    order,
+                    subject.customer,
+                    subject,
                     scrap_gold_credit=InvoiceService._scrap_gold_credit_amount(
                         scrap_golds
                     ),
@@ -988,6 +1034,7 @@ class InvoiceService:
         storno = InvoiceModel(
             invoice_number=await InvoiceService.generate_invoice_number(db),
             order_id=original.order_id,
+            job_id=original.job_id,
             customer_id=original.customer_id,
             created_by=current_user.id,
             status=InvoiceStatus.SENT,
@@ -1031,6 +1078,9 @@ class InvoiceService:
         if original_snapshot.get("recipient"):
             snapshot["recipient"] = original_snapshot["recipient"]
         snapshot["invoice"]["order_title"] = header.get("order_title")
+        if header.get("reference"):
+            snapshot["invoice"]["reference"] = header["reference"]
+            snapshot["invoice"]["reference_label"] = header.get("reference_label")
         storno.snapshot = InvoiceSnapshotService.dump(snapshot)
         await db.flush()
         return storno

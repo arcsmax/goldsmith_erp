@@ -201,7 +201,49 @@ async def _order_events(db: AsyncSession, order_id: int) -> List[StatusReportEve
     return events
 
 
+def _repair_label(status: Any) -> str:
+    return _REPAIR_STATUS_LABELS.get(str(status), "Status aktualisiert")
+
+
+async def _repair_lifecycle_events(
+    db: AsyncSession, repair_job_id: int
+) -> List[StatusReportEvent]:
+    """ARCH phase 5: repair status history from ``order_events``."""
+    rows = (
+        (
+            await db.execute(
+                select(OrderEvent)
+                .where(OrderEvent.repair_job_id == repair_job_id)
+                .order_by(OrderEvent.created_at.asc(), OrderEvent.id.asc())
+            )
+        )
+        .scalars()
+        .all()
+    )
+    events: List[StatusReportEvent] = []
+    for row in rows:
+        to_label = _repair_label(row.to_status)
+        if row.from_status is None:
+            summary = (
+                f"Aktueller Status: {to_label}"
+                if row.reason == "backfill"
+                else "Reparatur angenommen"
+            )
+        else:
+            summary = f"Status geändert: {_repair_label(row.from_status)} → {to_label}"
+        events.append(StatusReportEvent(at=row.created_at, summary=summary))
+    return events
+
+
 async def _repair_events(db: AsyncSession, repair: Any) -> List[StatusReportEvent]:
+    lifecycle = await _repair_lifecycle_events(db, int(repair.id))
+    if lifecycle:
+        lifecycle.extend(
+            await _sent_update_events(db, order_id=None, repair_job_id=repair.id)
+        )
+        lifecycle.sort(key=lambda item: item.at)
+        return lifecycle
+    # Fallback for a repair without events (written by pre-ARCH-5 code).
     events: List[StatusReportEvent] = []
     if repair.created_at is not None:
         events.append(

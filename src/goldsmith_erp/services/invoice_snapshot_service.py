@@ -169,7 +169,7 @@ class InvoiceSnapshotService:
         """
         credit = float(scrap_gold_credit)
         total = _money(invoice.total)
-        return {
+        snapshot: Dict[str, Any] = {
             "version": SNAPSHOT_VERSION,
             "backfilled": backfilled,
             "captured_at": datetime.now(timezone.utc).isoformat(),
@@ -203,6 +203,16 @@ class InvoiceSnapshotService:
                 "amount_due": float(money(dec(invoice.total) - dec(scrap_gold_credit))),
             },
         }
+        # ARCH phase 5: a repair invoice names the repair instead of an order
+        # id on the PDF ("Reparaturnummer: REP-..."). Only set when present,
+        # so order snapshots keep their W1-10 layout.
+        reference = getattr(order, "reference", None)
+        if reference:
+            snapshot["invoice"]["reference"] = reference
+            snapshot["invoice"]["reference_label"] = getattr(
+                order, "reference_label", None
+            )
+        return snapshot
 
     @staticmethod
     def dump(snapshot: Dict[str, Any]) -> str:
@@ -294,6 +304,8 @@ class InvoiceSnapshotService:
             if invoice.status == InvoiceStatus.CANCELLED
             else InvoiceService._scrap_gold_credit_amount(
                 await InvoiceService._get_scrap_gold_credit(db, invoice.order_id)
+                if invoice.order_id is not None
+                else []
             )
         )
         snapshot = InvoiceSnapshotService.build(
@@ -369,6 +381,8 @@ class InvoiceSnapshotService:
             invoice=SimpleNamespace(
                 invoice_number=header["invoice_number"],
                 order_id=header["order_id"],
+                reference=header.get("reference"),
+                reference_label=header.get("reference_label"),
                 issue_date=_parse_dt(header["issue_date"]),
                 due_date=_parse_dt(header["due_date"]),
                 service_date=_parse_dt(header.get("service_date")),

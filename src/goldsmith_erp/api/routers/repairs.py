@@ -37,6 +37,7 @@ from goldsmith_erp.models.customer_update import (
     CustomerUpdateRead,
     CustomerUpdateSendResult,
 )
+from goldsmith_erp.models.invoice import InvoiceResponse, RepairInvoiceCreate
 from goldsmith_erp.models.pagination import (
     Page,
     PageParams,
@@ -63,6 +64,7 @@ from goldsmith_erp.services.customer_update_service import (
 from goldsmith_erp.services.label_service import LabelService
 from goldsmith_erp.services.pdf_service import render_repair_intake_receipt_pdf
 from goldsmith_erp.services.photo_service import PhotoValidationError
+from goldsmith_erp.services.repair_invoice_service import RepairInvoiceService
 from goldsmith_erp.services.repair_photo_service import RepairPhotoService
 from goldsmith_erp.services.repair_service import (
     InvalidChecklistPhotoError,
@@ -552,6 +554,36 @@ async def cancel_repair(
         )
     repair = await RepairService.get_repair(db, repair.id)
     return repair
+
+
+# ============================================================================
+# INVOICE (Rechnung) — ARCH-02 / ARCH phase 5
+# ============================================================================
+
+
+@router.post(
+    "/{repair_id}/invoice",
+    response_model=InvoiceResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+@require_permission(Permission.INVOICE_CREATE)
+async def create_repair_invoice(
+    repair_id: int,
+    invoice_in: RepairInvoiceCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Rechnung für eine fertige Reparatur erstellen.
+
+    Nur für Status ``ready`` oder ``picked_up`` und mit zugeordnetem Kunden.
+    Position: vereinbarter Nettopreis (tatsächliche Kosten, sonst
+    Kostenvoranschlag); Nummer, MwSt, §14-Angaben und Snapshot wie bei
+    Auftragsrechnungen. 409, wenn schon eine aktive Rechnung existiert.
+    """
+    return await RepairInvoiceService.create_invoice_for_repair(
+        db, repair_id, invoice_in, current_user
+    )
 
 
 # ============================================================================
