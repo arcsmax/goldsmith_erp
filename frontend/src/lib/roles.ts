@@ -93,6 +93,15 @@ export function canCreateQuotes(role?: UserRole | string | null): boolean {
   return normalized === 'ADMIN' || normalized === 'GOLDSMITH';
 }
 
+/**
+ * True when the caller may create, edit or delete materials. Mirrors
+ * `Permission.MATERIAL_CREATE` / `MATERIAL_EDIT` / `MATERIAL_DELETE`
+ * (ADMIN only; GOLDSMITH and VIEWER hold MATERIAL_VIEW).
+ */
+export function canManageMaterials(role?: UserRole | string | null): boolean {
+  return normalizeRole(role) === 'ADMIN';
+}
+
 /** Short German hint shown where hiding a financial section would
  *  otherwise leave a confusing empty gap. */
 export const FINANCIAL_HIDDEN_HINT = 'Keine Berechtigung für Finanzdaten';

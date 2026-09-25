@@ -8,15 +8,23 @@
 // of a crash/"undefined", and the price/value columns disappear entirely;
 // GOLDSMITH keeps seeing real prices.
 import { describe, expect, it, vi, afterEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { screen } from '@testing-library/react';
 import type { MaterialType } from '../types';
+import { renderWithQuery } from '../test/queryWrapper';
 
-const mockGetAll = vi.fn();
-vi.mock('../api', () => ({
-  materialsApi: {
-    getAll: (...args: unknown[]) => mockGetAll(...args),
-  },
-}));
+// W4-03: the page reads GET /materials/?offset=… (Page envelope).
+const mockPage = vi.fn();
+vi.mock('../api/paged', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../api/paged')>();
+  return {
+    ...actual,
+    pagedApi: { ...actual.pagedApi, materials: (...args: unknown[]) => mockPage(...args) },
+  };
+});
+
+function pageOf(items: MaterialType[]) {
+  return { items, total: items.length, limit: 25, offset: 0, next_offset: null };
+}
 
 const mockUseAuth = vi.fn();
 vi.mock('../contexts', () => ({
@@ -63,11 +71,11 @@ afterEach(() => {
 describe('MaterialsPage — VIEWER role projection', () => {
   it('does not crash and shows no price/value columns when unit_price is absent', async () => {
     mockUseAuth.mockReturnValue({ user: { role: 'VIEWER' } });
-    mockGetAll.mockResolvedValue([makeViewerProjectedMaterial()]);
+    mockPage.mockResolvedValue(pageOf([makeViewerProjectedMaterial()]));
 
-    render(<MaterialsPage />);
+    renderWithQuery(<MaterialsPage />);
 
-    expect(await screen.findByText('Feingold 999')).toBeInTheDocument();
+    expect((await screen.findAllByText('Feingold 999')).length).toBeGreaterThan(0);
     expect(screen.queryByText('Preis/Einheit')).not.toBeInTheDocument();
     expect(screen.queryByText('Wert')).not.toBeInTheDocument();
     // No leaked "undefined €" / "NaN €" anywhere in the row.
@@ -79,13 +87,29 @@ describe('MaterialsPage — VIEWER role projection', () => {
 
   it('shows the price/value columns and totals for GOLDSMITH', async () => {
     mockUseAuth.mockReturnValue({ user: { role: 'GOLDSMITH' } });
-    mockGetAll.mockResolvedValue([makeFullMaterial()]);
+    mockPage.mockResolvedValue(pageOf([makeFullMaterial()]));
 
-    render(<MaterialsPage />);
+    renderWithQuery(<MaterialsPage />);
 
-    expect(await screen.findByText('Feingold 999')).toBeInTheDocument();
-    expect(screen.getByText('Preis/Einheit')).toBeInTheDocument();
-    expect(screen.getByText('Wert')).toBeInTheDocument();
+    expect((await screen.findAllByText('Feingold 999')).length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Preis/Einheit').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Wert').length).toBeGreaterThan(0);
     expect(screen.getByText(/Gesamtwert/)).toBeInTheDocument();
+  });
+
+  it('offers create/edit/delete only to ADMIN (MATERIAL_CREATE/EDIT/DELETE)', async () => {
+    mockUseAuth.mockReturnValue({ user: { role: 'GOLDSMITH' } });
+    mockPage.mockResolvedValue(pageOf([makeFullMaterial()]));
+    const { unmount } = renderWithQuery(<MaterialsPage />);
+    await screen.findAllByText('Feingold 999');
+    expect(screen.queryByRole('button', { name: 'Material anlegen' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Feingold 999 löschen' })).not.toBeInTheDocument();
+    unmount();
+
+    mockUseAuth.mockReturnValue({ user: { role: 'ADMIN' } });
+    renderWithQuery(<MaterialsPage />);
+    await screen.findAllByText('Feingold 999');
+    expect(screen.getByRole('button', { name: 'Material anlegen' })).toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: 'Feingold 999 löschen' }).length).toBeGreaterThan(0);
   });
 });

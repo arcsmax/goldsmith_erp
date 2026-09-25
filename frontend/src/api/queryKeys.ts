@@ -14,7 +14,7 @@
  * Never build a key inline in a component; add it here so invalidation
  * stays in sync.
  */
-import type { OrderPageParams } from './paged';
+import type { MaterialPageParams, OrderPageParams } from './paged';
 
 export interface CustomerListParams {
   skip: number;
@@ -69,5 +69,9 @@ export const queryKeys = {
   materials: {
     all: ['materials'] as const,
     lowStock: (threshold: number) => [...queryKeys.materials.all, 'low-stock', { threshold }] as const,
+    /** GET /materials/?offset=… (Page envelope, `q` searches name and supplier). */
+    page: (params: MaterialPageParams) => [...queryKeys.materials.all, 'page', params] as const,
+    /** GET /materials/purchase-list (legacy plain list, grouped by supplier). */
+    purchaseList: () => [...queryKeys.materials.all, 'purchase-list'] as const,
   },
 } as const;
