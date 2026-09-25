@@ -104,4 +104,43 @@ describe('CustomerPortalPage — public portal lookup', () => {
       email: 'user@example.de',
     });
   });
+
+  it('shows the customer-facing status label and steps, never the staff label', async () => {
+    render(
+      <MemoryRouter initialEntries={['/portal']}>
+        <CustomerPortalPage />
+      </MemoryRouter>
+    );
+    fireEvent.change(screen.getByLabelText(/Auftragsnummer oder Reparaturnummer/i), {
+      target: { value: 'ORD-123' },
+    });
+    fireEvent.change(screen.getByLabelText(/E-Mail-Adresse/i), {
+      target: { value: 'customer@example.de' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /status prüfen/i }));
+
+    expect(await screen.findByRole('heading', { name: 'Ehering' })).toBeInTheDocument();
+    expect(screen.getByText('In Arbeit')).toBeInTheDocument();
+    expect(screen.queryByText('In Bearbeitung')).not.toBeInTheDocument();
+    expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '40');
+    expect(screen.getByText('B').closest('li')).toHaveAttribute('aria-current', 'step');
+  });
+
+  it('reads a disabled or unknown lookup (404) as "not found" in plain language', async () => {
+    fetchSpy.mockResolvedValueOnce(new Response('{}', { status: 404 }));
+    render(
+      <MemoryRouter initialEntries={['/portal']}>
+        <CustomerPortalPage />
+      </MemoryRouter>
+    );
+    fireEvent.change(screen.getByLabelText(/Auftragsnummer oder Reparaturnummer/i), {
+      target: { value: 'X-1' },
+    });
+    fireEvent.change(screen.getByLabelText(/E-Mail-Adresse/i), {
+      target: { value: 'customer@example.de' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /status prüfen/i }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('keinen Auftrag');
+  });
 });

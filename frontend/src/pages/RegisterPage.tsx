@@ -1,8 +1,13 @@
-// Register Page Component
+// Register page (W4-03): Field + Button primitives, errors via getErrorMessage.
 import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../contexts';
+import { getErrorMessage } from '../lib/errors';
+import { Button, Field } from '../ui';
 import '../styles/auth.css';
+
+const MIN_PASSWORD_LENGTH = 6;
+const REGISTER_FAILED = 'Registrierung fehlgeschlagen. Bitte erneut versuchen.';
 
 export const RegisterPage: React.FC = () => {
   const [email, setEmail] = useState('');
@@ -20,20 +25,17 @@ export const RegisterPage: React.FC = () => {
     e.preventDefault();
     setError(null);
 
-    // Validate passwords match
     if (password !== confirmPassword) {
-      setError('Passwörter stimmen nicht überein');
+      setError('Passwörter stimmen nicht überein. Bitte beide Felder gleich ausfüllen.');
       return;
     }
 
-    // Validate password strength
-    if (password.length < 6) {
-      setError('Passwort muss mindestens 6 Zeichen lang sein');
+    if (password.length < MIN_PASSWORD_LENGTH) {
+      setError(`Passwort ist zu kurz. Bitte mindestens ${MIN_PASSWORD_LENGTH} Zeichen eingeben.`);
       return;
     }
 
     setIsLoading(true);
-
     try {
       await register({
         email,
@@ -42,41 +44,39 @@ export const RegisterPage: React.FC = () => {
         last_name: lastName,
       });
       navigate('/dashboard');
-    } catch (err: any) {
-      setError(
-        err.response?.data?.detail ||
-          'Registrierung fehlgeschlagen. Bitte versuchen Sie es erneut.'
-      );
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, REGISTER_FAILED));
     } finally {
       setIsLoading(false);
     }
   };
 
   return (
-    <div className="auth-container">
+    <main className="auth-container">
       <div className="auth-box">
-        <h1>Goldsmith ERP</h1>
-        <h2>Registrieren</h2>
+        <h1 className="auth-brand">Goldsmith ERP</h1>
+        <h2 className="auth-title">Registrieren</h2>
 
-        {error && <div className="error-message">{error}</div>}
+        {error && (
+          <div className="auth-alert" role="alert">
+            {error}
+          </div>
+        )}
 
         <form onSubmit={handleSubmit} className="auth-form">
-          <div className="form-group">
-            <label htmlFor="email">E-Mail *</label>
+          <Field label="E-Mail" name="email" inputMode="email" required>
             <input
               id="email"
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              required
               autoComplete="email"
               disabled={isLoading}
             />
-          </div>
+          </Field>
 
-          <div className="form-row">
-            <div className="form-group">
-              <label htmlFor="firstName">Vorname</label>
+          <div className="auth-form-row">
+            <Field label="Vorname" name="firstName">
               <input
                 id="firstName"
                 type="text"
@@ -85,10 +85,9 @@ export const RegisterPage: React.FC = () => {
                 autoComplete="given-name"
                 disabled={isLoading}
               />
-            </div>
+            </Field>
 
-            <div className="form-group">
-              <label htmlFor="lastName">Nachname</label>
+            <Field label="Nachname" name="lastName">
               <input
                 id="lastName"
                 type="text"
@@ -97,46 +96,47 @@ export const RegisterPage: React.FC = () => {
                 autoComplete="family-name"
                 disabled={isLoading}
               />
-            </div>
+            </Field>
           </div>
 
-          <div className="form-group">
-            <label htmlFor="password">Passwort *</label>
+          <Field
+            label="Passwort"
+            name="password"
+            required
+            help={`Mindestens ${MIN_PASSWORD_LENGTH} Zeichen.`}
+          >
             <input
               id="password"
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              required
               autoComplete="new-password"
               disabled={isLoading}
-              minLength={6}
+              minLength={MIN_PASSWORD_LENGTH}
             />
-          </div>
+          </Field>
 
-          <div className="form-group">
-            <label htmlFor="confirmPassword">Passwort bestätigen *</label>
+          <Field label="Passwort bestätigen" name="confirmPassword" required>
             <input
               id="confirmPassword"
               type="password"
               value={confirmPassword}
               onChange={(e) => setConfirmPassword(e.target.value)}
-              required
               autoComplete="new-password"
               disabled={isLoading}
-              minLength={6}
+              minLength={MIN_PASSWORD_LENGTH}
             />
-          </div>
+          </Field>
 
-          <button type="submit" disabled={isLoading} className="btn-primary">
-            {isLoading ? 'Wird registriert...' : 'Registrieren'}
-          </button>
+          <Button type="submit" block loading={isLoading}>
+            {isLoading ? 'Wird registriert…' : 'Registrieren'}
+          </Button>
         </form>
 
         <p className="auth-link">
           Bereits registriert? <Link to="/login">Anmelden</Link>
         </p>
       </div>
-    </div>
+    </main>
   );
 };

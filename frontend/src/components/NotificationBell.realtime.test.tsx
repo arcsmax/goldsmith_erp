@@ -1,4 +1,6 @@
 // W2-13 — a `notifications` hint refreshes the unread badge immediately.
+// W4-03: the bell reads through TanStack Query; the hint reaches it via the
+// app-wide RealtimeInvalidation bridge (['notifications'] root).
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, render, waitFor } from '@testing-library/react';
@@ -23,6 +25,8 @@ vi.mock('../api/notifications', () => ({
 }));
 
 import { WebSocketProvider } from '../contexts/WebSocketProvider';
+import { RealtimeInvalidation } from '../lib/realtimeInvalidation';
+import { createTestQueryClient, QueryWrapper } from '../test/queryWrapper';
 import { NotificationBell } from './NotificationBell';
 
 describe('NotificationBell live refresh', () => {
@@ -38,9 +42,12 @@ describe('NotificationBell live refresh', () => {
   it('refetches the unread count on a notifications hint', async () => {
     mocks.getUnreadCount.mockResolvedValueOnce({ unread_count: 0 });
     const view = render(
-      <WebSocketProvider>
-        <NotificationBell />
-      </WebSocketProvider>,
+      <QueryWrapper client={createTestQueryClient()}>
+        <WebSocketProvider>
+          <RealtimeInvalidation />
+          <NotificationBell />
+        </WebSocketProvider>
+      </QueryWrapper>,
     );
     await waitFor(() => expect(mocks.getUnreadCount).toHaveBeenCalledTimes(1));
 

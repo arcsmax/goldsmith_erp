@@ -7,7 +7,7 @@
  * the list, the pages and the details of that domain. Realtime hints
  * invalidate by root (lib/realtimeInvalidation.ts):
  *
- *   order_updates          → orders, dashboard, handoffs
+ *   order_updates          → orders, dashboard, handoffs, calendar
  *   time_tracking_updates  → timer, dashboard
  *   notifications          → notifications, handoffs
  *
@@ -56,6 +56,8 @@ export const queryKeys = {
     /** GET /customers/ (legacy list; the backend has no Page envelope yet). */
     list: (params: CustomerListParams) => [...queryKeys.customers.all, 'list', params] as const,
     detail: (id: number) => [...queryKeys.customers.all, 'detail', id] as const,
+    /** GET /customers/search?q=… (header search). */
+    search: (q: string, limit: number) => [...queryKeys.customers.all, 'search', { q, limit }] as const,
   },
   dashboard: {
     all: ['dashboard'] as const,
@@ -85,6 +87,8 @@ export const queryKeys = {
   },
   notifications: {
     all: ['notifications'] as const,
+    unreadCount: () => [...queryKeys.notifications.all, 'unread-count'] as const,
+    list: (limit: number) => [...queryKeys.notifications.all, 'list', { limit }] as const,
   },
   metalInventory: {
     all: ['metal-inventory'] as const,
@@ -94,5 +98,12 @@ export const queryKeys = {
   materials: {
     all: ['materials'] as const,
     lowStock: (threshold: number) => [...queryKeys.materials.all, 'low-stock', { threshold }] as const,
+    /** GET /materials/?limit=… (header search index). */
+    list: (limit: number) => [...queryKeys.materials.all, 'list', { limit }] as const,
+  },
+  calendar: {
+    all: ['calendar'] as const,
+    /** GET /calendar/events for one visible date range. */
+    events: (range: DateRange) => [...queryKeys.calendar.all, 'events', range] as const,
   },
 } as const;
