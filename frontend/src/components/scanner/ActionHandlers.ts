@@ -50,6 +50,7 @@ import {
   type PunzierungsCheckPayload,
 } from '../qc/PunzierungsCheckModal';
 import { ActivityPickerModal } from './ActivityPickerModal';
+import type { PickedLocation } from './LocationPrompt';
 import { orderPhotoCaptureLink } from '../orders/orderDeepLink';
 
 // ---------------------------------------------------------------------------
@@ -67,6 +68,20 @@ export interface ActionHooks {
   closeOverlay: () => void;
   /** Ask TimeTrackingContext to re-fetch its running entry. */
   refreshTimer: () => Promise<void>;
+  /**
+   * "Standort setzen": ask for the piece's new location (prefilled with the
+   * scan's location). Resolves null when the user cancels.
+   */
+  promptLocation?: (current: PickedLocation | null) => Promise<PickedLocation | null>;
+}
+
+/**
+ * What an action did, for the scan log's action row (scan tracking).
+ * `result` defaults to "ok"; `location` is the location it set.
+ */
+export interface ActionOutcome {
+  result?: 'ok' | 'cancelled';
+  location?: { name: string | null; id: number | null };
 }
 
 export interface ActionHandlerContext {
@@ -92,7 +107,7 @@ export interface ActionHandlerContext {
   userId?: number | null;
 }
 
-export type ActionHandler = (ctx: ActionHandlerContext) => Promise<void>;
+export type ActionHandler = (ctx: ActionHandlerContext) => Promise<ActionOutcome | void>;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -329,9 +344,62 @@ async function handleChangeStatus(ctx: ActionHandlerContext): Promise<void> {
   ctx.hooks.closeOverlay();
 }
 
-async function handleChangeLocation(ctx: ActionHandlerContext): Promise<void> {
-  const id = requireOrderId(ctx, 'Ort ändern ist hier nur für Aufträge möglich.');
-  ctx.hooks.navigate(`/orders/${id}?edit=location`);
+/** Order location column is String(50) (LocationChangeRequest). */
+export const MAX_PIECE_LOCATION = 50;
+
+/**
+ * "Standort setzen": the piece's current location. Orders store it
+ * (POST /orders/{id}/location, which also writes location_history); a
+ * repair has no location column, so for repairs the scan log's action row
+ * is the record ("Zuletzt gescannt … in …").
+ */
+async function handleChangeLocation(ctx: ActionHandlerContext): Promise<ActionOutcome> {
+  const entity = getEntity(ctx);
+  if (entity === null || (entity.entity_type !== 'order' && entity.entity_type !== 'repair')) {
+    throw new Error('Standort kann nur für Aufträge und Reparaturen gesetzt werden.');
+  }
+  if (ctx.hooks.promptLocation === undefined) {
+    throw new Error('Standort-Auswahl ist hier nicht verfügbar.');
+  }
+  const current = ctx.scanContext.current_location
+    ? { id: ctx.scanContext.location_id ?? null, name: ctx.scanContext.current_location }
+    : null;
+  const picked = await ctx.hooks.promptLocation(current);
+  const name = picked === null ? '' : picked.name.trim().slice(0, MAX_PIECE_LOCATION);
+  if (picked === null || name.length === 0) return { result: 'cancelled' };
+  if (entity.entity_type === 'order') {
+    // W8: the configured location id wins server side; the name is the
+    // legacy text kept in sync for one release.
+    await apiClient.post(`/orders/${entity.entity_id}/location`, {
+      location: name,
+      ...(picked.id !== null ? { location_id: picked.id } : {}),
+    });
+  }
+  ctx.hooks.toast(`Standort gesetzt: ${name}`, 'success');
+  ctx.hooks.closeOverlay();
+  return { location: { name, id: picked.id } };
+}
+
+/** "Übergabe": the order's handoff section (Arbeit tab). */
+async function handleHandover(ctx: ActionHandlerContext): Promise<void> {
+  const id = requireOrderId(ctx, 'Übergabe ist nur für Aufträge möglich.');
+  ctx.hooks.navigate(`/orders/${id}?tab=handoff`);
+  ctx.hooks.closeOverlay();
+}
+
+/** "Status weiter" on a repair: its page leads with the next step. */
+async function handleAdvanceRepair(ctx: ActionHandlerContext): Promise<void> {
+  const entity = getEntity(ctx);
+  if (entity === null || entity.entity_type !== 'repair') {
+    throw new Error('Status weiter ist hier nur für Reparaturen möglich.');
+  }
+  ctx.hooks.navigate(`/repairs/${entity.entity_id}`);
+  ctx.hooks.closeOverlay();
+}
+
+/** "Nur erfassen": the scan row is already written; just close. */
+async function handleLogOnly(ctx: ActionHandlerContext): Promise<void> {
+  ctx.hooks.toast('Scan erfasst.', 'success');
   ctx.hooks.closeOverlay();
 }
 
@@ -564,7 +632,17 @@ export const ACTION_HANDLERS: Record<string, ActionHandler> = {
   open_entity: handleOpenEntity,
   consume_material: handleConsumeMaterial,
   punzierung_check: handlePunzierungCheck,
+  handover: handleHandover,
+  advance_repair: handleAdvanceRepair,
+  log_only: handleLogOnly,
 };
+
+const SUPPORTED_ACTIONS: ReadonlySet<string> = new Set(Object.keys(ACTION_HANDLERS));
+
+/** True when the sheet can execute this action id (others are hidden). */
+export function isSupportedAction(actionId: string): boolean {
+  return SUPPORTED_ACTIONS.has(actionId);
+}
 
 /**
  * Build an ActionExecution payload for the (future) /scan/action/:id
@@ -589,10 +667,10 @@ export function buildActionExecution(
 export async function dispatchAction(
   actionId: string,
   ctx: ActionHandlerContext,
-): Promise<void> {
-  const handler = ACTION_HANDLERS[actionId];
-  if (!handler) {
+): Promise<ActionOutcome> {
+  if (!isSupportedAction(actionId)) {
     throw new Error(`Unbekannte Aktion: ${actionId}`);
   }
-  await handler(ctx);
+  const outcome = await ACTION_HANDLERS[actionId](ctx);
+  return outcome ?? {};
 }

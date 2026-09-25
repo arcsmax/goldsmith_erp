@@ -56,6 +56,14 @@ DeviceType = Literal["mobile", "desktop", "tablet"]
 # metric (spec §14.a). Nullable everywhere.
 FallbackReason = Literal["camera_denied", "camera_unavailable", "user_choice"]
 
+# How a follow-up action row ended (scan tracking, 2026-09 audit).
+ActionResult = Literal["ok", "failed", "cancelled"]
+
+# Canonical lowercase UUID (any version) — device ids and scan-row ids.
+_UUID_PATTERN = (
+    r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+)
+
 
 # --------------------------------------------------------------------------- #
 # ScanContext — B1 strict whitelist
@@ -98,6 +106,9 @@ class ScanContext(StrictRequestBase):
     running_timer_id: Optional[str] = Field(default=None, max_length=36)
     current_order_id: Optional[int] = Field(default=None, gt=0)
     current_location: Optional[str] = Field(default=None, max_length=100)
+    # Configured workshop location (W8 ``workshop_locations``); the server
+    # resolves it to the location's name in ``current_location``.
+    location_id: Optional[int] = Field(default=None, gt=0)
     device_type: Optional[DeviceType] = None
     input_source: InputSource = "manual"
     client_version: Optional[str] = Field(
@@ -105,6 +116,12 @@ class ScanContext(StrictRequestBase):
         max_length=32,
         pattern=_CLIENT_VERSION_PATTERN,
     )
+    # Scan tracking (2026-09 audit, SC-01): which bench tablet scanned, which
+    # scan row an action row follows up, and how the action ended. Kept in
+    # the JSON ``context`` bag (no migration); still whitelisted here.
+    device_id: Optional[str] = Field(default=None, pattern=_UUID_PATTERN)
+    parent_scan_id: Optional[str] = Field(default=None, pattern=_UUID_PATTERN)
+    action_result: Optional[ActionResult] = None
 
 
 # --------------------------------------------------------------------------- #

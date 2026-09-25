@@ -350,10 +350,11 @@ describe('QuickActionModalV2 accessibility', () => {
         onContinueScanning={vi.fn()}
       />,
     );
-    const dialog = screen.getByTestId('qa-modal-v2');
-    expect(dialog.getAttribute('role')).toBe('dialog');
+    // Sheet primitive: the dialog is labelled by its visible title.
+    const dialog = screen.getByRole('dialog');
     expect(dialog.getAttribute('aria-modal')).toBe('true');
-    expect(dialog.getAttribute('aria-labelledby')).toBe('qa-title');
+    expect(dialog).toHaveAccessibleName(screen.getByTestId('qa-title').textContent ?? '');
+    expect(dialog.contains(screen.getByTestId('qa-modal-v2'))).toBe(true);
   });
 
   it('triggers onClose on Escape', () => {
@@ -421,7 +422,7 @@ describe('QuickActionModalV2 footer', () => {
       />,
     );
     const user = userEvent.setup();
-    await user.click(screen.getByTestId('qa-close'));
+    await user.click(screen.getByRole('button', { name: 'Schließen' }));
     expect(onClose).toHaveBeenCalled();
   });
 });

@@ -354,8 +354,10 @@ class TestActionComputation:
         )
         action_ids = {a.id for a in resp.actions}
         assert "change_status" in action_ids
-        assert "add_material" in action_ids
+        assert "handover" in action_ids
+        assert "change_location" in action_ids
         assert "take_photo" in action_ids
+        assert action_ids.isdisjoint({"add_material", "add_note", "contact_customer"})
 
     @pytest.mark.asyncio
     async def test_timer_switch_primary_when_running_on_different_order(

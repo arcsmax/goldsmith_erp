@@ -10,6 +10,7 @@
  *   notifications          → ['notifications'], ['handoffs']
  *   repair_updates         → ['repairs'], ['jobs']
  *   job_updates            → ['jobs']
+ *   scan_updates           → ['scan-log'] + the scanned piece's detail (last_scan)
  *
  * Invalidation refetches only the queries that are mounted; the rest are
  * marked stale and refetch on their next mount. Hints carry ids and status
@@ -38,7 +39,20 @@ export const REALTIME_INVALIDATIONS: Readonly<Record<RealtimeChannel, readonly Q
   notifications: [queryKeys.notifications.all, queryKeys.handoffs.all],
   repair_updates: [queryKeys.repairs.all, queryKeys.jobs.all],
   job_updates: [queryKeys.jobs.all],
+  // Every Scan-Verlauf list; the scanned piece's detail (its "Zuletzt
+  // gescannt" line) is added per hint by scanPieceKeys below, so a busy
+  // bench does not refetch every order list on each scan.
+  scan_updates: [queryKeys.scanLog.all],
 };
+
+/** The detail query of the piece a `scan_updates` hint is about, if any. */
+export function scanPieceKeys(data: Readonly<Record<string, unknown>>): QueryKey[] {
+  const id = Number(data.entity_id);
+  if (!Number.isInteger(id) || id <= 0) return [];
+  if (data.entity_type === 'order') return [queryKeys.orders.detail(id)];
+  if (data.entity_type === 'repair') return [queryKeys.repairs.detail(id)];
+  return [];
+}
 
 /** Mark every query of the channel's roots stale and refetch the mounted ones. */
 export async function invalidateForChannel(
@@ -65,6 +79,14 @@ export function useRealtimeInvalidation(): void {
   useRealtime('notifications', handle('notifications'));
   useRealtime('repair_updates', handle('repair_updates'));
   useRealtime('job_updates', handle('job_updates'));
+  useRealtime('scan_updates', (event) => {
+    handle('scan_updates')();
+    scanPieceKeys(event.data).forEach((queryKey) => {
+      client
+        .invalidateQueries({ queryKey })
+        .catch((err) => logInvalidationError('scan_updates', err));
+    });
+  });
 }
 
 /** Render-nothing mount point for App.tsx (inside WebSocketProvider). */

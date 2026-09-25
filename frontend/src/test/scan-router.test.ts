@@ -258,18 +258,17 @@ describe('ScannerRouter.resolve — input validation', () => {
     expect(transport.resolve).toHaveBeenCalledWith(big, CTX);
   });
 
-  it('lowercase prefix "order:42" is NOT canonicalised (uppercase grammar)', async () => {
-    // Decision: we route only uppercase canonical forms. Lowercase gets treated
-    // as an alias candidate so the server can log it as an unknown or the
-    // alias table can eventually resolve it.
+  it('lowercase prefix "order:42" is canonicalised like the backend does', async () => {
+    // 2026-09 audit: the backend already upper-cases the prefix
+    // (_split_prefix); hand-typed "order:42" is the same piece.
     const resolver = makeMockResolver(null);
-    const transport = makeMockTransport(stubResponse('unknown'));
+    const transport = makeMockTransport(stubResponse('prefix'));
     const router = new ScannerRouter(resolver, transport);
 
     await router.resolve('order:42', CTX);
 
-    expect(resolver.lookup).toHaveBeenCalledWith('order:42');
-    expect(transport.resolve).toHaveBeenCalledWith('order:42', CTX);
+    expect(resolver.lookup).not.toHaveBeenCalled();
+    expect(transport.resolve).toHaveBeenCalledWith('ORDER:42', CTX);
   });
 });
 

@@ -12,7 +12,8 @@
 import { queryOptions } from '@tanstack/react-query';
 
 import apiClient from './client';
-import { queryKeys } from './queryKeys';
+import type { Schema } from './generated';
+import { queryKeys, type ScanHistorySearchParams } from './queryKeys';
 import { NetworkTransport } from '../lib/network-transport';
 import type {
   BatchLogResponse,
@@ -43,6 +44,58 @@ export async function resolvePayload(
 /** Log a single scan event (fire-and-forget from the UI side). */
 export async function logScan(event: ScanEvent): Promise<void> {
   return transport.logScan(event);
+}
+
+/**
+ * Scan tracking: write one scan_logs row and return it (its id links the
+ * follow-up action row). The body's idempotency_key drives the server
+ * dedupe, so a retry of the same event never writes a second row.
+ */
+export async function logScanEvent(event: ScanEvent): Promise<ScanLogRead> {
+  const { data } = await apiClient.post<ScanLogRead>('/scan/log', event, {
+    headers: {
+      'Idempotency-Key': event.idempotency_key ?? crypto.randomUUID(),
+      'X-Client-Created-At': new Date().toISOString(),
+    },
+  });
+  return data;
+}
+
+export type PieceScan = Schema<'PieceScanRead'>;
+export type PieceScanPage = Schema<'PieceScanPage'>;
+export type ScanHistoryRow = Schema<'ScanHistoryRow'>;
+export type ScanHistoryPage = Schema<'ScanHistoryPage'>;
+export type LastScan = Schema<'LastScanRead'>;
+export type ScanPieceType = 'order' | 'repair';
+
+const PIECE_PATHS: Readonly<Record<ScanPieceType, string>> = {
+  order: '/orders',
+  repair: '/repairs',
+};
+
+/** Scan-Verlauf of one order / repair: newest first, VIEWER allowed. */
+export function pieceScansQuery(entityType: ScanPieceType, id: number, limit: number) {
+  return queryOptions({
+    queryKey: queryKeys.scanLog.piece(entityType, id, limit),
+    queryFn: async (): Promise<PieceScanPage> => {
+      const { data } = await apiClient.get<PieceScanPage>(
+        `${PIECE_PATHS[entityType]}/${id}/scans`,
+        { params: { limit, offset: 0 } },
+      );
+      return data;
+    },
+  });
+}
+
+/** Search across pieces and users (ADMIN / GOLDSMITH; the server refuses others). */
+export function scanHistorySearchQuery(params: ScanHistorySearchParams) {
+  return queryOptions({
+    queryKey: queryKeys.scanLog.search(params),
+    queryFn: async (): Promise<ScanHistoryPage> => {
+      const { data } = await apiClient.get<ScanHistoryPage>('/scan/history', { params });
+      return data;
+    },
+  });
 }
 
 /**

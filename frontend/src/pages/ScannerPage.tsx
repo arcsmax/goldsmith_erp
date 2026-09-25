@@ -14,6 +14,12 @@
 //     runs first (components/scanner/scanHistory.ts).
 //   * The running timer (TimeTrackingContext) shows with its pause state.
 //   * The Werkbank-Modus toggle sits in the header (per device).
+//   * Scan tracking (2026-09 audit, SC-01): every resolve (camera, hand
+//     scanner, typed number, "Letzte Scans" re-open) is logged right away
+//     (components/scanner/scanTracking.ts) with this device's id and bench
+//     location ("Standort dieses Geräts", chosen once per device), then
+//     handed to the overlay's action sheet. ADMIN / GOLDSMITH also get the
+//     cross-piece Scan-Verlauf search (pages/admin/ScanHistoryPanel.tsx).
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery, useQueryClient, type UseQueryResult } from '@tanstack/react-query';
 
@@ -21,14 +27,23 @@ import { queryKeys } from '../api/queryKeys';
 import { scanHistoryQuery } from '../api/scanner';
 import { BenchModeToggle } from '../components/scanner/BenchModeToggle';
 import { QrCameraScanner, type ScanSource } from '../components/scanner/QrCameraScanner';
+import { DeviceLocationSetting } from '../components/scanner/DeviceLocationSetting';
 import {
   HISTORY_LIMIT,
   describeAction,
   describeScanLog,
   formatScanTime,
-  makeScanContext,
   migrateLegacyScanHistory,
 } from '../components/scanner/scanHistory';
+import {
+  buildScanContext,
+  flushScanQueue,
+  handOffScan,
+  recordScan,
+} from '../components/scanner/scanTracking';
+import { useOptionalAuth } from '../contexts/AuthContext';
+import { canCreateOrders } from '../lib/roles';
+import { ScanHistoryPanel } from './admin/ScanHistoryPanel';
 import { useScannerContext } from '../contexts/ScannerContext';
 import { useTimeTracking } from '../contexts/TimeTrackingContext';
 import { getErrorMessage } from '../lib/errors';
@@ -137,7 +152,16 @@ export const ScannerPage: React.FC = () => {
   const [cameraActive, setCameraActive] = useState(false);
   const manualInputRef = useRef<HTMLInputElement | null>(null);
 
+  const auth = useOptionalAuth();
+  // Mirrors the backend gate on GET /scan/history (ADMIN + GOLDSMITH).
+  const canSearchScans = canCreateOrders(auth?.user?.role);
+
   const isMigrated = useLegacyMigration();
+
+  // Scans that could not be sent earlier (offline) go out now.
+  useEffect(() => {
+    void flushScanQueue();
+  }, []);
   const history = useQuery({ ...scanHistoryQuery(HISTORY_LIMIT), enabled: isMigrated });
 
   // One router per page lifetime; NetworkTransport uses the shared apiClient.
@@ -159,21 +183,24 @@ export const ScannerPage: React.FC = () => {
       setIsScanning(true);
       setInputSource(source === 'camera' ? 'camera' : 'manual');
       setCameraActive(false);
+      const ctx = buildScanContext(source === 'camera' ? 'camera' : 'manual', {
+        stationLocation: currentLocation,
+        runningEntry,
+      });
       try {
-        const ctx = makeScanContext(
-          source,
-          currentLocation,
-          runningEntry?.id ?? null,
-          runningEntry?.order_id ?? null,
-        );
         const response: ResolveResponse = await router.resolve(trimmed, ctx);
-        // The overlay reads lastScan, so set it before opening.
+        // Logged before the sheet opens: a scan without an action counts.
+        const tracked = await recordScan(trimmed, response, ctx);
+        // The overlay opens straight on the action sheet for this scan.
+        handOffScan({ response, tracked, payload: trimmed });
         setLastScan(response);
         openScanner();
         setScanInput('');
         void queryClient.invalidateQueries({ queryKey: queryKeys.scanLog.all });
       } catch (err) {
         console.error('Scan konnte nicht verarbeitet werden', { source, err });
+        // The scan still happened: record it as resolve_failed.
+        await recordScan(trimmed, null, ctx);
         setError(scanErrorMessage(err));
       } finally {
         setIsScanning(false);
@@ -200,6 +227,8 @@ export const ScannerPage: React.FC = () => {
         secondaryActions={<BenchModeToggle />}
         stickyPrimary={false}
       />
+
+      <DeviceLocationSetting />
 
       {runningEntry && (
         <p className="scanner-running" role="status">
@@ -281,6 +310,8 @@ export const ScannerPage: React.FC = () => {
           onStartCamera={() => setCameraActive(true)}
         />
       </section>
+
+      {canSearchScans && <ScanHistoryPanel />}
     </div>
   );
 };
