@@ -5,7 +5,7 @@
  * `resync` event per channel after a reconnect). This module maps each
  * channel to the query roots it makes stale:
  *
- *   order_updates          → ['orders'], ['dashboard'], ['handoffs']
+ *   order_updates          → ['orders'], ['dashboard'], ['handoffs'], ['calendar']
  *   time_tracking_updates  → ['timer'], ['dashboard']
  *   notifications          → ['notifications'], ['handoffs']
  *
@@ -23,7 +23,13 @@ import { queryKeys } from '../api/queryKeys';
 import { useRealtime, type RealtimeChannel } from '../contexts/WebSocketProvider';
 
 export const REALTIME_INVALIDATIONS: Readonly<Record<RealtimeChannel, readonly QueryKey[]>> = {
-  order_updates: [queryKeys.orders.all, queryKeys.dashboard.all, queryKeys.handoffs.all],
+  order_updates: [
+    queryKeys.orders.all,
+    queryKeys.dashboard.all,
+    queryKeys.handoffs.all,
+    // Calendar deadlines are derived from order delivery dates.
+    queryKeys.calendar.all,
+  ],
   time_tracking_updates: [queryKeys.timer.all, queryKeys.dashboard.all],
   notifications: [queryKeys.notifications.all, queryKeys.handoffs.all],
 };
