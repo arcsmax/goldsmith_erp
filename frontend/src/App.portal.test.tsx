@@ -27,6 +27,7 @@ vi.mock('./api/client', () => ({
     delete: vi.fn(),
     interceptors: { request: { use: vi.fn() }, response: { use: vi.fn() } },
   },
+  PROBE_FREE_PATHS: ['/login', '/register'],
 }));
 
 vi.mock('./api', async (orig) => {

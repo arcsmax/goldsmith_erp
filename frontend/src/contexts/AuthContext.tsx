@@ -1,6 +1,7 @@
 // Authentication Context - Global auth state management
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { authApi } from '../api';
+import { PROBE_FREE_PATHS } from '../api/client';
 import {
   UserType,
   UserRole,
@@ -9,13 +10,6 @@ import {
   AuthContextType,
 } from '../types';
 import { logError } from '../lib/logError';
-
-/**
- * Logged-out pages where a missing session is the normal case (LV-21).
- * Without a cached user there is nothing to validate, so the probe is
- * skipped and the page makes no 401 calls that show up as console errors.
- */
-const PROBE_FREE_PATHS: readonly string[] = ['/login', '/register'];
 
 const HTTP_UNAUTHORIZED = 401;
 

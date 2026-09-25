@@ -19,7 +19,10 @@ vi.mock('../api', () => ({
     register: vi.fn(),
   },
 }));
-vi.mock('../api/client', () => ({ default: { post: vi.fn(), get: vi.fn() } }));
+vi.mock('../api/client', () => ({
+  default: { post: vi.fn(), get: vi.fn() },
+  PROBE_FREE_PATHS: ['/login', '/register'],
+}));
 
 import { AuthProvider, useAuth } from './AuthContext';
 

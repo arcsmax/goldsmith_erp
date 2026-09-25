@@ -32,7 +32,10 @@ vi.mock('../api/time-tracking', () => ({
 vi.mock('../api/activities', () => ({
   activitiesApi: { getAll: mocks.getAllActivities },
 }));
-vi.mock('../api/client', () => ({ default: { post: vi.fn(), get: vi.fn() } }));
+vi.mock('../api/client', () => ({
+  default: { post: vi.fn(), get: vi.fn() },
+  PROBE_FREE_PATHS: ['/login', '/register'],
+}));
 vi.mock('../hooks/useWebSocket', () => ({ useWebSocket: () => undefined }));
 
 import { AuthProvider, useAuth } from './AuthContext';
