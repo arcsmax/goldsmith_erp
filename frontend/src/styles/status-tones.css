@@ -68,6 +68,14 @@
   border: 1px solid var(--tone-waiting-border);
 }
 
+/* waiting, paused (W2-07/W2-08 on_hold "Pausiert"): dashed border so it
+ * reads differently from "Wartet auf Anprobe" beyond icon and label */
+:root .status-badge.status-on_hold {
+  color: var(--tone-waiting-fg);
+  background: var(--tone-waiting-bg);
+  border: 1px dashed var(--tone-waiting-border);
+}
+
 /* check */
 :root .status-badge.status-quality_check,
 :root .status-badge.quality_check {
@@ -92,8 +100,9 @@
   border: 3px double var(--tone-handover-border);
 }
 
-/* danger: struck-through label */
-:root .status-badge.cancelled {
+/* danger: struck-through label (repairs and, since W2-07, orders) */
+:root .status-badge.cancelled,
+:root .status-badge.status-cancelled {
   color: var(--tone-danger-fg);
   background: var(--tone-danger-bg);
   border: 1px solid var(--tone-danger-border);
