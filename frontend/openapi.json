@@ -14990,6 +14990,80 @@
         }
       }
     },
+    "/api/v1/repairs/{repair_id}/invoice": {
+      "post": {
+        "tags": [
+          "repairs"
+        ],
+        "summary": "Create Repair Invoice",
+        "description": "Rechnung für eine fertige Reparatur erstellen.\n\nNur für Status ``ready`` oder ``picked_up`` und mit zugeordnetem Kunden.\nPosition: vereinbarter Nettopreis (tatsächliche Kosten, sonst\nKostenvoranschlag); Nummer, MwSt, §14-Angaben und Snapshot wie bei\nAuftragsrechnungen. 409, wenn schon eine aktive Rechnung existiert.",
+        "operationId": "create_repair_invoice_api_v1_repairs__repair_id__invoice_post",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "repair_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Repair Id"
+            }
+          },
+          {
+            "name": "access_token",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Access Token"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RepairInvoiceCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvoiceResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/repairs/{repair_id}/customer-updates": {
       "get": {
         "tags": [
@@ -15425,6 +15499,307 @@
             "content": {
               "application/json": {
                 "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/jobs/": {
+      "get": {
+        "tags": [
+          "jobs"
+        ],
+        "summary": "List Jobs",
+        "description": "Aufträge und Reparaturen gemeinsam, seitenweise (Grundlage Kanban).",
+        "operationId": "list_jobs_api_v1_jobs__get",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "kind",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/JobKind"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "order oder repair",
+              "title": "Kind"
+            },
+            "description": "order oder repair"
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/JobStatus"
+                  }
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Einheitlicher Status (mehrfach möglich)",
+              "title": "Status"
+            },
+            "description": "Einheitlicher Status (mehrfach möglich)"
+          },
+          {
+            "name": "customer_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "exclusiveMinimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Customer Id"
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 100
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Nummer, Titel oder Kunde",
+              "title": "Q"
+            },
+            "description": "Nummer, Titel oder Kunde"
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "sort",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 200
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Kommagetrennt, absteigend mit '-': created_at, deadline, kind, number, status, updated_at",
+              "title": "Sort"
+            },
+            "description": "Kommagetrennt, absteigend mit '-': created_at, deadline, kind, number, status, updated_at"
+          },
+          {
+            "name": "access_token",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Access Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_JobListItem_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/jobs/{job_id}": {
+      "get": {
+        "tags": [
+          "jobs"
+        ],
+        "summary": "Get Job",
+        "description": "Ein Vorgang (Auftrag oder Reparatur).",
+        "operationId": "get_job_api_v1_jobs__job_id__get",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Job Id"
+            }
+          },
+          {
+            "name": "access_token",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Access Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobListItem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/jobs/{job_id}/timeline": {
+      "get": {
+        "tags": [
+          "jobs"
+        ],
+        "summary": "Get Job Timeline",
+        "description": "Verlauf eines Vorgangs; nutzt die Timeline der jeweiligen Art.",
+        "operationId": "get_job_timeline_api_v1_jobs__job_id__timeline_get",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Job Id"
+            }
+          },
+          {
+            "name": "access_token",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Access Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobTimelineRead"
+                }
               }
             }
           },
@@ -27008,12 +27383,6 @@
       },
       "InvoiceCreate": {
         "properties": {
-          "order_id": {
-            "type": "integer",
-            "exclusiveMinimum": 0.0,
-            "title": "Order Id",
-            "description": "Order ID to generate invoice from"
-          },
           "due_date": {
             "type": "string",
             "format": "date-time",
@@ -27087,12 +27456,18 @@
             ],
             "title": "Additional Line Items",
             "description": "Additional line items beyond those auto-generated from the order"
+          },
+          "order_id": {
+            "type": "integer",
+            "exclusiveMinimum": 0.0,
+            "title": "Order Id",
+            "description": "Order ID to generate invoice from"
           }
         },
         "type": "object",
         "required": [
-          "order_id",
-          "due_date"
+          "due_date",
+          "order_id"
         ],
         "title": "InvoiceCreate",
         "description": "Schema for creating an invoice from an order.\n\nThe service will auto-populate line items from the order's material,\nlabor, and gemstone data. Caller may also supply additional line items."
@@ -27321,8 +27696,26 @@
             "title": "Invoice Number"
           },
           "order_id": {
-            "type": "integer",
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Order Id"
+          },
+          "job_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Job Id"
           },
           "customer_id": {
             "type": "integer",
@@ -27394,7 +27787,6 @@
         "required": [
           "id",
           "invoice_number",
-          "order_id",
           "customer_id",
           "status",
           "issue_date",
@@ -27449,8 +27841,28 @@
             "description": "Rechnungsnummer (RE-YYYY-NNNN)"
           },
           "order_id": {
-            "type": "integer",
-            "title": "Order Id"
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Order Id",
+            "description": "Order billed; null for a repair invoice"
+          },
+          "job_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Job Id",
+            "description": "Job (order or repair) billed (ARCH phase 5)"
           },
           "customer_id": {
             "type": "integer",
@@ -27605,7 +28017,6 @@
         "required": [
           "id",
           "invoice_number",
-          "order_id",
           "customer_id",
           "created_by",
           "status",
@@ -27679,6 +28090,252 @@
         "type": "object",
         "title": "InvoiceUpdate",
         "description": "Schema for updating an existing invoice.\n\nOnly editable fields — invoice_number, order_id and customer_id are immutable.\n``status`` is deliberately NOT editable here (BE-05): transitions go through\nthe dedicated endpoints (send, mark-paid, cancel), which carry their own\npermission checks. Unknown fields are rejected so a stray ``status`` fails\nloudly instead of being ignored."
+      },
+      "JobCustomer": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "display_name": {
+            "type": "string",
+            "title": "Display Name"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "display_name"
+        ],
+        "title": "JobCustomer",
+        "description": "Customer summary on a job row (name only; no contact data)."
+      },
+      "JobKind": {
+        "type": "string",
+        "enum": [
+          "order",
+          "repair"
+        ],
+        "title": "JobKind",
+        "description": "What a job wraps."
+      },
+      "JobListItem": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/JobKind"
+          },
+          "number": {
+            "type": "string",
+            "title": "Number",
+            "description": "AU-YYYY-NNNN (Auftrag) or REP-YYYY-NNNN"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "status": {
+            "$ref": "#/components/schemas/JobStatus",
+            "description": "Unified lifecycle"
+          },
+          "status_label": {
+            "type": "string",
+            "title": "Status Label"
+          },
+          "kind_status": {
+            "type": "string",
+            "title": "Kind Status",
+            "description": "Raw order / repair status"
+          },
+          "deadline": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deadline"
+          },
+          "on_hold_since": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "On Hold Since"
+          },
+          "resume_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resume Date"
+          },
+          "customer_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Customer Id"
+          },
+          "customer": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/JobCustomer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "order_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Order Id"
+          },
+          "repair_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Repair Id"
+          },
+          "agreed_price": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agreed Price"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "kind",
+          "number",
+          "status",
+          "status_label",
+          "kind_status",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "JobListItem",
+        "description": "One order or repair on the job spine (kanban card)."
+      },
+      "JobStatus": {
+        "type": "string",
+        "enum": [
+          "draft",
+          "intake",
+          "awaiting_approval",
+          "confirmed",
+          "in_progress",
+          "quality_check",
+          "ready",
+          "delivered",
+          "on_hold",
+          "cancelled"
+        ],
+        "title": "JobStatus",
+        "description": "Unified lifecycle across orders and repairs (kanban columns)."
+      },
+      "JobTimelineRead": {
+        "properties": {
+          "job_id": {
+            "type": "integer",
+            "title": "Job Id"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/JobKind"
+          },
+          "order_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Order Id"
+          },
+          "repair_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Repair Id"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/OrderTimelineItem"
+            },
+            "type": "array",
+            "title": "Items"
+          }
+        },
+        "type": "object",
+        "required": [
+          "job_id",
+          "kind",
+          "items"
+        ],
+        "title": "JobTimelineRead",
+        "description": "Merged history of one job (delegates to the per-kind timeline)."
       },
       "LaborEstimateRequest": {
         "properties": {
@@ -32611,6 +33268,54 @@
         ],
         "title": "Page[CustomerListItem]"
       },
+      "Page_JobListItem_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/JobListItem"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Total",
+            "description": "Anzahl aller Treffer über alle Seiten"
+          },
+          "limit": {
+            "type": "integer",
+            "maximum": 200.0,
+            "minimum": 1.0,
+            "title": "Limit"
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Offset"
+          },
+          "next_offset": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Offset",
+            "description": "Offset der nächsten Seite; null auf der letzten"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "title": "Page[JobListItem]"
+      },
       "Page_MaterialRead_": {
         "properties": {
           "items": {
@@ -33000,6 +33705,17 @@
               }
             ],
             "title": "Quote Id"
+          },
+          "job_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Job Id"
           },
           "bag_number": {
             "anyOf": [
@@ -34209,6 +34925,90 @@
           "item_description"
         ],
         "title": "RepairExport"
+      },
+      "RepairInvoiceCreate": {
+        "properties": {
+          "due_date": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Due Date",
+            "description": "Payment due date (Faelligkeitsdatum); normalised to UTC"
+          },
+          "tax_rate": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 100.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tax Rate",
+            "description": "VAT rate in percent (MwSt-Satz). Omitted: the workshop default (Werkstatt-Stammdaten, 19 % unless changed). Always 0 for a Kleinunternehmer (§19 UStG)."
+          },
+          "service_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Service Date",
+            "description": "Leistungsdatum (§14 Abs. 4 Nr. 6 UStG). Omitted: the order's completion date, else the invoice date."
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 2000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes",
+            "description": "Optional notes on the invoice (Anmerkungen)"
+          },
+          "payment_method": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 50
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Payment Method",
+            "description": "Payment method (Zahlungsart): Ueberweisung, Bar, Karte"
+          },
+          "additional_line_items": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/InvoiceLineItemCreate"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Additional Line Items",
+            "description": "Additional line items beyond those auto-generated from the order"
+          }
+        },
+        "type": "object",
+        "required": [
+          "due_date"
+        ],
+        "title": "RepairInvoiceCreate",
+        "description": "Body of ``POST /repairs/{id}/invoice`` (ARCH phase 5).\n\nThe line item comes from the repair's agreed NET price (actual cost,\nelse the accepted estimate); ``service_date`` defaults to the repair's\ncompletion date."
       },
       "RepairItemType": {
         "type": "string",
@@ -38053,6 +38853,18 @@
               }
             ],
             "title": "Bag Number"
+          },
+          "job_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Job Id",
+            "description": "Job spine id (GET /jobs/{id}); ARCH phase 5"
           }
         },
         "type": "object",

@@ -1771,6 +1771,66 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/jobs/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Jobs
+         * @description Aufträge und Reparaturen gemeinsam, seitenweise (Grundlage Kanban).
+         */
+        get: operations["list_jobs_api_v1_jobs__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/jobs/{job_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Job
+         * @description Ein Vorgang (Auftrag oder Reparatur).
+         */
+        get: operations["get_job_api_v1_jobs__job_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/jobs/{job_id}/timeline": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Job Timeline
+         * @description Verlauf eines Vorgangs; nutzt die Timeline der jeweiligen Art.
+         */
+        get: operations["get_job_timeline_api_v1_jobs__job_id__timeline_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/login/access-token": {
         parameters: {
             query?: never;
@@ -4339,6 +4399,31 @@ export interface paths {
          */
         put: operations["update_intake_checklist_api_v1_repairs__repair_id__intake_checklist_put"];
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/repairs/{repair_id}/invoice": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create Repair Invoice
+         * @description Rechnung für eine fertige Reparatur erstellen.
+         *
+         *     Nur für Status ``ready`` oder ``picked_up`` und mit zugeordnetem Kunden.
+         *     Position: vereinbarter Nettopreis (tatsächliche Kosten, sonst
+         *     Kostenvoranschlag); Nummer, MwSt, §14-Angaben und Snapshot wie bei
+         *     Auftragsrechnungen. 409, wenn schon eine aktive Rechnung existiert.
+         */
+        post: operations["create_repair_invoice_api_v1_repairs__repair_id__invoice_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -8501,8 +8586,10 @@ export interface components {
              * Format: date-time
              */
             issue_date: string;
+            /** Job Id */
+            job_id?: number | null;
             /** Order Id */
-            order_id: number;
+            order_id?: number | null;
             /** Paid Date */
             paid_date?: string | null;
             /**
@@ -8575,14 +8662,22 @@ export interface components {
              */
             issue_date: string;
             /**
+             * Job Id
+             * @description Job (order or repair) billed (ARCH phase 5)
+             */
+            job_id?: number | null;
+            /**
              * Line Items
              * @default []
              */
             line_items: components["schemas"]["InvoiceLineItemResponse"][];
             /** Notes */
             notes?: string | null;
-            /** Order Id */
-            order_id: number;
+            /**
+             * Order Id
+             * @description Order billed; null for a repair invoice
+             */
+            order_id?: number | null;
             /** Paid Date */
             paid_date?: string | null;
             /** Payment Method */
@@ -8657,6 +8752,93 @@ export interface components {
              * @description Payment method
              */
             payment_method?: string | null;
+        };
+        /**
+         * JobCustomer
+         * @description Customer summary on a job row (name only; no contact data).
+         */
+        JobCustomer: {
+            /** Display Name */
+            display_name: string;
+            /** Id */
+            id: number;
+        };
+        /**
+         * JobKind
+         * @description What a job wraps.
+         * @enum {string}
+         */
+        JobKind: "order" | "repair";
+        /**
+         * JobListItem
+         * @description One order or repair on the job spine (kanban card).
+         */
+        JobListItem: {
+            /** Agreed Price */
+            agreed_price?: number | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            customer?: components["schemas"]["JobCustomer"] | null;
+            /** Customer Id */
+            customer_id?: number | null;
+            /** Deadline */
+            deadline?: string | null;
+            /** Id */
+            id: number;
+            kind: components["schemas"]["JobKind"];
+            /**
+             * Kind Status
+             * @description Raw order / repair status
+             */
+            kind_status: string;
+            /**
+             * Number
+             * @description AU-YYYY-NNNN (Auftrag) or REP-YYYY-NNNN
+             */
+            number: string;
+            /** On Hold Since */
+            on_hold_since?: string | null;
+            /** Order Id */
+            order_id?: number | null;
+            /** Repair Id */
+            repair_id?: number | null;
+            /** Resume Date */
+            resume_date?: string | null;
+            /** @description Unified lifecycle */
+            status: components["schemas"]["JobStatus"];
+            /** Status Label */
+            status_label: string;
+            /** Title */
+            title?: string | null;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /**
+         * JobStatus
+         * @description Unified lifecycle across orders and repairs (kanban columns).
+         * @enum {string}
+         */
+        JobStatus: "draft" | "intake" | "awaiting_approval" | "confirmed" | "in_progress" | "quality_check" | "ready" | "delivered" | "on_hold" | "cancelled";
+        /**
+         * JobTimelineRead
+         * @description Merged history of one job (delegates to the per-kind timeline).
+         */
+        JobTimelineRead: {
+            /** Items */
+            items: components["schemas"]["OrderTimelineItem"][];
+            /** Job Id */
+            job_id: number;
+            kind: components["schemas"]["JobKind"];
+            /** Order Id */
+            order_id?: number | null;
+            /** Repair Id */
+            repair_id?: number | null;
         };
         /**
          * LaborEstimateRequest
@@ -10642,6 +10824,25 @@ export interface components {
              */
             total: number;
         };
+        /** Page[JobListItem] */
+        Page_JobListItem_: {
+            /** Items */
+            items: components["schemas"]["JobListItem"][];
+            /** Limit */
+            limit: number;
+            /**
+             * Next Offset
+             * @description Offset der nächsten Seite; null auf der letzten
+             */
+            next_offset?: number | null;
+            /** Offset */
+            offset: number;
+            /**
+             * Total
+             * @description Anzahl aller Treffer über alle Seiten
+             */
+            total: number;
+        };
         /** Page[MaterialRead] */
         Page_MaterialRead_: {
             /** Items */
@@ -10783,6 +10984,8 @@ export interface components {
             customer_name?: string | null;
             /** Id */
             id: number;
+            /** Job Id */
+            job_id?: number | null;
             /**
              * Kind
              * @enum {string}
@@ -11292,6 +11495,47 @@ export interface components {
             repair_number: string;
             /** Status */
             status?: string | null;
+        };
+        /**
+         * RepairInvoiceCreate
+         * @description Body of ``POST /repairs/{id}/invoice`` (ARCH phase 5).
+         *
+         *     The line item comes from the repair's agreed NET price (actual cost,
+         *     else the accepted estimate); ``service_date`` defaults to the repair's
+         *     completion date.
+         */
+        RepairInvoiceCreate: {
+            /**
+             * Additional Line Items
+             * @description Additional line items beyond those auto-generated from the order
+             */
+            additional_line_items?: components["schemas"]["InvoiceLineItemCreate"][] | null;
+            /**
+             * Due Date
+             * Format: date-time
+             * @description Payment due date (Faelligkeitsdatum); normalised to UTC
+             */
+            due_date: string;
+            /**
+             * Notes
+             * @description Optional notes on the invoice (Anmerkungen)
+             */
+            notes?: string | null;
+            /**
+             * Payment Method
+             * @description Payment method (Zahlungsart): Ueberweisung, Bar, Karte
+             */
+            payment_method?: string | null;
+            /**
+             * Service Date
+             * @description Leistungsdatum (§14 Abs. 4 Nr. 6 UStG). Omitted: the order's completion date, else the invoice date.
+             */
+            service_date?: string | null;
+            /**
+             * Tax Rate
+             * @description VAT rate in percent (MwSt-Satz). Omitted: the workshop default (Werkstatt-Stammdaten, 19 % unless changed). Always 0 for a Kleinunternehmer (§19 UStG).
+             */
+            tax_rate?: number | null;
         };
         /**
          * RepairItemType
@@ -12894,6 +13138,11 @@ export interface components {
             due_date: string;
             /** Id */
             id: number;
+            /**
+             * Job Id
+             * @description Job spine id (GET /jobs/{id}); ARCH phase 5
+             */
+            job_id?: number | null;
             /**
              * Kind
              * @enum {string}
@@ -16083,6 +16332,115 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_jobs_api_v1_jobs__get: {
+        parameters: {
+            query?: {
+                customer_id?: number | null;
+                /** @description order oder repair */
+                kind?: components["schemas"]["JobKind"] | null;
+                limit?: number;
+                offset?: number;
+                /** @description Nummer, Titel oder Kunde */
+                q?: string | null;
+                /** @description Kommagetrennt, absteigend mit '-': created_at, deadline, kind, number, status, updated_at */
+                sort?: string | null;
+                /** @description Einheitlicher Status (mehrfach möglich) */
+                status?: components["schemas"]["JobStatus"][] | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_JobListItem_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_job_api_v1_jobs__job_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: number;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobListItem"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_job_timeline_api_v1_jobs__job_id__timeline_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: number;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobTimelineRead"];
                 };
             };
             /** @description Validation Error */
@@ -20488,6 +20846,43 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RepairJobRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_repair_invoice_api_v1_repairs__repair_id__invoice_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                repair_id: number;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RepairInvoiceCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InvoiceResponse"];
                 };
             };
             /** @description Validation Error */

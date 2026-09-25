@@ -39,6 +39,8 @@ from sqlalchemy.orm.interfaces import ORMOption
 from goldsmith_erp.core.encryption import hmac_blind_index
 from goldsmith_erp.core.errors import DomainValidationError
 from goldsmith_erp.db.models import Customer as CustomerModel
+from goldsmith_erp.db.models import Job as JobModel
+from goldsmith_erp.db.models import JobKind, JobStatus
 from goldsmith_erp.db.models import Material as MaterialModel
 from goldsmith_erp.db.models import Notification as NotificationModel
 from goldsmith_erp.db.models import Order as OrderModel
@@ -229,6 +231,58 @@ async def repairs_statement(
         )
     stmt = stmt.order_by(RepairJobModel.created_at.desc(), RepairJobModel.id.desc())
     return apply_sort(stmt, sort, REPAIR_SORT_FIELDS, RepairJobModel.id)
+
+
+# --------------------------------------------------------------------------- #
+# Jobs (ARCH phase 5: orders and repairs on one spine)
+# --------------------------------------------------------------------------- #
+
+JOB_LIST_OPTIONS: tuple[ORMOption, ...] = (
+    selectinload(JobModel.customer),
+    selectinload(JobModel.order),
+    selectinload(JobModel.repair),
+)
+
+# No financial fields: the job row carries none.
+JOB_SORT_FIELDS: dict[str, Any] = {
+    "created_at": JobModel.created_at,
+    "updated_at": JobModel.updated_at,
+    "deadline": JobModel.deadline,
+    "status": JobModel.status,
+    "number": JobModel.number,
+    "kind": JobModel.kind,
+}
+
+
+async def jobs_statement(
+    db: AsyncSession,
+    *,
+    kind: Optional[JobKind] = None,
+    statuses: Sequence[JobStatus] = (),
+    customer_id: Optional[int] = None,
+    q: Optional[str] = None,
+    sort: Optional[str] = None,
+) -> Select[Any]:
+    """Non-deleted jobs of both kinds, newest first. ``q``: number, title, customer."""
+    stmt = select(JobModel).where(JobModel.is_deleted.is_(False))
+    if kind is not None:
+        stmt = stmt.where(JobModel.kind == kind.value)
+    if statuses:
+        stmt = stmt.where(JobModel.status.in_([s.value for s in statuses]))
+    if customer_id is not None:
+        stmt = stmt.where(JobModel.customer_id == customer_id)
+    if q:
+        like = _like(q)
+        ids = await customer_ids_matching(db, q)
+        stmt = stmt.where(
+            or_(
+                JobModel.number.ilike(like, escape="\\"),
+                JobModel.title.ilike(like, escape="\\"),
+                _customer_clause(JobModel.customer_id, ids),
+            )
+        )
+    stmt = stmt.order_by(JobModel.created_at.desc(), JobModel.id.desc())
+    return apply_sort(stmt, sort, JOB_SORT_FIELDS, JobModel.id)
 
 
 # --------------------------------------------------------------------------- #
