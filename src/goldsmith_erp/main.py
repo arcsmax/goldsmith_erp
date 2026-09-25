@@ -4,11 +4,11 @@ import os
 from pathlib import Path
 from typing import List
 
+import jwt
 import uvicorn
 from fastapi import FastAPI, Request, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from jose import JWTError, jwt
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
@@ -29,6 +29,7 @@ from goldsmith_erp.api.routers import (
     customers,
     dashboard,
     estimator,
+    gemstones,
     hallmarks,
     handoffs,
     health,
@@ -293,6 +294,9 @@ app.include_router(
     prefix=f"{settings.API_V1_STR}/estimates",
     tags=["estimator"],
 )  # V1.3 Phase 1 — statistical labor estimator (financial, ADMIN/GOLDSMITH only)
+app.include_router(
+    gemstones.router, prefix=settings.API_V1_STR, tags=["gemstones"]
+)  # W2-06: /orders/{id}/gemstones + /gemstones/{id}
 
 
 async def _authenticate_websocket(websocket: WebSocket) -> int | None:
@@ -312,7 +316,7 @@ async def _authenticate_websocket(websocket: WebSocket) -> int | None:
         if not user_id:
             return None
         parsed_user_id = int(user_id)
-    except (JWTError, ValueError, TypeError):
+    except (jwt.InvalidTokenError, ValueError, TypeError):
         return None
     if await is_token_revoked(payload):
         logger.info("Revoked token refused on WebSocket", extra={"user_id": user_id})

@@ -18,6 +18,7 @@ import { parseOrderDeepLink, stripOrderDeepLink } from '../components/orders/ord
 import { photosApi } from '../api/photos';
 import { useRefetchOn } from '../lib/refetchBus';
 import { logError } from '../lib/logError';
+import { fireModal, ModalStackHost } from '../lib/modal-stack';
 import { OrderStatusBadge } from '../components/orders/OrderStatusBadge';
 import { StatusAdvanceButton } from '../components/orders/StatusAdvanceButton';
 import {
@@ -25,12 +26,18 @@ import {
   type StatusChangeRequest,
 } from '../components/orders/StatusChangeDialog';
 import {
+  PunzierungsCheckModal,
+  type PunzierungsCheckModalProps,
+  type PunzierungsCheckPayload,
+} from '../components/qc/PunzierungsCheckModal';
+import {
   MilestonePrompt,
   buildCompletedDraft,
   type KundeninfoDraft,
   type Milestone,
 } from '../components/orders/MilestonePrompt';
 import { OrderTimeline } from '../components/orders/OrderTimeline';
+import { DeliveredActions } from '../components/orders/DeliveredActions';
 import { OrderTabs, OrderTabPanel } from '../components/orders/OrderTabs';
 import { OrderOverviewTab, type OrderWithStatusFields } from '../components/orders/OrderOverviewTab';
 import { OrderWorkTab } from '../components/orders/OrderWorkTab';
@@ -51,6 +58,21 @@ import {
 import '../styles/order-detail.css';
 
 const MILESTONES: readonly OrderStatus[] = ['completed', 'delivered'];
+
+/**
+ * W2-09 (DOM-22, DOM-23, DOM-44): true for the 409 the completion soft
+ * gate raises (services/order_workflow.PunzierungRequiredError) — checks
+ * the modern top-level `code` first, the legacy nested `detail.code` as a
+ * fallback so this keeps working if a caller is still on the old envelope.
+ */
+function isHallmarkRequiredError(err: unknown): boolean {
+  const data = (
+    err as { response?: { data?: { code?: unknown; detail?: { code?: unknown } } } }
+  )?.response?.data;
+  if (!data) return false;
+  if (data.code === 'order.hallmark_required') return true;
+  return (data.detail as { code?: unknown } | undefined)?.code === 'PUNZIERUNG_REQUIRED';
+}
 
 export function OrderDetailPage() {
   const { orderId } = useParams<{ orderId: string }>();
@@ -193,12 +215,56 @@ export function OrderDetailPage() {
       showToast(`Status geändert: ${statusLabel(request.status)}`, 'success');
     } catch (err: unknown) {
       logError('OrderDetailPage.changeStatus', err);
+      if (isHallmarkRequiredError(err) && (await handleHallmarkRequired(request))) {
+        return;
+      }
       const message = statusChangeErrorMessage(err);
       if (dialogTarget !== null) setDialogError(message);
       else setStatusError(message);
     } finally {
       setIsStatusBusy(false);
     }
+  };
+
+  /**
+   * W2-09 (DOM-23): instead of the raw 409 banner, open the
+   * PunzierungsCheckModal prefilled with the order's alloy so the
+   * goldsmith can record a Feingehalt mark or a "nicht punziert" reason
+   * right from the failed "Weiter" click, then retry the same status
+   * change. Returns true when the 409 was handled here (modal shown,
+   * whatever its outcome) so the caller skips the generic error banner;
+   * false only if there is no order to act on.
+   */
+  const handleHallmarkRequired = async (request: StatusChangeRequest): Promise<boolean> => {
+    if (!order) return false;
+    let payload: PunzierungsCheckPayload;
+    try {
+      payload = await fireModal<PunzierungsCheckPayload, PunzierungsCheckModalProps>(
+        PunzierungsCheckModal,
+        { orderId: order.id, orderAlloy: order.alloy ?? undefined, orderTitle: order.title }
+      );
+    } catch {
+      // User cancelled the modal — show a message so "Weiter" does not
+      // silently do nothing; the order stays in its current status.
+      const message =
+        'Punzierungs-Check abgebrochen. Der Auftrag wurde nicht abgeschlossen.';
+      if (dialogTarget !== null) setDialogError(message);
+      else setStatusError(message);
+      return true;
+    }
+    try {
+      await apiClient.patch(`/orders/${order.id}`, {
+        punzierung_verified_marks: payload.marks,
+      });
+    } catch (patchErr: unknown) {
+      logError('OrderDetailPage.hallmarkPatch', patchErr);
+      const message = statusChangeErrorMessage(patchErr);
+      if (dialogTarget !== null) setDialogError(message);
+      else setStatusError(message);
+      return true;
+    }
+    await submitStatusChange(request);
+    return true;
   };
 
   const requestStatusChange = (target: OrderStatus) => {
@@ -305,7 +371,16 @@ export function OrderDetailPage() {
           milestone={milestone}
           onAction={handleMilestoneAction}
           onDismiss={() => setMilestone(null)}
-        />
+        >
+          {milestone === 'delivered' && (
+            <DeliveredActions
+              orderId={order.id}
+              price={order.price}
+              role={user?.role}
+              userName={[user?.first_name, user?.last_name].filter(Boolean).join(' ')}
+            />
+          )}
+        </MilestonePrompt>
       )}
 
       <CostAlertBanner
@@ -380,6 +455,12 @@ export function OrderDetailPage() {
           onCancel={() => setDialogTarget(null)}
         />
       )}
+
+      {/* W2-09: hosts the PunzierungsCheckModal fired from
+          handleHallmarkRequired. ScanOverlay only mounts its own
+          ModalStackHost while the scanner is open, so this page needs its
+          own to show the modal at all outside that flow. */}
+      <ModalStackHost />
     </div>
   );
 }

@@ -4,6 +4,7 @@ import type { OrderType } from '../../types';
 import { canViewDesign, canViewFinancials } from '../../lib/roles';
 import { formatEur, MONEY_CLASS } from '../../lib/format';
 import { CustomerInfoCard } from './CustomerInfoCard';
+import { GemstoneList } from './GemstoneList';
 import { OrderStatusBadge } from './OrderStatusBadge';
 
 /** Hold / cancel fields of OrderRead (W2-07) not yet in types.ts. */
@@ -106,6 +107,9 @@ export function OrderOverviewTab({ order, role }: OrderOverviewTabProps) {
           </div>
         </div>
       </section>
+
+      {/* W2-06 (DOM-04): stones; editing lives in the order form. */}
+      <GemstoneList orderId={order.id} />
 
       <section className="details-section" aria-labelledby="order-overview-customer">
         <h3 id="order-overview-customer">Kunde</h3>

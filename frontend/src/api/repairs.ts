@@ -12,6 +12,10 @@ import {
   RepairPhotoPhase,
   RepairStatusUpdateInput,
 } from '../types';
+import type { Schema } from './generated';
+
+/** Counter intake body (W2-12): the generated RepairJobCreate schema. */
+export type RepairIntakeInput = Schema<'RepairJobCreate'>;
 
 const BASE = '/repairs';
 
@@ -44,10 +48,23 @@ export const repairsApi = {
   },
 
   /**
-   * Create a new repair intake (Eingang).
+   * Create a new repair intake (Eingang). W2-12: also takes the counter
+   * intake fields (customer_problem, condition_notes, estimated_cost as
+   * the first price indication).
    */
-  create: async (data: RepairJobCreateInput): Promise<RepairJob> => {
+  create: async (data: RepairJobCreateInput | RepairIntakeInput): Promise<RepairJob> => {
     const response = await apiClient.post<RepairJob>(BASE + '/', data);
+    return response.data;
+  },
+
+  /**
+   * Annahmeschein (intake receipt) as a PDF blob (W2-12). Needs
+   * DESIGN_VIEW (ADMIN/GOLDSMITH); VIEWER gets 403.
+   */
+  getAnnahmescheinPdf: async (id: number): Promise<Blob> => {
+    const response = await apiClient.get<Blob>(`${BASE}/${id}/annahmeschein.pdf`, {
+      responseType: 'blob',
+    });
     return response.data;
   },
 

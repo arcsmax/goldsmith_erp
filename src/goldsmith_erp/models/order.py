@@ -13,6 +13,13 @@ from goldsmith_erp.db.models import (
     OrderTypeEnum,
 )
 
+# Deliberate models -> services import: the allowed Feingehalt vocabulary
+# (W2-09; DOM-22, DOM-23, D-10) must never drift from the one
+# order_workflow.py uses for the completion guard, so both read the same
+# table in services/hallmark_vocabulary.py instead of each keeping their
+# own allow-list.
+from goldsmith_erp.services.hallmark_vocabulary import is_valid_mark
+
 # Use TYPE_CHECKING to avoid circular import issues
 if TYPE_CHECKING:
     from goldsmith_erp.models.customer import CustomerRead
@@ -305,22 +312,38 @@ class OrderUpdate(BaseModel):
     @field_validator("punzierung_verified_marks")
     @classmethod
     def _validate_punzierung_marks(cls, v: Optional[List[str]]) -> Optional[List[str]]:
-        """Enforce the A3.2 allowed-mark vocabulary."""
+        """Enforce the allowed-mark vocabulary (A3.2, widened by W2-09/D-10).
+
+        Accepts, per entry:
+          - a Feingehalt mark for *any* alloy (``goldsmith_erp.db.models.
+            AlloyType``, the same enum the Altgold valuation uses) — both
+            the legacy wire code (``feingehalt_585``) and the plain mark
+            (``585``, ``Au585``) are allowed, see
+            ``services/hallmark_vocabulary.py``;
+          - the three non-Feingehalt marks (Meisterzeichen etc.);
+          - a ``"nicht punziert: <Grund>"`` free-text entry (D-10 soft
+            gate): the piece was deliberately not hallmarked, with a
+            documented reason.
+
+        This validator only checks each entry's *shape* against the full
+        cross-alloy vocabulary — it cannot see the order's own alloy (a
+        PATCH may set marks without resending alloy), so it does not
+        reject a Feingehalt mark that does not match this particular
+        order. That correlation is not needed either: the completion guard
+        in ``services/order_workflow.py`` only requires *some* real
+        Feingehalt mark or a documented reason, not proof it matches the
+        stored alloy — the goldsmith is recording what they physically
+        read off the piece.
+        """
         if v is None:
             return v
-        allowed = {
-            "feingehalt_585",
-            "feingehalt_750",
-            "feingehalt_925",
-            "feingehalt_950_pt",
-            "meisterzeichen",
-            "herstellerzeichen",
-            "laenderzeichen",
-        }
-        unknown = [m for m in v if m not in allowed]
+        unknown = [m for m in v if not is_valid_mark(m)]
         if unknown:
             raise ValueError(
-                f"Unknown punzierung marks: {unknown}. Allowed: " f"{sorted(allowed)}"
+                f"Unknown punzierung marks: {unknown}. Allowed: a Feingehalt "
+                "mark for the order's alloy (e.g. '585', 'Au585', "
+                "'feingehalt_585'), meisterzeichen/herstellerzeichen/"
+                "laenderzeichen, or 'nicht punziert: <Grund>'."
             )
         # Dedupe while preserving order so the audit trail matches the
         # goldsmith's selection order.

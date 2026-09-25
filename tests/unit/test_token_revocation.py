@@ -14,8 +14,8 @@ no fakeredis dependency and no live Redis are involved.
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 
+import jwt
 import pytest
-from jose import jwt
 
 from goldsmith_erp.core import token_revocation as tr
 from goldsmith_erp.core.config import settings

@@ -48,6 +48,56 @@ logger = logging.getLogger(__name__)
 STALE_TIMER_THRESHOLD = timedelta(minutes=20)
 
 
+# ---------------------------------------------------------------------------
+# W2-14 (BE-19) — interruption arithmetic.
+#
+# ``time_entries.duration_minutes`` stays the gross wall-clock span (every
+# consumer — MLDataService, the labor corpus, the ML feature builder — nets
+# interruptions out of it). A scan interruption starts as an open marker
+# (``duration_minutes == 0``, ``resumed_at`` NULL); the next scan on the
+# running timer (activity change, next interruption, switch, stop or an
+# explicit resume) closes it with ``resumed_at`` and the measured minutes.
+# ---------------------------------------------------------------------------
+
+
+def _whole_minutes(span: timedelta) -> int:
+    return max(int(span.total_seconds() // 60), 0)
+
+
+def interruption_minutes(
+    interruption: Any, entry_start: datetime, entry_end: Optional[datetime]
+) -> int:
+    """Minutes ``interruption`` takes out of the entry window.
+
+    * resumed: the measured span, clamped to [entry_start, entry_end];
+    * open marker on a stopped entry: from its start until entry_end;
+    * otherwise (legacy / manual): the stored ``duration_minutes``.
+    """
+    started = interruption.timestamp or entry_start
+    begin = max(started, entry_start)
+    resumed = interruption.resumed_at
+    if resumed is not None:
+        end = min(resumed, entry_end) if entry_end is not None else resumed
+        return _whole_minutes(end - begin)
+    stored = int(interruption.duration_minutes or 0)
+    if stored == 0 and entry_end is not None:
+        return _whole_minutes(entry_end - begin)
+    return max(stored, 0)
+
+
+def net_entry_minutes(entry: Any) -> int:
+    """Gross ``duration_minutes`` of a stopped entry minus its interruptions.
+
+    ``entry.interruptions`` must be loaded (selectinload).
+    """
+    gross = int(entry.duration_minutes or 0)
+    taken = sum(
+        interruption_minutes(i, entry.start_time, entry.end_time)
+        for i in entry.interruptions
+    )
+    return max(gross - taken, 0)
+
+
 class TimerPossiblyStaleError(ConflictError):
     """Raised by ``switch_timer`` when the outgoing timer looks stale (A5.2).
 
@@ -218,6 +268,9 @@ class TimeTrackingService:
             end_time = datetime.utcnow()
         duration = int((end_time - entry.start_time).total_seconds() / 60)
 
+        # W2-14: an interruption still open at the stop ends with the entry.
+        await TimeTrackingService._close_open_interruptions(db, entry_id, end_time)
+
         # Update Entry
         await db.execute(
             update(TimeEntryModel)
@@ -256,6 +309,9 @@ class TimeTrackingService:
 
         order_id = stopped_entry.order_id if stopped_entry is not None else None
         await CostWatchService.safe_check(db, order_id)
+
+        # W2-14: rework on a completed order updates its actual hours.
+        await TimeTrackingService._recompute_actual_hours(db, entry.order_id)
 
         # W2-13: other devices of this user drop the running timer.
         await TimeTrackingService._publish_timer_hint(
@@ -572,6 +628,13 @@ class TimeTrackingService:
         )
         await db.commit()
 
+        # W2-14: a corrected end time or order changes the order's hours.
+        await TimeTrackingService._recompute_actual_hours(db, entry.order_id)
+        if update_data.get("order_id") not in (None, entry.order_id):
+            await TimeTrackingService._recompute_actual_hours(
+                db, update_data["order_id"]
+            )
+
         return await TimeTrackingService.get_time_entry(db, entry_id)
 
     @staticmethod
@@ -643,10 +706,98 @@ class TimeTrackingService:
         if not entry:
             return {"success": False, "message": "Time entry not found"}
 
+        order_id = entry.order_id
         await db.execute(delete(TimeEntryModel).where(TimeEntryModel.id == entry_id))
         await db.commit()
 
+        await TimeTrackingService._recompute_actual_hours(db, order_id)
         return {"success": True}
+
+    @staticmethod
+    async def _close_open_interruptions(
+        db: AsyncSession, entry_id: str, at: datetime
+    ) -> int:
+        """Close every open interruption marker of ``entry_id`` at ``at``.
+
+        Flushes but does not commit: the caller's transaction owns the
+        write. Returns the number of interruptions closed.
+        """
+        result = await db.execute(
+            select(InterruptionModel).where(
+                InterruptionModel.time_entry_id == entry_id,
+                InterruptionModel.resumed_at.is_(None),
+                InterruptionModel.duration_minutes == 0,
+            )
+        )
+        open_rows = list(result.scalars().all())
+        for row in open_rows:
+            started = row.timestamp or at
+            resumed = max(at, started)
+            row.resumed_at = resumed
+            row.duration_minutes = _whole_minutes(resumed - started)
+        if open_rows:
+            await db.flush()
+        return len(open_rows)
+
+    @staticmethod
+    async def resume_interruptions(
+        db: AsyncSession,
+        entry_id: str,
+        user: UserModel,
+        at: Optional[datetime] = None,
+    ) -> int:
+        """Work resumes on a running entry: close its open interruptions.
+
+        Per-user scope like ``log_interruption``. Returns how many were
+        closed (0 is not an error: nothing was open).
+        """
+        entry = await TimeTrackingService.get_time_entry(db, entry_id)
+        if entry is None:
+            raise NotFoundError(
+                "Time entry not found",
+                code="time_entry.not_found",
+                extra={"entry_id": entry_id},
+            )
+        if entry.user_id != user.id:
+            raise ForbiddenError(
+                "Zeiterfassung gehoert einem anderen Benutzer.",
+                code="time_entry.cross_user_forbidden",
+            )
+        closed = await TimeTrackingService._close_open_interruptions(
+            db, entry_id, at or datetime.utcnow()
+        )
+        await db.commit()
+        return closed
+
+    @staticmethod
+    async def _recompute_actual_hours(db: AsyncSession, order_id: Any) -> None:
+        """W2-14: keep ``Order.actual_hours`` current once it is measured.
+
+        Only orders that already carry actual hours or a completion time are
+        recomputed (open orders get theirs on completion, as before). Never
+        fails the time-tracking write that triggered it.
+        """
+        if order_id is None:
+            return
+        # Late import: ml_data_service imports models this module also uses.
+        from goldsmith_erp.services.ml_data_service import (  # noqa: PLC0415
+            MLDataService,
+        )
+
+        try:
+            order = await db.get(OrderModel, order_id)
+            if order is None:
+                return
+            await db.refresh(order)
+            if order.completed_at is None and order.actual_hours is None:
+                return
+            await MLDataService.auto_calculate_actual_hours(db, order_id)
+            await db.commit()
+        except Exception:
+            await db.rollback()
+            logger.exception(
+                "actual_hours recompute failed", extra={"order_id": order_id}
+            )
 
     @staticmethod
     async def add_interruption(
@@ -847,6 +998,9 @@ class TimeTrackingService:
             if old_entry is not None:
                 old_entry_snapshot_end = old_entry.end_time  # always None here
                 duration = int((now - old_entry.start_time).total_seconds() / 60)
+                await TimeTrackingService._close_open_interruptions(
+                    db, old_entry_id_snapshot, now
+                )
                 await db.execute(
                     update(TimeEntryModel)
                     .where(TimeEntryModel.id == old_entry_id_snapshot)
@@ -896,6 +1050,10 @@ class TimeTrackingService:
         # Increment activity usage counter AFTER the switch commits so a
         # failed commit doesn't pollute the activity stats.
         await ActivityService.increment_usage(db, activity_id)
+
+        if old_entry is not None:
+            # W2-14: the stopped entry may belong to a completed order.
+            await TimeTrackingService._recompute_actual_hours(db, old_entry.order_id)
 
         # --------------------------------------------------------------
         # A5.4 + A5.5 — publish with source:"scan" envelope; failure is
@@ -984,7 +1142,11 @@ class TimeTrackingService:
                 extra={"activity_id": activity_id},
             )
 
-        # In-place update — single row, no fork.
+        # In-place update — single row, no fork. An activity scan means the
+        # goldsmith is back at the bench: close an open interruption (W2-14).
+        await TimeTrackingService._close_open_interruptions(
+            db, entry_id, datetime.utcnow()
+        )
         await db.execute(
             update(TimeEntryModel)
             .where(TimeEntryModel.id == entry_id)
@@ -1073,12 +1235,18 @@ class TimeTrackingService:
                 code="interruption.invalid_duration",
             )
 
+        now = datetime.utcnow()
+        # W2-14: a new interruption scan ends the previous open one.
+        await TimeTrackingService._close_open_interruptions(db, entry_id, now)
         db_interruption = InterruptionModel(
             time_entry_id=entry_id,
             reason=interrupt_code,
             duration_minutes=duration_minutes,
-            timestamp=datetime.utcnow(),
+            timestamp=now,
         )
+        if duration_minutes > 0:
+            # A known duration is a closed interruption.
+            db_interruption.resumed_at = now + timedelta(minutes=duration_minutes)
         if notes:
             # Notes piggyback on the reason column as a suffix for now —
             # the Slice 2 ``notes`` column on Interruption is out of V1.1
@@ -1193,28 +1361,33 @@ class TimeTrackingService:
     async def get_total_time_for_order(
         db: AsyncSession, order_id: int
     ) -> Dict[str, Any]:
-        """Berechnet die Gesamtzeit für einen Auftrag."""
+        """Berechnet die Gesamtzeit für einen Auftrag.
+
+        W2-14: ``total_minutes`` / ``total_hours`` are net of interruptions
+        (closed entries only); ``gross_minutes`` and
+        ``interruption_minutes`` show the split.
+        """
         result = await db.execute(
-            select(
-                func.sum(TimeEntryModel.duration_minutes).label("total_minutes"),
-                func.count(TimeEntryModel.id).label("entry_count"),
-            ).filter(
+            select(TimeEntryModel)
+            .options(selectinload(TimeEntryModel.interruptions))
+            .filter(
                 and_(
                     TimeEntryModel.order_id == order_id,
                     TimeEntryModel.end_time.isnot(None),  # Nur abgeschlossene Einträge
                 )
             )
         )
-
-        row = result.first()
-        total_minutes = row.total_minutes or 0
-        entry_count = row.entry_count or 0
+        entries = list(result.scalars().all())
+        gross_minutes = sum(int(e.duration_minutes or 0) for e in entries)
+        net_minutes = sum(net_entry_minutes(e) for e in entries)
 
         return {
             "order_id": order_id,
-            "total_minutes": total_minutes,
-            "total_hours": round(total_minutes / 60, 2),
-            "entry_count": entry_count,
+            "total_minutes": net_minutes,
+            "total_hours": round(net_minutes / 60, 2),
+            "gross_minutes": gross_minutes,
+            "interruption_minutes": gross_minutes - net_minutes,
+            "entry_count": len(entries),
         }
 
     @staticmethod

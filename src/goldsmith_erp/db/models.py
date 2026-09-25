@@ -929,6 +929,10 @@ class Interruption(Base):
     reason = Column(String(100), nullable=False)  # customer_call, material_fetch, etc.
     duration_minutes = Column(Integer, nullable=False)
     timestamp = Column(DateTime, default=datetime.utcnow)
+    # W2-14 / BE-19: set when work resumes; duration_minutes then holds the
+    # measured minutes. NULL with duration 0 = still open. Migration
+    # 20260925_w214_interrupt_resume.
+    resumed_at = Column(DateTime, nullable=True)
 
     # Beziehungen
     time_entry = relationship("TimeEntry", back_populates="interruptions")
@@ -1008,6 +1012,12 @@ class Gemstone(Base):
     # Optional certificate info
     certificate_number = Column(String(100), nullable=True)
     certificate_authority = Column(String(50), nullable=True)  # 'GIA', 'IGI', 'HRD'
+
+    # W2-06 / DOM-04: Kundenstein (the customer brought the stone). Migration
+    # 20260925_w206_gemstone_intake.
+    is_customer_stone = Column(
+        Boolean, nullable=False, default=False, server_default=text("false")
+    )
 
     notes = Column(Text, nullable=True)
 
@@ -1261,10 +1271,27 @@ class ScrapGold(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
+    # W2-16 / DOM-21 (decision D-16): Ankaufsbuch identification. Optional,
+    # required before SIGNED above SCRAP_GOLD_ID_THRESHOLD_EUR. Number and
+    # issuing authority are PII -> EncryptedString. Migration
+    # 20260925_w216_altgold_id.
+    id_document_type = Column(String(30), nullable=True)
+    id_document_number = Column(EncryptedString, nullable=True)
+    id_issuing_authority = Column(EncryptedString, nullable=True)
+    id_checked_by = Column(
+        Integer,
+        ForeignKey(
+            "users.id", name="fk_scrap_gold_id_checked_by_users", ondelete="SET NULL"
+        ),
+        nullable=True,
+    )
+    id_checked_at = Column(DateTime, nullable=True)
+
     # Relationships
     order = relationship("Order")
     customer = relationship("Customer")
-    creator = relationship("User")
+    creator = relationship("User", foreign_keys=[created_by])
+    id_checker = relationship("User", foreign_keys=[id_checked_by])
     items = relationship(
         "ScrapGoldItem", back_populates="scrap_gold", cascade="all, delete-orphan"
     )

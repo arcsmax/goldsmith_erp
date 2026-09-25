@@ -742,6 +742,32 @@ export interface paths {
         patch: operations["update_customer_api_v1_customers__customer_id__patch"];
         trace?: never;
     };
+    "/api/v1/customers/{customer_id}/activity": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Customer Activity
+         * @description Kundenverlauf (Kunde 360°, W2-12 / DOM-38): Aufträge, Reparaturen,
+         *     Kostenvoranschläge, Rechnungen und Kundeninfos, neueste zuerst.
+         *
+         *     Serverseitig nach ``customer_id`` gefiltert und über alle Arten hinweg
+         *     gepaged (``Page``-Hülle). Jede Art erscheint nur mit ihrer
+         *     Ansichtsberechtigung (VIEWER: Aufträge und Reparaturen); ``amount``
+         *     nur mit FINANCIAL_VIEW.
+         */
+        get: operations["get_customer_activity_api_v1_customers__customer_id__activity_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/customers/{customer_id}/consents": {
         parameters: {
             query?: never;
@@ -790,6 +816,32 @@ export interface paths {
          *     Permissions: Requires CONSENT_MANAGE permission.
          */
         delete: operations["revoke_customer_consent_api_v1_customers__customer_id__consents__purpose__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/customers/{customer_id}/email-opt-out": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Widerspruch gegen E-Mail-Updates abfragen
+         * @description ``email_opt_out=true``: Kunde erhaelt keine E-Mail-Updates (Art. 21).
+         */
+        get: operations["get_customer_email_opt_out_api_v1_customers__customer_id__email_opt_out_get"];
+        /**
+         * Widerspruch gegen E-Mail-Updates erfassen oder aufheben
+         * @description Erfasst den Widerspruch "Keine E-Mail-Updates" (Art. 21 DSGVO) als
+         *     widerrufene Einwilligung "E-Mail-Kontakt", oder hebt ihn auf. Solange er
+         *     besteht, gehen Kundeninfos nur als PDF (manuelle Uebergabe) raus.
+         */
+        put: operations["set_customer_email_opt_out_api_v1_customers__customer_id__email_opt_out_put"];
+        post?: never;
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -1256,6 +1308,30 @@ export interface paths {
         options?: never;
         head?: never;
         patch?: never;
+        trace?: never;
+    };
+    "/api/v1/gemstones/{gemstone_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete Gemstone
+         * @description Stein entfernen.
+         */
+        delete: operations["delete_gemstone_api_v1_gemstones__gemstone_id__delete"];
+        options?: never;
+        head?: never;
+        /**
+         * Update Gemstone
+         * @description Stein bearbeiten.
+         */
+        patch: operations["update_gemstone_api_v1_gemstones__gemstone_id__patch"];
         trace?: never;
     };
     "/api/v1/handoffs/{handoff_id}/accept": {
@@ -2958,6 +3034,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/orders/{order_id}/gemstones": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Gemstones
+         * @description Steine eines Auftrags.
+         */
+        get: operations["list_gemstones_api_v1_orders__order_id__gemstones_get"];
+        put?: never;
+        /**
+         * Create Gemstone
+         * @description Stein zum Auftrag hinzufügen.
+         */
+        post: operations["create_gemstone_api_v1_orders__order_id__gemstones_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/orders/{order_id}/hallmarks": {
         parameters: {
             query?: never;
@@ -3088,6 +3188,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/orders/{order_id}/handover-pdf": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Handover Pdf
+         * @description Abholprotokoll als PDF (W2-11, DOM-35).
+         *
+         *     Foto, Metall, Steine (ohne Einkaufspreis), Material, Pflegehinweise,
+         *     Gewährleistung und Unterschriftszeilen. Nur für fertiggestellte oder
+         *     ausgelieferte Aufträge; Design-Daten, daher DESIGN_VIEW.
+         */
+        get: operations["get_handover_pdf_api_v1_orders__order_id__handover_pdf_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/orders/{order_id}/label": {
         parameters: {
             query?: never;
@@ -3146,6 +3270,26 @@ export interface paths {
          * @description Lagerort-Verlauf eines Auftrags abrufen.
          */
         get: operations["get_order_location_history_api_v1_orders__order_id__location_history_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/orders/{order_id}/message-context": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Einwilligungs- und Zustellhinweise fuer die Kundeninfo
+         * @description E-Mail vorhanden? Einwilligung Fotonutzung? Widerspruch gegen E-Mails?
+         */
+        get: operations["get_order_message_context_api_v1_orders__order_id__message_context_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -3311,6 +3455,49 @@ export interface paths {
          *     photo_ids muessen OrderPhoto-UUIDs DIESES Auftrags sein.
          */
         post: operations["create_order_update_api_v1_orders__order_id__updates_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/orders/{order_id}/updates/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Kundeninfo-Vorschau (E-Mail-Text)
+         * @description Zeigt den E-Mail-Text, den der Kunde erhalten wuerde (inkl. Fusszeile).
+         *     Speichert nichts. Verstoesse (Fotos ohne Einwilligung, Preise) stehen in
+         *     ``blocked_reason`` statt als Fehler.
+         */
+        post: operations["preview_order_update_api_v1_orders__order_id__updates_preview_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/orders/{order_id}/updates/preview/pdf": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Kundeninfo-Vorschau als PDF
+         * @description Liefert den Inhalt des Entwurfs als PDF fuer Kunden ohne E-Mail. Speichert
+         *     nichts und markiert nichts als zugestellt. Fotos nur mit Einwilligung (422).
+         */
+        post: operations["preview_order_update_pdf_api_v1_orders__order_id__updates_preview_pdf_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -3821,6 +4008,32 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/repairs/{repair_id}/annahmeschein.pdf": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Repair Annahmeschein
+         * @description Annahmeschein (Reparaturannahme) als PDF (W2-12, DOM-08).
+         *
+         *     Enthaelt Werkstattdaten, Kunde, Stueck, Zustand, Fotos der Annahme als
+         *     Miniaturen, Preisindikation, Termine und Unterschriftszeilen. Fotos sind
+         *     Design-IP, daher DESIGN_VIEW (VIEWER: 403); die Preisindikation nur mit
+         *     FINANCIAL_VIEW. Eine Unterschrift wird noch nicht gespeichert (keine
+         *     Spalte, siehe W2-12-Bericht): der Schein wird auf Papier unterschrieben.
+         */
+        get: operations["get_repair_annahmeschein_api_v1_repairs__repair_id__annahmeschein_pdf_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/repairs/{repair_id}/approve": {
         parameters: {
             query?: never;
@@ -4286,6 +4499,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/scrap-gold/{scrap_gold_id}/identification": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Set Identification
+         * @description Ausweisdaten des Verkäufers erfassen (W2-16, vor der Unterschrift).
+         */
+        put: operations["set_identification_api_v1_scrap_gold__scrap_gold_id__identification_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/scrap-gold/{scrap_gold_id}/items": {
         parameters: {
             query?: never;
@@ -4423,6 +4656,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/scrap-gold/ankaufsbuch": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Export Ankaufsbuch
+         * @description Ankaufsbuch Altgold als CSV oder PDF (nur ADMIN, W2-16).
+         *
+         *     Enthält die entschlüsselten Ausweisdaten aller unterschriebenen Ankäufe
+         *     im Zeitraum. Rechtliche Anforderungen vom Steuerberater zu bestätigen.
+         */
+        get: operations["export_ankaufsbuch_api_v1_scrap_gold_ankaufsbuch_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/theme": {
         parameters: {
             query?: never;
@@ -4443,7 +4699,13 @@ export interface paths {
          * @description Replaces all theme settings.
          *
          *     Only users with the ADMIN role may call this endpoint.
-         *     The new settings are validated by Pydantic before being persisted.
+         *     The new settings are validated by Pydantic before being persisted, and
+         *     every text-bearing colour (primary_color, primary_dark,
+         *     header_gradient_start, header_gradient_end) must meet the WCAG AA
+         *     minimum contrast ratio (4.5:1) against white text — the frontend already
+         *     silently drops a failing colour and falls back to the default token
+         *     (useTheme.ts's setTextBearingColour), so the backend rejects it outright
+         *     instead of persisting a value the UI would never actually apply.
          */
         put: operations["update_theme_api_v1_theme_put"];
         post?: never;
@@ -6400,6 +6662,42 @@ export interface components {
          */
         CostingMethod: "fifo" | "lifo" | "average" | "specific";
         /**
+         * CustomerActivityItem
+         * @description One row of GET /customers/{id}/activity (newest first).
+         *
+         *     ``amount`` (order price, repair cost, quote/invoice total) is removed
+         *     for callers without FINANCIAL_VIEW. Quotes, invoices and customer
+         *     updates are only listed for callers holding their view permission.
+         *     ``order_id`` / ``repair_job_id`` point at the parent a row links to
+         *     (invoices and customer updates have no page of their own).
+         */
+        CustomerActivityItem: {
+            /** Amount */
+            amount?: number | null;
+            /** Id */
+            id: number;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "order" | "repair" | "quote" | "invoice" | "customer_update";
+            /**
+             * Occurred At
+             * Format: date-time
+             */
+            occurred_at: string;
+            /** Order Id */
+            order_id?: number | null;
+            /** Reference */
+            reference?: string | null;
+            /** Repair Job Id */
+            repair_job_id?: number | null;
+            /** Status */
+            status: string;
+            /** Title */
+            title: string;
+        };
+        /**
          * CustomerCreate
          * @description Schema for creating a new customer.
          *
@@ -6633,6 +6931,43 @@ export interface components {
             unit: string;
             /** Value */
             value: number;
+        };
+        /**
+         * CustomerMessageContext
+         * @description What the Kundeninfo composer needs for its consent / delivery hints.
+         */
+        CustomerMessageContext: {
+            /** Customer Id */
+            customer_id?: number | null;
+            /** Email Opt Out */
+            email_opt_out: boolean;
+            /** Has Email */
+            has_email: boolean;
+            /** Photo Consent */
+            photo_consent: boolean;
+        };
+        /**
+         * CustomerMessagePreview
+         * @description Plain-text preview of the email a customer would receive.
+         */
+        CustomerMessagePreview: {
+            /** Blocked Reason */
+            blocked_reason?: string | null;
+            delivery_method: components["schemas"]["UpdateDeliveryMethod"];
+            /** Email Opt Out */
+            email_opt_out: boolean;
+            /** Has Email */
+            has_email: boolean;
+            /** Legal Basis */
+            legal_basis: string;
+            /** Photo Consent */
+            photo_consent: boolean;
+            /** Photo Count */
+            photo_count: number;
+            /** Subject */
+            subject: string;
+            /** Text */
+            text: string;
         };
         /**
          * CustomerOrderExport
@@ -6947,6 +7282,8 @@ export interface components {
             /** Delivered */
             delivered: boolean;
             method?: components["schemas"]["UpdateDeliveryMethod"] | null;
+            /** Reason */
+            reason?: ("smtp_disabled" | "no_email" | "opted_out") | null;
             update: components["schemas"]["CustomerUpdateRead"];
         };
         /**
@@ -7242,6 +7579,14 @@ export interface components {
             smtp_user?: string | null;
         };
         /**
+         * EmailOptOut
+         * @description Art. 21 objection "Keine E-Mail-Updates" (GET/PUT body).
+         */
+        EmailOptOut: {
+            /** Email Opt Out */
+            email_opt_out: boolean;
+        };
+        /**
          * EmailTestRequest
          * @description Target address for the test email.
          */
@@ -7295,6 +7640,165 @@ export interface components {
             requested_at?: string | null;
             /** Status */
             status: string;
+        };
+        /**
+         * GemstoneCreate
+         * @description Body for ``POST /orders/{order_id}/gemstones``.
+         */
+        GemstoneCreate: {
+            /**
+             * Carat
+             * @description Karat je Stein
+             */
+            carat?: number | null;
+            /** Certificate Authority */
+            certificate_authority?: string | null;
+            /** Certificate Number */
+            certificate_number?: string | null;
+            /**
+             * Color
+             * @description Farbe, z.B. G
+             */
+            color?: string | null;
+            /**
+             * Cost
+             * @description Einkaufspreis je Stein (netto, EUR)
+             * @default 0
+             */
+            cost: number;
+            /**
+             * Cut
+             * @description Schliff
+             */
+            cut?: string | null;
+            /**
+             * Is Customer Stone
+             * @description Kundenstein
+             * @default false
+             */
+            is_customer_stone: boolean;
+            /** Notes */
+            notes?: string | null;
+            /**
+             * Quality
+             * @description Reinheit, z.B. VS1
+             */
+            quality?: string | null;
+            /**
+             * Quantity
+             * @description Anzahl
+             * @default 1
+             */
+            quantity: number;
+            /**
+             * Setting Type
+             * @description Fassungsart
+             */
+            setting_type?: ("bezel" | "prong" | "channel" | "pave" | "tension" | "invisible") | null;
+            /**
+             * Shape
+             * @description Form, z.B. rund
+             */
+            shape?: string | null;
+            /**
+             * Type
+             * @description Steinart
+             */
+            type: string;
+        };
+        /**
+         * GemstoneRead
+         * @description A stone as returned to the caller (role projection strips fields).
+         */
+        GemstoneRead: {
+            /** Carat */
+            carat?: number | null;
+            /** Certificate Authority */
+            certificate_authority?: string | null;
+            /** Certificate Number */
+            certificate_number?: string | null;
+            /** Color */
+            color?: string | null;
+            /** Cost */
+            cost?: number | null;
+            /** Cut */
+            cut?: string | null;
+            /** Id */
+            id: number;
+            /**
+             * Is Customer Stone
+             * @default false
+             */
+            is_customer_stone: boolean;
+            /** Notes */
+            notes?: string | null;
+            /** Order Id */
+            order_id: number;
+            /** Quality */
+            quality?: string | null;
+            /**
+             * Quantity
+             * @default 1
+             */
+            quantity: number;
+            /** Setting Type */
+            setting_type?: string | null;
+            /** Shape */
+            shape?: string | null;
+            /** Total Cost */
+            total_cost?: number | null;
+            /** Type */
+            type: string;
+        };
+        /**
+         * GemstoneUpdate
+         * @description Body for ``PATCH /gemstones/{gemstone_id}`` (only sent fields change).
+         */
+        GemstoneUpdate: {
+            /**
+             * Carat
+             * @description Karat je Stein
+             */
+            carat?: number | null;
+            /** Certificate Authority */
+            certificate_authority?: string | null;
+            /** Certificate Number */
+            certificate_number?: string | null;
+            /**
+             * Color
+             * @description Farbe, z.B. G
+             */
+            color?: string | null;
+            /** Cost */
+            cost?: number | null;
+            /**
+             * Cut
+             * @description Schliff
+             */
+            cut?: string | null;
+            /** Is Customer Stone */
+            is_customer_stone?: boolean | null;
+            /** Notes */
+            notes?: string | null;
+            /**
+             * Quality
+             * @description Reinheit, z.B. VS1
+             */
+            quality?: string | null;
+            /** Quantity */
+            quantity?: number | null;
+            /**
+             * Setting Type
+             * @description Fassungsart
+             */
+            setting_type?: ("bezel" | "prong" | "channel" | "pave" | "tension" | "invisible") | null;
+            /**
+             * Shape
+             * @description Form, z.B. rund
+             */
+            shape?: string | null;
+            /** Type */
+            type?: string | null;
         };
         /**
          * HallmarkCreate
@@ -9780,6 +10284,25 @@ export interface components {
          * @enum {string}
          */
         OverrideReasonCategoryEnum: "charge_abweichung" | "kleinteil" | "notfall" | "sonstiges";
+        /** Page[CustomerActivityItem] */
+        Page_CustomerActivityItem_: {
+            /** Items */
+            items: components["schemas"]["CustomerActivityItem"][];
+            /** Limit */
+            limit: number;
+            /**
+             * Next Offset
+             * @description Offset der nächsten Seite; null auf der letzten
+             */
+            next_offset?: number | null;
+            /** Offset */
+            offset: number;
+            /**
+             * Total
+             * @description Anzahl aller Treffer über alle Seiten
+             */
+            total: number;
+        };
         /** Page[MaterialRead] */
         Page_MaterialRead_: {
             /** Items */
@@ -10446,15 +10969,30 @@ export interface components {
          */
         RepairJobCreate: {
             /**
+             * Condition Notes
+             * @description Zustand bei Annahme, z.B. ['Kratzer', 'Tragespuren']
+             */
+            condition_notes?: string[];
+            /**
              * Customer Id
              * @description Kunden-ID (optional — Laufkunde moeglich)
              */
             customer_id?: number | null;
             /**
+             * Customer Problem
+             * @description Vom Kunden geschildertes Problem
+             */
+            customer_problem?: string | null;
+            /**
              * Estimated Completion Date
-             * @description Voraussichtliches Fertigstellungsdatum
+             * @description Zugesagter Fertigstellungstermin
              */
             estimated_completion_date?: string | null;
+            /**
+             * Estimated Cost
+             * @description Erste Preisindikation in EUR (unverbindlich)
+             */
+            estimated_cost?: number | null;
             /**
              * Estimated Value
              * @description Versicherungswert in EUR
@@ -10939,6 +11477,24 @@ export interface components {
             /** Total Value Eur */
             total_value_eur?: number | null;
         };
+        /**
+         * ScrapGoldIdentification
+         * @description Body for ``PUT /scrap-gold/{id}/identification`` (W2-16).
+         *
+         *     Document number and issuing authority are PII: stored encrypted, never
+         *     logged, shown in reads only as the last four characters.
+         */
+        ScrapGoldIdentification: {
+            /** Id Document Number */
+            id_document_number: string;
+            /**
+             * Id Document Type
+             * @enum {string}
+             */
+            id_document_type: "personalausweis" | "reisepass" | "aufenthaltstitel" | "sonstiges";
+            /** Id Issuing Authority */
+            id_issuing_authority: string;
+        };
         /** ScrapGoldItemCreate */
         ScrapGoldItemCreate: {
             /** @description Alloy/fineness code, e.g. 585, 750, ag925, pt950 */
@@ -11001,8 +11557,22 @@ export interface components {
             customer_id: number;
             /** Gold Price Per G */
             gold_price_per_g?: number | null;
+            /** Has Identification */
+            readonly has_identification: boolean;
             /** Id */
             id: number;
+            /** Id Checked At */
+            id_checked_at?: string | null;
+            /** Id Checked By */
+            id_checked_by?: number | null;
+            /** Id Document Number Last4 */
+            id_document_number_last4?: string | null;
+            /** Id Document Type */
+            id_document_type?: string | null;
+            /** Id Issuing Authority */
+            id_issuing_authority?: string | null;
+            /** Id Required */
+            readonly id_required: boolean;
             /**
              * Items
              * @default []
@@ -11184,7 +11754,7 @@ export interface components {
             /**
              * Header Gradient Start
              * @description Header-Verlauf Startfarbe
-             * @default #d97706
+             * @default #b45309
              */
             header_gradient_start: string;
             /**
@@ -11200,8 +11770,8 @@ export interface components {
             page_background: string;
             /**
              * Primary Color
-             * @description Hauptfarbe (CSS hex, z. B. #d97706)
-             * @default #d97706
+             * @description Hauptfarbe (CSS hex, z. B. #b45309)
+             * @default #b45309
              */
             primary_color: string;
             /**
@@ -13664,6 +14234,44 @@ export interface operations {
             };
         };
     };
+    get_customer_activity_api_v1_customers__customer_id__activity_get: {
+        parameters: {
+            query?: {
+                /** @description Seitengröße (maximal 200) */
+                limit?: number;
+                /** @description Offset der Seite */
+                offset?: number;
+            };
+            header?: never;
+            path: {
+                customer_id: number;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_CustomerActivityItem_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_customer_consents_api_v1_customers__customer_id__consents_get: {
         parameters: {
             query?: never;
@@ -13755,6 +14363,76 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ConsentRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_customer_email_opt_out_api_v1_customers__customer_id__email_opt_out_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                customer_id: number;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EmailOptOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    set_customer_email_opt_out_api_v1_customers__customer_id__email_opt_out_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                customer_id: number;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EmailOptOut"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EmailOptOut"];
                 };
             };
             /** @description Validation Error */
@@ -14354,6 +15032,74 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LaborEstimateResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_gemstone_api_v1_gemstones__gemstone_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                gemstone_id: number;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_gemstone_api_v1_gemstones__gemstone_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                gemstone_id: number;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GemstoneUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GemstoneRead"];
                 };
             };
             /** @description Validation Error */
@@ -17098,6 +17844,76 @@ export interface operations {
             };
         };
     };
+    list_gemstones_api_v1_orders__order_id__gemstones_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                order_id: number;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GemstoneRead"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_gemstone_api_v1_orders__order_id__gemstones_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                order_id: number;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GemstoneCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GemstoneRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_hallmarks_api_v1_orders__order_id__hallmarks_get: {
         parameters: {
             query?: never;
@@ -17380,6 +18196,37 @@ export interface operations {
             };
         };
     };
+    get_handover_pdf_api_v1_orders__order_id__handover_pdf_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                order_id: number;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_order_label_api_v1_orders__order_id__label_get: {
         parameters: {
             query?: {
@@ -17475,6 +18322,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LocationHistoryRead"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_order_message_context_api_v1_orders__order_id__message_context_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                order_id: number;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CustomerMessageContext"];
                 };
             };
             /** @description Validation Error */
@@ -17788,6 +18668,80 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CustomerUpdateRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    preview_order_update_api_v1_orders__order_id__updates_preview_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                order_id: number;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CustomerUpdateCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CustomerMessagePreview"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    preview_order_update_pdf_api_v1_orders__order_id__updates_preview_pdf_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                order_id: number;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CustomerUpdateCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
             /** @description Validation Error */
@@ -18670,6 +19624,37 @@ export interface operations {
             };
         };
     };
+    get_repair_annahmeschein_api_v1_repairs__repair_id__annahmeschein_pdf_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                repair_id: number;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     approve_repair_api_v1_repairs__repair_id__approve_post: {
         parameters: {
             query?: never;
@@ -19486,6 +20471,43 @@ export interface operations {
             };
         };
     };
+    set_identification_api_v1_scrap_gold__scrap_gold_id__identification_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                scrap_gold_id: number;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ScrapGoldIdentification"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScrapGoldRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     add_item_api_v1_scrap_gold__scrap_gold_id__items_post: {
         parameters: {
             query?: never;
@@ -19716,6 +20738,44 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AlloyCalculation"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    export_ankaufsbuch_api_v1_scrap_gold_ankaufsbuch_get: {
+        parameters: {
+            query: {
+                /** @description Erster Tag (YYYY-MM-DD) */
+                date_from: string;
+                /** @description Letzter Tag (YYYY-MM-DD) */
+                date_to: string;
+                /** @description csv oder pdf */
+                format?: "csv" | "pdf";
+            };
+            header?: never;
+            path?: never;
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
             /** @description Validation Error */

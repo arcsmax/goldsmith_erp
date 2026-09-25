@@ -1,6 +1,6 @@
 // Scrap Gold (Altgold) API Service
 import apiClient from './client';
-import type { ApiScrapGold, ApiScrapGoldItem } from './generated';
+import type { ApiScrapGold, ApiScrapGoldIdentification, ApiScrapGoldItem } from './generated';
 
 // ==================== INTERFACES ====================
 
@@ -21,6 +21,17 @@ export type ScrapGoldItem = ApiScrapGoldItem;
 export type ScrapGoldStatus = 'received' | 'calculated' | 'signed' | 'credited';
 
 export type ScrapGold = Omit<ApiScrapGold, 'status'> & { status: ScrapGoldStatus };
+
+/** W2-16: seller ID for the Ankaufsbuch (number + authority stored encrypted). */
+export type ScrapGoldIdentificationInput = ApiScrapGoldIdentification;
+export type IdDocumentType = ScrapGoldIdentificationInput['id_document_type'];
+
+export const ID_DOCUMENT_OPTIONS: readonly { value: IdDocumentType; label: string }[] = [
+  { value: 'personalausweis', label: 'Personalausweis' },
+  { value: 'reisepass', label: 'Reisepass' },
+  { value: 'aufenthaltstitel', label: 'Aufenthaltstitel' },
+  { value: 'sonstiges', label: 'Sonstiges Ausweisdokument' },
+];
 
 export interface ScrapGoldCreateInput {
   notes?: string;
@@ -140,6 +151,36 @@ export const scrapGoldApi = {
       { headers: { 'Content-Type': 'multipart/form-data' } }
     );
     return response.data;
+  },
+
+  /**
+   * W2-16: record the seller's ID (before signing; required above the
+   * configured value threshold).
+   */
+  setIdentification: async (
+    scrapGoldId: number,
+    input: ScrapGoldIdentificationInput
+  ): Promise<ScrapGold> => {
+    const response = await apiClient.put<ScrapGold>(
+      `/scrap-gold/${scrapGoldId}/identification`,
+      input
+    );
+    return response.data;
+  },
+
+  /**
+   * W2-16: Ankaufsbuch export for a period (ADMIN only), as CSV or PDF blob.
+   */
+  downloadAnkaufsbuch: async (
+    dateFrom: string,
+    dateTo: string,
+    format: 'csv' | 'pdf' = 'csv'
+  ): Promise<Blob> => {
+    const response = await apiClient.get('/scrap-gold/ankaufsbuch', {
+      params: { date_from: dateFrom, date_to: dateTo, format },
+      responseType: 'blob',
+    });
+    return response.data as Blob;
   },
 
   /**

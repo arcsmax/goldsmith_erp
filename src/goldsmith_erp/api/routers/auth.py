@@ -1,9 +1,9 @@
 import logging
 from datetime import timedelta
 
+import jwt
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, Response, status
 from fastapi.security import OAuth2PasswordRequestForm
-from jose import JWTError, jwt
 from slowapi import Limiter
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
@@ -162,7 +162,7 @@ async def logout(request: Request, response: Response):
             jti = payload.get("jti")
             if jti:
                 await blocklist_jti(str(jti), remaining_ttl_seconds(payload))
-        except JWTError:
+        except jwt.InvalidTokenError:
             pass  # not a valid token — nothing to revoke; still clear the cookie
 
     response.delete_cookie("access_token", path="/")
@@ -199,10 +199,10 @@ async def refresh_access_token(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    # Decode with grace-window logic (raises JWTError if too old or bad signature)
+    # Decode with grace-window logic (raises InvalidTokenError if too old or bad signature)
     try:
         payload = decode_token_allowing_grace_window(token)
-    except JWTError as exc:
+    except jwt.InvalidTokenError as exc:
         logger.warning(
             "Token refresh rejected",
             extra={"reason": str(exc), "path": request.url.path},

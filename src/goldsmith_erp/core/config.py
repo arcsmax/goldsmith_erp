@@ -632,6 +632,15 @@ class Settings(BaseSettings):
     # always wins over this setting.
     RETENTION_EXECUTE: bool = False
 
+    # ── Altgold ID capture (W2-16 / DOM-21, decision D-16) ───────────────────
+    # Appended at the end of Settings on purpose (merge-safety, see above).
+    # An Altgold purchase whose value is ABOVE this amount (EUR) cannot be
+    # signed until the seller's ID (document type, number, issuing authority)
+    # is recorded. Below it the ID fields stay optional. Default 2,000 EUR
+    # follows §10 Abs. 6a GwG for cash trades in precious metals — the legal
+    # threshold and scope are still to be confirmed by the Steuerberater.
+    SCRAP_GOLD_ID_THRESHOLD_EUR: float = Field(default=2000.0, ge=0)
+
     # ── Health check (LV-17) ─────────────────────────────────────────────────
     # Appended at the end of Settings on purpose (merge-safety, see above).
     # /health's disk component reports "warning" from 80 % used (informational,

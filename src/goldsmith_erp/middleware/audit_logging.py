@@ -189,6 +189,11 @@ _RESOURCE_ROUTES: dict[str, Tuple[str, str, str, bool]] = {
     # entry); this entry covers the bare ``/measurements/{id}`` get/update/
     # delete routes. Legal basis overridden to Art. 6(1)(b) contract.
     "measurements": ("measurement", "accessed", "list_accessed", False),
+    # W2-06: order gemstones. Cost is financial, the stone specification
+    # design IP. This entry covers ``PATCH/DELETE /gemstones/{id}`` (every
+    # verb audited); list + create live under ``/orders/{id}/gemstones``
+    # (first-segment blind spot) and are audited by GemstoneService.
+    "gemstones": ("gemstone", "financial_read", "list_accessed_financial", False),
     # W2-04: Werkstatt-Stammdaten (seller data printed on every Rechnung).
     # Two-segment key: only this admin route is audited, not every
     # ``/admin/*`` endpoint. ``False`` = reads AND writes are audited here

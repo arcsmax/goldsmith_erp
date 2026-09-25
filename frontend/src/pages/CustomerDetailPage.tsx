@@ -10,47 +10,18 @@ import { CustomerFormModal } from '../components/CustomerFormModal';
 import { useAuth } from '../contexts';
 import { canViewDesign } from '../lib/roles';
 import { ConsentPanel } from '../components/customers/ConsentPanel';
+import { CustomerActivityList } from '../components/customers/CustomerActivityList';
+import { formatEur, MONEY_CLASS } from '../lib/format';
+import { logError } from '../lib/logError';
+import { StatusBadge } from '../ui/StatusBadge';
 import { Customer, CustomerCreateInput, CustomerUpdateInput } from '../types';
 import '../styles/customer-detail.css';
-// Pulls the `.invoice-status-badge.status-{draft|sent|paid|overdue|cancelled}`
-// rules used by the Rechnungen tab below. Without this the badges render
-// unstyled — the same case-mismatch failure mode as the main /invoices page.
-import '../styles/invoices.css';
 
-type CustomerDetailTab = 'stammdaten' | 'masse' | 'auftraege' | 'rechnungen';
+type CustomerDetailTab = 'stammdaten' | 'verlauf' | 'masse' | 'auftraege' | 'rechnungen';
 
 // ============================================================
 // Helpers
 // ============================================================
-
-const getStatusLabel = (status: string): string => {
-  const labels: Record<string, string> = {
-    new: 'Neu',
-    draft: 'Entwurf',
-    confirmed: 'Bestätigt',
-    in_progress: 'In Bearbeitung',
-    waiting_for_fitting: 'Wartet auf Anprobe',
-    fitting_done: 'Anprobe fertig',
-    ready_for_setting: 'Bereit zum Fassen',
-    quality_check: 'Qualitätsprüfung',
-    completed: 'Fertig',
-    delivered: 'Ausgeliefert',
-  };
-  return labels[status] || status;
-};
-
-/**
- * German labels for invoice status — keyed by the lowercase backend enum
- * value (see types.ts). The earlier UPPERCASE-leaning code rendered the
- * raw enum value because the lookup never matched.
- */
-const INVOICE_STATUS_LABELS = {
-  draft: 'Entwurf',
-  sent: 'Versendet',
-  paid: 'Bezahlt',
-  overdue: 'Überfällig',
-  cancelled: 'Storniert',
-} as const;
 
 const formatDate = (dateStr?: string | null): string => {
   if (!dateStr) return '—';
@@ -288,9 +259,7 @@ const AuftraegeTab: React.FC<{ customerId: number }> = ({ customerId }) => {
                 <div className="cdetail-timeline-content">
                   <div className="cdetail-timeline-header">
                     <span className="cdetail-timeline-id">#{order.id}</span>
-                    <span className={`status-badge status-${order.status}`}>
-                      {getStatusLabel(order.status)}
-                    </span>
+                    <StatusBadge kind="order" status={order.status} />
                   </div>
                   <h4 className="cdetail-timeline-title">{order.title}</h4>
                   <div className="cdetail-timeline-meta">
@@ -299,8 +268,8 @@ const AuftraegeTab: React.FC<{ customerId: number }> = ({ customerId }) => {
                       <span>Deadline: {formatDate(order.deadline)}</span>
                     )}
                     {order.price != null && (
-                      <span className="cdetail-timeline-price">
-                        {order.price.toFixed(2)} €
+                      <span className={`cdetail-timeline-price ${MONEY_CLASS}`}>
+                        {formatEur(order.price)}
                       </span>
                     )}
                   </div>
@@ -322,6 +291,7 @@ const RechnungenTab: React.FC<{ customerId: number }> = ({ customerId }) => {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [downloadingId, setDownloadingId] = useState<number | null>(null);
+  const [pdfError, setPdfError] = useState<string | null>(null);
 
   const handleDownloadPdf = async (invoiceId: number, invoiceNumber: string) => {
     try {
@@ -336,8 +306,9 @@ const RechnungenTab: React.FC<{ customerId: number }> = ({ customerId }) => {
       a.download = `Rechnung_${invoiceNumber || invoiceId}.pdf`;
       a.click();
       URL.revokeObjectURL(url);
-    } catch {
-      // Silently ignore — backend PDF endpoint may not be implemented yet
+    } catch (err) {
+      logError('CustomerDetailPage.invoicePdf', err);
+      setPdfError('Rechnungs-PDF konnte nicht geladen werden.');
     } finally {
       setDownloadingId(null);
     }
@@ -349,12 +320,10 @@ const RechnungenTab: React.FC<{ customerId: number }> = ({ customerId }) => {
         setIsLoading(true);
         // Import lazily to avoid circular imports
         const { invoicesApi } = await import('../api/invoices');
-        const data = await invoicesApi.getInvoices({ limit: 200 });
+        // DOM-38: filtered server-side by customer (was: first 200 of all).
+        const data = await invoicesApi.getInvoices({ customer_id: customerId, limit: 200 });
         const items = Array.isArray(data) ? data : (data as any).items || [];
-        const customerInvoices = items.filter(
-          (inv: any) => inv.customer_id === customerId
-        );
-        setInvoices(customerInvoices);
+        setInvoices(items);
       } catch {
         setError('Fehler beim Laden der Rechnungen');
       } finally {
@@ -372,6 +341,11 @@ const RechnungenTab: React.FC<{ customerId: number }> = ({ customerId }) => {
       <div className="cdetail-panel__header">
         <h2>Rechnungen ({invoices.length})</h2>
       </div>
+      {pdfError && (
+        <p className="cdetail-error" role="alert">
+          {pdfError}
+        </p>
+      )}
       {invoices.length === 0 ? (
         <div className="cdetail-empty">
           <p>Noch keine Rechnungen für diesen Kunden vorhanden.</p>
@@ -385,12 +359,10 @@ const RechnungenTab: React.FC<{ customerId: number }> = ({ customerId }) => {
                 <span>{formatDate(inv.issue_date || inv.created_at)}</span>
                 {inv.due_date && <span>Fällig: {formatDate(inv.due_date)}</span>}
               </div>
-              <span className={`invoice-status-badge status-${inv.status || 'draft'}`}>
-                {INVOICE_STATUS_LABELS[inv.status as keyof typeof INVOICE_STATUS_LABELS] ?? 'Entwurf'}
-              </span>
-              {inv.total_amount != null && (
-                <span className="cdetail-invoice-amount">
-                  {Number(inv.total_amount).toFixed(2)} €
+              <StatusBadge kind="invoice" status={inv.status || 'draft'} />
+              {inv.total != null && (
+                <span className={`cdetail-invoice-amount ${MONEY_CLASS}`}>
+                  {formatEur(inv.total)}
                 </span>
               )}
               <button
@@ -537,6 +509,14 @@ export const CustomerDetailPage: React.FC = () => {
         </button>
         <button
           role="tab"
+          aria-selected={activeTab === 'verlauf'}
+          className={`cdetail-tab ${activeTab === 'verlauf' ? 'active' : ''}`}
+          onClick={() => setActiveTab('verlauf')}
+        >
+          Verlauf
+        </button>
+        <button
+          role="tab"
           aria-selected={activeTab === 'masse'}
           className={`cdetail-tab ${activeTab === 'masse' ? 'active' : ''}`}
           onClick={() => setActiveTab('masse')}
@@ -565,6 +545,11 @@ export const CustomerDetailPage: React.FC = () => {
       <div className="cdetail-tab-content" role="tabpanel">
         {activeTab === 'stammdaten' && (
           <StammdatenTab customer={customer} onEdit={() => setIsEditModalOpen(true)} />
+        )}
+        {activeTab === 'verlauf' && (
+          <div className="cdetail-panel tab-panel">
+            <CustomerActivityList customerId={customerId} />
+          </div>
         )}
         {activeTab === 'masse' && <MasseTab customer={customer} />}
         {activeTab === 'auftraege' && <AuftraegeTab customerId={customerId} />}

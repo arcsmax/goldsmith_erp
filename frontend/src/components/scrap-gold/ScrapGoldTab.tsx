@@ -5,6 +5,7 @@ import type { ScrapGoldItem } from '../../api/scrap-gold';
 import apiClient from '../../api/client';
 import { AlloyCalculator, ALLOY_OPTIONS } from './AlloyCalculator';
 import { SignatureCanvas } from '../SignatureCanvas';
+import { ScrapGoldIdentification } from './ScrapGoldIdentification';
 import { useToast } from '../../contexts';
 import '../../styles/scrap-gold.css';
 
@@ -199,6 +200,8 @@ export const ScrapGoldTab: React.FC<ScrapGoldTabProps> = ({ orderId, customerId 
   // Scrap gold exists - show full interface
   const statusConfig = STATUS_CONFIG[scrapGold.status] || STATUS_CONFIG.received;
   const isEditable = scrapGold.status === 'received' || scrapGold.status === 'calculated';
+  // W2-16 / D-16: above the value threshold the ID must be on file first.
+  const isIdMissing = scrapGold.id_required && !scrapGold.has_identification;
 
   return (
     <div className="scrap-gold-tab">
@@ -339,6 +342,14 @@ export const ScrapGoldTab: React.FC<ScrapGoldTabProps> = ({ orderId, customerId 
         )}
       </div>
 
+      {/* Ausweisdaten (W2-16, Ankaufsbuch) */}
+      <ScrapGoldIdentification
+        key={`${scrapGold.id}-${scrapGold.id_checked_at ?? 'neu'}`}
+        scrapGold={scrapGold}
+        isEditable={isEditable}
+        onSaved={setScrapGold}
+      />
+
       {/* Signature Section */}
       <div className="scrap-gold-signature">
         <h3>Unterschrift</h3>
@@ -394,6 +405,10 @@ export const ScrapGoldTab: React.FC<ScrapGoldTabProps> = ({ orderId, customerId 
             {scrapGold.status === 'received' && scrapGold.items.length === 0 ? (
               <p className="signature-blocked-hint">
                 Bitte zuerst Positionen erfassen und berechnen, bevor die Unterschrift eingeholt wird.
+              </p>
+            ) : isIdMissing ? (
+              <p className="signature-blocked-hint">
+                Bitte zuerst die Ausweisdaten erfassen, bevor die Unterschrift eingeholt wird.
               </p>
             ) : (
               <SignatureCanvas onSave={handleSign} height={180} />

@@ -58,3 +58,7 @@ export type ApiConsultation = Schemas['ConsultationRead'];
 export type ApiConsultationListItem = Schemas['ConsultationListItem'];
 export type ApiScrapGold = Schemas['ScrapGoldRead'];
 export type ApiScrapGoldItem = Schemas['ScrapGoldItemRead'];
+export type ApiScrapGoldIdentification = Schemas['ScrapGoldIdentification'];
+export type ApiGemstone = Schemas['GemstoneRead'];
+export type ApiGemstoneCreate = Schemas['GemstoneCreate'];
+export type ApiGemstoneUpdate = Schemas['GemstoneUpdate'];

@@ -14,9 +14,9 @@ import { test, expect, Page } from '@playwright/test';
  * (DRAFT, linked to order #9 "Armband Silber 925") and a mix of
  * non-DRAFT quotes that should suppress the EstimatorPanel.
  *
- * Mirrors goldsmith-workflow.spec.ts's approach of hard-coding the
- * seeded admin credentials — only runs in environments where the demo
- * seed has been applied.
+ * Mirrors goldsmith-workflow.spec.ts's approach: defaults to the seeded
+ * admin credentials (overridable via E2E_ADMIN_EMAIL/E2E_ADMIN_PASSWORD)
+ * — only runs in environments where the demo seed has been applied.
  *
  * Intentionally does NOT exercise the full "fetch estimate → accept"
  * path: that depends on the labor corpus sample size (MAPE / bias
@@ -33,8 +33,11 @@ import { test, expect, Page } from '@playwright/test';
  * exact-tier filter matches.
  */
 
-const ADMIN_EMAIL = 'admin@goldschmiede.de';
-const ADMIN_PASSWORD = 'Admin123!';
+// Defaults match scripts/seed_demo.py's admin/inhaber account (the single
+// source of truth is src/goldsmith_erp/db/seed_credentials.py); override via
+// env vars if a different seeded environment is targeted.
+const ADMIN_EMAIL = process.env.E2E_ADMIN_EMAIL ?? 'demo-inhaber@werkstatt.de';
+const ADMIN_PASSWORD = process.env.E2E_ADMIN_PASSWORD ?? 'demo2026!';
 
 async function login(page: Page): Promise<void> {
   await page.goto('/login');

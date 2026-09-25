@@ -21,7 +21,6 @@ from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from goldsmith_erp.db.models import Interruption as InterruptionModel
 from goldsmith_erp.db.models import Order as OrderModel
 from goldsmith_erp.db.models import OrderStatusEnum
 from goldsmith_erp.db.models import TimeEntry as TimeEntryModel
@@ -309,9 +308,19 @@ class MLDataService:
         This is called automatically from OrderService when status transitions to
         COMPLETED or DELIVERED.  It is idempotent — safe to call multiple times.
         """
-        # Sum closed time entry durations for this order
-        duration_result = await db.execute(
-            select(func.sum(TimeEntryModel.duration_minutes)).where(
+        # W2-14 (BE-19): per closed entry, gross minutes minus its
+        # interruptions (measured spans, clamped to the entry window).
+        # Interruptions of a still-running entry no longer reduce the closed
+        # total, and one entry's interruptions cannot eat another entry's
+        # time.
+        from goldsmith_erp.services.time_tracking_service import (  # noqa: PLC0415
+            net_entry_minutes,
+        )
+
+        entries_result = await db.execute(
+            select(TimeEntryModel)
+            .options(selectinload(TimeEntryModel.interruptions))
+            .where(
                 and_(
                     TimeEntryModel.order_id == order_id,
                     TimeEntryModel.end_time.isnot(None),
@@ -319,7 +328,8 @@ class MLDataService:
                 )
             )
         )
-        total_entry_minutes: int = duration_result.scalar() or 0
+        entries = list(entries_result.scalars().all())
+        total_entry_minutes: int = sum(int(e.duration_minutes or 0) for e in entries)
 
         if total_entry_minutes == 0:
             logger.info(
@@ -329,18 +339,8 @@ class MLDataService:
             )
             return None
 
-        # Sum interruption durations across all time entries for this order
-        interruption_result = await db.execute(
-            select(func.sum(InterruptionModel.duration_minutes))
-            .join(
-                TimeEntryModel,
-                InterruptionModel.time_entry_id == TimeEntryModel.id,
-            )
-            .where(TimeEntryModel.order_id == order_id)
-        )
-        total_interruption_minutes: int = interruption_result.scalar() or 0
-
-        net_minutes = max(total_entry_minutes - total_interruption_minutes, 0)
+        net_minutes = sum(net_entry_minutes(e) for e in entries)
+        total_interruption_minutes = total_entry_minutes - net_minutes
         actual_hours = round(net_minutes / 60.0, 2)
 
         # Persist to the Order row
