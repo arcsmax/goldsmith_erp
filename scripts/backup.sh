@@ -1,21 +1,58 @@
 #!/usr/bin/env bash
 # scripts/backup.sh
-# Creates a compressed PostgreSQL dump, verifies integrity, applies retention
-# policy, optionally syncs to cloud, and notifies the backend admin endpoint.
+# Creates an ENCRYPTED, compressed PostgreSQL dump, verifies it, applies the
+# retention policy, appends the GDPR erasure ledger, optionally syncs to the
+# cloud, and notifies the backend admin endpoint.
 #
-# Usage: ./scripts/backup.sh
-# Reads configuration from .env.production at the project root.
+# Usage:
+#   ./scripts/backup.sh                 # encrypted backup (production)
+#   ./scripts/backup.sh --dry-run       # print the plan, touch nothing
+#   ./scripts/backup.sh --unencrypted   # DEV ONLY: plain .sql.gz
+#
+# Reads configuration from .env.production at the project root (override the
+# path with GOLDSMITH_ENV_FILE, used by the tests).
+#
+# Encryption (GDPR-06, Art. 32 DSGVO) — see scripts/lib/backup-crypto.sh:
+#   BACKUP_AGE_RECIPIENTS_FILE  → age (recommended: the private key stays
+#                                 offline, the server can encrypt but never
+#                                 decrypt)
+#   BACKUP_PASSPHRASE_FILE      → gpg --symmetric (AES256), key read from file
+# Without either the script refuses to run unless --unencrypted is given.
+#
+# Erasure ledger (GDPR-07): after each dump every executed Art. 17 erasure is
+# appended to ERASURE_LEDGER_FILE (default
+# $BACKUP_DIR/erasure-ledger/erasure-ledger.jsonl). The ledger is NOT part of
+# the dump rotation: restore.sh replays it so a restore can never bring an
+# erased customer back.
 #
 # Exit codes:
-#   0  — backup created and verified successfully
-#   1  — backup failed or verification failed
+#   0  — backup created and verified successfully (and ledger appended)
+#   1  — backup failed, verification failed, or the ledger could not be
+#        appended (the verified dump is kept in that last case)
+#   2  — usage / configuration error
 
 set -euo pipefail
+umask 077
 
 # ── Resolve project root (parent of scripts/) ─────────────────────────────────
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-ENV_FILE="${PROJECT_ROOT}/.env.production"
+ENV_FILE="${GOLDSMITH_ENV_FILE:-${PROJECT_ROOT}/.env.production}"
+
+# shellcheck source=scripts/lib/backup-crypto.sh
+source "${SCRIPT_DIR}/lib/backup-crypto.sh"
+
+# ── Arguments ─────────────────────────────────────────────────────────────────
+DRY_RUN=false
+ALLOW_UNENCRYPTED=false
+for arg in "$@"; do
+    case "${arg}" in
+        --dry-run)     DRY_RUN=true ;;
+        --unencrypted) ALLOW_UNENCRYPTED=true ;;
+        -h|--help)     sed -n '2,32p' "${BASH_SOURCE[0]}"; exit 0 ;;
+        *) echo "ERROR: unknown argument: ${arg}" >&2; exit 2 ;;
+    esac
+done
 
 # ── Load .env.production ──────────────────────────────────────────────────────
 if [[ -f "${ENV_FILE}" ]]; then
@@ -25,14 +62,17 @@ if [[ -f "${ENV_FILE}" ]]; then
     set +a
 else
     echo "ERROR: ${ENV_FILE} not found. Run setup.sh first." >&2
-    exit 1
+    exit 2
 fi
 
 # ── Apply defaults for optional variables ─────────────────────────────────────
 BACKUP_DIR="${BACKUP_DIR:-${HOME}/goldsmith-backups}"
+BACKUP_DIR="${BACKUP_DIR/#\~/${HOME}}"   # expand leading tilde
 POSTGRES_USER="${POSTGRES_USER:-user}"
 POSTGRES_DB="${POSTGRES_DB:-goldsmith}"
 BACKUP_CLOUD_URL="${BACKUP_CLOUD_URL:-}"
+ERASURE_LEDGER_FILE="${ERASURE_LEDGER_FILE:-${BACKUP_DIR}/erasure-ledger/erasure-ledger.jsonl}"
+ERASURE_LEDGER_FILE="${ERASURE_LEDGER_FILE/#\~/${HOME}}"
 
 COMPOSE_FILE="${PROJECT_ROOT}/podman-compose.prod.yml"
 COMPOSE_CMD="podman-compose -f ${COMPOSE_FILE}"
@@ -41,6 +81,35 @@ COMPOSE_CMD="podman-compose -f ${COMPOSE_FILE}"
 log_info()  { echo "[$(date '+%Y-%m-%d %H:%M:%S')] INFO  $*"; }
 log_warn()  { echo "[$(date '+%Y-%m-%d %H:%M:%S')] WARN  $*" >&2; }
 log_error() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] ERROR $*" >&2; }
+
+# ── Encryption mode ───────────────────────────────────────────────────────────
+backup_crypto_resolve_method || exit 2
+if [[ "${BACKUP_CRYPTO_METHOD}" == "none" ]]; then
+    if ! ${ALLOW_UNENCRYPTED}; then
+        log_error "No backup encryption configured (BACKUP_AGE_RECIPIENTS_FILE or"
+        log_error "BACKUP_PASSPHRASE_FILE in .env.production). Refusing to write an"
+        log_error "unencrypted dump. For development only: --unencrypted."
+        exit 2
+    fi
+    log_warn "UNENCRYPTED backup requested (--unencrypted). Never use this in production."
+elif ${ALLOW_UNENCRYPTED}; then
+    log_warn "--unencrypted ignored: encryption (${BACKUP_CRYPTO_METHOD}) is configured."
+fi
+
+# ── Build output filename ─────────────────────────────────────────────────────
+TIMESTAMP="$(date '+%Y-%m-%d_%H%M%S')"
+BACKUP_FILE="${BACKUP_DIR}/goldsmith_erp_${TIMESTAMP}.sql.gz$(backup_crypto_suffix)"
+
+if ${DRY_RUN}; then
+    echo "DRY-RUN: no dump, no files written, nothing deleted."
+    echo "  encryption : ${BACKUP_CRYPTO_METHOD}"
+    echo "  backup file: ${BACKUP_FILE}"
+    echo "  ledger file: ${ERASURE_LEDGER_FILE}"
+    echo "  cloud sync : ${BACKUP_CLOUD_URL:+enabled}${BACKUP_CLOUD_URL:-disabled}"
+    exit 0
+fi
+
+backup_crypto_check_encrypt || exit 2
 
 # ── Notify admin endpoint ─────────────────────────────────────────────────────
 notify_admin() {
@@ -55,29 +124,48 @@ notify_admin() {
         || log_warn "Could not reach admin notify endpoint (non-fatal)"
 }
 
-# ── Ensure backup directory exists ────────────────────────────────────────────
-BACKUP_DIR="${BACKUP_DIR/#\~/${HOME}}"   # expand leading tilde
 mkdir -p "${BACKUP_DIR}"
+chmod 700 "${BACKUP_DIR}"
 
-# ── Build output filename ─────────────────────────────────────────────────────
-TIMESTAMP="$(date '+%Y-%m-%d_%H%M%S')"
-BACKUP_FILE="${BACKUP_DIR}/goldsmith_erp_${TIMESTAMP}.sql.gz"
+log_info "Starting backup → ${BACKUP_FILE} (encryption: ${BACKUP_CRYPTO_METHOD})"
 
-log_info "Starting backup → ${BACKUP_FILE}"
+# ── pg_dump | gzip | encrypt → .partial, renamed only when complete ──────────
+PARTIAL_FILE="${BACKUP_FILE}.partial"
+trap 'rm -f "${PARTIAL_FILE}"' EXIT
 
-# ── Run pg_dump piped through gzip ───────────────────────────────────────────
 if ! ${COMPOSE_CMD} exec -T db \
         pg_dump -U "${POSTGRES_USER}" "${POSTGRES_DB}" \
-    | gzip > "${BACKUP_FILE}"; then
-    log_error "pg_dump failed. Aborting."
-    notify_admin "failure" "${BACKUP_FILE}" "0"
+    | gzip \
+    | backup_crypto_encrypt > "${PARTIAL_FILE}"; then
+    log_error "pg_dump / compression / encryption failed. Aborting."
+    notify_admin "failure" "$(basename "${BACKUP_FILE}")" "0"
     exit 1
 fi
+mv "${PARTIAL_FILE}" "${BACKUP_FILE}"
+chmod 600 "${BACKUP_FILE}"
 
 # ── Verify archive integrity ──────────────────────────────────────────────────
-if ! gzip -t "${BACKUP_FILE}" 2>/dev/null; then
+verify_backup() {
+    case "${BACKUP_CRYPTO_METHOD}" in
+        none) gzip -t "${BACKUP_FILE}" 2>/dev/null ;;
+        gpg)  backup_crypto_decrypt gpg "${BACKUP_FILE}" | gzip -t 2>/dev/null ;;
+        age)
+            if [[ -n "${BACKUP_AGE_IDENTITY_FILE:-}" && -r "${BACKUP_AGE_IDENTITY_FILE}" ]]; then
+                backup_crypto_decrypt age "${BACKUP_FILE}" | gzip -t 2>/dev/null
+            else
+                # Private key is (correctly) offline: check the age header and
+                # size only. The quarterly restore drill proves decryptability.
+                log_warn "age identity not on this host — header check only (restore drill required)."
+                [[ -s "${BACKUP_FILE}" ]] \
+                    && head -c 21 "${BACKUP_FILE}" | grep -q "age-encryption.org/v1"
+            fi
+            ;;
+    esac
+}
+
+if ! verify_backup; then
     log_error "Integrity check failed for ${BACKUP_FILE}. Previous backups are NOT deleted."
-    notify_admin "corrupted" "${BACKUP_FILE}" "0"
+    notify_admin "corrupted" "$(basename "${BACKUP_FILE}")" "0"
     exit 1
 fi
 
@@ -87,67 +175,48 @@ log_info "Backup verified OK. Size: ${BACKUP_SIZE}"
 # ── Retention: keep last 7 daily + 4 weekly (Sun) + 3 monthly (1st) ──────────
 apply_retention() {
     local dir="$1"
-    local pattern="goldsmith_erp_*.sql.gz"
 
-    # Collect all backup files sorted oldest-first
-    mapfile -t all_files < <(ls -1t "${dir}/${pattern}" 2>/dev/null | tac)
+    # Newest first, so the counters keep the MOST RECENT backups. Matches
+    # encrypted and plain dumps; never matches *.partial or the ledger.
+    local -a all_files=()
+    mapfile -t all_files < <(ls -1t \
+        "${dir}"/goldsmith_erp_*.sql.gz \
+        "${dir}"/goldsmith_erp_*.sql.gz.gpg \
+        "${dir}"/goldsmith_erp_*.sql.gz.age 2>/dev/null || true)
 
-    declare -a keep=()
-    local daily_count=0
-    local weekly_count=0
-    local monthly_count=0
+    local -a keep=()
+    local daily_count=0 weekly_count=0 monthly_count=0
 
     for f in "${all_files[@]}"; do
-        local basename
-        basename="$(basename "${f}")"
-        # Extract date portion: goldsmith_erp_YYYY-MM-DD_HHMMSS.sql.gz
         local date_str
-        date_str="$(echo "${basename}" | grep -oE '[0-9]{4}-[0-9]{2}-[0-9]{2}')"
+        date_str="$(basename "${f}" | grep -oE '[0-9]{4}-[0-9]{2}-[0-9]{2}' || true)"
         if [[ -z "${date_str}" ]]; then
             keep+=("${f}")
             continue
         fi
 
         local day_of_week month_day
-        day_of_week="$(date -j -f '%Y-%m-%d' "${date_str}" '+%u' 2>/dev/null \
-                     || date -d "${date_str}" '+%u' 2>/dev/null || echo 0)"
+        day_of_week="$(date -d "${date_str}" '+%u' 2>/dev/null \
+                     || date -j -f '%Y-%m-%d' "${date_str}" '+%u' 2>/dev/null || echo 0)"
         month_day="$(echo "${date_str}" | cut -d'-' -f3)"
 
-        local is_sunday=false
-        local is_first=false
-        [[ "${day_of_week}" == "7" ]] && is_sunday=true
-        [[ "${month_day}" == "01" ]]  && is_first=true
-
         local marked=false
-
-        # Monthly: first of month, keep last 3
-        if ${is_first} && (( monthly_count < 3 )); then
+        if [[ "${month_day}" == "01" ]] && (( monthly_count < 3 )); then
             keep+=("${f}")
-            (( monthly_count++ ))
+            monthly_count=$((monthly_count + 1))
             marked=true
         fi
-
-        # Weekly: Sunday, keep last 4
-        if ${is_sunday} && (( weekly_count < 4 )); then
-            # avoid double-counting if already in monthly
-            if ! ${marked}; then
-                keep+=("${f}")
-            fi
-            (( weekly_count++ ))
+        if [[ "${day_of_week}" == "7" ]] && (( weekly_count < 4 )); then
+            ${marked} || keep+=("${f}")
+            weekly_count=$((weekly_count + 1))
             marked=true
         fi
-
-        # Daily: keep last 7
         if (( daily_count < 7 )); then
-            if ! ${marked}; then
-                keep+=("${f}")
-            fi
-            (( daily_count++ ))
-            marked=true
+            ${marked} || keep+=("${f}")
+            daily_count=$((daily_count + 1))
         fi
     done
 
-    # Delete files not in keep list
     for f in "${all_files[@]}"; do
         local found=false
         for k in "${keep[@]}"; do
@@ -162,10 +231,43 @@ apply_retention() {
 
 apply_retention "${BACKUP_DIR}"
 
+# ── Erasure ledger (GDPR-07) ──────────────────────────────────────────────────
+append_erasure_ledger() {
+    local ledger="$1"
+    mkdir -p "$(dirname "${ledger}")"
+    if [[ ! -f "${ledger}" ]]; then
+        printf '# Goldsmith ERP erasure ledger (GDPR-07). Append-only. Do not edit.\n' > "${ledger}"
+    fi
+    chmod 600 "${ledger}"
+    local fresh
+    fresh="$(mktemp "${ledger}.new.XXXXXX")"
+    if ! ${COMPOSE_CMD} exec -T backend \
+            python -m goldsmith_erp.cli.gdpr_replay_erasures export --known - \
+            < "${ledger}" > "${fresh}"; then
+        rm -f "${fresh}"
+        return 1
+    fi
+    cat "${fresh}" >> "${ledger}"
+    log_info "Erasure ledger: $(grep -c . "${fresh}" || true) new entr(y|ies) → ${ledger}"
+    rm -f "${fresh}"
+}
+
+LEDGER_OK=true
+if ! append_erasure_ledger "${ERASURE_LEDGER_FILE}"; then
+    LEDGER_OK=false
+    log_error "Erasure ledger could not be appended (backend unreachable?)."
+    log_error "The dump is kept, but restore.sh can only replay erasures it knows about."
+fi
+
 # ── Optional cloud sync ───────────────────────────────────────────────────────
 if [[ -n "${BACKUP_CLOUD_URL}" ]]; then
     log_info "Syncing backup to cloud storage…"
     "${SCRIPT_DIR}/backup-sync.sh" "${BACKUP_FILE}"
+fi
+
+if ! ${LEDGER_OK}; then
+    notify_admin "ledger_failed" "$(basename "${BACKUP_FILE}")" "${BACKUP_SIZE}"
+    exit 1
 fi
 
 # ── Notify success ────────────────────────────────────────────────────────────

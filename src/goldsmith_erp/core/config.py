@@ -623,6 +623,15 @@ class Settings(BaseSettings):
     # price (API, DB history, or hardcoded default).
     METAL_PRICE_STALENESS_HOURS: float = 24.0
 
+    # ── Retention (GDPR-08 / GDPR-16, decision D-08) ─────────────────────────
+    # Appended at the end of Settings on purpose (merge-safety, see above).
+    # False (default) = the weekly retention sweep only LOGS the rows it would
+    # delete. Set RETENTION_EXECUTE=true in .env.production only after Anne
+    # (with a data-protection adviser) has signed off the schedule in
+    # docs/technical/RETENTION_SCHEDULE.md. `--dry-run` on the command line
+    # always wins over this setting.
+    RETENTION_EXECUTE: bool = False
+
 
 # Instantiate once per process
 settings = Settings()
