@@ -2,23 +2,8 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { customersApi } from '../../api';
+import type { Customer } from '../../types';
 
-interface Customer {
-  id: number;
-  first_name: string;
-  last_name: string;
-  company_name?: string | null;
-  /** W2-10: phone-only customers have no e-mail address. */
-  email: string | null;
-  phone?: string | null;
-  mobile?: string | null;
-  street?: string | null;
-  city?: string | null;
-  postal_code?: string | null;
-  country?: string | null;
-  customer_type: 'private' | 'business';
-  is_active: boolean;
-}
 
 interface CustomerInfoCardProps {
   customerId: number;
