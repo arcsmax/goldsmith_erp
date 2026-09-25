@@ -229,11 +229,20 @@ export const CustomersPage: React.FC = () => {
           <table className="data-table">
             <thead>
               <tr>
-                <th>ID</th>
+                {/* LV2-03: id and phone are the lowest-value columns at
+                    tablet-and-up widths (id is redundant with the name
+                    column; email is the primary contact channel already
+                    shown) — same reasoning as .orders-col-description
+                    (orders.css) and .materials-col-hide-tablet-up
+                    (materials.css). Hidden from 600px up via
+                    .customers-col-hide-tablet-up (customers.css); this
+                    table is hand-rolled, not on the DataTable primitive,
+                    so there is no hideBelow prop to reuse here either. */}
+                <th className="customers-col-hide-tablet-up">ID</th>
                 <th>Name</th>
                 <th>Firma</th>
                 <th>E-Mail</th>
-                <th>Telefon</th>
+                <th className="customers-col-hide-tablet-up">Telefon</th>
                 <th>Typ</th>
                 <th>Tags</th>
                 <th>Status</th>
@@ -247,7 +256,7 @@ export const CustomersPage: React.FC = () => {
                   style={{ cursor: 'pointer' }}
                   onClick={() => navigate(`/customers/${customer.id}`)}
                 >
-                  <td>#{customer.id}</td>
+                  <td className="customers-col-hide-tablet-up">#{customer.id}</td>
                   <td>
                     <strong>
                       {customer.first_name} {customer.last_name}
@@ -255,7 +264,7 @@ export const CustomersPage: React.FC = () => {
                   </td>
                   <td>{customer.company_name || '-'}</td>
                   <td>{customer.email}</td>
-                  <td>{customer.phone || '-'}</td>
+                  <td className="customers-col-hide-tablet-up">{customer.phone || '-'}</td>
                   <td>
                     <span className="customer-type-badge">
                       {customer.customer_type === 'private' ? '👤 Privat' : '🏢 Geschäftskunde'}

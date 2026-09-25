@@ -22,6 +22,30 @@
   padding-top: var(--space-4);
 }
 
+/* LV2-05: the tab strip already scrolls horizontally below 600px
+ * (.ui-tabs__list in ui.css) but gave no visible cue that "Verlauf" sits
+ * off-screen — only a thin native scrollbar. A fading edge (fades to the
+ * page background, not a new colour) hints there is more to scroll to,
+ * same idea as a card's scroll shadow elsewhere in the app. Only the
+ * 600px breakpoint is used (playbook: 600/1024 only); at 1024px+ every
+ * tab already fits, so the strip never scrolls there. */
+@media (width < 600px) {
+  .order-detail-tabs {
+    position: relative;
+  }
+
+  .order-detail-tabs::after {
+    content: '';
+    position: absolute;
+    inset-block-start: 0;
+    inset-inline-end: 0;
+    inset-block-end: 0;
+    width: var(--space-6);
+    background: linear-gradient(to right, transparent, var(--color-surface));
+    pointer-events: none;
+  }
+}
+
 /* Übersicht: key/value facts */
 .order-facts {
   display: grid;
