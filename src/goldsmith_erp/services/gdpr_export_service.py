@@ -215,6 +215,16 @@ async def _scrap_gold(db: AsyncSession, customer_id: int) -> List[Dict[str, Any]
             "signed_at": _iso(sg.signed_at),
             "signature_present": bool(sg.signature_data),
             "receipt_pdf_present": bool(sg.receipt_pdf_path),
+            # W2-16 (GwG identification duty, decision D-16): the seller's
+            # own identification data, captured on purchases above the
+            # threshold — it is the customer's data (Art. 15), not
+            # workshop-internal, so it belongs in their export. The
+            # internal "who checked it" staff reference (id_checked_by) is
+            # deliberately omitted — it is our own audit trail, not theirs.
+            "id_document_type": sg.id_document_type,
+            "id_document_number": sg.id_document_number,
+            "id_issuing_authority": sg.id_issuing_authority,
+            "id_checked_at": _iso(sg.id_checked_at),
             "created_at": _iso(sg.created_at),
             "items": [
                 {

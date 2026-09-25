@@ -92,6 +92,14 @@ class ScrapGoldExport(_Strict):
     signed_at: Optional[str] = None
     signature_present: bool
     receipt_pdf_present: bool
+    # W2-16 (GwG identification duty, D-16): the seller's own ID data
+    # captured on purchases above the threshold — it is their data, not
+    # withheld like an employee identity. ``id_checked_by`` (which staff
+    # member checked it) IS withheld, same reasoning as ``created_by``.
+    id_document_type: Optional[str] = None
+    id_document_number: Optional[str] = None
+    id_issuing_authority: Optional[str] = None
+    id_checked_at: Optional[str] = None
     created_at: Optional[str] = None
     items: List[ScrapGoldItemExport] = Field(default_factory=list)
 
