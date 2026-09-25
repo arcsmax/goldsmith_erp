@@ -667,6 +667,13 @@ class Settings(BaseSettings):
     # dies mid-send leaves it to be picked up again after the lease expires.
     OUTBOX_LEASE_SECONDS: float = Field(default=300.0, gt=0)
 
+    # ── Jobs spine (ARCH-02, ADR-2026-09-25-jobs-spine) ─────────────────────
+    # Appended at the end of Settings on purpose (merge-safety, see above).
+    # On startup, give every order / repair without a job one (rows written by
+    # the seed scripts or by old code during a rolling deploy). Idempotent and
+    # a no-op once ``JobService.count_missing()`` is zero.
+    JOBS_BACKFILL_ON_STARTUP: bool = True
+
     @property
     def outbox_mode(self) -> str:
         """Effective outbox mode (explicit setting, else by DEBUG)."""
