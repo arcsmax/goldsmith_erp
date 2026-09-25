@@ -10,7 +10,9 @@ Static assertions against the compose YAML files:
 - every service, in every compose file, declares both a ``restart`` policy
   and a ``healthcheck``;
 - no service pins the ``:latest`` image tag (or omits a tag, which resolves
-  to ``:latest`` implicitly).
+  to ``:latest`` implicitly);
+- the dev stacks take every published host port from a ``${VAR:-default}``
+  variable, so a second stack on the same machine can move it (LV-17).
 """
 
 import re
@@ -96,6 +98,36 @@ def test_dev_db_stays_bound_to_loopback(dev_compose: dict[str, Any]):
     db = _services(dev_compose)["db"]
     for entry in db.get("ports", []):
         assert _published_host(entry) == "127.0.0.1"
+
+
+# LV-17: docker-compose.yml hard-coded the Redis host port 6379 although
+# podman-compose.yml already read REDIS_EXT_PORT, so the dev stack collided
+# with any other Redis on the machine. Both dev files must use the same
+# variable (and default) for each published host port.
+_DEV_HOST_PORT_VARS = (
+    ("db", "DB_PORT", "5432"),
+    ("redis", "REDIS_EXT_PORT", "6379"),
+    ("backend", "BACKEND_PORT", "8000"),
+    ("frontend", "FRONTEND_PORT", "3000"),
+)
+
+
+@pytest.mark.parametrize(
+    ("service", "variable", "default"),
+    _DEV_HOST_PORT_VARS,
+    ids=[row[0] for row in _DEV_HOST_PORT_VARS],
+)
+def test_dev_host_ports_are_configurable(
+    dev_compose: dict[str, Any], service: str, variable: str, default: str
+):
+    ports = [str(p) for p in _services(dev_compose)[service].get("ports", [])]
+    assert ports, f"{service} must publish a port in the dev stack"
+    expected = f"${{{variable}:-{default}}}:{default}"
+    for entry in ports:
+        assert entry.endswith(expected), (
+            f"{service} port {entry!r} must publish its host port via "
+            f"${{{variable}:-{default}}} (LV-17), not a hard-coded number"
+        )
 
 
 def test_prod_only_proxy_publishes_ports(prod_compose: dict[str, Any]):
