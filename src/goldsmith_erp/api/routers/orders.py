@@ -37,6 +37,7 @@ from goldsmith_erp.models.pagination import (
     make_page_params,
     page_response,
 )
+from goldsmith_erp.models.scan_history import LastScanRead, PieceScanPage
 from goldsmith_erp.services import list_queries
 from goldsmith_erp.services.cost_calculation_service import CostCalculationService
 from goldsmith_erp.services.customer_update_service import write_financial_audit_row
@@ -45,6 +46,11 @@ from goldsmith_erp.services.label_service import LabelService
 from goldsmith_erp.services.order_service import OrderService
 from goldsmith_erp.services.order_timeline import build_order_timeline
 from goldsmith_erp.services.order_workflow import counts_for_deadline
+from goldsmith_erp.services.scan_history_service import (
+    DEFAULT_HISTORY_LIMIT,
+    MAX_HISTORY_LIMIT,
+    ScanHistoryService,
+)
 from goldsmith_erp.services.status_report_service import (
     StatusReportNotFoundError,
     render_order_status_report_pdf,
@@ -109,10 +115,14 @@ def _order_excludes_for_user(user: User) -> ExcludeSpec:
     )
 
 
-def _project_order_for_user(order, user: User) -> JSONResponse:
+def _project_order_for_user(
+    order, user: User, last_scan: Optional[LastScanRead] = None
+) -> JSONResponse:
     """Serialize a single ORM Order into a role-aware JSON response."""
     excludes = _order_excludes_for_user(user)
     data = OrderRead.model_validate(order).model_dump(exclude=excludes or None)
+    if last_scan is not None:
+        data["last_scan"] = last_scan.model_dump()
     return JSONResponse(content=jsonable_encoder(data))
 
 
@@ -358,7 +368,29 @@ async def get_order(
             user_id=current_user.id,
             endpoint=f"/api/v1/orders/{order_id}",
         )
-    return _project_order_for_user(order, current_user)
+    last_scan = await ScanHistoryService.last_scan(db, "order", order_id)
+    return _project_order_for_user(order, current_user, last_scan)
+
+
+@router.get("/{order_id}/scans", response_model=PieceScanPage)
+@require_permission(Permission.ORDER_VIEW)
+async def list_order_scans(
+    order_id: int,
+    limit: int = Query(DEFAULT_HISTORY_LIMIT, ge=1, le=MAX_HISTORY_LIMIT),
+    offset: int = Query(0, ge=0),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> PieceScanPage:
+    """Scan-Verlauf eines Auftrags: wer, wann, wo, welche Aktion (neueste zuerst).
+
+    VIEWER allowed — rows carry no financial fields or entity data.
+    """
+    order = await OrderService.get_order(db, order_id)
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    return await ScanHistoryService.list_piece_scans(
+        db, "order", order_id, limit=limit, offset=offset
+    )
 
 
 @router.put("/{order_id}", response_model=OrderRead)

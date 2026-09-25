@@ -15,6 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from goldsmith_erp.core.timeutil import ensure_utc
 from goldsmith_erp.db.models import RepairItemType, RepairJobStatus, RepairPhotoPhase
 from goldsmith_erp.models._common import Money
+from goldsmith_erp.models.scan_history import LastScanRead
 
 
 def _strip_tzinfo(value: Optional[datetime]) -> Optional[datetime]:
@@ -295,6 +296,8 @@ class RepairJobRead(BaseModel):
     updated_at: datetime
     photos: List[RepairPhotoRead] = []
     intake_checklist: Optional[List[IntakeChecklistItem]] = None
+    # "Zuletzt gescannt von … um … in …" (scan tracking); detail read only.
+    last_scan: Optional[LastScanRead] = None
 
     model_config = ConfigDict(from_attributes=True)
 

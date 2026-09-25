@@ -16,6 +16,7 @@ Redis channel              Client ``channel``      Recipients
 ``time_tracking_updates``  ``time_tracking_updates``  ``payload["user_id"]``
 ``repair_updates``         ``repair_updates``      every connected user
 ``job_updates``            ``job_updates``         every connected user
+``scan_updates``           ``scan_updates``        every connected user
 ``notifications:{uid}``    ``notifications``       ``uid``
 =========================  ======================  ==========================
 
@@ -44,6 +45,7 @@ ORDER_CHANNEL = "order_updates"
 TIME_TRACKING_CHANNEL = "time_tracking_updates"
 REPAIR_CHANNEL = "repair_updates"
 JOB_CHANNEL = "job_updates"
+SCAN_CHANNEL = "scan_updates"
 NOTIFICATION_PATTERN = "notifications:*"
 NOTIFICATION_PREFIX = "notifications:"
 CLIENT_NOTIFICATION_CHANNEL = "notifications"
@@ -53,6 +55,7 @@ SUBSCRIBED_CHANNELS = (
     TIME_TRACKING_CHANNEL,
     REPAIR_CHANNEL,
     JOB_CHANNEL,
+    SCAN_CHANNEL,
 )
 
 DEFAULT_HEARTBEAT_SECONDS = 30.0
@@ -96,6 +99,16 @@ _REPAIR_HINT_KEYS = (
     "timestamp",
 )
 _JOB_HINT_KEYS = ("job_id", "kind", "status", "timestamp")
+# Scan tracking: ids + action only. No user, location or payload — the
+# Scan-Verlauf refetches through REST (VIEWER-safe projection).
+_SCAN_HINT_KEYS = (
+    "action",
+    "scan_id",
+    "entity_type",
+    "entity_id",
+    "action_taken",
+    "scanned_at",
+)
 
 
 class PubSubLike(Protocol):
@@ -173,6 +186,9 @@ def route_event(channel: str, raw: str) -> Optional[RoutedEvent]:
 
     if channel == JOB_CHANNEL:
         return RoutedEvent(_frame(channel, _pick(payload, _JOB_HINT_KEYS)), None)
+
+    if channel == SCAN_CHANNEL:
+        return RoutedEvent(_frame(channel, _pick(payload, _SCAN_HINT_KEYS)), None)
 
     if channel.startswith(NOTIFICATION_PREFIX):
         user_id = _as_user_id(channel[len(NOTIFICATION_PREFIX) :])

@@ -13,6 +13,7 @@ from goldsmith_erp.db.models import (
     OrderTypeEnum,
 )
 from goldsmith_erp.models._common import Money, Percent, Weight, number_default
+from goldsmith_erp.models.scan_history import LastScanRead
 
 # Deliberate models -> services import: the allowed Feingehalt vocabulary
 # (W2-09; DOM-22, DOM-23, D-10) must never drift from the one
@@ -459,6 +460,10 @@ class OrderRead(OrderBase):
     fitting_date: Optional[datetime] = None
     has_scrap_gold: Optional[bool] = None
     special_instructions: Optional[str] = None
+
+    # "Zuletzt gescannt von … um … in …" (scan tracking). Filled on the
+    # detail read only (GET /orders/{id}); null everywhere else.
+    last_scan: Optional[LastScanRead] = None
 
     model_config = ConfigDict(from_attributes=True)
 

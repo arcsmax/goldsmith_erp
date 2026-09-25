@@ -18,7 +18,8 @@ from typing import List, Optional, Union
 from fastapi import APIRouter, Depends
 from fastapi import File as FastAPIFile
 from fastapi import Form, HTTPException, Query, UploadFile, status
-from fastapi.responses import FileResponse, HTMLResponse, Response
+from fastapi.encoders import jsonable_encoder
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from goldsmith_erp.api.deps import get_current_user
@@ -55,6 +56,7 @@ from goldsmith_erp.models.repair import (
     RepairPhotoRead,
     RepairStatusUpdate,
 )
+from goldsmith_erp.models.scan_history import PieceScanPage
 from goldsmith_erp.services import list_queries
 from goldsmith_erp.services.customer_update_service import (
     CustomerUpdateNotFoundError,
@@ -70,6 +72,11 @@ from goldsmith_erp.services.repair_service import (
     InvalidChecklistPhotoError,
     NoCustomerUpdateDraftError,
     RepairService,
+)
+from goldsmith_erp.services.scan_history_service import (
+    DEFAULT_HISTORY_LIMIT,
+    MAX_HISTORY_LIMIT,
+    ScanHistoryService,
 )
 from goldsmith_erp.services.status_report_service import (
     StatusReportNotFoundError,
@@ -192,7 +199,35 @@ async def get_repair(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Reparaturauftrag #{repair_id} nicht gefunden",
         )
-    return project_response(RepairJobRead, repair, _repair_excludes(current_user))
+    data = project(RepairJobRead, repair, _repair_excludes(current_user))
+    last_scan = await ScanHistoryService.last_scan(db, "repair", repair_id)
+    if last_scan is not None:
+        data["last_scan"] = last_scan.model_dump()
+    return JSONResponse(content=jsonable_encoder(data))
+
+
+@router.get("/{repair_id}/scans", response_model=PieceScanPage)
+@require_permission(Permission.REPAIR_VIEW)
+async def list_repair_scans(
+    repair_id: int,
+    limit: int = Query(DEFAULT_HISTORY_LIMIT, ge=1, le=MAX_HISTORY_LIMIT),
+    offset: int = Query(0, ge=0),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> PieceScanPage:
+    """Scan-Verlauf einer Reparatur: wer, wann, wo, welche Aktion (neueste zuerst).
+
+    VIEWER allowed — rows carry no financial fields or entity data.
+    """
+    repair = await RepairService.get_repair(db, repair_id)
+    if repair is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Reparaturauftrag #{repair_id} nicht gefunden",
+        )
+    return await ScanHistoryService.list_piece_scans(
+        db, "repair", repair_id, limit=limit, offset=offset
+    )
 
 
 @router.get("/{repair_id}/label", response_class=HTMLResponse)

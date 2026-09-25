@@ -22,6 +22,7 @@ Endpoints (all mounted at ``/api/v1/scan`` — see ``main.py``):
                              idempotency dedupe. ``user_id`` ALWAYS from JWT.
   * ``POST /log/batch``    — up to 100 events in one round-trip. Each row
                              independently deduped; summary returned.
+  * ``GET  /history``      — cross-user scan search (ADMIN / GOLDSMITH).
   * ``GET  /search``       — multi-entity search for alias registration.
                              Role-filtered at the service layer — VIEWER
                              never sees ``metal_purchase`` results.
@@ -55,7 +56,9 @@ Endpoints (all mounted at ``/api/v1/scan`` — see ``main.py``):
     is observable post-ship.
 """
 
-from typing import Any, Dict, List
+import logging
+from datetime import datetime
+from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -63,8 +66,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from goldsmith_erp.api.deps import get_current_user
 from goldsmith_erp.core.idempotency import IdempotencyContext, get_idempotency_context
 from goldsmith_erp.core.permissions import Permission, require_permission
-from goldsmith_erp.db.models import User
+from goldsmith_erp.db.models import User, UserRole
 from goldsmith_erp.db.session import get_db
+from goldsmith_erp.models.scan_history import ScanHistoryPage
 from goldsmith_erp.models.scanner import (
     BatchLogResponse,
     ResolveRequest,
@@ -73,9 +77,17 @@ from goldsmith_erp.models.scanner import (
     ScanLogCreate,
     ScanLogRead,
 )
+from goldsmith_erp.services.scan_history_service import (
+    DEFAULT_HISTORY_LIMIT,
+    MAX_HISTORY_LIMIT,
+    HistoryFilter,
+    ScanHistoryService,
+    publish_scan_event,
+)
 from goldsmith_erp.services.scanner_service import ScannerService
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 # --------------------------------------------------------------------------- #
@@ -177,6 +189,8 @@ async def log_scan(
         user_id=current_user.id,
         event=body,
     )
+    # After commit (log_scan commits): live-refresh open Scan-Verlauf views.
+    await publish_scan_event(db_row)
     return _scan_log_to_read(db_row)
 
 
@@ -272,6 +286,64 @@ async def list_scan_logs(
         limit=limit,
     )
     return [_scan_log_to_read(row) for row in rows]
+
+
+# --------------------------------------------------------------------------- #
+# GET /history  — cross-user scan search for ADMIN / GOLDSMITH (SC-03)
+# --------------------------------------------------------------------------- #
+
+_HISTORY_ROLES = frozenset({UserRole.ADMIN, UserRole.GOLDSMITH})
+
+
+@router.get(
+    "/history",
+    response_model=ScanHistoryPage,
+    summary="Scan history across pieces and users (ADMIN / GOLDSMITH)",
+    description=(
+        "Search every scan_logs row, newest first. ``q`` accepts a label "
+        "code (``ORDER:42``), a bare id, a repair or bag number, or any "
+        "text (substring of the scanned payload). Rows carry user name, "
+        "time, location, action and result — never financial fields."
+    ),
+)
+@require_permission(Permission.SCAN_READ)
+async def search_scan_history(
+    q: Optional[str] = Query(None, min_length=1, max_length=100),
+    user: Optional[int] = Query(None, gt=0, description="Nur Scans dieses Benutzers"),
+    date_from: Optional[datetime] = Query(None, alias="from"),
+    date_to: Optional[datetime] = Query(None, alias="to"),
+    limit: int = Query(DEFAULT_HISTORY_LIMIT, ge=1, le=MAX_HISTORY_LIMIT),
+    offset: int = Query(0, ge=0),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> ScanHistoryPage:
+    """Cross-user search; VIEWER is refused (they see per-piece history only)."""
+    if current_user.role not in _HISTORY_ROLES:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Der Scan-Verlauf ist nur für Goldschmiede und Admins sichtbar.",
+        )
+    if date_from is not None and date_to is not None and date_from > date_to:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="'from' muss vor 'to' liegen.",
+        )
+    # Cross-user reads of who-was-where are employee data: leave a trail.
+    logger.info(
+        "scan_history_search",
+        extra={
+            "user_id": current_user.id,
+            "has_query": q is not None,
+            "filter_user_id": user,
+            "offset": offset,
+        },
+    )
+    return await ScanHistoryService.search(
+        db,
+        HistoryFilter(q=q, user_id=user, date_from=date_from, date_to=date_to),
+        limit=limit,
+        offset=offset,
+    )
 
 
 # --------------------------------------------------------------------------- #

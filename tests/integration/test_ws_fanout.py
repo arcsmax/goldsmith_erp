@@ -301,6 +301,7 @@ class TestFanOut:
             "time_tracking_updates",
             "repair_updates",
             "job_updates",
+            "scan_updates",
         }
         assert broker.patterns == {"notifications:*"}
 
