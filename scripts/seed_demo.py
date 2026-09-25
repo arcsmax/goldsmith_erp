@@ -98,6 +98,7 @@ from goldsmith_erp.db.models import (  # noqa: E402
     NotificationTypeEnum,
     Order,
     OrderComment,
+    OrderEvent,
     OrderHallmark,
     OrderHandoff,
     OrderPhoto,
@@ -1065,12 +1066,14 @@ async def seed_orders(db, customers, users, metal_purchases) -> list:
             special_instructions="Gravur 'H+R 1975' nachstechen und Ring polieren.",
             created_at=_days_ago(14),
         ),
-        # 8 - Goldkette 750 Anker 50cm (NEW / RUSH ORDER)
+        # 8 - Goldkette 750 Anker 50cm (CONFIRMED / RUSH ORDER)
+        # LV-05: the W2-07 order-lifecycle migration maps legacy "new" rows
+        # away; a priced order seeds as "confirmed" (see OrderEvent below).
         dict(
             title="Goldkette 750 Anker 50cm EILAUFTRAG",
             description="Ankerkette Gelbgold 750, 50cm, 2mm Breite. EILAUFTRAG fuer Geschenk!",
             price=2100.00,
-            status="new",
+            status="confirmed",
             customer_id=customers[9].id,  # Klaus Mueller
             deadline=_days_from_now(2),  # RUSH: only 2 days!
             current_location="Eingang",
@@ -1145,12 +1148,13 @@ async def seed_orders(db, customers, users, metal_purchases) -> list:
             special_instructions="Perle vorsichtig aus alter Fassung loesen. Neue Zargenfassung.",
             created_at=_days_ago(18),
         ),
-        # 11 - Manschettenknuepfe Gold 585 (NEW)
+        # 11 - Manschettenknuepfe Gold 585 (CONFIRMED)
+        # LV-05: same legacy-"new" fix as order 8 above.
         dict(
             title="Manschettenknopf-Paar Gold 585",
             description="Manschettenknuepfe Gold 585, rund, 15mm Durchmesser, mit Monogramm 'MB'.",
             price=980.00,
-            status="new",
+            status="confirmed",
             customer_id=customers[7].id,  # Dr. Bauer
             deadline=_days_from_now(21),
             current_location="Eingang",
@@ -1256,6 +1260,25 @@ async def seed_orders(db, customers, users, metal_purchases) -> list:
         db.add(o)
         orders.append(o)
     await db.flush()
+
+    # LV-05: orders 8 and 11 above seed directly at "confirmed" instead of
+    # the legacy "new" status. This loop bulk-inserts Order rows and
+    # bypasses services/order_workflow.transition by design, so it has to
+    # add the matching order_events rows itself — otherwise their Historie
+    # timeline would be empty even though the order is already confirmed.
+    for idx in (8, 11):
+        confirmed_order = orders[idx]
+        db.add(
+            OrderEvent(
+                order_id=confirmed_order.id,
+                from_status=None,
+                to_status=confirmed_order.status,
+                user_id=admin.id,
+                created_at=confirmed_order.created_at,
+            )
+        )
+    await db.flush()
+
     print(f"  Auftraege: {len(orders)} erstellt")
     return orders
 

@@ -343,3 +343,107 @@ def test_seed_demo_uses_logger_and_filter_model_fields() -> None:
     assert (
         "logger.info" in src
     ), "scripts/seed_demo.py should use logging (logger.info) per ECC coding style"
+
+
+# ---------------------------------------------------------------------------
+# 4. End-to-end seed run against SQLite — 2026-09 live-verification fixes
+#    (LV-05 legacy "new" status, LV-16 dangling photo files, LV-18
+#    customer_notified_at without a SENT update).
+#
+#    Runs the real ``seed()`` orchestrator against a throwaway file-backed
+#    SQLite database and a tmp_path photo-storage root. The only seam is
+#    ``AsyncSessionLocal`` — ``seed()`` opens its own
+#    ``async with AsyncSessionLocal() as db:`` block, so monkeypatching that
+#    one module attribute is enough to run the whole 15-phase seed without a
+#    live Postgres, matching every other seed_* function's own db session
+#    plumbing unchanged. Each finding gets its own test function (sharing the
+#    ``seeded_e2e_db`` fixture below) so a regression in one area fails with
+#    a finding-specific message instead of one big multi-assert test.
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def _seed_demo_module():
+    """Load scripts/seed_demo.py as a fresh module object.
+
+    Same importlib pattern as ``test_seed_demo_exposes_v11_v12_seed_functions``
+    above — a fresh module object (not the real ``sys.modules`` entry) so
+    monkeypatching its ``AsyncSessionLocal`` never leaks into any other test.
+    """
+    script_path = _SCRIPTS_DIR / "seed_demo.py"
+    spec = importlib.util.spec_from_file_location(
+        "seed_demo_e2e_under_test", str(script_path)
+    )
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+@pytest.fixture
+async def seeded_e2e_db(tmp_path, monkeypatch, _seed_demo_module):
+    """Run the real seed() orchestrator end-to-end against a throwaway
+    file-backed SQLite database + tmp_path photo-storage root, then yield a
+    sessionmaker the test can use to inspect the result.
+
+    ``seed()`` must complete without raising — this is the "prove the seed
+    still runs end-to-end against SQLite" contract, independent of which
+    individual finding a given test then asserts on the resulting rows.
+    """
+    from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+    from sqlalchemy.orm import sessionmaker
+
+    from goldsmith_erp.db.models import Base
+
+    db_file = tmp_path / "seed_e2e.db"
+    e2e_engine = create_async_engine(
+        f"sqlite+aiosqlite:///{db_file}",
+        connect_args={"check_same_thread": False},
+    )
+    E2ESessionLocal = sessionmaker(
+        autocommit=False,
+        autoflush=False,
+        bind=e2e_engine,
+        class_=AsyncSession,
+        expire_on_commit=False,
+    )
+
+    async with e2e_engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+    # Photos land under a throwaway directory, never the repo's ./uploads —
+    # same monkeypatch pattern as tests/integration/test_photos.py.
+    monkeypatch.setattr(
+        "goldsmith_erp.core.config.settings.PHOTO_STORAGE_PATH",
+        str(tmp_path / "photos"),
+    )
+    # Point the loaded module's session factory at the SQLite test engine.
+    monkeypatch.setattr(_seed_demo_module, "AsyncSessionLocal", E2ESessionLocal)
+
+    try:
+        await _seed_demo_module.seed()  # must complete without raising
+        yield E2ESessionLocal
+    finally:
+        await e2e_engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_seed_demo_no_legacy_new_order_status(seeded_e2e_db) -> None:
+    """LV-05: the W2-07 order-lifecycle migration maps legacy "new" rows
+    away, so the seed must never write an order at that status — it seeds
+    unpriced orders as draft and priced orders as confirmed instead.
+    """
+    from sqlalchemy import select
+
+    from goldsmith_erp.db.models import Order
+
+    async with seeded_e2e_db() as verify_db:
+        legacy_new = (
+            (await verify_db.execute(select(Order).where(Order.status == "new")))
+            .scalars()
+            .all()
+        )
+    assert not legacy_new, (
+        f"seed wrote {len(legacy_new)} order(s) with legacy status 'new' — "
+        "LV-05 regression"
+    )
