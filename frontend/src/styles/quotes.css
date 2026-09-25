@@ -32,6 +32,23 @@
   gap: 0.35rem;
 }
 
+/* LV2-06: the Status filter select rendered at the browser default
+ * (194x21, unstyled) — every other page's filter select uses this same
+ * look. min-height also brings it up to the 44px touch target. Joined
+ * into the existing .create-quote-modal border/focus rules below (DES-08
+ * hex-ratchet: reuses their var()+literal-fallback instead of duplicating
+ * the same colours in a third place). */
+.form-group-inline select {
+  padding: 0.75rem 1rem;
+  border-radius: 8px;
+  font-size: 1rem;
+  cursor: pointer;
+  background: white;
+  transition: all 0.3s;
+  min-width: 150px;
+  min-height: var(--touch-min);
+}
+
 /* ==================== QUOTES TABLE ==================== */
 
 .quotes-table {
@@ -280,7 +297,8 @@
 
 .create-quote-modal .form-group input,
 .create-quote-modal .form-group select,
-.create-quote-modal .form-group textarea {
+.create-quote-modal .form-group textarea,
+.form-group-inline select {
   padding: 0.75rem 1rem;
   border: 2px solid var(--color-border, #e5e7eb);
   border-radius: 8px;
@@ -293,10 +311,17 @@
 
 .create-quote-modal .form-group input:focus,
 .create-quote-modal .form-group select:focus,
-.create-quote-modal .form-group textarea:focus {
+.create-quote-modal .form-group textarea:focus,
+.form-group-inline select:focus {
   outline: none;
   border-color: var(--color-border-focus, #d97706);
   box-shadow: 0 0 0 3px rgba(217, 119, 6, 0.1);
+}
+
+/* The status filter sits inline in .quotes-controls, not stacked in the
+ * modal — override the shared rule's width: 100% back to content-sized. */
+.form-group-inline select {
+  width: auto;
 }
 
 .form-hint {
