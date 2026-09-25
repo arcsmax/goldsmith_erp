@@ -97,7 +97,15 @@ class TimeEntry(Base):
     start_time = Column(UtcDateTime, nullable=False, index=True)
     end_time = Column(UtcDateTime, nullable=True)
     duration_minutes = Column(Integer, nullable=True)
-    location = Column(String(50))  # workbench_1, vault, etc.
+    # Legacy text column, kept in sync with ``location_id`` for one release
+    # (migration 20260925_w8_workshop_locations).
+    location = Column(String(50))
+    location_id = Column(
+        Integer,
+        ForeignKey("workshop_locations.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
     complexity_rating = Column(Integer)  # 1-5
     quality_rating = Column(Integer)  # 1-5
     rework_required = Column(Boolean, default=False)
