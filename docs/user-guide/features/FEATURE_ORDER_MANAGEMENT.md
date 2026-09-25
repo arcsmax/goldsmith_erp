@@ -180,7 +180,9 @@ Klicken Sie in der Auftragsliste auf einen Auftrag, um die Detailseite zu öffne
 
 ### Tab-System
 
-Die Detailseite verwendet **Tabs** (Registerkarten) für verschiedene Bereiche:
+Die Detailseite verwendet **Tabs** (Registerkarten) für verschiedene Bereiche.
+Früher gab es bis zu 14 einzelne Tabs; heute sind es fünf zusammengefasste
+Tabs (Übersicht, Arbeit, Fotos, Kunde, Verlauf):
 
 #### Tab 1: Übersicht
 
@@ -196,26 +198,27 @@ Aktionen:
 - **Status ändern** - Dropdown für Status
 - **Löschen** - Auftrag entfernen (nur Admin)
 
-#### Tab 2: Materialien
+#### Tab 2: Arbeit
 
-Zeigt verwendete Materialien:
-- Materialliste (Name, Menge, Einheit)
-- Gesamtwert der Materialien
-- **+ Material hinzufügen** (Button)
+Bündelt alles, was am Werkbank-Platz und rund um die Kalkulation passiert,
+in Abschnitten innerhalb eines Tabs (früher eigene Tabs: Zeiterfassung,
+Materialien, Metall, Arbeitszettel, Kosten, Soll/Ist, Altgold, Übergabe):
 
-`[Screenshot: Materialien-Tab]`
+- **Zeiterfassung** - Liste aller Zeiteinträge, Aktivität, Dauer,
+  Mitarbeiter, Gesamtarbeitszeit, **Zeit erfassen** (Button)
+- **Materialien** - Materialliste (Name, Menge, Einheit), Gesamtwert,
+  **+ Material hinzufügen** (Button)
+- **Metall** - Metallverbrauch, sofern der Auftrag einen Metalltyp hat
+- **Arbeitszettel** - Arbeitsschritte und Notizen der Goldschmiedin/des
+  Goldschmieds
+- **Kosten** und **Soll/Ist** - nur mit Finanzberechtigung (ADMIN,
+  GOLDSMITH) sichtbar
+- **Altgold** - erfasstes Altgold (Ankauf) zu diesem Auftrag
+- **Übergabe** - Übergabeprotokoll bei Abholung
 
-#### Tab 3: Zeiteinträge
+`[Screenshot: Arbeit-Tab]`
 
-Zeigt erfasste Arbeitszeiten:
-- Liste aller Zeiteinträge
-- Aktivität, Dauer, Mitarbeiter
-- Gesamtarbeitszeit
-- **Zeit erfassen** (Button)
-
-`[Screenshot: Zeiteinträge-Tab]`
-
-#### Tab 4: Fotos
+#### Tab 3: Fotos
 
 Zeigt hochgeladene Fotos:
 - Vorher-Bilder
@@ -225,11 +228,21 @@ Zeigt hochgeladene Fotos:
 
 `[Screenshot: Fotos-Tab]`
 
+#### Tab 4: Kunde
+
+Kundeninformationen und Kommunikation zu diesem Auftrag (Kundeninfo,
+Nachrichtenverlauf).
+
+#### Tab 5: Verlauf
+
+Die vollständige Zeitlinie des Auftrags: Statuswechsel, Kundenupdates,
+Fotos und Zeiteinträge in einer gemeinsamen Historie.
+
 ### Tab-Memory-System
 
 Das System merkt sich, welchen Tab Sie zuletzt geöffnet hatten:
-- Öffnen Sie z.B. "Materialien" bei Auftrag #42
-- Beim nächsten Besuch von Auftrag #42 öffnet sich automatisch "Materialien"
+- Öffnen Sie z.B. "Arbeit" bei Auftrag #42
+- Beim nächsten Besuch von Auftrag #42 öffnet sich automatisch "Arbeit"
 - Spart Zeit bei wiederholten Besuchen
 
 ---
@@ -279,10 +292,10 @@ Das System merkt sich, welchen Tab Sie zuletzt geöffnet hatten:
 
 ### Material hinzufügen
 
-#### Schritt 1: Materialien-Tab öffnen
+#### Schritt 1: Materialien-Abschnitt öffnen
 
 1. Öffnen Sie die Auftragsdetailseite
-2. Klicken Sie auf Tab **"Materialien"**
+2. Klicken Sie auf Tab **"Arbeit"** und öffnen Sie den Abschnitt **"Materialien"**
 
 #### Schritt 2: Material auswählen
 
@@ -446,12 +459,12 @@ Beispiel: Ausgangszustand - Fassung locker
 
 ### Übersicht
 
-Auf dem Tab "Zeiteinträge" sehen Sie:
+Im Abschnitt "Zeiterfassung" des Tabs "Arbeit" sehen Sie:
 - Alle erfassten Arbeitszeiten für diesen Auftrag
 - Mitarbeiter, Aktivität, Dauer
 - Gesamtarbeitszeit
 
-`[Screenshot: Zeiteinträge-Tab]`
+`[Screenshot: Arbeit-Tab, Abschnitt Zeiterfassung]`
 
 ### Zeit erfassen
 
@@ -460,7 +473,7 @@ Es gibt zwei Wege, Zeit für einen Auftrag zu erfassen:
 #### Weg 1: Über den Auftrag
 
 1. Öffnen Sie die Auftragsdetailseite
-2. Klicken Sie auf Tab **"Zeiteinträge"**
+2. Klicken Sie auf Tab **"Arbeit"** und öffnen Sie den Abschnitt **"Zeiterfassung"**
 3. Klicken Sie auf **"Zeit erfassen"**
 4. Wählen Sie die Aktivität
 5. Timer startet automatisch
