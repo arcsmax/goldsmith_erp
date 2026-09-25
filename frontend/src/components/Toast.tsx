@@ -2,6 +2,7 @@
 // Renders the stacked toast list in the bottom-right corner.
 // Import and place <ToastContainer /> once at the app root level.
 import React from 'react';
+import { Link } from 'react-router-dom';
 import { useToastContext, Toast, ToastType } from '../contexts/ToastContext';
 import '../styles/toast.css';
 
@@ -83,6 +84,15 @@ const ToastItem: React.FC<ToastItemProps> = ({ toast, onDismiss }) => {
 
       <div className="toast-body">
         <p className="toast-message">{toast.message}</p>
+        {toast.action && (
+          <Link
+            to={toast.action.to}
+            className="toast-action"
+            onClick={() => onDismiss(toast.id)}
+          >
+            {toast.action.label}
+          </Link>
+        )}
       </div>
 
       <button

@@ -26,6 +26,7 @@ from goldsmith_erp.services import order_workflow
 from goldsmith_erp.services.job_service import JobService
 from goldsmith_erp.services.order_workflow import (  # noqa: F401
     _PUNZIERUNG_REQUIRED_TARGETS,
+    OrderConfirmationFieldsMissingError,
     PunzierungRequiredError,
     _check_punzierung_requirement,
 )
@@ -42,7 +43,7 @@ class OrderService:
     @staticmethod
     def validate_for_confirmation(order: OrderModel) -> List[str]:
         """
-        Prueft ob alle Pflichtfelder fuer eine Auftragsbestaetigung ausgefuellt sind.
+        Prüft ob alle Pflichtfelder für eine Auftragsbestätigung ausgefüllt sind.
 
         Returns a list of human-readable field names that are missing.
         An empty list means the order is ready for confirmation.
@@ -71,7 +72,7 @@ class OrderService:
         # Ring-specific check
         order_type_str = order.order_type or ""
         if "ring" in order_type_str.lower() and not order.ring_size_mm:
-            missing.append("Ringmass")
+            missing.append("Ringmaß")
 
         return missing
 
@@ -352,9 +353,7 @@ class OrderService:
             merged = _MergedOrder()
             missing = OrderService.validate_for_confirmation(merged)  # type: ignore[arg-type]
             if missing:
-                raise ValueError(
-                    f"Pflichtfelder nicht ausgefuellt: {', '.join(missing)}"
-                )
+                raise OrderConfirmationFieldsMissingError(order_id, missing)
 
         # Detect completion transition: only set completed_at once (idempotent)
         _completion_statuses = {OrderStatusEnum.COMPLETED, OrderStatusEnum.DELIVERED}

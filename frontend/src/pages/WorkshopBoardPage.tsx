@@ -16,7 +16,7 @@ import { CustomerFilter, type PickedCustomer } from '../components/workshop/Cust
 import { useAdvanceJob, useBoardColumns } from '../components/workshop/useWorkshopBoard';
 import { useAuth, useToast } from '../contexts';
 import { getStatusLabel } from '../design/status';
-import { getErrorMessage } from '../lib/errors';
+import { getErrorCode, getErrorExtra, getErrorMessage } from '../lib/errors';
 import { logError } from '../lib/logError';
 import { canEditOrders } from '../lib/roles';
 import { Field } from '../ui/Field';
@@ -47,7 +47,22 @@ export function WorkshopBoardPage() {
     },
     onError: (job, err) => {
       logError('WorkshopBoardPage.advance', err);
-      showToast(getErrorMessage(err, `Status von ${job.number} konnte nicht geändert werden.`), 'error');
+      const message = getErrorMessage(err, `Status von ${job.number} konnte nicht geändert werden.`);
+      // LV3-02: a DRAFT missing its Pflichtfelder is a dead end without a
+      // way to fix it from the board — link straight to the order so the
+      // user can complete it, instead of leaving a bare toast.
+      const orderId = getErrorExtra(err)?.order_id;
+      if (
+        getErrorCode(err) === 'order.confirmation_fields_missing' &&
+        typeof orderId === 'number'
+      ) {
+        showToast(message, 'error', 6000, {
+          label: 'Auftrag vervollständigen',
+          to: `/orders/${orderId}`,
+        });
+        return;
+      }
+      showToast(message, 'error');
     },
   });
   const advancingJobId = advance.isPending ? (advance.variables?.id ?? null) : null;

@@ -131,3 +131,14 @@ export function getErrorCode(err: unknown): string | null {
 export function getErrorStatus(err: unknown): number | null {
   return readHttpError(err).status;
 }
+
+/**
+ * The envelope's `extra` object (non-sensitive context such as an order id
+ * or the allowed next states — see core/errors.py), or null when absent.
+ * Pair with `getErrorCode` to branch on a specific error before reading it.
+ */
+export function getErrorExtra(err: unknown): Record<string, unknown> | null {
+  const http = readHttpError(err);
+  if (!isRecord(http.data)) return null;
+  return isRecord(http.data.extra) ? (http.data.extra as Record<string, unknown>) : null;
+}

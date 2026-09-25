@@ -192,6 +192,33 @@ describe('WorkshopBoardPage', () => {
     );
   });
 
+  it('links the toast to the order when Weiter is refused for missing Pflichtfelder (LV3-02)', async () => {
+    serveJobs();
+    mockPatch.mockRejectedValue({
+      isAxiosError: true,
+      response: {
+        status: 422,
+        data: {
+          detail: 'Pflichtfelder nicht ausgefüllt: Abgabetermin',
+          code: 'order.confirmation_fields_missing',
+          extra: { order_id: 103, missing_fields: ['Abgabetermin'] },
+        },
+      },
+    });
+    await renderBoard();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Weiter: Bestätigt (AU-2026-0003)' }));
+
+    await waitFor(() =>
+      expect(mockShowToast).toHaveBeenCalledWith(
+        'Pflichtfelder nicht ausgefüllt: Abgabetermin',
+        'error',
+        6000,
+        { label: 'Auftrag vervollständigen', to: '/orders/103' },
+      ),
+    );
+  });
+
   it('offers no Weiter to a VIEWER', async () => {
     mockRole = 'VIEWER';
     serveJobs();

@@ -218,6 +218,21 @@ class TransitionReasonRequiredError(StatusTransitionInputError):
         )
 
 
+class OrderConfirmationFieldsMissingError(DomainValidationError):
+    """422: CONFIRMED requires these Pflichtfelder to be filled in first
+    (LV3-02). ``extra.order_id`` and ``extra.missing_fields`` let the
+    frontend link straight to the order instead of leaving the toast a
+    dead end.
+    """
+
+    def __init__(self, order_id: int, missing_fields: list[str]) -> None:
+        super().__init__(
+            f"Pflichtfelder nicht ausgefüllt: {', '.join(missing_fields)}",
+            code="order.confirmation_fields_missing",
+            extra={"order_id": order_id, "missing_fields": missing_fields},
+        )
+
+
 # --------------------------------------------------------------------------- #
 # Hallmark ("Punzierung") guard (Slice 5 / M4 / R8 / A5.3, soft-gated by
 # W2-09 / D-10), moved here from order_service so every status-write path
