@@ -6,11 +6,17 @@
 // Read-only (Übersicht, VIEWER): one German line per stone. The backend
 // already strips cost / design fields by role; `canViewCost` only decides
 // whether the purchase-price input is rendered.
-import { useCallback, useEffect, useId, useState } from 'react';
+//
+// W4-03: the saved stones come from TanStack Query (shared with
+// GemstoneList); only unsaved edits and new rows are local state.
+import { useId, useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { gemstonesApi, type Gemstone, type GemstoneCreateInput } from '../../api/gemstones';
+import { queryKeys } from '../../api/queryKeys';
 import { useConfirm, useToast } from '../../contexts';
 import { logError } from '../../lib/logError';
-import { GemstoneLines } from './GemstoneList';
+import { Button, Card, EmptyState, Field, PageState, type FieldInputMode } from '../../ui';
+import { GEMSTONES_EMPTY_TITLE, GemstoneLines, gemstonesQuery, gemstonesState } from './GemstoneList';
 import { SETTING_TYPE_OPTIONS } from './orderIntakeOptions';
 
 interface GemstoneRepeaterProps {
@@ -89,65 +95,87 @@ function toPayload(draft: Draft, canViewCost: boolean): GemstoneCreateInput {
   return payload;
 }
 
+type StoneMutation =
+  | { kind: 'save'; draft: Draft; payload: GemstoneCreateInput }
+  | { kind: 'remove'; draft: Draft; stoneId: number };
+
 export function GemstoneRepeater({ orderId, canEdit, canViewCost }: GemstoneRepeaterProps) {
   const { showToast } = useToast();
   const { showConfirm } = useConfirm();
-  const headingId = useId();
-  const [stones, setStones] = useState<Gemstone[]>([]);
-  const [drafts, setDrafts] = useState<Draft[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [loadError, setLoadError] = useState<string | null>(null);
-  const [busyKey, setBusyKey] = useState<string | null>(null);
+  const queryClient = useQueryClient();
+  const query = useQuery(gemstonesQuery(orderId));
+  const stones = query.data ?? [];
+  // Local edits only: unsaved changes of saved stones (by key) and new rows.
+  const [edits, setEdits] = useState<Readonly<Record<string, Draft>>>({});
+  const [newDrafts, setNewDrafts] = useState<readonly Draft[]>([]);
+  const drafts: Draft[] = [
+    ...stones.map((stone) => edits[`stein-${stone.id}`] ?? toDraft(stone)),
+    ...newDrafts,
+  ];
 
-  const load = useCallback(async () => {
-    try {
-      setIsLoading(true);
-      setLoadError(null);
-      const data = await gemstonesApi.list(orderId);
-      setStones(data);
-      setDrafts(data.map(toDraft));
-    } catch (err: unknown) {
-      logError('GemstoneRepeater.load', err);
-      setLoadError('Steine konnten nicht geladen werden.');
-    } finally {
-      setIsLoading(false);
-    }
-  }, [orderId]);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
-
-  const updateDraft = (key: string, patch: Partial<Draft>) => {
-    setDrafts((prev) => prev.map((d) => (d.key === key ? { ...d, ...patch } : d)));
+  const dropLocal = (key: string) => {
+    setEdits((prev) => Object.fromEntries(Object.entries(prev).filter(([k]) => k !== key)));
+    setNewDrafts((prev) => prev.filter((d) => d.key !== key));
   };
 
-  const saveDraft = async (draft: Draft) => {
+  const setStones = (update: (prev: Gemstone[]) => Gemstone[]) =>
+    queryClient.setQueryData<Gemstone[]>(queryKeys.orders.gemstones(orderId), (prev) =>
+      update(prev ?? []),
+    );
+
+  const mutation = useMutation({
+    mutationFn: async (action: StoneMutation): Promise<Gemstone | null> => {
+      if (action.kind === 'remove') {
+        await gemstonesApi.remove(action.stoneId);
+        return null;
+      }
+      return action.draft.id === undefined
+        ? gemstonesApi.create(orderId, action.payload)
+        : gemstonesApi.update(action.draft.id, action.payload);
+    },
+    onSuccess: (saved, action) => {
+      dropLocal(action.draft.key);
+      if (action.kind === 'remove') {
+        setStones((prev) => prev.filter((s) => s.id !== action.stoneId));
+        showToast('Stein entfernt', 'success');
+      } else if (saved) {
+        setStones((prev) => [...prev.filter((s) => s.id !== saved.id), saved]);
+        showToast('Stein gespeichert', 'success');
+      }
+      // The order total and the Übersicht list depend on the stones.
+      void queryClient.invalidateQueries({ queryKey: queryKeys.orders.detail(orderId) });
+    },
+    onError: (err: unknown, action) => {
+      const isRemove = action.kind === 'remove';
+      logError(isRemove ? 'GemstoneRepeater.remove' : 'GemstoneRepeater.save', err);
+      showToast(
+        isRemove ? 'Stein konnte nicht entfernt werden.' : 'Stein konnte nicht gespeichert werden.',
+        'error',
+      );
+    },
+  });
+  const busyKey = mutation.isPending ? (mutation.variables?.draft.key ?? null) : null;
+
+  const updateDraft = (draft: Draft, patch: Partial<Draft>) => {
+    const next = { ...draft, ...patch };
+    if (draft.id === undefined) {
+      setNewDrafts((prev) => prev.map((d) => (d.key === draft.key ? next : d)));
+    } else {
+      setEdits((prev) => ({ ...prev, [draft.key]: next }));
+    }
+  };
+
+  const saveDraft = (draft: Draft) => {
     if (!draft.type.trim()) {
       showToast('Steinart fehlt. Bitte die Steinart eingeben.', 'error');
       return;
     }
-    setBusyKey(draft.key);
-    try {
-      const payload = toPayload(draft, canViewCost);
-      const saved =
-        draft.id === undefined
-          ? await gemstonesApi.create(orderId, payload)
-          : await gemstonesApi.update(draft.id, payload);
-      setStones((prev) => [...prev.filter((s) => s.id !== saved.id), saved]);
-      setDrafts((prev) => prev.map((d) => (d.key === draft.key ? toDraft(saved) : d)));
-      showToast('Stein gespeichert', 'success');
-    } catch (err: unknown) {
-      logError('GemstoneRepeater.save', err);
-      showToast('Stein konnte nicht gespeichert werden.', 'error');
-    } finally {
-      setBusyKey(null);
-    }
+    mutation.mutate({ kind: 'save', draft, payload: toPayload(draft, canViewCost) });
   };
 
   const removeDraft = async (draft: Draft) => {
     if (draft.id === undefined) {
-      setDrafts((prev) => prev.filter((d) => d.key !== draft.key));
+      dropLocal(draft.key);
       return;
     }
     const confirmed = await showConfirm({
@@ -157,65 +185,48 @@ export function GemstoneRepeater({ orderId, canEdit, canViewCost }: GemstoneRepe
       variant: 'danger',
     });
     if (!confirmed) return;
-    const stoneId = draft.id;
-    setBusyKey(draft.key);
-    try {
-      await gemstonesApi.remove(stoneId);
-      setStones((prev) => prev.filter((s) => s.id !== stoneId));
-      setDrafts((prev) => prev.filter((d) => d.key !== draft.key));
-      showToast('Stein entfernt', 'success');
-    } catch (err: unknown) {
-      logError('GemstoneRepeater.remove', err);
-      showToast('Stein konnte nicht entfernt werden.', 'error');
-    } finally {
-      setBusyKey(null);
-    }
+    mutation.mutate({ kind: 'remove', draft, stoneId: draft.id });
   };
 
-  const addButton = canEdit && (
-    <button
-      type="button"
-      className="btn-secondary"
-      onClick={() => setDrafts((prev) => [...prev, emptyDraft()])}
-    >
+  const addStone = () => setNewDrafts((prev) => [...prev, emptyDraft()]);
+  const addButton = (
+    <Button variant="secondary" icon="plus" onClick={addStone}>
       Stein hinzufügen
-    </button>
+    </Button>
   );
 
-  const body = (() => {
-    if (isLoading) return <p role="status">Steine werden geladen…</p>;
-    if (loadError) {
+  const renderBody = () => {
+    if (!canEdit) return <GemstoneLines stones={stones} />;
+    if (drafts.length === 0) {
       return (
-        <p role="alert">
-          {loadError}{' '}
-          <button type="button" className="btn-secondary" onClick={() => void load()}>
-            Erneut laden
-          </button>
-        </p>
+        <EmptyState icon="gem" title={GEMSTONES_EMPTY_TITLE} headingLevel={3} action={addButton} />
       );
     }
-    if (!canEdit) return <GemstoneLines stones={stones} />;
-    if (drafts.length === 0) return <p>Noch keine Steine erfasst.</p>;
-    return drafts.map((draft, index) => (
-      <GemstoneRow
-        key={draft.key}
-        draft={draft}
-        position={index + 1}
-        canViewCost={canViewCost}
-        isBusy={busyKey === draft.key}
-        onChange={(patch) => updateDraft(draft.key, patch)}
-        onSave={() => void saveDraft(draft)}
-        onRemove={() => void removeDraft(draft)}
-      />
-    ));
-  })();
+    return (
+      <>
+        {drafts.map((draft, index) => (
+          <GemstoneRow
+            key={draft.key}
+            draft={draft}
+            position={index + 1}
+            canViewCost={canViewCost}
+            isBusy={busyKey === draft.key}
+            onChange={(patch) => updateDraft(draft, patch)}
+            onSave={() => saveDraft(draft)}
+            onRemove={() => void removeDraft(draft)}
+          />
+        ))}
+        <div className="gemstone-row-actions">{addButton}</div>
+      </>
+    );
+  };
 
   return (
-    <section className="details-section gemstone-repeater" aria-labelledby={headingId}>
-      <h3 id={headingId}>Steine</h3>
-      {body}
-      {addButton}
-    </section>
+    <Card title="Steine" headingLevel={3} className="gemstone-repeater">
+      <PageState state={gemstonesState(query)} skeleton="list" skeletonCount={2}>
+        {renderBody()}
+      </PageState>
+    </Card>
   );
 }
 
@@ -232,20 +243,21 @@ interface GemstoneRowProps {
 function GemstoneRow({ draft, position, canViewCost, isBusy, onChange, onSave, onRemove }: GemstoneRowProps) {
   const id = useId();
   const suffix = ` (Stein ${position})`;
-  const text = (name: keyof Draft, label: string, extra: Record<string, string> = {}) => (
-    <div className="form-group">
-      <label htmlFor={`${id}-${name}`}>
-        {label}
-      </label>
+  const text = (
+    name: keyof Draft,
+    label: string,
+    options: { placeholder?: string; inputMode?: FieldInputMode; unit?: string } = {},
+  ) => (
+    <Field label={label} name={`${name}-${position}`} inputMode={options.inputMode} suffix={options.unit}>
       <input
         id={`${id}-${name}`}
         aria-label={`${label}${suffix}`}
         type="text"
+        placeholder={options.placeholder}
         value={draft[name] as string}
         onChange={(e) => onChange({ [name]: e.target.value } as Partial<Draft>)}
-        {...extra}
       />
-    </div>
+    </Field>
   );
 
   return (
@@ -259,18 +271,17 @@ function GemstoneRow({ draft, position, canViewCost, isBusy, onChange, onSave, o
     >
       <legend>Stein {position}</legend>
       <div className="form-row">
-        {text('type', 'Steinart', { placeholder: 'z.B. Diamant' })}
+        {text('type', 'Steinart', { placeholder: 'z. B. Diamant' })}
         {text('quantity', 'Anzahl', { inputMode: 'numeric' })}
-        {text('carat', 'Karat je Stein', { inputMode: 'decimal' })}
+        {text('carat', 'Karat je Stein', { inputMode: 'decimal', unit: 'ct' })}
       </div>
       <div className="form-row">
         {text('color', 'Farbe')}
         {text('quality', 'Reinheit')}
-        {text('shape', 'Form', { placeholder: 'z.B. rund' })}
+        {text('shape', 'Form', { placeholder: 'z. B. rund' })}
       </div>
       <div className="form-row">
-        <div className="form-group">
-          <label htmlFor={`${id}-setting`}>Fassungsart</label>
+        <Field label="Fassungsart" name={`setting-${position}`}>
           <select
             id={`${id}-setting`}
             aria-label={`Fassungsart${suffix}`}
@@ -284,29 +295,29 @@ function GemstoneRow({ draft, position, canViewCost, isBusy, onChange, onSave, o
               </option>
             ))}
           </select>
-        </div>
-        <div className="form-group form-group--checkbox">
-          <label className="checkbox-label">
-            <input
-              type="checkbox"
-              aria-label={`Kundenstein${suffix}`}
-              checked={draft.is_customer_stone}
-              onChange={(e) =>
-                onChange({ is_customer_stone: e.target.checked, cost: e.target.checked ? '' : draft.cost })
-              }
-            />
-            <span>Kundenstein</span>
-          </label>
-        </div>
-        {canViewCost && !draft.is_customer_stone && text('cost', 'Einkaufspreis je Stein (€)', { inputMode: 'decimal' })}
+        </Field>
+        <label className="checkbox-label">
+          <input
+            type="checkbox"
+            aria-label={`Kundenstein${suffix}`}
+            checked={draft.is_customer_stone}
+            onChange={(e) =>
+              onChange({ is_customer_stone: e.target.checked, cost: e.target.checked ? '' : draft.cost })
+            }
+          />
+          <span>Kundenstein</span>
+        </label>
+        {canViewCost &&
+          !draft.is_customer_stone &&
+          text('cost', 'Einkaufspreis je Stein', { inputMode: 'decimal', unit: '€' })}
       </div>
       <div className="gemstone-row-actions">
-        <button type="button" className="btn-primary" onClick={onSave}>
+        <Button variant="primary" loading={isBusy} onClick={onSave}>
           Stein speichern
-        </button>
-        <button type="button" className="btn-secondary" onClick={onRemove}>
+        </Button>
+        <Button variant="ghost" icon="trash" onClick={onRemove}>
           Stein entfernen
-        </button>
+        </Button>
       </div>
     </fieldset>
   );

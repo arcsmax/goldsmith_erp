@@ -4,11 +4,15 @@
 // time entries; already role-projected by the backend) as one vertical
 // list, newest first. Each entry names its kind in text next to the icon,
 // so nothing is conveyed by icon or colour alone.
-import { useCallback, useEffect, useState } from 'react';
-import { ordersApi } from '../../api';
+//
+// Data: useQuery(orderTimelineQuery) (W4-03). The key sits under the
+// order's detail key, so a status change, an upload or an order_updates
+// realtime hint refreshes it; no refresh prop.
+import { useQuery } from '@tanstack/react-query';
 import type { OrderTimelineItem, OrderTimelineKind } from '../../api/orders';
-import { logError } from '../../lib/logError';
+import { PageState, type PageStateValue } from '../../ui';
 import { OrderIcon, type OrderIconName } from './OrderIcon';
+import { orderTimelineQuery } from './orderQueries';
 
 const KIND_META: Readonly<Record<OrderTimelineKind, { label: string; icon: OrderIconName }>> = {
   status: { label: 'Status', icon: 'arrow-right' },
@@ -66,97 +70,72 @@ function detailLine(item: OrderTimelineItem): string | null {
   return null;
 }
 
-type LoadState =
-  | { status: 'loading' }
-  | { status: 'error' }
-  | { status: 'ready'; items: OrderTimelineItem[] };
-
 interface OrderTimelineProps {
   orderId: number;
-  /** Bump to reload (status change, realtime hint). */
-  refreshKey?: number;
   /** Injected in tests; defaults to the current time. */
   now?: Date;
 }
 
-export function OrderTimeline({ orderId, refreshKey = 0, now }: OrderTimelineProps) {
-  const [state, setState] = useState<LoadState>({ status: 'loading' });
-  const [attempt, setAttempt] = useState(0);
+function useTimeline(orderId: number) {
+  return useQuery({
+    ...orderTimelineQuery(orderId),
+    select: (timeline) => sortNewestFirst(timeline.items),
+  });
+}
 
-  const retry = useCallback(() => setAttempt((n) => n + 1), []);
-
-  useEffect(() => {
-    let isCancelled = false;
-    // Keep what is on screen during a background reload.
-    setState((prev) => (prev.status === 'ready' ? prev : { status: 'loading' }));
-    ordersApi
-      .getTimeline(orderId)
-      .then((timeline) => {
-        if (!isCancelled) setState({ status: 'ready', items: sortNewestFirst(timeline.items) });
-      })
-      .catch((err: unknown) => {
-        logError(`OrderTimeline.load order=${orderId}`, err);
-        if (!isCancelled) setState({ status: 'error' });
-      });
-    return () => {
-      isCancelled = true;
-    };
-  }, [orderId, refreshKey, attempt]);
-
-  if (state.status === 'loading') {
-    return (
-      <p className="order-timeline-state" role="status">
-        Wird geladen…
-      </p>
-    );
-  }
-
-  if (state.status === 'error') {
-    return (
-      <div className="order-timeline-state">
-        <p>Verlauf konnte nicht geladen werden.</p>
-        <button type="button" className="btn-secondary" onClick={retry}>
-          Erneut versuchen
-        </button>
-      </div>
-    );
-  }
-
-  if (state.items.length === 0) {
-    return (
-      <div className="order-timeline-state">
-        <p className="order-timeline-empty-title">Noch kein Verlauf</p>
-        <p>Statuswechsel, Fotos, Kundeninfos und Zeiten erscheinen hier automatisch.</p>
-      </div>
-    );
-  }
+export function OrderTimeline({ orderId, now }: OrderTimelineProps) {
+  const query = useTimeline(orderId);
+  const items = query.data ?? [];
+  const state: PageStateValue = query.isPending
+    ? { status: 'loading' }
+    : query.isError && !query.data
+      ? {
+          status: 'error',
+          error: 'Verlauf konnte nicht geladen werden.',
+          retry: () => void query.refetch(),
+        }
+      : items.length === 0
+        ? { status: 'empty' }
+        : { status: 'ready' };
 
   const reference = now ?? new Date();
   return (
-    <ol className="order-timeline" aria-label="Auftragsverlauf">
-      {state.items.map((item) => {
-        const meta = KIND_META[item.kind] ?? { label: item.kind, icon: 'arrow-right' };
-        const at = parseBackendDate(item.at);
-        const detail = detailLine(item);
-        return (
-          <li key={item.id} className={`order-timeline-item kind-${item.kind}`} data-kind={item.kind}>
-            <span className="order-timeline-marker">
-              <OrderIcon name={meta.icon} />
-            </span>
-            <div className="order-timeline-body">
-              <p className="order-timeline-head">
-                <span className="order-timeline-kind">{meta.label}</span>
-                <time dateTime={at.toISOString()} title={ABSOLUTE.format(at)}>
-                  {formatRelativeGerman(at, reference)}
-                </time>
-              </p>
-              <p className="order-timeline-summary">{item.summary}</p>
-              {detail && <p className="order-timeline-detail">{detail}</p>}
-            </div>
-          </li>
-        );
-      })}
-    </ol>
+    <PageState
+      state={state}
+      skeleton="list"
+      skeletonCount={4}
+      empty={{
+        icon: 'clock',
+        title: 'Noch kein Verlauf',
+        body: 'Statuswechsel, Fotos, Kundeninfos und Zeiten erscheinen hier automatisch.',
+        headingLevel: 3,
+      }}
+    >
+      <ol className="order-timeline" aria-label="Auftragsverlauf">
+        {items.map((item) => {
+          const meta = KIND_META[item.kind] ?? { label: item.kind, icon: 'arrow-right' };
+          const at = parseBackendDate(item.at);
+          const detail = detailLine(item);
+          return (
+            <li key={item.id} className={`order-timeline-item kind-${item.kind}`} data-kind={item.kind}>
+              <span className="order-timeline-marker">
+                <OrderIcon name={meta.icon} />
+              </span>
+              <div className="order-timeline-body">
+                <p className="order-timeline-head">
+                  <span className="order-timeline-kind">{meta.label}</span>
+                  <time dateTime={at.toISOString()} title={ABSOLUTE.format(at)}>
+                    {formatRelativeGerman(at, reference)}
+                  </time>
+                </p>
+                <p className="order-timeline-summary">{item.summary}</p>
+                {detail && <p className="order-timeline-detail">{detail}</p>}
+              </div>
+            </li>
+          );
+        })}
+      </ol>
+    </PageState>
   );
 }
 
