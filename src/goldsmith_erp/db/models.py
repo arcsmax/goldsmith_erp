@@ -248,6 +248,15 @@ class Customer(Base):
     """
 
     __tablename__ = "customers"
+    __table_args__ = (
+        Index(
+            "ix_customers_email_hash",
+            "email_hash",
+            unique=True,
+            postgresql_where=text("email_hash IS NOT NULL"),
+            sqlite_where=text("email_hash IS NOT NULL"),
+        ),
+    )
 
     id = Column(Integer, primary_key=True, index=True)
     # Basic Info — PII, encrypted at rest (C1).
@@ -260,8 +269,13 @@ class Customer(Base):
     # deterministic). ``email_hash`` is the HMAC-SHA-256 blind-index tag;
     # it carries the uniqueness constraint and is the column we equality-
     # search on. See ``core.encryption.hmac_blind_index``.
-    email = Column(EncryptedString, nullable=False)
-    email_hash = Column(String(64), nullable=False, unique=True, index=True)
+    # W2-10 (DOM-02, D-11): email is optional (walk-in / phone-only
+    # customers). Uniqueness applies only when an email is present: the
+    # partial unique index ``ix_customers_email_hash`` below covers
+    # ``WHERE email_hash IS NOT NULL``. A customer needs at least one of
+    # email / phone / mobile (enforced in models/customer.py + service).
+    email = Column(EncryptedString, nullable=True)
+    email_hash = Column(String(64), nullable=True)
     phone = Column(EncryptedString, nullable=True)
     mobile = Column(EncryptedString, nullable=True)
 
@@ -364,9 +378,13 @@ def _customer_before_update(_mapper, _connection, target: "Customer") -> None:
     """Keep ``email_hash`` in lock-step with ``email`` on update.
 
     If the email was changed but the hash wasn't recomputed, derive it
-    here. Cheap — one HMAC per update.
+    here. Cheap — one HMAC per update. W2-10: a cleared email clears the
+    hash too, so the partial unique index never keeps a stale tag.
     """
-    if target.email and not target.email_hash:
+    if not target.email:
+        target.email_hash = None
+        return
+    if not target.email_hash:
         from goldsmith_erp.core.encryption import hmac_blind_index  # noqa: PLC0415
 
         target.email_hash = hmac_blind_index(target.email)

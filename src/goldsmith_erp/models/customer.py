@@ -4,9 +4,29 @@ import re
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    EmailStr,
+    Field,
+    field_validator,
+    model_validator,
+)
 
 from goldsmith_erp.models.consent import ConsentExport
+
+# W2-10 (DOM-02, D-11): email is optional, but a customer must stay
+# reachable through at least one channel.
+CONTACT_REQUIRED_MESSAGE = (
+    "Bitte mindestens eine Kontaktmöglichkeit angeben: E-Mail, Telefon oder Mobil."
+)
+
+
+def has_contact(
+    email: Optional[str], phone: Optional[str], mobile: Optional[str]
+) -> bool:
+    """True if at least one of email / phone / mobile is non-blank."""
+    return any(value and str(value).strip() for value in (email, phone, mobile))
 
 
 class CustomerBase(BaseModel):
@@ -15,7 +35,9 @@ class CustomerBase(BaseModel):
     first_name: str = Field(..., min_length=1, max_length=100)
     last_name: str = Field(..., min_length=1, max_length=100)
     company_name: Optional[str] = Field(None, max_length=200)
-    email: EmailStr = Field(..., description="Customer email address")
+    email: Optional[EmailStr] = Field(
+        None, description="Customer email address (optional, W2-10)"
+    )
     phone: Optional[str] = Field(None, max_length=50)
     mobile: Optional[str] = Field(None, max_length=50)
     street: Optional[str] = Field(None, max_length=200)
@@ -127,9 +149,24 @@ class CustomerBase(BaseModel):
 
 
 class CustomerCreate(CustomerBase):
-    """Schema for creating a new customer"""
+    """Schema for creating a new customer.
 
-    pass
+    W2-10: email is optional, but at least one of email / phone / mobile
+    must be given (walk-in customers often only leave a phone number).
+    """
+
+    @field_validator("email", mode="before")
+    @classmethod
+    def blank_email_is_none(cls, v: Any) -> Any:
+        if isinstance(v, str) and not v.strip():
+            return None
+        return v
+
+    @model_validator(mode="after")
+    def require_contact(self) -> "CustomerCreate":
+        if not has_contact(self.email, self.phone, self.mobile):
+            raise ValueError(CONTACT_REQUIRED_MESSAGE)
+        return self
 
 
 class CustomerUpdate(BaseModel):
@@ -158,6 +195,14 @@ class CustomerUpdate(BaseModel):
     allergies: Optional[str] = Field(None, max_length=500)
     preferences: Optional[dict[str, Any]] = None
     birthday: Optional[datetime] = None
+
+    @field_validator("email", mode="before")
+    @classmethod
+    def blank_email_is_none(cls, v: Any) -> Any:
+        """W2-10: an emptied email field removes the address."""
+        if isinstance(v, str) and not v.strip():
+            return None
+        return v
 
     @field_validator("first_name", "last_name")
     @classmethod
@@ -202,7 +247,7 @@ class CustomerListItem(BaseModel):
     first_name: str
     last_name: str
     company_name: Optional[str]
-    email: str
+    email: Optional[str] = None
     phone: Optional[str]
     customer_type: str
     tags: List[str]
@@ -242,7 +287,7 @@ class CustomerGdprExportCustomer(BaseModel):
     first_name: str
     last_name: str
     company_name: Optional[str] = None
-    email: str
+    email: Optional[str] = None
     phone: Optional[str] = None
     mobile: Optional[str] = None
     street: Optional[str] = None

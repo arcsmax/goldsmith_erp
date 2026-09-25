@@ -215,10 +215,11 @@ export const CustomerCreateSchema = z
       .string()
       .min(1, 'Pflichtfeld')
       .max(100, 'Maximal 100 Zeichen erlaubt'),
+    // W2-10 (DOM-02): optional; walk-in customers may only leave a phone.
     email: z
       .string()
-      .min(1, 'Pflichtfeld')
-      .email('Ungültige E-Mail-Adresse'),
+      .optional()
+      .refine((v) => !v || z.string().email().safeParse(v).success, 'Ungültige E-Mail-Adresse'),
     phone: optionalPhone,
     mobile: optionalPhone,
     company_name: z.string().max(200, 'Maximal 200 Zeichen erlaubt').optional(),
@@ -245,6 +246,13 @@ export const CustomerCreateSchema = z
     {
       message: 'Firmenname ist für Geschäftskunden erforderlich',
       path: ['company_name'],
+    }
+  )
+  .refine(
+    (data) => [data.email, data.phone, data.mobile].some((v) => !!v?.trim()),
+    {
+      message: 'Bitte mindestens eine Kontaktmöglichkeit angeben: E-Mail, Telefon oder Mobil.',
+      path: ['email'],
     }
   );
 

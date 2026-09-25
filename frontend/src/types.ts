@@ -52,6 +52,11 @@ export interface Customer {
   first_name: string;
   last_name: string;
   company_name?: string | null;
+  /**
+   * W2-10: the backend returns null for phone-only customers. Kept as
+   * `string` until components/orders/CustomerInfoCard.tsx (own local type,
+   * other workstream) accepts null; every renderer guards on truthiness.
+   */
   email: string;
   phone?: string | null;
   mobile?: string | null;
@@ -79,7 +84,7 @@ export interface CustomerListItem {
   first_name: string;
   last_name: string;
   company_name?: string | null;
-  email: string;
+  email?: string | null;
   phone?: string | null;
   customer_type: CustomerCategory;
   tags: string[];
@@ -90,7 +95,7 @@ export interface CustomerCreateInput {
   first_name: string;
   last_name: string;
   company_name?: string;
-  email: string;
+  email?: string;
   phone?: string;
   mobile?: string;
   street?: string;
@@ -1086,7 +1091,7 @@ export interface RepairCustomerSummary {
   id: number;
   first_name: string;
   last_name: string;
-  email: string;
+  email?: string | null;
   phone?: string | null;
 }
 

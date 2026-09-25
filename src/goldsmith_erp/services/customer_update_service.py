@@ -705,6 +705,26 @@ class CustomerUpdateService:
                 method=None,
             )
 
+        if customer is not None and not customer.email:
+            # W2-10 (DOM-02, D-11): the customer has no email address on
+            # file (phone-only walk-in). Expected, not a failure: nothing is
+            # dispatched and no failure notice is raised. The draft stays
+            # open and the result points at the PDF fallback; the hand-over
+            # is recorded as PDF_MANUAL via mark_delivered.
+            await db.refresh(update)
+            _log_financial_access(
+                "send_attempted",
+                update_id,
+                cast(Optional[int], update.order_id),
+                user_id,
+                extra={"delivered": False, "fallback": "pdf_manual"},
+            )
+            return CustomerUpdateSendResult(
+                update=CustomerUpdateRead.model_validate(update),
+                delivered=False,
+                method=UpdateDeliveryMethod.PDF_MANUAL,
+            )
+
         # CAS claim — see docstring. Runs BEFORE any SMTP dispatch.
         async with transactional(db):
             claim_result = await db.execute(

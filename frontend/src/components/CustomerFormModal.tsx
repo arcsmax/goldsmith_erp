@@ -188,7 +188,7 @@ export const CustomerFormModal: React.FC<CustomerFormModalProps> = ({
     const toValidate = {
       first_name: formData.first_name.trim(),
       last_name: formData.last_name.trim(),
-      email: formData.email.trim(),
+      email: formData.email.trim() || undefined,
       customer_type: formData.customer_type,
       country: formData.country,
       company_name: formData.company_name.trim() || undefined,
@@ -235,10 +235,18 @@ export const CustomerFormModal: React.FC<CustomerFormModalProps> = ({
       const submitData: any = {
         first_name: formData.first_name.trim(),
         last_name: formData.last_name.trim(),
-        email: formData.email.trim(),
         customer_type: formData.customer_type,
         country: formData.country,
       };
+
+      // W2-10: email is optional. A new customer simply omits it; clearing
+      // it on an existing customer sends null so the address is removed.
+      const email = formData.email.trim();
+      if (email) {
+        submitData.email = email;
+      } else if (customer) {
+        submitData.email = null;
+      }
 
       // Optional fields
       if (formData.company_name.trim()) {
@@ -455,9 +463,7 @@ export const CustomerFormModal: React.FC<CustomerFormModalProps> = ({
             </div>
 
             <div className="form-group">
-              <label htmlFor="email">
-                E-Mail <span className="required">*</span>
-              </label>
+              <label htmlFor="email">E-Mail</label>
               <input
                 type="email"
                 id="email"

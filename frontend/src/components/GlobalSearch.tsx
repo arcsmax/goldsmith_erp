@@ -68,7 +68,7 @@ function mapCustomers(customers: CustomerListItem[]): SearchResult[] {
     type: 'customer' as const,
     id: c.id,
     label: `${c.first_name} ${c.last_name}`,
-    sublabel: c.company_name ?? c.email,
+    sublabel: c.company_name ?? c.email ?? c.phone ?? undefined,
     href: `/customers/${c.id}`,
   }));
 }
