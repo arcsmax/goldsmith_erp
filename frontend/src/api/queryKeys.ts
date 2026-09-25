@@ -45,6 +45,16 @@ export interface DateRange {
   end_date: string;
 }
 
+/** Filters of the Scan-Verlauf search (GET /scan/history). */
+export interface ScanHistorySearchParams {
+  q?: string;
+  user?: number;
+  from?: string;
+  to?: string;
+  limit: number;
+  offset: number;
+}
+
 export const queryKeys = {
   orders: {
     all: ['orders'] as const,
@@ -123,6 +133,12 @@ export const queryKeys = {
     all: ['scan-log'] as const,
     /** GET /scan/log?user_id=me (the "Letzte Scans" list). */
     history: (limit: number) => [...queryKeys.scanLog.all, 'history', { limit }] as const,
+    /** GET /orders/{id}/scans or /repairs/{id}/scans (Scan-Verlauf of one piece). */
+    piece: (entityType: 'order' | 'repair', id: number, limit: number) =>
+      [...queryKeys.scanLog.all, 'piece', entityType, id, { limit }] as const,
+    /** GET /scan/history (ADMIN/GOLDSMITH search across pieces and users). */
+    search: (params: ScanHistorySearchParams) =>
+      [...queryKeys.scanLog.all, 'search', params] as const,
   },
   notifications: {
     all: ['notifications'] as const,

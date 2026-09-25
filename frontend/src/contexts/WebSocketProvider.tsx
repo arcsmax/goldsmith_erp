@@ -32,7 +32,8 @@ export type RealtimeChannel =
   | 'time_tracking_updates'
   | 'notifications'
   | 'repair_updates'
-  | 'job_updates';
+  | 'job_updates'
+  | 'scan_updates';
 
 export interface RealtimeEvent {
   channel: RealtimeChannel;
@@ -62,6 +63,7 @@ const CHANNEL_TOPICS: Readonly<Record<RealtimeChannel, RefetchTopic>> = {
   notifications: 'notifications',
   repair_updates: 'repairs',
   job_updates: 'jobs',
+  scan_updates: 'scans',
 };
 
 const CHANNELS = Object.keys(CHANNEL_TOPICS) as RealtimeChannel[];

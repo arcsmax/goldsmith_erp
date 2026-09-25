@@ -3600,6 +3600,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/orders/{order_id}/scans": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Order Scans
+         * @description Scan-Verlauf eines Auftrags: wer, wann, wo, welche Aktion (neueste zuerst).
+         *
+         *     VIEWER allowed — rows carry no financial fields or entity data.
+         */
+        get: operations["list_order_scans_api_v1_orders__order_id__scans_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/orders/{order_id}/scrap-gold": {
         parameters: {
             query?: never;
@@ -4626,6 +4648,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/repairs/{repair_id}/scans": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Repair Scans
+         * @description Scan-Verlauf einer Reparatur: wer, wann, wo, welche Aktion (neueste zuerst).
+         *
+         *     VIEWER allowed — rows carry no financial fields or entity data.
+         */
+        get: operations["list_repair_scans_api_v1_repairs__repair_id__scans_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/repairs/{repair_id}/start": {
         parameters: {
             query?: never;
@@ -4717,6 +4761,26 @@ export interface paths {
          *     Requires DESIGN_VIEW permission (GOLDSMITH/ADMIN; SEC-09, GDPR-04).
          */
         get: operations["get_repair_photo_thumbnail_api_v1_repairs_photos__photo_id__thumbnail_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/scan/history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Scan history across pieces and users (ADMIN / GOLDSMITH)
+         * @description Search every scan_logs row, newest first. ``q`` accepts a label code (``ORDER:42``), a bare id, a repair or bag number, or any text (substring of the scanned payload). Rows carry user name, time, location, action and result — never financial fields.
+         */
+        get: operations["search_scan_history_api_v1_scan_history_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -9088,6 +9152,27 @@ export interface components {
             /** Timers */
             timers: number;
         };
+        /**
+         * LastScanRead
+         * @description Last scan of a piece ("Zuletzt gescannt von … um … in …").
+         */
+        LastScanRead: {
+            /** Action Taken */
+            action_taken?: string | null;
+            /** Location */
+            location?: string | null;
+            /** Location Id */
+            location_id?: number | null;
+            /**
+             * Scanned At
+             * Format: date-time
+             */
+            scanned_at: string;
+            /** User Id */
+            user_id: number;
+            /** User Name */
+            user_name: string;
+        };
         /** LineItemExport */
         LineItemExport: {
             /** Description */
@@ -10510,6 +10595,7 @@ export interface components {
             labor_cost?: number | null;
             /** Labor Hours */
             labor_hours?: number | null;
+            last_scan?: components["schemas"]["LastScanRead"] | null;
             /** Location Id */
             location_id?: number | null;
             /** Material Cost Calculated */
@@ -10660,6 +10746,7 @@ export interface components {
             labor_cost?: number | null;
             /** Labor Hours */
             labor_hours?: number | null;
+            last_scan?: components["schemas"]["LastScanRead"] | null;
             /** Location Id */
             location_id?: number | null;
             /** Material Cost Calculated */
@@ -11244,6 +11331,51 @@ export interface components {
             source: string;
             /** Taken At */
             taken_at?: string | null;
+        };
+        /**
+         * PieceScanPage
+         * @description Paged per-piece history, newest first.
+         */
+        PieceScanPage: {
+            /** Items */
+            items: components["schemas"]["PieceScanRead"][];
+            /** Limit */
+            limit: number;
+            /** Next Offset */
+            next_offset?: number | null;
+            /** Offset */
+            offset: number;
+            /** Total */
+            total: number;
+        };
+        /**
+         * PieceScanRead
+         * @description One row of the per-piece Scan-Verlauf (VIEWER allowed).
+         */
+        PieceScanRead: {
+            /** Action Result */
+            action_result?: string | null;
+            /** Action Taken */
+            action_taken?: string | null;
+            /** Id */
+            id: string;
+            /** Input Source */
+            input_source?: string | null;
+            /** Location */
+            location?: string | null;
+            /** Location Id */
+            location_id?: number | null;
+            /** Parent Scan Id */
+            parent_scan_id?: string | null;
+            /**
+             * Scanned At
+             * Format: date-time
+             */
+            scanned_at: string;
+            /** User Id */
+            user_id: number;
+            /** User Name */
+            user_name: string;
         };
         /**
          * PortalLookupRequest
@@ -11894,6 +12026,7 @@ export interface components {
             /** Item Description */
             item_description: string;
             item_type: components["schemas"]["RepairItemType"];
+            last_scan?: components["schemas"]["LastScanRead"] | null;
             /** Metal Type */
             metal_type?: string | null;
             /**
@@ -12152,12 +12285,16 @@ export interface components {
          *         §14.a metric join.
          */
         ScanContext: {
+            /** Action Result */
+            action_result?: ("ok" | "failed" | "cancelled") | null;
             /** Client Version */
             client_version?: string | null;
             /** Current Location */
             current_location?: string | null;
             /** Current Order Id */
             current_order_id?: number | null;
+            /** Device Id */
+            device_id?: string | null;
             /** Device Type */
             device_type?: ("mobile" | "desktop" | "tablet") | null;
             /**
@@ -12166,8 +12303,67 @@ export interface components {
              * @enum {string}
              */
             input_source: "camera" | "usb_hid" | "manual";
+            /** Location Id */
+            location_id?: number | null;
+            /** Parent Scan Id */
+            parent_scan_id?: string | null;
             /** Running Timer Id */
             running_timer_id?: string | null;
+        };
+        /**
+         * ScanHistoryPage
+         * @description Paged cross-piece search result, newest first.
+         */
+        ScanHistoryPage: {
+            /** Items */
+            items: components["schemas"]["ScanHistoryRow"][];
+            /** Limit */
+            limit: number;
+            /** Next Offset */
+            next_offset?: number | null;
+            /** Offset */
+            offset: number;
+            /** Total */
+            total: number;
+        };
+        /**
+         * ScanHistoryRow
+         * @description One row of the cross-piece admin search (ADMIN/GOLDSMITH).
+         */
+        ScanHistoryRow: {
+            /** Action Result */
+            action_result?: string | null;
+            /** Action Taken */
+            action_taken?: string | null;
+            /** Device Id */
+            device_id?: string | null;
+            /** Id */
+            id: string;
+            /** Input Source */
+            input_source?: string | null;
+            /** Location */
+            location?: string | null;
+            /** Location Id */
+            location_id?: number | null;
+            /** Parent Scan Id */
+            parent_scan_id?: string | null;
+            /** Raw Payload */
+            raw_payload: string;
+            /** Resolution Path */
+            resolution_path?: string | null;
+            /** Resolved Id */
+            resolved_id?: string | null;
+            /** Resolved Type */
+            resolved_type?: string | null;
+            /**
+             * Scanned At
+             * Format: date-time
+             */
+            scanned_at: string;
+            /** User Id */
+            user_id: number;
+            /** User Name */
+            user_name: string;
         };
         /**
          * ScanLogBatchCreate
@@ -19941,6 +20137,42 @@ export interface operations {
             };
         };
     };
+    list_order_scans_api_v1_orders__order_id__scans_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path: {
+                order_id: number;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PieceScanPage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_scrap_gold_api_v1_orders__order_id__scrap_gold_get: {
         parameters: {
             query?: never;
@@ -21644,6 +21876,42 @@ export interface operations {
             };
         };
     };
+    list_repair_scans_api_v1_repairs__repair_id__scans_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path: {
+                repair_id: number;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PieceScanPage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     start_repair_api_v1_repairs__repair_id__start_post: {
         parameters: {
             query?: never;
@@ -21794,6 +22062,45 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    search_scan_history_api_v1_scan_history_get: {
+        parameters: {
+            query?: {
+                from?: string | null;
+                limit?: number;
+                offset?: number;
+                q?: string | null;
+                to?: string | null;
+                /** @description Nur Scans dieses Benutzers */
+                user?: number | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScanHistoryPage"];
                 };
             };
             /** @description Validation Error */

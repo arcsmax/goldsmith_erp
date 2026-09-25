@@ -18,27 +18,13 @@ import type {
   ScanContext,
   Transport,
 } from '../types/scanner';
+import { classifyPayload } from './scanPayload';
 
-// Must match backend src/goldsmith_erp/services/scanner_service.py KNOWN_PREFIXES_V1.
-// Keep in sync with plan §3 ("Key contract points").
-const KNOWN_PREFIXES: ReadonlySet<string> = new Set([
-  'ORDER',
-  'REPAIR',
-  'METAL',
-  'MATERIAL',
-  'ACTIVITY',
-  'INTERRUPT',
-]);
+// The prefix grammar (and the list that must match backend
+// KNOWN_PREFIXES_V1_1, SC-06) lives in lib/scanPayload.ts.
 
 // Max payload length matches backend ResolveRequest.raw_payload validator.
 const MAX_PAYLOAD_LENGTH = 500;
-
-// Strictly digits (ASCII 0-9) — no leading +/-, no whitespace, no locale separators.
-const NUMERIC_ONLY = /^\d+$/;
-
-// Prefix grammar: uppercase letters followed by a colon, then at least one char.
-// Anchored. Uppercase-only because our canonical prefixes are uppercase.
-const PREFIX_SHAPE = /^([A-Z]+):(.+)$/;
 
 /**
  * Detect ASCII control characters we refuse to route (see plan §3, M6).
@@ -122,28 +108,9 @@ export class ScannerRouter {
     const trimmed = rawPayload.trim();
     if (trimmed.length === 0) return null;
 
-    // Step 1: known-prefix match. We uppercase-normalise before emitting
-    // the canonical form. Use String.prototype.match so we stay away from
-    // the word "exec" that some static analysers flag.
-    const prefixMatch = trimmed.match(PREFIX_SHAPE);
-    if (prefixMatch !== null) {
-      const prefix = prefixMatch[1];
-      const body = prefixMatch[2];
-      if (KNOWN_PREFIXES.has(prefix)) {
-        return `${prefix}:${body}`;
-      }
-      // Unknown prefix — fall through to alias/unknown. Do NOT treat
-      // "FOO:42" as an ORDER:42 numeric fallback; that would be a footgun.
-      return null;
-    }
-
-    // Step 3: numeric fallback — bare digits → ORDER.
-    if (NUMERIC_ONLY.test(trimmed)) {
-      return `ORDER:${trimmed}`;
-    }
-
-    // Anything else (e.g. "42a", "hello", mixed-case unknown) is neither
-    // prefix nor numeric. Let alias/unknown stages handle it.
-    return null;
+    // Steps 1 + 3: known prefix (case-insensitive, like the backend's
+    // _split_prefix) or bare digits → ORDER. Unknown prefixes such as
+    // "FOO:42" stay null: never guess an ORDER from them.
+    return classifyPayload(trimmed).canonical;
   }
 }

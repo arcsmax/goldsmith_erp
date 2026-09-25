@@ -80,11 +80,17 @@ export function describeScanLog(row: ScanLogRead): string {
 
 /** German past-tense labels for the action ids the scan log records. */
 const ACTION_LABELS: Readonly<Record<string, string>> = {
+  scan_only: 'Nur gescannt',
+  unrecognised: 'Nicht erkannt',
+  resolve_failed: 'Scan fehlgeschlagen',
+  log_only: 'Erfasst',
   start_timer: 'Timer gestartet',
   stop_timer: 'Timer gestoppt',
   switch_timer: 'Timer gewechselt',
-  change_status: 'Status geändert',
-  change_location: 'Ort geändert',
+  change_status: 'Status weiter',
+  advance_repair: 'Status weiter',
+  handover: 'Übergabe',
+  change_location: 'Standort gesetzt',
   switch_activity: 'Aktivität gewechselt',
   log_interruption: 'Unterbrechung erfasst',
   take_photo: 'Foto aufgenommen',
@@ -94,6 +100,23 @@ const ACTION_LABELS: Readonly<Record<string, string>> = {
   punzierung_check: 'Punzierung geprüft',
   legacy_migration: 'Übernommen',
 };
+
+const RESULT_SUFFIX: Readonly<Record<string, string>> = {
+  failed: ' – fehlgeschlagen',
+  cancelled: ' – abgebrochen',
+};
+
+/** German label for a logged action id plus its result (Scan-Verlauf). */
+export function describeActionId(
+  actionTaken: string | null | undefined,
+  actionResult?: string | null,
+): string {
+  const label =
+    actionTaken !== null && actionTaken !== undefined && actionTaken.length > 0
+      ? (ACTION_LABELS[actionTaken] ?? actionTaken)
+      : 'Nur gescannt';
+  return `${label}${actionResult ? (RESULT_SUFFIX[actionResult] ?? '') : ''}`;
+}
 
 /**
  * Describe the action taken on a scan for the history row subtitle.
@@ -165,7 +188,7 @@ export async function migrateLegacyScanHistory(): Promise<boolean> {
       raw_payload: `ORDER:${(entry as LegacyScanEntry).id}`,
       resolved_type: 'order',
       resolved_id: String((entry as LegacyScanEntry).id),
-      resolution_path: 'import',
+      resolution_path: 'prefix',
       action_taken: 'legacy_migration',
       offline_queued: false,
       idempotency_key: crypto.randomUUID(),

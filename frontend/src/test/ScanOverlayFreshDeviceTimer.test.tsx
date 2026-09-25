@@ -157,6 +157,10 @@ describe('ScanOverlay — start timer on a fresh device (FE-02)', () => {
     await user.click(within(sheet).getByRole('button', { name: 'Schließen' }));
 
     expect(await screen.findByTestId('qa-error')).toHaveTextContent(/Keine Aktivität gewählt/);
-    expect(mocks.apiPost).not.toHaveBeenCalled();
+    // Only the scan-log rows went out (scan tracking); no timer start.
+    const timerCalls = mocks.apiPost.mock.calls.filter(
+      (call: unknown[]) => !String(call[0]).startsWith('/scan/log'),
+    );
+    expect(timerCalls).toHaveLength(0);
   });
 });

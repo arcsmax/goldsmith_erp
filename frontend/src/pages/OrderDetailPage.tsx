@@ -35,6 +35,7 @@ import {
   type Milestone,
 } from '../components/orders/MilestonePrompt';
 import { OrderTimeline } from '../components/orders/OrderTimeline';
+import { PieceScanHistory } from '../components/scanner/PieceScanHistory';
 import { DeliveredActions } from '../components/orders/DeliveredActions';
 import { OrderOverviewTab, type OrderWithStatusFields } from '../components/orders/OrderOverviewTab';
 import { OrderWorkTab } from '../components/orders/OrderWorkTab';
@@ -187,6 +188,10 @@ function OrderDetailView({ orderId }: { orderId: number }) {
       <div className="order-tab-body">
         <h2 className="ui-visually-hidden">Verlauf</h2>
         <OrderTimeline orderId={order.id} />
+        {/* Scan-Verlauf: a section of Verlauf, the page keeps its five tabs. */}
+        <Card title="Scan-Verlauf" headingLevel={3}>
+          <PieceScanHistory entityType="order" entityId={order.id} />
+        </Card>
       </div>
     ),
   };

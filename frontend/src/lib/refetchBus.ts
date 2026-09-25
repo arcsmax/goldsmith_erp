@@ -17,7 +17,13 @@
  */
 import { useEffect, useRef } from 'react';
 
-export type RefetchTopic = 'orders' | 'time_tracking' | 'notifications' | 'repairs' | 'jobs';
+export type RefetchTopic =
+  | 'orders'
+  | 'time_tracking'
+  | 'notifications'
+  | 'repairs'
+  | 'jobs'
+  | 'scans';
 
 export const REFETCH_TOPICS: readonly RefetchTopic[] = [
   'orders',
@@ -25,6 +31,7 @@ export const REFETCH_TOPICS: readonly RefetchTopic[] = [
   'notifications',
   'repairs',
   'jobs',
+  'scans',
 ];
 
 type RefetchCallback = () => void;

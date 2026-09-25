@@ -9,6 +9,7 @@ import { formatEur, MONEY_CLASS } from '../../lib/format';
 import { CustomerInfoCard } from './CustomerInfoCard';
 import { GemstoneList } from './GemstoneList';
 import { OrderStatusBadge } from './OrderStatusBadge';
+import { LastScanLine } from '../scanner/LastScanLine';
 
 /** Hold / cancel fields of OrderRead (W2-07) not yet in types.ts. */
 export type OrderWithStatusFields = OrderType & {
@@ -55,6 +56,7 @@ export function OrderOverviewTab({ order, role }: OrderOverviewTabProps) {
           <OrderStatusBadge status={order.status} />
           {order.deadline && <DeadlineChip deadline={order.deadline} />}
         </p>
+        <LastScanLine lastScan={order.last_scan} />
         {order.status === 'on_hold' && order.hold_reason && (
           <p className="order-overview-reason">Grund der Pause: {order.hold_reason}</p>
         )}

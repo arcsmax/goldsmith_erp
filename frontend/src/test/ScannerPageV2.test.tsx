@@ -273,7 +273,7 @@ describe('ScannerPage V2 (Slice 12)', () => {
         events: expect.arrayContaining([
           expect.objectContaining({
             raw_payload: 'ORDER:1',
-            resolution_path: 'import',
+            resolution_path: 'prefix',
           }),
         ]),
       });

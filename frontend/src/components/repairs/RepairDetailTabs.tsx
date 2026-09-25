@@ -9,6 +9,8 @@ import { formatEur, MISSING_VALUE, MONEY_CLASS } from '../../lib/format';
 import type { RepairJob, RepairJobStatus } from '../../types';
 import { Button, Card, EmptyState, Icon } from '../../ui';
 import { RepairCustomerUpdatePanel } from './RepairCustomerUpdatePanel';
+import { LastScanLine } from '../scanner/LastScanLine';
+import { PieceScanHistory } from '../scanner/PieceScanHistory';
 import { customerName, formatRepairDate, formatRepairDateTime, itemTypeLabel } from './repairFormat';
 
 export type RepairPageTab = 'uebersicht' | 'arbeit' | 'fotos' | 'kunde' | 'verlauf';
@@ -70,6 +72,7 @@ export const RepairOverviewTab: React.FC<OverviewProps> = ({ repair, canFinance,
         <Fact label="Fertiggestellt" value={formatRepairDate(repair.actual_completion_date)} />
         <Fact label="Abgeholt" value={formatRepairDateTime(repair.picked_up_at)} />
       </dl>
+      <LastScanLine lastScan={repair.last_scan} />
     </Card>
     {onCancel && (
       <Card title="Reparatur stornieren" headingLevel={3}>
@@ -220,5 +223,9 @@ export const RepairHistoryTab: React.FC<{ repair: RepairJob }> = ({ repair }) =>
         </li>
       ))}
     </ol>
+    {/* Scan-Verlauf: a section of Verlauf, the page keeps its five tabs. */}
+    <Card title="Scan-Verlauf" headingLevel={3}>
+      <PieceScanHistory entityType="repair" entityId={repair.id} />
+    </Card>
   </div>
 );

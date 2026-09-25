@@ -1,0 +1,80 @@
+/* Scan tracking (2026-09 audit): Scan-Verlauf lists, "Zuletzt gescannt"
+ * line, device location and the history search. Layout only; buttons,
+ * fields and empty states are src/ui primitives. Semantic tokens only. */
+
+.piece-scan-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-3);
+  padding: 0;
+  list-style: none;
+}
+
+.piece-scan-row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.piece-scan-row__action {
+  color: var(--color-text);
+  font-size: var(--type-md);
+  font-weight: 600;
+}
+
+.piece-scan-row__meta {
+  color: var(--color-text-muted);
+  font-size: var(--type-sm);
+}
+
+.piece-scan-row__time,
+.last-scan-line__time {
+  font-variant-numeric: tabular-nums;
+}
+
+.last-scan-line {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: var(--space-2) 0 0;
+  color: var(--color-text-muted);
+  font-size: var(--type-sm);
+}
+
+.scanner-device-location {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  color: var(--color-text);
+  font-size: var(--type-md);
+}
+
+.scan-history-panel__form {
+  display: grid;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+
+@media (min-width: 600px) {
+  .scan-history-panel__form {
+    grid-template-columns: 2fr 1fr 1fr auto;
+    align-items: end;
+  }
+}
+
+.scan-history-panel__total {
+  margin: 0 0 var(--space-2);
+  color: var(--color-text-muted);
+  font-size: var(--type-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.scan-history-panel__paging {
+  display: flex;
+  gap: var(--space-3);
+}
