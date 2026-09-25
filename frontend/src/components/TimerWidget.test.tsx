@@ -90,7 +90,7 @@ describe('TimerWidget', () => {
       renderWidget(makeEntry());
       expand();
 
-      expect(screen.getByText('⏱️ Läuft')).toBeInTheDocument();
+      expect(screen.getByText('Läuft')).toBeInTheDocument();
 
       const activity = screen.getByText(
         (_, el) => el?.classList.contains('timer-activity') ?? false
@@ -124,8 +124,8 @@ describe('TimerWidget', () => {
       renderWidget(makeEntry());
       expand();
 
-      expect(screen.getByText('⏱️ Läuft')).toBeInTheDocument();
-      expect(screen.queryByText('⏸️ Pause')).not.toBeInTheDocument();
+      expect(screen.getByText('Läuft')).toBeInTheDocument();
+      expect(screen.queryByText('Pause')).not.toBeInTheDocument();
     });
 
     it('keeps advancing the elapsed time — nothing in the UI freezes the ticker', () => {
@@ -155,7 +155,7 @@ describe('TimerWidget', () => {
       );
       expand();
 
-      const pauseButton = screen.getByText('⏸️ Pause');
+      const pauseButton = screen.getByText('Pause');
       await user.click(pauseButton);
 
       expect(onPause).toHaveBeenCalledTimes(1);
@@ -174,8 +174,8 @@ describe('TimerWidget', () => {
       expand();
 
       expect(screen.getByText('Pausiert')).toBeInTheDocument();
-      expect(screen.queryByText('⏸️ Pause')).not.toBeInTheDocument();
-      const resumeButton = screen.getByText('▶️ Weiter');
+      expect(screen.queryByText('Pause')).not.toBeInTheDocument();
+      const resumeButton = screen.getByText('Weiter');
       await user.click(resumeButton);
 
       expect(onResume).toHaveBeenCalledTimes(1);
@@ -186,7 +186,7 @@ describe('TimerWidget', () => {
     const openStopDialog = async (user: ReturnType<typeof userEvent.setup>) => {
       renderWidget(makeEntry());
       expand();
-      await user.click(screen.getByText('⏹️ Stopp'));
+      await user.click(screen.getByText('Stopp'));
     };
 
     it('opens with rating, rework and notes fields', async () => {
@@ -199,7 +199,7 @@ describe('TimerWidget', () => {
       expect(screen.getByText('Nacharbeit erforderlich')).toBeInTheDocument();
       expect(screen.getByText('Notizen (optional)')).toBeInTheDocument();
       expect(
-        screen.getByPlaceholderText('Zusätzliche Notizen...')
+        screen.getByPlaceholderText('Zusätzliche Notizen…')
       ).toBeInTheDocument();
     });
 
@@ -219,7 +219,7 @@ describe('TimerWidget', () => {
       const user = userEvent.setup();
       await openStopDialog(user);
 
-      await user.click(screen.getByText('Stoppen & Speichern'));
+      await user.click(screen.getByText('Stoppen & speichern'));
 
       await waitFor(() => {
         expect(mockOnStop).toHaveBeenCalledTimes(1);
@@ -277,7 +277,7 @@ describe('TimerWidget', () => {
       const user = userEvent.setup();
       await openStopDialog(user);
 
-      const notes = screen.getByPlaceholderText('Zusätzliche Notizen...');
+      const notes = screen.getByPlaceholderText('Zusätzliche Notizen…');
       await user.type(notes, 'Sauber poliert');
       expect(notes).toHaveValue('Sauber poliert');
     });

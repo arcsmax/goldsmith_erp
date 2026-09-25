@@ -1,6 +1,15 @@
-import React, { useState, useEffect } from 'react';
+// ActivityPicker (W4-03, bench mode): pick the activity for a timer.
+//
+// Data: activitiesQuery(true) (sorted by usage) and mostUsedActivitiesQuery
+// from api/timeTrackingQueries.ts, shared with TimeTrackingContext, so the
+// picker opens from cache. Every activity is one 56px tap target; the
+// most-used ones come first. Category filters are pressed-state buttons.
+import React, { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+
+import { activitiesQuery, mostUsedActivitiesQuery } from '../api/timeTrackingQueries';
+import { Button, EmptyState, Field, IconButton, PageState, type PageStateValue } from '../ui';
 import { Activity, ActivityCategory } from '../types';
-import { activitiesApi } from '../api/activities';
 import '../styles/components/ActivityPicker.css';
 
 interface ActivityPickerProps {
@@ -9,242 +18,160 @@ interface ActivityPickerProps {
   showTopActivities?: boolean;
 }
 
+const CATEGORY_LABELS: Readonly<Record<ActivityCategory, string>> = {
+  fabrication: 'Fertigung',
+  administration: 'Verwaltung',
+  waiting: 'Warten',
+};
+const CATEGORIES = Object.keys(CATEGORY_LABELS) as ActivityCategory[];
+
+function formatDuration(minutes: number | null | undefined): string {
+  if (!minutes) return '–';
+  if (minutes < 60) return `${Math.round(minutes)} min`;
+  return `${Math.floor(minutes / 60)} h ${Math.round(minutes % 60)} min`;
+}
+
+interface ActivityCardProps {
+  activity: Activity;
+  isTop?: boolean;
+  onSelect: (activity: Activity) => void;
+}
+
+const ActivityCard: React.FC<ActivityCardProps> = ({ activity, isTop = false, onSelect }) => (
+  <button
+    type="button"
+    onClick={() => onSelect(activity)}
+    className={`activity-card ${isTop ? 'activity-card-top' : ''}`}
+    // Runtime value: the colour the workshop chose for this activity.
+    style={activity.color ? { borderInlineStartColor: activity.color } : undefined}
+  >
+    {activity.icon && (
+      <span className="activity-card-icon" aria-hidden="true">
+        {activity.icon}
+      </span>
+    )}
+    <span className="activity-card-content">
+      <span className="activity-card-name">{activity.name}</span>
+      <span className="activity-card-meta">
+        {(isTop || activity.usage_count > 0) && (
+          <span>{isTop ? `${activity.usage_count}× verwendet` : `${activity.usage_count}×`}</span>
+        )}
+        {activity.average_duration_minutes ? (
+          <span>Ø {formatDuration(activity.average_duration_minutes)}</span>
+        ) : null}
+        {activity.is_custom && <span className="activity-custom-badge">Eigene</span>}
+      </span>
+    </span>
+  </button>
+);
+
 const ActivityPicker: React.FC<ActivityPickerProps> = ({
   onSelectActivity,
   onCancel,
   showTopActivities = true,
 }) => {
-  const [activities, setActivities] = useState<Activity[]>([]);
-  const [topActivities, setTopActivities] = useState<Activity[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const all = useQuery(activitiesQuery(true));
+  const top = useQuery({ ...mostUsedActivitiesQuery(), enabled: showTopActivities });
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedCategory, setSelectedCategory] = useState<ActivityCategory | 'all'>('all');
+  const [category, setCategory] = useState<ActivityCategory | 'all'>('all');
 
-  useEffect(() => {
-    loadActivities();
-  }, []);
+  const needle = searchQuery.trim().toLowerCase();
+  const filtered = (all.data ?? []).filter(
+    (a) => a.name.toLowerCase().includes(needle) && (category === 'all' || a.category === category),
+  );
+  const topActivities = showTopActivities ? top.data ?? [] : [];
+  const showTop = topActivities.length > 0 && !needle && category === 'all';
 
-  const loadActivities = async () => {
-    try {
-      setLoading(true);
-      setError(null);
-
-      // Load all activities and top activities in parallel
-      const [allActivities, mostUsed] = await Promise.all([
-        activitiesApi.getAll({ sortByUsage: true }),
-        showTopActivities ? activitiesApi.getMostUsed(5) : Promise.resolve([]),
-      ]);
-
-      setActivities(allActivities);
-      setTopActivities(mostUsed);
-    } catch (err) {
-      console.error('Failed to load activities:', err);
-      setError('Aktivitäten konnten nicht geladen werden');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const formatDuration = (minutes: number | null | undefined): string => {
-    if (!minutes) return '-';
-    if (minutes < 60) return `${Math.round(minutes)}min`;
-    const hours = Math.floor(minutes / 60);
-    const mins = Math.round(minutes % 60);
-    return `${hours}h ${mins}min`;
-  };
-
-  const getCategoryLabel = (category: ActivityCategory): string => {
-    const labels: Record<ActivityCategory, string> = {
-      fabrication: '🔨 Fertigung',
-      administration: '📋 Verwaltung',
-      waiting: '⏳ Warten',
-    };
-    return labels[category];
-  };
-
-  const filteredActivities = activities.filter((activity) => {
-    const matchesSearch =
-      activity.name.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesCategory =
-      selectedCategory === 'all' || activity.category === selectedCategory;
-    return matchesSearch && matchesCategory;
-  });
-
-  // Group activities by category
-  const groupedActivities: Record<ActivityCategory, Activity[]> = {
-    fabrication: [],
-    administration: [],
-    waiting: [],
-  };
-
-  filteredActivities.forEach((activity) => {
-    groupedActivities[activity.category].push(activity);
-  });
-
-  if (loading) {
-    return (
-      <div className="activity-picker">
-        <div className="activity-picker-loading">Aktivitäten werden geladen...</div>
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="activity-picker">
-        <div className="activity-picker-error">
-          {error}
-          <button onClick={loadActivities} className="retry-button">
-            Erneut versuchen
-          </button>
-        </div>
-      </div>
-    );
-  }
+  const state: PageStateValue = all.isError
+      ? {
+          status: 'error',
+          error: 'Aktivitäten konnten nicht geladen werden',
+          retry: () => void all.refetch(),
+        }
+      : { status: 'ready' };
 
   return (
     <div className="activity-picker">
       <div className="activity-picker-header">
         <h2>Aktivität auswählen</h2>
-        {onCancel && (
-          <button onClick={onCancel} className="close-button">
-            ✕
-          </button>
-        )}
+        {onCancel && <IconButton icon="close" label="Schließen" size="lg" onClick={onCancel} />}
       </div>
 
-      {/* Search and Filter */}
-      <div className="activity-picker-controls">
-        <input
-          type="text"
-          placeholder="Aktivität suchen..."
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          className="activity-search-input"
-        />
-
-        <div className="category-filters">
-          <button
-            onClick={() => setSelectedCategory('all')}
-            className={`category-filter ${selectedCategory === 'all' ? 'active' : ''}`}
-          >
-            Alle
-          </button>
-          <button
-            onClick={() => setSelectedCategory('fabrication')}
-            className={`category-filter ${selectedCategory === 'fabrication' ? 'active' : ''}`}
-          >
-            🔨 Fertigung
-          </button>
-          <button
-            onClick={() => setSelectedCategory('administration')}
-            className={`category-filter ${selectedCategory === 'administration' ? 'active' : ''}`}
-          >
-            📋 Verwaltung
-          </button>
-          <button
-            onClick={() => setSelectedCategory('waiting')}
-            className={`category-filter ${selectedCategory === 'waiting' ? 'active' : ''}`}
-          >
-            ⏳ Warten
-          </button>
-        </div>
-      </div>
-
-      {/* Top Activities (Most Used) */}
-      {showTopActivities && topActivities.length > 0 && !searchQuery && selectedCategory === 'all' && (
-        <div className="top-activities">
-          <h3>⭐ Häufig verwendet</h3>
-          <div className="activity-grid">
-            {topActivities.map((activity) => (
-              <button
-                key={activity.id}
-                onClick={() => onSelectActivity(activity)}
-                className="activity-card activity-card-top"
-                style={{ borderLeftColor: activity.color || '#3b82f6' }}
-              >
-                <div className="activity-card-icon">
-                  {activity.icon || '📌'}
-                </div>
-                <div className="activity-card-content">
-                  <div className="activity-card-name">{activity.name}</div>
-                  <div className="activity-card-meta">
-                    <span className="activity-usage-count">
-                      {activity.usage_count}x verwendet
-                    </span>
-                    {activity.average_duration_minutes && (
-                      <span className="activity-duration">
-                        ⏱ {formatDuration(activity.average_duration_minutes)}
-                      </span>
-                    )}
-                  </div>
-                </div>
-              </button>
-            ))}
+      {all.isPending ? (
+        <p className="activity-picker-loading" role="status">
+          Aktivitäten werden geladen…
+        </p>
+      ) : (
+        <PageState state={state}>
+          <div className="activity-picker-controls">
+            <Field label="Aktivität suchen" name="activity-search" inputMode="search">
+              <input type="search" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} />
+            </Field>
+            <div className="category-filters" role="group" aria-label="Kategorie">
+              {(['all', ...CATEGORIES] as const).map((id) => (
+                <Button
+                  key={id}
+                  variant={category === id ? 'primary' : 'secondary'}
+                  size="lg"
+                  aria-pressed={category === id}
+                  className={category === id ? 'active' : undefined}
+                  onClick={() => setCategory(id)}
+                >
+                  {id === 'all' ? 'Alle' : CATEGORY_LABELS[id]}
+                </Button>
+              ))}
+            </div>
           </div>
-        </div>
-      )}
 
-      {/* All Activities (Grouped by Category) */}
-      <div className="activities-list">
-        {(Object.keys(groupedActivities) as ActivityCategory[]).map((category) => {
-          const categoryActivities = groupedActivities[category];
-
-          if (categoryActivities.length === 0) return null;
-
-          return (
-            <div key={category} className="activity-category">
-              <h3 className="category-header">{getCategoryLabel(category)}</h3>
+          {showTop && (
+            <section className="top-activities" aria-label="Häufig verwendet">
+              <h3>Häufig verwendet</h3>
               <div className="activity-grid">
-                {categoryActivities.map((activity) => (
-                  <button
-                    key={activity.id}
-                    onClick={() => onSelectActivity(activity)}
-                    className="activity-card"
-                    style={{ borderLeftColor: activity.color || '#3b82f6' }}
-                  >
-                    <div className="activity-card-icon">
-                      {activity.icon || '📌'}
-                    </div>
-                    <div className="activity-card-content">
-                      <div className="activity-card-name">{activity.name}</div>
-                      <div className="activity-card-meta">
-                        {activity.usage_count > 0 && (
-                          <span className="activity-usage-count">
-                            {activity.usage_count}x
-                          </span>
-                        )}
-                        {activity.average_duration_minutes && (
-                          <span className="activity-duration">
-                            ⏱ {formatDuration(activity.average_duration_minutes)}
-                          </span>
-                        )}
-                        {activity.is_custom && (
-                          <span className="activity-custom-badge">Custom</span>
-                        )}
-                      </div>
-                    </div>
-                  </button>
+                {topActivities.map((activity) => (
+                  <ActivityCard key={activity.id} activity={activity} isTop onSelect={onSelectActivity} />
                 ))}
               </div>
-            </div>
-          );
-        })}
-      </div>
-
-      {filteredActivities.length === 0 && (
-        <div className="activity-picker-empty">
-          Keine Aktivitäten gefunden.
-          {searchQuery && (
-            <button
-              onClick={() => setSearchQuery('')}
-              className="clear-search-button"
-            >
-              Suche zurücksetzen
-            </button>
+            </section>
           )}
-        </div>
+
+          <div className="activities-list">
+            {CATEGORIES.map((cat) => {
+              const items = filtered.filter((a) => a.category === cat);
+              if (items.length === 0) return null;
+              return (
+                <section key={cat} className="activity-category" aria-label={CATEGORY_LABELS[cat]}>
+                  <h3 className="category-header">{CATEGORY_LABELS[cat]}</h3>
+                  <div className="activity-grid">
+                    {items.map((activity) => (
+                      <ActivityCard key={activity.id} activity={activity} onSelect={onSelectActivity} />
+                    ))}
+                  </div>
+                </section>
+              );
+            })}
+          </div>
+
+          {all.isSuccess && filtered.length === 0 && (
+            <EmptyState
+              icon="search"
+              title="Keine Aktivitäten gefunden."
+              headingLevel={3}
+              action={
+                needle || category !== 'all' ? (
+                  <Button
+                    variant="secondary"
+                    onClick={() => {
+                      setSearchQuery('');
+                      setCategory('all');
+                    }}
+                  >
+                    Suche zurücksetzen
+                  </Button>
+                ) : undefined
+              }
+            />
+          )}
+        </PageState>
       )}
     </div>
   );

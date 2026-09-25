@@ -1,5 +1,7 @@
 // W2-13 / FE-08 — a time_tracking_updates hint (timer started, stopped or
 // switched on another device of the same user) refreshes the running timer.
+// W4-03: the timer is a query now; the hint reaches it through the one
+// realtime bridge (RealtimeInvalidation → ['timer']), as in App.tsx.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import React from 'react';
@@ -25,6 +27,18 @@ vi.mock('../api/client', () => ({ default: { post: vi.fn(), get: vi.fn() } }));
 
 import { WebSocketProvider } from './WebSocketProvider';
 import { TimeTrackingProvider, useTimeTracking } from './TimeTrackingContext';
+import { RealtimeInvalidation } from '../lib/realtimeInvalidation';
+import { QueryWrapper, createTestQueryClient } from '../test/queryWrapper';
+
+const renderTree = (probe: React.ReactElement) =>
+  render(
+    <QueryWrapper client={createTestQueryClient()}>
+      <WebSocketProvider>
+        <RealtimeInvalidation />
+        <TimeTrackingProvider>{probe}</TimeTrackingProvider>
+      </WebSocketProvider>
+    </QueryWrapper>,
+  );
 
 const Probe: React.FC = () => {
   const { runningEntry } = useTimeTracking();
@@ -43,13 +57,7 @@ describe('TimeTrackingContext live refresh', () => {
 
   it('refetches the running entry when a time_tracking_updates hint arrives', async () => {
     mocks.getRunning.mockResolvedValueOnce(null);
-    render(
-      <WebSocketProvider>
-        <TimeTrackingProvider>
-          <Probe />
-        </TimeTrackingProvider>
-      </WebSocketProvider>,
-    );
+    renderTree(<Probe />);
     await waitFor(() => expect(mocks.getRunning).toHaveBeenCalledTimes(1));
     expect(screen.getByTestId('running').textContent).toBe('none');
 
@@ -67,13 +75,7 @@ describe('TimeTrackingContext live refresh', () => {
 
   it('does not refetch on unrelated channels', async () => {
     mocks.getRunning.mockResolvedValue(null);
-    render(
-      <WebSocketProvider>
-        <TimeTrackingProvider>
-          <Probe />
-        </TimeTrackingProvider>
-      </WebSocketProvider>,
-    );
+    renderTree(<Probe />);
     await waitFor(() => expect(mocks.getRunning).toHaveBeenCalledTimes(1));
     const ws = FakeWebSocket.latest();
     act(() => ws.open());

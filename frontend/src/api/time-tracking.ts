@@ -2,7 +2,6 @@
 import apiClient from './client';
 import {
   TimeEntry,
-  TimeEntryWithDetails,
   TimeEntryStartInput,
   TimeEntryStopInput,
   TimeEntryCreateInput,
@@ -12,6 +11,39 @@ import {
   TimeTrackingStats,
   TimeSummaryStats,
 } from '../types';
+import type { TimeEntryPageParams } from './queryKeys';
+
+/** Page envelope of the time-entry lists (W3-08, models/pagination.py). */
+export interface TimeEntriesPage {
+  items: TimeEntry[];
+  total: number;
+  limit: number;
+  offset: number;
+  next_offset: number | null;
+}
+
+function assertTimeEntriesPage(body: unknown, url: string): TimeEntriesPage {
+  const candidate = body as Partial<TimeEntriesPage> | null;
+  if (!candidate || !Array.isArray(candidate.items) || typeof candidate.total !== 'number') {
+    throw new Error(`Unerwartete Antwort von ${url}: keine Seiten-Hülle (items/total).`);
+  }
+  return candidate as TimeEntriesPage;
+}
+
+async function fetchTimeEntriesPage(
+  url: string,
+  params: TimeEntryPageParams,
+  signal?: AbortSignal,
+): Promise<TimeEntriesPage> {
+  const response = await apiClient.get<unknown>(url, { params, signal });
+  return assertTimeEntriesPage(response.data, url);
+}
+
+export interface SwitchTimerInput {
+  new_order_id: number;
+  activity_id: number;
+  location?: string;
+}
 
 export const timeTrackingApi = {
   /**
@@ -64,7 +96,42 @@ export const timeTrackingApi = {
   },
 
   /**
-   * Get all time entries for a specific order
+   * H18: atomic stop-old + start-new (POST /time-tracking/{id}/switch).
+   * One transaction, one pubsub event. The idempotency key makes a retried
+   * tap safe.
+   */
+  switchTimer: async (
+    entryId: string,
+    data: SwitchTimerInput,
+    idempotencyKey: string = crypto.randomUUID(),
+  ): Promise<TimeEntry> => {
+    const response = await apiClient.post<TimeEntry>(`/time-tracking/${entryId}/switch`, data, {
+      headers: {
+        'Idempotency-Key': idempotencyKey,
+        'X-Client-Created-At': new Date().toISOString(),
+      },
+    });
+    return response.data;
+  },
+
+  /** One page of a user's entries (always sends `offset`, so always a Page). */
+  getUserPage: (
+    userId: number,
+    params: TimeEntryPageParams,
+    signal?: AbortSignal,
+  ): Promise<TimeEntriesPage> =>
+    fetchTimeEntriesPage(`/time-tracking/user/${userId}`, params, signal),
+
+  /** One page of an order's entries (Page envelope). */
+  getOrderPage: (
+    orderId: number,
+    params: TimeEntryPageParams,
+    signal?: AbortSignal,
+  ): Promise<TimeEntriesPage> =>
+    fetchTimeEntriesPage(`/time-tracking/order/${orderId}`, params, signal),
+
+  /**
+   * Get all time entries for a specific order (legacy plain list)
    */
   getForOrder: async (
     orderId: number,

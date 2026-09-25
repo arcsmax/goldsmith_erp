@@ -1,15 +1,19 @@
 // Tests for ActivityPicker Component
+import React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import ActivityPicker from './ActivityPicker';
 import { mockActivities } from '../test/mocks/handlers';
+import { renderWithQuery } from '../test/queryWrapper';
 
-// Activities appear twice in the rendered tree — once in the "⭐ Häufig
+// W4-03: activities come from shared queries; each render gets a fresh client.
+const render = (ui: React.ReactElement) => renderWithQuery(ui, { route: null });
+
+// Activities appear twice in the rendered tree — once in the "Häufig
 // verwendet" (most-used) section and once in their category group — so name/
 // icon/duration lookups use getAllByText and assert at least one match.
-const fabricationFilterButton = () =>
-  screen.getAllByText('🔨 Fertigung').find((el) => el.tagName === 'BUTTON')!;
+const fabricationFilterButton = () => screen.getByRole('button', { name: 'Fertigung' });
 
 describe('ActivityPicker', () => {
   const mockOnSelectActivity = vi.fn();
@@ -42,7 +46,7 @@ describe('ActivityPicker', () => {
         />
       );
 
-      expect(screen.getByText('Aktivitäten werden geladen...')).toBeInTheDocument();
+      expect(screen.getByText('Aktivitäten werden geladen…')).toBeInTheDocument();
     });
 
     it('should show activities after loading', async () => {
@@ -69,7 +73,7 @@ describe('ActivityPicker', () => {
       );
 
       await waitFor(() => {
-        expect(screen.getByText('✕')).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: 'Schließen' })).toBeInTheDocument();
       });
     });
   });
@@ -85,7 +89,7 @@ describe('ActivityPicker', () => {
       );
 
       await waitFor(() => {
-        expect(screen.getByText('⭐ Häufig verwendet')).toBeInTheDocument();
+        expect(screen.getByText('Häufig verwendet')).toBeInTheDocument();
       });
     });
 
@@ -99,7 +103,7 @@ describe('ActivityPicker', () => {
       );
 
       await waitFor(() => {
-        expect(screen.queryByText('⭐ Häufig verwendet')).not.toBeInTheDocument();
+        expect(screen.queryByText('Häufig verwendet')).not.toBeInTheDocument();
       });
     });
 
@@ -113,7 +117,7 @@ describe('ActivityPicker', () => {
       );
 
       await waitFor(() => {
-        const topSection = screen.getByText('⭐ Häufig verwendet').parentElement;
+        const topSection = screen.getByText('Häufig verwendet').parentElement;
         expect(topSection).toBeInTheDocument();
 
         // Most used activities should appear inside the top section
@@ -132,7 +136,7 @@ describe('ActivityPicker', () => {
       );
 
       await waitFor(() => {
-        expect(screen.getByPlaceholderText('Aktivität suchen...')).toBeInTheDocument();
+        expect(screen.getByLabelText('Aktivität suchen')).toBeInTheDocument();
       });
     });
 
@@ -150,7 +154,7 @@ describe('ActivityPicker', () => {
         expect(screen.getAllByText('Polieren').length).toBeGreaterThan(0);
       });
 
-      const searchInput = screen.getByPlaceholderText('Aktivität suchen...');
+      const searchInput = screen.getByLabelText('Aktivität suchen');
       await user.type(searchInput, 'Polieren');
 
       await waitFor(() => {
@@ -174,7 +178,7 @@ describe('ActivityPicker', () => {
         expect(screen.getAllByText('Polieren').length).toBeGreaterThan(0);
       });
 
-      const searchInput = screen.getByPlaceholderText('Aktivität suchen...');
+      const searchInput = screen.getByLabelText('Aktivität suchen');
       await user.type(searchInput, 'NonexistentActivity123');
 
       await waitFor(() => {
@@ -194,9 +198,9 @@ describe('ActivityPicker', () => {
 
       await waitFor(() => {
         // Each label appears as a filter button and a category header
-        expect(screen.getAllByText('🔨 Fertigung').length).toBeGreaterThan(0);
-        expect(screen.getAllByText('📋 Verwaltung').length).toBeGreaterThan(0);
-        expect(screen.getAllByText('⏳ Warten').length).toBeGreaterThan(0);
+        expect(screen.getAllByText('Fertigung').length).toBeGreaterThan(0);
+        expect(screen.getAllByText('Verwaltung').length).toBeGreaterThan(0);
+        expect(screen.getAllByText('Warten').length).toBeGreaterThan(0);
       });
     });
 
@@ -235,7 +239,7 @@ describe('ActivityPicker', () => {
       );
 
       await waitFor(() => {
-        const allButton = screen.getByText('Alle');
+        const allButton = screen.getByRole('button', { name: 'Alle' });
         expect(allButton.classList.contains('active')).toBe(true);
       });
 
@@ -311,10 +315,10 @@ describe('ActivityPicker', () => {
       );
 
       await waitFor(() => {
-        expect(screen.getByText('✕')).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: 'Schließen' })).toBeInTheDocument();
       });
 
-      await user.click(screen.getByText('✕'));
+      await user.click(screen.getByRole('button', { name: 'Schließen' }));
 
       expect(mockOnCancel).toHaveBeenCalledTimes(1);
     });
@@ -330,8 +334,8 @@ describe('ActivityPicker', () => {
         expect(screen.getByText('Aktivität auswählen')).toBeInTheDocument();
       });
 
-      // The close (✕) button only renders when onCancel is passed
-      expect(screen.queryByText('✕')).not.toBeInTheDocument();
+      // The close button only renders when onCancel is passed
+      expect(screen.queryByRole('button', { name: 'Schließen' })).not.toBeInTheDocument();
     });
   });
 
@@ -359,7 +363,7 @@ describe('ActivityPicker', () => {
       );
 
       await waitFor(() => {
-        expect(screen.getByText(/150x verwendet/)).toBeInTheDocument();
+        expect(screen.getByText(/150× verwendet/)).toBeInTheDocument();
       });
     });
 
@@ -372,8 +376,8 @@ describe('ActivityPicker', () => {
       );
 
       await waitFor(() => {
-        // formatDuration(45) -> "45min"; shown in both top and category cards
-        expect(screen.getAllByText(/45min/).length).toBeGreaterThan(0);
+        // formatDuration(45) -> "Ø 45 min"; shown in both top and category cards
+        expect(screen.getAllByText(/45 min/).length).toBeGreaterThan(0);
       });
     });
   });

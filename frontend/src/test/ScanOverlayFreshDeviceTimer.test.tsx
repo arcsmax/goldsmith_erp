@@ -4,7 +4,8 @@
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import React from 'react';
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
+import { QueryWrapper, createTestQueryClient } from './queryWrapper';
 import userEvent from '@testing-library/user-event';
 
 vi.mock('@yudiel/react-qr-scanner', () => ({
@@ -103,10 +104,13 @@ function renderOverlay(): () => void {
     open = useScannerContext().openScanner;
     return <ScanOverlay transport={new StubTransport()} />;
   };
+  // W4-03: the ActivityPicker reads activities through TanStack Query.
   render(
-    <ScannerProvider>
-      <Harness />
-    </ScannerProvider>,
+    <QueryWrapper client={createTestQueryClient()}>
+      <ScannerProvider>
+        <Harness />
+      </ScannerProvider>
+    </QueryWrapper>,
   );
   return () => act(() => open());
 }
@@ -148,7 +152,9 @@ describe('ScanOverlay — start timer on a fresh device (FE-02)', () => {
     await user.type(await screen.findByLabelText('Code manuell eingeben'), 'ORDER:2{Enter}');
     await user.click(await screen.findByTestId('qa-action-start_timer'));
     await screen.findByTestId('activity-picker-modal');
-    await user.click(await screen.findByRole('button', { name: '✕' }));
+    // W4-03: the picker is a src/ui Sheet; its close button is "Schließen".
+    const sheet = await screen.findByRole('dialog', { name: 'Aktivität für den Timer wählen' });
+    await user.click(within(sheet).getByRole('button', { name: 'Schließen' }));
 
     expect(await screen.findByTestId('qa-error')).toHaveTextContent(/Keine Aktivität gewählt/);
     expect(mocks.apiPost).not.toHaveBeenCalled();
