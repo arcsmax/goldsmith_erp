@@ -162,13 +162,21 @@ Contract, Idempotenz und die vier Seed-Pfade im Detail:
 ## Schritt 6 – Backups
 
 `scripts/backup.sh` liest `.env.production`, erstellt einen komprimierten,
-integritätsgeprüften `pg_dump` und wendet die **gestaffelte Aufbewahrung** an
-(7 täglich / 4 wöchentlich / 3 monatlich), optional Cloud-Sync.
+integritätsgeprüften `pg_dump` **und** ein verschlüsseltes Archiv von
+`MEDIA_DIR` (Standard: `<projekt>/uploads` — Fotos, generierte PDFs, ARCH
+Phase 4), schreibt ein sha256-Manifest über beide Dateien, und wendet die
+**gestaffelte Aufbewahrung** an (7 täglich / 4 wöchentlich / 3 monatlich,
+für Dump, Medien-Archiv und Manifest getrennt gezählt), optional Cloud-Sync.
 
 ```bash
 make backup-now                       # einmalig: scripts/backup.sh
 make restore FILE=pfad/backup.sql.gz  # Wiederherstellung: scripts/restore.sh
 ```
+
+`make restore` stellt seit diesem Änderungssatz **automatisch auch das
+passende Medien-Archiv wieder her** (gleicher Zeitstempel, gleiches
+Verzeichnis wie der Dump) — siehe Schritt 8, „Restore-Drill" für den Ablauf
+und die Flags (`--dry-run`, `--skip-media`).
 
 **Zeitplan (empfohlen).** Es wird kein fertiger Backup-Timer ausgeliefert;
 richte einen `systemd`-User-Timer (analog zum DSGVO-Timer, siehe Schritt 7) oder
@@ -182,6 +190,17 @@ einen Cron-Eintrag ein, z. B. täglich nachts:
 > ~3 Monate zurückbringen. `restore.sh` weist am Ende darauf hin — danach den
 > Löschjob erneut ausführen. Siehe
 > [GDPR_ERASURE_RETENTION.md, „Backups und Löschung"](../GDPR_ERASURE_RETENTION.md).
+> Das gilt **nur für die Datenbank** — die GDPR-Löschung scrubt die
+> `media_assets`-Zeilen, löscht aber (Stand dieses Änderungssatzes) nicht
+> automatisch die zugehörigen Dateien aus einem wiederhergestellten
+> Medien-Archiv (kein Orphan-Sweep implementiert). Ein Restore aus einem
+> Backup, das älter als eine spätere Löschung ist, kann also die Datei einer
+> bereits gelöschten Kundin physisch zurückbringen, auch wenn die
+> `media_assets`-Zeile danach vom Löschjob wieder korrekt gescrubbt wird.
+> Bis zu einem Orphan-Sweep: nach einem Restore mit Medien-Wiederherstellung
+> das Löschprotokoll gegen `MEDIA_DIR` prüfen, statt sich allein auf den
+> DB-Zustand zu verlassen. `--skip-media` umgeht das Problem, wenn nur die
+> Datenbank wiederhergestellt werden muss.
 
 ---
 
@@ -323,6 +342,45 @@ erneut abspielen) stehen in
 dieselbe Übung dient auch als Test, dass ein Upgrade-Rollback tatsächlich
 funktioniert, nicht nur der DSGVO-Fall.
 
+**Medien-Wiederherstellung (seit diesem Änderungssatz).** `scripts/restore.sh
+<dump-datei>` sucht automatisch nach dem zum Dump passenden Medien-Archiv
+(`goldsmith_media_<gleicher-zeitstempel>.tar.gz[.gpg|.age]`, im selben
+Verzeichnis wie der Dump) und dem sha256-Manifest
+(`goldsmith_manifest_<zeitstempel>.sha256`), falls `backup.sh` eines
+geschrieben hat:
+
+1. Ist ein Manifest vorhanden, werden Dump und (falls gefunden) Medien-Archiv
+   dagegen geprüft — eine Abweichung bricht die Wiederherstellung **vor**
+   jeder Änderung ab (Exit-Code 1). Fehlt ein Eintrag oder das Manifest
+   selbst (ältere Backups), wird nur gewarnt, nicht abgebrochen.
+2. Nach `alembic upgrade head` wird das Medien-Archiv entschlüsselt und in
+   ein temporäres Geschwisterverzeichnis von `MEDIA_DIR` entpackt; erst nach
+   vollständigem Erfolg wird der bisherige `MEDIA_DIR`-Inhalt (falls
+   vorhanden) nach `MEDIA_DIR.pre-restore` verschoben und das neue
+   Verzeichnis an seine Stelle umbenannt (atomarer Swap — `MEDIA_DIR` ist nie
+   halb beschrieben). `.pre-restore` wird bei jedem Lauf überschrieben, gilt
+   also nur für den unmittelbar vorherigen Restore.
+3. Fehlt kein passendes Medien-Archiv (z. B. Backup von vor ARCH Phase 4,
+   oder das Backup schlug für die Medien fehl), wird das nur protokolliert
+   (`WARN`) — die Datenbank-Wiederherstellung läuft normal weiter.
+4. `--skip-media` überspringt die Medien-Wiederherstellung vollständig (nur
+   Datenbank); `--dry-run` zeigt den vollständigen Plan (Dump, Medien-Archiv,
+   Manifest-Status) ohne etwas zu verändern.
+
+```bash
+scripts/restore.sh --dry-run ~/goldsmith-backups/goldsmith_erp_<ts>.sql.gz.gpg
+scripts/restore.sh ~/goldsmith-backups/goldsmith_erp_<ts>.sql.gz.gpg
+scripts/restore.sh --skip-media ~/goldsmith-backups/goldsmith_erp_<ts>.sql.gz.gpg
+```
+
+> ⚠️ **Bekannte Lücke:** ein wiederhergestelltes Medien-Archiv kann Dateien
+> zurückbringen, die seit dem Backup per Art.-17-Löschung entfernt wurden —
+> die Löschung scrubt die `media_assets`-Zeile, aber es existiert (noch)
+> kein Orphan-Sweep, der eine physisch wiederhergestellte Datei ohne
+> gültige DB-Zeile erkennt und erneut löscht. Bei der vierteljährlichen
+> Restore-Probe das Löschprotokoll gegen den wiederhergestellten `MEDIA_DIR`
+> prüfen, bis das nachgerüstet ist.
+
 ### Log-Rotation
 
 Alle fünf Dienste in `podman-compose.prod.yml` sind bereits mit
@@ -357,7 +415,9 @@ podman logs goldsmith-backend-prod --tail 200
 - [ ] `make prod-status` meldet Backend/DB/Redis + Caddy als gesund.
 - [ ] Caddy-Root-CA auf allen Werkstattgeräten vertraut; `https://<IP>` ohne Warnung.
 - [ ] Referenzdaten vorhanden (`make seed-production` idempotent), **keine** Demo-Daten.
-- [ ] Backup-Zeitplan aktiv (`scripts/backup.sh` per Timer/Cron), Restore getestet.
+- [ ] Backup-Zeitplan aktiv (`scripts/backup.sh` per Timer/Cron), Restore
+      getestet (Datenbank **und** Medien-Archiv, siehe Schritt 8
+      „Restore-Drill").
 - [ ] `make install-timers` gelaufen; `make timers-status` zeigt alle drei
       Timer (GDPR-Löschung, Retention-Sweep, Health-Watchdog) aktiv — siehe
       Verifikations-Checkliste in Schritt 7.
