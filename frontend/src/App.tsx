@@ -3,6 +3,8 @@ import React, { Suspense, lazy } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, OrderProvider, ScannerProvider, TimeTrackingProvider, ToastProvider } from './contexts';
 import { WebSocketProvider } from './contexts/WebSocketProvider';
+import { AppQueryProvider } from './lib/queryProvider';
+import { RealtimeInvalidation } from './lib/realtimeInvalidation';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { MainLayout } from './layouts/MainLayout';
 import { ToastContainer } from './components/Toast';
@@ -66,7 +68,7 @@ const PageLoader: React.FC = () => (
  * Staff shell — everything that needs a session. AuthProvider wraps both
  * /login and the protected tree (LoginPage and ProtectedRoute's session
  * probe both need useAuth; that probe's 401s are expected and stay silent).
- * The rest of the per-user providers (WebSocket, Scanner, TimeTracking,
+ * The rest of the per-user providers (Query, WebSocket, Scanner, TimeTracking,
  * Order) mount ONLY inside ProtectedRoute, wrapping MainLayout — never for
  * /login or /portal (LV-21). That keeps /users/me + /refresh as the only
  * requests an unauthenticated visitor ever triggers; the WS connect and the
@@ -87,16 +89,20 @@ const StaffApp: React.FC = () => (
         path="/"
         element={
           <ProtectedRoute>
-            {/* W2-13: the one live-update socket; authenticated shell only, never /login or /portal. */}
-            <WebSocketProvider>
-              <ScannerProvider>
-                <TimeTrackingProvider>
-                  <OrderProvider>
-                    <MainLayout />
-                  </OrderProvider>
-                </TimeTrackingProvider>
-              </ScannerProvider>
-            </WebSocketProvider>
+            {/* W3-03: one QueryClient per session; unmounting on logout drops the cache. */}
+            <AppQueryProvider>
+              {/* W2-13: the one live-update socket; authenticated shell only, never /login or /portal. */}
+              <WebSocketProvider>
+                <RealtimeInvalidation />
+                <ScannerProvider>
+                  <TimeTrackingProvider>
+                    <OrderProvider>
+                      <MainLayout />
+                    </OrderProvider>
+                  </TimeTrackingProvider>
+                </ScannerProvider>
+              </WebSocketProvider>
+            </AppQueryProvider>
           </ProtectedRoute>
         }
       >
