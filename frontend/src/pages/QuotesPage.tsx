@@ -19,28 +19,12 @@ import {
 import { logError } from '../lib/logError';
 import { SignatureCanvas } from '../components/SignatureCanvas';
 import { EstimatorPanel } from '../components/estimator/EstimatorPanel';
+import { StatusBadge } from '../ui/StatusBadge';
 import '../styles/quotes.css';
 
 // ---------------------------------------------------------------------------
 // Status helpers
 // ---------------------------------------------------------------------------
-
-const STATUS_LABELS: Record<QuoteStatus, string> = {
-  draft: 'Entwurf',
-  sent: 'Gesendet',
-  approved: 'Genehmigt',
-  rejected: 'Abgelehnt',
-  expired: 'Abgelaufen',
-  converted: 'Umgewandelt',
-};
-
-function StatusBadge({ status }: { status: QuoteStatus }) {
-  return (
-    <span className={`quote-status-badge status-${status}`}>
-      {STATUS_LABELS[status] ?? status}
-    </span>
-  );
-}
 
 function formatDate(iso: string): string {
   return new Date(iso).toLocaleDateString('de-DE');
@@ -683,7 +667,7 @@ const QuoteDetailPanel: React.FC<QuoteDetailPanelProps> = ({
       <div className="detail-header">
         <div>
           <span className="quote-number">{quote.quote_number}</span>
-          <StatusBadge status={quote.status} />
+          <StatusBadge kind="quote" status={quote.status} />
         </div>
         <div className="quote-actions">
           <button
@@ -1285,7 +1269,7 @@ export const QuotesPage: React.FC = () => {
                     <span className="amount-display">{formatAmount(q.total)}</span>
                   </td>
                   <td data-label="Status">
-                    <StatusBadge status={q.status} />
+                    <StatusBadge kind="quote" status={q.status} />
                   </td>
                   <td data-label="Aktionen" onClick={e => e.stopPropagation()}>
                     <div className="quote-row-actions">

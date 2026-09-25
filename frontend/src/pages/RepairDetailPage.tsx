@@ -17,31 +17,16 @@ import { RepairCustomerUpdatePanel } from '../components/repairs/RepairCustomerU
 import { useAuth, useConfirm, useToast } from '../contexts';
 import { logError } from '../lib/logError';
 import { canViewDesign } from '../lib/roles';
+import { StatusBadge } from '../ui/StatusBadge';
 import '../styles/repairs.css';
 
 // ─── helpers ────────────────────────────────────────────────────────────────
-
-const STATUS_LABELS: Record<RepairJobStatus, string> = {
-  received: 'Eingang',
-  diagnosed: 'Diagnose',
-  quoted: 'Angebot',
-  approved: 'Genehmigt',
-  in_repair: 'In Arbeit',
-  quality_check: 'Qualitätskontrolle',
-  ready: 'Fertig',
-  picked_up: 'Abgeholt',
-  cancelled: 'Storniert',
-};
 
 const PHASE_LABELS: Record<RepairPhotoPhase, string> = {
   intake: 'Eingang',
   during_repair: 'Während der Reparatur',
   completed: 'Fertiggestellt',
 };
-
-function StatusBadge({ status }: { status: RepairJobStatus }) {
-  return <span className={`status-badge ${status}`}>{STATUS_LABELS[status] ?? status}</span>;
-}
 
 function formatDate(dateStr: string | null | undefined): string {
   if (!dateStr) return '—';
@@ -770,7 +755,7 @@ export function RepairDetailPage() {
       <div className="repair-detail-header">
         <div className="repair-detail-title">
           <h1>{repair.repair_number}</h1>
-          <StatusBadge status={repair.status} />
+          <StatusBadge kind="repair" status={repair.status} />
           <span className="repair-bag-number" title="Tütennummer">
             Tüte: {repair.bag_number}
           </span>

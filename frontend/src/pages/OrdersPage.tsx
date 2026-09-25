@@ -8,22 +8,21 @@ import AuthenticatedImage from '../components/AuthenticatedImage';
 import { useRefetchOn } from '../lib/refetchBus';
 import { logError } from '../lib/logError';
 import { OrderType, OrderCreateInput, OrderUpdateInput, OrderStatus } from '../types';
+import { ORDER_STATUS } from '../design/status';
+import { StatusBadge } from '../ui/StatusBadge';
 
 // Valid order statuses accepted via the ?status=... URL parameter.
 // Anything outside this set is ignored to avoid arbitrary user input
 // turning into stuck "no results" filter states.
-const VALID_ORDER_STATUS: ReadonlySet<OrderStatus> = new Set<OrderStatus>([
-  'new',
-  'draft',
-  'confirmed',
-  'in_progress',
-  'waiting_for_fitting',
-  'fitting_done',
-  'ready_for_setting',
-  'quality_check',
-  'completed',
-  'delivered',
-]);
+const VALID_ORDER_STATUS: ReadonlySet<OrderStatus> = new Set<OrderStatus>(
+  Object.keys(ORDER_STATUS) as OrderStatus[],
+);
+
+/** Filter options: every status the backend knows, labels from status.ts. */
+const STATUS_FILTER_OPTIONS = (Object.keys(ORDER_STATUS) as OrderStatus[]).map((value) => ({
+  value,
+  label: ORDER_STATUS[value].label,
+}));
 import { OrderFormModal } from '../components/orders/OrderFormModal';
 import { useToast, useConfirm } from '../contexts';
 import '../styles/pages.css';
@@ -218,16 +217,6 @@ export const OrdersPage: React.FC = () => {
     }
   };
 
-  const getStatusLabel = (status: string) => {
-    const labels: Record<string, string> = {
-      new: 'Neu',
-      in_progress: 'In Bearbeitung',
-      completed: 'Fertiggestellt',
-      delivered: 'Ausgeliefert',
-    };
-    return labels[status] || status;
-  };
-
   if (isLoading) {
     return <div className="page-loading">Lade Aufträge...</div>;
   }
@@ -277,10 +266,11 @@ export const OrdersPage: React.FC = () => {
             onChange={(e) => setFilterStatus(e.target.value as OrderStatus | '')}
           >
             <option value="">Alle</option>
-            <option value="new">Neu</option>
-            <option value="in_progress">In Bearbeitung</option>
-            <option value="completed">Fertiggestellt</option>
-            <option value="delivered">Ausgeliefert</option>
+            {STATUS_FILTER_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
           </select>
         </div>
 
@@ -353,9 +343,7 @@ export const OrdersPage: React.FC = () => {
                     <td>{order.title}</td>
                     <td>{(order.description ?? '').substring(0, 50)}...</td>
                     <td>
-                      <span className={`status-badge status-${order.status}`}>
-                        {getStatusLabel(order.status)}
-                      </span>
+                      <StatusBadge kind="order" status={order.status} />
                     </td>
                     <td>
                       {order.price ? (
