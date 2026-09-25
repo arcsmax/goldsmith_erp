@@ -27,6 +27,7 @@ Security notes:
   - Storage path is configured via settings (never derived from request data).
 """
 
+import json
 import logging
 import uuid
 from pathlib import Path
@@ -36,8 +37,13 @@ from fastapi import UploadFile
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+# Import the module (not the function) so a unit-test monkeypatch on
+# goldsmith_erp.core.pubsub.publish_event actually intercepts this call (see
+# services/order_service.py for the pattern this follows).
+from goldsmith_erp.core import pubsub
 from goldsmith_erp.core.config import settings
 from goldsmith_erp.db.models import RepairJob, RepairPhoto, RepairPhotoPhase
+from goldsmith_erp.db.transaction import transactional
 from goldsmith_erp.services.image_validation import (
     create_thumbnail_bounded,
     read_validated_image,
@@ -95,7 +101,15 @@ class RepairPhotoService:
           2. Read + validate the file (size limit, magic-byte type check).
           3. Write to {PHOTO_STORAGE_PATH}/repairs/{repair_id}/{uuid}.{ext}.
           4. Generate 200px-wide JPEG thumbnail (non-fatal on failure).
-          5. Create RepairPhoto DB record and flush (caller commits).
+          5. Create the RepairPhoto DB record and commit it (this method owns
+             that commit, unlike the sibling PhotoService.upload_photo which
+             only flushes — the caller's own commit/refresh afterward is then
+             a harmless no-op). Committing here, rather than only flushing,
+             is what lets step 6 publish an ``order_updates``-style hint
+             strictly AFTER durability, without touching the repairs router.
+          6. Publish a reduced ``repair_updates`` event (ids/action/phase/
+             timestamp only — never the image or notes) so other devices
+             refresh.
 
         Args:
             db:        Async database session.
@@ -106,8 +120,7 @@ class RepairPhotoService:
             notes:     Optional free-text notes for the photo.
 
         Returns:
-            The newly created (unflushed, but flushed for the ID) RepairPhoto
-            ORM instance.
+            The newly created and committed RepairPhoto ORM instance.
 
         Raises:
             ValueError: If the repair job does not exist.
@@ -165,8 +178,36 @@ class RepairPhotoService:
             taken_by=user_id,
             notes=notes,
         )
-        db.add(photo)
-        await db.flush()  # get the ID without committing — caller owns the transaction
+        async with transactional(db):
+            db.add(photo)
+            await db.flush()  # populate photo.id/timestamp before publishing
+
+        # Publish AFTER commit (transactional() above already committed) so
+        # other devices refresh their repair view. Reduced payload only —
+        # ids, action, phase, timestamp — never the image or notes.
+        try:
+            await pubsub.publish_event(
+                "repair_updates",
+                json.dumps(
+                    {
+                        "action": "photo_added",
+                        "repair_id": repair_id,
+                        "photo_id": photo.id,
+                        "phase": phase.value,
+                        "timestamp": (
+                            photo.timestamp.isoformat() if photo.timestamp else None
+                        ),
+                    }
+                ),
+            )
+        except Exception:
+            # Log but don't fail the (already-committed) upload if publishing fails.
+            logger.error(
+                "Failed to publish repair photo-added event",
+                extra={"repair_id": repair_id, "photo_id": photo.id},
+                exc_info=True,
+            )
+
         return photo
 
     @staticmethod
