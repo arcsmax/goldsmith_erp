@@ -112,6 +112,14 @@ export function canManageMaterials(role?: UserRole | string | null): boolean {
   return normalizeRole(role) === 'ADMIN';
 }
 
+/**
+ * True when the caller may use user management and the system pages
+ * (/users, /admin/*). ADMIN only, the same rule as the App.tsx route guards.
+ */
+export function canAdministerSystem(role?: UserRole | string | null): boolean {
+  return normalizeRole(role) === 'ADMIN';
+}
+
 /** Short German hint shown where hiding a financial section would
  *  otherwise leave a confusing empty gap. */
 export const FINANCIAL_HIDDEN_HINT = 'Keine Berechtigung für Finanzdaten';

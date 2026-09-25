@@ -1,10 +1,17 @@
-/* Main Layout Styles */
+/* Main layout (UI-UX-PLAYBOOK 4.11, W4-03).
+ * Desktop >=1024px: sticky header plus grouped sidebar.
+ * Below 1024px: the sidebar is a drawer and the app TabBar (src/ui) is fixed
+ * at the bottom; timer and scan FAB sit above it. Tokens only. */
 
-/* LV-13: height of the fixed OfflineIndicator banner (py-2 + text-sm line,
- * 36px). OfflineIndicator toggles body.is-offline; the layout moves down by
- * this amount so the banner never covers the header. */
+/* LV-13: height of the fixed OfflineIndicator banner. OfflineIndicator
+ * toggles body.is-offline; the layout moves down so the banner never covers
+ * the header. */
 :root {
   --offline-banner-height: 0px;
+  --layout-header-height: var(--space-8);
+  --layout-sidebar-width: 256px;
+  /* Tab bar height: touch-comfort item plus the safe-area inset. */
+  --layout-tab-bar-height: calc(var(--touch-comfort) + env(safe-area-inset-bottom));
 }
 
 body.is-offline {
@@ -16,23 +23,21 @@ body.is-offline {
   flex-direction: column;
   min-height: 100vh;
   padding-top: var(--offline-banner-height);
-  background-color: var(--color-surface-page, #faf8f4);
+  background-color: var(--color-surface-page);
 }
 
 /* ==================== HEADER ==================== */
 
 .main-header {
   background: var(--color-surface-header-gradient);
-  color: white;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  color: var(--color-primary-contrast);
+  box-shadow: var(--shadow-2);
   position: sticky;
   top: var(--offline-banner-height);
   z-index: var(--z-header);
 }
 
-/* Offline banner (OfflineIndicator.tsx, fixed at top) must sit above the
- * sticky header, not under it (DES-10). The component has no stylesheet of
- * its own and uses Tailwind's z-50, so it is targeted here by its label. */
+/* Offline banner (OfflineIndicator.tsx) sits above the sticky header (DES-10). */
 [role="status"][aria-label="Offline-Modus aktiv"] {
   z-index: var(--z-banner);
 }
@@ -42,17 +47,18 @@ body.is-offline {
   justify-content: space-between;
   align-items: center;
   gap: var(--space-2);
-  padding: 0 2rem;
-  height: 64px;
+  padding: 0 var(--space-6);
+  height: var(--layout-header-height);
   max-width: 1600px;
   margin: 0 auto;
 }
 
+/* The logo is a home link, not an h1: the page title is the only h1 (4.10). */
 .logo {
-  font-size: 1.5rem;
+  font-size: var(--type-lg);
   font-weight: 700;
-  margin: 0;
-  color: white;
+  color: var(--color-primary-contrast);
+  text-decoration: none;
   /* LV-01: the logo is the one header item that may shrink */
   flex: 1 1 auto;
   min-width: 0;
@@ -61,75 +67,52 @@ body.is-offline {
   white-space: nowrap;
 }
 
-/* Hamburger button — visible only on mobile */
-.btn-hamburger {
-  display: none;
-  background: rgba(255, 255, 255, 0.2);
-  border: 1px solid rgba(255, 255, 255, 0.3);
-  color: white;
-  border-radius: 8px;
-  width: 44px;
-  height: 44px;
-  font-size: 1.5rem;
-  cursor: pointer;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  transition: background 0.2s;
-  /* WCAG 44×44px touch target */
-  min-width: 44px;
-  min-height: 44px;
-  padding: 0;
+.logo:focus-visible,
+.header-action:focus-visible {
+  outline: 3px solid var(--color-focus-on-dark);
+  outline-offset: 2px;
 }
 
-.btn-hamburger:hover {
-  background: rgba(255, 255, 255, 0.3);
+/* Header buttons and links on the gold gradient (menu, Scanner, Abmelden). */
+.header-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  min-width: var(--touch-min);
+  min-height: var(--touch-min);
+  padding: 0 var(--space-4);
+  border: 1px solid currentColor;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--color-primary-contrast);
+  font-weight: 500;
+  font-size: var(--type-base);
+  text-decoration: none;
+  cursor: pointer;
+  transition: background-color var(--duration-base);
+}
+
+@media (hover: hover) {
+  .header-action:hover {
+    background: var(--color-primary-hover);
+  }
+}
+
+.header-action--menu {
+  display: none;
+  padding: 0;
+  flex-shrink: 0;
 }
 
 .user-menu {
   display: flex;
   align-items: center;
-  gap: 1rem;
+  gap: var(--space-4);
 }
 
 .user-name {
   font-weight: 500;
-  /* Hide on very small screens — username text is secondary */
-}
-
-.btn-scanner {
-  background: rgba(255, 255, 255, 0.2);
-  color: white;
-  border: 1px solid rgba(255, 255, 255, 0.3);
-  padding: 0.6rem 1.25rem;
-  border-radius: 6px;
-  cursor: pointer;
-  font-weight: 500;
-  transition: background 0.3s;
-  text-decoration: none;
-  display: inline-flex;
-  align-items: center;
-  min-height: 44px;
-}
-
-.btn-scanner:hover {
-  background: rgba(255, 255, 255, 0.3);
-}
-
-.btn-logout {
-  background: rgba(255, 255, 255, 0.2);
-  color: white;
-  border: 1px solid rgba(255, 255, 255, 0.3);
-  padding: 0.6rem 1.25rem;
-  border-radius: 6px;
-  cursor: pointer;
-  font-weight: 500;
-  transition: background 0.3s;
-  min-height: 44px;
-}
-
-.btn-logout:hover {
-  background: rgba(255, 255, 255, 0.3);
 }
 
 /* ==================== CONTENT WRAPPER ==================== */
@@ -144,128 +127,139 @@ body.is-offline {
 /* ==================== SIDEBAR ==================== */
 
 .main-sidebar {
-  width: 250px;
+  width: var(--layout-sidebar-width);
   flex-shrink: 0;
-  background: white;
-  box-shadow: 2px 0 8px rgba(0, 0, 0, 0.05);
-  padding: 2rem 0;
-  min-height: calc(100vh - 64px);
+  background: var(--color-surface-raised);
+  border-right: 1px solid var(--color-border);
+  padding: var(--space-4) 0;
+  min-height: calc(100vh - var(--layout-header-height));
   position: sticky;
-  top: calc(64px + var(--offline-banner-height));
+  top: calc(var(--layout-header-height) + var(--offline-banner-height));
+  max-height: calc(100vh - var(--layout-header-height) - var(--offline-banner-height));
+  overflow-y: auto;
   display: flex;
   flex-direction: column;
 }
 
-/* Close button row — hidden on desktop, visible on mobile only */
 .sidebar-close-row {
   display: none;
 }
 
-/* Overlay backdrop — hidden by default */
 .sidebar-overlay {
   display: none;
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.45);
-  z-index: calc(var(--z-drawer) - 1);
-  animation: fadeInOverlay 0.2s ease-out;
-}
-
-@keyframes fadeInOverlay {
-  from { opacity: 0; }
-  to   { opacity: 1; }
-}
-
-.sidebar-overlay.open {
-  display: block;
 }
 
 .sidebar-nav {
   display: flex;
   flex-direction: column;
+  gap: var(--space-3);
+}
+
+.nav-group__label {
+  margin: 0;
+  padding: var(--space-2) var(--space-5) var(--space-1);
+  font-size: var(--type-sm);
+  font-weight: 600;
+  color: var(--color-text-muted);
+}
+
+.nav-group__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
 }
 
 .nav-link {
   display: flex;
   align-items: center;
-  gap: 1rem;
-  padding: 0.9rem 2rem;
-  color: #4b5563;
+  gap: var(--space-3);
+  min-height: var(--touch-min);
+  padding: var(--space-2) var(--space-5);
+  color: var(--color-text);
   text-decoration: none;
   font-weight: 500;
-  transition: all 0.2s;
   border-left: 3px solid transparent;
-  /* WCAG 44px touch target */
-  min-height: 44px;
+  transition: background-color var(--duration-fast);
 }
 
-.nav-link:hover {
-  background-color: #f3f4f6;
-  color: var(--color-interactive-primary);
+@media (hover: hover) {
+  .nav-link:hover {
+    background-color: var(--color-surface-sunken);
+    color: var(--color-primary-hover);
+  }
 }
 
 .nav-link.active {
-  /* primary-hover on primary-subtle: 6.37:1 (was #d97706 on #fef3c7, 2.86:1; DES-01) */
+  /* primary-hover on primary-subtle: 6.37:1 (DES-01) */
   background-color: var(--color-primary-subtle);
   color: var(--color-primary-hover);
-  border-left-color: var(--color-interactive-primary);
+  border-left-color: var(--color-primary);
+  font-weight: 600;
 }
 
 .nav-icon {
-  font-size: 1.25rem;
   flex-shrink: 0;
+  width: var(--space-5);
+  height: var(--space-5);
+}
+
+.sidebar-account {
+  display: none;
+}
+
+.sidebar-health {
+  margin-top: auto;
+  padding: var(--space-3) var(--space-2);
+  border-top: 1px solid var(--color-border);
 }
 
 /* ==================== MAIN CONTENT ==================== */
 
 .main-content {
   flex: 1;
-  padding: 2rem;
+  padding: var(--space-6);
+  /* LV-19: keep the last rows clear of the scan FAB. */
+  padding-bottom: calc(var(--touch-comfort) + var(--space-7));
   overflow-y: auto;
   min-width: 0; /* Prevent flex blowout */
-  color: var(--color-text-body, #374151); /* Ensure dark text in content area */
+  color: var(--color-text);
 }
 
 /* ==================== FOOTER ==================== */
 
 .main-footer {
-  background: white;
-  border-top: 1px solid #e5e7eb;
-  padding: 1.5rem 2rem;
+  background: var(--color-surface-raised);
+  border-top: 1px solid var(--color-border);
+  padding: var(--space-5) var(--space-6);
   text-align: center;
-  color: #6b7280;
-  font-size: 0.9rem;
+  color: var(--color-text-muted);
+  font-size: var(--type-sm);
 }
 
 .main-footer p {
   margin: 0;
 }
 
-/* ==================== RESPONSIVE — TABLET (≤1024px) ==================== */
+/* ==================== HEADER SEARCH ICON (LV-06) ==================== */
 
-@media (max-width: 1024px) {
-  .header-content {
-    padding: 0 1.25rem;
-  }
-
-  .main-content {
-    padding: 1.5rem;
-  }
+.global-search__icon {
+  flex-shrink: 0;
+  width: var(--space-5);
+  height: var(--space-5);
+  min-width: var(--space-5);
 }
 
-/* ==================== RESPONSIVE — MOBILE (≤768px) ==================== */
+/* ==================== BELOW 1024px: DRAWER + TAB BAR ==================== */
 
-@media (max-width: 768px) {
-  .btn-hamburger {
+@media (width < 1024px) {
+  .header-content {
+    padding: 0 var(--space-4);
+  }
+
+  .header-action--menu {
     display: inline-flex;
   }
 
-  /* Push user-name label off small screens to save space */
-  .user-name {
-    display: none;
-  }
-
-  /* Sidebar becomes an off-canvas overlay panel */
   .main-sidebar {
     position: fixed;
     top: 0;
@@ -273,100 +267,67 @@ body.is-offline {
     bottom: 0;
     z-index: var(--z-drawer);
     width: 280px;
-    padding-top: 1rem;
-    overflow-y: auto;
+    max-height: none;
+    min-height: 0;
+    padding-top: var(--space-3);
     transform: translateX(-100%);
-    transition: transform 0.25s ease-out;
-    box-shadow: 4px 0 24px rgba(0, 0, 0, 0.15);
+    transition: transform var(--duration-base) ease-out;
+    box-shadow: var(--shadow-3);
   }
 
   .main-sidebar.open {
     transform: translateX(0);
   }
 
-  /* Close button inside mobile sidebar */
+  .sidebar-overlay.open {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: color-mix(in srgb, var(--color-text) 45%, transparent);
+    z-index: calc(var(--z-drawer) - 1);
+  }
+
   .sidebar-close-row {
     display: flex;
     justify-content: flex-end;
-    padding: 0 1rem 0.5rem;
-  }
-
-  .btn-sidebar-close {
-    background: none;
-    border: none;
-    font-size: 1.75rem;
-    color: #6b7280;
-    cursor: pointer;
-    width: 44px;
-    height: 44px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    border-radius: 8px;
-    transition: background 0.2s;
-  }
-
-  .btn-sidebar-close:hover {
-    background: #f3f4f6;
-    color: #333;
+    padding: 0 var(--space-3) var(--space-2);
   }
 
   .main-content {
-    padding: 1rem;
+    padding: var(--space-5);
+    /* Tab bar plus the FAB above it. */
+    padding-bottom: calc(var(--layout-tab-bar-height) + var(--touch-comfort) + var(--space-6));
   }
 
-  .nav-link {
-    padding: 0.9rem 1.5rem;
-    font-size: 1rem;
-  }
-}
-
-/* ==================== RESPONSIVE — SMALL MOBILE (≤480px) ==================== */
-
-@media (max-width: 480px) {
-  .logo {
-    font-size: 1.2rem;
+  .main-footer {
+    padding-bottom: calc(var(--layout-tab-bar-height) + var(--space-4));
   }
 
-  .btn-scanner {
-    padding: 0.6rem 0.75rem;
-    font-size: 0.85rem;
+  /* Timer widget and scan FAB float above the tab bar (4.11). */
+  .main-layout {
+    --fab-bottom: calc(var(--layout-tab-bar-height) + var(--space-3));
   }
 
-  .btn-logout {
-    padding: 0.6rem 0.75rem;
-    font-size: 0.85rem;
+  .main-layout :is(.timer-fab, .timer-widget, .timer-widget--start-form) {
+    bottom: calc(var(--layout-tab-bar-height) + var(--space-3));
   }
 
-  .main-content {
-    padding: 0.75rem;
+  .main-tab-bar {
+    z-index: var(--z-drawer);
   }
 }
 
-/* ==================== HEADER SEARCH ICON (LV-06) ==================== */
-
-/* The trigger is a flex container; without this the SVG was squashed to
- * 3.6 x 20 px and the button looked like a blank square. */
-.global-search__icon {
-  flex-shrink: 0;
-  width: 20px;
-  height: 20px;
-  min-width: 20px;
-}
-
-/* ==================== ACCOUNT BLOCK IN THE DRAWER (LV-01) ==================== */
-
-.sidebar-account {
-  display: none;
-}
-
-/* ==================== RESPONSIVE — PHONE (<600px) ==================== */
+/* ==================== PHONE (<600px) ==================== */
 
 @media (max-width: 600px) {
-  /* LV-01: Scanner (also the FAB), name and "Abmelden" live in the drawer,
-   * so the header fits 390px: hamburger, logo, search, bell. */
+  /* LV-01: Scanner, name and "Abmelden" live in the drawer, so the header
+   * fits 390px: menu, logo, search, bell. */
   .header-desktop-only {
     display: none;
+  }
+
+  .logo {
+    font-size: var(--type-md);
   }
 
   .header-content {
@@ -376,6 +337,11 @@ body.is-offline {
   .user-menu {
     flex-shrink: 0;
     gap: var(--space-2);
+  }
+
+  .main-content {
+    padding: var(--space-3);
+    padding-bottom: calc(var(--layout-tab-bar-height) + var(--touch-comfort) + var(--space-6));
   }
 
   .sidebar-account {
@@ -407,8 +373,7 @@ body.is-offline {
   }
 
   /* LV-12: every control in the content and the drawer is at least
-   * 44 x 44 px on phones (56 px in Werkbank-Modus via --touch-min).
-   * :root raises specificity above per-page button classes. */
+   * 44 x 44 px on phones (56 px in Werkbank-Modus via --touch-min). */
   :root .main-content :is(button, select, input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"])),
   :root .main-sidebar button,
   :root .main-content a:is([class*="btn"], [class*="button"]) {
@@ -431,7 +396,8 @@ body.is-offline {
   }
 }
 
-/* LV-19: keep the last rows clear of the scan FAB (56px + its offset). */
-.main-content {
-  padding-bottom: calc(var(--touch-comfort) + var(--space-7));
+@media (prefers-reduced-motion: reduce) {
+  .main-sidebar {
+    transition: none;
+  }
 }

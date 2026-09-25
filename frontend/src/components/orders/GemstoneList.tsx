@@ -3,7 +3,7 @@
 // "3 × Diamant" and the Kundenstein flag only.
 //
 // W4-03: data through TanStack Query (queryKeys.orders.gemstones), shared
-// with GemstoneRepeater via `gemstonesQuery`; states via PageState.
+// with the order form (form/GemstoneFields) via `gemstonesQuery`; states via PageState.
 import { queryOptions, useQuery } from '@tanstack/react-query';
 import { gemstonesApi, type Gemstone } from '../../api/gemstones';
 import { queryKeys } from '../../api/queryKeys';
