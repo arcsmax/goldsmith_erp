@@ -109,11 +109,14 @@ const StaffApp: React.FC = () => (
         <Route index element={<Navigate to="/dashboard" replace />} />
         <Route path="dashboard" element={<DashboardPage />} />
 
-        {/* Kunden — ADMIN und GOLDSMITH */}
+        {/* Kunden — any authenticated role. VIEWER holds CUSTOMER_VIEW
+            (core/permissions.py) and gets a role-projected read (no design
+            IP — CustomerDetailPage's own canViewDesign gate handles that);
+            the route no longer redirects VIEWER away before it can load. */}
         <Route
           path="customers"
           element={
-            <ProtectedRoute requiredRoles={['ADMIN', 'GOLDSMITH']}>
+            <ProtectedRoute>
               <CustomersPage />
             </ProtectedRoute>
           }
@@ -121,7 +124,7 @@ const StaffApp: React.FC = () => (
         <Route
           path="customers/:id"
           element={
-            <ProtectedRoute requiredRoles={['ADMIN', 'GOLDSMITH']}>
+            <ProtectedRoute>
               <CustomerDetailPage />
             </ProtectedRoute>
           }
@@ -159,21 +162,27 @@ const StaffApp: React.FC = () => (
           }
         />
 
-        {/* Materialien — ADMIN und GOLDSMITH */}
+        {/* Materialien — any authenticated role. VIEWER holds
+            MATERIAL_VIEW; MaterialsPage's own canViewFinancials gate hides
+            unit prices and stock value (SEC-01). */}
         <Route
           path="materials"
           element={
-            <ProtectedRoute requiredRoles={['ADMIN', 'GOLDSMITH']}>
+            <ProtectedRoute>
               <MaterialsPage />
             </ProtectedRoute>
           }
         />
 
-        {/* Metallinventar — ADMIN und GOLDSMITH */}
+        {/* Metallinventar — any authenticated role. VIEWER holds
+            MATERIAL_VIEW for the list itself, but every metal-inventory
+            endpoint this page calls is FINANCIAL_VIEW-gated, so
+            MetalInventoryPage's own guard shows an empty state for VIEWER
+            instead of 403ing on load. */}
         <Route
           path="metal-inventory"
           element={
-            <ProtectedRoute requiredRoles={['ADMIN', 'GOLDSMITH']}>
+            <ProtectedRoute>
               <MetalInventoryPage />
             </ProtectedRoute>
           }
@@ -182,11 +191,13 @@ const StaffApp: React.FC = () => (
         <Route path="orders" element={<OrdersPage />} />
         <Route path="orders/:orderId" element={<OrderDetailPage />} />
 
-        {/* Reparaturen — ADMIN und GOLDSMITH */}
+        {/* Reparaturen — any authenticated role. VIEWER holds REPAIR_VIEW
+            (e.g. front desk); RepairsPage's own canViewFinancials gate
+            hides pricing. */}
         <Route
           path="repairs"
           element={
-            <ProtectedRoute requiredRoles={['ADMIN', 'GOLDSMITH']}>
+            <ProtectedRoute>
               <RepairsPage />
             </ProtectedRoute>
           }
@@ -194,7 +205,7 @@ const StaffApp: React.FC = () => (
         <Route
           path="repairs/:id"
           element={
-            <ProtectedRoute requiredRoles={['ADMIN', 'GOLDSMITH']}>
+            <ProtectedRoute>
               <RepairDetailPage />
             </ProtectedRoute>
           }
