@@ -8,6 +8,25 @@ import {
   UserCreateInput,
   AuthContextType,
 } from '../types';
+import { logError } from '../lib/logError';
+
+/**
+ * Logged-out pages where a missing session is the normal case (LV-21).
+ * Without a cached user there is nothing to validate, so the probe is
+ * skipped and the page makes no 401 calls that show up as console errors.
+ */
+const PROBE_FREE_PATHS: readonly string[] = ['/login', '/register'];
+
+const HTTP_UNAUTHORIZED = 401;
+
+function isUnauthorized(err: unknown): boolean {
+  const status = (err as { response?: { status?: number } } | null)?.response?.status;
+  return status === HTTP_UNAUTHORIZED;
+}
+
+function shouldSkipSessionProbe(hasCachedUser: boolean): boolean {
+  return !hasCachedUser && PROBE_FREE_PATHS.includes(window.location.pathname);
+}
 
 /** localStorage keys holding the previous user's session data (FE-07). */
 const PER_USER_STORAGE_KEYS = [
@@ -111,13 +130,22 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         }
       }
 
-      // Always validate the HttpOnly cookie by calling the server
+      if (shouldSkipSessionProbe(savedUser !== null)) {
+        setIsLoading(false);
+        return;
+      }
+
+      // Validate the HttpOnly cookie by calling the server
       try {
         const currentUser = await authApi.getCurrentUser();
         setUser(currentUser);
         localStorage.setItem('user', JSON.stringify(currentUser));
-      } catch {
-        // Cookie invalid or expired — clear state
+      } catch (err) {
+        // 401 = no (or expired) session: the expected answer, stay quiet.
+        // Anything else (network, 5xx) must stay visible (LV-21).
+        if (!isUnauthorized(err)) {
+          logError('AuthContext.sessionProbe', err);
+        }
         setUser(null);
         localStorage.removeItem('user');
       }
