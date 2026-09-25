@@ -4,6 +4,9 @@
 // change can't silently drift from the backend.
 import { describe, expect, it } from 'vitest';
 import {
+  canCreateOrders,
+  canDeleteOrders,
+  canEditOrders,
   canDownloadValuationPdf,
   canViewDesign,
   canViewFinancials,
@@ -72,5 +75,21 @@ describe('hidden-section hint text', () => {
     expect(FINANCIAL_HIDDEN_HINT).toBe('Keine Berechtigung für Finanzdaten');
     expect(DESIGN_HIDDEN_HINT).toBe('Keine Berechtigung für Design-Daten');
     expect(FINANCIAL_HIDDEN_HINT).not.toBe(DESIGN_HIDDEN_HINT);
+  });
+});
+
+// LV-07: mirrors Permission.ORDER_CREATE / ORDER_EDIT (ADMIN + GOLDSMITH)
+// and ORDER_DELETE (ADMIN only) in core/permissions.py.
+describe('order write permissions', () => {
+  it.each([
+    ['ADMIN', true, true, true],
+    ['GOLDSMITH', true, true, false],
+    ['VIEWER', false, false, false],
+    ['admin', true, true, true],
+    [null, false, false, false],
+  ] as const)('%s: create=%s edit=%s delete=%s', (role, create, edit, remove) => {
+    expect(canCreateOrders(role)).toBe(create);
+    expect(canEditOrders(role)).toBe(edit);
+    expect(canDeleteOrders(role)).toBe(remove);
   });
 });

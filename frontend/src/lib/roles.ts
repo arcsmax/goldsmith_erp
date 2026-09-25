@@ -55,6 +55,32 @@ export function canDownloadValuationPdf(role?: UserRole | string | null): boolea
   return normalizeRole(role) === 'ADMIN';
 }
 
+/**
+ * True when the caller may create orders. Mirrors `Permission.ORDER_CREATE`
+ * (ADMIN + GOLDSMITH; VIEWER does not hold it). LV-07.
+ */
+export function canCreateOrders(role?: UserRole | string | null): boolean {
+  const normalized = normalizeRole(role);
+  return normalized === 'ADMIN' || normalized === 'GOLDSMITH';
+}
+
+/**
+ * True when the caller may edit orders. Mirrors `Permission.ORDER_EDIT`
+ * (ADMIN + GOLDSMITH).
+ */
+export function canEditOrders(role?: UserRole | string | null): boolean {
+  const normalized = normalizeRole(role);
+  return normalized === 'ADMIN' || normalized === 'GOLDSMITH';
+}
+
+/**
+ * True when the caller may delete orders. Mirrors `Permission.ORDER_DELETE`
+ * (ADMIN only; GOLDSMITH does not hold it).
+ */
+export function canDeleteOrders(role?: UserRole | string | null): boolean {
+  return normalizeRole(role) === 'ADMIN';
+}
+
 /** Short German hint shown where hiding a financial section would
  *  otherwise leave a confusing empty gap. */
 export const FINANCIAL_HIDDEN_HINT = 'Keine Berechtigung für Finanzdaten';

@@ -25,7 +25,8 @@ const STATUS_FILTER_OPTIONS = (Object.keys(ORDER_STATUS) as OrderStatus[]).map((
   label: ORDER_STATUS[value].label,
 }));
 import { OrderFormModal } from '../components/orders/OrderFormModal';
-import { useToast, useConfirm } from '../contexts';
+import { useAuth, useToast, useConfirm } from '../contexts';
+import { canCreateOrders, canDeleteOrders, canEditOrders, canViewFinancials } from '../lib/roles';
 import '../styles/pages.css';
 import '../styles/orders.css';
 // .order-list-thumb (W2-01 thumbnail column) lives with the order styles.
@@ -36,6 +37,14 @@ export const OrdersPage: React.FC = () => {
   const [searchParams] = useSearchParams();
   const { showToast } = useToast();
   const { showConfirm } = useConfirm();
+  // LV-07: role gates mirror ORDER_CREATE / ORDER_EDIT / ORDER_DELETE and
+  // FINANCIAL_VIEW; hidden in code, never by CSS.
+  const { user } = useAuth();
+  const canFinance = canViewFinancials(user?.role);
+  const canCreate = canCreateOrders(user?.role);
+  const canEdit = canEditOrders(user?.role);
+  const canDelete = canDeleteOrders(user?.role);
+  const hasRowActions = canEdit || canDelete;
   const [orders, setOrders] = useState<OrderListItem[]>([]);
   const [filteredOrders, setFilteredOrders] = useState<OrderListItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -241,13 +250,20 @@ export const OrdersPage: React.FC = () => {
         <div>
           <h1>Aufträge</h1>
           <p className="orders-page-summary">
-            {filteredOrders.length} Aufträge • Gesamtwert:{' '}
-            <span className={MONEY_CLASS}>{formatEur(totalRevenue)}</span>
+            {filteredOrders.length} Aufträge
+            {canFinance && (
+              <>
+                {' '}• Gesamtwert:{' '}
+                <span className={MONEY_CLASS}>{formatEur(totalRevenue)}</span>
+              </>
+            )}
           </p>
         </div>
-        <button className="btn-primary" onClick={openCreateModal}>
-          + Neuer Auftrag
-        </button>
+        {canCreate && (
+          <button className="btn-primary" onClick={openCreateModal}>
+            + Neuer Auftrag
+          </button>
+        )}
       </header>
 
       {/* Search and Filters */}
@@ -283,7 +299,7 @@ export const OrdersPage: React.FC = () => {
           <select value={sortBy} onChange={(e) => setSortBy(e.target.value as any)}>
             <option value="created">Erstelldatum</option>
             <option value="deadline">Frist</option>
-            <option value="price">Preis</option>
+            {canFinance && <option value="price">Preis</option>}
           </select>
         </div>
 
@@ -322,10 +338,10 @@ export const OrdersPage: React.FC = () => {
                   <th>Titel</th>
                   <th className="orders-col-description">Beschreibung</th>
                   <th>Status</th>
-                  <th>Preis</th>
+                  {canFinance && <th>Preis</th>}
                   <th>Frist</th>
                   <th>Erstellt</th>
-                  <th>Aktionen</th>
+                  {hasRowActions && <th>Aktionen</th>}
                 </tr>
               </thead>
               <tbody>
@@ -351,13 +367,15 @@ export const OrdersPage: React.FC = () => {
                     <td>
                       <StatusBadge kind="order" status={order.status} />
                     </td>
-                    <td className={MONEY_CLASS}>
-                      {order.price ? (
-                        <span className="price-display">{formatEur(order.price)}</span>
-                      ) : (
-                        <span className="price-calculated">Wird berechnet</span>
-                      )}
-                    </td>
+                    {canFinance && (
+                      <td className={MONEY_CLASS}>
+                        {order.price ? (
+                          <span className="price-display">{formatEur(order.price)}</span>
+                        ) : (
+                          <span className="price-calculated">Wird berechnet</span>
+                        )}
+                      </td>
+                    )}
                     <td className="orders-col-date">
                       {order.deadline
                         ? new Date(order.deadline).toLocaleDateString('de-DE')
@@ -366,27 +384,35 @@ export const OrdersPage: React.FC = () => {
                     <td className="orders-col-date">
                       {new Date(order.created_at).toLocaleDateString('de-DE')}
                     </td>
-                    <td>
-                      <div className="orders-page-actions">
-                        <button
-                          className="btn-icon btn-edit"
-                          onClick={(e) => openEditModal(order, e)}
-                          title="Bearbeiten"
-                        >
-                          ✏️
-                        </button>
-                        <button
-                          className="btn-icon btn-delete"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleDeleteOrder(order.id, order.title);
-                          }}
-                          title="Löschen"
-                        >
-                          🗑️
-                        </button>
-                      </div>
-                    </td>
+                    {hasRowActions && (
+                      <td>
+                        <div className="orders-page-actions">
+                          {canEdit && (
+                            <button
+                              className="btn-icon btn-edit"
+                              onClick={(e) => openEditModal(order, e)}
+                              title="Bearbeiten"
+                              aria-label="Auftrag bearbeiten"
+                            >
+                              <span aria-hidden="true">✏️</span>
+                            </button>
+                          )}
+                          {canDelete && (
+                            <button
+                              className="btn-icon btn-delete"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleDeleteOrder(order.id, order.title);
+                              }}
+                              title="Löschen"
+                              aria-label="Auftrag löschen"
+                            >
+                              <span aria-hidden="true">🗑️</span>
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    )}
                   </tr>
                 ))}
               </tbody>
