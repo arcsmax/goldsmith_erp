@@ -90,9 +90,17 @@ export type OrdersPage = PageResponse<'/api/v1/orders/'>;
 export type OrderPageItem = PageItem<'/api/v1/orders/'>;
 export type OrderPageParams = PageParams<'/api/v1/orders/'>;
 
+// ---- Materials -------------------------------------------------------------
+
+export type MaterialsPage = PageResponse<'/api/v1/materials/'>;
+export type MaterialPageItem = PageItem<'/api/v1/materials/'>;
+export type MaterialPageParams = PageParams<'/api/v1/materials/'>;
+
 export const pagedApi = {
   orders: (params: OrderPageParams, signal?: AbortSignal): Promise<OrdersPage> =>
     fetchPage('/api/v1/orders/', params, signal),
+  materials: (params: MaterialPageParams, signal?: AbortSignal): Promise<MaterialsPage> =>
+    fetchPage('/api/v1/materials/', params, signal),
 };
 
 /** 1-based page number and page count for pagination controls. */

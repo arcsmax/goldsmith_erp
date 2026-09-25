@@ -8,7 +8,8 @@
 // firing four calls that all 403, the whole page is gated client-side: a
 // VIEWER sees a permission hint and none of the fetches ever fire.
 import { describe, expect, it, vi, afterEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { screen } from '@testing-library/react';
+import { renderWithQuery } from '../test/queryWrapper';
 
 const mockListPurchases = vi.fn();
 vi.mock('../api', () => ({
@@ -57,7 +58,7 @@ describe('MetalInventoryPage — VIEWER role projection', () => {
     mockUseAuth.mockReturnValue({ user: { role: 'VIEWER' } });
     mockListPurchases.mockResolvedValue([]);
 
-    render(<MetalInventoryPage />);
+    renderWithQuery(<MetalInventoryPage />);
 
     expect(await screen.findByText('Keine Berechtigung für Finanzdaten')).toBeInTheDocument();
     expect(mockListPurchases).not.toHaveBeenCalled();
@@ -68,7 +69,7 @@ describe('MetalInventoryPage — VIEWER role projection', () => {
     mockUseAuth.mockReturnValue({ user: { role: 'GOLDSMITH' } });
     mockListPurchases.mockResolvedValue([]);
 
-    render(<MetalInventoryPage />);
+    renderWithQuery(<MetalInventoryPage />);
 
     expect(await screen.findByText('summary-cards')).toBeInTheDocument();
     expect(mockListPurchases).toHaveBeenCalledWith({ include_depleted: true });
@@ -85,7 +86,7 @@ describe('MetalInventoryPage — admin-only metal type manager (FE-12)', () => {
     mockUseAuth.mockReturnValue({ user: { role: 'admin' } });
     mockListPurchases.mockResolvedValue([]);
 
-    render(<MetalInventoryPage />);
+    renderWithQuery(<MetalInventoryPage />);
 
     expect(await screen.findByText('Metalltypen verwalten')).toBeInTheDocument();
   });
@@ -94,7 +95,7 @@ describe('MetalInventoryPage — admin-only metal type manager (FE-12)', () => {
     mockUseAuth.mockReturnValue({ user: { role: 'goldsmith' } });
     mockListPurchases.mockResolvedValue([]);
 
-    render(<MetalInventoryPage />);
+    renderWithQuery(<MetalInventoryPage />);
 
     expect(await screen.findByText('summary-cards')).toBeInTheDocument();
     expect(screen.queryByText('Metalltypen verwalten')).not.toBeInTheDocument();

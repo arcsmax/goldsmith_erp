@@ -1,3 +1,4 @@
+import React from 'react';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, act, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -40,6 +41,12 @@ vi.mock('../api/customers', () => ({
 }));
 
 import { ConsultationWizardPage } from './ConsultationWizardPage';
+import { QueryWrapper, createTestQueryClient } from '../test/queryWrapper';
+
+// W4-03: the wizard loads and saves through TanStack Query.
+const withQuery = (ui: React.ReactElement) => (
+  <QueryWrapper client={createTestQueryClient()}>{ui}</QueryWrapper>
+);
 
 const draft = {
   id: 9, customer_id: 5, conducted_by: 1, status: 'draft', occasion: 'other',
@@ -48,12 +55,14 @@ const draft = {
 
 const renderAt = (url: string) =>
   render(
+    withQuery(
     <MemoryRouter initialEntries={[url]}>
       <Routes>
         <Route path="/consultations/new" element={<ConsultationWizardPage />} />
         <Route path="/consultations/:id" element={<ConsultationWizardPage />} />
       </Routes>
     </MemoryRouter>
+    )
   );
 
 beforeEach(() => {
@@ -121,8 +130,8 @@ describe('ConsultationWizardPage', () => {
     renderAt('/consultations/9?step=2');
     await screen.findByRole('heading', { name: 'Anlass & Budget' });
 
-    fireEvent.change(screen.getByLabelText('Budget von €'), { target: { value: '500' } });
-    fireEvent.change(screen.getByLabelText('Budget bis €'), { target: { value: '100' } });
+    fireEvent.change(screen.getByLabelText('Budget von'), { target: { value: '500' } });
+    fireEvent.change(screen.getByLabelText('Budget bis'), { target: { value: '100' } });
 
     await userEvent.click(screen.getByRole('button', { name: /Weiter/ }));
 
@@ -162,7 +171,7 @@ describe('ConsultationWizardPage', () => {
       [{ path: '/consultations/:id', element: <ConsultationWizardPage /> }],
       { initialEntries: ['/consultations/9?step=2'] }
     );
-    render(<RouterProvider router={router} />);
+    render(withQuery(<RouterProvider router={router} />));
     await screen.findByRole('heading', { name: 'Anlass & Budget' });
 
     // Build a non-empty pendingPatch on step 2 — but never click Weiter.

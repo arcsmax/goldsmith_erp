@@ -36,8 +36,8 @@ async function fillAndSubmit(
 ) {
   await user.type(screen.getByLabelText('Beschreibung'), description);
   await user.selectOptions(screen.getByLabelText('Legierung'), alloyLabel);
-  await user.type(screen.getByLabelText('Gewicht (g)'), weight);
-  await user.click(screen.getByRole('button', { name: 'Hinzufuegen' }));
+  await user.type(screen.getByLabelText('Gewicht'), weight);
+  await user.click(screen.getByRole('button', { name: 'Position hinzufügen' }));
 }
 
 describe('AlloyCalculator', () => {
@@ -79,7 +79,7 @@ describe('AlloyCalculator', () => {
 
     await user.type(screen.getByLabelText('Beschreibung'), 'Kette ohne Gewicht');
     // canAdd stays false with no weight entered, so the button is disabled.
-    expect(screen.getByRole('button', { name: 'Hinzufuegen' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Position hinzufügen' })).toBeDisabled();
     expect(onAddItem).not.toHaveBeenCalled();
   });
 });

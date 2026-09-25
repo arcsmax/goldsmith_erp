@@ -18,6 +18,7 @@ import AuthenticatedImage from '../AuthenticatedImage';
 // re-exported here for backwards compatibility.
 export { PHOTO_KIND_LABELS } from './labels';
 import { PHOTO_KIND_LABELS } from './labels';
+import { IconButton } from '../../ui';
 
 const PHOTO_KIND_KEYS = Object.keys(PHOTO_KIND_LABELS) as ConsultationPhotoKind[];
 
@@ -103,7 +104,7 @@ export const PhotoStep: React.FC<WizardStepProps> = ({ consultation, refresh }) 
             type="file"
             accept="image/*"
             capture="environment"
-            style={{ display: 'none' }}
+            className="ui-visually-hidden"
             onChange={handleFileSelect}
             disabled={isUploading}
           />
@@ -124,15 +125,14 @@ export const PhotoStep: React.FC<WizardStepProps> = ({ consultation, refresh }) 
               alt={PHOTO_KIND_LABELS[photo.kind]}
             />
             <span className="consultation-photo-kind">{PHOTO_KIND_LABELS[photo.kind]}</span>
-            <button
-              type="button"
+            <IconButton
+              icon="trash"
+              variant="danger"
+              label="Foto löschen"
               className="consultation-photo-delete"
               onClick={() => handleDelete(photo)}
               disabled={deletingPhotoId === photo.id}
-              aria-label="Foto löschen"
-            >
-              {deletingPhotoId === photo.id ? '...' : '×'}
-            </button>
+            />
           </div>
         ))}
       </div>

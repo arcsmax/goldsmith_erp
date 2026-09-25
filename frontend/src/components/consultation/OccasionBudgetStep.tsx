@@ -18,6 +18,7 @@ import { useFormValidation } from '../../lib/validation/useFormValidation';
 // label map) — re-exported here for backwards compatibility.
 export { OCCASION_LABELS } from './labels';
 import { OCCASION_LABELS } from './labels';
+import { Field } from '../../ui';
 
 const OCCASION_KEYS = Object.keys(OCCASION_LABELS) as ConsultationOccasion[];
 
@@ -94,8 +95,9 @@ export const OccasionBudgetStep: React.FC<OccasionBudgetStepProps> = ({
   return (
     <div className="occasion-budget-step">
       <div className="wizard-field">
-        {/* eslint-disable-next-line jsx-a11y/label-has-associated-control -- labels the radiogroup below via aria-labelledby, not a single control */}
-        <label id="occasion-anlass-label">Anlass</label>
+        <span id="occasion-anlass-label" className="ui-field__label">
+          Anlass
+        </span>
         <div className="chip-group" role="radiogroup" aria-labelledby="occasion-anlass-label">
           {OCCASION_KEYS.map((key) => (
             <button
@@ -112,38 +114,20 @@ export const OccasionBudgetStep: React.FC<OccasionBudgetStepProps> = ({
         </div>
       </div>
 
-      <div className="wizard-field">
-        <label htmlFor="occasion_date">Datum (optional)</label>
+      <Field label="Datum" name="occasion_date" help="Optional, z. B. Hochzeitstermin">
         <input type="date" id="occasion_date" value={occasionDate} onChange={handleDateChange} />
-        <p className="field-hint">z. B. Hochzeitstermin</p>
-      </div>
+      </Field>
 
       <div className="wizard-field-row">
-        <div className="wizard-field">
-          <label htmlFor="budget_min">Budget von €</label>
-          <input
-            type="number"
-            id="budget_min"
-            min="0"
-            value={budgetMin}
-            onChange={handleBudgetMinChange}
-          />
-          {/* HTML min="0" only constrains the spinner arrows — a typed
-              negative value still fails Zod .min(0) and must surface here. */}
-          {errors.budget_min && <div className="error-message">{errors.budget_min}</div>}
-        </div>
-        <div className="wizard-field">
-          <label htmlFor="budget_max">Budget bis €</label>
-          <input
-            type="number"
-            id="budget_max"
-            min="0"
-            value={budgetMax}
-            onChange={handleBudgetMaxChange}
-          />
-        </div>
+        {/* HTML min="0" only constrains the spinner arrows — a typed
+            negative value still fails Zod .min(0) and must surface here. */}
+        <Field label="Budget von" name="budget_min" inputMode="decimal" suffix="€" error={errors.budget_min}>
+          <input type="number" id="budget_min" min="0" value={budgetMin} onChange={handleBudgetMinChange} />
+        </Field>
+        <Field label="Budget bis" name="budget_max" inputMode="decimal" suffix="€" error={errors.budget_max}>
+          <input type="number" id="budget_max" min="0" value={budgetMax} onChange={handleBudgetMaxChange} />
+        </Field>
       </div>
-      {errors.budget_max && <div className="error-message">{errors.budget_max}</div>}
     </div>
   );
 };

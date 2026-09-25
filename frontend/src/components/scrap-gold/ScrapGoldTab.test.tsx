@@ -1,6 +1,7 @@
 // ScrapGoldTab — W2-16 (DOM-21): Ausweisdaten for the Ankaufsbuch.
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { screen } from '@testing-library/react';
+import { renderWithQuery } from '../../test/queryWrapper';
 import userEvent from '@testing-library/user-event';
 
 const mockGetForOrder = vi.fn();
@@ -71,7 +72,7 @@ beforeEach(() => {
 describe('ScrapGoldTab — Ausweisdaten (W2-16)', () => {
   it('above the threshold asks for ID data and blocks the signature until it is saved', async () => {
     mockGetForOrder.mockResolvedValue(base);
-    render(<ScrapGoldTab orderId={5} customerId={7} />);
+    renderWithQuery(<ScrapGoldTab orderId={5} customerId={7} />);
 
     expect(await screen.findByText(/Ausweisdaten sind bei diesem Ankaufswert Pflicht/)).toBeInTheDocument();
     expect(screen.queryByTestId('signature-canvas')).not.toBeInTheDocument();
@@ -87,7 +88,7 @@ describe('ScrapGoldTab — Ausweisdaten (W2-16)', () => {
       id_issuing_authority: 'Stadt Augsburg',
       has_identification: true,
     });
-    render(<ScrapGoldTab orderId={5} customerId={7} />);
+    renderWithQuery(<ScrapGoldTab orderId={5} customerId={7} />);
 
     await userEvent.selectOptions(await screen.findByLabelText('Ausweisart'), 'reisepass');
     await userEvent.type(screen.getByLabelText('Ausweisnummer'), 'C01X04711');
@@ -106,7 +107,7 @@ describe('ScrapGoldTab — Ausweisdaten (W2-16)', () => {
 
   it('below the threshold the ID fields are optional and the signature is available', async () => {
     mockGetForOrder.mockResolvedValue({ ...base, total_value_eur: 480, id_required: false });
-    render(<ScrapGoldTab orderId={5} customerId={7} />);
+    renderWithQuery(<ScrapGoldTab orderId={5} customerId={7} />);
 
     expect(await screen.findByTestId('signature-canvas')).toBeInTheDocument();
     expect(screen.getByText(/Ausweisdaten \(optional\)/)).toBeInTheDocument();
@@ -122,7 +123,7 @@ describe('ScrapGoldTab — Ausweisdaten (W2-16)', () => {
       id_issuing_authority: 'Stadt München',
       has_identification: true,
     });
-    render(<ScrapGoldTab orderId={5} customerId={7} />);
+    renderWithQuery(<ScrapGoldTab orderId={5} customerId={7} />);
 
     expect(await screen.findByText(/Personalausweis · Nr\. endet auf 1234 · Stadt München/)).toBeInTheDocument();
     expect(screen.queryByLabelText('Ausweisnummer')).not.toBeInTheDocument();
