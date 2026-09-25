@@ -15,6 +15,17 @@
 
 ---
 
+## Execution status (2026-09-25)
+
+- **Findings:** 107 fixed, 42 partial, 63 open (of 212 total; see [FINDINGS-REGISTER.md](FINDINGS-REGISTER.md)).
+- **Waves:** 1 and 2 complete (all items landed, several partial); Wave 3 mostly landed (W3-11's Numeric/tz migration still running); Wave 5 mostly landed; Wave 6's outbox, CustomerMessage and status-report items landed; Wave 4 has its design-token and component-primitive foundation only, no page migrated yet; Wave 7 is backlog except for opportunistic hygiene fixes (see [MASTER-FIX-PLAN.md](MASTER-FIX-PLAN.md) section 0).
+- **Latest gate:** backend 4125 tests passed, frontend 918 tests passed, `tsc --noEmit` and `mypy` clean; ESLint has 5 errors remaining, all in `OrderFormModal.tsx` — the sole blocker to a fully green `yarn lint`.
+- Two live click-through verification passes against the running stack (Playwright screenshots, real Postgres/Redis) found and fixed 21 then 8 further UI/backend issues (LV-01..21, LV2-01..08).
+- Integration branch `audit/2026-09-fixes`; **PR #51 (draft)** is the review vehicle — run `/code-review ultra` on it before treating this branch as a release candidate.
+- Full changelog, decisions needing sign-off and the open-follow-ups list: [PROGRESS.md](PROGRESS.md).
+
+---
+
 ## (a) Verdicts on the owner's four questions
 
 **Is it fit for the goal?** Not yet, but the gap is mostly wiring, not missing features. Most of
