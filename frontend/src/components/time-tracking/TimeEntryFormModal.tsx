@@ -8,6 +8,7 @@ import React, { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 
 import { activitiesQuery, orderPickerQuery } from '../../api/timeTrackingQueries';
+import { LocationPicker } from '../LocationPicker';
 import { Button, Field, Modal } from '../../ui';
 import type { TimeEntry, TimeEntryCreateInput, TimeEntryUpdateInput } from '../../types';
 import '../../styles/time-tracking.css';
@@ -30,6 +31,7 @@ interface FormData {
   end_date: string;
   end_time: string;
   location: string;
+  location_id: number | null;
   notes: string;
   complexity_rating: string;
   quality_rating: string;
@@ -50,6 +52,7 @@ function emptyForm(now = new Date()): FormData {
     end_date: now.toISOString().split('T')[0],
     end_time: '',
     location: '',
+    location_id: null,
     notes: '',
     complexity_rating: '',
     quality_rating: '',
@@ -68,6 +71,7 @@ function formFromEntry(entry: TimeEntry): FormData {
     end_date: endDate.toISOString().split('T')[0],
     end_time: entry.end_time ? endDate.toTimeString().slice(0, 5) : '',
     location: entry.location || '',
+    location_id: entry.location_id ?? null,
     notes: entry.notes || '',
     complexity_rating: entry.complexity_rating?.toString() || '',
     quality_rating: entry.quality_rating?.toString() || '',
@@ -99,7 +103,22 @@ function validate(form: FormData): FormErrors {
   return errors;
 }
 
-function toSubmitData(form: FormData): TimeEntryCreateInput | TimeEntryUpdateInput {
+/** Location fields only when new or changed, so an old entry whose
+ * Standort was deactivated can still be edited. */
+function locationFields(
+  form: FormData,
+  initial: FormData | null,
+): Pick<TimeEntryCreateInput, 'location' | 'location_id'> {
+  if (initial && form.location_id === initial.location_id && form.location === initial.location) {
+    return {};
+  }
+  return { location_id: form.location_id, location: form.location || undefined };
+}
+
+function toSubmitData(
+  form: FormData,
+  initial: FormData | null,
+): TimeEntryCreateInput | TimeEntryUpdateInput {
   const endDateTime = form.end_time ? combineDateTime(form.end_date, form.end_time) : undefined;
   return {
     order_id: parseInt(form.order_id, 10),
@@ -107,7 +126,7 @@ function toSubmitData(form: FormData): TimeEntryCreateInput | TimeEntryUpdateInp
     start_time: combineDateTime(form.start_date, form.start_time),
     end_time: endDateTime,
     duration_minutes: endDateTime ? durationMinutes(form) || undefined : undefined,
-    location: form.location || undefined,
+    ...locationFields(form, initial),
     notes: form.notes || undefined,
     complexity_rating: form.complexity_rating ? parseInt(form.complexity_rating, 10) : undefined,
     quality_rating: form.quality_rating ? parseInt(form.quality_rating, 10) : undefined,
@@ -152,7 +171,7 @@ export const TimeEntryFormModal: React.FC<TimeEntryFormModalProps> = ({
     const nextErrors = validate(form);
     setErrors(nextErrors);
     if (Object.keys(nextErrors).length > 0) return;
-    await onSubmit(toSubmitData(form));
+    await onSubmit(toSubmitData(form, isEditMode ? initial : null));
   };
 
   const isDirty = JSON.stringify(form) !== JSON.stringify(initial);
@@ -232,9 +251,17 @@ export const TimeEntryFormModal: React.FC<TimeEntryFormModalProps> = ({
             </p>
           )}
 
-          <Field label="Standort" name="location" help="z. B. Werkbank 1, Tresor">
-            <input type="text" id="location" value={form.location} onChange={handleChange} />
-          </Field>
+          <LocationPicker
+            value={form.location_id}
+            currentName={form.location}
+            onChange={(location) =>
+              setForm((prev) => ({
+                ...prev,
+                location_id: location?.id ?? null,
+                location: location?.name ?? '',
+              }))
+            }
+          />
 
           <Field label="Komplexität (1-5)" name="complexity_rating">
             <select id="complexity_rating" value={form.complexity_rating} onChange={handleChange}>

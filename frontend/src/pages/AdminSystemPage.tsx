@@ -6,6 +6,7 @@ import { SystemStatusPanel } from './admin/SystemStatusPanel';
 import { WorkshopSettingsPanel } from './admin/WorkshopSettingsPanel';
 import { EmailConfigPanel } from './admin/EmailConfigPanel';
 import { OutboxQueuePanel } from './admin/OutboxQueuePanel';
+import { LocationsPanel } from './admin/LocationsPanel';
 import { CustomerImportPanel } from './admin/CustomerImportPanel';
 import { ThemePanel } from './admin/ThemePanel';
 import '../styles/admin.css';
@@ -40,6 +41,7 @@ export const AdminSystemPage: React.FC = () => (
     <div className="admin-panels">
       <SystemStatusPanel />
       <WorkshopSettingsPanel />
+      <LocationsPanel />
       <OutboxQueuePanel />
       <EmailConfigPanel />
       <UsersPanel />

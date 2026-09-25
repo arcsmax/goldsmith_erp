@@ -1,158 +1,146 @@
+// Standort dropdown (W8). Offers the active workshop locations the ADMIN
+// configured under Systemübersicht > Standorte (query queryKeys.locations).
+//
+// - A deactivated or legacy free-text location that is already stored stays
+//   visible as the selected option, so editing old history never loses it.
+// - ADMIN sees an inline "Standort hinzufügen" quick-add; the new location
+//   is selected right away. Other roles only pick from the list.
 import React, { useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+
+import { activeLocationsQuery } from '../api/locationQueries';
+import { createLocation, type WorkshopLocation } from '../api/locations';
+import { queryKeys } from '../api/queryKeys';
+import { useOptionalAuth } from '../contexts/AuthContext';
+import { getErrorMessage } from '../lib/errors';
+import { logError } from '../lib/logError';
+import { Button, Field } from '../ui';
 import '../styles/components/LocationPicker.css';
 
-interface Location {
-  id: string;
-  name: string;
-  icon: string;
-  category: 'workshop' | 'storage' | 'external';
+export interface LocationPickerProps {
+  /** Selected location id (null = none or a legacy text value). */
+  value: number | null;
+  /** Stored name; shown when the id is not among the active locations. */
+  currentName?: string | null;
+  onChange: (location: WorkshopLocation | null) => void;
+  id?: string;
+  label?: string;
+  help?: string;
+  error?: string;
+  disabled?: boolean;
 }
 
-interface LocationPickerProps {
-  currentLocation: string | null;
-  onSelectLocation: (location: string) => void;
-  onCancel?: () => void;
-}
+const NONE = '';
+const STORED = 'stored';
 
-const LOCATIONS: Location[] = [
-  // Workshop (Werkstatt)
-  { id: 'Werkbank 1', name: 'Werkbank 1', icon: '🔨', category: 'workshop' },
-  { id: 'Werkbank 2', name: 'Werkbank 2', icon: '🔨', category: 'workshop' },
-  { id: 'Werkbank 3', name: 'Werkbank 3', icon: '🔨', category: 'workshop' },
-  { id: 'Polierstation', name: 'Polierstation', icon: '✨', category: 'workshop' },
-  { id: 'Prüfbank', name: 'Prüfbank', icon: '🔬', category: 'workshop' },
-
-  // Storage (Lager)
-  { id: 'Tresor', name: 'Tresor', icon: '🔐', category: 'storage' },
-  { id: 'Materialregal', name: 'Materialregal', icon: '📦', category: 'storage' },
-  { id: 'Eingang', name: 'Eingang', icon: '📥', category: 'storage' },
-  { id: 'Ausgang', name: 'Ausgang', icon: '📤', category: 'storage' },
-
-  // External (Extern)
-  { id: 'Beim Kunden', name: 'Beim Kunden', icon: '👤', category: 'external' },
-  { id: 'Labor', name: 'Labor', icon: '🧪', category: 'external' },
-  { id: 'Partner-Werkstatt', name: 'Partner-Werkstatt', icon: '🤝', category: 'external' },
-  { id: 'Versand', name: 'Versand', icon: '📮', category: 'external' },
-];
-
-const CATEGORY_LABELS = {
-  workshop: '🔨 Werkstatt',
-  storage: '📦 Lager',
-  external: '🌍 Extern',
+const storedLabel = (name: string | null | undefined, value: number | null): string => {
+  const base = name?.trim() || (value !== null ? `Standort ${value}` : '');
+  return value !== null ? `${base} (deaktiviert)` : `${base} (nicht in der Liste)`;
 };
 
-const LocationPicker: React.FC<LocationPickerProps> = ({
-  currentLocation,
-  onSelectLocation,
-  onCancel,
+const QuickAdd: React.FC<{ onCreated: (location: WorkshopLocation) => void }> = ({
+  onCreated,
 }) => {
-  const [selectedCategory, setSelectedCategory] = useState<
-    'all' | 'workshop' | 'storage' | 'external'
-  >('all');
-
-  const filteredLocations =
-    selectedCategory === 'all'
-      ? LOCATIONS
-      : LOCATIONS.filter((loc) => loc.category === selectedCategory);
-
-  // Group locations by category
-  const groupedLocations: Record<string, Location[]> = {
-    workshop: [],
-    storage: [],
-    external: [],
-  };
-
-  filteredLocations.forEach((location) => {
-    groupedLocations[location.category].push(location);
+  const queryClient = useQueryClient();
+  const [isOpen, setIsOpen] = useState(false);
+  const [name, setName] = useState('');
+  const create = useMutation({
+    mutationFn: (newName: string) => createLocation({ name: newName, kind: 'other' }),
+    onSuccess: async (created) => {
+      await queryClient.invalidateQueries({ queryKey: queryKeys.locations.all });
+      setName('');
+      setIsOpen(false);
+      onCreated(created);
+    },
+    onError: (err) => logError('LocationPicker.quickAdd', err),
   });
 
-  const handleLocationSelect = (locationId: string) => {
-    onSelectLocation(locationId);
+  if (!isOpen) {
+    return (
+      <Button variant="ghost" icon="plus" onClick={() => setIsOpen(true)}>
+        Standort hinzufügen
+      </Button>
+    );
+  }
+  const trimmed = name.trim();
+  return (
+    <div className="location-picker__add">
+      <Field
+        label="Neuer Standort"
+        name="new_location"
+        error={create.isError ? getErrorMessage(create.error, 'Standort konnte nicht angelegt werden.') : undefined}
+      >
+        <input
+          type="text"
+          value={name}
+          maxLength={50}
+          onChange={(e) => setName(e.target.value)}
+        />
+      </Field>
+      <div className="location-picker__add-actions">
+        <Button
+          variant="secondary"
+          onClick={() => {
+            setIsOpen(false);
+            setName('');
+          }}
+        >
+          Abbrechen
+        </Button>
+        <Button
+          disabled={!trimmed}
+          loading={create.isPending}
+          onClick={() => create.mutate(trimmed)}
+        >
+          Standort speichern
+        </Button>
+      </div>
+    </div>
+  );
+};
+
+export const LocationPicker: React.FC<LocationPickerProps> = ({
+  value,
+  currentName,
+  onChange,
+  id = 'location_id',
+  label = 'Standort',
+  help,
+  error,
+  disabled = false,
+}) => {
+  // Optional: the picker also renders in forms tested without an AuthProvider.
+  const isAdmin = useOptionalAuth()?.isAdmin ?? false;
+  const locations = useQuery(activeLocationsQuery());
+  const options = locations.data ?? [];
+  const isKnown = value !== null && options.some((loc) => loc.id === value);
+  const hasStored = !isKnown && (value !== null || Boolean(currentName?.trim()));
+  const selected = isKnown ? String(value) : hasStored ? STORED : NONE;
+
+  const handleChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const next = e.target.value;
+    if (next === STORED) return;
+    onChange(next === NONE ? null : options.find((loc) => String(loc.id) === next) ?? null);
   };
+
+  const loadError = locations.isError
+    ? getErrorMessage(locations.error, 'Standorte konnten nicht geladen werden.')
+    : undefined;
 
   return (
     <div className="location-picker">
-      <div className="location-picker-header">
-        <h2>Lagerort wählen</h2>
-        {onCancel && (
-          <button onClick={onCancel} className="location-close-button">
-            ✕
-          </button>
-        )}
-      </div>
-
-      {/* Category Filters */}
-      <div className="location-category-filters">
-        <button
-          onClick={() => setSelectedCategory('all')}
-          className={`location-category-filter ${selectedCategory === 'all' ? 'active' : ''}`}
-        >
-          Alle
-        </button>
-        <button
-          onClick={() => setSelectedCategory('workshop')}
-          className={`location-category-filter ${selectedCategory === 'workshop' ? 'active' : ''}`}
-        >
-          🔨 Werkstatt
-        </button>
-        <button
-          onClick={() => setSelectedCategory('storage')}
-          className={`location-category-filter ${selectedCategory === 'storage' ? 'active' : ''}`}
-        >
-          📦 Lager
-        </button>
-        <button
-          onClick={() => setSelectedCategory('external')}
-          className={`location-category-filter ${selectedCategory === 'external' ? 'active' : ''}`}
-        >
-          🌍 Extern
-        </button>
-      </div>
-
-      {/* Locations Grid */}
-      <div className="locations-list">
-        {(Object.keys(groupedLocations) as Array<keyof typeof groupedLocations>).map(
-          (category) => {
-            const categoryLocations = groupedLocations[category];
-
-            if (categoryLocations.length === 0) return null;
-
-            return (
-              <div key={category} className="location-category-section">
-                <h3 className="location-category-header">
-                  {CATEGORY_LABELS[category as keyof typeof CATEGORY_LABELS]}
-                </h3>
-                <div className="location-grid">
-                  {categoryLocations.map((location) => {
-                    const isSelected = currentLocation === location.id;
-                    const categoryClass = `location-card-${category}`;
-
-                    return (
-                      <button
-                        key={location.id}
-                        onClick={() => handleLocationSelect(location.id)}
-                        className={`location-card ${categoryClass} ${isSelected ? 'selected' : ''}`}
-                      >
-                        <div className="location-card-icon">{location.icon}</div>
-                        <div className="location-card-name">{location.name}</div>
-                        {isSelected && (
-                          <div className="location-selected-badge">✓ Aktuell</div>
-                        )}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            );
-          }
-        )}
-      </div>
-
-      {filteredLocations.length === 0 && (
-        <div className="location-picker-empty">
-          Keine Lagerorte in dieser Kategorie gefunden.
-        </div>
-      )}
+      <Field label={label} name="location_id" help={help} error={error ?? loadError}>
+        <select id={id} value={selected} onChange={handleChange} disabled={disabled}>
+          <option value={NONE}>{locations.isPending ? 'Wird geladen…' : 'Kein Standort'}</option>
+          {hasStored && <option value={STORED}>{storedLabel(currentName, value)}</option>}
+          {options.map((loc) => (
+            <option key={loc.id} value={loc.id}>
+              {loc.name}
+            </option>
+          ))}
+        </select>
+      </Field>
+      {isAdmin && !disabled && <QuickAdd onCreated={(created) => onChange(created)} />}
     </div>
   );
 };

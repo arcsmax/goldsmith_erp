@@ -162,6 +162,14 @@ export const handlers = [
   // Media assets (ARCH phase 4): the photo tab reads customer_visible flags.
   http.get(`${API_BASE}/media`, () => HttpResponse.json([])),
 
+  // W8 Standorte: the dropdown's active locations.
+  http.get(`${API_BASE}/locations`, () =>
+    HttpResponse.json([
+      { id: 1, name: 'Werkbank 1', kind: 'bench', is_active: true, sort_order: 10, created_at: '2026-09-25T10:00:00Z' },
+      { id: 2, name: 'Tresor', kind: 'safe', is_active: true, sort_order: 20, created_at: '2026-09-25T10:00:00Z' },
+    ]),
+  ),
+
   http.get(`${API_BASE}/activities/`, ({ request }) => {
     const url = new URL(request.url);
     const category = url.searchParams.get('category');
