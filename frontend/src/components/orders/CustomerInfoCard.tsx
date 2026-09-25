@@ -8,7 +8,8 @@ interface Customer {
   first_name: string;
   last_name: string;
   company_name?: string | null;
-  email: string;
+  /** W2-10: phone-only customers have no e-mail address. */
+  email: string | null;
   phone?: string | null;
   mobile?: string | null;
   street?: string | null;

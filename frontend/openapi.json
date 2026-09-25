@@ -9100,7 +9100,7 @@
           "invoices"
         ],
         "summary": "Cancel Invoice",
-        "description": "Rechnung stornieren (Cancel/void an invoice).\n\nSets status to CANCELLED. PAID invoices cannot be cancelled —\na credit note process is required.\n\nRequires INVOICE_DELETE permission (ADMIN only).",
+        "description": "Rechnung stornieren (Cancel an invoice).\n\nDRAFT: voided (status CANCELLED, no document was issued). SENT/OVERDUE:\na Stornorechnung is emitted (W2-04); the response is the original with\n``cancelled_by_invoice_id``. PAID: 422, use ``POST /{id}/storno``.\n\nRequires INVOICE_DELETE permission (ADMIN only).",
         "operationId": "cancel_invoice_api_v1_invoices__invoice_id__cancel_post",
         "security": [
           {
@@ -9136,6 +9136,87 @@
         ],
         "responses": {
           "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvoiceResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/invoices/{invoice_id}/storno": {
+      "post": {
+        "tags": [
+          "invoices"
+        ],
+        "summary": "Create Storno Invoice",
+        "description": "Stornorechnung erstellen (W2-04, DOM-24b).\n\nReverses an issued invoice (SENT, OVERDUE or PAID) with a negative\ninvoice that has its own number and links to the original; the\noriginal is not edited, only set to CANCELLED. Returns the Storno.\n\nRequires INVOICE_DELETE permission (ADMIN only).",
+        "operationId": "create_storno_invoice_api_v1_invoices__invoice_id__storno_post",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "invoice_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Invoice Id"
+            }
+          },
+          {
+            "name": "access_token",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Access Token"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/StornoRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Request"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
             "description": "Successful Response",
             "content": {
               "application/json": {
@@ -16472,6 +16553,124 @@
         }
       }
     },
+    "/api/v1/admin/workshop-settings": {
+      "get": {
+        "tags": [
+          "admin-workshop"
+        ],
+        "summary": "Get Workshop Settings",
+        "description": "Werkstatt-Stammdaten lesen (nur ADMIN).",
+        "operationId": "get_workshop_settings_api_v1_admin_workshop_settings_get",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "access_token",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Access Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkshopSettingsRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "admin-workshop"
+        ],
+        "summary": "Update Workshop Settings",
+        "description": "Werkstatt-Stammdaten speichern (nur ADMIN).",
+        "operationId": "update_workshop_settings_api_v1_admin_workshop_settings_put",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "access_token",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Access Token"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WorkshopSettingsUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkshopSettingsRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/admin/scan-metrics": {
       "get": {
         "tags": [
@@ -21262,10 +21461,17 @@
             "title": "Company Name"
           },
           "email": {
-            "type": "string",
-            "format": "email",
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "email"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Email",
-            "description": "Customer email address"
+            "description": "Customer email address (optional, W2-10)"
           },
           "phone": {
             "anyOf": [
@@ -21461,11 +21667,10 @@
         "type": "object",
         "required": [
           "first_name",
-          "last_name",
-          "email"
+          "last_name"
         ],
         "title": "CustomerCreate",
-        "description": "Schema for creating a new customer"
+        "description": "Schema for creating a new customer.\n\nW2-10: email is optional, but at least one of email / phone / mobile\nmust be given (walk-in customers often only leave a phone number)."
       },
       "CustomerGdprExportCustomer": {
         "properties": {
@@ -21493,7 +21698,14 @@
             "title": "Company Name"
           },
           "email": {
-            "type": "string",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Email"
           },
           "phone": {
@@ -21683,7 +21895,6 @@
           "id",
           "first_name",
           "last_name",
-          "email",
           "customer_type",
           "is_active"
         ],
@@ -21868,7 +22079,14 @@
             "title": "Company Name"
           },
           "email": {
-            "type": "string",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Email"
           },
           "phone": {
@@ -21904,7 +22122,6 @@
           "first_name",
           "last_name",
           "company_name",
-          "email",
           "phone",
           "customer_type",
           "tags",
@@ -22072,10 +22289,17 @@
             "title": "Company Name"
           },
           "email": {
-            "type": "string",
-            "format": "email",
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "email"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Email",
-            "description": "Customer email address"
+            "description": "Customer email address (optional, W2-10)"
           },
           "phone": {
             "anyOf": [
@@ -22277,7 +22501,6 @@
         "required": [
           "first_name",
           "last_name",
-          "email",
           "id",
           "is_active",
           "created_at",
@@ -22301,7 +22524,14 @@
             "title": "Last Name"
           },
           "email": {
-            "type": "string",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Email"
           },
           "phone": {
@@ -22320,8 +22550,7 @@
         "required": [
           "id",
           "first_name",
-          "last_name",
-          "email"
+          "last_name"
         ],
         "title": "CustomerSummary",
         "description": "Minimal customer info embedded in repair responses."
@@ -24285,12 +24514,31 @@
             "description": "Payment due date (Faelligkeitsdatum); normalised to UTC"
           },
           "tax_rate": {
-            "type": "number",
-            "maximum": 100.0,
-            "minimum": 0.0,
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 100.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Tax Rate",
-            "description": "VAT rate in percent (MwSt-Satz, default 19%)",
-            "default": 19.0
+            "description": "VAT rate in percent (MwSt-Satz). Omitted: the workshop default (Werkstatt-Stammdaten, 19 % unless changed). Always 0 for a Kleinunternehmer (§19 UStG)."
+          },
+          "service_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Service Date",
+            "description": "Leistungsdatum (§14 Abs. 4 Nr. 6 UStG). Omitted: the order's completion date, else the invoice date."
           },
           "notes": {
             "anyOf": [
@@ -24598,6 +24846,17 @@
             ],
             "title": "Paid Date"
           },
+          "cancels_invoice_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cancels Invoice Id"
+          },
           "total": {
             "type": "number",
             "title": "Total"
@@ -24718,6 +24977,43 @@
               }
             ],
             "title": "Paid Date"
+          },
+          "service_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Service Date",
+            "description": "Leistungsdatum (§14 Abs. 4 Nr. 6 UStG)"
+          },
+          "cancels_invoice_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cancels Invoice Id",
+            "description": "Set on a Stornorechnung: the invoice it cancels (W2-04)"
+          },
+          "cancelled_by_invoice_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cancelled By Invoice Id",
+            "description": "Set on a cancelled invoice: its Stornorechnung (W2-04)"
           },
           "subtotal": {
             "type": "number",
@@ -32652,6 +32948,27 @@
         "title": "StockValueResponse",
         "description": "Response für Gesamtbestandswert."
       },
+      "StornoRequest": {
+        "properties": {
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 500
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason",
+            "description": "Grund der Stornierung (Stornogrund)"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "StornoRequest",
+        "description": "Request body for POST /invoices/{id}/storno (W2-04, DOM-24b)."
+      },
       "StyleProfileRead": {
         "properties": {
           "metal_tones": {
@@ -34705,6 +35022,385 @@
         ],
         "title": "WorkItem",
         "description": "An order or repair with a due date (overdue and due-soon lanes)."
+      },
+      "WorkshopSettingsRead": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "owner_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Owner Name"
+          },
+          "street": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Street"
+          },
+          "postal_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Postal Code"
+          },
+          "city": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "City"
+          },
+          "country": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Country"
+          },
+          "phone": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Phone"
+          },
+          "email": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Email"
+          },
+          "tax_number": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tax Number"
+          },
+          "vat_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vat Id"
+          },
+          "iban": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Iban"
+          },
+          "bic": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bic"
+          },
+          "bank_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bank Name"
+          },
+          "is_kleinunternehmer": {
+            "type": "boolean",
+            "title": "Is Kleinunternehmer",
+            "default": false
+          },
+          "default_vat_rate": {
+            "type": "number",
+            "title": "Default Vat Rate",
+            "default": 19.0
+          },
+          "invoice_footer": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Invoice Footer"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          },
+          "missing_fields": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Missing Fields"
+          },
+          "is_complete": {
+            "type": "boolean",
+            "title": "Is Complete",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "title": "WorkshopSettingsRead",
+        "description": "Current settings plus the §14 completeness check."
+      },
+      "WorkshopSettingsUpdate": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Name"
+          },
+          "owner_name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Owner Name"
+          },
+          "street": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Street"
+          },
+          "postal_code": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 20
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Postal Code"
+          },
+          "city": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 100
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "City"
+          },
+          "country": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 100
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Country",
+            "default": "Deutschland"
+          },
+          "phone": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 50
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Phone"
+          },
+          "email": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "email"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Email"
+          },
+          "tax_number": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 50
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tax Number",
+            "description": "Steuernummer"
+          },
+          "vat_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 20
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vat Id",
+            "description": "USt-IdNr."
+          },
+          "iban": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 42
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Iban"
+          },
+          "bic": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 11
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bic"
+          },
+          "bank_name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 100
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bank Name"
+          },
+          "is_kleinunternehmer": {
+            "type": "boolean",
+            "title": "Is Kleinunternehmer",
+            "default": false
+          },
+          "default_vat_rate": {
+            "type": "number",
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Default Vat Rate",
+            "default": 19.0
+          },
+          "invoice_footer": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 1000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Invoice Footer"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "title": "WorkshopSettingsUpdate",
+        "description": "Full replacement of the settings (PUT). Unknown fields are rejected."
       },
       "WorkshopStats": {
         "properties": {

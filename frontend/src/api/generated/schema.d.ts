@@ -284,6 +284,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/workshop-settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Workshop Settings
+         * @description Werkstatt-Stammdaten lesen (nur ADMIN).
+         */
+        get: operations["get_workshop_settings_api_v1_admin_workshop_settings_get"];
+        /**
+         * Update Workshop Settings
+         * @description Werkstatt-Stammdaten speichern (nur ADMIN).
+         */
+        put: operations["update_workshop_settings_api_v1_admin_workshop_settings_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/analytics/goldsmith-accuracy/{user_id}": {
         parameters: {
             query?: never;
@@ -1428,10 +1452,11 @@ export interface paths {
         put?: never;
         /**
          * Cancel Invoice
-         * @description Rechnung stornieren (Cancel/void an invoice).
+         * @description Rechnung stornieren (Cancel an invoice).
          *
-         *     Sets status to CANCELLED. PAID invoices cannot be cancelled —
-         *     a credit note process is required.
+         *     DRAFT: voided (status CANCELLED, no document was issued). SENT/OVERDUE:
+         *     a Stornorechnung is emitted (W2-04); the response is the original with
+         *     ``cancelled_by_invoice_id``. PAID: 422, use ``POST /{id}/storno``.
          *
          *     Requires INVOICE_DELETE permission (ADMIN only).
          */
@@ -1516,6 +1541,32 @@ export interface paths {
          *     Only DRAFT invoices can be sent; any other status returns 409.
          */
         post: operations["send_invoice_api_v1_invoices__invoice_id__send_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/invoices/{invoice_id}/storno": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create Storno Invoice
+         * @description Stornorechnung erstellen (W2-04, DOM-24b).
+         *
+         *     Reverses an issued invoice (SENT, OVERDUE or PAID) with a negative
+         *     invoice that has its own number and links to the original; the
+         *     original is not edited, only set to CANCELLED. Returns the Storno.
+         *
+         *     Requires INVOICE_DELETE permission (ADMIN only).
+         */
+        post: operations["create_storno_invoice_api_v1_invoices__invoice_id__storno_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -6350,7 +6401,10 @@ export interface components {
         CostingMethod: "fifo" | "lifo" | "average" | "specific";
         /**
          * CustomerCreate
-         * @description Schema for creating a new customer
+         * @description Schema for creating a new customer.
+         *
+         *     W2-10: email is optional, but at least one of email / phone / mobile
+         *     must be given (walk-in customers often only leave a phone number).
          */
         CustomerCreate: {
             /**
@@ -6387,10 +6441,9 @@ export interface components {
             customer_type: string;
             /**
              * Email
-             * Format: email
-             * @description Customer email address
+             * @description Customer email address (optional, W2-10)
              */
-            email: string;
+            email?: string | null;
             /** First Name */
             first_name: string;
             /** Last Name */
@@ -6449,7 +6502,7 @@ export interface components {
             /** Customer Type */
             customer_type: string;
             /** Email */
-            email: string;
+            email?: string | null;
             /** First Name */
             first_name: string;
             /** Id */
@@ -6545,7 +6598,7 @@ export interface components {
             /** Customer Type */
             customer_type: string;
             /** Email */
-            email: string;
+            email?: string | null;
             /** First Name */
             first_name: string;
             /** Id */
@@ -6668,10 +6721,9 @@ export interface components {
             customer_type: string;
             /**
              * Email
-             * Format: email
-             * @description Customer email address
+             * @description Customer email address (optional, W2-10)
              */
-            email: string;
+            email?: string | null;
             /** First Name */
             first_name: string;
             /** Id */
@@ -6721,7 +6773,7 @@ export interface components {
          */
         CustomerSummary: {
             /** Email */
-            email: string;
+            email?: string | null;
             /** First Name */
             first_name: string;
             /** Id */
@@ -7634,11 +7686,15 @@ export interface components {
              */
             payment_method?: string | null;
             /**
-             * Tax Rate
-             * @description VAT rate in percent (MwSt-Satz, default 19%)
-             * @default 19
+             * Service Date
+             * @description Leistungsdatum (§14 Abs. 4 Nr. 6 UStG). Omitted: the order's completion date, else the invoice date.
              */
-            tax_rate: number;
+            service_date?: string | null;
+            /**
+             * Tax Rate
+             * @description VAT rate in percent (MwSt-Satz). Omitted: the workshop default (Werkstatt-Stammdaten, 19 % unless changed). Always 0 for a Kleinunternehmer (§19 UStG).
+             */
+            tax_rate?: number | null;
         };
         /** InvoiceExport */
         InvoiceExport: {
@@ -7726,6 +7782,8 @@ export interface components {
         InvoiceListItem: {
             /** Amount Due */
             amount_due?: number | null;
+            /** Cancels Invoice Id */
+            cancels_invoice_id?: number | null;
             /**
              * Created At
              * Format: date-time
@@ -7785,6 +7843,16 @@ export interface components {
              */
             amount_due?: number | null;
             /**
+             * Cancelled By Invoice Id
+             * @description Set on a cancelled invoice: its Stornorechnung (W2-04)
+             */
+            cancelled_by_invoice_id?: number | null;
+            /**
+             * Cancels Invoice Id
+             * @description Set on a Stornorechnung: the invoice it cancels (W2-04)
+             */
+            cancels_invoice_id?: number | null;
+            /**
              * Created At
              * Format: date-time
              */
@@ -7829,6 +7897,11 @@ export interface components {
              * @default 0
              */
             scrap_gold_credit: number;
+            /**
+             * Service Date
+             * @description Leistungsdatum (§14 Abs. 4 Nr. 6 UStG)
+             */
+            service_date?: string | null;
             status: components["schemas"]["InvoiceStatus"];
             /**
              * Subtotal
@@ -11018,6 +11091,17 @@ export interface components {
             /** Total Value */
             total_value: number;
         };
+        /**
+         * StornoRequest
+         * @description Request body for POST /invoices/{id}/storno (W2-04, DOM-24b).
+         */
+        StornoRequest: {
+            /**
+             * Reason
+             * @description Grund der Stornierung (Stornogrund)
+             */
+            reason?: string | null;
+        };
         /** StyleProfileRead */
         StyleProfileRead: {
             /**
@@ -11917,6 +12001,112 @@ export interface components {
             title: string;
         };
         /**
+         * WorkshopSettingsRead
+         * @description Current settings plus the §14 completeness check.
+         */
+        WorkshopSettingsRead: {
+            /** Bank Name */
+            bank_name?: string | null;
+            /** Bic */
+            bic?: string | null;
+            /** City */
+            city?: string | null;
+            /** Country */
+            country?: string | null;
+            /**
+             * Default Vat Rate
+             * @default 19
+             */
+            default_vat_rate: number;
+            /** Email */
+            email?: string | null;
+            /** Iban */
+            iban?: string | null;
+            /** Invoice Footer */
+            invoice_footer?: string | null;
+            /**
+             * Is Complete
+             * @default false
+             */
+            is_complete: boolean;
+            /**
+             * Is Kleinunternehmer
+             * @default false
+             */
+            is_kleinunternehmer: boolean;
+            /** Missing Fields */
+            missing_fields?: string[];
+            /** Name */
+            name: string;
+            /** Owner Name */
+            owner_name?: string | null;
+            /** Phone */
+            phone?: string | null;
+            /** Postal Code */
+            postal_code?: string | null;
+            /** Street */
+            street?: string | null;
+            /** Tax Number */
+            tax_number?: string | null;
+            /** Updated At */
+            updated_at?: string | null;
+            /** Vat Id */
+            vat_id?: string | null;
+        };
+        /**
+         * WorkshopSettingsUpdate
+         * @description Full replacement of the settings (PUT). Unknown fields are rejected.
+         */
+        WorkshopSettingsUpdate: {
+            /** Bank Name */
+            bank_name?: string | null;
+            /** Bic */
+            bic?: string | null;
+            /** City */
+            city?: string | null;
+            /**
+             * Country
+             * @default Deutschland
+             */
+            country: string | null;
+            /**
+             * Default Vat Rate
+             * @default 19
+             */
+            default_vat_rate: number;
+            /** Email */
+            email?: string | null;
+            /** Iban */
+            iban?: string | null;
+            /** Invoice Footer */
+            invoice_footer?: string | null;
+            /**
+             * Is Kleinunternehmer
+             * @default false
+             */
+            is_kleinunternehmer: boolean;
+            /** Name */
+            name: string;
+            /** Owner Name */
+            owner_name?: string | null;
+            /** Phone */
+            phone?: string | null;
+            /** Postal Code */
+            postal_code?: string | null;
+            /** Street */
+            street?: string | null;
+            /**
+             * Tax Number
+             * @description Steuernummer
+             */
+            tax_number?: string | null;
+            /**
+             * Vat Id
+             * @description USt-IdNr.
+             */
+            vat_id?: string | null;
+        };
+        /**
          * WorkshopStats
          * @description Soll/Ist-Statistiken fuer die gesamte Werkstatt in einem Zeitraum.
          *
@@ -12479,6 +12669,72 @@ export interface operations {
                     "application/json": {
                         [key: string]: string;
                     };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_workshop_settings_api_v1_admin_workshop_settings_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkshopSettingsRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_workshop_settings_api_v1_admin_workshop_settings_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WorkshopSettingsUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkshopSettingsRead"];
                 };
             };
             /** @description Validation Error */
@@ -14550,6 +14806,43 @@ export interface operations {
         responses: {
             /** @description Successful Response */
             200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InvoiceResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_storno_invoice_api_v1_invoices__invoice_id__storno_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                invoice_id: number;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["StornoRequest"] | null;
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
                 headers: {
                     [name: string]: unknown;
                 };
