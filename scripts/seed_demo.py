@@ -3205,7 +3205,18 @@ async def seed_order_photos(db, orders, time_entries, users) -> list:
 
 
 async def seed_repair_photos(db, repairs, users) -> list:
-    """Create intake / completed photos for the first few repair jobs."""
+    """Create intake / completed photos for the first few repair jobs.
+
+    LV3-03: this used to write ``RepairPhoto`` rows pointing at
+    ``/uploads/repairs/demo_repair_*.jpg`` files that were never created, so
+    ``/repairs/photos/<id>/thumbnail`` 404'd for every demo repair photo (the
+    same class of bug as LV-16 for order photos). Reuses the exact same
+    real-file pipeline ``seed_order_photos`` uses above
+    (``store_processed_original`` / ``create_thumbnail_bounded``), writing
+    into the legacy ``{PHOTO_STORAGE_PATH}/repairs/{repair_id}/{uuid}.jpg``
+    layout that ``RepairPhotoService.get_photo_path`` already supports (see
+    that module's docstring).
+    """
     if not repairs or not users:
         return []
     if await db.scalar(select(RepairPhoto.id).limit(1)) is not None:
@@ -3213,18 +3224,35 @@ async def seed_repair_photos(db, repairs, users) -> list:
         return []
 
     goldsmith = users[0]
+    storage_root = Path(settings.PHOTO_STORAGE_PATH).resolve()
+
     photos = []
     for idx, repair in enumerate(repairs[:4]):
         for phase in (RepairPhotoPhase.INTAKE, RepairPhotoPhase.COMPLETED):
+            file_uuid = _uuid()
+            repair_dir = storage_root / "repairs" / str(repair.id)
+            photo_path = repair_dir / f"{file_uuid}.jpg"
+            thumb_path = repair_dir / "thumbs" / f"{file_uuid}.jpg"
+
+            raw = _demo_photo_jpeg_bytes(
+                _DEMO_PHOTO_COLORS[idx % len(_DEMO_PHOTO_COLORS)]
+            )
+            await store_processed_original(raw, "jpg", photo_path)
+            try:
+                await create_thumbnail_bounded(photo_path, thumb_path)
+            except Exception:
+                logger.warning(
+                    "Demo-Thumbnail-Erstellung fehlgeschlagen — Foto bleibt gespeichert",
+                    extra={"photo_path": str(photo_path)},
+                    exc_info=True,
+                )
+
             payload = _seed_helpers.filter_model_fields(
                 RepairPhoto,
                 dict(
                     repair_job_id=repair.id,
                     phase=phase,
-                    file_path=(
-                        f"/uploads/repairs/demo_repair_{repair.id}_"
-                        f"{phase.value}.jpg"
-                    ),
+                    file_path=str(photo_path),
                     taken_by=goldsmith.id,
                     notes=f"Demo-Foto ({phase.value}).",
                     timestamp=_days_ago(20 - idx),
