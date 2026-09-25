@@ -9,10 +9,11 @@
 // / file / thumbnail endpoints are also individually gated (403), so the
 // Fotos tab must never be reachable — and never fetched — for that role.
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import type { RepairJob } from '../types';
+import { renderWithQuery } from '../test/queryWrapper';
 
 const mockGetById = vi.fn();
 vi.mock('../api/repairs', () => ({
@@ -64,12 +65,13 @@ function makeRepair(overrides: Partial<RepairJob> = {}): RepairJob {
 }
 
 function renderPage() {
-  return render(
+  return renderWithQuery(
     <MemoryRouter initialEntries={['/repairs/1']}>
       <Routes>
         <Route path="/repairs/:id" element={<RepairDetailPage />} />
       </Routes>
-    </MemoryRouter>
+    </MemoryRouter>,
+    { route: null },
   );
 }
 

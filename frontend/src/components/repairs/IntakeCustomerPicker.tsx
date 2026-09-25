@@ -7,6 +7,7 @@ import axios from 'axios';
 import { customersApi } from '../../api/customers';
 import type { CustomerListItem } from '../../types';
 import { logError } from '../../lib/logError';
+import { Button, Field, Icon } from '../../ui';
 import { CustomerTypeahead } from '../consultation/CustomerTypeahead';
 
 export interface PickedCustomer {
@@ -67,37 +68,29 @@ const QuickCreate: React.FC<{ onCreated: (c: PickedCustomer) => void; onCancel: 
   return (
     <div className="intake-quick-create">
       <div className="intake-field-row">
-        <label className="intake-field">
-          <span>Vorname</span>
+        <Field label="Vorname" name="intake-first-name">
           <input value={firstName} onChange={(e) => setFirstName(e.target.value)} autoComplete="off" />
-        </label>
-        <label className="intake-field">
-          <span>Nachname</span>
+        </Field>
+        <Field label="Nachname" name="intake-last-name">
           <input value={lastName} onChange={(e) => setLastName(e.target.value)} autoComplete="off" />
-        </label>
-        <label className="intake-field">
-          <span>Telefon</span>
-          <input
-            type="tel"
-            inputMode="tel"
-            value={phone}
-            onChange={(e) => setPhone(e.target.value)}
-            autoComplete="off"
-          />
-        </label>
+        </Field>
+        <Field label="Telefon" name="intake-phone" inputMode="tel">
+          <input type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} autoComplete="off" />
+        </Field>
       </div>
       {error && (
-        <p className="intake-error" role="alert">
-          {error}
+        <p className="ui-field__error" role="alert">
+          <Icon name="alert-triangle" />
+          <span>{error}</span>
         </p>
       )}
       <div className="intake-actions">
-        <button type="button" className="btn-secondary" onClick={onCancel} disabled={isSaving}>
+        <Button variant="secondary" onClick={onCancel} disabled={isSaving}>
           Abbrechen
-        </button>
-        <button type="button" className="btn-primary" onClick={handleCreate} disabled={isSaving}>
-          {isSaving ? 'Wird angelegt…' : 'Kunde anlegen'}
-        </button>
+        </Button>
+        <Button onClick={handleCreate} loading={isSaving}>
+          Kunde anlegen
+        </Button>
       </div>
     </div>
   );
@@ -118,9 +111,9 @@ export const IntakeCustomerPicker: React.FC<IntakeCustomerPickerProps> = ({
           {customer.first_name} {customer.last_name}
         </p>
         {customer.phone && <p className="intake-customer-card__meta">{customer.phone}</p>}
-        <button type="button" className="btn-secondary" onClick={() => onChange(null)}>
+        <Button variant="secondary" onClick={() => onChange(null)}>
           Andere Kundin oder anderen Kunden wählen
-        </button>
+        </Button>
       </div>
     );
   }
@@ -139,8 +132,8 @@ export const IntakeCustomerPicker: React.FC<IntakeCustomerPickerProps> = ({
 
   return (
     <div className="intake-customer-search">
-      <label className="intake-field" htmlFor="intake-customer-search">
-        <span>Kundin oder Kunde suchen</span>
+      <label className="ui-field__label" htmlFor="intake-customer-search">
+        Kundin oder Kunde suchen
       </label>
       <div className="intake-customer-search__row">
         <CustomerTypeahead
@@ -148,13 +141,14 @@ export const IntakeCustomerPicker: React.FC<IntakeCustomerPickerProps> = ({
           onSelect={(c: CustomerListItem) => onChange(c)}
           onError={onSearchError}
         />
-        <button type="button" className="btn-secondary" onClick={() => setIsCreating(true)}>
+        <Button variant="secondary" icon="plus" onClick={() => setIsCreating(true)}>
           Neuer Kunde
-        </button>
+        </Button>
       </div>
       {error && (
-        <p className="intake-error" role="alert" id="intake-customer-error">
-          {error}
+        <p className="ui-field__error" role="alert" id="intake-customer-error">
+          <Icon name="alert-triangle" />
+          <span>{error}</span>
         </p>
       )}
     </div>

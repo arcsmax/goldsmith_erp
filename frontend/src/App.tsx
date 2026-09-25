@@ -36,6 +36,7 @@ const ScanAdoptionDashboard = lazy(() => import('./pages/admin/ScanAdoptionDashb
 const CustomerDetailPage = lazy(() => import('./pages/CustomerDetailPage').then(m => ({ default: m.CustomerDetailPage })));
 const RepairsPage = lazy(() => import('./pages/RepairsPage').then(m => ({ default: m.RepairsPage })));
 const RepairDetailPage = lazy(() => import('./pages/RepairDetailPage').then(m => ({ default: m.RepairDetailPage })));
+const WorkshopBoardPage = lazy(() => import('./pages/WorkshopBoardPage').then(m => ({ default: m.WorkshopBoardPage })));
 const CustomerPortalPage = lazy(() => import('./pages/CustomerPortalPage').then(m => ({ default: m.CustomerPortalPage })));
 const UserSettingsPage = lazy(() => import('./pages/UserSettingsPage').then(m => ({ default: m.UserSettingsPage })));
 const ConsultationWizardPage = lazy(() =>
@@ -211,6 +212,8 @@ const StaffApp: React.FC = () => (
           }
         />
 
+        {/* Werkstatt-Board über Aufträge und Reparaturen (W6, jobs spine) */}
+        <Route path="werkstatt" element={<WorkshopBoardPage />} />
         <Route path="time-tracking" element={<TimeTrackingPage />} />
 
         {/* Benutzerverwaltung — nur ADMIN */}

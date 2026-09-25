@@ -367,6 +367,15 @@ async def start_background_tasks() -> None:
 
 
 @app.on_event("startup")
+async def backfill_jobs_on_startup() -> None:
+    """Give orders/repairs without a job one (JOBS_BACKFILL_ON_STARTUP)."""
+    from goldsmith_erp.db.session import AsyncSessionLocal
+    from goldsmith_erp.services.job_service import JobService
+
+    await JobService.backfill_on_startup(AsyncSessionLocal)
+
+
+@app.on_event("startup")
 async def _verify_encryption_health() -> None:
     """Fail-loud check on the encryption pipeline (C4 / GDPR Art. 32).
 

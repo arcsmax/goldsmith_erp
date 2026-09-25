@@ -1,4 +1,4 @@
-// Counter intake (W2-12): options, validation and payload building, kept
+// Counter intake (W2-12): options, parsing and payload building, kept
 // free of React so the rules are easy to read and test.
 import type { RepairIntakeInput } from '../../api/repairs';
 import type { RepairItemType } from '../../types';
@@ -63,7 +63,7 @@ export interface IntakeForm {
   promisedDate: string; // yyyy-mm-dd from <input type="date">, or ''
 }
 
-export type IntakeErrors = Partial<Record<'customer' | 'description' | 'price', string>>;
+// Validation lives in repairSchemas.ts (intakeSchema, zod + react-hook-form).
 
 export const EMPTY_INTAKE: IntakeForm = {
   customerId: null,
@@ -106,16 +106,6 @@ export function appendProblem(current: string, chip: string): string {
     .filter(Boolean);
   if (parts.includes(chip)) return current;
   return [...parts, chip].join(', ');
-}
-
-export function validateIntake(form: IntakeForm, withPrice: boolean): IntakeErrors {
-  const errors: IntakeErrors = {};
-  if (form.customerId === null) errors.customer = INTAKE_MESSAGES.customerMissing;
-  if (!form.description.trim()) errors.description = INTAKE_MESSAGES.descriptionMissing;
-  if (withPrice && Number.isNaN(parsePrice(form.price))) {
-    errors.price = INTAKE_MESSAGES.priceInvalid;
-  }
-  return errors;
 }
 
 /** The POST /repairs/ body. Empty optional fields are left out. */

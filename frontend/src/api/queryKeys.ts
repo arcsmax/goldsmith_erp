@@ -7,13 +7,14 @@
  * the list, the pages and the details of that domain. Realtime hints
  * invalidate by root (lib/realtimeInvalidation.ts):
  *
- *   order_updates          → orders, dashboard, handoffs, calendar
+ *   order_updates          → orders, dashboard, handoffs, calendar, jobs
  *   time_tracking_updates  → timer, dashboard
  *   notifications          → notifications, handoffs
  *
  * Never build a key inline in a component; add it here so invalidation
  * stays in sync.
  */
+import type { JobPageParams } from './jobs';
 import type { MaterialPageParams, OrderPageParams } from './paged';
 
 export interface CustomerListParams {
@@ -169,6 +170,11 @@ export const queryKeys = {
     purchaseList: () => [...queryKeys.materials.all, 'purchase-list'] as const,
     /** GET /materials/?limit=… (header search index). */
     list: (limit: number) => [...queryKeys.materials.all, 'list', { limit }] as const,
+  },
+  jobs: {
+    all: ['jobs'] as const,
+    /** GET /jobs/?offset=… (Page envelope; the Werkstatt board asks per status). */
+    page: (params: JobPageParams) => [...queryKeys.jobs.all, 'page', params] as const,
   },
   calendar: {
     all: ['calendar'] as const,
