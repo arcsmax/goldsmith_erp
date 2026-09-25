@@ -403,6 +403,7 @@ FodyWeavers.xsd
 frontend/dist/
 frontend/node_modules/
 frontend/.vite/
+frontend/coverage/
 
 # Environment variables - NEVER commit these!
 .env
