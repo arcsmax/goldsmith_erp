@@ -18,6 +18,7 @@ import { useAuth, useConfirm, useToast } from '../contexts';
 import { logError } from '../lib/logError';
 import { canViewDesign } from '../lib/roles';
 import { StatusBadge } from '../ui/StatusBadge';
+import { formatEur, MONEY_CLASS } from '../lib/format';
 import '../styles/repairs.css';
 
 // ─── helpers ────────────────────────────────────────────────────────────────
@@ -46,11 +47,6 @@ function formatDateShort(dateStr: string | null | undefined): string {
     month: '2-digit',
     year: 'numeric',
   });
-}
-
-function formatEur(amount: number | null | undefined): string {
-  if (amount == null) return '—';
-  return amount.toFixed(2) + ' EUR';
 }
 
 // ─── Status action buttons ───────────────────────────────────────────────────
@@ -285,7 +281,7 @@ function CompleteModal({ repairId, estimatedCost, onClose, onDone }: CompleteMod
             </p>
             {estimatedCost != null && (
               <p style={{ fontSize: '0.875rem', color: 'var(--color-text-muted)' }}>
-                Kostenvoranschlag: <strong>{estimatedCost.toFixed(2)} EUR</strong>
+                Kostenvoranschlag: <strong className={MONEY_CLASS}>{formatEur(estimatedCost)}</strong>
               </p>
             )}
             <div className="form-group">
@@ -549,11 +545,11 @@ function DiagnosisTab({ repair }: { repair: RepairJob }) {
       <div className="cost-comparison">
         <div className="cost-card">
           <div className="cost-card-label">Kostenvoranschlag</div>
-          <div className="cost-card-value">{formatEur(repair.estimated_cost)}</div>
+          <div className={`cost-card-value ${MONEY_CLASS}`}>{formatEur(repair.estimated_cost)}</div>
         </div>
         <div className="cost-card">
           <div className="cost-card-label">Tatsächliche Kosten</div>
-          <div className="cost-card-value">{formatEur(repair.actual_cost)}</div>
+          <div className={`cost-card-value ${MONEY_CLASS}`}>{formatEur(repair.actual_cost)}</div>
         </div>
       </div>
     </div>
@@ -585,7 +581,7 @@ function DetailsTab({ repair }: { repair: RepairJob }) {
         </div>
         <div className="repair-detail-field">
           <span className="repair-detail-field-label">Versicherungswert</span>
-          <span className="repair-detail-field-value">{formatEur(repair.estimated_value)}</span>
+          <span className={`repair-detail-field-value ${MONEY_CLASS}`}>{formatEur(repair.estimated_value)}</span>
         </div>
         <div className="repair-detail-field">
           <span className="repair-detail-field-label">Voraussichtliche Fertigstellung</span>

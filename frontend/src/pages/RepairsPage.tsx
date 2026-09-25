@@ -11,6 +11,7 @@ import type {
 } from '../types';
 import { REPAIR_STATUS, statusLabelsFor } from '../design/status';
 import { StatusBadge } from '../ui/StatusBadge';
+import { formatEur, MONEY_CLASS } from '../lib/format';
 import '../styles/repairs.css';
 
 // ─── helpers ────────────────────────────────────────────────────────────────
@@ -380,11 +381,7 @@ export function RepairsPage() {
                   >
                     {formatDate(r.estimated_completion_date)}
                   </td>
-                  <td>
-                    {r.estimated_cost != null
-                      ? `${r.estimated_cost.toFixed(2)} EUR`
-                      : '—'}
-                  </td>
+                  <td className={MONEY_CLASS}>{formatEur(r.estimated_cost)}</td>
                   <td>
                     <div className="repair-actions" onClick={e => e.stopPropagation()}>
                       <button

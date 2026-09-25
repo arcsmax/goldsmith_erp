@@ -10,6 +10,7 @@ import { logError } from '../lib/logError';
 import { OrderType, OrderCreateInput, OrderUpdateInput, OrderStatus } from '../types';
 import { ORDER_STATUS } from '../design/status';
 import { StatusBadge } from '../ui/StatusBadge';
+import { formatEur, MONEY_CLASS } from '../lib/format';
 
 // Valid order statuses accepted via the ?status=... URL parameter.
 // Anything outside this set is ignored to avoid arbitrary user input
@@ -176,9 +177,9 @@ export const OrdersPage: React.FC = () => {
 
   const handleDeleteOrder = async (orderId: number, orderTitle: string) => {
     const confirmed = await showConfirm({
-      title: 'Auftrag loschen',
-      message: `Mochten Sie den Auftrag "${orderTitle}" wirklich loschen?`,
-      confirmLabel: 'Loschen',
+      title: 'Auftrag löschen',
+      message: `Möchten Sie den Auftrag „${orderTitle}“ wirklich löschen?`,
+      confirmLabel: 'Löschen',
       variant: 'danger',
     });
 
@@ -187,9 +188,9 @@ export const OrdersPage: React.FC = () => {
     try {
       await ordersApi.delete(orderId);
       await fetchOrders();
-      showToast('Auftrag erfolgreich geloscht!', 'success');
+      showToast('Auftrag gelöscht', 'success');
     } catch (err: any) {
-      showToast(err.response?.data?.detail || 'Fehler beim Loschen des Auftrags', 'error');
+      showToast(err.response?.data?.detail || 'Fehler beim Löschen des Auftrags', 'error');
     }
   };
 
@@ -218,7 +219,7 @@ export const OrdersPage: React.FC = () => {
   };
 
   if (isLoading) {
-    return <div className="page-loading">Lade Aufträge...</div>;
+    return <div className="page-loading">Aufträge werden geladen…</div>;
   }
 
   if (error) {
@@ -239,8 +240,9 @@ export const OrdersPage: React.FC = () => {
       <header className="page-header">
         <div>
           <h1>Aufträge</h1>
-          <p style={{ color: '#666', margin: '0.5rem 0 0 0' }}>
-            {filteredOrders.length} Aufträge • Gesamtwert: {totalRevenue.toFixed(2)} €
+          <p className="orders-page-summary">
+            {filteredOrders.length} Aufträge • Gesamtwert:{' '}
+            <span className={MONEY_CLASS}>{formatEur(totalRevenue)}</span>
           </p>
         </div>
         <button className="btn-primary" onClick={openCreateModal}>
@@ -252,8 +254,10 @@ export const OrdersPage: React.FC = () => {
       <div className="orders-controls">
         <div className="search-box">
           <input
-            type="text"
-            placeholder="Suche nach Titel, Beschreibung oder ID..."
+            type="search"
+            className="orders-search-input"
+            aria-label="Aufträge durchsuchen"
+            placeholder="Titel, Beschreibung oder Nr. …"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
           />
@@ -278,7 +282,7 @@ export const OrdersPage: React.FC = () => {
           <label>Sortieren:</label>
           <select value={sortBy} onChange={(e) => setSortBy(e.target.value as any)}>
             <option value="created">Erstelldatum</option>
-            <option value="deadline">Deadline</option>
+            <option value="deadline">Frist</option>
             <option value="price">Preis</option>
           </select>
         </div>
@@ -309,17 +313,17 @@ export const OrdersPage: React.FC = () => {
         </div>
       ) : (
         <>
-          <div className="table-container">
+          <div className="table-container orders-table-container">
             <table className="orders-table">
               <thead>
                 <tr>
                   <th className="order-list-thumb-cell">Foto</th>
                   <th>ID</th>
                   <th>Titel</th>
-                  <th>Beschreibung</th>
+                  <th className="orders-col-description">Beschreibung</th>
                   <th>Status</th>
                   <th>Preis</th>
-                  <th>Deadline</th>
+                  <th>Frist</th>
                   <th>Erstellt</th>
                   <th>Aktionen</th>
                 </tr>
@@ -341,23 +345,27 @@ export const OrdersPage: React.FC = () => {
                     </td>
                     <td>#{order.id}</td>
                     <td>{order.title}</td>
-                    <td>{(order.description ?? '').substring(0, 50)}...</td>
+                    <td className="orders-col-description">
+                      <span className="orders-description-clamp">{order.description ?? ''}</span>
+                    </td>
                     <td>
                       <StatusBadge kind="order" status={order.status} />
                     </td>
-                    <td>
+                    <td className={MONEY_CLASS}>
                       {order.price ? (
-                        <span className="price-display">{order.price.toFixed(2)} €</span>
+                        <span className="price-display">{formatEur(order.price)}</span>
                       ) : (
                         <span className="price-calculated">Wird berechnet</span>
                       )}
                     </td>
-                    <td>
+                    <td className="orders-col-date">
                       {order.deadline
                         ? new Date(order.deadline).toLocaleDateString('de-DE')
-                        : '-'}
+                        : '—'}
                     </td>
-                    <td>{new Date(order.created_at).toLocaleDateString('de-DE')}</td>
+                    <td className="orders-col-date">
+                      {new Date(order.created_at).toLocaleDateString('de-DE')}
+                    </td>
                     <td>
                       <div className="orders-page-actions">
                         <button
