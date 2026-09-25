@@ -151,6 +151,28 @@ class CustomerUpdateRead(BaseModel):
         return v if v is not None else []
 
 
+class AttachStatusReportRequest(BaseModel):
+    """
+    Optional body of ``POST /updates/{id}/send``.
+
+    "Statusbericht anhängen" in the Kundeninfo composer (W6, DOM section D
+    Option 2): when true, the live Statusbericht PDF
+    (``status_report_service``) is generated fresh and attached to the
+    outgoing email, and the message is classified as
+    ``MessageKind.STATUS_REPORT`` (contractual basis) for the content-rule
+    and audit-log checks. Never persisted — there is no DB column for it
+    (see the model's docstring); a PDF-manual fallback caused by this same
+    send instead relies on the frontend calling the standalone
+    ``GET /orders/{id}/status-report.pdf`` / ``.../repairs/{id}/...``
+    endpoint directly, since the flag itself cannot be looked up later from
+    the stored CustomerUpdate row.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    attach_status_report: bool = False
+
+
 class MarkDeliveredRequest(BaseModel):
     """
     Schema for ``POST /updates/{id}/mark-delivered``.

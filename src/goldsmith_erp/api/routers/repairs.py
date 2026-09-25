@@ -69,6 +69,10 @@ from goldsmith_erp.services.repair_service import (
     NoCustomerUpdateDraftError,
     RepairService,
 )
+from goldsmith_erp.services.status_report_service import (
+    StatusReportNotFoundError,
+    render_repair_status_report_pdf,
+)
 from goldsmith_erp.services.workshop_settings_service import WorkshopSettingsService
 
 router = APIRouter()
@@ -257,6 +261,45 @@ async def get_repair_annahmeschein(
         },
     )
     filename = f"Annahmeschein_{repair.repair_number}.pdf"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="{filename}"'},
+    )
+
+
+@router.get("/{repair_id}/status-report.pdf", response_class=Response)
+@require_permission(Permission.CUSTOMER_UPDATE_SEND)
+async def get_repair_status_report(
+    repair_id: int,
+    next_steps: Optional[str] = Query(None, max_length=2000),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> Response:
+    """Statusbericht (Kundenbericht) als PDF (W6, DOM section D Option 2).
+
+    Werkstatt-Kopf, Schmuckstueck, Verlauf (aktueller Status, tatsaechlich
+    verschickte Kundeninfos), die neuesten Reparaturfotos, ein "Wie geht es
+    weiter"-Text und die Kontaktzeile. Nie Preise, Kosten, Diagnosenotizen
+    oder Mitarbeiternamen (CLAUDE.md). GOLDSMITH/ADMIN only (VIEWER: 403);
+    jeder Abruf wird protokolliert.
+    """
+    try:
+        pdf_bytes = await render_repair_status_report_pdf(
+            db, repair_id, next_steps=next_steps
+        )
+    except StatusReportNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+    logger.info(
+        "Status report PDF served",
+        extra={
+            "audit": True,
+            "action": "repair_status_report_pdf",
+            "repair_id": repair_id,
+            "user_id": current_user.id,
+        },
+    )
+    filename = f"Statusbericht_Reparatur_{repair_id}.pdf"
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",

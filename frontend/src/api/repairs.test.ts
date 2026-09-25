@@ -19,6 +19,17 @@ import type { IntakeChecklistItem } from '../types';
 beforeEach(() => vi.clearAllMocks());
 
 describe('repairsApi', () => {
+  it('getStatusReportPdf GETs the live status report as a blob', async () => {
+    const blob = new Blob(['pdf'], { type: 'application/pdf' });
+    mockGet.mockResolvedValue({ data: blob });
+    const result = await repairsApi.getStatusReportPdf(9);
+
+    expect(mockGet).toHaveBeenCalledWith('/repairs/9/status-report.pdf', {
+      responseType: 'blob',
+    });
+    expect(result).toBe(blob);
+  });
+
   it('uploadPhoto sends multipart FormData with phase and no notes when omitted', async () => {
     mockPost.mockResolvedValue({ data: { id: 1 } });
     const file = new File(['x'], 'eingang.jpg', { type: 'image/jpeg' });

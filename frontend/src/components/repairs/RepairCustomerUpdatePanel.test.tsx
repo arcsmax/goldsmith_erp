@@ -32,6 +32,11 @@ vi.mock('../../contexts', () => ({
   useToast: () => ({ showToast: mockShowToast }),
 }));
 
+const mockOpenRepairStatusReport = vi.fn();
+vi.mock('./statusReport', () => ({
+  openRepairStatusReport: (...a: unknown[]) => mockOpenRepairStatusReport(...a),
+}));
+
 import { RepairCustomerUpdatePanel } from './RepairCustomerUpdatePanel';
 
 function makeRepair(overrides: Partial<RepairJob> = {}): RepairJob {
@@ -160,6 +165,19 @@ describe('RepairCustomerUpdatePanel', () => {
 
     await waitFor(() => expect(mockShowToast).toHaveBeenCalledWith(expect.any(String), 'error'));
     expect(onRepairRefresh).toHaveBeenCalledTimes(1);
+  });
+
+  it('"Statusbericht (PDF)" opens the live status report for the repair', async () => {
+    mockListRepairUpdates.mockResolvedValue([makeUpdate()]);
+    mockOpenRepairStatusReport.mockResolvedValue(undefined);
+    const repair = makeRepair({ status: 'ready' });
+
+    render(<RepairCustomerUpdatePanel repair={repair} onRepairRefresh={vi.fn()} />);
+
+    const button = await screen.findByRole('button', { name: 'Statusbericht (PDF)' });
+    await userEvent.click(button);
+
+    await waitFor(() => expect(mockOpenRepairStatusReport).toHaveBeenCalledWith(9));
   });
 
   it('shows the sent timestamp instead of a button once already sent', async () => {
