@@ -1,20 +1,30 @@
 // RepairIntakeScreen — Reparaturannahme at the counter in one screen
-// (W2-12, FE-17, DOM-08). Tablet first: chips instead of typing wherever a
-// common answer exists, 44px+ targets, camera input for photos.
+// (W2-12, FE-17, DOM-08; W4-03 on react-hook-form + zod and the Modal
+// primitive). Tablet first: chips instead of typing wherever a common answer
+// exists, 44px+ targets, camera input for photos.
 //
 // Step 1 "Annahme": customer (search or quick-create), piece, photos,
 // condition, the customer's own words, first price indication, promised
 // date. Step 2 "Annahmeschein": print the receipt for the customer to sign
 // on paper, then open the new repair. A digital signature is not stored yet
 // (RepairJob has no signature column; see the W2-12 report).
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+//
+// Dirty guard: while anything is entered, Escape, the close button and
+// "Abbrechen" ask "Änderungen verwerfen?" (Modal isDirty); the backdrop never
+// closes the form.
+import React, { useEffect, useId, useState } from 'react';
+import { useForm, type FieldErrors } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { customersApi } from '../../api/customers';
+import { queryKeys } from '../../api/queryKeys';
+import { repairKeys } from '../../api/repairQueries';
 import { repairsApi } from '../../api/repairs';
 import { useAuth, useConfirm, useToast } from '../../contexts';
 import { canViewFinancials } from '../../lib/roles';
 import { logError } from '../../lib/logError';
 import type { RepairJob } from '../../types';
-import { Icon } from '../../ui/Icon';
+import { Button, Field, Icon, Modal } from '../../ui';
 import { openAnnahmeschein } from './annahmeschein';
 import { IntakeCustomerPicker, type PickedCustomer } from './IntakeCustomerPicker';
 import {
@@ -28,10 +38,9 @@ import {
   PROBLEM_OPTIONS,
   PROMISE_OPTIONS,
   toggle,
-  validateIntake,
-  type IntakeErrors,
   type IntakeForm,
 } from './intakeOptions';
+import { intakeSchema } from './repairSchemas';
 
 interface RepairIntakeScreenProps {
   onClose: () => void;
@@ -40,28 +49,32 @@ interface RepairIntakeScreenProps {
   initialCustomerId?: number;
 }
 
+const CUSTOMER_INPUT_ID = 'intake-customer-search';
+
 interface ChipGroupProps {
   label: string;
-  options: readonly string[];
-  isActive: (option: string) => boolean;
-  onPick: (option: string) => void;
+  options: ReadonlyArray<{ value: string; label: string }>;
+  isActive: (value: string) => boolean;
+  onPick: (value: string) => void;
 }
 
 const ChipGroup: React.FC<ChipGroupProps> = ({ label, options, isActive, onPick }) => (
   <div className="intake-chips" role="group" aria-label={label}>
     {options.map((option) => (
       <button
-        key={option}
+        key={option.value}
         type="button"
         className="intake-chip"
-        aria-pressed={isActive(option)}
-        onClick={() => onPick(option)}
+        aria-pressed={isActive(option.value)}
+        onClick={() => onPick(option.value)}
       >
-        {option}
+        {option.label}
       </button>
     ))}
   </div>
 );
+
+const asOptions = (values: readonly string[]) => values.map((value) => ({ value, label: value }));
 
 const PhotoPreview: React.FC<{ file: File; index: number; onRemove: () => void }> = ({
   file,
@@ -69,6 +82,7 @@ const PhotoPreview: React.FC<{ file: File; index: number; onRemove: () => void }
   onRemove,
 }) => {
   const [url, setUrl] = useState<string | null>(null);
+  // Object URLs are a browser resource: create on mount, revoke on unmount.
   useEffect(() => {
     if (typeof URL.createObjectURL !== 'function') return undefined;
     const objectUrl = URL.createObjectURL(file);
@@ -78,9 +92,9 @@ const PhotoPreview: React.FC<{ file: File; index: number; onRemove: () => void }
   return (
     <li className="intake-photo">
       {url && <img src={url} alt={`Foto ${index + 1}`} />}
-      <button type="button" className="btn-secondary" onClick={onRemove}>
+      <Button variant="secondary" onClick={onRemove}>
         Foto {index + 1} entfernen
-      </button>
+      </Button>
     </li>
   );
 };
@@ -98,69 +112,67 @@ async function uploadAll(repairId: number, photos: File[]): Promise<number> {
   return failed;
 }
 
-const ReceiptStep: React.FC<{ repair: RepairJob; onDone: (id: number) => void }> = ({
-  repair,
-  onDone,
-}) => {
+function usePrintAnnahmeschein(repairId: number | undefined) {
   const { showToast } = useToast();
-  const [isPrinting, setIsPrinting] = useState(false);
-  const handlePrint = async () => {
-    setIsPrinting(true);
-    try {
-      await openAnnahmeschein(repair.id);
-    } catch (err) {
+  return useMutation({
+    mutationFn: () => openAnnahmeschein(repairId as number),
+    onError: (err) => {
       logError('RepairIntakeScreen.annahmeschein', err);
       showToast('Annahmeschein konnte nicht geladen werden. Bitte erneut versuchen.', 'error');
-    } finally {
-      setIsPrinting(false);
-    }
-  };
-  return (
-    <div className="intake-receipt">
-      <h3>Reparatur angenommen</h3>
-      <p className="intake-receipt__numbers">
-        {repair.repair_number} · Tüte {repair.bag_number}
-      </p>
-      <p>
-        Annahmeschein drucken und von der Kundin oder dem Kunden unterschreiben lassen. Das
-        Stück in Tüte {repair.bag_number} legen.
-      </p>
-      <div className="intake-actions">
-        <button type="button" className="btn-secondary" onClick={handlePrint} disabled={isPrinting}>
-          <Icon name="file-text" />
-          {isPrinting ? 'Wird geladen…' : 'Annahmeschein drucken'}
-        </button>
-        <button type="button" className="btn-primary" onClick={() => onDone(repair.id)}>
-          Zur Reparatur
-        </button>
-      </div>
-    </div>
-  );
-};
+    },
+  });
+}
 
-function useInitialCustomer(
-  initialCustomerId: number | undefined,
-  select: (c: PickedCustomer) => void,
-): void {
+const ReceiptStep: React.FC<{ repair: RepairJob }> = ({ repair }) => (
+  <div className="intake-receipt">
+    <h3>Reparatur angenommen</h3>
+    <p className="intake-receipt__numbers">
+      {repair.repair_number} · Tüte {repair.bag_number}
+    </p>
+    <p>
+      Annahmeschein drucken und von der Kundin oder dem Kunden unterschreiben lassen. Das Stück
+      in Tüte {repair.bag_number} legen.
+    </p>
+  </div>
+);
+
+/** Customer preselected by the link (`?customer_id=`), loaded once. */
+function useInitialCustomer(initialCustomerId: number | undefined) {
+  return useQuery({
+    queryKey: queryKeys.customers.detail(initialCustomerId ?? 0),
+    queryFn: () => customersApi.getById(initialCustomerId as number),
+    enabled: Boolean(initialCustomerId),
+  });
+}
+
+function useCreateIntake(withPrice: boolean, onCreated: (repair: RepairJob) => void) {
+  const queryClient = useQueryClient();
   const { showToast } = useToast();
-  useEffect(() => {
-    if (!initialCustomerId) return undefined;
-    let cancelled = false;
-    customersApi
-      .getById(initialCustomerId)
-      .then((c) => {
-        if (!cancelled) select(c);
-      })
-      .catch((err) => {
-        logError('RepairIntakeScreen.initialCustomer', err);
-        if (!cancelled) showToast('Kundendaten konnten nicht geladen werden.', 'error');
-      });
-    return () => {
-      cancelled = true;
-    };
-    // select is a state setter wrapper; re-running on its identity would refetch.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [initialCustomerId, showToast]);
+  return useMutation({
+    mutationFn: async ({ values, photos }: { values: IntakeForm; photos: File[] }) => {
+      const repair = await repairsApi.create(buildIntakePayload(values, withPrice));
+      return { repair, failed: await uploadAll(repair.id, photos) };
+    },
+    onSuccess: async ({ repair, failed }) => {
+      if (failed > 0) {
+        const noun = failed === 1 ? 'Foto konnte' : 'Fotos konnten';
+        showToast(`${failed} ${noun} nicht hochgeladen werden. Bitte in der Reparatur erneut aufnehmen.`, 'error');
+      }
+      onCreated(repair);
+      await queryClient.invalidateQueries({ queryKey: repairKeys.all });
+    },
+    onError: (err) => {
+      logError('RepairIntakeScreen.create', err);
+      showToast('Reparatur konnte nicht angelegt werden. Bitte erneut versuchen.', 'error');
+    },
+  });
+}
+
+/** Move focus to the first invalid field, in screen order. */
+function focusFirstError(errors: FieldErrors<IntakeForm>, focus: (name: 'description' | 'price') => void) {
+  if (errors.customerId) document.getElementById(CUSTOMER_INPUT_ID)?.focus();
+  else if (errors.description) focus('description');
+  else if (errors.price) focus('price');
 }
 
 export const RepairIntakeScreen: React.FC<RepairIntakeScreenProps> = ({
@@ -172,28 +184,45 @@ export const RepairIntakeScreen: React.FC<RepairIntakeScreenProps> = ({
   const { showToast } = useToast();
   const { showConfirm } = useConfirm();
   const withPrice = canViewFinancials(user?.role);
-  const [form, setForm] = useState<IntakeForm>(EMPTY_INTAKE);
-  const [customer, setCustomer] = useState<PickedCustomer | null>(null);
+  const formId = useId();
+  const [picked, setPicked] = useState<PickedCustomer | null | undefined>(undefined);
   const [photos, setPhotos] = useState<File[]>([]);
-  const [errors, setErrors] = useState<IntakeErrors>({});
-  const [isSubmitting, setIsSubmitting] = useState(false);
   const [created, setCreated] = useState<RepairJob | null>(null);
-  const descriptionRef = useRef<HTMLTextAreaElement>(null);
-  const priceRef = useRef<HTMLInputElement>(null);
 
-  const update = <K extends keyof IntakeForm>(key: K, value: IntakeForm[K]) =>
-    setForm((prev) => ({ ...prev, [key]: value }));
+  const form = useForm<IntakeForm>({
+    defaultValues: EMPTY_INTAKE,
+    resolver: zodResolver(intakeSchema(withPrice)),
+    shouldFocusError: false,
+  });
+  const { register, handleSubmit, setValue, setFocus, watch, formState } = form;
+  const { errors, isDirty, isSubmitted } = formState;
+  const values = watch();
 
-  const selectCustomer = useCallback((c: PickedCustomer | null) => {
-    setCustomer(c);
-    setForm((prev) => ({ ...prev, customerId: c ? c.id : null }));
-  }, []);
-  useInitialCustomer(initialCustomerId, selectCustomer);
+  const initialCustomer = useInitialCustomer(initialCustomerId);
+  const customer: PickedCustomer | null =
+    picked !== undefined ? picked : (initialCustomer.data ?? null);
+  // The preselected customer fills the form once it arrives (not a user edit).
+  const initialId = initialCustomer.data?.id;
+  useEffect(() => {
+    if (initialId !== undefined) setValue('customerId', initialId);
+  }, [initialId, setValue]);
 
-  const isDirty = created === null && (customer !== null || form !== EMPTY_INTAKE || photos.length > 0);
+  const create = useCreateIntake(withPrice, setCreated);
+  const print = usePrintAnnahmeschein(created?.id);
 
-  const handleCancel = useCallback(async () => {
-    if (isDirty) {
+  const change = <K extends keyof IntakeForm>(key: K, value: IntakeForm[K]) =>
+    setValue(key, value as never, { shouldDirty: true, shouldValidate: isSubmitted });
+
+  const selectCustomer = (c: PickedCustomer | null) => {
+    setPicked(c);
+    change('customerId', c ? c.id : null);
+  };
+
+  const hasInput = isDirty || photos.length > 0 || Boolean(picked);
+  // Escape and the close button ask inside the Modal (isDirty); the footer
+  // "Abbrechen" asks through the same confirm the rest of the app uses.
+  const handleCancel = async () => {
+    if (hasInput) {
       const discard = await showConfirm({
         title: 'Annahme verwerfen?',
         message: 'Die eingegebenen Daten gehen verloren.',
@@ -204,222 +233,167 @@ export const RepairIntakeScreen: React.FC<RepairIntakeScreenProps> = ({
       if (!discard) return;
     }
     onClose();
-  }, [isDirty, onClose, showConfirm]);
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') handleCancel();
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [handleCancel]);
-
-  const focusFirstError = (found: IntakeErrors) => {
-    if (found.customer) document.getElementById('intake-customer-search')?.focus();
-    else if (found.description) descriptionRef.current?.focus();
-    else if (found.price) priceRef.current?.focus();
   };
+  const onValid = (data: IntakeForm) => create.mutate({ values: data, photos });
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const found = validateIntake(form, withPrice);
-    setErrors(found);
-    if (Object.keys(found).length > 0) return focusFirstError(found);
-    setIsSubmitting(true);
-    try {
-      const repair = await repairsApi.create(buildIntakePayload(form, withPrice));
-      const failed = await uploadAll(repair.id, photos);
-      if (failed > 0) {
-        const noun = failed === 1 ? 'Foto konnte' : 'Fotos konnten';
-        showToast(`${failed} ${noun} nicht hochgeladen werden. Bitte in der Reparatur erneut aufnehmen.`, 'error');
-      }
-      setCreated(repair);
-    } catch (err) {
-      logError('RepairIntakeScreen.create', err);
-      showToast('Reparatur konnte nicht angelegt werden. Bitte erneut versuchen.', 'error');
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
+  const footer = created ? (
+    <>
+      <Button variant="secondary" icon="file-text" onClick={() => print.mutate()} loading={print.isPending}>
+        Annahmeschein drucken
+      </Button>
+      <Button onClick={() => onDone(created.id)}>Zur Reparatur</Button>
+    </>
+  ) : (
+    <>
+      <Button variant="secondary" onClick={() => void handleCancel()} disabled={create.isPending}>
+        Abbrechen
+      </Button>
+      <Button type="submit" form={formId} loading={create.isPending}>
+        Reparatur annehmen
+      </Button>
+    </>
+  );
 
   return (
-    <div className="modal-overlay repair-intake-overlay">
-      <div className="modal-box repair-intake" role="dialog" aria-modal="true" aria-labelledby="repair-intake-title">
-        <div className="modal-header">
-          <h2 id="repair-intake-title">Neue Reparatur</h2>
-          <button type="button" className="repair-intake__close" onClick={handleCancel} aria-label="Annahme schließen">
-            <Icon name="circle-x" />
-          </button>
-        </div>
-        {created ? (
-          <div className="modal-body">
-            <ReceiptStep repair={created} onDone={onDone} />
-          </div>
-        ) : (
-          <form onSubmit={handleSubmit} noValidate>
-            <div className="modal-body repair-intake__body">
-              <section className="intake-section" aria-labelledby="intake-customer-heading">
-                <h3 id="intake-customer-heading">Kundin/Kunde</h3>
-                <IntakeCustomerPicker
-                  customer={customer}
-                  onChange={selectCustomer}
-                  error={errors.customer}
-                  onSearchError={() => showToast('Kundensuche fehlgeschlagen. Bitte erneut versuchen.', 'error')}
-                />
-              </section>
+    <Modal
+      open
+      title="Neue Reparatur"
+      size="lg"
+      onClose={onClose}
+      isDirty={created === null && hasInput}
+      footer={footer}
+      className="repair-intake"
+    >
+      {created ? (
+        <ReceiptStep repair={created} />
+      ) : (
+        <form
+          id={formId}
+          onSubmit={handleSubmit(onValid, (found) => focusFirstError(found, setFocus))}
+          noValidate
+        >
+          <section className="intake-section" aria-labelledby={`${formId}-customer`}>
+            <h3 id={`${formId}-customer`}>Kundin/Kunde</h3>
+            {initialCustomer.isError && (
+              <p className="ui-field__error" role="alert">
+                <Icon name="alert-triangle" />
+                <span>Kundendaten konnten nicht geladen werden. Bitte die Kundin oder den Kunden suchen.</span>
+              </p>
+            )}
+            <IntakeCustomerPicker
+              customer={customer}
+              onChange={selectCustomer}
+              error={errors.customerId?.message}
+              onSearchError={() => showToast('Kundensuche fehlgeschlagen. Bitte erneut versuchen.', 'error')}
+            />
+          </section>
 
-              <section className="intake-section" aria-labelledby="intake-piece-heading">
-                <h3 id="intake-piece-heading">Schmuckstück</h3>
-                <div className="intake-chips" role="group" aria-label="Art des Stücks">
-                  {ITEM_TYPE_OPTIONS.map((opt) => (
-                    <button
-                      key={opt.value}
-                      type="button"
-                      className="intake-chip"
-                      aria-pressed={form.itemType === opt.value}
-                      onClick={() => update('itemType', opt.value)}
-                    >
-                      {opt.label}
-                    </button>
-                  ))}
-                </div>
-                <ChipGroup
-                  label="Metall wählen"
-                  options={METAL_OPTIONS}
-                  isActive={(m) => form.metal === m}
-                  onPick={(m) => update('metal', form.metal === m ? '' : m)}
-                />
-                <label className="intake-field">
-                  <span>Metall</span>
-                  <input value={form.metal} onChange={(e) => update('metal', e.target.value)} placeholder="z. B. 333 Gelbgold" />
-                </label>
-                <label className="intake-field">
-                  <span>Beschreibung des Stücks (Pflichtfeld)</span>
-                  <textarea
-                    ref={descriptionRef}
-                    rows={2}
-                    value={form.description}
-                    onChange={(e) => update('description', e.target.value)}
-                    aria-invalid={Boolean(errors.description)}
-                    aria-describedby={errors.description ? 'intake-description-error' : undefined}
-                    placeholder="z. B. Ehering mit drei Brillanten"
+          <section className="intake-section" aria-labelledby={`${formId}-piece`}>
+            <h3 id={`${formId}-piece`}>Schmuckstück</h3>
+            <ChipGroup
+              label="Art des Stücks"
+              options={ITEM_TYPE_OPTIONS}
+              isActive={(type) => values.itemType === type}
+              onPick={(type) => change('itemType', type as IntakeForm['itemType'])}
+            />
+            <ChipGroup
+              label="Metall wählen"
+              options={asOptions(METAL_OPTIONS)}
+              isActive={(metal) => values.metal === metal}
+              onPick={(metal) => change('metal', values.metal === metal ? '' : metal)}
+            />
+            <Field label="Metall" name="metal" error={errors.metal?.message}>
+              <input {...register('metal')} placeholder="z. B. 333 Gelbgold" />
+            </Field>
+            <Field label="Beschreibung des Stücks" name="description" required error={errors.description?.message}>
+              <textarea rows={2} {...register('description')} placeholder="z. B. Ehering mit drei Brillanten" />
+            </Field>
+          </section>
+
+          <section className="intake-section" aria-labelledby={`${formId}-photos`}>
+            <h3 id={`${formId}-photos`}>Fotos und Zustand</h3>
+            <label className="ui-button ui-button--secondary intake-camera" htmlFor={`${formId}-photo-input`}>
+              <Icon name="camera" />
+              Foto aufnehmen
+            </label>
+            <input
+              id={`${formId}-photo-input`}
+              className="intake-camera__input"
+              type="file"
+              accept="image/*"
+              capture="environment"
+              multiple
+              onChange={(e) => {
+                const added = Array.from(e.target.files ?? []);
+                setPhotos((prev) => [...prev, ...added]);
+                e.target.value = '';
+              }}
+            />
+            {photos.length > 0 && (
+              <ul className="intake-photos">
+                {photos.map((file, i) => (
+                  <PhotoPreview
+                    key={`${file.name}-${i}`}
+                    file={file}
+                    index={i}
+                    onRemove={() => setPhotos((prev) => prev.filter((_, j) => j !== i))}
                   />
-                </label>
-                {errors.description && (
-                  <p className="intake-error" id="intake-description-error" role="alert">
-                    {errors.description}
-                  </p>
-                )}
-              </section>
+                ))}
+              </ul>
+            )}
+            <ChipGroup
+              label="Zustand bei Annahme"
+              options={asOptions(CONDITION_OPTIONS)}
+              isActive={(c) => values.conditions.includes(c)}
+              onPick={(c) => change('conditions', toggle(values.conditions, c))}
+            />
+            {errors.conditions?.message && (
+              <p className="ui-field__error" role="alert">
+                <Icon name="alert-triangle" />
+                <span>{errors.conditions.message}</span>
+              </p>
+            )}
+          </section>
 
-              <section className="intake-section" aria-labelledby="intake-photo-heading">
-                <h3 id="intake-photo-heading">Fotos und Zustand</h3>
-                <label className="intake-camera btn-secondary" htmlFor="intake-photo-input">
-                  <Icon name="camera" />
-                  Foto aufnehmen
-                </label>
-                <input
-                  id="intake-photo-input"
-                  className="intake-camera__input"
-                  type="file"
-                  accept="image/*"
-                  capture="environment"
-                  multiple
-                  onChange={(e) => {
-                    const picked = Array.from(e.target.files ?? []);
-                    setPhotos((prev) => [...prev, ...picked]);
-                    e.target.value = '';
-                  }}
-                />
-                {photos.length > 0 && (
-                  <ul className="intake-photos">
-                    {photos.map((file, i) => (
-                      <PhotoPreview
-                        key={`${file.name}-${i}`}
-                        file={file}
-                        index={i}
-                        onRemove={() => setPhotos((prev) => prev.filter((_, j) => j !== i))}
-                      />
-                    ))}
-                  </ul>
-                )}
-                <ChipGroup
-                  label="Zustand bei Annahme"
-                  options={CONDITION_OPTIONS}
-                  isActive={(c) => form.conditions.includes(c)}
-                  onPick={(c) => update('conditions', toggle(form.conditions, c))}
-                />
-              </section>
+          <section className="intake-section" aria-labelledby={`${formId}-problem`}>
+            <h3 id={`${formId}-problem`}>Anliegen der Kundin oder des Kunden</h3>
+            <ChipGroup
+              label="Häufige Anliegen"
+              options={asOptions(PROBLEM_OPTIONS)}
+              isActive={(p) => values.problem.includes(p)}
+              onPick={(p) => change('problem', appendProblem(values.problem, p))}
+            />
+            <Field label="Kundenangabe" name="problem" error={errors.problem?.message}>
+              <textarea rows={2} {...register('problem')} />
+            </Field>
+          </section>
 
-              <section className="intake-section" aria-labelledby="intake-problem-heading">
-                <h3 id="intake-problem-heading">Anliegen der Kundin oder des Kunden</h3>
-                <ChipGroup
-                  label="Häufige Anliegen"
-                  options={PROBLEM_OPTIONS}
-                  isActive={(p) => form.problem.includes(p)}
-                  onPick={(p) => update('problem', appendProblem(form.problem, p))}
-                />
-                <label className="intake-field">
-                  <span>Kundenangabe</span>
-                  <textarea rows={2} value={form.problem} onChange={(e) => update('problem', e.target.value)} />
-                </label>
-              </section>
-
-              <section className="intake-section intake-section--split" aria-labelledby="intake-terms-heading">
-                <h3 id="intake-terms-heading">Preis und Termin</h3>
-                {withPrice && (
-                  <label className="intake-field intake-field--money">
-                    <span>Preisindikation in € (unverbindlich)</span>
-                    <input
-                      ref={priceRef}
-                      inputMode="decimal"
-                      value={form.price}
-                      onChange={(e) => update('price', e.target.value)}
-                      aria-invalid={Boolean(errors.price)}
-                      aria-describedby={errors.price ? 'intake-price-error' : undefined}
-                      placeholder="z. B. 45,00"
-                    />
-                  </label>
-                )}
-                {errors.price && (
-                  <p className="intake-error" id="intake-price-error" role="alert">
-                    {errors.price}
-                  </p>
-                )}
-                <div className="intake-chips" role="group" aria-label="Termin wählen">
-                  {PROMISE_OPTIONS.map((opt) => {
-                    const value = dateInDays(opt.days);
-                    return (
-                      <button
-                        key={opt.days}
-                        type="button"
-                        className="intake-chip"
-                        aria-pressed={form.promisedDate === value}
-                        onClick={() => update('promisedDate', value)}
-                      >
-                        {opt.label}
-                      </button>
-                    );
-                  })}
-                </div>
-                <label className="intake-field">
-                  <span>Zugesagt bis</span>
-                  <input type="date" value={form.promisedDate} onChange={(e) => update('promisedDate', e.target.value)} />
-                </label>
-              </section>
-            </div>
-            <div className="modal-footer repair-intake__footer">
-              <button type="button" className="btn-secondary" onClick={handleCancel} disabled={isSubmitting}>
-                Abbrechen
-              </button>
-              <button type="submit" className="btn-primary" disabled={isSubmitting}>
-                {isSubmitting ? 'Wird angelegt…' : 'Reparatur annehmen'}
-              </button>
-            </div>
-          </form>
-        )}
-      </div>
-    </div>
+          <section className="intake-section intake-section--split" aria-labelledby={`${formId}-terms`}>
+            <h3 id={`${formId}-terms`}>Preis und Termin</h3>
+            {withPrice && (
+              <Field
+                label="Preisindikation (unverbindlich)"
+                name="price"
+                inputMode="decimal"
+                suffix="€"
+                error={errors.price?.message}
+              >
+                <input {...register('price')} placeholder="z. B. 45,00" />
+              </Field>
+            )}
+            <ChipGroup
+              label="Termin wählen"
+              options={PROMISE_OPTIONS.map((opt) => ({ value: dateInDays(opt.days), label: opt.label }))}
+              isActive={(date) => values.promisedDate === date}
+              onPick={(date) => change('promisedDate', date)}
+            />
+            <Field label="Zugesagt bis" name="promisedDate">
+              <input type="date" {...register('promisedDate')} />
+            </Field>
+          </section>
+        </form>
+      )}
+    </Modal>
   );
 };
 

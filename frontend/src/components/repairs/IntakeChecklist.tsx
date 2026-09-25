@@ -18,6 +18,7 @@ import { IntakeChecklistItem, RepairJob } from '../../types';
 import { useAuth, useToast } from '../../contexts';
 import { logError } from '../../lib/logError';
 import { canViewDesign } from '../../lib/roles';
+import { Button } from '../../ui';
 import AuthenticatedImage from '../AuthenticatedImage';
 
 /** Backend limit — reject client-side before any upload attempt. */
@@ -114,7 +115,7 @@ function IntakeChecklistRow({
               type="file"
               accept="image/*"
               capture="environment"
-              style={{ display: 'none' }}
+              className="ui-visually-hidden"
               onChange={handleFileChange}
               disabled={locked}
             />
@@ -136,29 +137,24 @@ function IntakeChecklistRow({
           <input
             ref={reasonInputRef}
             type="text"
-            className="form-input"
+            className="ui-field__control"
+            aria-label={`Begründung für „${item.label}“`}
             placeholder="Begründung (mind. 3 Zeichen)"
             value={reasonDraft}
             onChange={(e) => onReasonDraftChange(e.target.value)}
             disabled={locked}
           />
           <div className="intake-checklist-reason-actions">
-            <button
-              type="button"
-              className="btn btn-secondary"
-              onClick={onCancelReason}
-              disabled={locked}
-            >
+            <Button variant="secondary" onClick={onCancelReason} disabled={locked}>
               Abbrechen
-            </button>
-            <button
-              type="button"
-              className="btn btn-primary"
+            </Button>
+            <Button
               onClick={onSubmitReason}
+              loading={busy}
               disabled={locked || reasonDraft.trim().length < MIN_REASON_LENGTH}
             >
-              {busy ? 'Wird gespeichert…' : 'Speichern'}
-            </button>
+              Speichern
+            </Button>
           </div>
         </div>
       )}

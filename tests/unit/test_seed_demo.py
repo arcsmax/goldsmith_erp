@@ -511,3 +511,30 @@ async def test_seed_demo_customer_notified_at_requires_sent_update(
                 "SENT CustomerUpdate — LV-18 regression"
             )
             assert all(u.sent_at is not None for u in sent_updates)
+
+
+@pytest.mark.asyncio
+async def test_seed_demo_leaves_no_order_or_repair_without_a_job(
+    seeded_e2e_db,
+) -> None:
+    """ARCH-02: the seed inserts orders and repairs directly, so it must run
+    ``JobService.backfill_missing`` at the end; otherwise the Werkstatt board
+    (GET /jobs) shows an empty workshop on a fresh demo install.
+    """
+    from sqlalchemy import func, select
+
+    from goldsmith_erp.db.models import Job, Order, RepairJob
+    from goldsmith_erp.services.job_service import JobService
+
+    async with seeded_e2e_db() as verify_db:
+        assert await JobService.count_missing(verify_db) == {
+            "orders": 0,
+            "repairs": 0,
+        }
+        orders = (await verify_db.execute(select(func.count(Order.id)))).scalar_one()
+        repairs = (
+            await verify_db.execute(select(func.count(RepairJob.id)))
+        ).scalar_one()
+        jobs = (await verify_db.execute(select(func.count(Job.id)))).scalar_one()
+    assert orders > 0 and repairs > 0
+    assert jobs == orders + repairs
