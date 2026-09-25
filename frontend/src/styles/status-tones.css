@@ -108,3 +108,97 @@
   border: 1px solid var(--tone-danger-border);
   text-decoration: line-through;
 }
+
+/* ---- <StatusBadge kind status> (src/ui/StatusBadge.tsx; LV-05) ---------
+ *
+ * Tone and border cue come from src/design/status.ts. The `:root` +
+ * double-class prefix (0,3,0) beats the older per-page .status-badge rules
+ * (orders.css sets uppercase and letter-spacing). Sentence case, icon first.
+ */
+:root .status-badge.ui-status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-sm);
+  font-size: var(--type-sm);
+  font-weight: 600;
+  line-height: var(--line-height-heading);
+  letter-spacing: normal;
+  text-transform: none;
+  white-space: nowrap;
+  border-width: 1px;
+  border-style: solid;
+}
+
+:root .status-badge.ui-status-badge--lg {
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--type-base);
+}
+
+.ui-status-badge__icon {
+  flex-shrink: 0;
+  width: 1em;
+  height: 1em;
+}
+
+:root .status-badge.ui-status-badge--neutral {
+  color: var(--tone-neutral-fg);
+  background: var(--tone-neutral-bg);
+  border-color: var(--tone-neutral-border);
+}
+
+:root .status-badge.ui-status-badge--info {
+  color: var(--tone-info-fg);
+  background: var(--tone-info-bg);
+  border-color: var(--tone-info-border);
+}
+
+:root .status-badge.ui-status-badge--progress {
+  color: var(--tone-progress-fg);
+  background: var(--tone-progress-bg);
+  border-color: var(--tone-progress-border);
+}
+
+:root .status-badge.ui-status-badge--waiting {
+  color: var(--tone-waiting-fg);
+  background: var(--tone-waiting-bg);
+  border-color: var(--tone-waiting-border);
+}
+
+:root .status-badge.ui-status-badge--check {
+  color: var(--tone-check-fg);
+  background: var(--tone-check-bg);
+  border-color: var(--tone-check-border);
+}
+
+:root .status-badge.ui-status-badge--done {
+  color: var(--tone-done-fg);
+  background: var(--tone-done-bg);
+  border-color: var(--tone-done-border);
+}
+
+:root .status-badge.ui-status-badge--handover {
+  color: var(--tone-handover-fg);
+  background: var(--tone-handover-bg);
+  border-color: var(--tone-handover-border);
+}
+
+:root .status-badge.ui-status-badge--danger {
+  color: var(--tone-danger-fg);
+  background: var(--tone-danger-bg);
+  border-color: var(--tone-danger-border);
+}
+
+:root .status-badge.ui-status-badge--dashed {
+  border-style: dashed;
+}
+
+:root .status-badge.ui-status-badge--double {
+  border-style: double;
+  border-width: 3px;
+}
+
+:root .status-badge.ui-status-badge--struck .ui-status-badge__label {
+  text-decoration: line-through;
+}

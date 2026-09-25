@@ -159,8 +159,6 @@
   color: #666;
   border-bottom: 2px solid #e9ecef;
   font-size: 0.9rem;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
 }
 
 .orders-table td {
@@ -523,4 +521,60 @@
   height: 1.1rem;
   accent-color: var(--color-interactive-primary);
   flex-shrink: 0;
+}
+
+/* ==================== LV-11 / LV-19 (live verification 2026-09) ==================== */
+/* Tokens only. */
+
+.orders-page-summary {
+  margin: var(--space-2) 0 0;
+  color: var(--color-text-muted);
+}
+
+/* LV-11: the search field had no border and was 24px high. */
+.orders-controls .orders-search-input {
+  width: 100%;
+  min-height: var(--touch-min);
+  padding: 0 var(--space-3);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-raised);
+  color: var(--color-text);
+  font-size: var(--type-base);
+}
+
+/* LV-19: at 1280 the ERSTELLT and AKTIONEN columns were cut off by the
+ * container's overflow:hidden. Tighter cells, a clamped description and a
+ * horizontal scroll fallback keep every column reachable. */
+.orders-table-container {
+  overflow-x: auto;
+}
+
+.orders-table th,
+.orders-table td {
+  padding: var(--space-3);
+}
+
+.orders-col-description {
+  max-width: 16rem;
+}
+
+.orders-description-clamp {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.orders-col-date {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+/* On tablets the description is the lowest-value column (phones show
+ * rows as cards, where it stays). */
+@media (min-width: 600px) and (max-width: 1024px) {
+  .orders-col-description {
+    display: none;
+  }
 }

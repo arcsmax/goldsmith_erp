@@ -37,3 +37,14 @@ repos:
       - id: check-yaml
       - id: check-added-large-files
         args: ["--maxkb=1000"]
+
+  # DES-08 — hex-literal ratchet: the count of hardcoded colours outside
+  # frontend/src/styles/brand-tokens.css may only shrink (frontend/.hex-baseline).
+  - repo: local
+    hooks:
+      - id: hex-ratchet
+        name: hex-literal ratchet (frontend)
+        entry: node frontend/scripts/hex-ratchet.mjs
+        language: system
+        files: ^frontend/src/.*\.(css|ts|tsx|js|jsx)$
+        pass_filenames: false

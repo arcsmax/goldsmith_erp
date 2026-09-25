@@ -1,6 +1,7 @@
 // Pure helpers for the "Heute" lanes (W2-03): next-action links and texts.
 // Every row on the Heute view links to its natural next action (CLAUDE.md).
 import type { OrderTab } from '../../contexts/OrderContext';
+import { formatEur } from '../../lib/format';
 import type {
   DashboardPendingItem,
   DashboardTimerItem,
@@ -55,7 +56,7 @@ export function formatTime(iso: string): string {
 }
 
 export function formatAmount(amount: number): string {
-  return amount.toLocaleString('de-DE', { style: 'currency', currency: 'EUR' });
+  return formatEur(amount);
 }
 
 export function workItemAction(

@@ -6,6 +6,11 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import type { Quote } from '../types';
 
+const customers = vi.hoisted(() => ({
+  getAll: vi.fn(),
+  search: vi.fn(),
+}));
+
 const api = vi.hoisted(() => ({
   getQuotes: vi.fn(),
   getQuote: vi.fn(),
@@ -16,13 +21,7 @@ const api = vi.hoisted(() => ({
 }));
 
 vi.mock('../api/quotes', () => ({ quotesApi: api }));
-vi.mock('../api/customers', () => ({
-  customersApi: {
-    getAll: vi.fn().mockResolvedValue([
-      { id: 7, first_name: 'Erika', last_name: 'Muster', company_name: null },
-    ]),
-  },
-}));
+vi.mock('../api/customers', () => ({ customersApi: customers }));
 vi.mock('../api/orders', () => ({
   ordersApi: { getById: vi.fn().mockResolvedValue({ id: 42, order_type: 'ring' }) },
 }));
@@ -167,9 +166,55 @@ describe('QuotesPage hand-off from the order page (FE-18)', () => {
     renderAt('/quotes?order_id=42&customer_id=7');
 
     expect(await screen.findByRole('dialog', { name: 'Neues Angebot erstellen' })).toBeInTheDocument();
-    await waitFor(() =>
-      expect((screen.getByLabelText('Kunde *') as HTMLSelectElement).value).toBe('7')
-    );
+    expect(await screen.findByText('Kunde #7')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Kunde ändern' })).toBeInTheDocument();
     expect((screen.getByLabelText('Auftragsnummer (optional)') as HTMLInputElement).value).toBe('42');
+  });
+});
+
+describe('QuotesPage customer selection (LV-02)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    api.getQuotes.mockResolvedValue({ items: [], total: 0, skip: 0, limit: 50 });
+  });
+
+  it('never loads the whole customer list (the API caps limit at 100)', async () => {
+    renderAt('/quotes');
+    await screen.findByRole('button', { name: 'Neues Angebot' });
+    expect(customers.getAll).not.toHaveBeenCalled();
+  });
+
+  it('finds the customer through the search and enables "Angebot erstellen"', async () => {
+    customers.search.mockResolvedValue([
+      { id: 7, first_name: 'Erika', last_name: 'Muster', company_name: null },
+    ]);
+    const user = userEvent.setup();
+    renderAt('/quotes');
+    await user.click(await screen.findByRole('button', { name: 'Neues Angebot' }));
+
+    const submit = screen.getByRole('button', { name: 'Angebot erstellen' });
+    expect(submit).toBeDisabled();
+
+    await user.type(screen.getByLabelText('Kunde (Pflichtfeld)'), 'Mus');
+    await user.click(await screen.findByRole('button', { name: 'Erika Muster' }));
+
+    expect(screen.getByText('Erika Muster')).toBeInTheDocument();
+    expect(submit).toBeEnabled();
+    expect(customers.search).toHaveBeenCalledWith('Mus', expect.any(Number));
+  });
+
+  it('shows a toast when the customer search fails instead of failing silently', async () => {
+    customers.search.mockRejectedValue(new Error('network'));
+    const user = userEvent.setup();
+    renderAt('/quotes');
+    await user.click(await screen.findByRole('button', { name: 'Neues Angebot' }));
+    await user.type(screen.getByLabelText('Kunde (Pflichtfeld)'), 'Mus');
+
+    await waitFor(() =>
+      expect(mockShowToast).toHaveBeenCalledWith(
+        'Kundensuche fehlgeschlagen. Bitte erneut versuchen.',
+        'error',
+      ),
+    );
   });
 });

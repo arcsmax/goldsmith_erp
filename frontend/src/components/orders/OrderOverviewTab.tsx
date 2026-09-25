@@ -2,6 +2,7 @@
 // the order facts and the customer card.
 import type { OrderType } from '../../types';
 import { canViewDesign, canViewFinancials } from '../../lib/roles';
+import { formatEur, MONEY_CLASS } from '../../lib/format';
 import { CustomerInfoCard } from './CustomerInfoCard';
 import { OrderStatusBadge } from './OrderStatusBadge';
 
@@ -78,8 +79,8 @@ export function OrderOverviewTab({ order, role }: OrderOverviewTabProps) {
           {canFinance && (
             <div className="detail-item">
               <label>Preis:</label>
-              <span className="tabular-nums">
-                {order.price ? `${order.price.toFixed(2)} €` : 'Nicht festgelegt'}
+              <span className={`tabular-nums ${MONEY_CLASS}`}>
+                {order.price ? formatEur(order.price) : 'Nicht festgelegt'}
               </span>
             </div>
           )}

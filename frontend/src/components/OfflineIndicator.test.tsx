@@ -60,4 +60,18 @@ describe('OfflineIndicator', () => {
       screen.getByText('Offline: Änderungen werden nicht gespeichert'),
     ).toBeInTheDocument();
   });
+
+  it('marks body.is-offline while the banner shows so the header moves down (LV-13)', () => {
+    setOnline(false);
+    const { unmount } = render(<OfflineIndicator />);
+    expect(document.body.classList.contains('is-offline')).toBe(true);
+    unmount();
+    expect(document.body.classList.contains('is-offline')).toBe(false);
+  });
+
+  it('leaves body.is-offline unset while online (LV-13)', () => {
+    setOnline(true);
+    render(<OfflineIndicator />);
+    expect(document.body.classList.contains('is-offline')).toBe(false);
+  });
 });

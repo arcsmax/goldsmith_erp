@@ -259,7 +259,7 @@ export const ScannerPage: React.FC = () => {
       setHistory(rows);
     } catch {
       setHistoryError(
-        'Scan-Verlauf konnte nicht geladen werden. Bitte spaeter erneut versuchen.',
+        'Scan-Verlauf konnte nicht geladen werden. Bitte später erneut versuchen.',
       );
     } finally {
       setHistoryLoading(false);
@@ -449,7 +449,7 @@ export const ScannerPage: React.FC = () => {
               className="btn-scan"
               data-testid="scanner-manual-submit"
             >
-              {isScanning ? 'Laedt…' : 'Oeffnen'}
+              {isScanning ? 'Lädt…' : 'Öffnen'}
             </button>
           </form>
           {error !== null ? (
@@ -529,7 +529,7 @@ export const ScannerPage: React.FC = () => {
               USB-Handscanner tippen die Kennung automatisch in das
               Eingabefeld.
             </li>
-            <li>Schnellaktionen oeffnen sich automatisch nach dem Scan.</li>
+            <li>Schnellaktionen öffnen sich automatisch nach dem Scan.</li>
           </ol>
         </div>
       </div>
