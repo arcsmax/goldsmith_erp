@@ -68,7 +68,7 @@ describe('PunzierungsCheckModal rendering', () => {
     const group = screen.getByTestId('punz-group-other');
     expect(group.textContent).toContain('Meisterzeichen');
     expect(group.textContent).toContain('Herstellerzeichen');
-    expect(group.textContent).toContain('Laenderzeichen');
+    expect(group.textContent).toContain('Länderzeichen');
   });
 
   it('renders German title "Punzierungs-Check"', () => {

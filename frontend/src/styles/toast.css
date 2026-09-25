@@ -117,6 +117,23 @@
   word-break: break-word;
 }
 
+/* ─── Toast Action (links the toast to its next action, e.g. "Auftrag
+   vervollständigen" on a validation error) ─── */
+.toast-action {
+  display: inline-block;
+  margin-top: var(--space-2, 0.5rem);
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--color-primary, inherit);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.toast-action:hover,
+.toast-action:focus-visible {
+  color: var(--color-primary-hover, var(--color-primary, inherit));
+}
+
 /* ─── Dismiss Button ─── */
 .toast-dismiss {
   flex-shrink: 0;

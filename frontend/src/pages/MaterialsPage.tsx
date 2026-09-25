@@ -184,12 +184,22 @@ function buildColumns(options: {
           <span className="materials-thumb materials-thumb--empty">Kein Bild</span>
         ),
     },
-    { key: 'id', header: 'ID', hideBelow: 'tablet', render: (m) => `#${m.id}` },
+    // LV3-06: id and description are the lowest-value columns at
+    // tablet-and-up widths (internal id; a two-line clamp with no data a
+    // sighted desktop user can't already see elsewhere) — the same
+    // reasoning LV-19 applied to the orders table's own "Beschreibung"
+    // column. hideBelow alone only reaches 1024px (the playbook's widest
+    // breakpoint), so at 1280px both columns were still rendered and
+    // pushed the table wider than its card. materials-col-hide-tablet-up
+    // (materials.css) hides them from 600px up instead, same as
+    // .orders-col-description; they still surface in the phone card
+    // (no hideBelow here, so they stay in DataTable's cardColumns).
+    { key: 'id', header: 'ID', className: 'materials-col-hide-tablet-up', render: (m) => `#${m.id}` },
     { key: 'supplier', header: 'Lieferant', render: (m) => <SupplierCell material={m} /> },
     {
       key: 'description',
       header: 'Beschreibung',
-      hideBelow: 'tablet',
+      className: 'materials-col-hide-tablet-up',
       render: (m) => <span className="materials-clamp">{m.description || MISSING_VALUE}</span>,
     },
   ];

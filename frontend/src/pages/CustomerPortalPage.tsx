@@ -37,18 +37,33 @@ function telHref(phone: string): string {
   return phone.replace(/[^\d+]/g, '');
 }
 
-async function fetchWorkshopContact(): Promise<WorkshopContact | null> {
+/**
+ * LV3-04: `/workshop-contact` sits behind the same
+ * `_require_portal_enabled` router dependency as every other portal
+ * endpoint (SEC-10/D-03: the whole router 404s while
+ * `CUSTOMER_PORTAL_ENABLED` is off). A 404 here is therefore never "no
+ * contact configured" (`WorkshopSettingsService.public_contact` always
+ * returns a row) — it's the feature-flag signal, an expected state the
+ * page should render, not an error to log.
+ */
+type WorkshopContactResult =
+  | { status: 'ok'; contact: WorkshopContact }
+  | { status: 'portal_disabled' }
+  | { status: 'unavailable' };
+
+async function fetchWorkshopContact(): Promise<WorkshopContactResult> {
   try {
     const response = await fetch(WORKSHOP_CONTACT_URL, {
       // A6: same rule as the lookup request — never send a staff session
       // cookie to a public, logged-out page.
       credentials: 'omit',
     });
-    if (!response.ok) return null;
-    return (await response.json()) as WorkshopContact;
+    if (response.status === 404) return { status: 'portal_disabled' };
+    if (!response.ok) return { status: 'unavailable' };
+    return { status: 'ok', contact: (await response.json()) as WorkshopContact };
   } catch (err) {
     logError('CustomerPortalPage.loadWorkshopContact', err);
-    return null;
+    return { status: 'unavailable' };
   }
 }
 
@@ -58,6 +73,7 @@ const MESSAGES = {
   tooMany: 'Zu viele Anfragen. Bitte warten Sie einen Moment und versuchen Sie es dann erneut.',
   failed: 'Das hat leider nicht geklappt. Bitte versuchen Sie es später noch einmal.',
   offline: 'Keine Verbindung. Bitte prüfen Sie Ihre Internetverbindung.',
+  portalDisabled: 'Das Kundenportal ist derzeit nicht aktiv.',
 } as const;
 
 type LookupResult = { ok: true; data: PortalStatusResponse } | { ok: false; message: string };
@@ -85,11 +101,15 @@ export const CustomerPortalPage: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<PortalStatusResponse | null>(null);
   const [contact, setContact] = useState<WorkshopContact | null>(null);
+  // null while the feature-flag check is in flight; true/false once known.
+  const [isPortalEnabled, setIsPortalEnabled] = useState<boolean | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    fetchWorkshopContact().then((data) => {
-      if (!cancelled) setContact(data);
+    fetchWorkshopContact().then((outcome) => {
+      if (cancelled) return;
+      setIsPortalEnabled(outcome.status !== 'portal_disabled');
+      if (outcome.status === 'ok') setContact(outcome.contact);
     });
     return () => {
       cancelled = true;
@@ -129,7 +149,14 @@ export const CustomerPortalPage: React.FC = () => {
       </header>
 
       <main className="portal-card">
-        {result ? (
+        {isPortalEnabled === false ? (
+          <div role="status" aria-labelledby="portal-disabled-title">
+            <h1 id="portal-disabled-title" className="portal-form-title">
+              Status prüfen
+            </h1>
+            <p className="portal-form-subtitle">{MESSAGES.portalDisabled}</p>
+          </div>
+        ) : result ? (
           <PortalStatusResult data={result} onReset={handleReset} />
         ) : (
           <form onSubmit={handleSubmit} noValidate aria-labelledby="portal-form-title">

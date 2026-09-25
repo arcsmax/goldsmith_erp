@@ -35,6 +35,41 @@ describe('parseUTC', () => {
   it('returns an invalid Date for an empty string instead of throwing', () => {
     expect(Number.isNaN(parseUTC('').getTime())).toBe(true);
   });
+
+  // LV3-01 regression: the backend can also send an explicit numeric offset
+  // (e.g. Python's `datetime.now(timezone.utc).isoformat()` produces
+  // '...+00:00'). A naive implementation that always appends 'Z' turns this
+  // into the unparsable '...+00:00Z' (Invalid Date), which crashed
+  // /time-tracking's weeklyTrend with "RangeError: Invalid time value".
+  it('parses a UTC-offset-suffixed (+00:00) timestamp without corrupting it', () => {
+    const date = parseUTC('2026-09-21T08:06:56.339640+00:00');
+    expect(Number.isNaN(date.getTime())).toBe(false);
+    expect(date.getTime()).toBe(Date.UTC(2026, 8, 21, 8, 6, 56, 339));
+  });
+
+  it('parses a non-UTC explicit offset (+02:00) and converts to the correct UTC instant', () => {
+    const date = parseUTC('2026-09-25T10:30:00+02:00');
+    expect(date.getTime()).toBe(Date.UTC(2026, 8, 25, 8, 30, 0));
+  });
+
+  it('parses a negative explicit offset (-05:00) and converts to the correct UTC instant', () => {
+    const date = parseUTC('2026-09-25T10:30:00-05:00');
+    expect(date.getTime()).toBe(Date.UTC(2026, 8, 25, 15, 30, 0));
+  });
+
+  it('parses an offset without a colon (+0200) without double-appending Z', () => {
+    const date = parseUTC('2026-09-25T10:30:00+0200');
+    expect(Number.isNaN(date.getTime())).toBe(false);
+    expect(date.getTime()).toBe(Date.UTC(2026, 8, 25, 8, 30, 0));
+  });
+
+  it('gives identical results for naive, Z-suffixed and +00:00-suffixed forms of the same instant', () => {
+    const naive = parseUTC('2026-09-25T22:30:00');
+    const zoned = parseUTC('2026-09-25T22:30:00Z');
+    const offset = parseUTC('2026-09-25T22:30:00+00:00');
+    expect(zoned.getTime()).toBe(naive.getTime());
+    expect(offset.getTime()).toBe(naive.getTime());
+  });
 });
 
 describe('formatDate', () => {

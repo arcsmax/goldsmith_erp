@@ -485,3 +485,17 @@
     min-height: 44px;
   }
 }
+
+/* LV2-03: at 1280px the customers table (id + phone alongside every other
+ * column) ran wider than its card. This table is hand-rolled (not on the
+ * DataTable primitive), so there is no hideBelow prop to reuse; mirrors
+ * the same page-scoped-class fix already applied to orders
+ * (.orders-col-description), materials and metal-inventory
+ * (.materials-col-hide-tablet-up / .metal-col-hide-tablet-up): hidden from
+ * 600px up, still shown in the phone table below 600px. Only the 600px
+ * breakpoint is used (playbook: 600/1024 only). */
+@media (min-width: 600px) {
+  .customers-col-hide-tablet-up {
+    display: none;
+  }
+}

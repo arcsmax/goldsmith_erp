@@ -220,4 +220,31 @@ describe('CustomerPortalPage — workshop contact (W7 hygiene)', () => {
     expect(await screen.findByText('Fragen? Wenden Sie sich an Ihre Werkstatt.')).toBeInTheDocument();
     expect(screen.getByText('Goldschmiede')).toBeInTheDocument();
   });
+
+  it('LV3-04: shows a clear German message instead of the lookup form when the portal feature is off', async () => {
+    // The whole customer_portal router 404s while CUSTOMER_PORTAL_ENABLED
+    // is off (SEC-10/D-03) — workshop-contact is no exception. That 404 is
+    // an expected feature-flag state here, not an error: it must not fall
+    // back to the generic "contact fetch failed" footer, and it must
+    // replace the (non-functional) lookup form with a clear explanation.
+    fetchSpy = vi.spyOn(global, 'fetch').mockImplementation(async (input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      if (url === CONTACT_URL) {
+        return new Response(JSON.stringify({ detail: 'Not Found' }), { status: 404 });
+      }
+      throw new Error('unexpected fetch in this test');
+    });
+
+    render(
+      <MemoryRouter initialEntries={['/portal']}>
+        <CustomerPortalPage />
+      </MemoryRouter>
+    );
+
+    expect(
+      await screen.findByText('Das Kundenportal ist derzeit nicht aktiv.')
+    ).toBeInTheDocument();
+    expect(screen.queryByLabelText('Auftragsnummer oder Reparaturnummer')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Status prüfen' })).not.toBeInTheDocument();
+  });
 });

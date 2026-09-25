@@ -13,7 +13,7 @@ German quote terminology:
 """
 
 from datetime import datetime, timedelta
-from typing import List, Optional
+from typing import Any, List, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -23,6 +23,7 @@ from goldsmith_erp.db.models import (
     QuoteStatus,
     UpdateDeliveryMethod,
 )
+from goldsmith_erp.models.job import JobCustomer, _customer_summary
 from goldsmith_erp.models._common import Money, Percent, Weight
 
 # ============================================================================
@@ -197,12 +198,41 @@ class QuoteListItem(BaseModel):
     quote_number: str
     order_id: Optional[int] = None
     customer_id: int
+    # LV2-06: resolved name (job_list_item's _customer_summary), so the
+    # list can show it instead of the bare "Kunde #<id>" fallback.
+    customer: Optional[JobCustomer] = None
     status: QuoteStatus
     valid_until: datetime
     total: Money
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+
+def quote_list_item(row: Any) -> QuoteListItem:
+    """Build a QuoteListItem from a Quote row with .customer eager-loaded.
+
+    ``row`` is a ``db.models.Quote`` ORM instance; typed as ``Any`` here to
+    avoid importing the ORM model into a schema module.
+
+    Deliberately field-by-field (not ``QuoteListItem.model_validate(row,
+    from_attributes=True)``): the ``customer`` relationship on the row is a
+    raw ORM ``Customer`` with no ``display_name`` attribute, so blind
+    attribute-walking validation would raise instead of resolving it — the
+    same reason ``job_list_item`` builds ``JobListItem`` explicitly rather
+    than relying on ``from_attributes``.
+    """
+    return QuoteListItem(
+        id=row.id,
+        quote_number=row.quote_number,
+        order_id=row.order_id,
+        customer_id=row.customer_id,
+        customer=_customer_summary(getattr(row, "customer", None)),
+        status=row.status,
+        valid_until=row.valid_until,
+        total=row.total,
+        created_at=row.created_at,
+    )
 
 
 class QuoteListResponse(BaseModel):

@@ -270,6 +270,39 @@ class TestListQuotes:
         ids = [q["id"] for q in response.json()["items"]]
         assert quote_id in ids
 
+    @pytest.mark.asyncio
+    async def test_list_quotes_resolves_customer_display_name(
+        self,
+        client: AsyncClient,
+        admin_auth_headers: dict,
+        test_customer: Customer,
+    ):
+        """LV2-06: the list row shows the customer's name, not a bare
+        "Kunde #<id>" placeholder — same resolution job_list_item already
+        does for /jobs.
+        """
+        quote_id = await _create_quote(client, admin_auth_headers, test_customer.id)
+
+        response = await client.get(QUOTES_URL, headers=admin_auth_headers)
+        assert response.status_code == 200
+        row = next(q for q in response.json()["items"] if q["id"] == quote_id)
+        assert row["customer"] == {"id": test_customer.id, "display_name": "Maria Mustermann"}
+
+    @pytest.mark.asyncio
+    async def test_list_quotes_paged_resolves_customer_display_name(
+        self,
+        client: AsyncClient,
+        admin_auth_headers: dict,
+        test_customer: Customer,
+    ):
+        """Same resolution on the offset-paged branch (_list_quotes_paged)."""
+        quote_id = await _create_quote(client, admin_auth_headers, test_customer.id)
+
+        response = await client.get(f"{QUOTES_URL}?offset=0&limit=50", headers=admin_auth_headers)
+        assert response.status_code == 200
+        row = next(q for q in response.json()["items"] if q["id"] == quote_id)
+        assert row["customer"] == {"id": test_customer.id, "display_name": "Maria Mustermann"}
+
 
 # ===========================================================================
 # POST /api/v1/quotes/{id}/send — mark SENT

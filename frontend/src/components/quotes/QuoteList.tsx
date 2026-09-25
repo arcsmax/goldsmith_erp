@@ -17,6 +17,13 @@ import { useQuotesPage } from './useQuoteQueries';
 
 type QuoteRow = QuotesPage['items'][number];
 
+/** LV2-06: the resolved name (job_list_item's _customer_summary on the
+ * backend), falling back to the old placeholder only if it's ever absent
+ * (e.g. an older/unresolved row). */
+function customerLabel(q: QuoteRow): string {
+  return q.customer?.display_name ?? `Kunde #${q.customer_id}`;
+}
+
 /** Backend `q` accepts 1-100 characters. */
 const MAX_SEARCH_LENGTH = 100;
 const STATUS_OPTIONS = (Object.keys(QUOTE_STATUS) as QuoteStatus[]).map((value) => ({
@@ -30,7 +37,7 @@ const COLUMNS: Column<QuoteRow>[] = [
     header: 'KV-Nummer',
     render: (q) => <span className="ui-num">{q.quote_number}</span>,
   },
-  { key: 'customer', header: 'Kunde', render: (q) => `Kunde #${q.customer_id}` },
+  { key: 'customer', header: 'Kunde', render: (q) => customerLabel(q) },
   { key: 'created', header: 'Erstellt', numeric: true, hideBelow: 'desktop', render: (q) => formatDate(q.created_at) },
   {
     key: 'valid',
@@ -146,7 +153,7 @@ export const QuoteList: React.FC<QuoteListProps> = ({ onCreate, canCreate }) => 
         state={listState(query)}
         cardMeta={(q) => (
           <>
-            {`Kunde #${q.customer_id} · gültig bis ${formatDate(q.valid_until)} · `}
+            {`${customerLabel(q)} · gültig bis ${formatDate(q.valid_until)} · `}
             <span className={`ui-num ${MONEY_CLASS}`}>{formatEur(q.total)}</span>
           </>
         )}

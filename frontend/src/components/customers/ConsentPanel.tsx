@@ -11,6 +11,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { useAuth, useConfirm, useToast } from '../../contexts';
 import { logError } from '../../lib/logError';
+import { ToggleSetting } from '../ToggleSetting';
 import {
   CONSENT_METHOD_LABELS,
   CONSENT_PURPOSES,
@@ -167,22 +168,18 @@ export const ConsentPanel: React.FC<ConsentPanelProps> = ({ customerId }) => {
       <h3 className="cdetail-section__title">Einwilligungen</h3>
 
       {emailOptOut !== null && (
-        <div className="checkbox-group">
-          <label htmlFor="consent-email-opt-out">
-            <input
-              type="checkbox"
-              id="consent-email-opt-out"
-              checked={emailOptOut}
-              onChange={(e) => void handleOptOutChange(e.target.checked)}
-              disabled={isSavingOptOut}
-            />{' '}
-            Keine E-Mail-Updates
-          </label>
-          <p className="form-hint">
-            Widerspruch nach Art. 21 DSGVO: Kundeninfos werden dann nur als PDF zur Übergabe
-            erstellt.
-          </p>
-        </div>
+        // LV3-05: reuse the shared ToggleSetting primitive (already used by
+        // the Werkbank-Modus setting) instead of a bare, unstyled
+        // <input type="checkbox"> — label and Art. 21 help text stack
+        // properly and the control keeps a real touch target.
+        <ToggleSetting
+          id="consent-email-opt-out"
+          label="Keine E-Mail-Updates"
+          description="Widerspruch nach Art. 21 DSGVO: Kundeninfos werden dann nur als PDF zur Übergabe erstellt."
+          checked={emailOptOut}
+          onChange={(next) => void handleOptOutChange(next)}
+          disabled={isSavingOptOut}
+        />
       )}
 
       {isLoading ? (
