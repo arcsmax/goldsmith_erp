@@ -184,6 +184,11 @@ _RESOURCE_ROUTES: dict[str, Tuple[str, str, str, bool]] = {
     # ``/orders/{id}/photos`` (the documented first-segment "orders" blind
     # spot) and are NOT reachable from this middleware — see the report.
     "photos": ("order_photo", "accessed", "list_accessed", False),
+    # media (ARCH phase 4, ADR-2026-09-25-media): the unified
+    # ``/media/{id}``, ``/media/{id}/thumbnail`` serving routes, the owner
+    # listing and ``PATCH /media/{id}`` (customer_visible). Design IP, every
+    # verb audited. Ids are uuids, so entity_id stays None (as for photos).
+    "media": ("media_asset", "accessed", "list_accessed", False),
     # measurements: customer body data (PII). The list/create live under
     # ``/customers/{id}/measurements`` (already audited via the "customers"
     # entry); this entry covers the bare ``/measurements/{id}`` get/update/
@@ -222,6 +227,7 @@ _LEGAL_BASIS_OVERRIDES: dict[str, str] = {
         "(account administration & security monitoring)"
     ),
     "order_photo": "GDPR Article 6(1)(b) - Contract (order design documentation)",
+    "media_asset": "GDPR Article 6(1)(b) - Contract (order design documentation)",
     "measurement": "GDPR Article 6(1)(b) - Contract (customer measurement records)",
     "workshop_settings": (
         "GDPR Article 6(1)(c) - Legal obligation (§14 Abs. 4 UStG seller data)"

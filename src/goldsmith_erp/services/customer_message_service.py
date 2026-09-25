@@ -86,6 +86,7 @@ from goldsmith_erp.db.models import (
     CustomerUpdate,
     CustomerUpdateKind,
     CustomerUpdateStatus,
+    MediaOwnerType,
     Order,
     OrderPhoto,
     RepairJob,
@@ -108,6 +109,7 @@ from goldsmith_erp.services.image_validation import (
     create_email_variant,
     resolve_within_root,
 )
+from goldsmith_erp.services.media_service import MediaService
 from goldsmith_erp.services.outbox_service import (
     KIND_CUSTOMER_UPDATE,
     OutboxService,
@@ -119,6 +121,8 @@ logger = logging.getLogger(__name__)
 
 # Longest side of a photo attached to a customer message.
 PHOTO_MAX_PX = 1200
+# Same cap as CustomerUpdateCreate.photo_ids (max_length=20).
+MAX_MESSAGE_PHOTOS = 20
 
 AUDIT_ACTION_SENT = "customer_message_sent"
 _OPT_OUT_NOTE = "Widerspruch nach Art. 21 DSGVO: keine E-Mail-Updates"
@@ -300,6 +304,28 @@ async def resolve_recipient(
         return Recipient(f"Reparatur #{repair_job_id}", None)
     customer = await _load_customer(db, cast(Optional[int], repair.customer_id))
     return Recipient(f"Reparatur {repair.repair_number}", customer)
+
+
+async def default_photo_ids(
+    db: AsyncSession,
+    kind: MessageKind,
+    order_id: Optional[int],
+    photo_ids: Optional[List[str]],
+) -> Optional[List[str]]:
+    """Explicitly ticked photos, else the order's customer-visible photos.
+
+    Ticked ids always win (unchanged behaviour). Only a photo message
+    (``PHOTO_UPDATE``) without ticked photos falls back to the photos flagged
+    "für Kunden sichtbar" (``media_assets.customer_visible``); a text-only
+    message never picks up photos implicitly, so it never starts to need
+    PHOTO_USE consent because a flag was set.
+    """
+    if photo_ids or kind is not MessageKind.PHOTO_UPDATE or order_id is None:
+        return photo_ids
+    flagged = await MediaService.customer_visible_legacy_ids(
+        db, MediaOwnerType.ORDER, order_id
+    )
+    return flagged[:MAX_MESSAGE_PHOTOS] or photo_ids
 
 
 async def load_photo_attachments(
@@ -587,6 +613,7 @@ class CustomerMessageService:
         recipient = await resolve_recipient(
             db, order_id=order_id, repair_job_id=repair_job_id
         )
+        photo_ids = await default_photo_ids(db, kind, order_id, photo_ids)
         await CustomerMessageService.check_content(
             db,
             kind=kind,

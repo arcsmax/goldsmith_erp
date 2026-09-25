@@ -125,6 +125,13 @@ from goldsmith_erp.db.models.consultations import (
     CustomerNoGo,
     NoGoCategory,
 )
+from goldsmith_erp.db.models.media import (
+    MEDIA_KIND_VALUES,
+    MEDIA_OWNER_TYPE_VALUES,
+    MediaAsset,
+    MediaKind,
+    MediaOwnerType,
+)
 from goldsmith_erp.db.models.time_tracking import (
     Activity,
     EstimateAccuracy,
@@ -185,10 +192,15 @@ __all__ = [
     "InvoiceStatus",
     "LabelTemplate",
     "LocationHistory",
+    "MEDIA_KIND_VALUES",
+    "MEDIA_OWNER_TYPE_VALUES",
     "MONEY_NUMERIC",
     "Material",
     "MaterialUsage",
     "MeasurementType",
+    "MediaAsset",
+    "MediaKind",
+    "MediaOwnerType",
     "MetalPriceHistory",
     "MetalPriceSource",
     "MetalPurchase",

@@ -1,8 +1,14 @@
 #!/usr/bin/env bash
 # scripts/backup.sh
-# Creates an ENCRYPTED, compressed PostgreSQL dump, verifies it, applies the
-# retention policy, appends the GDPR erasure ledger, optionally syncs to the
-# cloud, and notifies the backend admin endpoint.
+# Creates an ENCRYPTED, compressed PostgreSQL dump plus an encrypted archive
+# of the media root (photos, generated PDFs — ARCH phase 4), verifies both,
+# applies the retention policy, appends the GDPR erasure ledger, optionally
+# syncs to the cloud, and notifies the backend admin endpoint.
+#
+# Media: MEDIA_DIR (default: <project>/uploads, the host side of the
+# backend's /app/uploads mount, which holds PHOTO_STORAGE_PATH and
+# FILE_STORAGE_ROOT) is archived to goldsmith_media_<ts>.tar.gz[.gpg|.age].
+# Restore: decrypt, then `tar -xzf <file> -C <project>/uploads`.
 #
 # Usage:
 #   ./scripts/backup.sh                 # encrypted backup (production)
@@ -27,8 +33,9 @@
 #
 # Exit codes:
 #   0  — backup created and verified successfully (and ledger appended)
-#   1  — backup failed, verification failed, or the ledger could not be
-#        appended (the verified dump is kept in that last case)
+#   1  — backup failed, verification failed, the ledger could not be
+#        appended, or the media archive failed (the verified dump is kept in
+#        the last two cases)
 #   2  — usage / configuration error
 
 set -euo pipefail
@@ -49,7 +56,7 @@ for arg in "$@"; do
     case "${arg}" in
         --dry-run)     DRY_RUN=true ;;
         --unencrypted) ALLOW_UNENCRYPTED=true ;;
-        -h|--help)     sed -n '2,32p' "${BASH_SOURCE[0]}"; exit 0 ;;
+        -h|--help)     sed -n '2,39p' "${BASH_SOURCE[0]}"; exit 0 ;;
         *) echo "ERROR: unknown argument: ${arg}" >&2; exit 2 ;;
     esac
 done
@@ -73,6 +80,8 @@ POSTGRES_DB="${POSTGRES_DB:-goldsmith}"
 BACKUP_CLOUD_URL="${BACKUP_CLOUD_URL:-}"
 ERASURE_LEDGER_FILE="${ERASURE_LEDGER_FILE:-${BACKUP_DIR}/erasure-ledger/erasure-ledger.jsonl}"
 ERASURE_LEDGER_FILE="${ERASURE_LEDGER_FILE/#\~/${HOME}}"
+MEDIA_DIR="${MEDIA_DIR:-${PROJECT_ROOT}/uploads}"
+MEDIA_DIR="${MEDIA_DIR/#\~/${HOME}}"
 
 COMPOSE_FILE="${PROJECT_ROOT}/podman-compose.prod.yml"
 COMPOSE_CMD="podman-compose -f ${COMPOSE_FILE}"
@@ -99,11 +108,14 @@ fi
 # ── Build output filename ─────────────────────────────────────────────────────
 TIMESTAMP="$(date '+%Y-%m-%d_%H%M%S')"
 BACKUP_FILE="${BACKUP_DIR}/goldsmith_erp_${TIMESTAMP}.sql.gz$(backup_crypto_suffix)"
+MEDIA_FILE="${BACKUP_DIR}/goldsmith_media_${TIMESTAMP}.tar.gz$(backup_crypto_suffix)"
 
 if ${DRY_RUN}; then
     echo "DRY-RUN: no dump, no files written, nothing deleted."
     echo "  encryption : ${BACKUP_CRYPTO_METHOD}"
     echo "  backup file: ${BACKUP_FILE}"
+    echo "  media dir  : ${MEDIA_DIR}"
+    echo "  media file : ${MEDIA_FILE}"
     echo "  ledger file: ${ERASURE_LEDGER_FILE}"
     echo "  cloud sync : ${BACKUP_CLOUD_URL:+enabled}${BACKUP_CLOUD_URL:-disabled}"
     exit 0
@@ -131,7 +143,8 @@ log_info "Starting backup → ${BACKUP_FILE} (encryption: ${BACKUP_CRYPTO_METHOD
 
 # ── pg_dump | gzip | encrypt → .partial, renamed only when complete ──────────
 PARTIAL_FILE="${BACKUP_FILE}.partial"
-trap 'rm -f "${PARTIAL_FILE}"' EXIT
+MEDIA_PARTIAL="${MEDIA_FILE}.partial"
+trap 'rm -f "${PARTIAL_FILE}" "${MEDIA_PARTIAL}"' EXIT
 
 if ! ${COMPOSE_CMD} exec -T db \
         pg_dump -U "${POSTGRES_USER}" "${POSTGRES_DB}" \
@@ -146,24 +159,25 @@ chmod 600 "${BACKUP_FILE}"
 
 # ── Verify archive integrity ──────────────────────────────────────────────────
 verify_backup() {
+    local file="${1:-${BACKUP_FILE}}"
     case "${BACKUP_CRYPTO_METHOD}" in
-        none) gzip -t "${BACKUP_FILE}" 2>/dev/null ;;
-        gpg)  backup_crypto_decrypt gpg "${BACKUP_FILE}" | gzip -t 2>/dev/null ;;
+        none) gzip -t "${file}" 2>/dev/null ;;
+        gpg)  backup_crypto_decrypt gpg "${file}" | gzip -t 2>/dev/null ;;
         age)
             if [[ -n "${BACKUP_AGE_IDENTITY_FILE:-}" && -r "${BACKUP_AGE_IDENTITY_FILE}" ]]; then
-                backup_crypto_decrypt age "${BACKUP_FILE}" | gzip -t 2>/dev/null
+                backup_crypto_decrypt age "${file}" | gzip -t 2>/dev/null
             else
                 # Private key is (correctly) offline: check the age header and
                 # size only. The quarterly restore drill proves decryptability.
                 log_warn "age identity not on this host — header check only (restore drill required)."
-                [[ -s "${BACKUP_FILE}" ]] \
-                    && head -c 21 "${BACKUP_FILE}" | grep -q "age-encryption.org/v1"
+                [[ -s "${file}" ]] \
+                    && head -c 21 "${file}" | grep -q "age-encryption.org/v1"
             fi
             ;;
     esac
 }
 
-if ! verify_backup; then
+if ! verify_backup "${BACKUP_FILE}"; then
     log_error "Integrity check failed for ${BACKUP_FILE}. Previous backups are NOT deleted."
     notify_admin "corrupted" "$(basename "${BACKUP_FILE}")" "0"
     exit 1
@@ -172,17 +186,51 @@ fi
 BACKUP_SIZE="$(du -sh "${BACKUP_FILE}" | cut -f1)"
 log_info "Backup verified OK. Size: ${BACKUP_SIZE}"
 
+# ── Media archive: tar | gzip | encrypt → .partial, renamed when complete ─────
+# Photos and generated PDFs live on disk, not in the dump; without this a
+# restore brings back every media row pointing at a missing file.
+MEDIA_OK=true
+if [[ -d "${MEDIA_DIR}" ]]; then
+    if tar -C "${MEDIA_DIR}" -cf - . \
+        | gzip \
+        | backup_crypto_encrypt > "${MEDIA_PARTIAL}"; then
+        mv "${MEDIA_PARTIAL}" "${MEDIA_FILE}"
+        chmod 600 "${MEDIA_FILE}"
+        if verify_backup "${MEDIA_FILE}"; then
+            log_info "Media archive verified OK. Size: $(du -sh "${MEDIA_FILE}" | cut -f1)"
+        else
+            MEDIA_OK=false
+            log_error "Integrity check failed for ${MEDIA_FILE}."
+        fi
+    else
+        MEDIA_OK=false
+        log_error "Media archive (tar / compression / encryption) failed."
+    fi
+else
+    MEDIA_OK=false
+    log_error "Media directory ${MEDIA_DIR} not found (set MEDIA_DIR). Photos are NOT backed up."
+fi
+
 # ── Retention: keep last 7 daily + 4 weekly (Sun) + 3 monthly (1st) ──────────
 apply_retention() {
     local dir="$1"
+    local kind="${2:-dump}"
 
     # Newest first, so the counters keep the MOST RECENT backups. Matches
-    # encrypted and plain dumps; never matches *.partial or the ledger.
+    # encrypted and plain dumps (or media archives, counted separately);
+    # never matches *.partial or the ledger.
     local -a all_files=()
-    mapfile -t all_files < <(ls -1t \
-        "${dir}"/goldsmith_erp_*.sql.gz \
-        "${dir}"/goldsmith_erp_*.sql.gz.gpg \
-        "${dir}"/goldsmith_erp_*.sql.gz.age 2>/dev/null || true)
+    if [[ "${kind}" == "media" ]]; then
+        mapfile -t all_files < <(ls -1t \
+            "${dir}"/goldsmith_media_*.tar.gz \
+            "${dir}"/goldsmith_media_*.tar.gz.gpg \
+            "${dir}"/goldsmith_media_*.tar.gz.age 2>/dev/null || true)
+    else
+        mapfile -t all_files < <(ls -1t \
+            "${dir}"/goldsmith_erp_*.sql.gz \
+            "${dir}"/goldsmith_erp_*.sql.gz.gpg \
+            "${dir}"/goldsmith_erp_*.sql.gz.age 2>/dev/null || true)
+    fi
 
     local -a keep=()
     local daily_count=0 weekly_count=0 monthly_count=0
@@ -230,6 +278,7 @@ apply_retention() {
 }
 
 apply_retention "${BACKUP_DIR}"
+apply_retention "${BACKUP_DIR}" media
 
 # ── Erasure ledger (GDPR-07) ──────────────────────────────────────────────────
 append_erasure_ledger() {
@@ -263,10 +312,18 @@ fi
 if [[ -n "${BACKUP_CLOUD_URL}" ]]; then
     log_info "Syncing backup to cloud storage…"
     "${SCRIPT_DIR}/backup-sync.sh" "${BACKUP_FILE}"
+    if [[ -f "${MEDIA_FILE}" ]]; then
+        "${SCRIPT_DIR}/backup-sync.sh" "${MEDIA_FILE}"
+    fi
 fi
 
 if ! ${LEDGER_OK}; then
     notify_admin "ledger_failed" "$(basename "${BACKUP_FILE}")" "${BACKUP_SIZE}"
+    exit 1
+fi
+
+if ! ${MEDIA_OK}; then
+    notify_admin "media_failed" "$(basename "${BACKUP_FILE}")" "${BACKUP_SIZE}"
     exit 1
 fi
 

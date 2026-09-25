@@ -144,6 +144,17 @@
     "neck_circumference",
     "ankle_circumference"
   ],
+  "MediaKind": [
+    "photo",
+    "signature",
+    "document"
+  ],
+  "MediaOwnerType": [
+    "order",
+    "repair",
+    "consultation",
+    "customer_update"
+  ],
   "MetalPriceSource": [
     "api",
     "manual",

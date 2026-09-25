@@ -196,3 +196,24 @@ def test_backup_appends_ledger_outside_rotation() -> None:
     # Rotation globs only match dump files, never the ledger.
     assert '"${dir}"/goldsmith_erp_*.sql.gz.gpg' in text
     assert "erasure-ledger" not in text.split("apply_retention()")[1].split("}")[0]
+
+
+def test_backup_dry_run_plans_encrypted_media_archive(tmp_path: Path) -> None:
+    # ARCH phase 4: the media root (photos, PDFs) is archived next to the dump.
+    key = _passphrase(tmp_path)
+    media = tmp_path / "uploads"
+    env = _env_file(tmp_path, f"BACKUP_PASSPHRASE_FILE={key}\nMEDIA_DIR={media}\n")
+
+    result = _run(BACKUP, "--dry-run", env_file=env)
+
+    assert result.returncode == 0, result.stderr
+    assert f"media dir  : {media}" in result.stdout
+    assert "goldsmith_media_" in result.stdout
+    assert ".tar.gz.gpg" in result.stdout
+
+
+def test_backup_media_dir_defaults_to_project_uploads(tmp_path: Path) -> None:
+    result = _run(BACKUP, "--dry-run", "--unencrypted", env_file=_env_file(tmp_path))
+
+    assert result.returncode == 0, result.stderr
+    assert f"media dir  : {REPO_ROOT / 'uploads'}" in result.stdout

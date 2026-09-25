@@ -126,7 +126,11 @@ class Consultation(Base):
 
 
 class ConsultationPhoto(Base):
-    """Skizzen-/Referenzfoto einer Beratung. Cloned from OrderPhoto conventions."""
+    """Skizzen-/Referenzfoto einer Beratung. Cloned from OrderPhoto conventions.
+
+    DEPRECATED (ARCH phase 4): superseded by ``media_assets`` (MediaAsset).
+    Still dual-written for one release; read new code from media_assets.
+    """
 
     __tablename__ = "consultation_photos"
 

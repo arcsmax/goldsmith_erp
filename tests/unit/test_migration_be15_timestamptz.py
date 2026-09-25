@@ -32,6 +32,13 @@ _PRE_EXISTING_AWARE = {
     ("scan_logs", "client_tap_at"),
     ("scan_logs", "server_resolved_at"),
 }
+# Tables created by later migrations with TIMESTAMPTZ from the start, so
+# be15 never converts them (ARCH phase 4: 20260925_arch4_media).
+_BORN_AWARE_AFTER_BE15 = {
+    ("media_assets", "taken_at"),
+    ("media_assets", "created_at"),
+    ("media_assets", "deleted_at"),
+}
 
 
 def _load_migration():
@@ -77,7 +84,9 @@ def test_revision_sits_on_top_of_be14_in_the_single_chain():
     assert module.revision == _REVISION
     assert module.down_revision == "20260925_be14_numeric"
     script = ScriptDirectory.from_config(Config(str(_ROOT / "alembic.ini")))
-    assert script.get_heads() == [_REVISION]
+    heads = script.get_heads()
+    assert len(heads) == 1
+    assert _REVISION in {rev.revision for rev in script.walk_revisions()}
 
 
 def test_inventory_matches_every_aware_model_column():
@@ -94,7 +103,7 @@ def test_inventory_matches_every_aware_model_column():
                 assert not isinstance(
                     column.type, DateTime
                 ), f"{table.name}.{column.name} is a plain DateTime; use UtcDateTime"
-    assert in_migration == aware_in_model - _PRE_EXISTING_AWARE
+    assert in_migration == aware_in_model - _PRE_EXISTING_AWARE - _BORN_AWARE_AFTER_BE15
     # The partition key is the only column that stays naive in the DB.
     assert naive_in_model == {("scan_logs", "scanned_at")}
 
