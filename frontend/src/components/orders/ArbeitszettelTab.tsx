@@ -15,6 +15,7 @@ import type { OrderType } from '../../types';
 import { useToast } from '../../contexts';
 import { getErrorMessage } from '../../lib/errors';
 import { Button, Field } from '../../ui';
+import { LocationPicker } from '../LocationPicker';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -51,23 +52,6 @@ const SURFACE_FINISH_OPTIONS = [
   { value: 'kombination', label: 'Kombination (poliert/matt)' },
 ];
 
-const LOCATION_OPTIONS = [
-  { value: '', label: '— Standort wählen —' },
-  { value: 'werkbank_1', label: 'Werkbank 1' },
-  { value: 'werkbank_2', label: 'Werkbank 2' },
-  { value: 'werkbank_3', label: 'Werkbank 3' },
-  { value: 'schleifbereich', label: 'Schleifbereich' },
-  { value: 'galvanik', label: 'Galvanik' },
-  { value: 'polierbereich', label: 'Polierbereich' },
-  { value: 'fassbereich', label: 'Fassbereich (Steinbesatz)' },
-  { value: 'laser', label: 'Laserbereich' },
-  { value: 'eingangspruefung', label: 'Eingangsprüfung' },
-  { value: 'qualitaetskontrolle', label: 'Qualitätskontrolle' },
-  { value: 'ausgabe', label: 'Ausgabe / Abholung' },
-  { value: 'tresor', label: 'Tresor' },
-  { value: 'externe_bearbeitung', label: 'Externe Bearbeitung' },
-];
-
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -95,6 +79,7 @@ interface FormState {
   ring_size_mm: string;
   surface_finish: string;
   current_location: string;
+  location_id: number | null;
 }
 
 function toFormState(order: OrderType): FormState {
@@ -105,6 +90,7 @@ function toFormState(order: OrderType): FormState {
     ring_size_mm: order.ring_size_mm != null ? String(order.ring_size_mm) : '',
     surface_finish: order.surface_finish ?? '',
     current_location: order.current_location ?? '',
+    location_id: order.location_id ?? null,
   };
 }
 
@@ -126,8 +112,14 @@ function buildPatch(order: OrderType, form: FormState, showRingSize: boolean): R
     ['labor_hours', parseOptionalNumber(form.labor_hours), order.labor_hours ?? null],
     ['alloy', optionalText(form.alloy), order.alloy ?? null],
     ['surface_finish', optionalText(form.surface_finish), order.surface_finish ?? null],
-    ['current_location', optionalText(form.current_location), order.current_location ?? null],
   ];
+  const locationChanged =
+    form.location_id !== (order.location_id ?? null) ||
+    optionalText(form.current_location) !== (order.current_location ?? null);
+  if (locationChanged) {
+    candidates.push(['location_id', form.location_id, undefined]);
+    candidates.push(['current_location', optionalText(form.current_location), undefined]);
+  }
   if (showRingSize) {
     candidates.push(['ring_size_mm', parseOptionalNumber(form.ring_size_mm), order.ring_size_mm ?? null]);
   }
@@ -183,7 +175,7 @@ const ArbeitszettelTab: React.FC<ArbeitszettelTabProps> = ({ order, onOrderUpdat
   });
 
   const showRingSize = isRingOrder(order);
-  const handleChange = (field: keyof FormState, value: string) =>
+  const handleChange = (field: Exclude<keyof FormState, 'location_id'>, value: string) =>
     setForm((prev) => ({ ...prev, [field]: value }));
 
   const handleSave = (e: React.FormEvent) => {
@@ -250,12 +242,18 @@ const ArbeitszettelTab: React.FC<ArbeitszettelTabProps> = ({ order, onOrderUpdat
           onChange={(value) => handleChange('surface_finish', value)}
         />
 
-        <SelectField
+        <LocationPicker
           id="az-location"
           label="Aktueller Standort"
-          value={form.current_location}
-          options={LOCATION_OPTIONS}
-          onChange={(value) => handleChange('current_location', value)}
+          value={form.location_id}
+          currentName={form.current_location}
+          onChange={(location) =>
+            setForm((prev) => ({
+              ...prev,
+              location_id: location?.id ?? null,
+              current_location: location?.name ?? '',
+            }))
+          }
         />
       </div>
 

@@ -580,7 +580,11 @@ async def change_order_location(
 ):
     """Lagerort eines Auftrags ändern und Verlaufseintrag anlegen."""
     order = await OrderService.change_location(
-        db, order_id, location_in.location, current_user.id
+        db,
+        order_id,
+        location_in.location,
+        current_user.id,
+        location_id=location_in.location_id,
     )
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")

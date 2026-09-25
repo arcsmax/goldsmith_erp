@@ -23,7 +23,7 @@
 import React, { createContext, useCallback, useContext, useState, ReactNode } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
-import { timeTrackingApi } from '../api/time-tracking';
+import { timeTrackingApi, type RunningTimeEntry } from '../api/time-tracking';
 import { queryKeys } from '../api/queryKeys';
 import { activitiesQuery, runningEntryQuery } from '../api/timeTrackingQueries';
 import { getErrorMessage } from '../lib/errors';
@@ -114,7 +114,7 @@ function useTimerMutations(userId: number | null) {
   const runningKey = queryKeys.timer.running(userId);
 
   const setRunning = useCallback(
-    (entry: TimeEntry | null) => queryClient.setQueryData(runningKey, entry),
+    (entry: RunningTimeEntry | null) => queryClient.setQueryData(runningKey, entry),
     // runningKey is derived from userId only.
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [queryClient, userId],
@@ -127,7 +127,7 @@ function useTimerMutations(userId: number | null) {
       ]),
     [queryClient],
   );
-  const onEntry = async (entry: TimeEntry | null) => {
+  const onEntry = async (entry: RunningTimeEntry | null) => {
     setRunning(entry);
     await invalidate();
   };

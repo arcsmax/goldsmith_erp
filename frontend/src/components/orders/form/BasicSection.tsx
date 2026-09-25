@@ -3,6 +3,7 @@ import React, { useEffect } from 'react';
 import { useFormContext } from 'react-hook-form';
 import type { CustomerListItem } from '../../../types';
 import { Field } from '../../../ui';
+import { LocationPicker } from '../../LocationPicker';
 import { ORDER_TYPE_OPTIONS } from '../orderIntakeOptions';
 import { STATUS_OPTIONS } from './orderFormOptions';
 import type { OrderFormValues } from './orderFormSchema';
@@ -16,7 +17,9 @@ const customerLabel = (c: CustomerListItem): string =>
   `${c.first_name} ${c.last_name}${c.company_name ? ` (${c.company_name})` : ''}`;
 
 export const BasicSection: React.FC<BasicSectionProps> = ({ customers, isLoadingCustomers }) => {
-  const { register, formState, getValues, setValue } = useFormContext<OrderFormValues>();
+  const { register, formState, getValues, setValue, watch } = useFormContext<OrderFormValues>();
+  const locationId = watch('location_id');
+  const currentLocation = watch('current_location');
   const { errors } = formState;
 
   // The saved customer's <option> arrives with the list; re-apply the value
@@ -77,14 +80,18 @@ export const BasicSection: React.FC<BasicSectionProps> = ({ customers, isLoading
         </Field>
       </div>
 
-      <Field label="Aktueller Standort" name="current_location" error={errors.current_location?.message}>
-        <input
-          id="current_location"
-          type="text"
-          placeholder="z. B. Werkstatt, Tresor, Versand"
-          {...register('current_location')}
-        />
-      </Field>
+      <LocationPicker
+        id="current_location"
+        label="Aktueller Standort"
+        value={locationId ? Number.parseInt(locationId, 10) : null}
+        currentName={currentLocation}
+        error={errors.current_location?.message}
+        onChange={(location) => {
+          const opts = { shouldDirty: true };
+          setValue('location_id', location ? String(location.id) : '', opts);
+          setValue('current_location', location?.name ?? '', opts);
+        }}
+      />
     </div>
   );
 };

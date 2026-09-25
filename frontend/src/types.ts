@@ -258,6 +258,7 @@ export interface OrderUpdateInput {
   fitting_date?: string | null;
   has_scrap_gold?: boolean | null;
   current_location?: string | null;
+  location_id?: number | null;
   special_instructions?: string | null;
 
   // Order classification
@@ -534,6 +535,7 @@ export interface TimeEntryStartInput {
   order_id: number;
   activity_id: number;
   location?: string;
+  location_id?: number | null;
   extra_metadata?: Record<string, any>;
 }
 
@@ -545,6 +547,7 @@ export interface TimeEntryCreateInput {
   end_time?: string; // ISO datetime
   duration_minutes?: number;
   location?: string;
+  location_id?: number | null;
   complexity_rating?: number; // 1-5
   quality_rating?: number; // 1-5
   rework_required?: boolean;
@@ -563,6 +566,7 @@ export interface TimeEntryUpdateInput {
   end_time?: string;
   duration_minutes?: number;
   location?: string;
+  location_id?: number | null;
   complexity_rating?: number; // 1-5
   quality_rating?: number; // 1-5
   rework_required?: boolean;

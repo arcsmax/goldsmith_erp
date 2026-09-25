@@ -43,6 +43,8 @@ _BORN_AWARE_AFTER_BE15 = {
     ("jobs", "on_hold_since"),
     ("jobs", "created_at"),
     ("jobs", "updated_at"),
+    # W8 Standorte: 20260925_w8_workshop_locations.
+    ("workshop_locations", "created_at"),
 }
 
 

@@ -11,7 +11,14 @@ import {
   TimeTrackingStats,
   TimeSummaryStats,
 } from '../types';
+import type { Schema } from './generated';
 import type { TimeEntryPageParams } from './queryKeys';
+
+/** The running timer as GET /running and PATCH /{id} return it (with names). */
+export type RunningTimeEntry = TimeEntry &
+  Partial<Pick<Schema<'RunningTimeEntryRead'>, 'activity_name' | 'order_title'>>;
+/** PATCH /time-tracking/{id} body: only the fields sent change. */
+export type RunningTimeEntryEditInput = Schema<'RunningTimeEntryEdit'>;
 
 /** Page envelope of the time-entry lists (W3-08, models/pagination.py). */
 export interface TimeEntriesPage {
@@ -68,8 +75,21 @@ export const timeTrackingApi = {
   /**
    * Get currently running time entry for current user
    */
-  getRunning: async (): Promise<TimeEntry | null> => {
-    const response = await apiClient.get<TimeEntry | null>('/time-tracking/running');
+  getRunning: async (): Promise<RunningTimeEntry | null> => {
+    const response = await apiClient.get<RunningTimeEntry | null>('/time-tracking/running');
+    return response.data;
+  },
+
+  /**
+   * Edit the RUNNING timer (activity, order, location, notes, start time).
+   * 403 for a colleague's entry, 409 once stopped, 422 for an impossible
+   * start time (German detail).
+   */
+  editRunning: async (
+    entryId: string,
+    data: RunningTimeEntryEditInput,
+  ): Promise<RunningTimeEntry> => {
+    const response = await apiClient.patch<RunningTimeEntry>(`/time-tracking/${entryId}`, data);
     return response.data;
   },
 

@@ -164,6 +164,54 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/locations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Admin List Locations
+         * @description Alle Standorte inkl. deaktivierter (nur ADMIN).
+         */
+        get: operations["admin_list_locations_api_v1_admin_locations_get"];
+        put?: never;
+        /**
+         * Create Location
+         * @description Standort anlegen (nur ADMIN).
+         */
+        post: operations["create_location_api_v1_admin_locations_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/locations/{location_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Deactivate Location
+         * @description Standort deaktivieren (nur ADMIN) — bleibt im Verlauf erhalten.
+         */
+        delete: operations["deactivate_location_api_v1_admin_locations__location_id__delete"];
+        options?: never;
+        head?: never;
+        /**
+         * Update Location
+         * @description Standort umbenennen, sortieren oder (re)aktivieren (nur ADMIN).
+         */
+        patch: operations["update_location_api_v1_admin_locations__location_id__patch"];
+        trace?: never;
+    };
     "/api/v1/admin/notify-backup": {
         parameters: {
             query?: never;
@@ -1823,6 +1871,26 @@ export interface paths {
          * @description Verlauf eines Vorgangs; nutzt die Timeline der jeweiligen Art.
          */
         get: operations["get_job_timeline_api_v1_jobs__job_id__timeline_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/locations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Locations
+         * @description Standorte für die Auswahlliste.
+         */
+        get: operations["list_locations_api_v1_locations_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -5106,7 +5174,16 @@ export interface paths {
         delete: operations["delete_time_entry_api_v1_time_tracking__entry_id__delete"];
         options?: never;
         head?: never;
-        patch?: never;
+        /**
+         * Edit Running Entry
+         * @description Laufenden Timer bearbeiten (Aktivität, Auftrag, Ort, Notiz, Startzeit).
+         *
+         *     Nur eigene Einträge, außer ADMIN. 409 wenn der Eintrag gestoppt ist,
+         *     422 bei unmöglicher Startzeit (Zukunft, vor dem Ende der vorherigen
+         *     Zeiterfassung, älter als 24 h). Jede Änderung schreibt eine Zeile ins
+         *     Änderungsprotokoll der Notiz und ein ``entry_edited``-Event.
+         */
+        patch: operations["edit_running_entry_api_v1_time_tracking__entry_id__patch"];
         trace?: never;
     };
     "/api/v1/time-tracking/{entry_id}/activity": {
@@ -9114,7 +9191,24 @@ export interface components {
              * Location
              * @description Target workshop location (e.g. Werkbank 1, Tresor)
              */
-            location: string;
+            location?: string | null;
+            /**
+             * Location Id
+             * @description Configured workshop location (Standort) id
+             */
+            location_id?: number | null;
+        };
+        /**
+         * LocationCreate
+         * @description New Standort (ADMIN).
+         */
+        LocationCreate: {
+            /** @default other */
+            kind: components["schemas"]["LocationKindEnum"];
+            /** Name */
+            name: string;
+            /** Sort Order */
+            sort_order?: number | null;
         };
         /**
          * LocationHistoryRead
@@ -9134,6 +9228,45 @@ export interface components {
              * Format: date-time
              */
             timestamp: string;
+        };
+        /**
+         * LocationKindEnum
+         * @description API mirror of ``db.models.LocationKind``.
+         * @enum {string}
+         */
+        LocationKindEnum: "bench" | "safe" | "showroom" | "external" | "other";
+        /**
+         * LocationRead
+         * @description A Standort as returned by the API.
+         */
+        LocationRead: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Id */
+            id: number;
+            /** Is Active */
+            is_active: boolean;
+            kind: components["schemas"]["LocationKindEnum"];
+            /** Name */
+            name: string;
+            /** Sort Order */
+            sort_order: number;
+        };
+        /**
+         * LocationUpdate
+         * @description Rename / re-kind / reorder / (re)activate a Standort (ADMIN).
+         */
+        LocationUpdate: {
+            /** Is Active */
+            is_active?: boolean | null;
+            kind?: components["schemas"]["LocationKindEnum"] | null;
+            /** Name */
+            name?: string | null;
+            /** Sort Order */
+            sort_order?: number | null;
         };
         /**
          * LogInterruptionRequest
@@ -10461,6 +10594,8 @@ export interface components {
             /** Labor Hours */
             labor_hours?: number | null;
             last_scan?: components["schemas"]["LastScanRead"] | null;
+            /** Location Id */
+            location_id?: number | null;
             /** Material Cost Calculated */
             material_cost_calculated?: number | null;
             /** Material Cost Override */
@@ -10610,6 +10745,8 @@ export interface components {
             /** Labor Hours */
             labor_hours?: number | null;
             last_scan?: components["schemas"]["LastScanRead"] | null;
+            /** Location Id */
+            location_id?: number | null;
             /** Material Cost Calculated */
             material_cost_calculated?: number | null;
             /** Material Cost Override */
@@ -10805,6 +10942,11 @@ export interface components {
             hourly_rate?: number | null;
             /** Labor Hours */
             labor_hours?: number | null;
+            /**
+             * Location Id
+             * @description Configured workshop location (Standort) id
+             */
+            location_id?: number | null;
             /** Material Cost Override */
             material_cost_override?: number | null;
             /** @description Type of metal to use */
@@ -12023,6 +12165,96 @@ export interface components {
             unit?: string | null;
         };
         /**
+         * RunningTimeEntryEdit
+         * @description PATCH body for a RUNNING entry (edit a timer while it runs).
+         *
+         *     Every field is optional; only the fields sent are changed. ``location``
+         *     may be sent as ``null`` to clear it. ``start_time`` bounds (not in the
+         *     future, not before the previous entry's end, within 24 h) need the
+         *     database and run in the service (422).
+         */
+        RunningTimeEntryEdit: {
+            /** Activity Id */
+            activity_id?: number | null;
+            /** Location */
+            location?: string | null;
+            /** Notes */
+            notes?: string | null;
+            /** Order Id */
+            order_id?: number | null;
+            /** Start Time */
+            start_time?: string | null;
+        };
+        /**
+         * RunningTimeEntryRead
+         * @description The running timer with display names, so a widget can show the
+         *     current activity and job without a second request.
+         */
+        RunningTimeEntryRead: {
+            /**
+             * Activity Id
+             * @description Activity ID (must be positive)
+             */
+            activity_id: number;
+            /** Activity Name */
+            activity_name?: string | null;
+            /** Complexity Rating */
+            complexity_rating?: number | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Duration Minutes */
+            duration_minutes?: number | null;
+            /** End Time */
+            end_time?: string | null;
+            /** Extra Metadata */
+            extra_metadata?: {
+                [key: string]: unknown;
+            } | null;
+            /** Id */
+            id: string;
+            /**
+             * Is Paused
+             * @default false
+             */
+            is_paused: boolean;
+            /**
+             * Location
+             * @description Storage location (1-50 characters)
+             */
+            location?: string | null;
+            /**
+             * Location Id
+             * @description Configured workshop location (Standort) id
+             */
+            location_id?: number | null;
+            /**
+             * Notes
+             * @description Notes (max 2000 characters)
+             */
+            notes?: string | null;
+            /**
+             * Order Id
+             * @description Order ID (must be positive)
+             */
+            order_id: number;
+            /** Order Title */
+            order_title?: string | null;
+            /** Quality Rating */
+            quality_rating?: number | null;
+            /** Rework Required */
+            rework_required: boolean;
+            /**
+             * Start Time
+             * Format: date-time
+             */
+            start_time: string;
+            /** User Id */
+            user_id: number;
+        };
+        /**
          * ScanContext
          * @description Client-supplied context snapshot — B1-strict whitelist.
          *
@@ -12693,6 +12925,11 @@ export interface components {
              */
             location?: string | null;
             /**
+             * Location Id
+             * @description Configured workshop location (Standort) id
+             */
+            location_id?: number | null;
+            /**
              * Notes
              * @description Notes (max 2000 characters)
              */
@@ -12761,6 +12998,11 @@ export interface components {
              */
             location?: string | null;
             /**
+             * Location Id
+             * @description Configured workshop location (Standort) id
+             */
+            location_id?: number | null;
+            /**
              * Notes
              * @description Notes (max 2000 characters)
              */
@@ -12801,6 +13043,11 @@ export interface components {
              * @description Storage location
              */
             location?: string | null;
+            /**
+             * Location Id
+             * @description Configured workshop location (Standort) id
+             */
+            location_id?: number | null;
             /**
              * Order Id
              * @description Order ID (must be positive)
@@ -12861,6 +13108,11 @@ export interface components {
              * @description Storage location
              */
             location?: string | null;
+            /**
+             * Location Id
+             * @description Configured workshop location (Standort) id
+             */
+            location_id?: number | null;
             /**
              * Notes
              * @description Notes (max 2000 characters)
@@ -14006,6 +14258,142 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["EmailTestResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    admin_list_locations_api_v1_admin_locations_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LocationRead"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_location_api_v1_admin_locations_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LocationCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LocationRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    deactivate_location_api_v1_admin_locations__location_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                location_id: number;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LocationRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_location_api_v1_admin_locations__location_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                location_id: number;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LocationUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LocationRead"];
                 };
             };
             /** @description Validation Error */
@@ -16761,6 +17149,40 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["JobTimelineRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_locations_api_v1_locations_get: {
+        parameters: {
+            query?: {
+                /** @description Nur aktive Standorte */
+                active?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LocationRead"][];
                 };
             };
             /** @description Validation Error */
@@ -22456,6 +22878,43 @@ export interface operations {
             };
         };
     };
+    edit_running_entry_api_v1_time_tracking__entry_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                entry_id: string;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RunningTimeEntryEdit"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunningTimeEntryRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     patch_activity_api_v1_time_tracking__entry_id__activity_patch: {
         parameters: {
             query?: never;
@@ -22817,7 +23276,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["TimeEntryRead"] | null;
+                    "application/json": components["schemas"]["RunningTimeEntryRead"] | null;
                 };
             };
             /** @description Validation Error */

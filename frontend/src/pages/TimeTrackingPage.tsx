@@ -11,12 +11,13 @@ import React, { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
-import { timeTrackingApi } from '../api/time-tracking';
+import { timeTrackingApi, type RunningTimeEntry } from '../api/time-tracking';
 import { queryKeys } from '../api/queryKeys';
 import { TIME_ENTRY_PAGE_SIZE, userEntriesQuery } from '../api/timeTrackingQueries';
 import { pageInfo } from '../api/paged';
 import { Pager } from '../components/Pager';
 import { BenchModeToggle } from '../components/scanner/BenchModeToggle';
+import { RunningTimerEditSheet } from '../components/time-tracking/RunningTimerEditSheet';
 import { TimeEntryFormModal } from '../components/time-tracking/TimeEntryFormModal';
 import { TimeReportsSection } from '../components/time-tracking/TimeReportsSection';
 import { TimeSummaryCards } from '../components/time-tracking/TimeSummaryCards';
@@ -128,19 +129,33 @@ function entryColumns(
   ];
 }
 
-const RunningTimerCard: React.FC<{ entry: TimeEntry; activityName: string }> = ({ entry, activityName }) => (
-  <Card title="Läuft gerade" tone={entry.is_paused ? 'waiting' : 'info'} className="time-running-card">
-    <div className="time-running-card__body">
-      <p className="time-running-card__order">
-        Auftrag #{entry.order_id} · {activityName}
-      </p>
-      {entry.is_paused && <StatusBadge kind="timeEntry" status="paused" size="lg" />}
-      <Button size="lg" icon="clock" onClick={openTimer}>
-        Timer öffnen
-      </Button>
-    </div>
-  </Card>
-);
+const RunningTimerCard: React.FC<{ entry: RunningTimeEntry; activityName: string }> = ({
+  entry,
+  activityName,
+}) => {
+  const [isEditing, setIsEditing] = useState(false);
+  const jobLabel = entry.order_title
+    ? `Auftrag #${entry.order_id} – ${entry.order_title}`
+    : `Auftrag #${entry.order_id}`;
+  return (
+    <Card title="Läuft gerade" tone={entry.is_paused ? 'waiting' : 'info'} className="time-running-card">
+      <div className="time-running-card__body">
+        <p className="time-running-card__order">
+          {jobLabel} · {entry.activity_name ?? activityName}
+          {entry.location ? ` · ${entry.location}` : ''}
+        </p>
+        {entry.is_paused && <StatusBadge kind="timeEntry" status="paused" size="lg" />}
+        <Button size="lg" variant="secondary" icon="pencil" onClick={() => setIsEditing(true)}>
+          Timer bearbeiten
+        </Button>
+        <Button size="lg" icon="clock" onClick={openTimer}>
+          Timer öffnen
+        </Button>
+      </div>
+      {isEditing && <RunningTimerEditSheet entry={entry} onClose={() => setIsEditing(false)} />}
+    </Card>
+  );
+};
 
 export const TimeTrackingPage: React.FC = () => {
   const { user } = useAuth();

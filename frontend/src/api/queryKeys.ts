@@ -203,6 +203,13 @@ export const queryKeys = {
     /** Nested under detail(id): refreshing the repair refreshes its Kundeninfo. */
     customerUpdates: (id: number) => [...queryKeys.repairs.detail(id), 'customer-updates'] as const,
   },
+  locations: {
+    all: ['locations'] as const,
+    /** GET /locations?active=true (every Standort dropdown). */
+    active: () => [...queryKeys.locations.all, 'active'] as const,
+    /** GET /admin/locations (incl. deactivated; Standorte panel). */
+    admin: () => [...queryKeys.locations.all, 'admin'] as const,
+  },
   calendar: {
     all: ['calendar'] as const,
     /** GET /calendar/events for one visible date range. */

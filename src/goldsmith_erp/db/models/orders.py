@@ -92,6 +92,14 @@ class Order(Base):
         index=True,
     )
     current_location = Column(String(50), nullable=True)  # Aktueller Lagerort
+    # W8: FK to the configurable Standort; ``current_location`` is kept in
+    # sync (name) for one release.
+    location_id = Column(
+        Integer,
+        ForeignKey("workshop_locations.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
 
     # Weight & Material Calculation
     estimated_weight_g = Column(
