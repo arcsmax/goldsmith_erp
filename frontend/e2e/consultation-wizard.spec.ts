@@ -6,11 +6,12 @@ import { test, expect } from '@playwright/test';
  *
  * Requires a live backend at http://localhost:8000 with seed data loaded
  * (STANDARD_USERS / SAMPLE_CUSTOMERS — see
- * src/goldsmith_erp/db/seed_data.py). Mirrors auth.spec.ts's env-var gating:
- * without E2E_GOLDSMITH_EMAIL / E2E_GOLDSMITH_PASSWORD the test is skipped
- * rather than failing when no backend is reachable. Set both to the
- * goldschmied@goldschmiede.de account's credentials (SEED_GOLDSMITH_PASSWORD
- * at seed time, `dev-only-change-me` by default) to run locally.
+ * src/goldsmith_erp/db/seed_data.py, or scripts/seed_demo.py). Mirrors
+ * auth.spec.ts's env-var gating: without E2E_GOLDSMITH_EMAIL /
+ * E2E_GOLDSMITH_PASSWORD the test is skipped rather than failing when no
+ * backend is reachable. Set both to the seeded goldsmith account's
+ * credentials — the canonical demo values (demo-goldschmied@werkstatt.de /
+ * demo2026!, see src/goldsmith_erp/db/seed_credentials.py) to run locally.
  *
  * A single sequential test drives the whole walkthrough — logging in once,
  * per goldsmith-workflow.spec.ts's rationale (login is rate-limited to

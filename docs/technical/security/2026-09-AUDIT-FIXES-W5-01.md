@@ -16,6 +16,21 @@ Source: `docs/review/2026-09-25/06-testing-ci-ops.md` (OPS-06), `docs/review/202
 
 Full backend suite: 3391 passed, 6 skipped, 1 xfailed (both before and after — no regressions).
 
+### Follow-up resolved: `python-jose` → `pyjwt` (ecdsa now gone entirely)
+
+The `ecdsa` blocker above is resolved. `core/security.py`, `api/deps.py`,
+`middleware/auth_required.py`, `main.py` and `api/routers/auth.py` were migrated from
+`from jose import JWTError, jwt` to `import jwt` (PyJWT, already a dependency at 2.13.0 but
+previously unused), mapping `JWTError` to `jwt.InvalidTokenError` (PyJWT's
+`ExpiredSignatureError`/`DecodeError`/`InvalidSignatureError` are all subclasses, so every
+`except`/`raise` site keeps its exact behaviour, including the `jti` revocation logic and the
+refresh grace window). `python-jose` and the direct `ecdsa` pin were removed from
+`pyproject.toml`; `poetry lock` drops `python-jose`, `ecdsa`, `pyasn1`, and `rsa` from the lock
+file entirely. A new test (`tests/unit/test_security.py::TestJWTTokens::test_token_signed_with_different_algorithm_is_rejected`)
+asserts a token signed with a non-pinned algorithm (HS384 instead of HS256) is rejected via
+`jwt.InvalidAlgorithmError`. Full backend suite after the migration: 3684 passed, 6 skipped, 1
+xfailed. `pip-audit` in a fresh worktree venv: **no known vulnerabilities found.**
+
 ## Frontend (Yarn)
 
 Several of the npm alerts Dependabot reports are **not** against `frontend/` at all — they resolve to
