@@ -160,15 +160,15 @@ const StammdatenTab: React.FC<{ customer: Customer; onEdit: () => void }> = ({ c
               {Object.entries(customer.preferences).map(([key, value]) => (
                 <React.Fragment key={key}>
                   <dt>{key}</dt>
-                  <dd>{value}</dd>
+                  <dd>{String(value)}</dd>
                 </React.Fragment>
               ))}
             </>
           )}
         </dl>
-        {customer.tags.length > 0 && (
+        {(customer.tags ?? []).length > 0 && (
           <div className="cdetail-tags">
-            {customer.tags.map((tag) => (
+            {(customer.tags ?? []).map((tag) => (
               <span key={tag} className="cdetail-tag">{tag}</span>
             ))}
           </div>

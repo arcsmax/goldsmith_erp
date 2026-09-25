@@ -17,7 +17,7 @@ const STATUS_CONFIG: Record<ScrapGoldStatus, { label: string; className: string 
   received: { label: 'Empfangen', className: 'status-received' },
   calculated: { label: 'Berechnet', className: 'status-calculated' },
   signed: { label: 'Unterschrieben', className: 'status-signed' },
-  settled: { label: 'Verrechnet', className: 'status-settled' },
+  credited: { label: 'Verrechnet', className: 'status-settled' },
 };
 
 /**
@@ -46,8 +46,9 @@ export const ScrapGoldTab: React.FC<ScrapGoldTabProps> = ({ orderId, customerId 
       setError(null);
       const data = await scrapGoldApi.getForOrder(orderId);
       setScrapGold(data);
-      if (data && data.gold_price_per_g > 0) {
-        setGoldPriceInput(data.gold_price_per_g.toFixed(2));
+      const price = data?.gold_price_per_g;
+      if (price != null && price > 0) {
+        setGoldPriceInput(price.toFixed(2));
       }
     } catch (err) {
       console.error('Failed to load scrap gold:', err);
@@ -121,8 +122,9 @@ export const ScrapGoldTab: React.FC<ScrapGoldTabProps> = ({ orderId, customerId 
       setIsCalculating(true);
       const updated = await scrapGoldApi.calculate(scrapGold.id);
       setScrapGold(updated);
-      if (updated.gold_price_per_g > 0) {
-        setGoldPriceInput(updated.gold_price_per_g.toFixed(2));
+      const price = updated.gold_price_per_g;
+      if (price != null && price > 0) {
+        setGoldPriceInput(price.toFixed(2));
       }
     } catch (err) {
       console.error('Failed to calculate:', err);

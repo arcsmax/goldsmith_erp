@@ -38,10 +38,10 @@ interface Props {
 // ---------------------------------------------------------------------------
 
 const EVENT_TYPE_LABELS: Record<CalendarEventType, string> = {
-  ORDER_DEADLINE: 'Auftragsdeadline',
-  WORKSHOP_TASK: 'Werkstattaufgabe',
-  APPOINTMENT: 'Termin',
-  REMINDER: 'Erinnerung',
+  order_deadline: 'Auftragsdeadline',
+  workshop_task: 'Werkstattaufgabe',
+  appointment: 'Termin',
+  reminder: 'Erinnerung',
 };
 
 /** Convert an ISO datetime string to a local <input type="datetime-local"> value */
@@ -78,7 +78,7 @@ export const CalendarEventModal: React.FC<Props> = ({
 
   const [title, setTitle] = useState(event?.title ?? '');
   const [eventType, setEventType] = useState<CalendarEventType>(
-    event?.event_type ?? 'WORKSHOP_TASK'
+    event?.event_type ?? 'workshop_task'
   );
   const [startDatetime, setStartDatetime] = useState(
     event ? isoToLocal(event.start_datetime) : dateToLocalDatetime(defaultDate)

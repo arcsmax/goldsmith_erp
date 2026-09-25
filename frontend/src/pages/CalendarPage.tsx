@@ -60,7 +60,7 @@ function getEventTypeClass(
   trafficLight?: TrafficLight
 ): string {
   switch (eventType) {
-    case 'ORDER_DEADLINE':
+    case 'order_deadline':
       switch (trafficLight) {
         case 'red':
           return 'traffic-red';
@@ -71,11 +71,11 @@ function getEventTypeClass(
         default:
           return 'traffic-grey';
       }
-    case 'WORKSHOP_TASK':
+    case 'workshop_task':
       return 'event-blue';
-    case 'APPOINTMENT':
+    case 'appointment':
       return 'event-purple';
-    case 'REMINDER':
+    case 'reminder':
       return 'event-yellow';
     default:
       return 'traffic-grey';
@@ -84,10 +84,10 @@ function getEventTypeClass(
 
 /** Human-readable label for event type legend */
 const EVENT_TYPE_LABELS: Record<CalendarEventType, string> = {
-  ORDER_DEADLINE: 'Auftragsdeadline',
-  WORKSHOP_TASK: 'Werkstattaufgabe',
-  APPOINTMENT: 'Termin',
-  REMINDER: 'Erinnerung',
+  order_deadline: 'Auftragsdeadline',
+  workshop_task: 'Werkstattaufgabe',
+  appointment: 'Termin',
+  reminder: 'Erinnerung',
 };
 
 // ---------------------------------------------------------------------------
@@ -169,7 +169,7 @@ function toDateString(d: Date): string {
 // ---------------------------------------------------------------------------
 
 function isDeadlineEvent(evt: AnyCalendarEvent): evt is CalendarDeadlineEvent {
-  return evt.event_type === 'ORDER_DEADLINE' && 'traffic_light' in evt;
+  return evt.event_type === 'order_deadline' && 'traffic_light' in evt;
 }
 
 function isStoredEvent(evt: AnyCalendarEvent): evt is CalendarEvent {
@@ -383,15 +383,15 @@ export const CalendarPage: React.FC = () => {
         {/* Fixed event type colours */}
         <div className="legend-item">
           <span className="traffic-dot event-blue" />
-          {EVENT_TYPE_LABELS.WORKSHOP_TASK}
+          {EVENT_TYPE_LABELS.workshop_task}
         </div>
         <div className="legend-item">
           <span className="traffic-dot event-purple" />
-          {EVENT_TYPE_LABELS.APPOINTMENT}
+          {EVENT_TYPE_LABELS.appointment}
         </div>
         <div className="legend-item">
           <span className="traffic-dot event-yellow" />
-          {EVENT_TYPE_LABELS.REMINDER}
+          {EVENT_TYPE_LABELS.reminder}
         </div>
       </div>
 

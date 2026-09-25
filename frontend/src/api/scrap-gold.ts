@@ -1,43 +1,26 @@
 // Scrap Gold (Altgold) API Service
 import apiClient from './client';
+import type { ApiScrapGold, ApiScrapGoldItem } from './generated';
 
 // ==================== INTERFACES ====================
 
-export interface ScrapGoldItem {
-  id: number;
-  scrap_gold_id: number;
-  description: string;
-  /**
-   * Canonical alloy/fineness code, e.g. "585", "750", "ag925", "pt950" —
-   * matches the backend's ``AlloyType`` enum values exactly (a string; the
-   * old ``number`` type here caused every add-item request to 422, since
-   * the backend has never accepted a numeric alloy — see DOM-19).
-   */
-  alloy: string;
-  weight_g: number;
-  fine_content_g: number;
-  photo_path: string | null;
-  created_at: string;
-}
+/**
+ * Generated from the backend `ScrapGoldItemRead` (FE-12, W3-02). `alloy` is
+ * the canonical alloy/fineness code, e.g. "585", "750", "ag925", "pt950",
+ * matching the backend's `AlloyType` values (a string; the old `number` type
+ * made every add-item request 422, see DOM-19).
+ */
+export type ScrapGoldItem = ApiScrapGoldItem;
 
-export interface ScrapGold {
-  id: number;
-  order_id: number;
-  customer_id: number;
-  status: ScrapGoldStatus;
-  total_fine_gold_g: number;
-  total_value_eur: number;
-  gold_price_per_g: number;
-  price_source: string | null;
-  signature_data: string | null;
-  signed_at: string | null;
-  notes: string | null;
-  items: ScrapGoldItem[];
-  created_at: string;
-  updated_at: string;
-}
+/**
+ * Wire values of the backend `ScrapGoldStatus` enum (db/models.py). The
+ * read schema declares `status: str`, so the union is kept here. The last
+ * state is "credited" (applied to an invoice); the old "settled" never
+ * came back from the API.
+ */
+export type ScrapGoldStatus = 'received' | 'calculated' | 'signed' | 'credited';
 
-export type ScrapGoldStatus = 'received' | 'calculated' | 'signed' | 'settled';
+export type ScrapGold = Omit<ApiScrapGold, 'status'> & { status: ScrapGoldStatus };
 
 export interface ScrapGoldCreateInput {
   notes?: string;
