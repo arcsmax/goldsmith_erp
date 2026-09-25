@@ -14,6 +14,7 @@ financial data (CLAUDE.md).
 from __future__ import annotations
 
 import logging
+from decimal import Decimal
 from typing import Any, List, Optional, cast
 
 from sqlalchemy import select
@@ -24,6 +25,7 @@ from goldsmith_erp.db.models import Gemstone
 from goldsmith_erp.db.models import Order as OrderModel
 from goldsmith_erp.db.models import User as UserModel
 from goldsmith_erp.db.transaction import transactional
+from goldsmith_erp.models._common import DecimalLike, dec, money
 from goldsmith_erp.models.gemstone import GemstoneCreate, GemstoneUpdate
 from goldsmith_erp.services.customer_update_service import write_financial_audit_row
 
@@ -36,8 +38,8 @@ _CUSTOMER_STONE_COST_ERROR = (
 )
 
 
-def _total_cost(cost: Optional[float], quantity: Optional[int]) -> float:
-    return round(float(cost or 0.0) * int(quantity or 1), 2)
+def _total_cost(cost: Optional[DecimalLike], quantity: Optional[int]) -> Decimal:
+    return money(dec(cost) * int(quantity or 1))
 
 
 class GemstoneService:

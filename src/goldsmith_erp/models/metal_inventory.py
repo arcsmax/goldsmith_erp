@@ -5,11 +5,14 @@ Provides type-safe validation for metal purchase tracking, inventory management,
 and material usage calculations.
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
+from decimal import ROUND_HALF_UP, Decimal
 from enum import Enum
 from typing import List, Optional
 
 from pydantic import BaseModel, Field, ValidationInfo, field_validator
+
+from goldsmith_erp.models._common import Money, Weight
 
 
 class MetalType(str, Enum):
@@ -50,8 +53,10 @@ class MetalPurchaseBase(BaseModel):
     """Base schema for metal purchase"""
 
     metal_type: MetalType
-    weight_g: float = Field(..., gt=0, description="Weight in grams (must be positive)")
-    price_total: float = Field(..., gt=0, description="Total purchase price in EUR")
+    weight_g: Weight = Field(
+        ..., gt=0, description="Weight in grams (must be positive)"
+    )
+    price_total: Money = Field(..., gt=0, description="Total purchase price in EUR")
     supplier: Optional[str] = Field(None, max_length=200)
     invoice_number: Optional[str] = Field(None, max_length=100)
     notes: Optional[str] = None
@@ -59,27 +64,31 @@ class MetalPurchaseBase(BaseModel):
 
     @field_validator("weight_g")
     @classmethod
-    def validate_weight(cls, v: float) -> float:
+    def validate_weight(cls, v: Decimal) -> Decimal:
         if v <= 0:
             raise ValueError("Weight must be positive")
         if v > 10000:  # Max 10kg per purchase (sanity check)
             raise ValueError("Weight exceeds maximum allowed (10000g)")
-        return round(v, 2)  # Round to 2 decimal places
+        return v.quantize(
+            Decimal("0.01"), rounding=ROUND_HALF_UP
+        )  # Round to 2 decimal places
 
     @field_validator("price_total")
     @classmethod
-    def validate_price(cls, v: float) -> float:
+    def validate_price(cls, v: Decimal) -> Decimal:
         if v <= 0:
             raise ValueError("Price must be positive")
         if v > 1000000:  # Max 1 million EUR (sanity check)
             raise ValueError("Price exceeds maximum allowed (1,000,000 EUR)")
-        return round(v, 2)
+        return v.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
 
 class MetalPurchaseCreate(MetalPurchaseBase):
     """Schema for creating a new metal purchase"""
 
-    date_purchased: Optional[datetime] = Field(default_factory=datetime.utcnow)
+    date_purchased: Optional[datetime] = Field(
+        default_factory=lambda: datetime.now(timezone.utc)
+    )
 
     model_config = {
         "json_schema_extra": {
@@ -112,16 +121,16 @@ class MetalPurchaseRead(MetalPurchaseBase):
 
     id: int
     date_purchased: datetime
-    remaining_weight_g: float
-    price_per_gram: float
+    remaining_weight_g: Weight
+    price_per_gram: Money
     created_at: datetime
     updated_at: datetime
 
     # Calculated properties
-    used_weight_g: float
+    used_weight_g: Weight
     usage_percentage: float
     is_depleted: bool
-    remaining_value: float
+    remaining_value: Money
 
     model_config = {"from_attributes": True}
 
@@ -132,10 +141,10 @@ class MetalPurchaseListItem(BaseModel):
     id: int
     metal_type: MetalType
     date_purchased: datetime
-    weight_g: float
-    remaining_weight_g: float
-    price_per_gram: float
-    remaining_value: float
+    weight_g: Weight
+    remaining_weight_g: Weight
+    price_per_gram: Money
+    remaining_value: Money
     supplier: Optional[str]
     invoice_number: Optional[str] = None
     lot_number: Optional[str] = None
@@ -153,17 +162,19 @@ class MaterialUsageBase(BaseModel):
     """Base schema for material usage"""
 
     order_id: int = Field(..., gt=0)
-    weight_used_g: float = Field(..., gt=0, description="Weight consumed in grams")
+    weight_used_g: Weight = Field(..., gt=0, description="Weight consumed in grams")
     notes: Optional[str] = None
 
     @field_validator("weight_used_g")
     @classmethod
-    def validate_weight_used(cls, v: float) -> float:
+    def validate_weight_used(cls, v: Decimal) -> Decimal:
         if v <= 0:
             raise ValueError("Weight used must be positive")
         if v > 1000:  # Max 1kg per order (sanity check)
             raise ValueError("Weight used exceeds maximum allowed (1000g)")
-        return round(v, 3)  # Round to 3 decimal places for precision
+        return v.quantize(
+            Decimal("0.001"), rounding=ROUND_HALF_UP
+        )  # Round to 3 decimal places for precision
 
 
 class OverrideReasonCategoryEnum(str, Enum):
@@ -298,8 +309,8 @@ class MaterialUsageRead(MaterialUsageBase):
 
     id: int
     metal_purchase_id: int
-    cost_at_time: float
-    price_per_gram_at_time: float
+    cost_at_time: Money
+    price_per_gram_at_time: Money
     costing_method: CostingMethod
     used_at: datetime
     created_at: datetime
@@ -322,7 +333,7 @@ class InventoryAdjustmentBase(BaseModel):
     adjustment_type: str = Field(
         ..., pattern="^(loss|theft|reclamation|correction|return)$"
     )
-    weight_change_g: float = Field(
+    weight_change_g: Weight = Field(
         ..., description="Positive for additions, negative for reductions"
     )
     reason: str = Field(
@@ -334,12 +345,12 @@ class InventoryAdjustmentBase(BaseModel):
 
     @field_validator("weight_change_g")
     @classmethod
-    def validate_weight_change(cls, v: float) -> float:
+    def validate_weight_change(cls, v: Decimal) -> Decimal:
         if v == 0:
             raise ValueError("Weight change cannot be zero")
         if abs(v) > 1000:  # Max ±1kg adjustment
             raise ValueError("Weight change exceeds maximum allowed (±1000g)")
-        return round(v, 3)
+        return v.quantize(Decimal("0.001"), rounding=ROUND_HALF_UP)
 
 
 class InventoryAdjustmentCreate(InventoryAdjustmentBase):
@@ -367,9 +378,9 @@ class MetalInventorySummary(BaseModel):
     """Summary of metal inventory by type"""
 
     metal_type: MetalType
-    total_weight_g: float
-    total_value: float
-    average_price_per_gram: float
+    total_weight_g: Weight
+    total_value: Money
+    average_price_per_gram: Money
     batch_count: int
     oldest_batch_date: Optional[datetime]
     newest_batch_date: Optional[datetime]
@@ -378,8 +389,8 @@ class MetalInventorySummary(BaseModel):
 class InventoryStatistics(BaseModel):
     """Overall inventory statistics"""
 
-    total_value: float
-    total_weight_g: float
+    total_value: Money
+    total_weight_g: Weight
     metal_types: List[MetalInventorySummary]
     depleted_batches_count: int
     low_stock_alerts: List[str]  # Metal types running low
@@ -395,9 +406,9 @@ class MetalAllocation(BaseModel):
 
     metal_purchase_id: int
     metal_type: MetalType
-    weight_allocated_g: float
-    price_per_gram: float
-    cost: float
+    weight_allocated_g: Weight
+    price_per_gram: Money
+    cost: Money
     date_purchased: datetime
 
 
@@ -405,7 +416,7 @@ class OrderMaterialAllocation(BaseModel):
     """Complete material allocation plan for an order"""
 
     order_id: int
-    required_weight_g: float
+    required_weight_g: Weight
     allocations: List[MetalAllocation]
-    total_cost: float
+    total_cost: Money
     costing_method: CostingMethod

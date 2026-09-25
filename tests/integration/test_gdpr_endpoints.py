@@ -17,7 +17,7 @@ Business logic:
   - Duplicate erasure request returns 409
 """
 
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 import pytest
 from httpx import AsyncClient
@@ -438,7 +438,7 @@ class TestGdprErasure:
         )
         body = response.json()
 
-        expected_date = (datetime.utcnow() + timedelta(days=30)).date()
+        expected_date = (datetime.now(timezone.utc) + timedelta(days=30)).date()
         returned_date = date.fromisoformat(body["deletion_date"])
 
         assert returned_date == expected_date
@@ -485,8 +485,8 @@ class TestGdprErasure:
         customer = result.scalar_one()
 
         assert customer.deletion_scheduled_at is not None
-        min_expected = datetime.utcnow() + timedelta(days=29)
-        max_expected = datetime.utcnow() + timedelta(days=31)
+        min_expected = datetime.now(timezone.utc) + timedelta(days=29)
+        max_expected = datetime.now(timezone.utc) + timedelta(days=31)
         assert min_expected < customer.deletion_scheduled_at < max_expected
 
     @pytest.mark.asyncio
@@ -601,7 +601,7 @@ async def customer_with_every_record(
         customer_id=customer.id,
         created_by=admin_user.id,
         status=InvoiceStatus.PAID,
-        due_date=datetime.utcnow() + timedelta(days=14),
+        due_date=datetime.now(timezone.utc) + timedelta(days=14),
         subtotal=100.0,
         tax_amount=19.0,
         total=119.0,
@@ -612,7 +612,7 @@ async def customer_with_every_record(
         customer_id=customer.id,
         created_by=admin_user.id,
         status=QuoteStatus.APPROVED,
-        valid_until=datetime.utcnow() + timedelta(days=14),
+        valid_until=datetime.now(timezone.utc) + timedelta(days=14),
         customer_signature_data=_SENTINEL_SIGNATURE,
     )
     scrap = ScrapGold(
@@ -631,8 +631,8 @@ async def customer_with_every_record(
         created_by=admin_user.id,
         item_description="Solitärring",
         appraised_value=1500.0,
-        valuation_date=datetime.utcnow(),
-        valid_until=datetime.utcnow() + timedelta(days=730),
+        valuation_date=datetime.now(timezone.utc),
+        valid_until=datetime.now(timezone.utc) + timedelta(days=730),
         goldsmith_name="Export Test",
     )
     repair = RepairJob(
@@ -689,7 +689,7 @@ async def customer_with_every_record(
                 subject="Ihr Ring ist in Arbeit",
                 body="Guten Tag, Ihr Ring ist in Arbeit.",
                 status=CustomerUpdateStatus.SENT,
-                sent_at=datetime.utcnow(),
+                sent_at=datetime.now(timezone.utc),
                 sent_by=admin_user.id,
             ),
             CustomerUpdate(
@@ -713,7 +713,7 @@ async def customer_with_every_record(
                 customer_id=customer.id,
                 purpose="email_contact",
                 method="written",
-                granted_at=datetime.utcnow(),
+                granted_at=datetime.now(timezone.utc),
                 recorded_by_user_id=admin_user.id,
             ),
         ]

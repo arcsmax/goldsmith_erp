@@ -118,7 +118,8 @@ class TestCalculateFineContent:
         fine = ScrapGoldService.calculate_fine_content(alloy, weight_g)
 
         # Assert
-        assert fine == pytest.approx(expected_fine_g, abs=1e-9)
+        assert isinstance(fine, Decimal)
+        assert float(fine) == pytest.approx(expected_fine_g, abs=1e-9)
 
     def test_service_fails_loudly_for_unknown_alloy_bypassing_the_schema(self) -> None:
         """Defense in depth: even called directly with a bad code (as the
@@ -196,8 +197,8 @@ class TestRecalculateTotals:
 
         # Assert: 15*0.585 + 8*0.75 = 8.775 + 6.0 = 14.775 g fine gold
         result = await ScrapGoldService.get_by_id(db_session, scrap_gold.id)
-        assert result.total_fine_gold_g == pytest.approx(14.775)
-        assert result.total_value_eur == pytest.approx(
+        assert float(result.total_fine_gold_g) == pytest.approx(14.775)
+        assert float(result.total_value_eur) == pytest.approx(
             14.775 * GOLD_SPOT_EUR_PER_G, rel=1e-6
         )
 
@@ -228,13 +229,15 @@ class TestRecalculateTotals:
 
         # Assert: yields 9.25 g fine silver, valued at the silver price
         result = await ScrapGoldService.get_by_id(db_session, scrap_gold.id)
-        assert result.total_fine_gold_g == pytest.approx(9.25)
-        assert result.total_value_eur == pytest.approx(
+        assert float(result.total_fine_gold_g) == pytest.approx(9.25)
+        assert float(result.total_value_eur) == pytest.approx(
             _eur((9.25, SILVER_SPOT_EUR_PER_G))
         )
         # The pre-fix bug: valuing everything at the gold price/override.
-        assert result.total_value_eur != pytest.approx(9.25 * 70.0)
-        assert result.total_value_eur != pytest.approx(9.25 * GOLD_SPOT_EUR_PER_G)
+        assert float(result.total_value_eur) != pytest.approx(9.25 * 70.0)
+        assert float(result.total_value_eur) != pytest.approx(
+            9.25 * GOLD_SPOT_EUR_PER_G
+        )
 
     async def test_mixed_gold_and_silver_each_valued_at_its_own_metal_price(
         self, db_session, sample_customer, sample_order, admin_user
@@ -263,7 +266,7 @@ class TestRecalculateTotals:
         expected_value = _eur(
             (8.775, GOLD_SPOT_EUR_PER_G), (9.25, SILVER_SPOT_EUR_PER_G)
         )
-        assert result.total_value_eur == pytest.approx(expected_value)
+        assert float(result.total_value_eur) == pytest.approx(expected_value)
 
     async def test_manual_gold_price_override_applies_only_to_gold_items(
         self, db_session, sample_customer, sample_order, admin_user
@@ -286,8 +289,8 @@ class TestRecalculateTotals:
         )
 
         result = await ScrapGoldService.get_by_id(db_session, scrap_gold.id)
-        assert result.total_fine_gold_g == pytest.approx(5.85)
-        assert result.total_value_eur == pytest.approx(5.85 * 70.0, rel=1e-6)
+        assert float(result.total_fine_gold_g) == pytest.approx(5.85)
+        assert float(result.total_value_eur) == pytest.approx(5.85 * 70.0, rel=1e-6)
 
     async def test_remove_item_recalculates_totals_to_zero(
         self, db_session, sample_customer, sample_order, admin_user
@@ -379,7 +382,7 @@ class TestAddItemHttpContract:
             headers=admin_auth_headers,
         )
         assert add_resp.status_code == 201, add_resp.text
-        assert add_resp.json()["fine_content_g"] == pytest.approx(9.25)
+        assert float(add_resp.json()["fine_content_g"]) == pytest.approx(9.25)
 
         get_resp = await client.get(
             f"/api/v1/orders/{sample_order.id}/scrap-gold",
@@ -387,7 +390,7 @@ class TestAddItemHttpContract:
         )
         assert get_resp.status_code == 200, get_resp.text
         body = get_resp.json()
-        assert body["total_fine_gold_g"] == pytest.approx(9.25)
+        assert float(body["total_fine_gold_g"]) == pytest.approx(9.25)
         assert body["total_value_eur"] == pytest.approx(
             _eur((9.25, SILVER_SPOT_EUR_PER_G))
         )

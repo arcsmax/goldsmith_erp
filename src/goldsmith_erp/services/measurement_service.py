@@ -7,7 +7,7 @@ Audit logging for financial/sensitive access is handled at the router layer.
 """
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Optional
 
 from sqlalchemy import and_, select
@@ -120,7 +120,7 @@ class MeasurementService:
             if customer_exists.scalar_one_or_none() is None:
                 raise ValueError(f"Customer {customer_id} not found")
 
-            measured_at = measurement_in.measured_at or datetime.utcnow()
+            measured_at = measurement_in.measured_at or datetime.now(timezone.utc)
 
             db_measurement = MeasurementModel(
                 customer_id=customer_id,
@@ -170,7 +170,7 @@ class MeasurementService:
             for field, value in update_fields.items():
                 setattr(db_measurement, field, value)
 
-            db_measurement.updated_at = datetime.utcnow()
+            db_measurement.updated_at = datetime.now(timezone.utc)
             await db.flush()
             await db.refresh(db_measurement)
 

@@ -1,6 +1,6 @@
 """Unit tests for ConsultationService."""
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -73,7 +73,7 @@ async def test_follow_up_creates_calendar_event(
 
     from goldsmith_erp.db.models import CalendarEvent, CalendarEventType
 
-    when = datetime.utcnow() + timedelta(days=7)
+    when = datetime.now(timezone.utc) + timedelta(days=7)
     created = await ConsultationService.create_consultation(
         db_session,
         ConsultationCreate(customer_id=sample_customer.id, follow_up_at=when),
@@ -157,7 +157,7 @@ async def test_follow_up_side_effect_failure_never_propagates(
     # itself raise MissingGreenlet in the test.
     expected_customer_id = sample_customer.id
 
-    when = datetime.utcnow() + timedelta(days=3)
+    when = datetime.now(timezone.utc) + timedelta(days=3)
     created = await ConsultationService.create_consultation(
         db_session,
         ConsultationCreate(
@@ -214,7 +214,7 @@ async def test_notification_failure_never_propagates_on_create(
     event committed durably."""
     _sabotage_notification_commit(db_session, monkeypatch)
 
-    when = datetime.utcnow() + timedelta(days=5)
+    when = datetime.now(timezone.utc) + timedelta(days=5)
     created = await ConsultationService.create_consultation(
         db_session,
         ConsultationCreate(
@@ -248,7 +248,7 @@ async def test_notification_failure_never_propagates_on_update(
     )
     _sabotage_notification_commit(db_session, monkeypatch)
 
-    when = datetime.utcnow() + timedelta(days=5)
+    when = datetime.now(timezone.utc) + timedelta(days=5)
     updated = await ConsultationService.update_consultation(
         db_session, created.id, ConsultationUpdate(follow_up_at=when)
     )
@@ -271,7 +271,7 @@ async def test_repeated_follow_up_update_reuses_calendar_event(
 
     from goldsmith_erp.db.models import CalendarEvent, CalendarEventType
 
-    first_when = datetime.utcnow() + timedelta(days=7)
+    first_when = datetime.now(timezone.utc) + timedelta(days=7)
     created = await ConsultationService.create_consultation(
         db_session,
         ConsultationCreate(customer_id=sample_customer.id, follow_up_at=first_when),
@@ -321,7 +321,7 @@ async def test_repeated_follow_up_update_sends_one_notification(
         NotificationTypeEnum,
     )
 
-    first_when = datetime.utcnow() + timedelta(days=7)
+    first_when = datetime.now(timezone.utc) + timedelta(days=7)
     created = await ConsultationService.create_consultation(
         db_session,
         ConsultationCreate(customer_id=sample_customer.id, follow_up_at=first_when),
@@ -374,7 +374,7 @@ async def test_follow_up_update_ignores_non_reminder_event_at_same_id(
 
     from goldsmith_erp.db.models import CalendarEvent, CalendarEventType
 
-    first_when = datetime.utcnow() + timedelta(days=7)
+    first_when = datetime.now(timezone.utc) + timedelta(days=7)
     created = await ConsultationService.create_consultation(
         db_session,
         ConsultationCreate(customer_id=sample_customer.id, follow_up_at=first_when),

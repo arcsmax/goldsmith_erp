@@ -28,7 +28,7 @@ Endpoint coverage:
   POST /api/v1/repairs/{id}/customer-updates/send  - one-tap send
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 import pytest
 from httpx import AsyncClient
@@ -201,12 +201,12 @@ class TestSendCustomerUpdate:
         repair_id = await _create_repair(client, admin_auth_headers, test_customer.id)
         await _advance_to_ready(client, admin_auth_headers, repair_id)
 
-        before_send = datetime.utcnow()
+        before_send = datetime.now(timezone.utc)
         resp = await client.post(
             f"{REPAIRS_URL}{repair_id}/customer-updates/send",
             headers=admin_auth_headers,
         )
-        after_send = datetime.utcnow()
+        after_send = datetime.now(timezone.utc)
 
         assert resp.status_code == 200, resp.text
         body = resp.json()
@@ -221,7 +221,7 @@ class TestSendCustomerUpdate:
         assert before_send <= repair.customer_notified_at <= after_send
         # Truthful timestamp: matches the update's OWN sent_at, not an
         # independently-computed "now".
-        assert repair.customer_notified_at == sent_at.replace(tzinfo=None)
+        assert repair.customer_notified_at == sent_at
 
     async def test_second_send_does_not_resend_or_restamp(
         self,

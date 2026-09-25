@@ -9,7 +9,7 @@ active-alerts API endpoint.
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Optional
 
@@ -87,4 +87,4 @@ class AnomalyAlert(BaseModel):
     # German suggested reasons
     suggested_reasons: list[str] = Field(default_factory=list)
 
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

@@ -15,6 +15,8 @@ from typing import List, Optional
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
+from goldsmith_erp.models._common import Percent, number_default
+
 _IBAN_RE = re.compile(r"^[A-Z]{2}\d{2}[A-Z0-9]{11,30}$")
 _BIC_RE = re.compile(r"^[A-Z]{6}[A-Z0-9]{2}([A-Z0-9]{3})?$")
 _VAT_ID_RE = re.compile(r"^[A-Z]{2}[A-Z0-9]{2,12}$")
@@ -47,7 +49,7 @@ class WorkshopSettingsUpdate(BaseModel):
     bic: Optional[str] = Field(None, max_length=11)
     bank_name: Optional[str] = Field(None, max_length=100)
     is_kleinunternehmer: bool = False
-    default_vat_rate: float = Field(19.0, ge=0, le=100)
+    default_vat_rate: Percent = Field(19.0, ge=0, le=100, validate_default=True)
     invoice_footer: Optional[str] = Field(None, max_length=1000)
 
     @field_validator(
@@ -141,7 +143,7 @@ class WorkshopSettingsRead(BaseModel):
     bic: Optional[str] = None
     bank_name: Optional[str] = None
     is_kleinunternehmer: bool = False
-    default_vat_rate: float = 19.0
+    default_vat_rate: Percent = number_default(19.0)
     invoice_footer: Optional[str] = None
     updated_at: Optional[datetime] = None
     # §14 Abs. 4 UStG fields still missing, German labels (empty = complete).

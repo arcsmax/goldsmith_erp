@@ -1,6 +1,7 @@
 # src/goldsmith_erp/services/material_service.py
 
 import json
+from decimal import Decimal
 from typing import Any, Dict, List, Optional
 
 from sqlalchemy import delete, update
@@ -10,6 +11,7 @@ from sqlalchemy.orm import selectinload
 
 from goldsmith_erp.core.cache import MATERIALS_TTL, get_cached, invalidate
 from goldsmith_erp.db.models import Material as MaterialModel
+from goldsmith_erp.models._common import DecimalLike, dec, money
 from goldsmith_erp.models.material import MaterialCreate, MaterialUpdate
 
 # Stable cache key for the default (unpaginated) materials list.
@@ -216,7 +218,10 @@ class MaterialService:
 
     @staticmethod
     async def adjust_stock(
-        db: AsyncSession, material_id: int, quantity: float, operation: str = "add"
+        db: AsyncSession,
+        material_id: int,
+        quantity: DecimalLike,
+        operation: str = "add",
     ) -> Optional[MaterialModel]:
         """
         Passt den Bestand eines Materials an.
@@ -236,9 +241,9 @@ class MaterialService:
 
         # Neuen Bestand berechnen
         if operation == "add":
-            new_stock = material.stock + quantity
+            new_stock = dec(material.stock) + dec(quantity)
         elif operation == "subtract":
-            new_stock = material.stock - quantity
+            new_stock = dec(material.stock) - dec(quantity)
             if new_stock < 0:
                 raise ValueError("Stock cannot be negative")
         else:
@@ -290,5 +295,9 @@ class MaterialService:
             Gesamtwert (Summe von stock * unit_price)
         """
         materials = await MaterialService.get_materials(db, skip=0, limit=10000)
-        total_value = sum(m.stock * m.unit_price for m in materials)
-        return total_value
+        total_value = sum(
+            (dec(m.stock) * dec(m.unit_price) for m in materials), Decimal("0")
+        )
+        # Summed in Decimal, rounded half-up to the cent; returned as a float
+        # because StockValueResponse (router) is a float report field.
+        return float(money(total_value))

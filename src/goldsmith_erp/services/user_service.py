@@ -3,7 +3,7 @@
 import hashlib
 import hmac
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from sqlalchemy import text, update
@@ -365,9 +365,9 @@ class UserService:
             role=UserRole.VIEWER,
             is_active=False,
             is_deleted=True,
-            deleted_at=datetime.utcnow(),
+            deleted_at=datetime.now(timezone.utc),
             tenant_id=None,
-            created_at=datetime.utcnow(),
+            created_at=datetime.now(timezone.utc),
         )
         db.add(sentinel)
         try:
@@ -383,9 +383,9 @@ class UserService:
                 role=UserRole.VIEWER,
                 is_active=False,
                 is_deleted=True,
-                deleted_at=datetime.utcnow(),
+                deleted_at=datetime.now(timezone.utc),
                 tenant_id=None,
-                created_at=datetime.utcnow(),
+                created_at=datetime.now(timezone.utc),
             )
             db.add(sentinel)
             await db.flush()
@@ -538,7 +538,7 @@ class UserService:
                 fk_updates[f"{table_name}.{column_name}"] = max(res.rowcount or 0, 0)
 
             # Overwrite PII on the target row itself.
-            now = datetime.utcnow()
+            now = datetime.now(timezone.utc)
             await db.execute(
                 update(UserModel)
                 .where(UserModel.id == target.id)

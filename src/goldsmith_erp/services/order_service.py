@@ -1,6 +1,6 @@
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from fastapi import HTTPException
@@ -243,7 +243,7 @@ class OrderService:
             payload["status_reason"] = reason
         if punzierung_verified_marks is not None:
             payload["punzierung_verified_marks"] = list(punzierung_verified_marks)
-            payload["punzierung_verified_at"] = datetime.utcnow()
+            payload["punzierung_verified_at"] = datetime.now(timezone.utc)
 
         # Use OrderUpdate so the guard path is exercised. We bypass the
         # Pydantic request schema at the Pydantic level by constructing
@@ -332,7 +332,7 @@ class OrderService:
             # verified_by_user_id (which the router threads from
             # current_user.id); never trust a client-supplied value.
             if update_data.get("punzierung_verified_at") is None:
-                update_data["punzierung_verified_at"] = datetime.utcnow()
+                update_data["punzierung_verified_at"] = datetime.now(timezone.utc)
             if verified_by_user_id is not None:
                 update_data["punzierung_verified_by"] = verified_by_user_id
 
@@ -362,7 +362,7 @@ class OrderService:
             and order.status not in _completion_statuses
         )
         if is_completing and order.completed_at is None:
-            update_data["completed_at"] = datetime.utcnow()
+            update_data["completed_at"] = datetime.now(timezone.utc)
 
         async with transactional(db):
             if update_data:
@@ -583,7 +583,7 @@ class OrderService:
             await db.execute(
                 update(OrderModel)
                 .where(OrderModel.id == order_id)
-                .values(is_deleted=True, deleted_at=datetime.utcnow())
+                .values(is_deleted=True, deleted_at=datetime.now(timezone.utc))
             )
 
         # Publish event to Redis AFTER successful transaction commit
@@ -627,7 +627,9 @@ class OrderService:
             await db.execute(
                 update(OrderModel)
                 .where(OrderModel.id == order_id)
-                .values(current_location=location, updated_at=datetime.utcnow())
+                .values(
+                    current_location=location, updated_at=datetime.now(timezone.utc)
+                )
             )
             history_entry = LocationHistory(
                 order_id=order_id,

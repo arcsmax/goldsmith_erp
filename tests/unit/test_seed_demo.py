@@ -23,7 +23,7 @@ from __future__ import annotations
 import importlib.util
 import sys
 from dataclasses import FrozenInstanceError, fields, replace
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -58,7 +58,7 @@ import seed_data_definitions as sdd  # noqa: E402
 @pytest.mark.unit
 def test_days_ago_zero_is_close_to_now() -> None:
     """A zero-day subtract should land within a generous tolerance of
-    ``datetime.utcnow()`` at call time.
+    ``datetime.now(timezone.utc)`` at call time.
 
     Note: ``NOW`` in ``_seed_helpers`` is captured at *module-import time*,
     so when the test suite runs late in a long-running process the module's
@@ -74,7 +74,7 @@ def test_days_ago_zero_is_close_to_now() -> None:
     assert days_ago(0) == _seed_helpers.NOW
     # Recency sanity only — catches an ancient hardcoded constant, with a
     # window no realistic suite duration can outgrow.
-    assert datetime.utcnow() - _seed_helpers.NOW < timedelta(hours=24)
+    assert datetime.now(timezone.utc) - _seed_helpers.NOW < timedelta(hours=24)
 
 
 @pytest.mark.unit
@@ -152,7 +152,7 @@ def test_filter_model_fields_preserves_datetimes_passthrough() -> None:
     from goldsmith_erp.db.models import Customer
     from goldsmith_erp.db.models import Customer as _C
 
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     payload = {
         "first_name": "Ann",
         "last_name": "Schmidt",

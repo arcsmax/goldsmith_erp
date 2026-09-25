@@ -23,7 +23,7 @@ The end-to-end flow tested here:
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -101,7 +101,7 @@ async def _seed(db: AsyncSession, admin: User, storage_root: Path) -> dict:
         customer_id=customer.id,
         created_by=admin.id,
         status=InvoiceStatus.PAID,
-        due_date=datetime.utcnow() + timedelta(days=14),
+        due_date=datetime.now(timezone.utc) + timedelta(days=14),
         subtotal=1000.0,
         tax_amount=190.0,
         total=1190.0,
@@ -126,7 +126,7 @@ async def _seed(db: AsyncSession, admin: User, storage_root: Path) -> dict:
         order_id=order.id,
         created_by=admin.id,
         status=QuoteStatus.APPROVED,
-        valid_until=datetime.utcnow() + timedelta(days=14),
+        valid_until=datetime.now(timezone.utc) + timedelta(days=14),
         customer_signature_data=SIGNATURE,
         notes="Angenommen von Erika Musterfrau",
     )
@@ -155,7 +155,7 @@ async def _seed(db: AsyncSession, admin: User, storage_root: Path) -> dict:
         total_fine_gold_g=2.925,
         total_value_eur=150.0,
         signature_data=SIGNATURE,
-        signed_at=datetime.utcnow(),
+        signed_at=datetime.now(timezone.utc),
         receipt_pdf_path=receipt_rel,
         notes="Ausweis geprüft, Erika Musterfrau",
     )
@@ -175,7 +175,7 @@ async def _seed(db: AsyncSession, admin: User, storage_root: Path) -> dict:
             customer_id=customer.id,
             purpose="health_data",
             method="written",
-            granted_at=datetime.utcnow(),
+            granted_at=datetime.now(timezone.utc),
             recorded_by_user_id=admin.id,
         )
     )
@@ -272,7 +272,7 @@ async def test_erase_request_keeps_tax_and_gwg_records(
     assert consents == []
     # Legal hold: end of the calendar year of the newest record + 10 years.
     assert customer.retention_hold_until is not None
-    assert customer.retention_hold_until.year == datetime.utcnow().year + 10
+    assert customer.retention_hold_until.year == datetime.now(timezone.utc).year + 10
     assert customer.retention_hold_until.month == 12
     assert customer.retention_hold_until.day == 31
 
@@ -316,7 +316,7 @@ async def test_grace_period_cleanup_anonymizes_customer_keeps_records(
 
     report = await CustomerService.hard_delete_expired_customers(
         db_session,
-        now=datetime.utcnow() + timedelta(days=31),
+        now=datetime.now(timezone.utc) + timedelta(days=31),
         storage_root=storage_root,
     )
     assert report.anonymized == [ids["customer_id"]]
@@ -360,7 +360,7 @@ async def test_customer_with_only_scrap_gold_is_anonymized_not_deleted(
         email=f"otto_{uuid.uuid4().hex[:8]}@example.com",
         customer_type="private",
         is_active=False,
-        deletion_scheduled_at=datetime.utcnow() - timedelta(days=1),
+        deletion_scheduled_at=datetime.now(timezone.utc) - timedelta(days=1),
     )
     db_session.add(customer)
     await db_session.commit()

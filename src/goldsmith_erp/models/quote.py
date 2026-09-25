@@ -23,6 +23,7 @@ from goldsmith_erp.db.models import (
     QuoteStatus,
     UpdateDeliveryMethod,
 )
+from goldsmith_erp.models._common import Money, Percent, Weight
 
 # ============================================================================
 # LINE ITEM SCHEMAS
@@ -41,10 +42,10 @@ class QuoteLineItemCreate(BaseModel):
         max_length=500,
         description="Description of the line item (Beschreibung)",
     )
-    quantity: float = Field(
+    quantity: Weight = Field(
         ..., gt=0, description="Quantity (Menge) - must be positive"
     )
-    unit_price: float = Field(
+    unit_price: Money = Field(
         ..., ge=0, description="Net unit price in EUR (Einzelpreis netto)"
     )
     estimator_metadata: dict | None = Field(
@@ -68,9 +69,9 @@ class QuoteLineItemResponse(BaseModel):
     quote_id: int
     line_type: QuoteLineType
     description: str
-    quantity: float
-    unit_price: float
-    total: float
+    quantity: Weight
+    unit_price: Money
+    total: Money
     estimator_metadata: dict | None = Field(
         default=None,
         description="Snapshot of estimator inputs/outputs. Set on create; immutable on update.",
@@ -97,8 +98,9 @@ class QuoteCreate(BaseModel):
         default=None, gt=0, description="Order ID to generate quote from (optional)"
     )
     customer_id: int = Field(..., gt=0, description="Customer ID (Kunden-ID)")
-    tax_rate: float = Field(
+    tax_rate: Percent = Field(
         default=19.0,
+        validate_default=True,
         ge=0,
         le=100,
         description="VAT rate in percent (MwSt-Satz, default 19%)",
@@ -124,7 +126,7 @@ class QuoteUpdate(BaseModel):
     status: Optional[QuoteStatus] = Field(None, description="New quote status")
     valid_until: Optional[datetime] = Field(None, description="Updated validity date")
     notes: Optional[str] = Field(None, max_length=2000, description="Updated notes")
-    tax_rate: Optional[float] = Field(
+    tax_rate: Optional[Percent] = Field(
         None, ge=0, le=100, description="Updated MwSt rate"
     )
 
@@ -170,10 +172,10 @@ class QuoteResponse(BaseModel):
     approved_at: Optional[datetime] = None
     rejected_at: Optional[datetime] = None
     converted_at: Optional[datetime] = None
-    subtotal: float = Field(..., description="Zwischensumme (net)")
-    tax_rate: float = Field(..., description="MwSt-Satz in Prozent")
-    tax_amount: float = Field(..., description="MwSt-Betrag")
-    total: float = Field(..., description="Gesamtbetrag (gross)")
+    subtotal: Money = Field(..., description="Zwischensumme (net)")
+    tax_rate: Percent = Field(..., description="MwSt-Satz in Prozent")
+    tax_amount: Money = Field(..., description="MwSt-Betrag")
+    total: Money = Field(..., description="Gesamtbetrag (gross)")
     customer_signature_data: Optional[str] = None
     notes: Optional[str] = None
     created_at: datetime
@@ -197,7 +199,7 @@ class QuoteListItem(BaseModel):
     customer_id: int
     status: QuoteStatus
     valid_until: datetime
-    total: float
+    total: Money
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)

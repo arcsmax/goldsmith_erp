@@ -62,7 +62,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, cast
 
 from sqlalchemy import and_, select
@@ -279,7 +279,9 @@ async def send_customer_mail_once(
         return False
 
     occurrence = mail.occurrence_marker(order)
-    day_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+    day_start = datetime.now(timezone.utc).replace(
+        hour=0, minute=0, second=0, microsecond=0
+    )
     if await _already_handled(db, order_id, mail, day_start, occurrence):
         return False
 

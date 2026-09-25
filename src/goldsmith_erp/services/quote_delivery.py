@@ -40,7 +40,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Optional, cast
 
 from fastapi import HTTPException
@@ -49,6 +49,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from goldsmith_erp.core.config import settings
+from goldsmith_erp.core.timeutil import DATE_FORMAT, format_local
 from goldsmith_erp.db.models import Customer as CustomerModel
 from goldsmith_erp.db.models import (
     CustomerUpdate,
@@ -160,7 +161,7 @@ async def email_quote(
         to=recipient,
         quote_number=str(quote.quote_number),
         total=_fmt_eur(quote.total),
-        valid_until=valid_until.strftime("%d.%m.%Y") if valid_until else "",
+        valid_until=format_local(valid_until, DATE_FORMAT, empty=""),
         pdf_bytes=pdf_bytes,
     )
 
@@ -320,7 +321,7 @@ async def deliver_queued_quote(db: AsyncSession, payload: dict[str, Any]) -> boo
     if recipient is None:
         async with transactional(db):
             record.delivery_method = cast(Any, UpdateDeliveryMethod.PDF_MANUAL)
-            record.sent_at = cast(Any, datetime.utcnow())
+            record.sent_at = cast(Any, datetime.now(timezone.utc))
             await record_delivery_audit(
                 db, record, user_id, int(customer.id), UpdateDeliveryMethod.PDF_MANUAL
             )
@@ -332,7 +333,7 @@ async def deliver_queued_quote(db: AsyncSession, payload: dict[str, Any]) -> boo
         return False
     async with transactional(db):
         record.delivery_method = cast(Any, UpdateDeliveryMethod.EMAIL)
-        record.sent_at = cast(Any, datetime.utcnow())
+        record.sent_at = cast(Any, datetime.now(timezone.utc))
         await record_delivery_audit(
             db, record, user_id, int(customer.id), UpdateDeliveryMethod.EMAIL
         )

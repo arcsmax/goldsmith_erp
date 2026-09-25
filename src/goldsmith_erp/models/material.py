@@ -1,9 +1,12 @@
 # src/goldsmith_erp/models/material.py
 
 from datetime import datetime
+from decimal import Decimal
 from typing import Any, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+from goldsmith_erp.models._common import Money, Weight
 
 
 class MaterialBase(BaseModel):
@@ -18,7 +21,7 @@ class MaterialBase(BaseModel):
     description: Optional[str] = Field(
         None, max_length=1000, description="Material description (max 1000 characters)"
     )
-    unit_price: float = Field(
+    unit_price: Money = Field(
         ...,
         ge=0,
         description=(
@@ -27,7 +30,9 @@ class MaterialBase(BaseModel):
             "are rejected."
         ),
     )
-    stock: float = Field(..., ge=0, description="Stock quantity (must be non-negative)")
+    stock: Weight = Field(
+        ..., ge=0, description="Stock quantity (must be non-negative)"
+    )
     unit: str = Field(
         ...,
         min_length=1,
@@ -41,13 +46,16 @@ class MaterialBase(BaseModel):
     webshop_url: Optional[str] = Field(
         None, max_length=500, description="Supplier webshop URL for reordering"
     )
-    min_stock: float = Field(
-        default=10.0, ge=0, description="Minimum stock threshold for low-stock alerts"
+    min_stock: Weight = Field(
+        default=10.0,
+        ge=0,
+        validate_default=True,
+        description="Minimum stock threshold for low-stock alerts",
     )
 
     @field_validator("unit_price")
     @classmethod
-    def validate_unit_price(cls, v: float) -> float:
+    def validate_unit_price(cls, v: Decimal) -> Decimal:
         """Validate unit price is reasonable."""
         if v > 100_000:  # 100k per unit max
             raise ValueError("Unit price exceeds maximum allowed value (100,000)")
@@ -55,7 +63,7 @@ class MaterialBase(BaseModel):
 
     @field_validator("stock")
     @classmethod
-    def validate_stock(cls, v: float) -> float:
+    def validate_stock(cls, v: Decimal) -> Decimal:
         """Validate stock quantity is reasonable."""
         if v > 1_000_000:  # 1 million units max
             raise ValueError("Stock quantity exceeds maximum allowed value (1,000,000)")
@@ -77,7 +85,7 @@ class MaterialUpdate(BaseModel):
     description: Optional[str] = Field(
         None, max_length=1000, description="Material description"
     )
-    unit_price: Optional[float] = Field(
+    unit_price: Optional[Money] = Field(
         None,
         ge=0,
         description=(
@@ -86,7 +94,7 @@ class MaterialUpdate(BaseModel):
             "are rejected."
         ),
     )
-    stock: Optional[float] = Field(
+    stock: Optional[Weight] = Field(
         None, ge=0, description="Stock quantity (must be non-negative)"
     )
     unit: Optional[str] = Field(
@@ -99,13 +107,13 @@ class MaterialUpdate(BaseModel):
     webshop_url: Optional[str] = Field(
         None, max_length=500, description="Supplier webshop URL for reordering"
     )
-    min_stock: Optional[float] = Field(
+    min_stock: Optional[Weight] = Field(
         None, ge=0, description="Minimum stock threshold for low-stock alerts"
     )
 
     @field_validator("unit_price")
     @classmethod
-    def validate_unit_price(cls, v: Optional[float]) -> Optional[float]:
+    def validate_unit_price(cls, v: Optional[Decimal]) -> Optional[Decimal]:
         """Validate unit price is reasonable."""
         if v is not None and v > 100_000:
             raise ValueError("Unit price exceeds maximum allowed value (100,000)")
@@ -113,7 +121,7 @@ class MaterialUpdate(BaseModel):
 
     @field_validator("stock")
     @classmethod
-    def validate_stock(cls, v: Optional[float]) -> Optional[float]:
+    def validate_stock(cls, v: Optional[Decimal]) -> Optional[Decimal]:
         """Validate stock quantity is reasonable."""
         if v is not None and v > 1_000_000:
             raise ValueError("Stock quantity exceeds maximum allowed value (1,000,000)")
@@ -134,7 +142,7 @@ class MaterialWithStock(MaterialRead):
     Nützlich für Bestandsberichte.
     """
 
-    stock_value: Optional[float] = None  # stock * unit_price
+    stock_value: Optional[Money] = None  # stock * unit_price
 
     @classmethod
     def from_material(cls, material: Any) -> "MaterialWithStock":

@@ -11,7 +11,7 @@ with a German error message rather than crashing.
 import asyncio
 import logging
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -345,7 +345,7 @@ async def get_active_anomalies(
     Falls back to a threshold-based heuristic (200% of activity average) when
     the AnomalyDetector module is not loaded.
     """
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
 
     running_result = await db.execute(
         select(TimeEntry)
@@ -435,7 +435,7 @@ async def get_anomaly_history(
     Return completed time entries from the last 7 days that exceeded their
     expected duration by more than 50%.
     """
-    cutoff = datetime.utcnow() - timedelta(days=7)
+    cutoff = datetime.now(timezone.utc) - timedelta(days=7)
 
     result = await db.execute(
         select(TimeEntry)

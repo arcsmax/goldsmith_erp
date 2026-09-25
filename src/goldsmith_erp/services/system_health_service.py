@@ -14,7 +14,7 @@ import logging
 import os
 import shutil
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -193,7 +193,7 @@ class SystemHealthService:
             },
             "version": settings.APP_VERSION,
             "uptime_seconds": SystemHealthService.get_uptime(),
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
         }
 
     # ------------------------------------------------------------------
@@ -209,7 +209,7 @@ class SystemHealthService:
             {"orders_this_month": int, "completed_this_month": int}
         """
         try:
-            now = datetime.utcnow()
+            now = datetime.now(timezone.utc)
             month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
 
             # Orders created this month

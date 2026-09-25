@@ -28,7 +28,7 @@ cancelled orders out of deadline alarms and active counts.
 from __future__ import annotations
 
 import logging
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from typing import Any, Iterable, Mapping, Optional, Union, cast
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -394,7 +394,7 @@ async def transition(
         to_status=target.value,
         user_id=_user_id(user),
         reason=clean_reason,
-        created_at=datetime.utcnow(),
+        created_at=datetime.now(timezone.utc),
         meta=event_meta or None,
     )
     db.add(event)
@@ -424,7 +424,7 @@ async def record_creation(
         from_status=None,
         to_status=_coerce(cast(Any, order).status).value,
         user_id=_user_id(user),
-        created_at=datetime.utcnow(),
+        created_at=datetime.now(timezone.utc),
         meta=meta,
     )
     db.add(event)

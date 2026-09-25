@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import List, Optional
 
 from sqlalchemy import and_, func, select
@@ -169,7 +169,7 @@ class NotificationService:
 
         if not notification.is_read:
             notification.is_read = True
-            notification.read_at = datetime.utcnow()
+            notification.read_at = datetime.now(timezone.utc)
             await db.commit()
             await db.refresh(notification)
 
@@ -191,7 +191,7 @@ class NotificationService:
         result = await db.execute(stmt)
         notifications = result.scalars().all()
 
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         count = 0
         for n in notifications:
             n.is_read = True
@@ -251,7 +251,7 @@ class NotificationService:
 
         Returns the number of notifications created.
         """
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
 
         # Load all active orders with deadlines in the next 4 days
@@ -344,7 +344,7 @@ class NotificationService:
 
         Returns the number of notifications created.
         """
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
 
         stmt = select(Material).where(Material.stock <= Material.min_stock)
@@ -420,7 +420,7 @@ class NotificationService:
 
         Returns the number of notifications created.
         """
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
         overdue_threshold = now - timedelta(days=3)
         deadline_window = now + timedelta(days=2)
@@ -537,7 +537,7 @@ class NotificationService:
 
         Returns the number of notifications created.
         """
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
 
         stmt = select(Order).where(

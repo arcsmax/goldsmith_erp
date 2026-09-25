@@ -13,7 +13,7 @@ Outbox (ARCH-04 / ARCH-05, ADR-2026-09-25-outbox).
 """
 
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from sqlalchemy import select
@@ -150,14 +150,14 @@ class TestLeasing:
     async def test_lease_takes_due_rows_and_hides_them(self, db_session):
         due = await OutboxService.enqueue(db_session, kind="test", payload={})
         later = await OutboxService.enqueue(db_session, kind="test", payload={})
-        later.next_attempt_at = datetime.utcnow() + timedelta(hours=1)
+        later.next_attempt_at = datetime.now(timezone.utc) + timedelta(hours=1)
         await db_session.commit()
 
         ids = await OutboxService.lease_due(db_session, limit=10)
         assert ids == [due.id]
         await db_session.refresh(due)
         assert due.attempts == 1
-        assert due.next_attempt_at > datetime.utcnow()
+        assert due.next_attempt_at > datetime.now(timezone.utc)
         # Leased: a second worker sees nothing.
         assert await OutboxService.lease_due(db_session, limit=10) == []
 
@@ -180,7 +180,7 @@ class TestLeasing:
         msg = await OutboxService.enqueue(db_session, kind="test", payload={})
         await db_session.commit()
 
-        before = datetime.utcnow()
+        before = datetime.now(timezone.utc)
         await OutboxService.run_once(session_factory)
         await db_session.refresh(msg)
         assert msg.status == OutboxStatus.FAILED.value
@@ -213,7 +213,7 @@ class TestLeasing:
         for _ in range(2):
             await OutboxService.run_once(session_factory)
             await db_session.refresh(msg)
-            msg.next_attempt_at = datetime.utcnow() - timedelta(seconds=1)
+            msg.next_attempt_at = datetime.now(timezone.utc) - timedelta(seconds=1)
             await db_session.commit()
 
         await db_session.refresh(msg)
@@ -319,7 +319,7 @@ class TestWorkerModeCustomerMessages:
     ):
         """Order completed -> pickup scan -> customer message -> outbox row."""
         sample_order.status = "completed"
-        sample_order.completed_at = datetime.utcnow()
+        sample_order.completed_at = datetime.now(timezone.utc)
         await db_session.commit()
 
         sent = await automated_customer_email.send_customer_mail_once(

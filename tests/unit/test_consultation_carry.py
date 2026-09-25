@@ -1,6 +1,6 @@
 """Unit tests for the consultation -> order field mapping (DOM-03, W2-05)."""
 
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 import pytest
 
@@ -36,7 +36,9 @@ def test_parse_metal(text, alloy, metal_type) -> None:
 
 def test_deadline_only_from_future_dates() -> None:
     future = datetime.utcnow().date() + timedelta(days=30)
-    assert _deadline_from(future) == datetime.combine(future, datetime.min.time())
+    assert _deadline_from(future) == datetime.combine(
+        future, datetime.min.time(), tzinfo=timezone.utc
+    )
     assert _deadline_from(datetime.utcnow().date() - timedelta(days=1)) is None
     assert _deadline_from(None) is None
 
