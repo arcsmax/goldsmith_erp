@@ -742,6 +742,32 @@ export interface paths {
         patch: operations["update_customer_api_v1_customers__customer_id__patch"];
         trace?: never;
     };
+    "/api/v1/customers/{customer_id}/activity": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Customer Activity
+         * @description Kundenverlauf (Kunde 360°, W2-12 / DOM-38): Aufträge, Reparaturen,
+         *     Kostenvoranschläge, Rechnungen und Kundeninfos, neueste zuerst.
+         *
+         *     Serverseitig nach ``customer_id`` gefiltert und über alle Arten hinweg
+         *     gepaged (``Page``-Hülle). Jede Art erscheint nur mit ihrer
+         *     Ansichtsberechtigung (VIEWER: Aufträge und Reparaturen); ``amount``
+         *     nur mit FINANCIAL_VIEW.
+         */
+        get: operations["get_customer_activity_api_v1_customers__customer_id__activity_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/customers/{customer_id}/consents": {
         parameters: {
             query?: never;
@@ -3821,6 +3847,32 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/repairs/{repair_id}/annahmeschein.pdf": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Repair Annahmeschein
+         * @description Annahmeschein (Reparaturannahme) als PDF (W2-12, DOM-08).
+         *
+         *     Enthaelt Werkstattdaten, Kunde, Stueck, Zustand, Fotos der Annahme als
+         *     Miniaturen, Preisindikation, Termine und Unterschriftszeilen. Fotos sind
+         *     Design-IP, daher DESIGN_VIEW (VIEWER: 403); die Preisindikation nur mit
+         *     FINANCIAL_VIEW. Eine Unterschrift wird noch nicht gespeichert (keine
+         *     Spalte, siehe W2-12-Bericht): der Schein wird auf Papier unterschrieben.
+         */
+        get: operations["get_repair_annahmeschein_api_v1_repairs__repair_id__annahmeschein_pdf_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/repairs/{repair_id}/approve": {
         parameters: {
             query?: never;
@@ -6399,6 +6451,42 @@ export interface components {
          * @enum {string}
          */
         CostingMethod: "fifo" | "lifo" | "average" | "specific";
+        /**
+         * CustomerActivityItem
+         * @description One row of GET /customers/{id}/activity (newest first).
+         *
+         *     ``amount`` (order price, repair cost, quote/invoice total) is removed
+         *     for callers without FINANCIAL_VIEW. Quotes, invoices and customer
+         *     updates are only listed for callers holding their view permission.
+         *     ``order_id`` / ``repair_job_id`` point at the parent a row links to
+         *     (invoices and customer updates have no page of their own).
+         */
+        CustomerActivityItem: {
+            /** Amount */
+            amount?: number | null;
+            /** Id */
+            id: number;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "order" | "repair" | "quote" | "invoice" | "customer_update";
+            /**
+             * Occurred At
+             * Format: date-time
+             */
+            occurred_at: string;
+            /** Order Id */
+            order_id?: number | null;
+            /** Reference */
+            reference?: string | null;
+            /** Repair Job Id */
+            repair_job_id?: number | null;
+            /** Status */
+            status: string;
+            /** Title */
+            title: string;
+        };
         /**
          * CustomerCreate
          * @description Schema for creating a new customer.
@@ -9780,6 +9868,25 @@ export interface components {
          * @enum {string}
          */
         OverrideReasonCategoryEnum: "charge_abweichung" | "kleinteil" | "notfall" | "sonstiges";
+        /** Page[CustomerActivityItem] */
+        Page_CustomerActivityItem_: {
+            /** Items */
+            items: components["schemas"]["CustomerActivityItem"][];
+            /** Limit */
+            limit: number;
+            /**
+             * Next Offset
+             * @description Offset der nächsten Seite; null auf der letzten
+             */
+            next_offset?: number | null;
+            /** Offset */
+            offset: number;
+            /**
+             * Total
+             * @description Anzahl aller Treffer über alle Seiten
+             */
+            total: number;
+        };
         /** Page[MaterialRead] */
         Page_MaterialRead_: {
             /** Items */
@@ -10446,15 +10553,30 @@ export interface components {
          */
         RepairJobCreate: {
             /**
+             * Condition Notes
+             * @description Zustand bei Annahme, z.B. ['Kratzer', 'Tragespuren']
+             */
+            condition_notes?: string[];
+            /**
              * Customer Id
              * @description Kunden-ID (optional — Laufkunde moeglich)
              */
             customer_id?: number | null;
             /**
+             * Customer Problem
+             * @description Vom Kunden geschildertes Problem
+             */
+            customer_problem?: string | null;
+            /**
              * Estimated Completion Date
-             * @description Voraussichtliches Fertigstellungsdatum
+             * @description Zugesagter Fertigstellungstermin
              */
             estimated_completion_date?: string | null;
+            /**
+             * Estimated Cost
+             * @description Erste Preisindikation in EUR (unverbindlich)
+             */
+            estimated_cost?: number | null;
             /**
              * Estimated Value
              * @description Versicherungswert in EUR
@@ -13651,6 +13773,44 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CustomerRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_customer_activity_api_v1_customers__customer_id__activity_get: {
+        parameters: {
+            query?: {
+                /** @description Seitengröße (maximal 200) */
+                limit?: number;
+                /** @description Offset der Seite */
+                offset?: number;
+            };
+            header?: never;
+            path: {
+                customer_id: number;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_CustomerActivityItem_"];
                 };
             };
             /** @description Validation Error */
@@ -18654,6 +18814,37 @@ export interface operations {
         responses: {
             /** @description Successful Response */
             204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_repair_annahmeschein_api_v1_repairs__repair_id__annahmeschein_pdf_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                repair_id: number;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };
