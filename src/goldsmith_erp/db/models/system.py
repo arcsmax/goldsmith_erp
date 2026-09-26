@@ -12,6 +12,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    Uuid,
 )
 from sqlalchemy.dialects.postgresql import JSON
 from sqlalchemy.orm import relationship
@@ -158,11 +159,25 @@ class ScanLog(Base):
 
     __tablename__ = "scan_logs"
 
-    # Stored as TEXT (36 chars) on SQLite and as UUID on PostgreSQL. Using
-    # String(36) at the ORM level keeps the type portable; the migration
-    # upgrades the column to native UUID on PG.
+    # PG/ORM drift fix (2026-09 audit): the Alembic migration
+    # (20260418_add_qr_barcode_core_tables) creates this column as native
+    # ``UUID`` on PostgreSQL and ``VARCHAR(36)`` on SQLite (no native UUID
+    # type there). It was previously declared ``String(36)`` here, which
+    # is portable at the Python-value level but NOT at the wire-protocol
+    # level: SQLAlchemy's asyncpg dialect renders an explicit bind cast
+    # for every parameter (``bind_typing = BindTyping.RENDER_CASTS``), so
+    # a ``String`` column produced ``...::VARCHAR`` casts that PostgreSQL
+    # then rejected against the real ``uuid`` column — every INSERT into
+    # ``scan_logs`` failed with
+    # ``asyncpg.exceptions.DatatypeMismatchError: column "id" is of type
+    # uuid but expression is of type character varying``.
+    # ``Uuid(as_uuid=False)`` (SQLAlchemy 2.0) is the type-correct,
+    # dialect-agnostic fix: it maps to native ``UUID`` (with the matching
+    # ``::UUID`` bind cast) on PostgreSQL and to ``CHAR(32)`` on SQLite,
+    # while still accepting/returning plain Python ``str`` at the ORM
+    # boundary in both cases — no API/contract change.
     id = Column(
-        String(36),
+        Uuid(as_uuid=False),
         primary_key=True,
         default=lambda: str(uuid.uuid4()),
         nullable=False,
@@ -189,7 +204,15 @@ class ScanLog(Base):
     context = Column(JSON, nullable=True)
     offline_queued = Column(Boolean, default=False, nullable=False)
     synced_at = Column(UtcDateTime, nullable=True)
-    idempotency_key = Column(String(36), nullable=True)
+    # Same PG/ORM drift as ``id`` above (native UUID on PostgreSQL,
+    # VARCHAR(36) on SQLite) — see that column's comment. This is the
+    # column the production bug report names directly:
+    # ``_find_by_idempotency_key``'s ``WHERE idempotency_key = :key``
+    # compiled to ``idempotency_key = $1::VARCHAR`` and PostgreSQL raised
+    # ``UndefinedFunctionError: operator does not exist: uuid = character
+    # varying`` on the very first scan carrying a key (the frontend
+    # always sends one — ``crypto.randomUUID()``).
+    idempotency_key = Column(Uuid(as_uuid=False), nullable=True)
     # A1.2 — client-side FAB tap timestamp for adoption metrics.
     client_tap_at = Column(UtcDateTime, nullable=True)
     # A1.3 — server-side resolution completion, pairs with client_tap_at.
