@@ -22,6 +22,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 import pytest_asyncio
 from httpx import AsyncClient
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from goldsmith_erp.core import ws_manager
@@ -31,6 +32,7 @@ from goldsmith_erp.db.models import (
     RepairItemType,
     RepairJob,
     RepairJobStatus,
+    ScanLog,
     WorkshopLocation,
 )
 
@@ -537,3 +539,65 @@ class TestWorkshopLocation:
         ).json()["items"][0]
         assert item["location_id"] is None
         assert item["location"] == "Werkbank 9"
+
+    @pytest_asyncio.fixture
+    async def safe(self, db_session: AsyncSession) -> WorkshopLocation:
+        location = WorkshopLocation(
+            name=f"Tresor {uuid.uuid4().hex[:4]}", kind="safe", is_active=True
+        )
+        db_session.add(location)
+        await db_session.commit()
+        await db_session.refresh(location)
+        return location
+
+    @pytest.mark.asyncio
+    async def test_location_id_is_populated_on_the_column_not_just_context(
+        self, client, goldsmith_auth_headers, db_session, piece_order, bench
+    ):
+        """SC-04 follow-up: ``scan_logs.location_id`` is a real, queryable column."""
+        body = _scan_body("order", piece_order.id)
+        body["context"]["location_id"] = bench.id
+        logged = await _log(client, goldsmith_auth_headers, body)
+
+        row = (
+            await db_session.execute(select(ScanLog).where(ScanLog.id == logged["id"]))
+        ).scalar_one()
+        assert row.location_id == bench.id
+
+    @pytest.mark.asyncio
+    async def test_search_filters_by_location(
+        self,
+        client,
+        goldsmith_auth_headers,
+        piece_order,
+        piece_repair,
+        bench,
+        safe,
+    ):
+        at_bench = _scan_body("order", piece_order.id)
+        at_bench["context"]["location_id"] = bench.id
+        await _log(client, goldsmith_auth_headers, at_bench)
+
+        at_safe = _scan_body("repair", piece_repair.id)
+        at_safe["context"]["location_id"] = safe.id
+        await _log(client, goldsmith_auth_headers, at_safe)
+
+        by_bench = await client.get(
+            HISTORY_URL,
+            params={"location": bench.id},
+            headers=goldsmith_auth_headers,
+        )
+        assert by_bench.status_code == 200
+        bench_rows = by_bench.json()["items"]
+        assert bench_rows
+        assert all(r["location_id"] == bench.id for r in bench_rows)
+
+        by_safe = await client.get(
+            HISTORY_URL,
+            params={"location": safe.id},
+            headers=goldsmith_auth_headers,
+        )
+        safe_rows = by_safe.json()["items"]
+        assert safe_rows
+        assert all(r["location_id"] == safe.id for r in safe_rows)
+        assert {r["id"] for r in safe_rows}.isdisjoint({r["id"] for r in bench_rows})

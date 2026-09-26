@@ -15,8 +15,11 @@ Row model (append-only, no migration):
     audit log; rows are never updated, so the scan itself stays on record
     even when the action fails or the tablet dies mid-action.
   * "Where" is ``context.current_location`` — the device's bench location,
-    else the running timer's location, else null (text label; there is no
-    ``location_id`` column on ``scan_logs``).
+    else the running timer's location, else null (text label). Since
+    migration ``20260926_sc04_scan_log_location``, the configured
+    workshop location also lives in a real, indexed ``location_id`` FK
+    column (promoted out of ``context`` JSON, SC-04 follow-up); the text
+    label is kept in sync for display and legacy rows.
 
 Reads here never return financial fields or entity payloads: only user
 name, time, location, action and result.
@@ -72,6 +75,7 @@ class HistoryFilter:
 
     q: Optional[str] = None
     user_id: Optional[int] = None
+    location_id: Optional[int] = None
     date_from: Optional[datetime] = None
     date_to: Optional[datetime] = None
 
@@ -94,11 +98,6 @@ def _context(row: ScanLogModel) -> Dict[str, Any]:
     return ctx if isinstance(ctx, dict) else {}
 
 
-def _ctx_int(row: Any, key: str) -> Optional[int]:
-    value = _context(row).get(key)
-    return value if isinstance(value, int) and not isinstance(value, bool) else None
-
-
 def _ctx_str(row: ScanLogModel, key: str) -> Optional[str]:
     value = _context(row).get(key)
     return value if isinstance(value, str) and value else None
@@ -116,7 +115,7 @@ def to_piece_scan(row: Any, user: Optional[UserModel]) -> PieceScanRead:
         user_id=row.user_id,
         user_name=user_display_name(user),
         location=_ctx_str(row, "current_location"),
-        location_id=_ctx_int(row, "location_id"),
+        location_id=row.location_id,
         action_taken=row.action_taken,
         action_result=_ctx_str(row, "action_result"),
         input_source=_ctx_str(row, "input_source"),
@@ -265,7 +264,7 @@ class ScanHistoryService:
             user_id=row.user_id,
             user_name=user_display_name(user),
             location=_ctx_str(row, "current_location"),
-            location_id=_ctx_int(row, "location_id"),
+            location_id=row.location_id,
             action_taken=row.action_taken,
         )
 
@@ -282,6 +281,8 @@ class ScanHistoryService:
             clauses.extend(await _resolve_query(db, filters.q))
         if filters.user_id is not None:
             clauses.append(ScanLogModel.user_id == filters.user_id)
+        if filters.location_id is not None:
+            clauses.append(ScanLogModel.location_id == filters.location_id)
         if filters.date_from is not None:
             clauses.append(ScanLogModel.scanned_at >= filters.date_from)
         if filters.date_to is not None:

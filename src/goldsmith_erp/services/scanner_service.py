@@ -500,6 +500,11 @@ class ScannerService:
                     deduplicated += 1
                     continue
 
+            # SC-04 (follow-up) — same resolution as the single-event
+            # path (`log_scan`): an unknown/deactivated location_id must
+            # never reach the FK column below, or the INSERT would fail
+            # and the whole scan would be lost.
+            event = await _resolve_scan_location(db, event)
             db_row = _build_scan_log_row(user_id, event)
             try:
                 db.add(db_row)
@@ -1296,6 +1301,13 @@ def _build_scan_log_row(
     else:
         context_dict = event.context.model_dump(exclude_unset=True)
 
+    # SC-04 (follow-up) — the FK column, not just the JSON copy. The
+    # caller MUST have already run the event through
+    # ``_resolve_scan_location`` so an unknown/deactivated id is never
+    # here (it would violate the FK); this only reads what survived
+    # resolution.
+    location_id = event.context.location_id if event.context is not None else None
+
     idem_key = str(event.idempotency_key) if event.idempotency_key else None
 
     # ``scanned_at`` is server-set using UTC now. The composite PK on
@@ -1313,6 +1325,7 @@ def _build_scan_log_row(
         resolution_path=event.resolution_path,
         action_taken=event.action_taken,
         context=context_dict,
+        location_id=location_id,
         offline_queued=event.offline_queued,
         idempotency_key=idem_key,
         client_tap_at=event.client_tap_at,

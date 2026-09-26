@@ -310,6 +310,9 @@ _HISTORY_ROLES = frozenset({UserRole.ADMIN, UserRole.GOLDSMITH})
 async def search_scan_history(
     q: Optional[str] = Query(None, min_length=1, max_length=100),
     user: Optional[int] = Query(None, gt=0, description="Nur Scans dieses Benutzers"),
+    location: Optional[int] = Query(
+        None, gt=0, description="Nur Scans an diesem Standort"
+    ),
     date_from: Optional[datetime] = Query(None, alias="from"),
     date_to: Optional[datetime] = Query(None, alias="to"),
     limit: int = Query(DEFAULT_HISTORY_LIMIT, ge=1, le=MAX_HISTORY_LIMIT),
@@ -335,12 +338,19 @@ async def search_scan_history(
             "user_id": current_user.id,
             "has_query": q is not None,
             "filter_user_id": user,
+            "filter_location_id": location,
             "offset": offset,
         },
     )
     return await ScanHistoryService.search(
         db,
-        HistoryFilter(q=q, user_id=user, date_from=date_from, date_to=date_to),
+        HistoryFilter(
+            q=q,
+            user_id=user,
+            location_id=location,
+            date_from=date_from,
+            date_to=date_to,
+        ),
         limit=limit,
         offset=offset,
     )

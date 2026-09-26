@@ -86,7 +86,9 @@ def test_revision_sits_on_top_of_w7_in_the_single_chain():
     assert module.revision == _REVISION
     assert module.down_revision == "20260925_w7_care_text"
     script = ScriptDirectory.from_config(Config(str(_ROOT / "alembic.ini")))
-    assert script.get_heads() == [_REVISION]
+    # Not the literal head any more — 20260926_sc04_scan_log_location sits
+    # on top of it (SC-04 follow-up) — but the chain must stay single.
+    assert len(script.get_heads()) == 1
 
 
 def test_upgrade_seeds_distinct_trimmed_strings(sqlite_engine):

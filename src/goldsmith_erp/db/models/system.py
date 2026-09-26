@@ -198,6 +198,22 @@ class ScanLog(Base):
     fallback_reason = Column(String(40), nullable=True)
     # A1.6 — retention bucket for future retention-engine.
     retention_class = Column(String(32), nullable=False, default="standard_24m")
+    # SC-04 (follow-up) — configured workshop location (W8
+    # ``workshop_locations``), promoted out of ``context`` JSON into a real,
+    # indexed FK column. Migration: 20260926_sc04_scan_log_location.
+    # Unknown/deactivated ids are never stored (scanner_service resolves and
+    # drops them before the row is built), so this FK is never violated by
+    # application writes.
+    location_id = Column(
+        Integer,
+        ForeignKey(
+            "workshop_locations.id",
+            name="fk_scan_logs_location_id_workshop_locations",
+            ondelete="SET NULL",
+        ),
+        nullable=True,
+        index=True,
+    )
 
     user = relationship("User", foreign_keys=[user_id])
 
