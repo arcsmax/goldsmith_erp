@@ -23,8 +23,8 @@ from goldsmith_erp.db.models import (
     QuoteStatus,
     UpdateDeliveryMethod,
 )
-from goldsmith_erp.models.job import JobCustomer, _customer_summary
 from goldsmith_erp.models._common import Money, Percent, Weight
+from goldsmith_erp.models.job import JobCustomer, _customer_summary
 
 # ============================================================================
 # LINE ITEM SCHEMAS
