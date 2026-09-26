@@ -26,6 +26,7 @@ import logging
 import os
 import signal
 import sys
+import tempfile
 import time
 from pathlib import Path
 from typing import Optional
@@ -42,8 +43,13 @@ from goldsmith_erp.services.system_monitor import (
 
 logger = logging.getLogger("goldsmith_erp.worker")
 
+# Default lives in the platform temp dir (``/tmp`` inside the container) so
+# the loop and ``--healthcheck`` agree without a hard-coded path (bandit B108).
 HEARTBEAT_PATH = Path(
-    os.environ.get("WORKER_HEARTBEAT_PATH", "/tmp/goldsmith-worker.heartbeat")
+    os.environ.get(
+        "WORKER_HEARTBEAT_PATH",
+        str(Path(tempfile.gettempdir()) / "goldsmith-worker.heartbeat"),
+    )
 )
 # The loop touches the heartbeat at least every poll interval; a monitor
 # cycle can add a few seconds. Anything older than this means "stuck".
