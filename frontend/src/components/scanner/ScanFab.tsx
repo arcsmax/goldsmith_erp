@@ -12,9 +12,13 @@
 //   * Records `client_tap_at = Date.now()` into ScannerContext on every tap
 //     so NetworkTransport can include it when logging the scan event
 //     (A10.2 → A7.1 → spec §14.a row b FAB-tap-to-timer median).
-//   * Stacks above the TimerWidget FAB (z-index 1050) when a timer is
-//     running. The stacked offset is `--fab-bottom + 72px` so the two FABs
-//     don't collide on iPad 9. Gen portrait (A10.1 pre-ship check).
+//   * Always stacks one slot above the TimerWidget FAB. TimerWidget occupies
+//     the bottom-right slot unconditionally (idle "Start" button, active
+//     elapsed-time button, or the expanded panel — see MainLayout.tsx), so
+//     the offset is applied via the `.has-timer-fab .scan-fab` rule in
+//     ScanFab.css rather than a runtime condition here. Fixes the phone
+//     overlap where the idle "Start" button and ScanFab shared one slot
+//     (A10.1 pre-ship check).
 //   * Touch target >= 48px (--touch-comfort token) — tested under gloves +
 //     talc at the bench.
 //   * Amber hover/focus accent per Jason's design spec (V1.1-UI-DESIGN-SPEC).
@@ -27,7 +31,6 @@ import React, { useCallback } from 'react';
 import { useLocation } from 'react-router-dom';
 
 import { useScannerContext } from '../../contexts/ScannerContext';
-import { useTimeTracking } from '../../contexts';
 import '../../styles/components/ScanFab.css';
 
 // Paths on which the FAB must be invisible. Keep in sync with the
@@ -37,7 +40,6 @@ const HIDDEN_PATHS: ReadonlySet<string> = new Set(['/login', '/register']);
 
 export const ScanFab: React.FC = () => {
   const { openScanner, scanOverlayOpen, recordFabTap } = useScannerContext();
-  const { runningEntry } = useTimeTracking();
   const location = useLocation();
 
   const handleTap = useCallback((): void => {
@@ -60,13 +62,10 @@ export const ScanFab: React.FC = () => {
     return null;
   }
 
-  const stacked = runningEntry !== null;
-  const className = stacked ? 'scan-fab scan-fab--stacked' : 'scan-fab';
-
   return (
     <button
       type="button"
-      className={className}
+      className="scan-fab"
       onClick={handleTap}
       aria-label="QR-Code scannen"
       data-testid="scan-fab"

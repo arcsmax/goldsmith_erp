@@ -93,8 +93,13 @@ export const MainLayout: React.FC = () => {
   const groups = navGroupsFor(role);
   const displayName = user?.first_name || user?.email;
 
+  // TimerWidget below is unconditionally mounted (idle "Start" button,
+  // active elapsed-time button, or the expanded panel — always one of the
+  // three), so it always occupies the bottom-right FAB slot. `has-timer-fab`
+  // lets ScanFab.css float ScanFab one slot above it (see `.has-timer-fab
+  // .scan-fab` in ScanFab.css) instead of the two FABs overlapping.
   return (
-    <div className={`main-layout${isBenchMode ? ' main-layout--bench' : ''}`}>
+    <div className={`main-layout${isBenchMode ? ' main-layout--bench' : ''} has-timer-fab`}>
       <OfflineIndicator />
 
       <header className="main-header">

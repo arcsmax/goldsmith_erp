@@ -5,13 +5,15 @@
 //   * Visible on other authenticated routes.
 //   * Hidden while the scan overlay is already open.
 //   * Tap invokes openScanner() AND recordFabTap() via ScannerContext.
-//   * `.scan-fab--stacked` class applied when a timer is running.
+//   * Renders with the `.scan-fab` class it needs for CSS positioning —
+//     the actual TimerWidget-stacking offset is a pure-CSS rule
+//     (`.has-timer-fab .scan-fab`, ScanFab.css) driven by MainLayout's
+//     ancestor class, not by anything ScanFab computes itself (A10.1); see
+//     MainLayout.test.tsx for the ancestor-class assertion.
 //   * aria-label present for screen readers.
 //
 // The ScannerContext is mocked so we can observe `openScanner` /
-// `recordFabTap` calls directly, and the TimeTracking hook is mocked so we
-// can flip `runningEntry` between tests without spinning up the real
-// WebSocket machinery.
+// `recordFabTap` calls directly.
 
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
@@ -55,19 +57,6 @@ vi.mock('../contexts/ScannerContext', async () => {
   };
 });
 
-interface MockTimeTracking {
-  runningEntry: unknown;
-}
-const mockTimeTracking: MockTimeTracking = { runningEntry: null };
-
-vi.mock('../contexts', async () => {
-  const actual = await vi.importActual<typeof import('../contexts')>('../contexts');
-  return {
-    ...actual,
-    useTimeTracking: () => mockTimeTracking,
-  };
-});
-
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -89,7 +78,6 @@ beforeEach(() => {
   mockContext.scanOverlayOpen = false;
   mockContext.openScanner = vi.fn();
   mockContext.recordFabTap = vi.fn();
-  mockTimeTracking.runningEntry = null;
 });
 
 // ---------------------------------------------------------------------------
@@ -183,27 +171,37 @@ describe('ScanFab tap wiring', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Stacked class (A10.1)
+// Stacking with TimerWidget (A10.1)
 // ---------------------------------------------------------------------------
+//
+// ScanFab itself no longer computes a "stacked" state — TimerWidget always
+// occupies the bottom-right slot when mounted (idle, running, or expanded),
+// so the offset is a pure-CSS rule keyed off the `.has-timer-fab` ancestor
+// class MainLayout sets (see ScanFab.css `.has-timer-fab .scan-fab`, and
+// MainLayout.test.tsx for the ancestor-class assertion). Here we only need
+// to confirm ScanFab keeps the stable `.scan-fab` hook that rule targets,
+// in and out of a `.has-timer-fab` ancestor.
 
 describe('ScanFab stacking with TimerWidget (A10.1)', () => {
-  it('does NOT apply scan-fab--stacked when no timer is running', () => {
-    mockTimeTracking.runningEntry = null;
+  it('always renders the .scan-fab class the ancestor CSS rule targets', () => {
     renderAtRoute('/dashboard');
     const fab = screen.getByTestId('scan-fab');
-    expect(fab.className).toContain('scan-fab');
-    expect(fab.className).not.toContain('scan-fab--stacked');
+    expect(fab).toHaveClass('scan-fab');
   });
 
-  it('applies scan-fab--stacked when a timer is running', () => {
-    mockTimeTracking.runningEntry = {
-      id: 1,
-      order_id: 42,
-      activity_id: 7,
-      start_time: new Date().toISOString(),
-    };
-    renderAtRoute('/dashboard');
+  it('keeps the .scan-fab class when mounted inside a .has-timer-fab ancestor', () => {
+    mockContext.scanOverlayOpen = false;
+    render(
+      <MemoryRouter initialEntries={['/dashboard']}>
+        <div className="has-timer-fab" data-testid="ancestor">
+          <ScanFab />
+        </div>
+      </MemoryRouter>,
+    );
+    const ancestor = screen.getByTestId('ancestor');
     const fab = screen.getByTestId('scan-fab');
-    expect(fab.className).toContain('scan-fab--stacked');
+    expect(ancestor).toHaveClass('has-timer-fab');
+    expect(ancestor).toContainElement(fab);
+    expect(fab).toHaveClass('scan-fab');
   });
 });

@@ -23,8 +23,19 @@ vi.mock('../contexts', () => ({
     refreshRunningEntry: vi.fn(),
   }),
 }));
-vi.mock('../components/TimerWidget', () => ({ default: () => null }));
-vi.mock('../components/scanner', () => ({ ScanFab: () => null, ScanOverlay: () => null }));
+// Stubs stand in for the real FABs (TimerWidget pulls in the timer API/
+// context machinery; ScanFab pulls in the scanner context). The stubs still
+// carry recognizable markers so tests below can assert both are mounted
+// inside the same `.has-timer-fab` ancestor MainLayout renders (the class
+// ScanFab.css's `.has-timer-fab .scan-fab` rule relies on to float ScanFab
+// above the always-mounted TimerWidget FAB — see ScanFab.css).
+vi.mock('../components/TimerWidget', () => ({
+  default: () => <button type="button" data-testid="timer-fab-stub" className="timer-fab" />,
+}));
+vi.mock('../components/scanner', () => ({
+  ScanFab: () => <button type="button" data-testid="scan-fab-stub" className="scan-fab" />,
+  ScanOverlay: () => null,
+}));
 vi.mock('../components/HidBurstNudge', () => ({ HidBurstNudge: () => null }));
 vi.mock('../components/NotificationBell', () => ({
   NotificationBell: () => <button type="button">Benachrichtigungen</button>,
@@ -122,6 +133,31 @@ describe('MainLayout grouped navigation (W4-03)', () => {
     fireEvent.keyDown(document, { key: 'Escape' });
     expect(menu).toHaveAttribute('aria-expanded', 'false');
     expect(menu).toHaveFocus();
+  });
+});
+
+describe('MainLayout FAB stack (mobile overlap fix)', () => {
+  // The scan FAB used to overlap the timer FAB on phones because ScanFab's
+  // "stacked above timer" offset only applied while a timer was running —
+  // but TimerWidget always occupies that slot (idle "Start" button included).
+  // The fix: MainLayout's root carries `has-timer-fab` unconditionally
+  // (TimerWidget is unconditionally mounted below), and ScanFab.css floats
+  // `.scan-fab` above it via the `.has-timer-fab .scan-fab` descendant rule.
+  it('marks the root has-timer-fab, with both FABs mounted inside it', () => {
+    const { container } = renderLayout();
+    const root = container.querySelector('.main-layout');
+    expect(root).toHaveClass('has-timer-fab');
+    expect(root).toContainElement(screen.getByTestId('timer-fab-stub'));
+    expect(root).toContainElement(screen.getByTestId('scan-fab-stub'));
+  });
+
+  it('keeps has-timer-fab in bench mode too', () => {
+    act(() => setBenchMode(true));
+    const { container } = renderLayout();
+    const root = container.querySelector('.main-layout');
+    expect(root).toHaveClass('has-timer-fab');
+    expect(root).toHaveClass('main-layout--bench');
+    act(() => setBenchMode(false));
   });
 });
 
