@@ -660,14 +660,21 @@ textarea.ui-field__control {
   gap: var(--space-3);
 }
 
-/* Phone: the primary action becomes a sticky bottom bar. */
+/* Phone: the primary action becomes a sticky bottom bar. MainLayout's fixed
+ * tab bar (.main-tab-bar) also lives below 1024px, so this bar sits flush
+ * above it (--layout-tab-bar-height, layout.css) rather than at bottom: 0 —
+ * otherwise the two fixed bars overlap and the tab bar intercepts taps on
+ * the primary action (order/repair "Weiter" bars via PageHeader). The bar's
+ * own safe-area padding is dropped: it no longer touches the physical
+ * bottom edge, and --layout-tab-bar-height already folds
+ * env(safe-area-inset-bottom) in once (the tab bar reserves it below). */
 @media (width < 600px) {
   .ui-page-header--sticky-primary .ui-page-header__primary {
     position: fixed;
     inset-inline: 0;
-    bottom: 0;
-    z-index: var(--z-fab);
-    padding: var(--space-3) var(--space-4) calc(var(--space-3) + env(safe-area-inset-bottom));
+    bottom: var(--layout-tab-bar-height);
+    z-index: var(--z-header);
+    padding: var(--space-3) var(--space-4);
     background: var(--color-surface-raised);
     border-top: 1px solid var(--color-border);
     box-shadow: var(--shadow-2);
@@ -678,7 +685,7 @@ textarea.ui-field__control {
   }
 
   main:has(.ui-page-header--sticky-primary) {
-    padding-bottom: calc(var(--touch-min) + var(--space-7));
+    padding-bottom: calc(var(--touch-min) + var(--space-7) + var(--layout-tab-bar-height));
   }
 }
 

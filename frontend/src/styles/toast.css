@@ -194,7 +194,14 @@
 /* ─── Mobile: full-width ─── */
 @media (max-width: 480px) {
   .toast-container {
-    bottom: 0;
+    /* MainLayout's fixed bottom tab bar (.main-tab-bar) also lives below
+       1024px; without this offset the full-width toast stack sat at
+       bottom: 0, flush over the tab bar, the same collision as the wizard
+       footer and the sticky page-header bar. --layout-tab-bar-height
+       (layout.css) is the shared clearance token every other floating
+       element above the tab bar already uses. The toast's z-index (9000)
+       already outranks the tab bar's, so this only fixes the geometry. */
+    bottom: var(--layout-tab-bar-height);
     right: 0;
     left: 0;
     width: 100%;

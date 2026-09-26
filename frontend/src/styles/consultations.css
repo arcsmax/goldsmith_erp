@@ -261,6 +261,29 @@
   .wizard-progress-step { flex: 0 0 44px; }
 }
 
+/* Phone: MainLayout renders a fixed bottom tab bar (.main-tab-bar, src/ui)
+   below 1024px. The wizard footer is itself position: fixed; bottom: 0
+   (line 191 above), so on phones the two stacked on top of each other and
+   the tab bar intercepted taps meant for "Weiter" (LV bottom-bar audit).
+   --layout-tab-bar-height (layout.css) is the app-wide token for that bar's
+   clearance — every other floating element above it (FAB, timer widget)
+   already keys off the same variable, so this reuses it rather than
+   measuring a second, possibly-drifting height. */
+@media (max-width: 600px) {
+  .wizard-footer {
+    bottom: var(--layout-tab-bar-height);
+    z-index: var(--z-header);
+  }
+
+  .wizard-container {
+    /* Keep the same clearance for the footer's own height (the 5.5rem in
+       the base rule above, expressed here as tokens: --space-8 + --space-5
+       = 64px + 24px = 88px) and add the tab bar's height on top so the
+       last field is never hidden behind footer + tab bar. */
+    padding-bottom: calc(var(--space-8) + var(--space-5) + var(--layout-tab-bar-height));
+  }
+}
+
 /* ==================== Consultations list page (Task 9) ==================== */
 .consultation-status-filters { margin: 0 0 1.5rem; }
 
