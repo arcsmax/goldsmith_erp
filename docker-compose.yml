@@ -48,6 +48,10 @@ services:
       - ./poetry.lock:/app/poetry.lock
       - ./README.md:/app/README.md
       - ./.env:/app/.env
+      # Mount the migrations too, or `alembic upgrade head` at boot runs the
+      # image's baked-in copy and silently lags behind new migrations.
+      - ./alembic:/app/alembic
+      - ./alembic.ini:/app/alembic.ini
     ports:
       # Bind to loopback by default (SEC-08): DEBUG=true (the dev default)
       # publishes /docs and relaxes every prod validator, so a plain-HTTP
@@ -95,6 +99,10 @@ services:
       - ./poetry.lock:/app/poetry.lock
       - ./README.md:/app/README.md
       - ./.env:/app/.env
+      # Mount the migrations too, or `alembic upgrade head` at boot runs the
+      # image's baked-in copy and silently lags behind new migrations.
+      - ./alembic:/app/alembic
+      - ./alembic.ini:/app/alembic.ini
     environment:
       - SECRET_KEY=${SECRET_KEY:-change_this_to_a_secure_random_string}
       - DEBUG=true
