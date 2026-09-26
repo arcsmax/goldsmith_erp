@@ -87,6 +87,8 @@ jobs:
         with:
           python-version: "3.11"
           cache: "poetry"
+      - name: Enable Corepack
+        run: corepack enable
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
@@ -114,8 +116,6 @@ jobs:
           done
           echo "Backend did not start within 60s" >&2
           exit 1
-      - name: Enable Corepack
-        run: corepack enable
       - name: Install frontend dependencies
         working-directory: ./frontend
         run: yarn install --frozen-lockfile

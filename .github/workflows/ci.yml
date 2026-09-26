@@ -63,13 +63,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Enable Corepack
+        run: corepack enable
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
           cache: "yarn"
           cache-dependency-path: frontend/yarn.lock
-      - name: Enable Corepack
-        run: corepack enable
       - name: Install dependencies
         working-directory: ./frontend
         run: yarn install --frozen-lockfile
@@ -122,6 +122,8 @@ jobs:
         with:
           python-version: "3.11"
           cache: "poetry"
+      - name: Enable Corepack
+        run: corepack enable
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
@@ -146,8 +148,6 @@ jobs:
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
           exit "$audit_exit"
-      - name: Enable Corepack
-        run: corepack enable
       - name: Install frontend dependencies
         working-directory: ./frontend
         run: yarn install --frozen-lockfile
@@ -374,13 +374,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Enable Corepack
+        run: corepack enable
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
           cache: "yarn"
           cache-dependency-path: frontend/yarn.lock
-      - name: Enable Corepack
-        run: corepack enable
       - name: Install dependencies
         working-directory: ./frontend
         run: yarn install --frozen-lockfile
@@ -445,6 +445,8 @@ jobs:
         with:
           python-version: "3.11"
           cache: "poetry"
+      - name: Enable Corepack
+        run: corepack enable
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
@@ -470,8 +472,6 @@ jobs:
           done
           echo "Backend did not start within 60s" >&2
           exit 1
-      - name: Enable Corepack
-        run: corepack enable
       - name: Install frontend dependencies
         working-directory: ./frontend
         run: yarn install --frozen-lockfile
