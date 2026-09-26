@@ -22,7 +22,10 @@ if migration_url:
 
 # 2) configure Python logging per alembic.ini
 if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    # disable_existing_loggers defaults to True, which silently disables every
+    # goldsmith_erp.* logger created before a migration runs in-process (the
+    # PostgreSQL round-trip test in CI) and empties caplog for later tests.
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 # 3) Import models for autogenerate support
 from goldsmith_erp.db.models import Base
