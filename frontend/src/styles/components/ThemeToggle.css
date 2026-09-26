@@ -1,0 +1,112 @@
+/* ThemeToggle: "System / Hell / Dunkel" segmented radio group (W4-05).
+ * Semantic tokens only. The checked option is marked by fill AND weight, the
+ * radio itself stays in the DOM (visually hidden) for keyboard and screen
+ * readers; the focus ring is drawn on the option that holds the focus. */
+.theme-toggle {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+
+.theme-toggle__legend {
+  margin-bottom: var(--space-2);
+  padding: 0;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.theme-toggle__options {
+  display: inline-flex;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+}
+
+/* Round the end segments instead of clipping, so the focus ring can sit
+ * outside the option (outline-offset 2px) and stay visible. */
+.theme-toggle__option:first-child {
+  border-radius: var(--radius-md) 0 0 var(--radius-md);
+}
+
+.theme-toggle__option:last-child {
+  border-radius: 0 var(--radius-md) var(--radius-md) 0;
+}
+
+.theme-toggle__option {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: var(--touch-min);
+  min-height: var(--touch-min);
+  padding: 0 var(--space-3);
+  background: var(--color-surface-raised);
+  color: var(--color-text);
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color var(--duration-fast) var(--ease-standard);
+}
+
+.theme-toggle__option + .theme-toggle__option {
+  border-left: 1px solid var(--color-border-strong);
+}
+
+.theme-toggle__input {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.theme-toggle__option:has(.theme-toggle__input:checked) {
+  background: var(--color-primary);
+  color: var(--color-primary-contrast);
+  font-weight: 600;
+}
+
+.theme-toggle__option:has(.theme-toggle__input:focus-visible) {
+  outline: 3px solid var(--color-focus);
+  outline-offset: 2px;
+  z-index: 1;
+}
+
+@media (hover: hover) {
+  .theme-toggle__option:hover:not(:has(.theme-toggle__input:checked)) {
+    background: var(--color-surface-sunken);
+  }
+}
+
+/* On the amber header: text in the header's contrast colour, the checked
+ * option inverted (primary-hover on primary-contrast: 7.09 light, 10.48 dark). */
+.theme-toggle--header .theme-toggle__options {
+  border-color: currentColor;
+}
+
+.theme-toggle--header {
+  color: var(--color-primary-contrast);
+}
+
+.theme-toggle--header .theme-toggle__option {
+  background: transparent;
+  color: inherit;
+}
+
+.theme-toggle--header .theme-toggle__option + .theme-toggle__option {
+  border-left-color: currentColor;
+}
+
+.theme-toggle--header .theme-toggle__option:has(.theme-toggle__input:checked) {
+  background: var(--color-primary-contrast);
+  color: var(--color-primary-hover);
+}
+
+.theme-toggle--header .theme-toggle__option:has(.theme-toggle__input:focus-visible) {
+  outline-color: var(--color-focus-on-dark);
+}
+
+@media (hover: hover) {
+  .theme-toggle--header .theme-toggle__option:hover:not(:has(.theme-toggle__input:checked)) {
+    background: var(--color-primary-hover);
+  }
+}

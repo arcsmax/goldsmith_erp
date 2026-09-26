@@ -1,12 +1,14 @@
 # src/goldsmith_erp/api/routers/users.py
 
-from typing import List, Optional
+import logging
+from typing import List, Optional, Union
 
 from fastapi import APIRouter, Body, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from goldsmith_erp.api.deps import get_current_user
 from goldsmith_erp.core.permissions import Permission, require_permission
+from goldsmith_erp.core.security import verify_password
 from goldsmith_erp.core.token_revocation import invalidate_user_tokens
 from goldsmith_erp.db.models import User as UserModel
 from goldsmith_erp.db.session import get_db
@@ -14,13 +16,17 @@ from goldsmith_erp.models.user import (
     LastAdminError,
     SentinelMissing,
     User,
+    UserAdminUpdate,
     UserCreate,
     UserErasureRequest,
     UserErasureResponse,
     UserNotFound,
+    UserSelfUpdate,
     UserUpdate,
 )
 from goldsmith_erp.services.user_service import UserService
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -87,9 +93,46 @@ async def get_current_user_profile(current_user: UserModel = Depends(get_current
     return current_user
 
 
+# Either update schema carries an (optional) current_password field, used
+# by both PUT /users/me (self-service) and, since SEC-11 finding B3.1/B3.2
+# (2026-09-25), PUT /users/{user_id} when an ADMIN targets their own id.
+_ReauthableUserUpdate = Union[UserSelfUpdate, UserAdminUpdate]
+
+
+def _changes_credentials(
+    user_in: _ReauthableUserUpdate, current_user: UserModel
+) -> bool:
+    """True if the update changes the password or the (login) email."""
+    if user_in.password is not None:
+        return True
+    return user_in.email is not None and user_in.email != current_user.email
+
+
+def _require_current_password(
+    user_in: _ReauthableUserUpdate, current_user: UserModel
+) -> None:
+    """Re-authenticate a credential change (SEC-11). Raises on failure."""
+    if not user_in.current_password:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="current_password is required to change email or password",
+        )
+    if not verify_password(user_in.current_password, current_user.hashed_password):
+        # 403, not 401: the session is valid, and a 401 would make the frontend
+        # interceptor treat it as an expired token.
+        logger.warning(
+            "Credential change rejected: wrong current password",
+            extra={"user_id": current_user.id, "event": "credential_change_denied"},
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Current password is incorrect",
+        )
+
+
 @router.put("/me", response_model=User)
 async def update_current_user_profile(
-    user_in: UserUpdate,
+    user_in: UserSelfUpdate,
     current_user: UserModel = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -99,9 +142,15 @@ async def update_current_user_profile(
     - **Authentifizierung erforderlich**
     - Benutzer kann nur sein eigenes Profil bearbeiten
     - E-Mail, Name und Passwort können geändert werden
+    - E-Mail- oder Passwortänderung erfordert `current_password` (SEC-11)
 
     **Use Case**: Benutzer möchte seine Profil-Daten aktualisieren.
     """
+    is_credential_change = _changes_credentials(user_in, current_user)
+    is_email_change = user_in.email is not None and user_in.email != current_user.email
+    if is_credential_change:
+        _require_current_password(user_in, current_user)
+
     # Prüfen ob neue E-Mail bereits existiert (falls geändert)
     if user_in.email and user_in.email != current_user.email:
         existing_user = await UserService.get_user_by_email(db, user_in.email)
@@ -110,11 +159,25 @@ async def update_current_user_profile(
                 status_code=status.HTTP_400_BAD_REQUEST, detail="Email already in use"
             )
 
-    # Profil aktualisieren
-    updated_user = await UserService.update_user(db, current_user.id, user_in)
+    # Profil aktualisieren (current_password is verification only, never stored)
+    profile_update = UserUpdate(
+        **user_in.model_dump(exclude_unset=True, exclude={"current_password"})
+    )
+    updated_user = await UserService.update_user(db, current_user.id, profile_update)
     if not updated_user:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
+        )
+
+    if is_credential_change:
+        logger.info(
+            "Credentials changed by account owner",
+            extra={
+                "user_id": current_user.id,
+                "event": "credential_change",
+                "password_changed": user_in.password is not None,
+                "email_changed": is_email_change,
+            },
         )
 
     # Password change revokes all outstanding tokens for this user (finding 2.1):
@@ -204,19 +267,39 @@ async def get_user_by_id(
 @require_permission(Permission.USER_EDIT)
 async def update_user_by_admin(
     user_id: int,
-    user_in: UserUpdate,
+    user_in: UserAdminUpdate,
     db: AsyncSession = Depends(get_db),
     current_user: UserModel = Depends(get_current_user),
 ):
     """
     Benutzer durch Admin aktualisieren.
 
-    - **Admin-Berechtigung erforderlich**
+    - **Admin-Berechtigung erforderlich** (`USER_EDIT`, ADMIN only — see
+      `core.permissions.ROLE_PERMISSIONS`)
     - Admin kann beliebige Benutzer-Daten ändern
     - Inkl. Aktivierungs-Status (is_active)
+    - Inkl. Rolle (`role`, SEC-F6): nur ein ADMIN darf Rollen vergeben oder
+      ändern; der letzte aktive ADMIN kann nicht herabgestuft werden (409)
 
-    **Use Case**: Admin möchte Benutzer-Daten korrigieren oder Status ändern.
+    **Use Case**: Admin möchte Benutzer-Daten korrigieren, Status ändern
+    oder einem Kollegen eine andere Rolle zuweisen.
+
+    **Security note (SEC-11, adversarial finding B3.1/B3.2, 2026-09-25):**
+    `USER_EDIT` is held unconditionally by ADMIN, including against their
+    own `user_id` — without a check this route would let a hijacked/XSS'd
+    ADMIN session, or an unattended unlocked session, silently take over
+    the account by changing its own email/password here with zero
+    re-authentication, completely bypassing the SEC-11 rule `PUT /users/me`
+    enforces. When `user_id == current_user.id` and the payload changes
+    email or password, `current_password` is required and verified exactly
+    like `/users/me` (400 missing, 403 wrong). Changing another user's
+    credentials as ADMIN is unaffected — that stays allowed and is
+    audit-logged by the middleware.
     """
+    is_self_edit = user_id == current_user.id
+    if is_self_edit and _changes_credentials(user_in, current_user):
+        _require_current_password(user_in, current_user)
+
     # Prüfen ob neue E-Mail bereits existiert (falls geändert)
     if user_in.email:
         user = await UserService.get_user_by_id(db, user_id)
@@ -228,8 +311,19 @@ async def update_user_by_admin(
                     detail="Email already in use",
                 )
 
-    # Benutzer aktualisieren
-    updated_user = await UserService.update_user(db, user_id, user_in)
+    # Benutzer aktualisieren (current_password is verification only, never
+    # persisted — UserService.update_user would otherwise try to write it
+    # to a non-existent column).
+    update_payload = UserAdminUpdate(
+        **user_in.model_dump(exclude_unset=True, exclude={"current_password"})
+    )
+    try:
+        updated_user = await UserService.update_user(db, user_id, update_payload)
+    except LastAdminError:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Cannot change the role of the last active administrator.",
+        )
     if not updated_user:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
@@ -239,6 +333,29 @@ async def update_user_by_admin(
     # (finding 2.1) — see the self-service handler above for the mechanism.
     if user_in.password is not None:
         await invalidate_user_tokens(str(user_id))
+
+    if user_in.role is not None:
+        logger.info(
+            "User role changed by admin",
+            extra={
+                "user_id": user_id,
+                "new_role": user_in.role.value,
+                "changed_by": current_user.id,
+                "event": "role_change",
+            },
+        )
+
+    if is_self_edit and _changes_credentials(user_in, current_user):
+        email_changed = user_in.email is not None
+        logger.info(
+            "Credentials changed by account owner via admin route",
+            extra={
+                "user_id": user_id,
+                "event": "credential_change",
+                "password_changed": user_in.password is not None,
+                "email_changed": email_changed,
+            },
+        )
 
     return updated_user
 

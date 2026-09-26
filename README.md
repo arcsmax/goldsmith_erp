@@ -115,6 +115,14 @@ Das Script:
 > Weg nutzen — `setup.sh` + `podman-compose.prod.yml` (inkl. **Caddy
 > TLS-Proxy**), Referenz-Seed, Backups und DSGVO-Löschtimer:
 > **→ [Produktions-Deployment](docs/technical/infrastructure/PRODUCTION_DEPLOYMENT.md)**.
+>
+> **Echte Kundendaten laufen NIEMALS auf dem Dev-Stack.** Redis, Backend und
+> DB des Dev-Stacks (`podman-compose.yml`, `docker-compose.yml`) binden ihre
+> veröffentlichten Ports standardmäßig an `127.0.0.1` — nicht ans LAN — weil
+> `DEBUG=true` jeden Produktions-Validator zur Warnung statt zum Boot-Abbruch
+> herabstuft und Redis dort ohne Passwort läuft. Nur `podman-compose.prod.yml`
+> ist für echte Daten gehärtet (nur Caddy auf `:80`/`:443` ans LAN, TLS,
+> `DEBUG=false`).
 
 ### Mit Makefile (Alternative)
 
@@ -179,12 +187,12 @@ Goldsmith ERP nutzt **Podman** für verbesserte Sicherheit:
 
 ### Plattform-spezifische Anleitungen
 
-- **[PODMAN_MIGRATION.md](PODMAN_MIGRATION.md)** - **Podman Migration & Best Practices**
-- **[ARCHITECTURE_REVIEW.md](ARCHITECTURE_REVIEW.md)** - Architecture Analysis
-- [INSTALLATION.md](INSTALLATION.md) - Detaillierte Installationsanleitung
-- [Windows Installation](INSTALLATION.md#windows-installation)
-- [macOS Installation](INSTALLATION.md#macos-installation)
-- [Linux Installation](INSTALLATION.md#linux-installation)
+- **[PODMAN_MIGRATION.md](docs/technical/infrastructure/PODMAN_MIGRATION.md)** - **Podman Migration & Best Practices**
+- **[ARCHITECTURE_REVIEW.md](docs/technical/architecture/ARCHITECTURE_REVIEW.md)** - ⚠️ superseded, siehe oben unter Dokumentation
+- [INSTALLATION.md](docs/technical/infrastructure/INSTALLATION.md) - Detaillierte Installationsanleitung
+- [Windows Installation](docs/technical/infrastructure/INSTALLATION.md#windows-installation)
+- [macOS Installation](docs/technical/infrastructure/INSTALLATION.md#macos-installation)
+- [Linux Installation](docs/technical/infrastructure/INSTALLATION.md#linux-installation)
 
 ### Manuelle Installation (ohne Container)
 
@@ -220,17 +228,17 @@ Die API-Dokumentation wird automatisch von FastAPI generiert:
 
 ### Feature-Spezifikationen
 
-- **[FEATURE_SPEC_TIME_TRACKING_ML.md](FEATURE_SPEC_TIME_TRACKING_ML.md)** - Time-Tracking & ML System
-- **[IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md)** - Implementierungs-Roadmap
+- **[FEATURE_SPEC_TIME_TRACKING_ML.md](docs/technical/specs/FEATURE_SPEC_TIME_TRACKING_ML.md)** - Time-Tracking & ML System
+- **[IMPLEMENTATION_PLAN.md](docs/planning/IMPLEMENTATION_PLAN.md)** - Implementierungs-Roadmap (historisch; aktueller Stand: [PROJECT_STATUS_AND_STRATEGY.md](docs/planning/PROJECT_STATUS_AND_STRATEGY.md))
 
 ### Weitere Dokumentation
 
+- **[PRODUCTION_DEPLOYMENT.md](docs/technical/infrastructure/PRODUCTION_DEPLOYMENT.md)** - Produktions-Deployment, Upgrade & Rollback (der aktuelle Weg für echte Kundendaten)
 - **[PRODUCTION_TLS.md](docs/technical/infrastructure/PRODUCTION_TLS.md)** - Produktions-TLS (Caddy Reverse Proxy, Root-CA-Trust, COOKIE_SECURE)
-- **[PODMAN_MIGRATION.md](PODMAN_MIGRATION.md)** - Podman Migration & Best Practices
-- **[ARCHITECTURE_REVIEW.md](ARCHITECTURE_REVIEW.md)** - Architecture Analysis & Improvements
-- **[INSTALLATION.md](INSTALLATION.md)** - Detaillierte Installationsanleitung
-- **[CHANGELOG.md](CHANGELOG.md)** - Version History (wird erstellt)
-- **[CONTRIBUTING.md](CONTRIBUTING.md)** - Contribution Guidelines (geplant)
+- **[PODMAN_MIGRATION.md](docs/technical/infrastructure/PODMAN_MIGRATION.md)** - Podman Migration & Best Practices
+- **[ARCHITECTURE_REVIEW.md](docs/technical/architecture/ARCHITECTURE_REVIEW.md)** - ⚠️ superseded (2025-11); aktuelle Architektur-Analyse: [docs/review/2026-09-25/01-architecture.md](docs/review/2026-09-25/01-architecture.md)
+- **[INSTALLATION.md](docs/technical/infrastructure/INSTALLATION.md)** - Detaillierte Installationsanleitung
+- **[CHANGELOG.md](CHANGELOG.md)** - Version History
 
 ### Projektstruktur
 
@@ -248,7 +256,7 @@ goldsmith_erp/
 │   └── public/            # Statische Assets
 ├── alembic/               # Datenbank-Migrationen
 │   └── versions/          # Migration-Scripts
-├── tests/                 # Test-Suite (geplant)
+├── tests/                 # Test-Suite (Backend: unit/ + integration/; siehe docs/review/2026-09-25/PROGRESS.md für aktuelle Zahlen)
 ├── podman-compose.yml     # Podman Compose Config
 ├── podman-pod.yaml        # Kubernetes-style Pod Manifest
 ├── Containerfile          # Backend Container (Podman)
@@ -261,6 +269,13 @@ goldsmith_erp/
 ---
 
 ## 🗺 Roadmap
+
+> ⚠️ Diese Roadmap ist ein historischer Schnappschuss (Q1–Q4 2025-Ziele, aus
+> einer sehr frühen Projektphase) und nicht mehr aktuell — vieles davon
+> (Test-Suite, CI/CD, Security-Fixes, Photo-Dokumentation, Interruption-
+> Management) ist inzwischen umgesetzt. Aktueller Stand:
+> [docs/planning/PROJECT_STATUS_AND_STRATEGY.md](docs/planning/PROJECT_STATUS_AND_STRATEGY.md)
+> und [docs/planning/VISION_AND_ROADMAP_2026-07.md](docs/planning/VISION_AND_ROADMAP_2026-07.md).
 
 ### Version 0.2.0 (Q1 2025)
 - [ ] Phase 5.2: Quick-Actions Frontend
@@ -305,10 +320,10 @@ Goldsmith ERP nutzt **Podman** für verbesserte Container-Sicherheit:
 - Input Validation mit Pydantic
 - SQL Injection Prevention (Parametrisierte Queries)
 - CORS-Protection
-- Rate Limiting (geplant)
-- Secrets Management (geplant)
+- Rate Limiting (`middleware/rate_limiting.py`, per-client-IP-Keys)
+- Secrets Management (`SECRET_KEY`/`ENCRYPTION_KEY`-Validierung beim Boot, Platzhalter werden in Produktion abgelehnt)
 
-Siehe [ARCHITECTURE_REVIEW.md](ARCHITECTURE_REVIEW.md) für detaillierte Sicherheitsanalyse.
+Siehe [docs/review/2026-09-25/02-security.md](docs/review/2026-09-25/02-security.md) für die aktuelle Sicherheitsanalyse (das alte ARCHITECTURE_REVIEW.md ist superseded, siehe oben).
 
 ---
 

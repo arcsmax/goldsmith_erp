@@ -46,10 +46,37 @@ export interface CustomerUpdateCreateInput {
   photo_ids?: string[];
 }
 
+/** Why nothing was emailed (W6): SMTP off, no address, or Art. 21 opt-out. */
+// 'queued' (OUTBOX_MODE=worker): accepted, the worker sends it (delivered=true).
+export type CustomerUpdateNotSentReason = 'smtp_disabled' | 'no_email' | 'opted_out' | 'queued';
+
 export interface CustomerUpdateSendResult {
   update: CustomerUpdate;
   delivered: boolean;
   method?: UpdateDeliveryMethod | null;
+  reason?: CustomerUpdateNotSentReason | null;
+}
+
+/** Consent / delivery hints for the Kundeninfo composer (W6). */
+export interface CustomerMessageContext {
+  customer_id?: number | null;
+  has_email: boolean;
+  photo_consent: boolean;
+  email_opt_out: boolean;
+}
+
+/** Plain-text preview of the email the customer would get (W6). */
+export interface CustomerMessagePreview {
+  subject: string;
+  text: string;
+  delivery_method: UpdateDeliveryMethod;
+  photo_count: number;
+  photo_consent: boolean;
+  email_opt_out: boolean;
+  has_email: boolean;
+  legal_basis: string;
+  /** German reason when the message cannot be sent as composed. */
+  blocked_reason?: string | null;
 }
 
 export interface CostChangeLineItem {
@@ -124,6 +151,33 @@ export const customerUpdatesApi = {
   },
 
   /**
+   * List a repair's customer-update history (DOM-12 / W2-02) — in practice
+   * usually a single pickup-ready draft, created automatically when the
+   * repair reaches READY.
+   * GET /repairs/{repairId}/customer-updates
+   */
+  listRepairUpdates: async (repairId: number): Promise<CustomerUpdate[]> => {
+    const response = await apiClient.get<CustomerUpdate[]>(
+      `/repairs/${repairId}/customer-updates`
+    );
+    return response.data;
+  },
+
+  /**
+   * One-tap send of a repair's pickup-ready draft (DOM-12 / W2-02). Unlike
+   * `sendUpdate`, this is repair-scoped (not update-id-scoped): the backend
+   * locates the repair's current draft itself.
+   * POST /repairs/{repairId}/customer-updates/send
+   */
+  sendRepairUpdate: async (repairId: number): Promise<CustomerUpdateSendResult> => {
+    const response = await apiClient.post<CustomerUpdateSendResult>(
+      `/repairs/${repairId}/customer-updates/send`,
+      {}
+    );
+    return response.data;
+  },
+
+  /**
    * Create a new draft customer update for an order.
    * POST /orders/{orderId}/updates
    */
@@ -136,13 +190,57 @@ export const customerUpdatesApi = {
   },
 
   /**
+   * Consent / delivery hints for the composer (photo consent, email, opt-out).
+   * GET /orders/{orderId}/message-context
+   */
+  getMessageContext: async (orderId: number): Promise<CustomerMessageContext> => {
+    const response = await apiClient.get<CustomerMessageContext>(
+      `/orders/${orderId}/message-context`
+    );
+    return response.data;
+  },
+
+  /**
+   * Preview the email text of an unsaved composer draft (stores nothing).
+   * POST /orders/{orderId}/updates/preview
+   */
+  previewUpdate: async (
+    orderId: number,
+    input: CustomerUpdateCreateInput
+  ): Promise<CustomerMessagePreview> => {
+    const response = await apiClient.post<CustomerMessagePreview>(
+      `/orders/${orderId}/updates/preview`,
+      input
+    );
+    return response.data;
+  },
+
+  /**
+   * The same unsaved content as PDF, for customers without email.
+   * POST /orders/{orderId}/updates/preview/pdf
+   */
+  previewUpdatePdf: async (orderId: number, input: CustomerUpdateCreateInput): Promise<Blob> => {
+    const response = await apiClient.post<Blob>(`/orders/${orderId}/updates/preview/pdf`, input, {
+      responseType: 'blob',
+    });
+    return response.data;
+  },
+
+  /**
    * Send an existing draft update to the customer.
+   *
+   * `attachStatusReport` (W6, "Statusbericht anhängen"): attaches the live
+   * Statusbericht PDF to the outgoing email and classifies the message as
+   * the contractual-basis `status_report` kind for audit purposes.
    * POST /updates/{updateId}/send
    */
-  sendUpdate: async (updateId: number): Promise<CustomerUpdateSendResult> => {
+  sendUpdate: async (
+    updateId: number,
+    attachStatusReport = false
+  ): Promise<CustomerUpdateSendResult> => {
     const response = await apiClient.post<CustomerUpdateSendResult>(
       `/updates/${updateId}/send`,
-      {}
+      { attach_status_report: attachStatusReport }
     );
     return response.data;
   },
@@ -167,6 +265,19 @@ export const customerUpdatesApi = {
    */
   downloadUpdatePdf: async (updateId: number): Promise<Blob> => {
     const response = await apiClient.get<Blob>(`/updates/${updateId}/pdf`, {
+      responseType: 'blob',
+    });
+    return response.data;
+  },
+
+  /**
+   * Download the live customer-facing "Statusbericht" PDF for an order
+   * (W6, DOM section D Option 2). Never cached client-side — always a
+   * fresh snapshot of the order's current state.
+   * GET /orders/{orderId}/status-report.pdf
+   */
+  downloadOrderStatusReportPdf: async (orderId: number): Promise<Blob> => {
+    const response = await apiClient.get<Blob>(`/orders/${orderId}/status-report.pdf`, {
       responseType: 'blob',
     });
     return response.data;

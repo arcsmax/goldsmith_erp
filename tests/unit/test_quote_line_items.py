@@ -86,7 +86,7 @@ class TestAddLineItem:
             sample_user,
             [_line_item(2.0, 50.0)],  # subtotal 100, tax 19, total 119
         )
-        assert quote.subtotal == pytest.approx(100.0)
+        assert float(quote.subtotal) == pytest.approx(100.0)
 
         updated = await QuoteService.add_line_item(
             db_session,
@@ -96,11 +96,11 @@ class TestAddLineItem:
         )
 
         assert len(updated.line_items) == 2
-        assert updated.subtotal == pytest.approx(300.0)  # 100 + 200
-        assert updated.tax_amount == pytest.approx(57.0)  # 300 * 0.19
-        assert updated.total == pytest.approx(357.0)
+        assert float(updated.subtotal) == pytest.approx(300.0)  # 100 + 200
+        assert float(updated.tax_amount) == pytest.approx(57.0)  # 300 * 0.19
+        assert float(updated.total) == pytest.approx(357.0)
         new_item = next(li for li in updated.line_items if li.description == "Gold")
-        assert new_item.total == pytest.approx(200.0)
+        assert float(new_item.total) == pytest.approx(200.0)
 
     async def test_add_line_item_on_non_draft_quote_raises_conflict(
         self, db_session, sample_customer, sample_user
@@ -151,10 +151,10 @@ class TestUpdateLineItem:
 
         assert len(updated.line_items) == 1
         assert updated.line_items[0].description == "Angepasste Arbeit"
-        assert updated.line_items[0].total == pytest.approx(180.0)  # 3 * 60
-        assert updated.subtotal == pytest.approx(180.0)
-        assert updated.tax_amount == pytest.approx(34.2)  # 180 * 0.19
-        assert updated.total == pytest.approx(214.2)
+        assert float(updated.line_items[0].total) == pytest.approx(180.0)  # 3 * 60
+        assert float(updated.subtotal) == pytest.approx(180.0)
+        assert float(updated.tax_amount) == pytest.approx(34.2)  # 180 * 0.19
+        assert float(updated.total) == pytest.approx(214.2)
 
     async def test_update_line_item_on_non_draft_quote_raises_conflict(
         self, db_session, sample_customer, sample_user
@@ -206,7 +206,7 @@ class TestDeleteLineItem:
             sample_user,
             [_line_item(2.0, 50.0, "Arbeit"), _line_item(1.0, 200.0, "Material")],
         )
-        assert quote.subtotal == pytest.approx(300.0)
+        assert float(quote.subtotal) == pytest.approx(300.0)
         material_item_id = next(
             li.id for li in quote.line_items if li.description == "Material"
         )
@@ -217,9 +217,9 @@ class TestDeleteLineItem:
 
         assert len(updated.line_items) == 1
         assert updated.line_items[0].description == "Arbeit"
-        assert updated.subtotal == pytest.approx(100.0)
-        assert updated.tax_amount == pytest.approx(19.0)
-        assert updated.total == pytest.approx(119.0)
+        assert float(updated.subtotal) == pytest.approx(100.0)
+        assert float(updated.tax_amount) == pytest.approx(19.0)
+        assert float(updated.total) == pytest.approx(119.0)
 
     async def test_delete_line_item_on_non_draft_quote_raises_conflict(
         self, db_session, sample_customer, sample_user
@@ -270,17 +270,17 @@ class TestUpdateQuoteTaxRateRecompute:
             [_line_item(2.0, 50.0)],  # subtotal 100, tax_rate 19 -> tax 19, total 119
             tax_rate=19.0,
         )
-        assert quote.tax_amount == pytest.approx(19.0)
+        assert float(quote.tax_amount) == pytest.approx(19.0)
 
         updated = await QuoteService.update_quote(
             db_session, quote.id, QuoteUpdate(tax_rate=7.0), sample_user
         )
 
         assert updated is not None
-        assert updated.subtotal == pytest.approx(100.0)  # unchanged
-        assert updated.tax_rate == pytest.approx(7.0)
-        assert updated.tax_amount == pytest.approx(7.0)  # 100 * 0.07
-        assert updated.total == pytest.approx(107.0)
+        assert float(updated.subtotal) == pytest.approx(100.0)  # unchanged
+        assert float(updated.tax_rate) == pytest.approx(7.0)
+        assert float(updated.tax_amount) == pytest.approx(7.0)  # 100 * 0.07
+        assert float(updated.total) == pytest.approx(107.0)
 
     async def test_tax_rate_change_on_non_draft_quote_raises_conflict(
         self, db_session, sample_customer, sample_user

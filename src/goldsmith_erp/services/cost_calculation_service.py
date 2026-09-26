@@ -12,7 +12,7 @@ for real-time inventory pricing instead of hardcoded prices.
 """
 
 import logging
-from decimal import Decimal
+from decimal import ROUND_FLOOR, Decimal
 from typing import Any, Dict, Optional, cast
 
 from sqlalchemy import func, select
@@ -23,7 +23,9 @@ from goldsmith_erp.core.config import settings
 from goldsmith_erp.db.models import Activity as ActivityModel
 from goldsmith_erp.db.models import CostingMethod
 from goldsmith_erp.db.models import Gemstone as GemstoneModel
+from goldsmith_erp.db.models import MaterialUsage as MaterialUsageModel
 from goldsmith_erp.db.models import Order as OrderModel
+from goldsmith_erp.models._common import DecimalLike, dec, money
 from goldsmith_erp.services.metal_inventory_service import MetalInventoryService
 
 logger = logging.getLogger(__name__)
@@ -34,37 +36,38 @@ class PriceBreakdown:
 
     def __init__(
         self,
-        material_cost: float = 0.0,
-        gemstone_cost: float = 0.0,
-        labor_cost: float = 0.0,
-        subtotal: float = 0.0,
-        margin_amount: float = 0.0,
-        subtotal_with_margin: float = 0.0,
-        vat_amount: float = 0.0,
-        final_price: float = 0.0,
+        material_cost: DecimalLike = 0,
+        gemstone_cost: DecimalLike = 0,
+        labor_cost: DecimalLike = 0,
+        subtotal: DecimalLike = 0,
+        margin_amount: DecimalLike = 0,
+        subtotal_with_margin: DecimalLike = 0,
+        vat_amount: DecimalLike = 0,
+        final_price: DecimalLike = 0,
     ):
-        self.material_cost = round(material_cost, 2)
-        self.gemstone_cost = round(gemstone_cost, 2)
-        self.labor_cost = round(labor_cost, 2)
-        self.subtotal = round(subtotal, 2)
-        self.margin_amount = round(margin_amount, 2)
-        self.subtotal_with_margin = round(subtotal_with_margin, 2)
-        self.vat_amount = round(vat_amount, 2)
-        self.final_price = round(final_price, 2)
+        # Decimal, rounded to the cent with ROUND_HALF_UP (BE-14).
+        self.material_cost = money(material_cost)
+        self.gemstone_cost = money(gemstone_cost)
+        self.labor_cost = money(labor_cost)
+        self.subtotal = money(subtotal)
+        self.margin_amount = money(margin_amount)
+        self.subtotal_with_margin = money(subtotal_with_margin)
+        self.vat_amount = money(vat_amount)
+        self.final_price = money(final_price)
 
     def to_dict(self) -> Dict[str, float]:
-        """Convert to dictionary"""
+        """Convert to a JSON-ready dictionary (numbers stay JSON numbers)."""
         return {
-            "material_cost": self.material_cost,
-            "gemstone_cost": self.gemstone_cost,
-            "labor_cost": self.labor_cost,
-            "subtotal": self.subtotal,
-            "margin_amount": self.margin_amount,
+            "material_cost": float(self.material_cost),
+            "gemstone_cost": float(self.gemstone_cost),
+            "labor_cost": float(self.labor_cost),
+            "subtotal": float(self.subtotal),
+            "margin_amount": float(self.margin_amount),
             "margin_percent": 0.0,  # Will be filled by service
-            "subtotal_with_margin": self.subtotal_with_margin,
-            "vat_amount": self.vat_amount,
+            "subtotal_with_margin": float(self.subtotal_with_margin),
+            "vat_amount": float(self.vat_amount),
             "vat_percent": 0.0,  # Will be filled by service
-            "final_price": self.final_price,
+            "final_price": float(self.final_price),
         }
 
 
@@ -124,17 +127,13 @@ class CostCalculationService:
         subtotal = material_cost + gemstone_cost + labor_cost
 
         # 5. Apply profit margin — use explicit None check, 0.0 is valid (no margin)
-        margin_percent = (
-            order.profit_margin_percent
-            if order.profit_margin_percent is not None
-            else 40.0
-        )
-        margin_amount = subtotal * (margin_percent / 100.0)
+        margin_percent = dec(order.profit_margin_percent, default=40)
+        margin_amount = subtotal * margin_percent / 100
         subtotal_with_margin = subtotal + margin_amount
 
         # 6. Apply VAT
-        vat_percent = order.vat_rate if order.vat_rate is not None else 19.0
-        vat_amount = subtotal_with_margin * (vat_percent / 100.0)
+        vat_percent = dec(order.vat_rate, default=19)
+        vat_amount = subtotal_with_margin * vat_percent / 100
         total_with_vat = subtotal_with_margin + vat_amount
 
         # 7. Round final price
@@ -153,8 +152,8 @@ class CostCalculationService:
 
         # Add percentages to dict
         result_dict = breakdown.to_dict()
-        result_dict["margin_percent"] = margin_percent
-        result_dict["vat_percent"] = vat_percent
+        result_dict["margin_percent"] = float(margin_percent)
+        result_dict["vat_percent"] = float(vat_percent)
 
         logger.info(
             "Cost calculation completed",
@@ -170,7 +169,7 @@ class CostCalculationService:
         return breakdown
 
     @staticmethod
-    async def _calculate_material_cost(db: AsyncSession, order: OrderModel) -> float:
+    async def _calculate_material_cost(db: AsyncSession, order: OrderModel) -> Decimal:
         """
         Calculate material cost from real metal inventory.
 
@@ -198,7 +197,35 @@ class CostCalculationService:
                     "override_cost": order.material_cost_override,
                 },
             )
-            return order.material_cost_override
+            return dec(order.material_cost_override)
+
+        # BE-07: once material has actually been consumed for this order,
+        # MaterialUsage rows are the authoritative record of what it cost —
+        # use their SUM instead of re-previewing a fresh allocation against
+        # CURRENT remaining stock. The old preview-always approach either
+        # double-counted already-consumed metal (previewing on top of what
+        # was already drawn) or raised "Insufficient inventory" once a batch
+        # was exhausted by the real consumption. Only orders with NO
+        # recorded usage yet fall through to the estimate-based preview
+        # below (Decimal summation — house convention for money, see
+        # invoice_service.py / scrap_gold_service.py).
+        recorded_usage_result = await db.execute(
+            select(MaterialUsageModel.cost_at_time).where(
+                MaterialUsageModel.order_id == order.id
+            )
+        )
+        recorded_costs = recorded_usage_result.scalars().all()
+        if recorded_costs:
+            total_recorded_cost = sum((dec(c) for c in recorded_costs), Decimal("0"))
+            logger.debug(
+                "Using recorded MaterialUsage total instead of preview allocation",
+                extra={
+                    "order_id": order.id,
+                    "usage_row_count": len(recorded_costs),
+                    "material_cost": float(total_recorded_cost),
+                },
+            )
+            return total_recorded_cost
 
         # If no metal type specified, cannot calculate from inventory
         if not order.metal_type:
@@ -206,24 +233,22 @@ class CostCalculationService:
                 "Order has no metal_type specified - cannot calculate material cost from inventory",
                 extra={"order_id": order.id},
             )
-            return 0.0
+            return Decimal("0")
 
         # Use estimated or actual weight
-        weight_g = order.actual_weight_g or order.estimated_weight_g
+        weight_g = dec(order.actual_weight_g or order.estimated_weight_g)
 
         if not weight_g or weight_g <= 0:
             logger.warning(
                 "No weight specified for order - cannot calculate material cost",
                 extra={"order_id": order.id},
             )
-            return 0.0
+            return Decimal("0")
 
         # Apply scrap percentage (material loss during work).
         # Use explicit None check — 0.0 is a valid scrap percentage (no waste).
-        scrap_percent = (
-            order.scrap_percentage if order.scrap_percentage is not None else 5.0
-        )
-        effective_weight = weight_g * (1 + scrap_percent / 100.0)
+        scrap_percent = dec(order.scrap_percentage, default=5)
+        effective_weight = weight_g * (1 + scrap_percent / 100)
 
         # Get allocation from MetalInventoryService
         # This calculates cost WITHOUT consuming inventory (preview mode)
@@ -238,7 +263,7 @@ class CostCalculationService:
                 specific_purchase_id=order.specific_metal_purchase_id,
             )
 
-            material_cost = allocation.total_cost
+            material_cost = dec(allocation.total_cost)
 
             logger.info(
                 "Material cost calculated from inventory",
@@ -247,9 +272,9 @@ class CostCalculationService:
                     "metal_type": order.metal_type.value,
                     "weight_g": weight_g,
                     "scrap_percent": scrap_percent,
-                    "effective_weight": round(effective_weight, 2),
+                    "effective_weight": float(money(effective_weight)),
                     "costing_method": costing_method.value,
-                    "material_cost": round(material_cost, 2),
+                    "material_cost": float(money(material_cost)),
                     "batches_used": len(allocation.allocations),
                 },
             )
@@ -263,7 +288,7 @@ class CostCalculationService:
                 extra={
                     "order_id": order.id,
                     "metal_type": order.metal_type.value,
-                    "required_weight": round(effective_weight, 2),
+                    "required_weight": float(money(effective_weight)),
                     "error": str(e),
                 },
             )
@@ -273,12 +298,15 @@ class CostCalculationService:
             ) from e
 
     @staticmethod
-    async def _calculate_gemstone_cost(order: OrderModel) -> float:
+    async def _calculate_gemstone_cost(order: OrderModel) -> Decimal:
         """Calculate total cost of all gemstones"""
         if not order.gemstones:
-            return 0.0
+            return Decimal("0")
 
-        total = sum((gem.cost * gem.quantity) for gem in order.gemstones)
+        total = sum(
+            (dec(gem.cost) * dec(gem.quantity, default=1) for gem in order.gemstones),
+            Decimal("0"),
+        )
 
         logger.debug(
             "Gemstone cost calculated",
@@ -296,7 +324,7 @@ class CostCalculationService:
         order: OrderModel,
         db: Optional[AsyncSession] = None,
         activity_hours: Optional[Dict[int, float]] = None,
-    ) -> float:
+    ) -> Decimal:
         """Calculate labor cost from hours × rate.
 
         Two modes, kept backward-compatible for existing callers:
@@ -319,10 +347,10 @@ class CostCalculationService:
             )
 
         if not order.labor_hours:
-            return 0.0
+            return Decimal("0")
 
-        hourly_rate = order.hourly_rate or settings.DEFAULT_HOURLY_RATE
-        labor_cost = order.labor_hours * hourly_rate
+        hourly_rate = dec(order.hourly_rate or settings.DEFAULT_HOURLY_RATE)
+        labor_cost = dec(order.labor_hours) * hourly_rate
 
         logger.debug(
             "Labor cost calculated",
@@ -340,7 +368,7 @@ class CostCalculationService:
     async def _calculate_labor_cost_per_activity(
         db: AsyncSession,
         activity_hours: Dict[int, float],
-    ) -> float:
+    ) -> Decimal:
         """Sum labor cost across a per-activity ``{activity_id: hours}`` breakdown.
 
         Each activity's own ``hourly_rate`` is used when set; activities with
@@ -350,7 +378,7 @@ class CostCalculationService:
         case and returns 0.0).
         """
         if not activity_hours:
-            return 0.0
+            return Decimal("0")
 
         result = await db.execute(
             select(ActivityModel).where(ActivityModel.id.in_(activity_hours.keys()))
@@ -362,17 +390,17 @@ class CostCalculationService:
             cast(int, a.id): a for a in result.scalars().all()
         }
 
-        total_cost = 0.0
+        total_cost = Decimal("0")
         for activity_id, hours in activity_hours.items():
             activity = activities_by_id.get(activity_id)
             rate_column = activity.hourly_rate if activity is not None else None
             rate_decimal = cast(Optional[Decimal], rate_column)
             hourly_rate = (
-                float(rate_decimal)
+                rate_decimal
                 if rate_decimal is not None
-                else settings.DEFAULT_HOURLY_RATE
+                else dec(settings.DEFAULT_HOURLY_RATE)
             )
-            total_cost += hours * hourly_rate
+            total_cost += dec(hours) * hourly_rate
 
         logger.debug(
             "Per-activity labor cost calculated",
@@ -385,24 +413,24 @@ class CostCalculationService:
         return total_cost
 
     @staticmethod
-    def _round_price(price: float) -> float:
+    def _round_price(price: DecimalLike) -> Decimal:
         """
-        Round price to .00 or .99
+        Psychological price rounding, explicit rule (BE-14):
 
-        Examples:
-        - 243.45 → 243.00
-        - 245.67 → 245.99
-        - 248.12 → 248.00
+        - cents below .50 are dropped: the price becomes ``x.00``
+        - cents of .50 or more become ``x.99``
+
+        Examples: 243.45 → 243.00, 243.49 → 243.00, 244.50 → 244.99,
+        245.67 → 245.99, 248.12 → 248.00.
+
+        The old float version used ``round()`` (banker's rounding), so
+        244.50 came out as 243.99.
         """
-        # Round to nearest integer
-        rounded = round(price)
-
-        # If original price is close to .50 or higher, use .99
-        decimal_part = price - int(price)
-        if decimal_part >= 0.50:
-            return rounded - 0.01  # x.99
-
-        return float(rounded)  # x.00
+        value = money(price)
+        euros = value.to_integral_value(rounding=ROUND_FLOOR)
+        if value - euros >= Decimal("0.50"):
+            return euros + Decimal("0.99")
+        return euros.quantize(Decimal("0.01"))
 
     @staticmethod
     async def update_order_calculated_price(
@@ -429,9 +457,14 @@ class CostCalculationService:
         order.labor_cost = price_breakdown.labor_cost
         order.calculated_price = price_breakdown.final_price
 
-        # Don't override manual price if set
+        # Don't override manual price if set.
+        #
+        # ADR-2026-09-25 (price-semantics): Order.price is NET (excluding
+        # VAT), so this must write subtotal_with_margin, not the gross
+        # final_price (which still includes VAT and is kept separately in
+        # calculated_price for cost-vs-price comparisons).
         if order.price is None:
-            order.price = price_breakdown.final_price
+            order.price = price_breakdown.subtotal_with_margin
 
         await db.commit()
         await db.refresh(order)
@@ -440,8 +473,8 @@ class CostCalculationService:
             "Order price updated",
             extra={
                 "order_id": order_id,
-                "calculated_price": price_breakdown.final_price,
-                "final_price": order.price,
+                "calculated_price_gross": price_breakdown.final_price,
+                "order_price_net": order.price,
             },
         )
 

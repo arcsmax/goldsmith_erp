@@ -1,39 +1,26 @@
-// QuickActionModalV2 — Slice 11 of V1.1 QR/Barcode workflow.
+// QuickActionModalV2 — the action sheet after a scan (V1.1 Slice 11,
+// rebuilt on the Sheet primitive in the 2026-09 scan-tracking audit).
 //
-// Replaces the legacy `QuickActionModal.tsx` (which stayed ORDER-only and
-// embedded Activity/Location pickers as nested views — A11.13 deprecates
-// that pattern).
+// The scan is already logged (scan_only) when this sheet opens; the sheet
+// only makes the NEXT step easy:
+//   * Header: Kurzbezeichnung + id + status (A11.4); the status hint opens
+//     the piece (A11.12).
+//   * Actions: the backend's role-filtered list (only ids the client can
+//     execute; ScanOverlay filters), primary first, as 56px bench buttons:
+//     Timer starten / wechseln, Foto, Status weiter, Übergabe, Standort
+//     setzen, Öffnen, Nur erfassen.
+//   * Unknown code: a German message instead of actions (the scan is logged
+//     as "unrecognised").
+//   * Sheet primitive: focus moves in, Tab stays inside, Escape closes,
+//     focus returns — no hand-rolled trap.
 //
-// Responsibilities:
-//   * Render a Kurzbezeichnung header disambiguating the entity (A11.4).
-//   * Render role-filtered, backend-sorted Quick Actions (primary first).
-//   * Status-hint line is tappable (A11.12) — tap opens the entity detail.
-//   * Empty-projection handling (VIEWER/METAL): render "Kein Zugriff"
-//     placeholder with Schliessen only — no actions rendered.
-//   * Auto-dismiss cooperation with ScanOverlay (A10.3): the overlay owns
-//     the `lastResolveResponse` → QuickActionModalV2 is a pure render of
-//     the current response and re-renders when props change. No internal
-//     cache beyond React state needed for animations.
-//   * Keyboard accessibility: role=dialog, aria-modal, focus trap, Esc to
-//     close, Enter activates focused action.
-//   * `prefers-reduced-motion` honoured via CSS.
-//
-// All copy is German. No English UI strings.
-//
-// References:
-//   docs/superpowers/plans/qr-barcode-workflow/V1.1-IMPLEMENTATION-PLAN.md Slice 11
-//   docs/superpowers/plans/qr-barcode-workflow/V1.1-UI-DESIGN-SPEC.md §2
-//   docs/superpowers/plans/qr-barcode-workflow/V1.1-AMENDMENTS.md A11.4, A11.12, A11.13
+// All copy is German. Icons come from the shared icon set (no emoji).
 
-import React, {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 
 import type { ActionItem, ResolveResponse } from '../../types/scanner';
+import { Button, Sheet, type IconName } from '../../ui';
+import { unrecognisedMessage } from '../../lib/scanPayload';
 import '../../styles/components/QuickActionModalV2.css';
 
 // ---------------------------------------------------------------------------
@@ -51,6 +38,8 @@ export interface QuickActionModalV2Props {
   onContinueScanning: () => void;
   /** Optional: tapping the status-hint line opens the entity detail page. */
   onStatusHintClick?: () => void;
+  /** The scanned text, shown when the code is not recognised. */
+  rawPayload?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -78,7 +67,7 @@ interface EntityDisplay {
 function buildEntityDisplay(response: ResolveResponse): EntityDisplay {
   const entityType = response.entity_type ?? '';
   const entityId = response.entity_id;
-  const data = (response.entity?.data ?? {}) as Record<string, unknown>;
+  const data = (response.entity ?? {}) as Record<string, unknown>;
 
   // ORDER
   if (entityType === 'order') {
@@ -188,51 +177,75 @@ function formatStatus(raw: string): string {
 }
 
 // ---------------------------------------------------------------------------
-// Icon map (A11.8 Lucide mapping — minimal inline SVGs to avoid new dep)
+// Icons (shared icon set, aria-hidden inside the Button primitive)
 // ---------------------------------------------------------------------------
-//
-// Slice 11 uses small inline SVGs to keep the bundle lean (M7). Adding
-// `lucide-react` is an optional V1.2 upgrade — the placeholder mapping here
-// covers the actions emitted by the backend scanner service.
 
-const ACTION_ICONS: Record<string, string> = {
-  start_timer: '▶',
-  stop_timer: '■',
-  switch_timer: '↻',
-  change_status: '✎',
-  change_location: '📍',
-  take_photo: '📷',
-  add_material: '💎',
-  add_note: '📝',
-  contact_customer: '📞',
-  print_label: '🏷',
-  open_entity: '↗',
-  consume_material: '⚖',
-  check_stock: '📊',
-  reorder: '🛒',
-  advance_repair: '➤',
-  repair_diagnosis: '🔍',
-  punzierung_check: '🔖',
+const ACTION_ICONS: Readonly<Record<string, IconName>> = {
+  start_timer: 'clock',
+  stop_timer: 'pause',
+  switch_timer: 'arrow-right-left',
+  change_status: 'arrow-right',
+  advance_repair: 'arrow-right',
+  take_photo: 'camera',
+  handover: 'user-check',
+  change_location: 'archive',
+  open_entity: 'file-text',
+  print_label: 'clipboard',
+  consume_material: 'gem',
+  punzierung_check: 'stamp',
+  log_only: 'check',
 };
 
-function iconForAction(id: string): string {
-  return ACTION_ICONS[id] ?? '•';
+function iconForAction(id: string): IconName {
+  return ACTION_ICONS[id] ?? 'scan';
 }
 
-// ---------------------------------------------------------------------------
-// Focus trap helpers
-// ---------------------------------------------------------------------------
-
-const FOCUSABLE_SELECTOR =
-  'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
-
-function getFocusable(root: HTMLElement): HTMLElement[] {
-  return Array.from(root.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR));
+/** Primary first; ties keep the server order. */
+function sortActions(actions: readonly ActionItem[]): ActionItem[] {
+  return [...actions].sort((a, b) => (a.primary === b.primary ? 0 : a.primary ? -1 : 1));
 }
 
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
+
+const EntityHeader: React.FC<{
+  display: EntityDisplay;
+  onStatusHintClick?: () => void;
+}> = ({ display, onStatusHintClick }) => (
+  <div className="qa-header">
+    <div className="qa-header__row qa-header__row--top">
+      <span className="qa-id" data-testid="qa-id">
+        {display.idLabel}
+      </span>
+      {display.statusPill !== null && (
+        <span className="qa-status-pill" data-testid="qa-status-pill">
+          {display.statusPill}
+        </span>
+      )}
+    </div>
+    <p className="qa-live" role="status" aria-live="polite" data-testid="qa-live">
+      {display.title}
+      {display.statusPill !== null ? ` · ${display.statusPill}` : ''}
+    </p>
+    {display.statusHint !== null &&
+      (onStatusHintClick ? (
+        <button
+          type="button"
+          className="qa-status-hint qa-status-hint--tappable"
+          onClick={onStatusHintClick}
+          data-testid="qa-status-hint"
+          aria-label={`Details öffnen: ${display.statusHint}`}
+        >
+          {display.statusHint}
+        </button>
+      ) : (
+        <p className="qa-status-hint" data-testid="qa-status-hint">
+          {display.statusHint}
+        </p>
+      ))}
+  </div>
+);
 
 export const QuickActionModalV2: React.FC<QuickActionModalV2Props> = ({
   resolveResponse,
@@ -240,85 +253,15 @@ export const QuickActionModalV2: React.FC<QuickActionModalV2Props> = ({
   onClose,
   onContinueScanning,
   onStatusHintClick,
+  rawPayload,
 }) => {
-  const rootRef = useRef<HTMLDivElement | null>(null);
-  const firstActionRef = useRef<HTMLButtonElement | null>(null);
-  const closeBtnRef = useRef<HTMLButtonElement | null>(null);
-
   const [pendingActionId, setPendingActionId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const display = useMemo<EntityDisplay>(
-    () => buildEntityDisplay(resolveResponse),
-    [resolveResponse],
-  );
-
-  // Sort actions with `primary=true` first — ties preserve server order.
-  const sortedActions = useMemo<ActionItem[]>(() => {
-    const list = [...resolveResponse.actions];
-    list.sort((a, b) => {
-      if (a.primary === b.primary) return 0;
-      return a.primary ? -1 : 1;
-    });
-    return list;
-  }, [resolveResponse.actions]);
-
-  const isEmptyAccess = sortedActions.length === 0;
-
-  // ---------------------------------------------------------------------
-  // Focus management — on mount move focus to first action (A11 / SC 2.4.3).
-  // ---------------------------------------------------------------------
-
-  useEffect(() => {
-    const rafId = window.requestAnimationFrame(() => {
-      if (firstActionRef.current) {
-        firstActionRef.current.focus();
-      } else if (closeBtnRef.current) {
-        closeBtnRef.current.focus();
-      }
-    });
-    return () => window.cancelAnimationFrame(rafId);
-  }, []);
-
-  // ---------------------------------------------------------------------
-  // Focus trap + Esc handling.
-  // ---------------------------------------------------------------------
-
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        onClose();
-        return;
-      }
-      if (e.key !== 'Tab') return;
-      const root = rootRef.current;
-      if (root === null) return;
-      const focusable = getFocusable(root);
-      if (focusable.length === 0) return;
-      const first = focusable[0];
-      const last = focusable[focusable.length - 1];
-      const active = document.activeElement as HTMLElement | null;
-
-      if (e.shiftKey) {
-        if (active === first || active === null || !root.contains(active)) {
-          e.preventDefault();
-          last.focus();
-        }
-      } else {
-        if (active === last) {
-          e.preventDefault();
-          first.focus();
-        }
-      }
-    };
-    document.addEventListener('keydown', handleKeyDown);
-    return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [onClose]);
-
-  // ---------------------------------------------------------------------
-  // Action dispatch
-  // ---------------------------------------------------------------------
+  const display = useMemo(() => buildEntityDisplay(resolveResponse), [resolveResponse]);
+  const actions = useMemo(() => sortActions(resolveResponse.actions), [resolveResponse.actions]);
+  const isUnrecognised = !resolveResponse.resolved;
+  const title = isUnrecognised ? 'Code nicht erkannt' : display.title;
 
   const handleAction = useCallback(
     async (actionId: string): Promise<void> => {
@@ -327,11 +270,7 @@ export const QuickActionModalV2: React.FC<QuickActionModalV2Props> = ({
       try {
         await onAction(actionId);
       } catch (err) {
-        const msg =
-          err instanceof Error && err.message.length > 0
-            ? err.message
-            : 'Aktion fehlgeschlagen.';
-        setError(msg);
+        setError(err instanceof Error && err.message.length > 0 ? err.message : 'Aktion fehlgeschlagen.');
       } finally {
         setPendingActionId(null);
       }
@@ -339,152 +278,69 @@ export const QuickActionModalV2: React.FC<QuickActionModalV2Props> = ({
     [onAction],
   );
 
-  // ---------------------------------------------------------------------
-  // Render
-  // ---------------------------------------------------------------------
-
   return (
-    <div
+    <Sheet
+      open
+      onClose={onClose}
+      title={title}
       className="qa-modal-v2"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="qa-title"
-      aria-describedby="qa-subtitle"
-      data-testid="qa-modal-v2"
-      ref={rootRef}
-    >
-      <div className="qa-header">
-        <div className="qa-header__row qa-header__row--top">
-          <span
-            className="qa-id"
-            data-testid="qa-id"
-          >
-            {display.idLabel}
-          </span>
-          {display.statusPill !== null ? (
-            <span className="qa-status-pill" data-testid="qa-status-pill">
-              {display.statusPill}
-            </span>
-          ) : null}
-          <button
-            type="button"
-            className="qa-close"
-            onClick={onClose}
-            aria-label="Schliessen"
-            ref={closeBtnRef}
-            data-testid="qa-close"
-          >
-            ✕
-          </button>
-        </div>
-        <h2 id="qa-title" className="qa-title" data-testid="qa-title">
-          {display.title}
-        </h2>
-        <div
-          className="qa-live"
-          role="status"
-          aria-live="polite"
-          data-testid="qa-live"
-        >
-          {display.title}
-          {display.statusPill !== null ? ` · ${display.statusPill}` : ''}
-        </div>
-        {display.statusHint !== null ? (
-          onStatusHintClick ? (
-            <button
-              type="button"
-              className="qa-status-hint qa-status-hint--tappable"
-              onClick={onStatusHintClick}
-              data-testid="qa-status-hint"
-              aria-label={`Details öffnen: ${display.statusHint}`}
-            >
-              {display.statusHint}
-            </button>
-          ) : (
-            <p
-              id="qa-subtitle"
-              className="qa-status-hint"
-              data-testid="qa-status-hint"
-            >
-              {display.statusHint}
-            </p>
-          )
-        ) : null}
-      </div>
-
-      <div className="qa-body">
-        {error !== null ? (
-          <div className="qa-error" role="alert" data-testid="qa-error">
-            {error}
-          </div>
-        ) : null}
-
-        {isEmptyAccess ? (
-          <div
-            className="qa-empty-access"
-            role="status"
-            data-testid="qa-empty-access"
-          >
-            Kein Zugriff auf diese Charge.
-          </div>
-        ) : (
-          <ul
-            className="qa-action-list"
-            role="list"
-            data-testid="qa-action-list"
-          >
-            {sortedActions.map((action, index) => {
-              const isPrimary = action.primary;
-              const isPending = pendingActionId === action.id;
-              const refProp = index === 0 ? firstActionRef : undefined;
-              return (
-                <li key={action.id} className="qa-action-row">
-                  <button
-                    type="button"
-                    ref={refProp}
-                    className={`qa-action ${
-                      isPrimary ? 'qa-action--primary' : 'qa-action--secondary'
-                    }`}
-                    data-testid={`qa-action-${action.id}`}
-                    data-primary={isPrimary ? 'true' : 'false'}
-                    onClick={() => {
-                      void handleAction(action.id);
-                    }}
-                    disabled={isPending || pendingActionId !== null}
-                    aria-label={action.label}
-                  >
-                    <span className="qa-action__icon" aria-hidden="true">
-                      {iconForAction(action.id)}
-                    </span>
-                    <span className="qa-action__label">{action.label}</span>
-                    {isPending ? (
-                      <span className="qa-action__spinner" aria-hidden="true">
-                        …
-                      </span>
-                    ) : (
-                      <span className="qa-action__chevron" aria-hidden="true">
-                        ›
-                      </span>
-                    )}
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
-        )}
-      </div>
-
-      <div className="qa-footer">
-        <button
-          type="button"
-          className="qa-continue"
+      footer={
+        <Button
+          variant="secondary"
+          size="lg"
+          block
+          icon="scan"
           onClick={onContinueScanning}
           data-testid="qa-continue"
         >
           Weiterscannen
-        </button>
+        </Button>
+      }
+    >
+      <div data-testid="qa-modal-v2">
+        <span className="ui-visually-hidden" data-testid="qa-title">
+          {title}
+        </span>
+        {!isUnrecognised && (
+          <EntityHeader display={display} onStatusHintClick={onStatusHintClick} />
+        )}
+        {error !== null && (
+          <p className="qa-error" role="alert" data-testid="qa-error">
+            {error}
+          </p>
+        )}
+        {isUnrecognised ? (
+          <p className="qa-empty-access" role="alert" data-testid="qa-unrecognised">
+            {unrecognisedMessage(rawPayload ?? display.idLabel)} Der Scan wurde trotzdem erfasst.
+          </p>
+        ) : actions.length === 0 ? (
+          <p className="qa-empty-access" role="status" data-testid="qa-empty-access">
+            Kein Zugriff auf diese Charge.
+          </p>
+        ) : (
+          <ul className="qa-action-list" data-testid="qa-action-list">
+            {actions.map((action) => (
+              <li key={action.id} className="qa-action-row">
+                <Button
+                  variant={action.primary ? 'primary' : 'secondary'}
+                  size="lg"
+                  block
+                  icon={iconForAction(action.id)}
+                  className={action.primary ? 'qa-action--primary' : 'qa-action--secondary'}
+                  data-testid={`qa-action-${action.id}`}
+                  data-primary={action.primary ? 'true' : 'false'}
+                  loading={pendingActionId === action.id}
+                  disabled={pendingActionId !== null && pendingActionId !== action.id}
+                  onClick={() => void handleAction(action.id)}
+                >
+                  {action.label}
+                </Button>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
-    </div>
+    </Sheet>
   );
 };
 

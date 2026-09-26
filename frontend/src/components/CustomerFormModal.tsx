@@ -3,7 +3,19 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Customer, CustomerCategory, CustomerCreateInput, CustomerUpdateInput } from '../types';
 import { CustomerCreateSchema } from '../lib/validation/schemas';
 import { useFormValidation } from '../lib/validation/useFormValidation';
+import { useConfirm, useToast } from '../contexts';
+import { logError } from '../lib/logError';
+import {
+  CONSENT_METHOD_LABELS,
+  ConsentRecord,
+  consentsApi,
+  extractErrorDetail,
+  findActiveConsent,
+} from '../api/consents';
 import '../styles/customers.css';
+// Pulls .cdetail-notes, reused below as the small hint/status text under the
+// consent-gated allergies field (customers.css has no equivalent class).
+import '../styles/customer-detail.css';
 
 interface CustomerFormModalProps {
   isOpen: boolean;
@@ -48,6 +60,23 @@ export const CustomerFormModal: React.FC<CustomerFormModalProps> = ({
 
   const { validate: zodValidate, errors, clearErrors, clearError } = useFormValidation(CustomerCreateSchema);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const { showConfirm } = useConfirm();
+  const { showToast } = useToast();
+
+  // GDPR-02 / GDPR-11: allergies are Art. 9 health data and may only be
+  // stored while an active HEALTH_DATA consent exists for the customer
+  // (see api/consents.ts + services/consent_service.py). `healthConsent`
+  // holds that active record for an existing customer; `healthConsentConfirmed`
+  // is the local checkbox used to unlock the field before one exists yet.
+  const [healthConsent, setHealthConsent] = useState<ConsentRecord | null>(null);
+  const [isLoadingConsent, setIsLoadingConsent] = useState(false);
+  const [healthConsentConfirmed, setHealthConsentConfirmed] = useState(false);
+  const [consentNote, setConsentNote] = useState('');
+  const [consentError, setConsentError] = useState<string | null>(null);
+  const [isRevokingConsent, setIsRevokingConsent] = useState(false);
+
+  const hasActiveHealthConsent = healthConsent !== null;
+  const allergiesEnabled = hasActiveHealthConsent || healthConsentConfirmed;
 
   // Initialize form data when editing
   useEffect(() => {
@@ -105,6 +134,26 @@ export const CustomerFormModal: React.FC<CustomerFormModalProps> = ({
     }
     clearErrors();
     setSubmitError(null);
+    setHealthConsent(null);
+    setHealthConsentConfirmed(false);
+    setConsentNote('');
+    setConsentError(null);
+
+    if (customer) {
+      setIsLoadingConsent(true);
+      consentsApi
+        .list(customer.id)
+        .then((records) => {
+          setHealthConsent(findActiveConsent(records, 'health_data'));
+        })
+        .catch((err) => {
+          // Non-fatal: the allergies field simply stays gated behind the
+          // checkbox below if we can't confirm an existing consent (e.g.
+          // the request failed, or the viewer lacks CONSENT_MANAGE).
+          logError('CustomerFormModal.loadHealthConsent', err);
+        })
+        .finally(() => setIsLoadingConsent(false));
+    }
   }, [customer]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Focus the first input when modal opens
@@ -139,7 +188,7 @@ export const CustomerFormModal: React.FC<CustomerFormModalProps> = ({
     const toValidate = {
       first_name: formData.first_name.trim(),
       last_name: formData.last_name.trim(),
-      email: formData.email.trim(),
+      email: formData.email.trim() || undefined,
       customer_type: formData.customer_type,
       country: formData.country,
       company_name: formData.company_name.trim() || undefined,
@@ -162,6 +211,23 @@ export const CustomerFormModal: React.FC<CustomerFormModalProps> = ({
       return;
     }
 
+    // GDPR-02: allergies are Art. 9 health data. Storing them needs an
+    // active HEALTH_DATA consent — grant it here (or strip the field for a
+    // brand-new customer, see below) before the customer is saved.
+    const allergiesValue = formData.allergies.trim();
+    const needsConsentGrant = allergiesValue !== '' && !hasActiveHealthConsent;
+    setConsentError(null);
+    if (needsConsentGrant) {
+      if (!healthConsentConfirmed) {
+        setConsentError('Bitte zuerst die Einwilligung „Gesundheitsdaten“ bestätigen.');
+        return;
+      }
+      if (consentNote.trim() === '') {
+        setConsentError('Bitte einen kurzen Nachweis zur Einwilligung angeben.');
+        return;
+      }
+    }
+
     try {
       setSubmitError(null);
 
@@ -169,10 +235,18 @@ export const CustomerFormModal: React.FC<CustomerFormModalProps> = ({
       const submitData: any = {
         first_name: formData.first_name.trim(),
         last_name: formData.last_name.trim(),
-        email: formData.email.trim(),
         customer_type: formData.customer_type,
         country: formData.country,
       };
+
+      // W2-10: email is optional. A new customer simply omits it; clearing
+      // it on an existing customer sends null so the address is removed.
+      const email = formData.email.trim();
+      if (email) {
+        submitData.email = email;
+      } else if (customer) {
+        submitData.email = null;
+      }
 
       // Optional fields
       if (formData.company_name.trim()) {
@@ -244,15 +318,81 @@ export const CustomerFormModal: React.FC<CustomerFormModalProps> = ({
         submitData.is_active = formData.is_active;
       }
 
+      if (needsConsentGrant && customer) {
+        // Editing an existing customer: the consent endpoint is keyed by
+        // customer id, which we already have — record it, THEN save the
+        // allergy text via the normal PATCH below (GDPR-02 / GDPR-11).
+        try {
+          const granted = await consentsApi.grant(customer.id, {
+            purpose: 'health_data',
+            method: 'in_person',
+            note: consentNote.trim(),
+          });
+          setHealthConsent(granted);
+        } catch (err) {
+          logError('CustomerFormModal.grantHealthConsent', err);
+          setConsentError(
+            extractErrorDetail(err) ?? 'Einwilligung konnte nicht gespeichert werden.'
+          );
+          return;
+        }
+      } else if (needsConsentGrant && !customer) {
+        // Brand-new customer: there is no customer id yet, so the consent
+        // can't be recorded before creation (the backend 422s allergies on
+        // create for the same reason — see
+        // tests/integration/test_customer_allergy_consent.py::test_customer_create_with_allergies_is_422).
+        // Create the customer without allergies now; the consent + allergy
+        // text are finished afterwards from the edit dialog, where a
+        // customer id exists.
+        delete submitData.allergies;
+      }
+
       await onSubmit(submitData);
+
+      if (needsConsentGrant && !customer) {
+        showToast(
+          'Kunde wurde ohne Allergien gespeichert. Bitte die Allergie anschließend über „Kunde bearbeiten“ inklusive Einwilligung erfassen.',
+          'info'
+        );
+      }
     } catch (err: any) {
       setSubmitError(err.message || 'Ein Fehler ist aufgetreten');
+    }
+  };
+
+  const handleRevokeHealthConsent = async () => {
+    if (!customer || isRevokingConsent) return;
+    const confirmed = await showConfirm({
+      title: 'Einwilligung widerrufen',
+      message:
+        'Möchten Sie die Einwilligung „Gesundheitsdaten“ wirklich widerrufen? Dadurch werden gespeicherte Allergien gelöscht.',
+      confirmLabel: 'Widerrufen',
+      variant: 'danger',
+    });
+    if (!confirmed) return;
+
+    setIsRevokingConsent(true);
+    try {
+      await consentsApi.revoke(customer.id, 'health_data');
+      setHealthConsent(null);
+      setHealthConsentConfirmed(false);
+      setFormData((prev) => ({ ...prev, allergies: '' }));
+      showToast('Einwilligung wurde widerrufen. Allergien wurden gelöscht.', 'success');
+    } catch (err) {
+      logError('CustomerFormModal.revokeHealthConsent', err);
+      showToast(
+        extractErrorDetail(err) ?? 'Einwilligung konnte nicht widerrufen werden.',
+        'error'
+      );
+    } finally {
+      setIsRevokingConsent(false);
     }
   };
 
   if (!isOpen) return null;
 
   return (
+    // eslint-disable-next-line jsx-a11y/click-events-have-key-events -- backdrop dismiss is mouse-only by convention
     <div
       className="modal-overlay"
       role="dialog"
@@ -260,6 +400,7 @@ export const CustomerFormModal: React.FC<CustomerFormModalProps> = ({
       aria-labelledby="customer-modal-title"
       onClick={onClose}
     >
+      {/* eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions -- stops the backdrop's onClose from firing when clicking inside the dialog; not itself interactive */}
       <div className="modal-content" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <h2 id="customer-modal-title">{customer ? 'Kunde bearbeiten' : 'Neuer Kunde'}</h2>
@@ -324,9 +465,7 @@ export const CustomerFormModal: React.FC<CustomerFormModalProps> = ({
             </div>
 
             <div className="form-group">
-              <label htmlFor="email">
-                E-Mail <span className="required">*</span>
-              </label>
+              <label htmlFor="email">E-Mail</label>
               <input
                 type="email"
                 id="email"
@@ -569,10 +708,72 @@ export const CustomerFormModal: React.FC<CustomerFormModalProps> = ({
                 name="allergies"
                 value={formData.allergies}
                 onChange={handleChange}
-                disabled={isLoading}
+                disabled={isLoading || !allergiesEnabled}
                 placeholder="z.B. Nickel, Kupfer"
               />
+              {!allergiesEnabled && (
+                <p className="cdetail-notes">
+                  Allergien sind Gesundheitsdaten (Art. 9 DSGVO) — das Feld ist erst
+                  nutzbar, sobald die Einwilligung „Gesundheitsdaten“ vorliegt.
+                </p>
+              )}
             </div>
+
+            {hasActiveHealthConsent ? (
+              <div className="form-group">
+                <p className="cdetail-notes">
+                  Einwilligung „Gesundheitsdaten“ erteilt am{' '}
+                  {healthConsent && new Date(healthConsent.granted_at).toLocaleDateString('de-DE')}
+                  {healthConsent && ` (${CONSENT_METHOD_LABELS[healthConsent.method]})`}.
+                </p>
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  onClick={handleRevokeHealthConsent}
+                  disabled={isLoading || isRevokingConsent}
+                >
+                  {isRevokingConsent ? 'Wird widerrufen…' : 'Einwilligung widerrufen'}
+                </button>
+              </div>
+            ) : (
+              <div className="form-group">
+                <div className="checkbox-group">
+                  <input
+                    type="checkbox"
+                    id="health_consent_confirmed"
+                    checked={healthConsentConfirmed}
+                    onChange={(e) => {
+                      setHealthConsentConfirmed(e.target.checked);
+                      setConsentError(null);
+                    }}
+                    disabled={isLoading || isLoadingConsent}
+                  />
+                  <label htmlFor="health_consent_confirmed">
+                    Einwilligung „Gesundheitsdaten“ liegt vor
+                  </label>
+                </div>
+                {healthConsentConfirmed && (
+                  <div className="form-group">
+                    <label htmlFor="health_consent_note">
+                      Nachweis der Einwilligung <span className="required">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      id="health_consent_note"
+                      value={consentNote}
+                      onChange={(e) => {
+                        setConsentNote(e.target.value);
+                        setConsentError(null);
+                      }}
+                      disabled={isLoading}
+                      placeholder="z.B. mündlich beim Termin bestätigt"
+                      maxLength={500}
+                    />
+                  </div>
+                )}
+                {consentError && <div className="error-message">{consentError}</div>}
+              </div>
+            )}
 
             <div className="form-group">
               <label htmlFor="birthday">Geburtstag</label>

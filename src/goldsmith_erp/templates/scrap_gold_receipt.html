@@ -266,7 +266,7 @@
     <div class="workshop-name">{{ workshop_name }}</div>
     <div class="document-title">ANKAUFSBELEG</div>
     <div class="receipt-date">
-      Datum: {{ scrap_gold.created_at.strftime("%d.%m.%Y") }}
+      Datum: {{ scrap_gold.created_at|local_date }}
       &nbsp;|&nbsp;
       Beleg-Nr.: AG-{{ "%05d"|format(scrap_gold.id) }}
     </div>
@@ -377,7 +377,7 @@
   {{ workshop_name }}
   {% if workshop_address %} | {{ workshop_address }}, {{ workshop_city | default("") }}{% endif %}
   | Ankaufsbeleg AG-{{ "%05d"|format(scrap_gold.id) }}
-  | Datum: {{ scrap_gold.created_at.strftime("%d.%m.%Y") }}
+  | Datum: {{ scrap_gold.created_at|local_date }}
 </div>
 
 </body>

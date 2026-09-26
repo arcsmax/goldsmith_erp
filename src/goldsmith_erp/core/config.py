@@ -1,13 +1,20 @@
 # src/goldsmith_erp/core/config.py
 
+import ipaddress
 import json
 import logging
 import secrets
 from pathlib import Path
-from typing import Annotated, Any, Optional
+from typing import Annotated, Any, Literal, Optional
 
 from pydantic import Field, PostgresDsn, RedisDsn, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
+
+# The literal value `.env.example` ships for SECRET_KEY and ANONYMIZATION_SALT.
+# It is public (in the repository), so it must never sign JWTs or salt HMACs in
+# production (SEC-02). Development keeps warn-and-accept so fresh checkouts boot.
+ENV_EXAMPLE_PLACEHOLDER = "CHANGE_THIS_TO_A_SECURE_RANDOM_STRING_AT_LEAST_32_CHARS"
+_PLACEHOLDER_CHECKED_FIELDS = ("SECRET_KEY", "ANONYMIZATION_SALT")
 
 
 class Settings(BaseSettings):
@@ -76,7 +83,25 @@ class Settings(BaseSettings):
         "http://localhost:8000",
     ]
 
-    @field_validator("BACKEND_CORS_ORIGINS", mode="before")
+    # ── Reverse-proxy trust (SEC-04) ────────────────────────────────────────────
+    # Networks whose X-Forwarded-For / X-Real-IP headers are believed when they
+    # are the direct TCP peer. Production traffic is Caddy -> nginx -> backend
+    # over the compose network, so rate limits and audit logs key on the real
+    # client (core/client_ip.py) instead of the nginx container. The default
+    # trusts loopback plus the address ranges container runtimes use (podman
+    # 10.88/10.89, docker 172.17+), but NOT 192.168.0.0/16, the typical
+    # workshop LAN: a LAN device talking to a published backend port directly
+    # cannot spoof its address. Narrow it to the compose subnet when known.
+    # Accepts a JSON array or a comma-separated string of CIDRs.
+    TRUSTED_PROXIES: Annotated[list[str], NoDecode] = [
+        "127.0.0.0/8",
+        "::1/128",
+        "10.0.0.0/8",
+        "172.16.0.0/12",
+        "fc00::/7",
+    ]
+
+    @field_validator("BACKEND_CORS_ORIGINS", "TRUSTED_PROXIES", mode="before")
     @classmethod
     def _assemble_cors_origins(cls, value: Any) -> Any:
         """Accept CORS origins as a JSON array *or* a comma-separated string.
@@ -90,7 +115,7 @@ class Settings(BaseSettings):
         if value is None or isinstance(value, (list, tuple)):
             return value
         if not isinstance(value, str):
-            raise ValueError(f"Invalid BACKEND_CORS_ORIGINS value: {value!r}")
+            raise ValueError(f"Invalid list value: {value!r}")
         text = value.strip()
         if not text:
             return []
@@ -106,6 +131,23 @@ class Settings(BaseSettings):
             for origin in text.split(",")
             if origin.strip()
         ]
+
+    @field_validator("TRUSTED_PROXIES")
+    @classmethod
+    def _validate_trusted_proxies(cls, value: list[str]) -> list[str]:
+        """Fail fast on a malformed CIDR instead of silently trusting nothing."""
+        invalid = []
+        for entry in value:
+            try:
+                ipaddress.ip_network(entry, strict=False)
+            except ValueError:
+                invalid.append(entry)
+        if invalid:
+            raise ValueError(
+                f"TRUSTED_PROXIES contains invalid networks: {invalid}. Use CIDR "
+                "notation, e.g. 10.89.0.0/24 or 127.0.0.1/32."
+            )
+        return value
 
     @classmethod
     @field_validator("DATABASE_URL", mode="before")
@@ -206,6 +248,12 @@ class Settings(BaseSettings):
     # reverse proxy (HTTPS). Keep False for local network / dev environments.
     COOKIE_SECURE: bool = False
 
+    # ── Customer self-service portal (SEC-10, decision D-03) ─────────────────────
+    # Off by default: no live customer portal until W6-07's GDPR hardening
+    # (opaque per-order references, per-reference rate limits, audit logging)
+    # ships. Enable only for a deliberate LAN-only opt-in.
+    CUSTOMER_PORTAL_ENABLED: bool = False
+
     @model_validator(mode="after")
     def _check_encryption_key(self) -> "Settings":
         """Fail-fast in production if ENCRYPTION_KEY is not set."""
@@ -244,6 +292,52 @@ class Settings(BaseSettings):
                     "ANONYMIZATION_SALT not set — anonymize_user() will use a "
                     "dev-only fallback salt. Acceptable only in development."
                 )
+        return self
+
+    @model_validator(mode="after")
+    def _reject_placeholder_secrets(self) -> "Settings":
+        """Reject the public .env.example placeholder secrets in production.
+
+        SEC-02: with the placeholder SECRET_KEY anyone can forge admin JWTs;
+        with the placeholder ANONYMIZATION_SALT the tracking HMACs of erased
+        users can be recomputed by anyone who has the public repository.
+        DEBUG=False raises and names the variable; DEBUG=True warns and
+        accepts so a fresh dev checkout still boots.
+
+        Adversarial audit finding B1.2/B1.3/B1.4 (2026-09-25,
+        docs/technical/security/2026-09-AUDIT-FIXES-W1.md): the original
+        check was an exact `==` against the literal placeholder string, so
+        the two most natural real-world mistakes when copying it out of
+        .env.example — a trailing/leading whitespace character from a
+        paste, or lowercasing it — silently bypassed the rejection and
+        booted production with a publicly-known secret. Both sides of the
+        comparison are now normalised (surrounding whitespace stripped,
+        case-folded) before comparing.
+        """
+        placeholder_normalized = ENV_EXAMPLE_PLACEHOLDER.strip().lower()
+        offending = [
+            name
+            for name in _PLACEHOLDER_CHECKED_FIELDS
+            if isinstance(getattr(self, name), str)
+            and getattr(self, name).strip().lower() == placeholder_normalized
+        ]
+        if not offending:
+            return self
+        names = ", ".join(offending)
+        if not self.DEBUG:
+            raise ValueError(
+                f"{names} is set to the public .env.example placeholder "
+                "(whitespace/case-insensitive match), which must never be "
+                "used in production (DEBUG=False). Generate a real value "
+                'with: python3 -c "import secrets; '
+                'print(secrets.token_urlsafe(64))"'
+            )
+        logging.getLogger(__name__).warning(
+            "%s is set to the .env.example placeholder (whitespace/"
+            "case-insensitive match). Acceptable only in development "
+            "(DEBUG=True); production refuses to boot with it.",
+            names,
+        )
         return self
 
     @model_validator(mode="after")
@@ -382,20 +476,15 @@ class Settings(BaseSettings):
         Security requirements:
         - Non-empty
         - Minimum 32 characters
-        - Not the .env.example placeholder (warn but accept, so `make start` works
-          out of the box for devs)
+        - The .env.example placeholder is deferred to
+          ``_reject_placeholder_secrets`` (prod: reject, dev: warn and accept)
         - Not a common insecure default value (hard-reject)
         - High entropy (for production)
         """
-        # .env.example placeholder: warn but accept, so fresh checkouts boot
-        # without a manual key generation step. The runtime warning is loud
-        # enough that no operator would miss it in a real environment.
-        if v == "CHANGE_THIS_TO_A_SECURE_RANDOM_STRING_AT_LEAST_32_CHARS":
-            logging.getLogger(__name__).warning(
-                "SECRET_KEY is set to the .env.example placeholder — DO NOT use this "
-                "in production. Generate a real key with:\n"
-                '  python3 -c "import secrets; print(secrets.token_urlsafe(64))"'
-            )
+        # .env.example placeholder: skip the strength checks here. Whether it is
+        # acceptable depends on DEBUG, which a field validator cannot see, so
+        # ``_reject_placeholder_secrets`` decides (raise in prod, warn in dev).
+        if v == ENV_EXAMPLE_PLACEHOLDER:
             return v
 
         # Reject empty
@@ -445,6 +534,152 @@ class Settings(BaseSettings):
             )
 
         return v
+
+    # ==========================================================================
+    # Accounting export (BE-13, W1-09) — DATEV / lexoffice
+    # ==========================================================================
+    # Revenue account per VAT rate (SKR03 chart of accounts, "Erloese").
+    # Keys are the VAT rate as a percentage with no trailing ".0"
+    # (e.g. "19", "7", "0"); values are the SKR03 account number as a string.
+    # Only 19 -> "8400" (Erloese 19% USt) is confirmed — it was the original
+    # hardcoded constant in accounting_export_service.py. The 7% and 0%
+    # accounts MUST come from the Steuerberater before invoices at those
+    # rates can be exported (assumption D-02,
+    # docs/review/2026-09-25/MASTER-FIX-PLAN.md W1-09); export_datev_csv
+    # raises AccountingExportError for any VAT rate with no entry here
+    # rather than silently booking it to the wrong account.
+    #
+    # Accepts a JSON object from the environment, e.g.:
+    #   DATEV_REVENUE_ACCOUNTS={"19": "8400", "7": "8300", "0": "8200"}
+    DATEV_REVENUE_ACCOUNTS: Annotated[dict[str, str], NoDecode] = {"19": "8400"}
+
+    # Counter-account (Gegenkonto) for the receivables side of every
+    # DATEV booking — "Forderungen aus Lieferungen und Leistungen" (SKR03).
+    DATEV_RECEIVABLES_ACCOUNT: str = "1400"
+
+    @field_validator("DATEV_REVENUE_ACCOUNTS", mode="before")
+    @classmethod
+    def _parse_datev_revenue_accounts(cls, value: Any) -> Any:
+        """Accept the account map as a JSON object from the environment.
+
+        Mirrors ``_assemble_cors_origins``: this is financial data, so a
+        malformed value must fail loudly (ValueError) rather than silently
+        falling back to an empty map, which would make every invoice
+        unexportable with no obvious error at the source.
+        """
+        if value is None or isinstance(value, dict):
+            return value
+        if not isinstance(value, str):
+            raise ValueError(f"Invalid DATEV_REVENUE_ACCOUNTS value: {value!r}")
+        text = value.strip()
+        if not text:
+            return {}
+        try:
+            parsed = json.loads(text)
+        except json.JSONDecodeError as exc:
+            raise ValueError(
+                "DATEV_REVENUE_ACCOUNTS must be a JSON object mapping VAT "
+                'rate to account number, e.g. {"19": "8400", "7": "8300"}: '
+                f"{exc}"
+            ) from exc
+        if not isinstance(parsed, dict):
+            raise ValueError("DATEV_REVENUE_ACCOUNTS must be a JSON object")
+        return {str(k): str(v) for k, v in parsed.items()}
+
+    # ── Image limits (SEC-18: decompression-bomb protection) ────────────────────
+    # Uploaded photos (order / repair / consultation) are decoded with Pillow —
+    # a small, deliberately crafted file can still declare enormous pixel
+    # dimensions that would allocate a huge in-memory bitmap on decode/resize.
+    # `services/image_validation.py` rejects an image from its DECLARED header
+    # dimensions (Image.open() only parses the header) before any pixel buffer
+    # is allocated, and also sets `PIL.Image.MAX_IMAGE_PIXELS` from
+    # IMAGE_MAX_MEGAPIXELS as a defense-in-depth guard for any other Pillow
+    # call in the process.
+    IMAGE_MAX_MEGAPIXELS: int = 40  # Image.MAX_IMAGE_PIXELS = this * 1_000_000
+    # General ceiling on bytes read before Pillow ever sees the buffer — a
+    # second bound alongside the per-endpoint PHOTO_MAX_SIZE_MB (kept
+    # independent so it is not silently loosened if a future endpoint raises
+    # its own upload limit).
+    IMAGE_MAX_UPLOAD_BYTES: int = 8 * 1024 * 1024  # 8 MB
+    # Pillow's decode/re-encode is synchronous, CPU-bound work; the photo
+    # services run it in a threadpool (so it never blocks the event loop) and
+    # bound it with this timeout so a pathological image can't hang a worker.
+    IMAGE_PROCESSING_TIMEOUT_SECONDS: int = 10
+
+    # ── Metal price feed (W2-15 / BE-22 / DOM-11c) ───────────────────────────
+    # Appended at the end of Settings on purpose (merge-safety across
+    # parallel fix-plan agents touching this file — see MASTER-FIX-PLAN.md
+    # §4.4). See services/metal_price_service.py for how these are used.
+
+    # Timeout (seconds) for the outbound metal spot-price API call. Was
+    # previously hardcoded to 10.0 in metal_price_service.py; now tunable so
+    # operators can react to a consistently slow/unreachable upstream API
+    # without a code change.
+    METAL_PRICE_HTTP_TIMEOUT_SECONDS: float = 10.0
+
+    # A metal price older than this many hours is flagged `is_stale=True`
+    # (shown as "veraltet" in the estimator/quote UI) instead of being
+    # presented as current. Applies to whichever fallback tier served the
+    # price (API, DB history, or hardcoded default).
+    METAL_PRICE_STALENESS_HOURS: float = 24.0
+
+    # ── Retention (GDPR-08 / GDPR-16, decision D-08) ─────────────────────────
+    # Appended at the end of Settings on purpose (merge-safety, see above).
+    # False (default) = the weekly retention sweep only LOGS the rows it would
+    # delete. Set RETENTION_EXECUTE=true in .env.production only after Anne
+    # (with a data-protection adviser) has signed off the schedule in
+    # docs/technical/RETENTION_SCHEDULE.md. `--dry-run` on the command line
+    # always wins over this setting.
+    RETENTION_EXECUTE: bool = False
+
+    # ── Altgold ID capture (W2-16 / DOM-21, decision D-16) ───────────────────
+    # Appended at the end of Settings on purpose (merge-safety, see above).
+    # An Altgold purchase whose value is ABOVE this amount (EUR) cannot be
+    # signed until the seller's ID (document type, number, issuing authority)
+    # is recorded. Below it the ID fields stay optional. Default 2,000 EUR
+    # follows §10 Abs. 6a GwG for cash trades in precious metals — the legal
+    # threshold and scope are still to be confirmed by the Steuerberater.
+    SCRAP_GOLD_ID_THRESHOLD_EUR: float = Field(default=2000.0, ge=0)
+
+    # ── Health check (LV-17) ─────────────────────────────────────────────────
+    # Appended at the end of Settings on purpose (merge-safety, see above).
+    # /health's disk component reports "warning" from 80 % used (informational,
+    # unchanged) but that alone no longer flips the overall status to
+    # "degraded" — a workshop server sitting at 80-94 % is routine, not an
+    # incident. Only usage at or above this percentage flips the overall
+    # status to "unhealthy" (503), the same as a down database or Redis.
+    HEALTH_DISK_CRITICAL_PERCENT: float = 95.0
+
+    # ── Outbox (ARCH-04 / ARCH-05, ADR-2026-09-25-outbox) ────────────────────
+    # Appended at the end of Settings on purpose (merge-safety, see above).
+    # "inline": customer mails are sent in the request (dev/tests, the old
+    # behaviour). "worker": they are written to ``outbox_messages`` in the
+    # same transaction as the business change and sent by
+    # ``python -m goldsmith_erp.worker``, which also runs the system monitor.
+    # Unset -> "inline" when DEBUG=true, "worker" otherwise.
+    OUTBOX_MODE: Optional[Literal["inline", "worker"]] = None
+    OUTBOX_MAX_ATTEMPTS: int = Field(default=6, ge=1, le=50)
+    OUTBOX_BACKOFF_BASE_SECONDS: float = Field(default=30.0, gt=0)
+    OUTBOX_BACKOFF_MAX_SECONDS: float = Field(default=6 * 3600.0, gt=0)
+    OUTBOX_POLL_INTERVAL_SECONDS: float = Field(default=5.0, gt=0)
+    OUTBOX_BATCH_SIZE: int = Field(default=20, ge=1, le=500)
+    # A leased row is invisible to other workers for this long; a worker that
+    # dies mid-send leaves it to be picked up again after the lease expires.
+    OUTBOX_LEASE_SECONDS: float = Field(default=300.0, gt=0)
+
+    # ── Jobs spine (ARCH-02, ADR-2026-09-25-jobs-spine) ─────────────────────
+    # Appended at the end of Settings on purpose (merge-safety, see above).
+    # On startup, give every order / repair without a job one (rows written by
+    # the seed scripts or by old code during a rolling deploy). Idempotent and
+    # a no-op once ``JobService.count_missing()`` is zero.
+    JOBS_BACKFILL_ON_STARTUP: bool = True
+
+    @property
+    def outbox_mode(self) -> str:
+        """Effective outbox mode (explicit setting, else by DEBUG)."""
+        if self.OUTBOX_MODE is not None:
+            return self.OUTBOX_MODE
+        return "inline" if self.DEBUG else "worker"
 
 
 # Instantiate once per process

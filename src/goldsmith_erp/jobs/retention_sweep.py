@@ -11,8 +11,14 @@ drive this were deleted in the pre-V1.1 GDPR hotfix
 Invocation (inside the backend container, weekly, via the systemd timer in
 ``deploy/systemd/``)::
 
-    python -m goldsmith_erp.jobs.retention_sweep            # DRY-RUN (default)
+    python -m goldsmith_erp.jobs.retention_sweep            # mode from RETENTION_EXECUTE
+    python -m goldsmith_erp.jobs.retention_sweep --dry-run  # always DRY-RUN
     python -m goldsmith_erp.jobs.retention_sweep --execute  # actually delete
+
+``RETENTION_EXECUTE`` (``core/config.py``, default ``False``) sets the mode
+when neither flag is given, so the operator can switch the scheduled run to
+executing in ``.env.production`` after sign-off (decision D-08). The
+schedule itself is documented in ``docs/technical/RETENTION_SCHEDULE.md``.
 
 Exit codes:
 
@@ -24,11 +30,12 @@ Exit codes:
 
 SAFETY (CLAUDE.md ``security > correctness > performance``):
 
-- **DRY-RUN is the default.** Without ``--execute`` the job only counts + logs
-  candidate PKs and touches nothing. The scheduled systemd unit ships in
-  dry-run mode; an operator flips it to execute only after reviewing the log
-  output and getting an Anna+Henrik sign-off (see
-  ``docs/technical/GDPR_ERASURE_RETENTION.md``).
+- **DRY-RUN is the default.** Without ``--execute`` or
+  ``RETENTION_EXECUTE=true`` the job only counts + logs candidate PKs and
+  touches nothing. The scheduled systemd unit ships in dry-run mode; an
+  operator flips it to execute only after reviewing the log output and
+  getting a written sign-off (decision D-08, see
+  ``docs/technical/RETENTION_SCHEDULE.md``).
 - **Financial rows are never touched inside their statutory period.** The
   ``financial_10y`` clock is *year-end-anchored* (§147 AO / HGB §257 retention
   runs to the end of the calendar year in which the record arose), so the
@@ -59,7 +66,7 @@ import calendar
 import logging
 import sys
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING, List, Optional, Sequence
 
 from sqlalchemy import select
@@ -139,7 +146,9 @@ class RetentionRule:
             # ``anchor < 1 Jan of (year(now) - N)``. This is intentionally
             # conservative: a 2015-03 record with N=10 is retained through
             # 2025-12-31 and only becomes a candidate from 2026 onward.
-            return datetime(now.year - self.financial_year_end_years, 1, 1)
+            return datetime(
+                now.year - self.financial_year_end_years, 1, 1, tzinfo=now.tzinfo
+            )
         if self.rolling_months is not None:
             return _subtract_months(now, self.rolling_months)
         raise ValueError(  # pragma: no cover — guarded by construction
@@ -305,7 +314,7 @@ async def sweep_retention(
     continues with the next rule. The report flags any failure so the CLI can
     exit nonzero (fail-loud — CLAUDE.md).
     """
-    now = now or datetime.utcnow()
+    now = now or datetime.now(timezone.utc)
     report = RetentionSweepReport(executed=execute, now=now)
 
     for rule in rules:
@@ -391,15 +400,41 @@ def _parse_args(argv: Sequence[str]) -> argparse.Namespace:
             "(counts + logs candidates, deletes nothing)."
         ),
     )
-    parser.add_argument(
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument(
         "--execute",
         action="store_true",
         help=(
-            "Actually delete expired rows. Without this flag the job runs in "
-            "DRY-RUN mode (default) and touches nothing."
+            "Actually delete expired rows. Without this flag (and without "
+            "RETENTION_EXECUTE=true) the job runs in DRY-RUN mode and touches "
+            "nothing."
         ),
     )
+    mode.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Force DRY-RUN even when RETENTION_EXECUTE=true (for reviews).",
+    )
     return parser.parse_args(list(argv))
+
+
+def resolve_execute(args: argparse.Namespace, setting: bool) -> bool:
+    """Decide the mode: ``--dry-run`` > ``--execute`` > ``RETENTION_EXECUTE``.
+
+    Decision D-08: deletion is opt-in. The default everywhere is DRY-RUN.
+    """
+    if args.dry_run:
+        return False
+    if args.execute:
+        return True
+    return setting
+
+
+def _retention_execute_setting() -> bool:
+    """Read ``settings.RETENTION_EXECUTE`` (deferred import, see ``_run``)."""
+    from goldsmith_erp.core.config import settings
+
+    return bool(settings.RETENTION_EXECUTE)
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
@@ -409,14 +444,20 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         format="%(asctime)s %(levelname)s %(name)s %(message)s",
     )
     args = _parse_args(argv if argv is not None else sys.argv[1:])
+    try:
+        execute = resolve_execute(args, _retention_execute_setting())
+    except Exception:  # noqa: BLE001 — misconfigured settings: log + exit 1
+        logger.error("Retention sweep could not read its settings", exc_info=True)
+        return 1
     logger.info(
-        "Retention sweep starting (mode=%s). Excluded: %s",
-        "EXECUTE" if args.execute else "DRY-RUN",
+        "Retention sweep starting (mode=%s, source=%s). Excluded: %s",
+        "EXECUTE" if execute else "DRY-RUN",
+        "cli" if (args.execute or args.dry_run) else "RETENTION_EXECUTE setting",
         EXCLUDED_NOTE,
     )
 
     try:
-        report = asyncio.run(_run(args.execute))
+        report = asyncio.run(_run(execute))
     except Exception:  # noqa: BLE001 — top-level guard: log + nonzero exit
         logger.error("Retention sweep crashed before completing", exc_info=True)
         return 1

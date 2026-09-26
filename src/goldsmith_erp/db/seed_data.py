@@ -14,11 +14,12 @@ DEVELOPMENT ONLY — do not run in production.
 """
 
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy.orm import Session
 
 from goldsmith_erp.core.security import get_password_hash
+from goldsmith_erp.db.seed_credentials import DEMO_ADMIN, DEMO_PASSWORD, DEMO_USERS
 
 from .models import (
     Activity,
@@ -27,6 +28,7 @@ from .models import (
     MetalPurchase,
     MetalType,
     Order,
+    OrderEvent,
     OrderStatusEnum,
     User,
     UserRole,
@@ -102,35 +104,19 @@ STANDARD_ACTIVITIES = [
 # USERS (3 roles)
 # ============================================================================
 
-# Seed user credentials are NOT hardcoded. Each role's password is read from an
-# env var; the fallback is a deliberately weak, low-entropy placeholder that must
-# never be relied on outside local development (this script is DEVELOPMENT ONLY).
-# Override in any shared environment via SEED_ADMIN_PASSWORD / SEED_GOLDSMITH_PASSWORD
-# / SEED_VIEWER_PASSWORD, or set SEED_FALLBACK_PASSWORD to change the shared default.
-_SEED_PW_FALLBACK = os.getenv("SEED_FALLBACK_PASSWORD", "dev-only-change-me")
-
+# Credentials come from db.seed_credentials — the single source of truth
+# shared by every seed path (scripts/seed_demo.py, scripts/seed_data.py, and
+# this module used to each define their own demo email/password convention;
+# see that module's docstring for why that was a problem).
 STANDARD_USERS = [
     {
-        "email": "admin@goldschmiede.de",
-        "password": os.getenv("SEED_ADMIN_PASSWORD", _SEED_PW_FALLBACK),
-        "first_name": "Thomas",
-        "last_name": "Brenner",
-        "role": UserRole.ADMIN,
-    },
-    {
-        "email": "goldschmied@goldschmiede.de",
-        "password": os.getenv("SEED_GOLDSMITH_PASSWORD", _SEED_PW_FALLBACK),
-        "first_name": "Maria",
-        "last_name": "Hofmann",
-        "role": UserRole.GOLDSMITH,
-    },
-    {
-        "email": "empfang@goldschmiede.de",
-        "password": os.getenv("SEED_VIEWER_PASSWORD", _SEED_PW_FALLBACK),
-        "first_name": "Lisa",
-        "last_name": "Weber",
-        "role": UserRole.VIEWER,
-    },
+        "email": demo_user.email,
+        "password": DEMO_PASSWORD,
+        "first_name": demo_user.first_name,
+        "last_name": demo_user.last_name,
+        "role": UserRole(demo_user.role),
+    }
+    for demo_user in DEMO_USERS
 ]
 
 
@@ -277,7 +263,7 @@ SAMPLE_MATERIALS = [
 
 def _build_sample_orders(customer_ids: dict, user_id: int) -> list:
     """Build sample orders referencing created customer IDs."""
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     return [
         {
             "title": "Verlobungsring Solitär",
@@ -303,7 +289,10 @@ def _build_sample_orders(customer_ids: dict, user_id: int) -> list:
             "title": "Trauringe Classic Paar",
             "description": "Klassische Trauringe in Gelbgold 750, Breite 5mm, "
             "Damenring mit 3 Brillanten à 0.03ct.",
-            "status": OrderStatusEnum.NEW,
+            # LV-05: the W2-07 order-lifecycle migration maps legacy NEW rows
+            # away; this order is priced, so it seeds as CONFIRMED (see the
+            # matching OrderEvent added in seed_orders below).
+            "status": OrderStatusEnum.CONFIRMED,
             "customer_id": customer_ids.get("Gruber", 1),
             "price": 2800.00,
             "deadline": now + timedelta(days=28),
@@ -347,7 +336,7 @@ def _build_sample_orders(customer_ids: dict, user_id: int) -> list:
 
 
 def _build_metal_purchases() -> list:
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     return [
         {
             "metal_type": MetalType.GOLD_18K,
@@ -378,7 +367,12 @@ def _build_metal_purchases() -> list:
 
 
 def seed_users(db: Session) -> dict:
-    """Create standard users. Returns dict of name→id for reference."""
+    """Create standard users. Returns dict of email→id for reference.
+
+    Keyed by email, not name: two of the three canonical demo staff
+    (db.seed_credentials.DEMO_ADMIN and DEMO_GOLDSMITH) share the surname
+    "Goldmann", so a name-keyed dict would silently collide.
+    """
     created = 0
     skipped = 0
     user_ids = {}
@@ -386,7 +380,7 @@ def seed_users(db: Session) -> dict:
     for data in STANDARD_USERS:
         existing = db.query(User).filter(User.email == data["email"]).first()
         if existing:
-            user_ids[data["last_name"]] = existing.id
+            user_ids[data["email"]] = existing.id
             skipped += 1
             continue
 
@@ -397,11 +391,11 @@ def seed_users(db: Session) -> dict:
             last_name=data["last_name"],
             role=data["role"],
             is_active=True,
-            created_at=datetime.utcnow(),
+            created_at=datetime.now(timezone.utc),
         )
         db.add(user)
         db.flush()
-        user_ids[data["last_name"]] = user.id
+        user_ids[data["email"]] = user.id
         created += 1
 
     db.commit()
@@ -435,7 +429,7 @@ def seed_activities(db: Session) -> None:
             usage_count=0,
             is_custom=False,
             is_billable=data["category"] == "fabrication",
-            created_at=datetime.utcnow(),
+            created_at=datetime.now(timezone.utc),
         )
         db.add(activity)
         created += 1
@@ -471,7 +465,7 @@ def seed_customers(db: Session) -> dict:
             source=data.get("source"),
             notes=data.get("notes"),
             is_active=True,
-            created_at=datetime.utcnow(),
+            created_at=datetime.now(timezone.utc),
         )
         db.add(customer)
         db.flush()
@@ -517,10 +511,29 @@ def seed_orders(db: Session, customer_ids: dict, admin_id: int) -> None:
         print(f"  Orders: skipped ({existing_count} already exist)")
         return
 
-    orders = _build_sample_orders(customer_ids, admin_id)
-    for data in orders:
+    orders_data = _build_sample_orders(customer_ids, admin_id)
+    orders = []
+    for data in orders_data:
         order = Order(**data)
         db.add(order)
+        orders.append(order)
+    db.flush()
+
+    # LV-05: order 1 ("Trauringe Classic Paar") above seeds directly at
+    # CONFIRMED instead of the legacy NEW status. This function bulk-inserts
+    # Order rows and bypasses services/order_workflow.transition by design,
+    # so it has to add the matching order_events row itself — otherwise the
+    # order's Historie timeline would be empty despite being confirmed.
+    confirmed_order = orders[1]
+    db.add(
+        OrderEvent(
+            order_id=confirmed_order.id,
+            from_status=None,
+            to_status=confirmed_order.status.value,
+            user_id=admin_id,
+            created_at=confirmed_order.created_at,
+        )
+    )
 
     db.commit()
     print(f"  Orders: {len(orders)} created")
@@ -576,7 +589,7 @@ def main():
         customer_ids = seed_customers(db)
         seed_materials(db)
 
-        admin_id = user_ids.get("Brenner", 1)
+        admin_id = user_ids.get(DEMO_ADMIN.email, 1)
         seed_orders(db, customer_ids, admin_id)
         seed_metal_purchases(db)
 

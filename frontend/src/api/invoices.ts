@@ -11,6 +11,7 @@ import {
 
 export interface InvoiceFilterParams {
   status?: string;
+  customer_id?: number; // server-side filter (W2-12, DOM-38)
   from?: string; // ISO date string
   to?: string;   // ISO date string
   skip?: number;
@@ -60,6 +61,30 @@ export const invoicesApi = {
    */
   markAsPaid: async (id: number, data: MarkPaidInput): Promise<Invoice> => {
     const response = await apiClient.post<Invoice>(`/invoices/${id}/mark-paid`, data);
+    return response.data;
+  },
+
+  /**
+   * Cancel/void an invoice (Rechnung stornieren).
+   *
+   * Status transitions go through the dedicated action endpoints, not
+   * `PUT /invoices/{id}` — see ADR-2026-09-25 (price-semantics), decision 5.
+   * POST /invoices/{id}/cancel
+   */
+  cancelInvoice: async (id: number): Promise<Invoice> => {
+    const response = await apiClient.post<Invoice>(`/invoices/${id}/cancel`);
+    return response.data;
+  },
+
+  /**
+   * Stornorechnung erstellen (W2-04): reverses an issued (also a paid)
+   * invoice with a negative invoice that links to it. Returns the Storno.
+   * POST /invoices/{id}/storno
+   */
+  createStorno: async (id: number, reason?: string): Promise<Invoice> => {
+    const response = await apiClient.post<Invoice>(`/invoices/${id}/storno`, {
+      reason: reason?.trim() || null,
+    });
     return response.data;
   },
 };

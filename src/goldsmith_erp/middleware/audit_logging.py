@@ -32,16 +32,17 @@ History:
   financial data).
 """
 
-import ipaddress
 import json
 import logging
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Callable, Optional, Tuple
 
 from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.types import ASGIApp
+
+from goldsmith_erp.core.client_ip import get_client_ip
 
 try:
     from goldsmith_erp.db.session import AsyncSessionLocal
@@ -54,38 +55,6 @@ except ImportError:
     CustomerAuditLog = None  # type: ignore[assignment,misc]
 
 logger = logging.getLogger(__name__)
-
-
-def _is_trusted_proxy_ip(ip: str) -> bool:
-    """Return True if *ip* is a loopback or RFC-1918 private address."""
-    try:
-        addr = ipaddress.ip_address(ip)
-        return addr.is_loopback or addr.is_private
-    except ValueError:
-        return False
-
-
-def get_real_ip(request: Request) -> str:
-    """
-    Return the real client IP address.
-
-    X-Forwarded-For is only trusted when the direct TCP peer
-    (request.client.host) is a loopback or private-network address,
-    i.e. a known-good reverse proxy.  Untrusted clients that inject
-    X-Forwarded-For are ignored and their direct IP is used instead.
-    """
-    direct_ip = request.client.host if request.client else None
-
-    if direct_ip and _is_trusted_proxy_ip(direct_ip):
-        forwarded_for = request.headers.get("X-Forwarded-For")
-        if forwarded_for:
-            return forwarded_for.split(",")[0].strip()
-
-        real_ip = request.headers.get("X-Real-IP")
-        if real_ip:
-            return real_ip
-
-    return direct_ip or "unknown"
 
 
 # ---------------------------------------------------------------------------
@@ -170,6 +139,12 @@ _RESOURCE_ROUTES: dict[str, Tuple[str, str, str, bool]] = {
     # — the router writes its own CustomerAuditLog row via
     # ``write_financial_audit_row`` instead (see api/routers/estimator.py).
     "estimates": ("estimate", "financial_read", "list_accessed_financial", True),
+    # W2-03: ``GET /dashboard/today`` returns customer names plus cost-change
+    # amounts and quote totals (financial) for ADMIN/GOLDSMITH.
+    "dashboard": ("dashboard", "financial_read", "list_accessed_financial", True),
+    # ARCH phase 5: ``GET /jobs`` / ``/jobs/{id}`` return customer names and
+    # (FINANCIAL_VIEW) the agreed price of orders and repairs.
+    "jobs": ("job", "financial_read", "list_accessed_financial", True),
     # ── Finding 2.2 / issue #39: close the "no audit coverage at all" gap ──
     # These families previously had NO audit row on reads OR writes. They are
     # registered here so the middleware covers them uniformly.
@@ -212,11 +187,38 @@ _RESOURCE_ROUTES: dict[str, Tuple[str, str, str, bool]] = {
     # ``/orders/{id}/photos`` (the documented first-segment "orders" blind
     # spot) and are NOT reachable from this middleware — see the report.
     "photos": ("order_photo", "accessed", "list_accessed", False),
+    # media (ARCH phase 4, ADR-2026-09-25-media): the unified
+    # ``/media/{id}``, ``/media/{id}/thumbnail`` serving routes, the owner
+    # listing and ``PATCH /media/{id}`` (customer_visible). Design IP, every
+    # verb audited. Ids are uuids, so entity_id stays None (as for photos).
+    "media": ("media_asset", "accessed", "list_accessed", False),
     # measurements: customer body data (PII). The list/create live under
     # ``/customers/{id}/measurements`` (already audited via the "customers"
     # entry); this entry covers the bare ``/measurements/{id}`` get/update/
     # delete routes. Legal basis overridden to Art. 6(1)(b) contract.
     "measurements": ("measurement", "accessed", "list_accessed", False),
+    # W2-06: order gemstones. Cost is financial, the stone specification
+    # design IP. This entry covers ``PATCH/DELETE /gemstones/{id}`` (every
+    # verb audited); list + create live under ``/orders/{id}/gemstones``
+    # (first-segment blind spot) and are audited by GemstoneService.
+    "gemstones": ("gemstone", "financial_read", "list_accessed_financial", False),
+    # W2-04: Werkstatt-Stammdaten (seller data printed on every Rechnung).
+    # Two-segment key: only this admin route is audited, not every
+    # ``/admin/*`` endpoint. ``False`` = reads AND writes are audited here
+    # (the service logs only the changed field names on top).
+    "admin/workshop-settings": (
+        "workshop_settings",
+        "accessed",
+        "list_accessed",
+        False,
+    ),
+    # W6 outbox (ARCH-04): the admin queue view and "retry" (a write that
+    # re-sends a customer mail). Every verb audited.
+    "admin/outbox": ("outbox_message", "accessed", "list_accessed", False),
+    # W8 Standorte: ADMIN create / rename / reorder / deactivate. Every verb
+    # audited (no service-layer audit rows). The staff picker route
+    # ``GET /locations`` is master data, not audited.
+    "admin/locations": ("workshop_location", "accessed", "list_accessed", False),
 }
 
 # Legal-basis overrides for audited families that are neither customer PII
@@ -232,7 +234,17 @@ _LEGAL_BASIS_OVERRIDES: dict[str, str] = {
         "(account administration & security monitoring)"
     ),
     "order_photo": "GDPR Article 6(1)(b) - Contract (order design documentation)",
+    "media_asset": "GDPR Article 6(1)(b) - Contract (order design documentation)",
     "measurement": "GDPR Article 6(1)(b) - Contract (customer measurement records)",
+    "workshop_settings": (
+        "GDPR Article 6(1)(c) - Legal obligation (§14 Abs. 4 UStG seller data)"
+    ),
+    "workshop_location": (
+        "GDPR Article 6(1)(f) - Legitimate interest (workshop master data)"
+    ),
+    "outbox_message": (
+        "GDPR Article 6(1)(b) - Contract (delivery of customer communication)"
+    ),
 }
 
 
@@ -424,6 +436,12 @@ class AuditLoggingMiddleware(BaseHTTPMiddleware):
         parts = [p for p in path.split("/") if p]
         if len(parts) < 3 or parts[0] != "api" or parts[1] != "v1":
             return None
+        if len(parts) >= 4:
+            # Two-segment families (e.g. "admin/workshop-settings") win over
+            # a one-segment one.
+            nested = _RESOURCE_ROUTES.get(f"{parts[2]}/{parts[3]}")
+            if nested is not None:
+                return nested
         return _RESOURCE_ROUTES.get(parts[2])
 
     @staticmethod
@@ -473,7 +491,7 @@ class AuditLoggingMiddleware(BaseHTTPMiddleware):
         Returns:
             Client IP address
         """
-        return get_real_ip(request)
+        return get_client_ip(request)
 
     def _method_to_action(self, method: str) -> str:
         """
@@ -587,7 +605,7 @@ class AuditLoggingMiddleware(BaseHTTPMiddleware):
                     user_id=user_id,
                     user_email=user_email,
                     user_role=user_role,
-                    timestamp=datetime.utcnow(),
+                    timestamp=datetime.now(timezone.utc),
                     ip_address=ip_address,
                     user_agent=user_agent,
                     details=details,
@@ -653,7 +671,7 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
 
     def _get_client_ip(self, request: Request) -> str:
         """Get client IP address, validating proxy headers against the direct peer."""
-        return get_real_ip(request)
+        return get_client_ip(request)
 
 
 # ═══════════════════════════════════════════════════════════════════════════

@@ -9,13 +9,14 @@ in line with the project service-layer convention.
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Optional
 
 from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from goldsmith_erp.core.timeutil import ensure_utc
 from goldsmith_erp.db.models import CalendarEvent as CalendarEventModel
 from goldsmith_erp.db.models import CalendarEventType
 from goldsmith_erp.db.models import Order as OrderModel
@@ -43,7 +44,7 @@ def _traffic_light(order: OrderModel) -> tuple[str, int]:
 
     Mirrors the frontend getTrafficClass() logic so the backend and UI agree.
     """
-    now = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+    now = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
     deadline = order.deadline.replace(hour=0, minute=0, second=0, microsecond=0)
     days = (deadline - now).days
 
@@ -65,7 +66,7 @@ def _parse_date(value: Optional[str]) -> Optional[datetime]:
     if not value:
         return None
     try:
-        return datetime.fromisoformat(value)
+        return ensure_utc(datetime.fromisoformat(value))
     except ValueError as exc:
         raise ValueError(
             f"Invalid date format '{value}'. Expected ISO format, e.g. 2026-03-31."

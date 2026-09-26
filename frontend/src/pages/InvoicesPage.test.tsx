@@ -21,7 +21,8 @@
 // with controlled responses.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { screen, fireEvent, waitFor, within } from '@testing-library/react';
+import { renderWithQuery } from '../test/queryWrapper';
 
 // ---------------------------------------------------------------------------
 // Context mocks — keep these BEFORE the component import.
@@ -48,23 +49,30 @@ vi.mock('../contexts', () => ({
 const mockGetInvoices = vi.fn();
 const mockCreateFromOrder = vi.fn();
 const mockGetInvoice = vi.fn();
-const mockOrdersGetAll = vi.fn();
+const mockOrdersPage = vi.fn();
+const mockUpdateInvoice = vi.fn();
+const mockCancelInvoice = vi.fn();
 
 vi.mock('../api/invoices', () => ({
   invoicesApi: {
     getInvoices: (...args: unknown[]) => mockGetInvoices(...args),
     createFromOrder: (...args: unknown[]) => mockCreateFromOrder(...args),
     getInvoice: (...args: unknown[]) => mockGetInvoice(...args),
-    updateInvoice: vi.fn(),
+    updateInvoice: (...args: unknown[]) => mockUpdateInvoice(...args),
+    cancelInvoice: (...args: unknown[]) => mockCancelInvoice(...args),
     markAsPaid: vi.fn(),
   },
 }));
 
-vi.mock('../api/orders', () => ({
-  ordersApi: {
-    getAll: (...args: unknown[]) => mockOrdersGetAll(...args),
-  },
-}));
+// W7 hygiene: the "Rechnung erstellen" order picker now fetches a bounded
+// page via pagedApi.orders (was ordersApi.getAll({ limit: 500 })).
+vi.mock('../api/paged', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../api/paged')>();
+  return {
+    ...actual,
+    pagedApi: { ...actual.pagedApi, orders: (...args: unknown[]) => mockOrdersPage(...args) },
+  };
+});
 
 vi.mock('../api/client', () => ({
   default: { get: vi.fn(), post: vi.fn(), put: vi.fn() },
@@ -76,6 +84,19 @@ vi.mock('../api/client', () => ({
 
 import { InvoicesPage } from './InvoicesPage';
 import type { OrderType, Invoice } from '../types';
+
+// W4-03: the page reads TanStack Query and the URL (?invoice_id=…).
+function renderInvoices() {
+  return renderWithQuery(<InvoicesPage />, { route: '/invoices' });
+}
+
+// DataTable renders the rows as a table and as phone cards; the assertions
+// target the table.
+async function findInTable(text: string): Promise<HTMLElement> {
+  await waitFor(() => expect(document.querySelector('.invoice-list table')).toBeTruthy());
+  const table = document.querySelector('.invoice-list table') as HTMLElement;
+  return within(table).findByText(text);
+}
 
 // ---------------------------------------------------------------------------
 // Test fixtures
@@ -95,6 +116,10 @@ function makeOrder(overrides: Partial<OrderType> = {}): OrderType {
   };
 }
 
+function makeOrdersPage(items: OrderType[]) {
+  return { items, total: items.length, limit: 100, offset: 0 };
+}
+
 function makeInvoice(overrides: Partial<Invoice> = {}): Invoice {
   return {
     id: 99,
@@ -110,6 +135,7 @@ function makeInvoice(overrides: Partial<Invoice> = {}): Invoice {
     tax_rate: 19,
     tax_amount: 19,
     total: 119,
+    scrap_gold_credit: 0,
     notes: null,
     payment_method: null,
     created_at: '2026-04-23T10:00:00Z',
@@ -134,16 +160,17 @@ describe('InvoicesPage — Bug #3 (generic error & dropdown filter)', () => {
     // Arrange: the user can pick a completed order (so the dropdown is
     // populated and the submit button enables), but the backend rejects
     // with a 422 because — say — the order already has an active invoice.
-    mockOrdersGetAll.mockResolvedValue([
-      makeOrder({ id: 3, status: 'completed', title: 'Ohrringe Paar' }),
-    ]);
+    mockOrdersPage.mockResolvedValue(
+      makeOrdersPage([makeOrder({ id: 3, status: 'completed', title: 'Ohrringe Paar' })])
+    );
     const backendDetail =
       'Fuer Auftrag 3 existiert bereits eine aktive Rechnung';
     mockCreateFromOrder.mockRejectedValue({
+      isAxiosError: true,
       response: { status: 409, data: { detail: backendDetail } },
     });
 
-    render(<InvoicesPage />);
+    renderInvoices();
 
     // Wait for the initial invoice list fetch to settle
     await waitFor(() => expect(mockGetInvoices).toHaveBeenCalled());
@@ -152,10 +179,11 @@ describe('InvoicesPage — Bug #3 (generic error & dropdown filter)', () => {
     fireEvent.click(screen.getByRole('button', { name: /Rechnung erstellen/i }));
 
     // Wait for the orders fetch to populate the dropdown
-    await waitFor(() => expect(mockOrdersGetAll).toHaveBeenCalled());
+    await waitFor(() => expect(mockOrdersPage).toHaveBeenCalled());
 
-    // Pick the eligible order
-    const orderSelect = await screen.findByLabelText(/Auftrag/i);
+    // Pick the eligible order. `/Auftrag/i` also matches the new "Auftrag
+    // suchen" search box (W7 hygiene), so scope to the <select> itself.
+    const orderSelect = await screen.findByLabelText(/Auftrag/i, { selector: 'select' });
     fireEvent.change(orderSelect, { target: { value: '3' } });
 
     // Submit the modal
@@ -182,22 +210,24 @@ describe('InvoicesPage — Bug #3 (generic error & dropdown filter)', () => {
     // Arrange: backend returns a mix of statuses — only completed and
     // delivered should be selectable. draft / in_progress are ineligible
     // because the backend's create_invoice_from_order guard rejects them.
-    mockOrdersGetAll.mockResolvedValue([
-      makeOrder({ id: 1, status: 'in_progress', title: 'Goldring Reparatur' }),
-      makeOrder({ id: 2, status: 'draft', title: 'Verlobungsring' }),
-      makeOrder({ id: 3, status: 'completed', title: 'Ohrringe Paar' }),
-      makeOrder({ id: 4, status: 'delivered', title: 'Trauring Paar' }),
-    ]);
+    mockOrdersPage.mockResolvedValue(
+      makeOrdersPage([
+        makeOrder({ id: 1, status: 'in_progress', title: 'Goldring Reparatur' }),
+        makeOrder({ id: 2, status: 'draft', title: 'Verlobungsring' }),
+        makeOrder({ id: 3, status: 'completed', title: 'Ohrringe Paar' }),
+        makeOrder({ id: 4, status: 'delivered', title: 'Trauring Paar' }),
+      ])
+    );
 
-    render(<InvoicesPage />);
+    renderInvoices();
     await waitFor(() => expect(mockGetInvoices).toHaveBeenCalled());
 
     fireEvent.click(screen.getByRole('button', { name: /Rechnung erstellen/i }));
-    await waitFor(() => expect(mockOrdersGetAll).toHaveBeenCalled());
+    await waitFor(() => expect(mockOrdersPage).toHaveBeenCalled());
 
-    const orderSelect = (await screen.findByLabelText(
-      /Auftrag/i
-    )) as HTMLSelectElement;
+    const orderSelect = (await screen.findByLabelText(/Auftrag/i, {
+      selector: 'select',
+    })) as HTMLSelectElement;
 
     // Visible options: placeholder + the 2 eligible orders
     const optionValues = Array.from(orderSelect.options).map((o) => o.value);
@@ -257,15 +287,15 @@ describe('InvoicesPage — Bug #5 (status case-mismatch)', () => {
       limit: 25,
     });
 
-    render(<InvoicesPage />);
+    renderInvoices();
 
     // Wait for table to populate
-    await screen.findByText('RE-2026-0001');
+    await findInTable('RE-2026-0001');
 
     // Each German label appears in the badge cells. (We scope to the
     // badge class because "Entwurf"/"Bezahlt" also appear in the status
     // filter dropdown options and "Bezahlt" is also an action button label.)
-    const badges = document.querySelectorAll('.invoices-table .invoice-status-badge');
+    const badges = document.querySelectorAll('.invoice-list table .ui-status-badge');
     const badgeTexts = Array.from(badges).map((b) => b.textContent?.trim());
     expect(badgeTexts).toEqual(['Entwurf', 'Versendet', 'Bezahlt']);
 
@@ -276,7 +306,7 @@ describe('InvoicesPage — Bug #5 (status case-mismatch)', () => {
     });
   });
 
-  it('applies the lowercase CSS modifier class to status badges', async () => {
+  it('maps the lowercase backend value to the StatusBadge tone (LV-05)', async () => {
     mockGetInvoices.mockResolvedValue({
       items: [listItem({ id: 1, status: 'sent' })],
       total: 1,
@@ -284,15 +314,15 @@ describe('InvoicesPage — Bug #5 (status case-mismatch)', () => {
       limit: 25,
     });
 
-    render(<InvoicesPage />);
-    await screen.findByText('Versendet');
-    // The CSS file ships the rule `.invoice-status-badge.status-sent { ... }`
-    // (lowercase). If this class is absent, the badge will render with NO
-    // color/border — the exact symptom the user reported.
-    const badge = document.querySelector('.invoices-table .invoice-status-badge');
+    renderInvoices();
+    await findInTable('Versendet');
+    // Colour now comes from <StatusBadge kind="invoice"> (design/status.ts):
+    // "sent" is the waiting tone, with an icon next to the German label.
+    const badge = document.querySelector('.invoice-list table .ui-status-badge');
     expect(badge).toBeTruthy();
-    expect(badge?.className).toMatch(/\binvoice-status-badge\b/);
-    expect(badge?.className).toMatch(/\bstatus-sent\b/);
+    expect(badge?.className).toMatch(/\bui-status-badge--waiting\b/);
+    expect(badge?.getAttribute('data-status')).toBe('sent');
+    expect(badge?.querySelector('svg[aria-hidden="true"]')).toBeTruthy();
     expect(badge?.textContent?.trim()).toBe('Versendet');
   });
 
@@ -308,8 +338,8 @@ describe('InvoicesPage — Bug #5 (status case-mismatch)', () => {
       limit: 25,
     });
 
-    render(<InvoicesPage />);
-    await screen.findByText('RE-2026-0001');
+    renderInvoices();
+    await findInTable('RE-2026-0001');
 
     // Each action appears exactly once across the three rows.
     expect(screen.getAllByRole('button', { name: /^Bezahlt$/ })).toHaveLength(1);
@@ -319,12 +349,12 @@ describe('InvoicesPage — Bug #5 (status case-mismatch)', () => {
   it('sends the lowercase status value when filtering (backend rejects uppercase)', async () => {
     mockGetInvoices.mockResolvedValue({ items: [], total: 0, skip: 0, limit: 25 });
 
-    render(<InvoicesPage />);
+    renderInvoices();
     await waitFor(() => expect(mockGetInvoices).toHaveBeenCalled());
 
-    // The status filter dropdown
-    const statusSelect = screen.getByRole('combobox', { name: '' }) ||
-      screen.getByDisplayValue('Alle Status');
+    // The status filter dropdown (now has a proper accessible name via
+    // `<label htmlFor>`, fixed alongside jsx-a11y/label-has-associated-control).
+    const statusSelect = screen.getByRole('combobox', { name: 'Status' });
     // Pick the German "Entwurf" option — its underlying value MUST be the
     // lowercase enum value the backend understands.
     fireEvent.change(statusSelect, { target: { value: 'draft' } });
@@ -364,8 +394,8 @@ describe('InvoicesPage — Bug #5 (status case-mismatch)', () => {
       line_items: [],
     });
 
-    render(<InvoicesPage />);
-    fireEvent.click(await screen.findByText('RE-2026-0007'));
+    renderInvoices();
+    fireEvent.click(await findInTable('RE-2026-0007'));
 
     // The amounts MUST appear in the rendered DOM (regression test for the
     // off-screen-overflow bug where `<td colspan=7>` made the table wider
@@ -425,10 +455,10 @@ describe('InvoicesPage — Bug #2 (Drucken renders empty)', () => {
     });
     mockGetInvoice.mockResolvedValue(invoice);
 
-    render(<InvoicesPage />);
+    renderInvoices();
 
     // Wait for the row to appear, then click it to expand the detail panel
-    const rowCell = await screen.findByText('RE-2026-0099');
+    const rowCell = await findInTable('RE-2026-0099');
     fireEvent.click(rowCell);
 
     // The expanded detail panel must include the totals block
@@ -441,5 +471,100 @@ describe('InvoicesPage — Bug #2 (Drucken renders empty)', () => {
     expect(
       screen.getByRole('button', { name: /Drucken/i })
     ).toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// BE-05 follow-up — cancel MUST go through the dedicated cancel endpoint.
+//
+// ADR-2026-09-25 (price-semantics) removes `status` from `InvoiceUpdate`, so
+// `PUT /invoices/{id}` with `{status: "cancelled"}` now returns 422. The
+// "Stornieren" action must call `POST /invoices/{id}/cancel` instead, and
+// must never send a `status` field via the generic PUT/updateInvoice path.
+// ---------------------------------------------------------------------------
+
+describe('InvoicesPage — cancel via dedicated endpoint (BE-05 follow-up)', () => {
+  function draftListItem(overrides: Partial<{ id: number; invoice_number: string }> = {}) {
+    return {
+      id: 1,
+      invoice_number: 'RE-2026-0001',
+      order_id: 1,
+      customer_id: 1,
+      status: 'draft' as const,
+      issue_date: '2026-04-10T10:00:00Z',
+      due_date: '2026-05-10T10:00:00Z',
+      paid_date: null,
+      total: 100,
+      created_at: '2026-04-10T10:00:00Z',
+      ...overrides,
+    };
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockHasRole.mockReturnValue(true);
+    mockShowConfirm.mockResolvedValue(true);
+  });
+
+  it('calls POST /invoices/{id}/cancel, not PUT with a status field', async () => {
+    mockGetInvoices.mockResolvedValue({
+      items: [draftListItem()],
+      total: 1,
+      skip: 0,
+      limit: 25,
+    });
+    mockCancelInvoice.mockResolvedValue({ ...draftListItem(), status: 'cancelled' });
+
+    renderInvoices();
+    await findInTable('RE-2026-0001');
+
+    fireEvent.click(screen.getByRole('button', { name: /^Stornieren$/ }));
+
+    await waitFor(() => expect(mockCancelInvoice).toHaveBeenCalledWith(1));
+    expect(mockUpdateInvoice).not.toHaveBeenCalled();
+  });
+
+  it('does not cancel when the confirmation dialog is dismissed', async () => {
+    mockGetInvoices.mockResolvedValue({
+      items: [draftListItem()],
+      total: 1,
+      skip: 0,
+      limit: 25,
+    });
+    mockShowConfirm.mockResolvedValue(false);
+
+    renderInvoices();
+    await findInTable('RE-2026-0001');
+
+    fireEvent.click(screen.getByRole('button', { name: /^Stornieren$/ }));
+
+    await waitFor(() => expect(mockShowConfirm).toHaveBeenCalled());
+    expect(mockCancelInvoice).not.toHaveBeenCalled();
+    expect(mockUpdateInvoice).not.toHaveBeenCalled();
+  });
+
+  it('shows an error toast when cancellation fails', async () => {
+    mockGetInvoices.mockResolvedValue({
+      items: [draftListItem()],
+      total: 1,
+      skip: 0,
+      limit: 25,
+    });
+    mockCancelInvoice.mockRejectedValue({
+      isAxiosError: true,
+      response: { status: 409, data: { detail: 'Bezahlte Rechnungen koennen nicht storniert werden' } },
+    });
+
+    renderInvoices();
+    await findInTable('RE-2026-0001');
+
+    fireEvent.click(screen.getByRole('button', { name: /^Stornieren$/ }));
+
+    await waitFor(() => {
+      expect(mockShowToast).toHaveBeenCalledWith(
+        'Bezahlte Rechnungen koennen nicht storniert werden',
+        'error'
+      );
+    });
   });
 });

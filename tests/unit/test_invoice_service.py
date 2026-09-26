@@ -9,7 +9,7 @@ Tests cover:
 - Status transitions: DRAFT->SENT->PAID and PAID cannot be cancelled
 """
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -39,7 +39,7 @@ from goldsmith_erp.services.invoice_service import InvoiceService
 
 
 def _future_due_date() -> datetime:
-    return datetime.utcnow() + timedelta(days=30)
+    return datetime.now(timezone.utc) + timedelta(days=30)
 
 
 async def _make_user(db_session) -> User:
@@ -100,7 +100,7 @@ async def _make_invoice(db_session, order: Order, user: User) -> InvoiceModel:
         customer_id=order.customer_id,
         created_by=user.id,
         status=InvoiceStatus.DRAFT,
-        issue_date=datetime.utcnow(),
+        issue_date=datetime.now(timezone.utc),
         due_date=_future_due_date(),
         subtotal=500.0,
         tax_rate=19.0,
@@ -124,7 +124,7 @@ class TestGenerateInvoiceNumber:
 
     async def test_first_number_of_year_is_0001(self, db_session):
         """With no existing invoices the first number must be RE-<year>-0001."""
-        year = datetime.utcnow().year
+        year = datetime.now(timezone.utc).year
         number = await InvoiceService.generate_invoice_number(db_session)
 
         assert number == f"RE-{year}-0001"
@@ -141,7 +141,7 @@ class TestGenerateInvoiceNumber:
 
     async def test_second_number_increments(self, db_session):
         """After one invoice exists, the next number increments by 1."""
-        year = datetime.utcnow().year
+        year = datetime.now(timezone.utc).year
         user = await _make_user(db_session)
         customer = await _make_customer(db_session)
         order = await _make_order(db_session, customer)
@@ -153,7 +153,7 @@ class TestGenerateInvoiceNumber:
             customer_id=customer.id,
             created_by=user.id,
             status=InvoiceStatus.DRAFT,
-            issue_date=datetime.utcnow(),
+            issue_date=datetime.now(timezone.utc),
             due_date=_future_due_date(),
             subtotal=100.0,
             tax_rate=19.0,
@@ -168,7 +168,7 @@ class TestGenerateInvoiceNumber:
 
     async def test_sequence_zero_pads_to_four_digits(self, db_session):
         """Sequence must be zero-padded to exactly 4 digits (e.g. 0001, 0099)."""
-        year = datetime.utcnow().year
+        year = datetime.now(timezone.utc).year
         number = await InvoiceService.generate_invoice_number(db_session)
         seq_part = number.split("-")[-1]
 
@@ -228,8 +228,10 @@ class TestCalculateTotals:
         result = InvoiceService.calculate_totals(items, tax_rate=19.0)
 
         assert result["subtotal"] == 187.5
-        assert result["tax_amount"] == round(187.5 * 0.19, 2)
-        assert result["total"] == round(187.5 + result["tax_amount"], 2)
+        # A1: 187.50 x 19 % = 35.625 -> 35.63 with ROUND_HALF_UP. The old
+        # expectation used float round(), which gives 35.62.
+        assert result["tax_amount"] == 35.63
+        assert result["total"] == 223.13
 
     def test_totals_rounded_to_two_decimal_places(self):
         """Results must be rounded to 2 decimal places (currency precision)."""
@@ -420,7 +422,7 @@ class TestInvoiceNumberOnCreate:
 
     async def test_created_invoice_has_correct_number_format(self, db_session):
         """Invoice created via service must carry a properly formatted number."""
-        year = datetime.utcnow().year
+        year = datetime.now(timezone.utc).year
         user = await _make_user(db_session)
         customer = await _make_customer(db_session)
         order = await _make_order(
@@ -450,8 +452,8 @@ class TestInvoiceNumberOnCreate:
 class TestStatusTransitions:
     """Verify allowed and forbidden status transitions."""
 
-    async def test_draft_to_sent_via_update(self, db_session):
-        """DRAFT invoice can be updated to SENT status."""
+    async def test_draft_to_sent_via_mark_as_sent(self, db_session):
+        """DRAFT invoice moves to SENT through the dedicated action (BE-05)."""
         user = await _make_user(db_session)
         customer = await _make_customer(db_session)
         order = await _make_order(db_session, customer)
@@ -459,13 +461,35 @@ class TestStatusTransitions:
 
         assert invoice.status == InvoiceStatus.DRAFT
 
-        update = InvoiceUpdate(status=InvoiceStatus.SENT)
-        updated = await InvoiceService.update_invoice(
-            db_session, invoice.id, update, user
-        )
+        updated = await InvoiceService.mark_as_sent(db_session, invoice.id, user)
 
         assert updated is not None
         assert updated.status == InvoiceStatus.SENT
+
+    async def test_invoice_update_rejects_status_field(self):
+        """InvoiceUpdate must not accept status (BE-05)."""
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError):
+            InvoiceUpdate(status=InvoiceStatus.CANCELLED)
+
+    async def test_paid_invoice_cannot_be_updated(self, db_session):
+        """PAID invoice rejects PUT edits with 409 (BE-05)."""
+        from fastapi import HTTPException
+
+        user = await _make_user(db_session)
+        customer = await _make_customer(db_session)
+        order = await _make_order(db_session, customer)
+        invoice = await _make_invoice(db_session, order, user)
+        invoice.status = InvoiceStatus.PAID
+        await db_session.commit()
+
+        with pytest.raises(HTTPException) as exc_info:
+            await InvoiceService.update_invoice(
+                db_session, invoice.id, InvoiceUpdate(notes="attempt"), user
+            )
+
+        assert exc_info.value.status_code == 409
 
     async def test_sent_to_paid_via_mark_paid(self, db_session):
         """SENT invoice can be marked as PAID."""
@@ -536,7 +560,7 @@ class TestStatusTransitions:
         assert exc_info.value.status_code == 422
 
     async def test_cancelled_invoice_cannot_be_updated(self, db_session):
-        """CANCELLED invoice must raise 422 on any update attempt."""
+        """CANCELLED invoice must raise 409 on any update attempt (ADR 2026-09-25)."""
         from fastapi import HTTPException
 
         user = await _make_user(db_session)
@@ -551,7 +575,7 @@ class TestStatusTransitions:
                 db_session, invoice.id, InvoiceUpdate(notes="attempt"), user
             )
 
-        assert exc_info.value.status_code == 422
+        assert exc_info.value.status_code == 409
 
     async def test_already_cancelled_invoice_cancel_again_raises_422(self, db_session):
         """Cancelling a CANCELLED invoice must raise 422."""
@@ -574,7 +598,7 @@ class TestStatusTransitions:
         order = await _make_order(db_session, customer)
         invoice = await _make_invoice(db_session, order, user)
 
-        specific_date = datetime(2026, 3, 28, 12, 0, 0)
+        specific_date = datetime(2026, 3, 28, 12, 0, 0, tzinfo=timezone.utc)
         paid_request = MarkPaidRequest(paid_date=specific_date)
         paid_invoice = await InvoiceService.mark_as_paid(
             db_session, invoice.id, paid_request, user

@@ -21,11 +21,12 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, EmailStr, Field
 from slowapi import Limiter
-from slowapi.util import get_remote_address
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy.orm import selectinload
 
+from goldsmith_erp.core.client_ip import get_client_ip
+from goldsmith_erp.core.config import settings
 from goldsmith_erp.core.pubsub import get_redis_client
 from goldsmith_erp.db.models import (
     Customer,
@@ -36,11 +37,26 @@ from goldsmith_erp.db.models import (
     RepairJobStatus,
 )
 from goldsmith_erp.db.session import get_db
+from goldsmith_erp.models.workshop_settings import WorkshopPublicContact
+from goldsmith_erp.services.workshop_settings_service import WorkshopSettingsService
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter()
-limiter = Limiter(key_func=get_remote_address)
+
+def _require_portal_enabled() -> None:
+    """404 the whole router when the public portal is disabled (SEC-10).
+
+    Checked per-request (a FastAPI dependency), not once at router-mount
+    time, so the flag can be flipped (or tests can monkeypatch it) without
+    restarting/re-importing the app. Decision D-03: no live customer portal
+    until W6-07's GDPR hardening ships — off by default.
+    """
+    if not settings.CUSTOMER_PORTAL_ENABLED:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not Found")
+
+
+router = APIRouter(dependencies=[Depends(_require_portal_enabled)])
+limiter = Limiter(key_func=get_client_ip)
 
 # ─── Token settings ────────────────────────────────────────────────────────────
 _TOKEN_TTL_SECONDS = 3600  # 1 hour
@@ -451,3 +467,25 @@ async def portal_status_by_token(
 
     # Do not include a new token on token-based lookups (use the same link again)
     return data
+
+
+@router.get(
+    "/workshop-contact",
+    response_model=WorkshopPublicContact,
+    summary="Kontaktdaten der Werkstatt (oeffentlich)",
+    description=(
+        "Oeffentlicher Endpunkt — kein Login erforderlich. Liefert nur "
+        "Name, Telefon und E-Mail der Werkstatt (kein Kundendaten, keine "
+        "Bank- oder Steuerdaten) fuer den Fusszeilen-Kontakt des Portals."
+    ),
+)
+async def portal_workshop_contact(
+    db: AsyncSession = Depends(get_db),
+) -> WorkshopPublicContact:
+    """Public subset of the Werkstatt-Stammdaten (name/phone/email only).
+
+    Replaces the hardcoded placeholder contact that used to be baked into
+    the frontend (open item, W7 hygiene) — the footer now reflects
+    whatever an ADMIN saved under Werkstatt-Einstellungen.
+    """
+    return await WorkshopSettingsService.public_contact(db)

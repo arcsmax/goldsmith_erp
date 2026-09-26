@@ -13,7 +13,6 @@ Author: Claude AI
 Date: 2025-11-06
 """
 
-import ipaddress
 import logging
 import time
 from datetime import datetime, timedelta
@@ -24,43 +23,10 @@ from fastapi import HTTPException, Request, Response, status
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.types import ASGIApp
 
+from goldsmith_erp.core.client_ip import get_client_ip
 from goldsmith_erp.core.config import settings
 
 logger = logging.getLogger(__name__)
-
-
-def _is_trusted_proxy_ip(ip: str) -> bool:
-    """Return True if *ip* is a loopback or RFC-1918 private address."""
-    try:
-        addr = ipaddress.ip_address(ip)
-        return addr.is_loopback or addr.is_private
-    except ValueError:
-        return False
-
-
-def get_real_ip(request: Request) -> str:
-    """
-    Return the real client IP address.
-
-    X-Forwarded-For is only trusted when the direct TCP peer
-    (request.client.host) is a loopback or private-network address,
-    i.e. a known-good reverse proxy.  Untrusted clients that inject
-    X-Forwarded-For are ignored and their direct IP is used instead.
-    """
-    direct_ip = request.client.host if request.client else None
-
-    if direct_ip and _is_trusted_proxy_ip(direct_ip):
-        forwarded_for = request.headers.get("X-Forwarded-For")
-        if forwarded_for:
-            # The leftmost entry is the original client IP.
-            return forwarded_for.split(",")[0].strip()
-
-        real_ip = request.headers.get("X-Real-IP")
-        if real_ip:
-            return real_ip
-
-    # Direct connection or untrusted proxy — use TCP peer address.
-    return direct_ip or "unknown"
 
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
@@ -333,7 +299,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 
     def _get_client_ip(self, request: Request) -> str:
         """Get client IP address, validating proxy headers against the direct peer."""
-        return get_real_ip(request)
+        return get_client_ip(request)
 
 
 class EndpointRateLimitMiddleware(BaseHTTPMiddleware):

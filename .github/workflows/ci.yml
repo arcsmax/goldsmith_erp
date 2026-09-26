@@ -19,11 +19,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Install Poetry
+        # OPS-04: Poetry must be on PATH before setup-python for its
+        # `cache: poetry` option to resolve a cache directory.
+        run: pipx install poetry
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - name: Install Poetry
-        run: pip install poetry
+          cache: "poetry"
       - name: Install dependencies
         working-directory: ./src
         run: poetry install
@@ -39,22 +42,137 @@ jobs:
       - name: Type checking (mypy)
         working-directory: ./src
         run: poetry run mypy goldsmith_erp/ --ignore-missing-imports
+      - name: Lint (ruff)
+        # OPS-12: ruff already runs via pre-commit's ruff-pre-commit hook, but
+        # only for contributors who have hooks installed — nothing in CI ever
+        # invoked it. Installed with plain pip (not `poetry add`) so this
+        # never touches poetry.lock, per the audit's scope guardrail.
+        # --exit-zero: no [tool.ruff] config existed before this PR (see
+        # pyproject.toml); a first real run against src/ found 994
+        # pre-existing violations, none introduced here. That count is the
+        # baseline — non-blocking for now, matching the mypy baseline-ledger
+        # pattern already used in this repo (see docs/technical/
+        # MYPY_BURNDOWN.md). Drop --exit-zero once the baseline is burned
+        # down and this should start blocking merges.
+        working-directory: ./src
+        run: |
+          pip install ruff
+          ruff check goldsmith_erp/ --exit-zero
 
   lint-frontend:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Enable Corepack
+        run: corepack enable
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-      - name: Enable Corepack
-        run: corepack enable
+          cache: "yarn"
+          cache-dependency-path: frontend/yarn.lock
       - name: Install dependencies
         working-directory: ./frontend
         run: yarn install --frozen-lockfile
+      # OPS-13 / FE-15 (issue #33) — ESLint 9 flat config with typescript-eslint,
+      # react-hooks and jsx-a11y. `yarn lint` = `eslint . --max-warnings <baseline>`,
+      # see docs/technical/FRONTEND_LINT.md.
+      - name: Lint
+        working-directory: ./frontend
+        run: yarn lint
       - name: Type check
         working-directory: ./frontend
         run: npx tsc --noEmit
+      # FE-12 / W3-02 — the frontend API types are generated from the
+      # backend's OpenAPI schema. Regenerate them from the checked-out
+      # backend (import only: no server, DB or Redis) and fail when the
+      # committed frontend/openapi.json or src/api/generated/ differ.
+      - name: Install Poetry (API types drift gate)
+        run: pipx install poetry
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "poetry"
+      - name: Install backend dependencies (API types drift gate)
+        run: poetry install --no-interaction
+      - name: Generated API types match the backend schema
+        run: make types-check
+      # DES-08 — the hex-literal count outside brand-tokens.css may only
+      # shrink. Was only runnable by hand before this; see
+      # frontend/scripts/hex-ratchet.mjs and frontend/.hex-baseline.
+      - name: Hex-literal ratchet (no new hardcoded colours)
+        working-directory: ./frontend
+        run: node scripts/hex-ratchet.mjs
+
+  # OPS-11 — dependency-vulnerability scanning. Advisory only: the repo
+  # carries a real, already-tracked backlog (OPS-06: 35 open Dependabot
+  # alerts at last count) that a blocking gate would turn into a permanent
+  # red CI. Every step still runs its own audit to completion and writes a
+  # human-readable summary to the job's GitHub Actions summary page, so a
+  # newly-introduced vulnerability is visible on every PR without blocking
+  # merges while that backlog is paid down.
+  security-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Poetry
+        # OPS-04: Poetry must be on PATH before setup-python for its
+        # `cache: poetry` option to resolve a cache directory.
+        run: pipx install poetry
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "poetry"
+      - name: Enable Corepack
+        run: corepack enable
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "yarn"
+          cache-dependency-path: frontend/yarn.lock
+      - name: Install backend dependencies
+        working-directory: ./src
+        run: poetry install
+      - name: pip-audit (advisory — see job comment)
+        id: pip-audit
+        continue-on-error: true
+        working-directory: ./src
+        run: |
+          set +e
+          poetry run pip-audit --desc > pip-audit.txt 2>&1
+          audit_exit=$?
+          set -e
+          {
+            echo "## pip-audit (backend)"
+            echo '```'
+            cat pip-audit.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "$audit_exit"
+      - name: Install frontend dependencies
+        working-directory: ./frontend
+        run: yarn install --frozen-lockfile
+      - name: yarn npm audit --severity high (advisory — see job comment)
+        id: yarn-audit
+        continue-on-error: true
+        working-directory: ./frontend
+        run: |
+          set +e
+          yarn npm audit --severity high > yarn-audit.txt 2>&1
+          audit_exit=$?
+          set -e
+          {
+            echo "## yarn npm audit --severity high (frontend)"
+            echo '```'
+            cat yarn-audit.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "$audit_exit"
+      - name: Report advisory outcome
+        if: always()
+        run: |
+          echo "pip-audit outcome:       ${{ steps.pip-audit.outcome }}"
+          echo "yarn npm audit outcome:  ${{ steps.yarn-audit.outcome }}"
+          echo "Both are advisory (continue-on-error) — see the job summary above for details. A 'failure' outcome means the tool found something to look at, not that this job failed."
 
   # Stage 2: Tests
   test-backend:
@@ -97,11 +215,17 @@ jobs:
           --health-retries 5
     steps:
       - uses: actions/checkout@v4
+      - name: Install Poetry
+        # OPS-04: actions/setup-python's `cache: poetry` needs Poetry on PATH
+        # *before* setup-python runs (it shells out to `poetry config
+        # cache-dir` to resolve what to cache) — pipx ships preinstalled on
+        # the ubuntu-latest image and works with whatever system Python is
+        # already there, ahead of the 3.11 setup-python installs next.
+        run: pipx install poetry
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - name: Install Poetry
-        run: pip install poetry
+          cache: "poetry"
       - name: Install dependencies
         working-directory: ./src
         run: poetry install
@@ -164,11 +288,17 @@ jobs:
       DEBUG: "true"
     steps:
       - uses: actions/checkout@v4
+      - name: Install Poetry
+        # OPS-04: actions/setup-python's `cache: poetry` needs Poetry on PATH
+        # *before* setup-python runs (it shells out to `poetry config
+        # cache-dir` to resolve what to cache) — pipx ships preinstalled on
+        # the ubuntu-latest image and works with whatever system Python is
+        # already there, ahead of the 3.11 setup-python installs next.
+        run: pipx install poetry
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - name: Install Poetry
-        run: pip install poetry
+          cache: "poetry"
       - name: Install dependencies
         working-directory: ./src
         run: poetry install
@@ -221,11 +351,17 @@ jobs:
       DEBUG: "true"
     steps:
       - uses: actions/checkout@v4
+      - name: Install Poetry
+        # OPS-04: actions/setup-python's `cache: poetry` needs Poetry on PATH
+        # *before* setup-python runs (it shells out to `poetry config
+        # cache-dir` to resolve what to cache) — pipx ships preinstalled on
+        # the ubuntu-latest image and works with whatever system Python is
+        # already there, ahead of the 3.11 setup-python installs next.
+        run: pipx install poetry
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - name: Install Poetry
-        run: pip install poetry
+          cache: "poetry"
       - name: Install dependencies
         run: poetry install
       - name: Alembic upgrade → downgrade → upgrade round-trip
@@ -238,11 +374,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Enable Corepack
+        run: corepack enable
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-      - name: Enable Corepack
-        run: corepack enable
+          cache: "yarn"
+          cache-dependency-path: frontend/yarn.lock
       - name: Install dependencies
         working-directory: ./frontend
         run: yarn install --frozen-lockfile
@@ -299,14 +437,21 @@ jobs:
       CI: "true"
     steps:
       - uses: actions/checkout@v4
+      - name: Install Poetry
+        # OPS-04: Poetry must be on PATH before setup-python for its
+        # `cache: poetry` option to resolve a cache directory.
+        run: pipx install poetry
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+          cache: "poetry"
+      - name: Enable Corepack
+        run: corepack enable
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-      - name: Install Poetry
-        run: pip install poetry
+          cache: "yarn"
+          cache-dependency-path: frontend/yarn.lock
       - name: Install backend dependencies
         run: poetry install
       - name: Run migrations
@@ -327,8 +472,6 @@ jobs:
           done
           echo "Backend did not start within 60s" >&2
           exit 1
-      - name: Enable Corepack
-        run: corepack enable
       - name: Install frontend dependencies
         working-directory: ./frontend
         run: yarn install --frozen-lockfile

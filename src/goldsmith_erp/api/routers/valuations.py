@@ -9,10 +9,11 @@ GET  /valuations/{id}/pdf      — Download PDF
 
 SECURITY: Valuation data (appraised_value) is financial data.
 - GOLDSMITH and ADMIN can create and view certificates.
-- ADMIN only can export (download) PDFs via VALUATION_EXPORT permission.
-  (In practice goldsmiths also need to print them — the router grants PDF
-  download to VALUATION_VIEW holders so goldsmiths can hand them to customers.
-  Change to VALUATION_EXPORT to restrict to ADMIN only if required.)
+- ADMIN only can export (download) PDFs via VALUATION_EXPORT permission
+  (CLAUDE.md "Insurance Valuations: Exportable only by ADMIN role";
+  GDPR-09). If goldsmiths must print certificates for customers, grant
+  VALUATION_EXPORT to GOLDSMITH in core/permissions.py; that is a policy
+  decision, not a code change here.
 - Customer PII in the PDF is handled by accessing the Customer object
   through the existing encrypted field pipeline — no raw PII is logged.
 """
@@ -294,7 +295,7 @@ async def get_valuation(
     summary="Wertgutachten als PDF herunterladen",
     response_class=StreamingResponse,
 )
-@require_permission(Permission.VALUATION_VIEW)
+@require_permission(Permission.VALUATION_EXPORT)
 async def download_valuation_pdf(
     certificate_id: int,
     db: AsyncSession = Depends(get_db),

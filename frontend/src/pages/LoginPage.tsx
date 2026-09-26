@@ -1,10 +1,17 @@
-// Login Page Component
+// Login page (W4-03): Field + Button primitives, errors via getErrorMessage.
+//
+// No query client here (FRONTEND_DATA_LAYER: /login has none) and no extra
+// session probe: the only request this page makes is the login call itself.
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts';
+import { getErrorMessage } from '../lib/errors';
 import { LoginSchema } from '../lib/validation/schemas';
 import { useFormValidation } from '../lib/validation/useFormValidation';
+import { Button, Field } from '../ui';
 import '../styles/auth.css';
+
+const LOGIN_FAILED = 'Anmeldung fehlgeschlagen. Bitte E-Mail und Passwort prüfen.';
 
 export const LoginPage: React.FC = () => {
   const [email, setEmail] = useState('');
@@ -29,26 +36,27 @@ export const LoginPage: React.FC = () => {
     try {
       await login(result.data);
       navigate('/dashboard');
-    } catch (err: any) {
-      setSubmitError(
-        err.response?.data?.detail || 'Login fehlgeschlagen. Bitte überprüfen Sie Ihre Eingaben.'
-      );
+    } catch (err: unknown) {
+      setSubmitError(getErrorMessage(err, LOGIN_FAILED));
     } finally {
       setIsLoading(false);
     }
   };
 
   return (
-    <div className="auth-container">
+    <main className="auth-container">
       <div className="auth-box">
-        <h1>Goldsmith ERP</h1>
-        <h2>Anmelden</h2>
+        <h1 className="auth-brand">Goldsmith ERP</h1>
+        <h2 className="auth-title">Anmelden</h2>
 
-        {submitError && <div className="error-message">{submitError}</div>}
+        {submitError && (
+          <div className="auth-alert" role="alert">
+            {submitError}
+          </div>
+        )}
 
         <form onSubmit={handleSubmit} className="auth-form">
-          <div className="form-group">
-            <label htmlFor="email">E-Mail</label>
+          <Field label="E-Mail" name="email" inputMode="email" error={errors.email}>
             <input
               id="email"
               type="email"
@@ -57,15 +65,12 @@ export const LoginPage: React.FC = () => {
                 setEmail(e.target.value);
                 clearError('email');
               }}
-              className={errors.email ? 'error' : ''}
               autoComplete="email"
               disabled={isLoading}
             />
-            {errors.email && <span className="error-message">{errors.email}</span>}
-          </div>
+          </Field>
 
-          <div className="form-group">
-            <label htmlFor="password">Passwort</label>
+          <Field label="Passwort" name="password" error={errors.password}>
             <input
               id="password"
               type="password"
@@ -74,22 +79,20 @@ export const LoginPage: React.FC = () => {
                 setPassword(e.target.value);
                 clearError('password');
               }}
-              className={errors.password ? 'error' : ''}
               autoComplete="current-password"
               disabled={isLoading}
             />
-            {errors.password && <span className="error-message">{errors.password}</span>}
-          </div>
+          </Field>
 
-          <button type="submit" disabled={isLoading} className="btn-primary">
-            {isLoading ? 'Wird angemeldet...' : 'Anmelden'}
-          </button>
+          <Button type="submit" block loading={isLoading}>
+            {isLoading ? 'Wird angemeldet…' : 'Anmelden'}
+          </Button>
         </form>
 
         {/* Public self-registration link removed (fix A3, 2026-04-23) —
             new accounts are created by an admin in the Benutzerverwaltung
             page. A dedicated "Request access" flow may replace this later. */}
       </div>
-    </div>
+    </main>
   );
 };

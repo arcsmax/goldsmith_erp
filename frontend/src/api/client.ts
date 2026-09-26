@@ -9,6 +9,13 @@ import { logError } from '../lib/logError';
 // Base API URL - uses proxy in development via vite.config.ts
 const BASE_URL = '/api/v1';
 
+/**
+ * Logged-out pages where a missing/expired session is the normal case
+ * (LV-21). Shared with AuthContext.tsx's own session-probe skip so both
+ * halves of the "no noisy 401s on /login" fix agree on the same paths.
+ */
+export const PROBE_FREE_PATHS: readonly string[] = ['/login', '/register'];
+
 // Create axios instance with default config
 const apiClient: AxiosInstance = axios.create({
   baseURL: BASE_URL,
@@ -91,6 +98,16 @@ apiClient.interceptors.response.use(
 
       // If we already retried this specific request, stop here.
       if (originalRequest._retry) {
+        return Promise.reject(error);
+      }
+
+      // LV-21: on /login (or /register) a 401 already means "no session" —
+      // there is no protected-page request whose retry-after-refresh
+      // matters here. Attempting a refresh anyway only produces a second,
+      // equally expected 401 (POST /refresh) that shows up as console
+      // noise for no behavioural benefit; AuthContext's session probe
+      // already treats this 401 as a silent "not logged in".
+      if (PROBE_FREE_PATHS.includes(window.location.pathname)) {
         return Promise.reject(error);
       }
 

@@ -1,426 +1,267 @@
-// Reparaturverwaltung — list view with status filter, search, and intake modal
-import React, { useCallback, useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { repairsApi } from '../api/repairs';
-import type {
-  Customer,
-  RepairItemType,
-  RepairJobCreateInput,
-  RepairJobListItem,
-  RepairJobStatus,
-} from '../types';
+// Reparaturen — server-paged list on TanStack Query (W4-03, playbook 5.1).
+//
+// GET /repairs/?offset=… returns a Page envelope; status filter, `q` search
+// and sort run on the server. The status filter lives in the URL
+// (?status=…), `?neu=1` opens the counter intake and `&customer_id=`
+// preselects the customer (link from the customer page's Verlauf).
+import React, { useState } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
+import { repairsApi, type RepairPageItem, type RepairPageParams } from '../api/repairs';
+import { compactParams, DEFAULT_PAGE_SIZE, pageInfo } from '../api/paged';
+import { repairKeys } from '../api/repairQueries';
+import { Pager } from '../components/Pager';
+import { RepairIntakeScreen } from '../components/repairs/RepairIntakeScreen';
+import { customerName, formatRepairDate, itemTypeLabel } from '../components/repairs/repairFormat';
+import { useAuth } from '../contexts';
+import { REPAIR_STATUS } from '../design/status';
+import { getErrorMessage } from '../lib/errors';
+import { formatEur, MISSING_VALUE } from '../lib/format';
+import { canCreateRepairs, canViewFinancials } from '../lib/roles';
+import { useDebouncedValue } from '../lib/useDebouncedValue';
+import type { RepairJobStatus } from '../types';
+import {
+  Button,
+  DataTable,
+  DeadlineChip,
+  Field,
+  PageHeader,
+  type Column,
+  type PageStateValue,
+} from '../ui';
+import { StatusBadge } from '../ui/StatusBadge';
 import '../styles/repairs.css';
 
-// ─── helpers ────────────────────────────────────────────────────────────────
+const INTAKE_PARAM = 'neu';
+const CUSTOMER_PARAM = 'customer_id';
+const STATUS_PARAM = 'status';
+/** Backend `q` accepts 1-100 characters. */
+const MAX_SEARCH_LENGTH = 100;
 
-const STATUS_LABELS: Record<RepairJobStatus, string> = {
-  received: 'Eingang',
-  diagnosed: 'Diagnose',
-  quoted: 'Angebot',
-  approved: 'Genehmigt',
-  in_repair: 'In Arbeit',
-  quality_check: 'Qualitätskontrolle',
-  ready: 'Fertig',
-  picked_up: 'Abgeholt',
-  cancelled: 'Storniert',
-};
+const STATUS_OPTIONS = (Object.keys(REPAIR_STATUS) as RepairJobStatus[]).map((value) => ({
+  value,
+  label: REPAIR_STATUS[value].label,
+}));
 
-const ITEM_TYPE_LABELS: Record<RepairItemType, string> = {
-  ring: 'Ring',
-  chain: 'Kette',
-  bracelet: 'Armband',
-  earring: 'Ohrringe',
-  watch: 'Uhr',
-  brooch: 'Brosche',
-  other: 'Sonstiges',
-};
+/** Whitelist: created_at, status, estimated_completion_date, repair_number. */
+const SORT_OPTIONS = [
+  { value: '', label: 'Neueste zuerst (Standard)' },
+  { value: 'estimated_completion_date', label: 'Zusage: nächste zuerst' },
+  { value: '-estimated_completion_date', label: 'Zusage: späteste zuerst' },
+  { value: 'repair_number', label: 'Nummer aufsteigend' },
+] as const;
 
-function StatusBadge({ status }: { status: RepairJobStatus }) {
-  return (
-    <span className={`status-badge ${status}`}>
-      {STATUS_LABELS[status] ?? status}
-    </span>
-  );
+/** A closed repair has no deadline any more; show the date, not "überfällig". */
+const CLOSED_STATUSES: ReadonlySet<RepairJobStatus> = new Set(['picked_up', 'cancelled']);
+
+function parseStatus(value: string | null): RepairJobStatus | '' {
+  return value && value in REPAIR_STATUS ? (value as RepairJobStatus) : '';
 }
 
-function deadlineClass(dateStr: string | null | undefined): string {
-  if (!dateStr) return '';
-  const days = (new Date(dateStr).getTime() - Date.now()) / 86_400_000;
-  if (days < 0) return 'overdue';
-  if (days < 3) return 'soon';
-  return '';
+function RepairDeadline({ row }: { row: RepairPageItem }) {
+  if (!row.estimated_completion_date) return <>{MISSING_VALUE}</>;
+  if (CLOSED_STATUSES.has(row.status)) return <>{formatRepairDate(row.estimated_completion_date)}</>;
+  return <DeadlineChip deadline={row.estimated_completion_date} />;
 }
 
-function formatDate(dateStr: string | null | undefined): string {
-  if (!dateStr) return '—';
-  return new Date(dateStr).toLocaleDateString('de-DE', {
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric',
+function buildColumns(showPrice: boolean): Column<RepairPageItem>[] {
+  const columns: Column<RepairPageItem>[] = [
+    { key: 'repair_number', header: 'Nr.', render: (r) => r.repair_number },
+    { key: 'bag_number', header: 'Tüte', render: (r) => r.bag_number, hideBelow: 'desktop' },
+    { key: 'customer', header: 'Kunde', render: (r) => customerName(r.customer) ?? 'Laufkunde' },
+    {
+      key: 'item',
+      header: 'Gegenstand',
+      render: (r) => (
+        <span className="repair-item-cell" title={r.item_description}>
+          {itemTypeLabel(r.item_type)}
+          {r.metal_type && <span className="repair-item-cell__metal">{r.metal_type}</span>}
+        </span>
+      ),
+    },
+    { key: 'status', header: 'Status', render: (r) => <StatusBadge kind="repair" status={r.status} /> },
+    { key: 'deadline', header: 'Zugesagt bis', render: (r) => <RepairDeadline row={r} /> },
+  ];
+  if (showPrice) {
+    columns.push({ key: 'kva', header: 'KVA', numeric: true, render: (r) => formatEur(r.estimated_cost) });
+  }
+  return columns;
+}
+
+function useRepairsPage(params: RepairPageParams) {
+  return useQuery({
+    queryKey: repairKeys.page(params),
+    queryFn: ({ signal }) => repairsApi.getPage(params, signal),
+    placeholderData: keepPreviousData,
   });
 }
 
-// ─── New Repair Modal ────────────────────────────────────────────────────────
-
-interface NewRepairModalProps {
-  onClose: () => void;
-  onCreated: (repair: RepairJobListItem) => void;
-}
-
-const ITEM_TYPES: RepairItemType[] = [
-  'ring', 'chain', 'bracelet', 'earring', 'watch', 'brooch', 'other',
-];
-
-function NewRepairModal({ onClose, onCreated }: NewRepairModalProps) {
-  const [form, setForm] = useState<RepairJobCreateInput>({
-    customer_id: undefined,
-    item_description: '',
-    item_type: 'ring',
-    metal_type: '',
-    estimated_value: undefined,
-    estimated_completion_date: undefined,
-  });
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const handleChange = (
-    e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>
-  ) => {
-    const { name, value } = e.target;
-    setForm(prev => ({
-      ...prev,
-      [name]:
-        name === 'customer_id' || name === 'estimated_value'
-          ? value === '' ? undefined : Number(value)
-          : value || (name === 'metal_type' ? '' : undefined),
-    }));
-  };
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!form.item_description.trim()) {
-      setError('Bitte Beschreibung eingeben.');
-      return;
-    }
-    setSaving(true);
-    setError(null);
-    try {
-      const payload: RepairJobCreateInput = {
-        ...form,
-        metal_type: form.metal_type || undefined,
-        estimated_completion_date: form.estimated_completion_date
-          ? new Date(form.estimated_completion_date).toISOString()
-          : undefined,
-      };
-      const created = await repairsApi.create(payload);
-      // Cast full RepairJob to list item shape for the table
-      onCreated(created as unknown as RepairJobListItem);
-    } catch (err: unknown) {
-      const msg =
-        err instanceof Error ? err.message : 'Fehler beim Speichern.';
-      setError(msg);
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  // Close on Escape
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
+function listState(query: ReturnType<typeof useRepairsPage>): PageStateValue {
+  if (query.isPending) return { status: 'loading' };
+  if (query.isError && !query.data) {
+    return {
+      status: 'error',
+      error: getErrorMessage(query.error, 'Reparaturen konnten nicht geladen werden.'),
+      retry: () => void query.refetch(),
     };
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
-  }, [onClose]);
-
-  return (
-    <div className="modal-overlay" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="modal-box" role="dialog" aria-modal="true" aria-labelledby="modal-title">
-        <div className="modal-header">
-          <h2 id="modal-title">Neue Reparatur</h2>
-          <button className="modal-close" onClick={onClose} aria-label="Schließen">&#x2715;</button>
-        </div>
-
-        <form onSubmit={handleSubmit}>
-          <div className="modal-body">
-            {error && <div className="repairs-error">{error}</div>}
-
-            <div className="form-group">
-              <label className="form-label" htmlFor="item_description">
-                Beschreibung <span className="required">*</span>
-              </label>
-              <textarea
-                id="item_description"
-                name="item_description"
-                className="form-textarea"
-                placeholder="z.B. Ehering Gelbgold 585, Stein lose — Neufassung erforderlich"
-                value={form.item_description}
-                onChange={handleChange}
-                required
-                rows={3}
-              />
-            </div>
-
-            <div className="form-row">
-              <div className="form-group">
-                <label className="form-label" htmlFor="item_type">
-                  Art <span className="required">*</span>
-                </label>
-                <select
-                  id="item_type"
-                  name="item_type"
-                  className="form-select"
-                  value={form.item_type}
-                  onChange={handleChange}
-                >
-                  {ITEM_TYPES.map(t => (
-                    <option key={t} value={t}>{ITEM_TYPE_LABELS[t]}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="form-group">
-                <label className="form-label" htmlFor="metal_type">Metall</label>
-                <input
-                  id="metal_type"
-                  name="metal_type"
-                  className="form-input"
-                  placeholder="z.B. 585 Gelbgold"
-                  value={form.metal_type ?? ''}
-                  onChange={handleChange}
-                />
-              </div>
-            </div>
-
-            <div className="form-row">
-              <div className="form-group">
-                <label className="form-label" htmlFor="customer_id">Kunden-ID</label>
-                <input
-                  id="customer_id"
-                  name="customer_id"
-                  type="number"
-                  min={1}
-                  className="form-input"
-                  placeholder="Optional"
-                  value={form.customer_id ?? ''}
-                  onChange={handleChange}
-                />
-              </div>
-
-              <div className="form-group">
-                <label className="form-label" htmlFor="estimated_value">
-                  Versicherungswert (EUR)
-                </label>
-                <input
-                  id="estimated_value"
-                  name="estimated_value"
-                  type="number"
-                  min={0}
-                  step={0.01}
-                  className="form-input"
-                  placeholder="Optional"
-                  value={form.estimated_value ?? ''}
-                  onChange={handleChange}
-                />
-              </div>
-            </div>
-
-            <div className="form-group">
-              <label className="form-label" htmlFor="estimated_completion_date">
-                Voraussichtliche Fertigstellung
-              </label>
-              <input
-                id="estimated_completion_date"
-                name="estimated_completion_date"
-                type="date"
-                className="form-input"
-                value={
-                  form.estimated_completion_date
-                    ? form.estimated_completion_date.slice(0, 10)
-                    : ''
-                }
-                onChange={handleChange}
-              />
-            </div>
-          </div>
-
-          <div className="modal-footer">
-            <button type="button" className="btn btn-secondary" onClick={onClose}>
-              Abbrechen
-            </button>
-            <button type="submit" className="btn btn-primary" disabled={saving}>
-              {saving ? 'Wird gespeichert…' : 'Reparatur anlegen'}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
-  );
+  }
+  return { status: query.data?.items.length ? 'ready' : 'empty' };
 }
-
-// ─── Main Page ───────────────────────────────────────────────────────────────
 
 export function RepairsPage() {
   const navigate = useNavigate();
-  const [repairs, setRepairs] = useState<RepairJobListItem[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [statusFilter, setStatusFilter] = useState<RepairJobStatus | ''>('');
-  const [searchTerm, setSearchTerm] = useState('');
-  const [showModal, setShowModal] = useState(false);
+  const { user } = useAuth();
+  const showPrice = canViewFinancials(user?.role);
+  const canCreate = canCreateRepairs(user?.role);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [searchInput, setSearchInput] = useState('');
+  const search = useDebouncedValue(searchInput).trim().slice(0, MAX_SEARCH_LENGTH);
+  const [sort, setSort] = useState('');
+  const [pageIndex, setPageIndex] = useState(0);
 
-  const loadRepairs = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const params: {
-        status?: RepairJobStatus;
-        search?: string;
-        limit: number;
-      } = { limit: 200 };
-      if (statusFilter) params.status = statusFilter;
-      if (searchTerm.trim()) params.search = searchTerm.trim();
-      const data = await repairsApi.getAll(params);
-      setRepairs(data);
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Fehler beim Laden.');
-    } finally {
-      setLoading(false);
-    }
-  }, [statusFilter, searchTerm]);
+  const status = parseStatus(searchParams.get(STATUS_PARAM));
+  const isIntakeOpen = searchParams.get(INTAKE_PARAM) === '1';
+  const intakeCustomerId = Number(searchParams.get(CUSTOMER_PARAM)) || undefined;
 
-  useEffect(() => {
-    const timer = setTimeout(loadRepairs, searchTerm ? 300 : 0);
-    return () => clearTimeout(timer);
-  }, [loadRepairs, searchTerm]);
+  // A new filter, search or sort starts on the first page.
+  const filterKey = `${status}|${search}|${sort}`;
+  const [lastFilterKey, setLastFilterKey] = useState(filterKey);
+  if (filterKey !== lastFilterKey) {
+    setLastFilterKey(filterKey);
+    setPageIndex(0);
+  }
 
-  const handleCreated = (repair: RepairJobListItem) => {
-    setRepairs(prev => [repair, ...prev]);
-    setShowModal(false);
+  const params = compactParams({
+    limit: DEFAULT_PAGE_SIZE,
+    offset: pageIndex * DEFAULT_PAGE_SIZE,
+    status: status || undefined,
+    q: search || undefined,
+    sort: sort || undefined,
+  }) as RepairPageParams;
+  const query = useRepairsPage(params);
+
+  const updateParams = (change: (next: URLSearchParams) => void, replace = false) => {
+    const next = new URLSearchParams(searchParams);
+    change(next);
+    setSearchParams(next, { replace });
+  };
+  const openIntake = () => updateParams((next) => next.set(INTAKE_PARAM, '1'));
+  const closeIntake = () =>
+    updateParams((next) => {
+      next.delete(INTAKE_PARAM);
+      next.delete(CUSTOMER_PARAM);
+    }, true);
+  const setStatus = (value: RepairJobStatus | '') =>
+    updateParams((next) => (value ? next.set(STATUS_PARAM, value) : next.delete(STATUS_PARAM)), true);
+  const resetFilters = () => {
+    setSearchInput('');
+    setStatus('');
   };
 
-  const handleRowClick = (id: number) => {
-    navigate(`/repairs/${id}`);
-  };
+  const hasFilter = Boolean(status || search);
+  const rows = query.data?.items ?? [];
+  const { pageNumber, pageCount } = query.data ? pageInfo(query.data) : { pageNumber: 1, pageCount: 1 };
+  const total = query.data?.total ?? 0;
 
-  const ALL_STATUSES: RepairJobStatus[] = [
-    'received', 'diagnosed', 'quoted', 'approved',
-    'in_repair', 'quality_check', 'ready', 'picked_up', 'cancelled',
-  ];
+  const emptyAction = hasFilter ? (
+    <Button variant="secondary" onClick={resetFilters}>
+      Filter zurücksetzen
+    </Button>
+  ) : canCreate ? (
+    <Button icon="plus" onClick={openIntake}>
+      Neue Reparatur annehmen
+    </Button>
+  ) : undefined;
 
   return (
     <div className="repairs-page">
-      <div className="repairs-header">
-        <h1>Reparaturen</h1>
-        <button className="btn-new-repair" onClick={() => setShowModal(true)}>
-          + Neue Reparatur
-        </button>
+      <PageHeader
+        title="Reparaturen"
+        meta={query.data ? <span>{total} Reparaturen</span> : undefined}
+        primaryAction={
+          canCreate ? (
+            <Button icon="plus" onClick={openIntake}>
+              Neue Reparatur
+            </Button>
+          ) : undefined
+        }
+      />
+
+      <div className="repairs-filters">
+        <Field label="Suche" name="repairs-search" inputMode="search" className="repairs-filters__search">
+          <input
+            type="search"
+            placeholder="Nr., Tüte, Beschreibung oder Kunde …"
+            maxLength={MAX_SEARCH_LENGTH}
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
+          />
+        </Field>
+        <Field label="Status" name="repairs-status">
+          <select value={status} onChange={(e) => setStatus(parseStatus(e.target.value))}>
+            <option value="">Alle Status</option>
+            {STATUS_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </Field>
+        <Field label="Sortieren" name="repairs-sort">
+          <select value={sort} onChange={(e) => setSort(e.target.value)}>
+            {SORT_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </Field>
       </div>
 
-      <div className="repairs-toolbar">
-        <input
-          type="search"
-          className="repairs-search"
-          placeholder="Suche nach Nr., Tüte oder Beschreibung…"
-          value={searchTerm}
-          onChange={e => setSearchTerm(e.target.value)}
-          aria-label="Reparaturen suchen"
+      <DataTable
+        rows={rows}
+        columns={buildColumns(showPrice)}
+        getRowKey={(r) => r.id}
+        rowHref={(r) => `/repairs/${r.id}`}
+        caption="Reparaturen"
+        state={listState(query)}
+        empty={{
+          icon: 'wrench',
+          title: 'Keine Reparaturen gefunden',
+          body: hasFilter
+            ? 'Suche oder Filter ändern.'
+            : 'Nehmen Sie die erste Reparatur an der Theke an.',
+          action: emptyAction,
+        }}
+        cardTitle={(r) => `${r.repair_number} · ${itemTypeLabel(r.item_type)}`}
+        cardMeta={(r) => customerName(r.customer) ?? 'Laufkunde'}
+        cardBadges={(r) => (
+          <>
+            <StatusBadge kind="repair" status={r.status} />
+            <RepairDeadline row={r} />
+          </>
+        )}
+      />
+
+      {rows.length > 0 && (
+        <Pager
+          label="Seiten der Reparaturliste"
+          pageNumber={pageNumber}
+          pageCount={pageCount}
+          summary={`${total} Reparaturen`}
+          onPrevious={() => setPageIndex((i) => Math.max(0, i - 1))}
+          onNext={() => setPageIndex((i) => i + 1)}
+          hasNext={query.data?.next_offset != null}
+          isFetching={query.isFetching}
         />
-        <select
-          className="repairs-filter-select"
-          value={statusFilter}
-          onChange={e => setStatusFilter(e.target.value as RepairJobStatus | '')}
-          aria-label="Nach Status filtern"
-        >
-          <option value="">Alle Status</option>
-          {ALL_STATUSES.map(s => (
-            <option key={s} value={s}>{STATUS_LABELS[s]}</option>
-          ))}
-        </select>
-      </div>
-
-      {error && <div className="repairs-error">{error}</div>}
-
-      {loading ? (
-        <div className="repairs-loading">Laden…</div>
-      ) : repairs.length === 0 ? (
-        <div className="repairs-empty">
-          <div className="repairs-empty-icon">&#128295;</div>
-          <h3>Keine Reparaturen gefunden</h3>
-          <p>
-            {statusFilter || searchTerm
-              ? 'Passen Sie die Filter an oder suchen Sie nach einem anderen Begriff.'
-              : 'Legen Sie den ersten Reparaturauftrag über die Schaltfläche oben an.'}
-          </p>
-        </div>
-      ) : (
-        <div className="repairs-table-wrapper">
-          <table className="repairs-table">
-            <thead>
-              <tr>
-                <th>Nr.</th>
-                <th>Tüte</th>
-                <th>Kunde</th>
-                <th>Gegenstand</th>
-                <th>Status</th>
-                <th>Deadline</th>
-                <th>KVA</th>
-                <th>Aktionen</th>
-              </tr>
-            </thead>
-            <tbody>
-              {repairs.map(r => (
-                <tr key={r.id} onClick={() => handleRowClick(r.id)}>
-                  <td className="repair-number-cell">{r.repair_number}</td>
-                  <td className="repair-bag-cell">{r.bag_number}</td>
-                  <td>
-                    {r.customer
-                      ? `${r.customer.first_name} ${r.customer.last_name}`
-                      : '—'}
-                  </td>
-                  <td className="repair-description-cell" title={r.item_description}>
-                    <span>{ITEM_TYPE_LABELS[r.item_type]}</span>
-                    {r.metal_type && (
-                      <span style={{ color: 'var(--color-text-muted)', marginLeft: '0.3rem', fontSize: '0.8rem' }}>
-                        {r.metal_type}
-                      </span>
-                    )}
-                  </td>
-                  <td>
-                    <StatusBadge status={r.status} />
-                  </td>
-                  <td
-                    className={`repair-deadline-cell ${deadlineClass(r.estimated_completion_date)}`}
-                  >
-                    {formatDate(r.estimated_completion_date)}
-                  </td>
-                  <td>
-                    {r.estimated_cost != null
-                      ? `${r.estimated_cost.toFixed(2)} EUR`
-                      : '—'}
-                  </td>
-                  <td>
-                    <div className="repair-actions" onClick={e => e.stopPropagation()}>
-                      <button
-                        className="btn-repair-action"
-                        onClick={() => handleRowClick(r.id)}
-                        title="Details anzeigen"
-                      >
-                        Details
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
       )}
 
-      {showModal && (
-        <NewRepairModal
-          onClose={() => setShowModal(false)}
-          onCreated={handleCreated}
+      {isIntakeOpen && (
+        <RepairIntakeScreen
+          onClose={closeIntake}
+          // FE-17: after the intake, go straight to the new repair.
+          onDone={(repairId) => navigate(`/repairs/${repairId}`)}
+          initialCustomerId={intakeCustomerId}
         />
       )}
     </div>

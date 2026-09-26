@@ -1,11 +1,23 @@
-// Scrap Gold Tab - Main component for Altgold management in order detail
-import React, { useState, useEffect, useCallback } from 'react';
-import { scrapGoldApi, ScrapGold, ScrapGoldStatus } from '../../api/scrap-gold';
-import type { ScrapGoldItem } from '../../api/scrap-gold';
+// Scrap Gold Tab — Altgold for one order, on TanStack Query (W4-03).
+//
+// GET /orders/{id}/scrap-gold is a single legacy resource (null = none yet).
+// Every write answers with the updated record or triggers a refetch of the
+// ['scrap-gold'] key. Altgold values are financial data; the tab is only
+// mounted for permitted roles by the order detail page.
+import React from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { scrapGoldApi, type ScrapGold, type ScrapGoldItem } from '../../api/scrap-gold';
 import apiClient from '../../api/client';
+import { queryKeys } from '../../api/queryKeys';
 import { AlloyCalculator, ALLOY_OPTIONS } from './AlloyCalculator';
+import { formatGrams, formatWeight } from './scrapGoldFormat';
 import { SignatureCanvas } from '../SignatureCanvas';
+import { ScrapGoldIdentification } from './ScrapGoldIdentification';
 import { useToast } from '../../contexts';
+import { getErrorMessage } from '../../lib/errors';
+import { formatEur, MONEY_CLASS } from '../../lib/format';
+import { Button, Card, EmptyState, IconButton, PageState, type PageStateValue } from '../../ui';
+import { StatusBadge } from '../../ui/StatusBadge';
 import '../../styles/scrap-gold.css';
 
 interface ScrapGoldTabProps {
@@ -13,394 +25,318 @@ interface ScrapGoldTabProps {
   customerId: number;
 }
 
-const STATUS_CONFIG: Record<ScrapGoldStatus, { label: string; className: string }> = {
-  received: { label: 'Empfangen', className: 'status-received' },
-  calculated: { label: 'Berechnet', className: 'status-calculated' },
-  signed: { label: 'Unterschrieben', className: 'status-signed' },
-  settled: { label: 'Verrechnet', className: 'status-settled' },
-};
+const SIGNATURE_HEIGHT = 180;
 
 /**
- * Formats alloy value to human-readable label.
- * Accepts both number (585) and string ("585") because the backend
- * may return alloy as a string while the frontend stores it as a number.
+ * Formats an alloy code (e.g. "585", "ag925", "pt950") to a readable label.
+ * Falls back to the raw code for an alloy the static option list does not
+ * know (e.g. a custom metal type added via Verwaltung).
  */
-const getAlloyLabel = (alloy: number | string): string => {
-  const option = ALLOY_OPTIONS.find((o) => o.value === Number(alloy));
-  return option ? option.label : `${alloy}`;
+const getAlloyLabel = (alloy: string): string =>
+  ALLOY_OPTIONS.find((o) => o.code === alloy)?.label ?? alloy;
+
+async function downloadReceipt(scrapGoldId: number): Promise<void> {
+  // Authenticated fetch: a plain <a href> would answer 401.
+  const response = await apiClient.get(`/scrap-gold/${scrapGoldId}/receipt.pdf`, { responseType: 'blob' });
+  const url = URL.createObjectURL(response.data);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `Ankaufsbeleg_${scrapGoldId}.pdf`;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+function useScrapGold(orderId: number) {
+  const queryClient = useQueryClient();
+  const { showToast } = useToast();
+  const queryKey = queryKeys.scrapGold.forOrder(orderId);
+  const query = useQuery({ queryKey, queryFn: () => scrapGoldApi.getForOrder(orderId) });
+
+  const setRecord = (record: ScrapGold) => queryClient.setQueryData(queryKey, record);
+  const refetchRecord = () => queryClient.invalidateQueries({ queryKey });
+  const fail = (context: string, message: string) => (err: unknown) => {
+    console.error(`ScrapGoldTab.${context} failed`, { orderId, err });
+    showToast(getErrorMessage(err, message), 'error');
+  };
+
+  const create = useMutation({
+    mutationFn: () => scrapGoldApi.create(orderId),
+    onSuccess: setRecord,
+    onError: fail('create', 'Altgold-Eintrag konnte nicht angelegt werden.'),
+  });
+  const addItem = useMutation({
+    mutationFn: ({ id, description, alloy, weightG }: { id: number; description: string; alloy: string; weightG: number }) =>
+      // alloy is the canonical backend code (e.g. "585", "ag925"); DOM-19.
+      scrapGoldApi.addItem(id, { description, alloy, weight_g: weightG }),
+    onSuccess: refetchRecord,
+    onError: fail('addItem', 'Position konnte nicht hinzugefügt werden.'),
+  });
+  const removeItem = useMutation({
+    mutationFn: ({ id, itemId }: { id: number; itemId: number }) => scrapGoldApi.removeItem(id, itemId),
+    onSuccess: refetchRecord,
+    onError: fail('removeItem', 'Position konnte nicht entfernt werden.'),
+  });
+  const uploadPhoto = useMutation({
+    mutationFn: ({ id, item, file }: { id: number; item: ScrapGoldItem; file: File }) =>
+      scrapGoldApi.uploadItemPhoto(id, item.id, file),
+    onSuccess: async () => {
+      await refetchRecord();
+      showToast('Foto hochgeladen', 'success');
+    },
+    onError: fail('uploadPhoto', 'Foto konnte nicht hochgeladen werden.'),
+  });
+  const calculate = useMutation({
+    mutationFn: (id: number) => scrapGoldApi.calculate(id),
+    onSuccess: setRecord,
+    onError: fail('calculate', 'Berechnung fehlgeschlagen.'),
+  });
+  const sign = useMutation({
+    mutationFn: ({ id, signature }: { id: number; signature: string }) => scrapGoldApi.sign(id, signature),
+    onSuccess: setRecord,
+    onError: fail('sign', 'Unterschrift konnte nicht gespeichert werden.'),
+  });
+  const receipt = useMutation({
+    mutationFn: (id: number) => downloadReceipt(id),
+    onError: fail('receipt', 'PDF konnte nicht heruntergeladen werden.'),
+  });
+
+  return { query, setRecord, create, addItem, removeItem, uploadPhoto, calculate, sign, receipt };
+}
+
+type ScrapGoldActions = ReturnType<typeof useScrapGold>;
+
+const ItemsTable: React.FC<{ scrapGold: ScrapGold; isEditable: boolean; actions: ScrapGoldActions }> = ({
+  scrapGold,
+  isEditable,
+  actions,
+}) => (
+  <div className="ui-table-scroll">
+    <table className="ui-table">
+      <caption className="ui-visually-hidden">Altgold-Positionen</caption>
+      <thead>
+        <tr>
+          <th>Beschreibung</th>
+          <th>Legierung</th>
+          <th className="ui-align-end">Gewicht</th>
+          <th className="ui-align-end">Feingehalt</th>
+          <th>Foto</th>
+          {isEditable && <th>Aktion</th>}
+        </tr>
+      </thead>
+      <tbody>
+        {scrapGold.items.map((item) => (
+          <tr key={item.id}>
+            <td>{item.description}</td>
+            <td>{getAlloyLabel(item.alloy)}</td>
+            <td className="ui-align-end ui-num">{formatWeight(item.weight_g)}</td>
+            <td className="ui-align-end ui-num">{formatGrams(item.fine_content_g)}</td>
+            <td>
+              {item.photo_path ? (
+                <img
+                  src={scrapGoldApi.getItemPhotoUrl(scrapGold.id, item.id)}
+                  alt={`Foto: ${item.description}`}
+                  width={40}
+                  height={40}
+                  className="scrap-gold-thumb"
+                />
+              ) : isEditable ? (
+                <label className="scrap-gold-upload">
+                  <span className="ui-visually-hidden">Foto zu {item.description} hochladen</span>
+                  <input
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) actions.uploadPhoto.mutate({ id: scrapGold.id, item, file });
+                    }}
+                  />
+                </label>
+              ) : (
+                <span className="scrap-gold-muted">Kein Foto</span>
+              )}
+            </td>
+            {isEditable && (
+              <td>
+                <IconButton
+                  icon="trash"
+                  variant="danger"
+                  label={`Position ${item.description} entfernen`}
+                  disabled={actions.removeItem.isPending}
+                  onClick={() => actions.removeItem.mutate({ id: scrapGold.id, itemId: item.id })}
+                />
+              </td>
+            )}
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  </div>
+);
+
+const Summary: React.FC<{ scrapGold: ScrapGold; isEditable: boolean; actions: ScrapGoldActions }> = ({
+  scrapGold,
+  isEditable,
+  actions,
+}) => (
+  <Card title="Zusammenfassung" headingLevel={3}>
+    <dl className="scrap-gold-summary">
+      <div>
+        <dt>Gesamt Feingold</dt>
+        <dd className="ui-num">{formatGrams(scrapGold.total_fine_gold_g)}</dd>
+      </div>
+      <div>
+        <dt>Goldpreis/g</dt>
+        <dd className={MONEY_CLASS}>{scrapGold.gold_price_per_g ? formatEur(scrapGold.gold_price_per_g) : '—'}</dd>
+      </div>
+      <div className="scrap-gold-summary__total">
+        <dt>Gesamtwert</dt>
+        <dd className={MONEY_CLASS}>{formatEur(scrapGold.total_value_eur)}</dd>
+      </div>
+      {scrapGold.price_source && (
+        <div>
+          <dt>Preisquelle</dt>
+          <dd>{scrapGold.price_source}</dd>
+        </div>
+      )}
+    </dl>
+    {isEditable && scrapGold.items.length > 0 && (
+      <Button onClick={() => actions.calculate.mutate(scrapGold.id)} loading={actions.calculate.isPending}>
+        Wert berechnen
+      </Button>
+    )}
+  </Card>
+);
+
+const Signature: React.FC<{ scrapGold: ScrapGold; actions: ScrapGoldActions }> = ({ scrapGold, actions }) => {
+  const isIdMissing = scrapGold.id_required && !scrapGold.has_identification; // W2-16 / D-16
+  if (scrapGold.signed_at) {
+    return (
+      <>
+        <p>
+          <span aria-hidden="true">✓ </span>Unterschrieben am{' '}
+          <span className="ui-num">{new Date(scrapGold.signed_at).toLocaleString('de-DE')}</span>
+        </p>
+        {scrapGold.signature_data?.startsWith('data:image/') && (
+          <img
+            src={scrapGold.signature_data}
+            alt="Gespeicherte Unterschrift des Kunden"
+            className="scrap-gold-signature-image"
+          />
+        )}
+        <Button
+          variant="secondary"
+          icon="file-text"
+          onClick={() => actions.receipt.mutate(scrapGold.id)}
+          loading={actions.receipt.isPending}
+        >
+          Ankaufsbeleg herunterladen
+        </Button>
+      </>
+    );
+  }
+  if (scrapGold.status === 'received' && scrapGold.items.length === 0) {
+    return (
+      <p className="scrap-gold-hint">
+        Bitte zuerst Positionen erfassen und berechnen, bevor die Unterschrift eingeholt wird.
+      </p>
+    );
+  }
+  if (isIdMissing) {
+    return (
+      <p className="scrap-gold-hint">Bitte zuerst die Ausweisdaten erfassen, bevor die Unterschrift eingeholt wird.</p>
+    );
+  }
+  return (
+    <SignatureCanvas
+      onSave={(signature) => actions.sign.mutate({ id: scrapGold.id, signature })}
+      height={SIGNATURE_HEIGHT}
+    />
+  );
 };
 
-export const ScrapGoldTab: React.FC<ScrapGoldTabProps> = ({ orderId, customerId }) => {
-  const { showToast } = useToast();
-  const [scrapGold, setScrapGold] = useState<ScrapGold | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [isCreating, setIsCreating] = useState(false);
-  const [isCalculating, setIsCalculating] = useState(false);
-  const [goldPriceInput, setGoldPriceInput] = useState<string>('');
+export const ScrapGoldTab: React.FC<ScrapGoldTabProps> = ({ orderId }) => {
+  const actions = useScrapGold(orderId);
+  const { query } = actions;
+  const scrapGold = query.data ?? null;
 
-  const loadScrapGold = useCallback(async () => {
-    try {
-      setIsLoading(true);
-      setError(null);
-      const data = await scrapGoldApi.getForOrder(orderId);
-      setScrapGold(data);
-      if (data && data.gold_price_per_g > 0) {
-        setGoldPriceInput(data.gold_price_per_g.toFixed(2));
-      }
-    } catch (err) {
-      console.error('Failed to load scrap gold:', err);
-      setError('Altgold-Daten konnten nicht geladen werden');
-    } finally {
-      setIsLoading(false);
-    }
-  }, [orderId]);
+  let state: PageStateValue = { status: 'ready' };
+  if (query.isPending) state = { status: 'loading' };
+  if (query.isError) {
+    state = {
+      status: 'error',
+      error: getErrorMessage(query.error, 'Altgold-Daten konnten nicht geladen werden.'),
+      retry: () => void query.refetch(),
+    };
+  }
 
-  useEffect(() => {
-    loadScrapGold();
-  }, [loadScrapGold]);
-
-  const handleCreate = async () => {
-    try {
-      setIsCreating(true);
-      const created = await scrapGoldApi.create(orderId);
-      setScrapGold(created);
-    } catch (err) {
-      console.error('Failed to create scrap gold:', err);
-      showToast('Altgold-Eintrag konnte nicht erstellt werden.', 'error');
-    } finally {
-      setIsCreating(false);
-    }
-  };
-
-  const handleAddItem = async (description: string, alloy: string, weightG: number) => {
-    if (!scrapGold) return;
-
-    try {
-      await scrapGoldApi.addItem(scrapGold.id, { description, alloy: Number(alloy), weight_g: weightG });
-      await loadScrapGold();
-    } catch (err) {
-      console.error('Failed to add item:', err);
-      showToast('Position konnte nicht hinzugefuegt werden.', 'error');
-    }
-  };
-
-  const handleRemoveItem = async (itemId: number) => {
-    if (!scrapGold) return;
-
-    try {
-      await scrapGoldApi.removeItem(scrapGold.id, itemId);
-      await loadScrapGold();
-    } catch (err) {
-      console.error('Failed to remove item:', err);
-      showToast('Position konnte nicht entfernt werden.', 'error');
-    }
-  };
-
-  const handleUploadPhoto = async (item: ScrapGoldItem, file: File) => {
-    if (!scrapGold) return;
-    try {
-      await scrapGoldApi.uploadItemPhoto(scrapGold.id, item.id, file);
-      await loadScrapGold();
-      showToast('Foto erfolgreich hochgeladen.', 'success');
-    } catch (err) {
-      console.error('Failed to upload photo:', err);
-      showToast('Foto konnte nicht hochgeladen werden.', 'error');
-    }
-  };
-
-  const handleCalculate = async () => {
-    if (!scrapGold) return;
-
-    try {
-      setIsCalculating(true);
-      const updated = await scrapGoldApi.calculate(scrapGold.id);
-      setScrapGold(updated);
-      if (updated.gold_price_per_g > 0) {
-        setGoldPriceInput(updated.gold_price_per_g.toFixed(2));
-      }
-    } catch (err) {
-      console.error('Failed to calculate:', err);
-      showToast('Berechnung fehlgeschlagen.', 'error');
-    } finally {
-      setIsCalculating(false);
-    }
-  };
-
-  const handleSign = async (signatureBase64: string) => {
-    if (!scrapGold) return;
-
-    try {
-      const updated = await scrapGoldApi.sign(scrapGold.id, signatureBase64);
-      setScrapGold(updated);
-    } catch (err) {
-      console.error('Failed to sign:', err);
-      showToast('Unterschrift konnte nicht gespeichert werden.', 'error');
-    }
-  };
-
-  // Loading state
-  if (isLoading) {
+  if (state.status !== 'ready' || !scrapGold) {
     return (
       <div className="scrap-gold-tab">
-        <div className="scrap-gold-loading">
-          <p>Altgold-Daten werden geladen...</p>
-        </div>
+        <PageState state={state} skeleton="detail">
+          <EmptyState
+            icon="receipt"
+            title="Altgold vorhanden?"
+            body="Hat der Kunde Altgold zur Verrechnung mitgebracht?"
+            action={
+              <Button onClick={() => actions.create.mutate()} loading={actions.create.isPending}>
+                Altgold erfassen
+              </Button>
+            }
+          />
+        </PageState>
       </div>
     );
   }
 
-  // Error state
-  if (error) {
-    return (
-      <div className="scrap-gold-tab">
-        <div className="scrap-gold-error">
-          <p>{error}</p>
-          <button className="btn-retry" onClick={loadScrapGold}>
-            Erneut versuchen
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  // No scrap gold yet - show prompt
-  if (!scrapGold) {
-    return (
-      <div className="scrap-gold-tab">
-        <div className="scrap-gold-prompt">
-          <div className="prompt-icon">&#x1F947;</div>
-          <h2>Altgold vorhanden?</h2>
-          <p>Hat der Kunde Altgold zur Verrechnung mitgebracht?</p>
-          <div className="prompt-actions">
-            <button
-              className="btn-prompt-yes"
-              onClick={handleCreate}
-              disabled={isCreating}
-            >
-              {isCreating ? 'Wird erstellt...' : 'Ja, Altgold erfassen'}
-            </button>
-            <button className="btn-prompt-no" disabled>
-              Nein
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  // Scrap gold exists - show full interface
-  const statusConfig = STATUS_CONFIG[scrapGold.status] || STATUS_CONFIG.received;
   const isEditable = scrapGold.status === 'received' || scrapGold.status === 'calculated';
 
   return (
     <div className="scrap-gold-tab">
-      {/* Header with status */}
       <div className="scrap-gold-header">
         <h2>Altgold</h2>
-        <span className={`scrap-gold-status-badge ${statusConfig.className}`}>
-          {statusConfig.label}
-        </span>
+        <StatusBadge kind="scrapGold" status={scrapGold.status} />
       </div>
 
-      {/* Alloy Calculator */}
       {isEditable && (
-        <AlloyCalculator onAddItem={handleAddItem} isDisabled={!isEditable} />
+        <AlloyCalculator
+          onAddItem={(description, alloy, weightG) =>
+            actions.addItem.mutate({ id: scrapGold.id, description, alloy, weightG })
+          }
+          isDisabled={actions.addItem.isPending}
+        />
       )}
 
-      {/* Items List */}
-      <div className="scrap-gold-items-section">
-        <h3>Positionen ({scrapGold.items.length})</h3>
+      <section className="scrap-gold-section" aria-labelledby="scrap-gold-items-title">
+        <h3 id="scrap-gold-items-title">Positionen ({scrapGold.items.length})</h3>
         {scrapGold.items.length === 0 ? (
-          <p className="scrap-gold-empty">
-            Noch keine Positionen erfasst. Verwenden Sie den Rechner oben, um Altgold hinzuzufuegen.
+          <p className="scrap-gold-muted">
+            Noch keine Positionen erfasst. Mit dem Legierungsrechner oben Altgold hinzufügen.
           </p>
         ) : (
-          <table className="scrap-gold-items-table">
-            <thead>
-              <tr>
-                <th>Beschreibung</th>
-                <th>Legierung</th>
-                <th>Gewicht (g)</th>
-                <th>Feingehalt (g)</th>
-                <th>Foto</th>
-                {isEditable && <th>Aktion</th>}
-              </tr>
-            </thead>
-            <tbody>
-              {scrapGold.items.map((item) => (
-                <tr key={item.id}>
-                  <td>{item.description}</td>
-                  <td>{getAlloyLabel(item.alloy)}</td>
-                  <td className="text-right">{item.weight_g.toFixed(2)}</td>
-                  <td className="text-right">{item.fine_content_g.toFixed(3)}</td>
-                  <td className="scrap-gold-photo-cell">
-                    {item.photo_path ? (
-                      <img
-                        src={scrapGoldApi.getItemPhotoUrl(scrapGold.id, item.id)}
-                        alt={`Foto: ${item.description}`}
-                        width={40}
-                        height={40}
-                        style={{ objectFit: 'cover', borderRadius: '4px' }}
-                      />
-                    ) : isEditable ? (
-                      <input
-                        type="file"
-                        accept="image/jpeg,image/png,image/webp"
-                        style={{ fontSize: '0.75rem', maxWidth: '120px' }}
-                        onChange={(e) => {
-                          const f = e.target.files?.[0];
-                          if (f) handleUploadPhoto(item, f);
-                        }}
-                        title="Foto hochladen"
-                      />
-                    ) : (
-                      <span className="no-photo">--</span>
-                    )}
-                  </td>
-                  {isEditable && (
-                    <td>
-                      <button
-                        className="btn-remove-item"
-                        onClick={() => handleRemoveItem(item.id)}
-                        title="Position entfernen"
-                      >
-                        Entfernen
-                      </button>
-                    </td>
-                  )}
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <ItemsTable scrapGold={scrapGold} isEditable={isEditable} actions={actions} />
         )}
-      </div>
+      </section>
 
-      {/* Summary Section */}
-      <div className="scrap-gold-summary">
-        <h3>Zusammenfassung</h3>
+      <Summary scrapGold={scrapGold} isEditable={isEditable} actions={actions} />
 
-        <div className="summary-grid">
-          <div className="summary-item">
-            <span className="summary-label">Gesamt Feingold</span>
-            <span className="summary-value highlight">
-              {scrapGold.total_fine_gold_g.toFixed(3)} g
-            </span>
-          </div>
+      {/* Ausweisdaten (W2-16, Ankaufsbuch) */}
+      <ScrapGoldIdentification
+        key={`${scrapGold.id}-${scrapGold.id_checked_at ?? 'neu'}`}
+        scrapGold={scrapGold}
+        isEditable={isEditable}
+        onSaved={actions.setRecord}
+      />
 
-          <div className="summary-item">
-            <span className="summary-label">Goldpreis / g</span>
-            <div className="summary-input-group">
-              <input
-                type="number"
-                step="0.01"
-                min="0"
-                value={goldPriceInput}
-                onChange={(e) => setGoldPriceInput(e.target.value)}
-                placeholder="0.00"
-                disabled={!isEditable}
-                className="summary-price-input"
-              />
-              <span className="summary-currency">EUR</span>
-            </div>
-          </div>
+      <section className="scrap-gold-section" aria-labelledby="scrap-gold-signature-title">
+        <h3 id="scrap-gold-signature-title">Unterschrift</h3>
+        <Signature scrapGold={scrapGold} actions={actions} />
+      </section>
 
-          <div className="summary-item total">
-            <span className="summary-label">Gesamtwert</span>
-            <span className="summary-value total-value">
-              {scrapGold.total_value_eur.toFixed(2)} EUR
-            </span>
-          </div>
-
-          {scrapGold.price_source && (
-            <div className="summary-item source">
-              <span className="summary-label">Preisquelle</span>
-              <span className="summary-value">{scrapGold.price_source}</span>
-            </div>
-          )}
-        </div>
-
-        {/* Calculate Button */}
-        {isEditable && scrapGold.items.length > 0 && (
-          <button
-            className="btn-calculate"
-            onClick={handleCalculate}
-            disabled={isCalculating}
-          >
-            {isCalculating ? 'Wird berechnet...' : 'Berechnen'}
-          </button>
-        )}
-      </div>
-
-      {/* Signature Section */}
-      <div className="scrap-gold-signature">
-        <h3>Unterschrift</h3>
-
-        {scrapGold.signed_at ? (
-          <div className="signature-done">
-            <div className="signature-done-info">
-              <span className="signature-checkmark">&#x2714;</span>
-              <p>
-                Unterschrieben am{' '}
-                {new Date(scrapGold.signed_at).toLocaleString('de-DE')}
-              </p>
-            </div>
-
-            {/* Show the captured signature image when available */}
-            {scrapGold.signature_data && scrapGold.signature_data.startsWith('data:image/') && (
-              <div className="signature-image-wrapper">
-                <img
-                  src={scrapGold.signature_data}
-                  alt="Gespeicherte Unterschrift des Kunden"
-                  className="signature-captured-image"
-                />
-              </div>
-            )}
-
-            {/* PDF download — authenticated fetch required; plain <a> would return 401 */}
-            <button
-              className="btn-pdf-download"
-              aria-label="Ankaufsbeleg als PDF herunterladen"
-              onClick={async () => {
-                try {
-                  const response = await apiClient.get(
-                    `/scrap-gold/${scrapGold.id}/receipt.pdf`,
-                    { responseType: 'blob' }
-                  );
-                  const blob = response.data;
-                  const url = URL.createObjectURL(blob);
-                  const a = document.createElement('a');
-                  a.href = url;
-                  a.download = `Ankaufsbeleg_${scrapGold.id}.pdf`;
-                  a.click();
-                  URL.revokeObjectURL(url);
-                } catch {
-                  showToast('PDF konnte nicht heruntergeladen werden.', 'error');
-                }
-              }}
-            >
-              PDF herunterladen
-            </button>
-          </div>
-        ) : (
-          <div className="signature-pending">
-            {scrapGold.status === 'received' && scrapGold.items.length === 0 ? (
-              <p className="signature-blocked-hint">
-                Bitte zuerst Positionen erfassen und berechnen, bevor die Unterschrift eingeholt wird.
-              </p>
-            ) : (
-              <SignatureCanvas onSave={handleSign} height={180} />
-            )}
-          </div>
-        )}
-      </div>
-
-      {/* Notes */}
       {scrapGold.notes && (
-        <div className="scrap-gold-notes">
-          <h3>Notizen</h3>
+        <section className="scrap-gold-section" aria-labelledby="scrap-gold-notes-title">
+          <h3 id="scrap-gold-notes-title">Notizen</h3>
           <p>{scrapGold.notes}</p>
-        </div>
+        </section>
       )}
     </div>
   );

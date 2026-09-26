@@ -3,7 +3,8 @@
 Pydantic schemas for the Repair Tracking module (Reparaturverwaltung).
 
 All financial fields (estimated_cost, actual_cost, estimated_value) are
-visible only to GOLDSMITH and ADMIN roles — enforced at the router level.
+visible only to holders of FINANCIAL_VIEW (GOLDSMITH, ADMIN): the repair
+router strips them via api/role_projection.py (SEC-01, GDPR-03).
 """
 
 from datetime import datetime, timezone
@@ -11,25 +12,26 @@ from typing import List, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from goldsmith_erp.core.timeutil import ensure_utc
 from goldsmith_erp.db.models import RepairItemType, RepairJobStatus, RepairPhotoPhase
+from goldsmith_erp.models._common import Money
+from goldsmith_erp.models.scan_history import LastScanRead
 
 
 def _strip_tzinfo(value: Optional[datetime]) -> Optional[datetime]:
     """
-    Convert any tz-aware datetime to naive UTC.
+    Normalise to aware UTC (BE-15; the name is kept for the validators).
 
-    The browser submits ISO timestamps with a ``Z`` suffix (e.g.
-    ``2026-05-14T00:00:00.000Z``); Pydantic parses those as tz-aware.
-    The repair_jobs columns are ``TIMESTAMP WITHOUT TIME ZONE`` (asyncpg
-    refuses to bind a tz-aware datetime there). Normalise to naive UTC
-    so the DB write succeeds and stored times remain comparable to the
-    other naive timestamps in the same row (created_at / updated_at).
+    The browser submits ISO timestamps with a ``Z`` suffix; the columns are
+    ``TIMESTAMP WITH TIME ZONE`` now, so aware values are kept (converted to
+    UTC) and a naive value is read as UTC.
     """
-    if value is None:
-        return None
-    if value.tzinfo is not None:
-        value = value.astimezone(timezone.utc).replace(tzinfo=None)
-    return value
+    return ensure_utc(value)
+
+
+INTAKE_PROBLEM_MAX_LENGTH = 1000
+INTAKE_CONDITION_MAX_ITEMS = 12
+INTAKE_CONDITION_MAX_LENGTH = 80
 
 
 # ============================================================================
@@ -143,11 +145,28 @@ class RepairJobCreate(BaseModel):
     metal_type: Optional[str] = Field(
         None, max_length=100, description="Metallbezeichnung, z.B. '585 Gelbgold'"
     )
-    estimated_value: Optional[float] = Field(
+    estimated_value: Optional[Money] = Field(
         None, ge=0, description="Versicherungswert in EUR"
     )
     estimated_completion_date: Optional[datetime] = Field(
-        None, description="Voraussichtliches Fertigstellungsdatum"
+        None, description="Zugesagter Fertigstellungstermin"
+    )
+    # W2-12 counter intake (FE-17, DOM-08). No dedicated columns yet: the
+    # service folds problem and condition into item_description (see
+    # repair_service.compose_intake_description); the price indication is
+    # stored as estimated_cost and replaced by the KVA at diagnosis.
+    customer_problem: Optional[str] = Field(
+        None,
+        max_length=INTAKE_PROBLEM_MAX_LENGTH,
+        description="Vom Kunden geschildertes Problem",
+    )
+    condition_notes: List[str] = Field(
+        default_factory=list,
+        max_length=INTAKE_CONDITION_MAX_ITEMS,
+        description="Zustand bei Annahme, z.B. ['Kratzer', 'Tragespuren']",
+    )
+    estimated_cost: Optional[Money] = Field(
+        None, ge=0, description="Erste Preisindikation in EUR (unverbindlich)"
     )
 
     _strip_tz_completion = field_validator("estimated_completion_date", mode="after")(
@@ -163,6 +182,30 @@ class RepairJobCreate(BaseModel):
             raise ValueError("Beschreibung darf nicht leer sein")
         return v
 
+    @field_validator("customer_problem")
+    @classmethod
+    def sanitize_problem(cls, v: Optional[str]) -> Optional[str]:
+        """Blank problem text counts as not given."""
+        if v is None:
+            return None
+        return v.strip() or None
+
+    @field_validator("condition_notes")
+    @classmethod
+    def sanitize_conditions(cls, v: List[str]) -> List[str]:
+        """Trim, drop blanks and duplicates, cap each note's length."""
+        cleaned: List[str] = []
+        for note in v:
+            text = note.strip()
+            if len(text) > INTAKE_CONDITION_MAX_LENGTH:
+                raise ValueError(
+                    f"Zustandsnotiz ist zu lang (max. {INTAKE_CONDITION_MAX_LENGTH} "
+                    "Zeichen)"
+                )
+            if text and text not in cleaned:
+                cleaned.append(text)
+        return cleaned
+
 
 class RepairDiagnoseInput(BaseModel):
     """
@@ -175,7 +218,7 @@ class RepairDiagnoseInput(BaseModel):
     diagnosis_notes: str = Field(
         ..., min_length=1, max_length=5000, description="Befundbeschreibung"
     )
-    estimated_cost: float = Field(..., ge=0, description="Kostenvoranschlag in EUR")
+    estimated_cost: Money = Field(..., ge=0, description="Kostenvoranschlag in EUR")
     estimated_completion_date: Optional[datetime] = Field(
         None, description="Voraussichtliches Fertigstellungsdatum (aktualisiert)"
     )
@@ -200,7 +243,7 @@ class RepairCompleteInput(BaseModel):
     Records the actual cost which may differ from the estimate.
     """
 
-    actual_cost: float = Field(..., ge=0, description="Tatsaechliche Kosten in EUR")
+    actual_cost: Money = Field(..., ge=0, description="Tatsaechliche Kosten in EUR")
     notes: Optional[str] = Field(None, max_length=2000)
 
 
@@ -215,7 +258,7 @@ class CustomerSummary(BaseModel):
     id: int
     first_name: str
     last_name: str
-    email: str
+    email: Optional[str] = None  # W2-10: customers may have no email
     phone: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
@@ -225,8 +268,9 @@ class RepairJobRead(BaseModel):
     """
     Full repair job detail — returned by GET /repairs/{id}.
 
-    Financial fields (estimated_cost, actual_cost, estimated_value) are
-    included here; the router enforces GOLDSMITH/ADMIN access.
+    Financial fields (estimated_cost, actual_cost, estimated_value) and
+    ``photos`` are included here; the router strips them for callers without
+    FINANCIAL_VIEW / DESIGN_VIEW (api/role_projection.py).
     """
 
     id: int
@@ -238,11 +282,11 @@ class RepairJobRead(BaseModel):
     item_description: str
     item_type: RepairItemType
     metal_type: Optional[str] = None
-    estimated_value: Optional[float] = None
+    estimated_value: Optional[Money] = None
     status: RepairJobStatus
     diagnosis_notes: Optional[str] = None
-    estimated_cost: Optional[float] = None
-    actual_cost: Optional[float] = None
+    estimated_cost: Optional[Money] = None
+    actual_cost: Optional[Money] = None
     estimated_completion_date: Optional[datetime] = None
     actual_completion_date: Optional[datetime] = None
     customer_notified_at: Optional[datetime] = None
@@ -252,6 +296,8 @@ class RepairJobRead(BaseModel):
     updated_at: datetime
     photos: List[RepairPhotoRead] = []
     intake_checklist: Optional[List[IntakeChecklistItem]] = None
+    # "Zuletzt gescannt von … um … in …" (scan tracking); detail read only.
+    last_scan: Optional[LastScanRead] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -272,7 +318,7 @@ class RepairJobListItem(BaseModel):
     item_type: RepairItemType
     metal_type: Optional[str] = None
     status: RepairJobStatus
-    estimated_cost: Optional[float] = None
+    estimated_cost: Optional[Money] = None
     estimated_completion_date: Optional[datetime] = None
     created_at: datetime
     updated_at: datetime

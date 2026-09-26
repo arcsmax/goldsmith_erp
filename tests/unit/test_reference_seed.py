@@ -129,3 +129,27 @@ def test_reference_seed_enabled_flag_parsing(monkeypatch, value, expected):
     else:
         monkeypatch.setenv("SEED_REFERENCE_DATA", value)
     assert _reference_seed_enabled() is expected
+
+
+@pytest.mark.asyncio
+async def test_reference_seed_creates_default_locations_once(db_session):
+    """W8: the four default Standorte are seeded idempotently."""
+    from goldsmith_erp.db.models import WorkshopLocation
+    from goldsmith_erp.db.reference_seed import STANDARD_LOCATIONS
+
+    first = await seed_reference_data(db_session, commit=True)
+    second = await seed_reference_data(db_session, commit=True)
+
+    names = (
+        (
+            await db_session.execute(
+                select(WorkshopLocation.name).order_by(WorkshopLocation.sort_order)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert list(names) == ["Werkbank 1", "Werkbank 2", "Tresor", "Ausstellung"]
+    assert first["locations_created"] == len(STANDARD_LOCATIONS) == 4
+    assert second["locations_created"] == 0
+    assert second["locations_skipped"] == 4

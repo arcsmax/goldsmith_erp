@@ -15,13 +15,39 @@ from external sources.  All alloy prices are derived by multiplying the
 fine-metal price by the alloy's fine-content ratio.
 
 Financial data access is audit-logged at the service level per CLAUDE.md.
+
+Fail-loud contract (W2-15 / BE-22)
+-----------------------------------
+``_fetch_from_api`` raises a typed ``MetalPriceError`` subclass (never
+returns a guessed/converted-wrong price) when:
+  - the upstream API times out (``MetalPriceTimeoutError``);
+  - the API's base currency isn't EUR and it omits (or zeroes) the EUR
+    conversion rate (``MetalPriceCurrencyError``) — previously this
+    silently defaulted to ``eur_rate = 1.0``, i.e. treated 1 USD as 1 EUR,
+    mispricing gold ~8% high with no signal to anyone.
+Both are ordinary exceptions from the caller's point of view: they
+propagate out of ``get_cached`` (see core/cache.py) and are caught by
+``get_spot_prices``'s tier-2 try/except, which logs a WARNING and falls
+through to tier 3 (DB history) then tier 4 (hardcoded defaults) — the
+fallback chain "taking over" is the intended failure mode, not a crash.
+
+Note on ``MetalType.PLATINUM_950`` as a *storage* key: like GOLD_24K and
+SILVER_999, it is used internally (in ``_BASE_METALS``, ``get_spot_prices``,
+and ``metal_price_history``) to mean "the pure/fine reference price for
+this metal family", not "the finished 95%-fine alloy price" — the 0.95
+fine-content factor is applied by ``get_price_for_metal_type`` via
+``_ALLOY_RATIOS`` for every consumer that wants an actual alloy price.
+This is deliberate: ``scrap_gold_service.py`` values fine (pure) metal
+content against this same pure-metal number (DOM-20) and must not change.
+Never expose a raw ``get_spot_prices()`` value to a user as "the Pt950
+price" — always go through ``get_price_for_metal_type`` first.
 """
 
 from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, Optional
 
 import httpx
@@ -30,9 +56,36 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from goldsmith_erp.core.cache import get_cached, invalidate
 from goldsmith_erp.core.config import settings
+from goldsmith_erp.core.timeutil import ensure_utc
 from goldsmith_erp.db.models import MetalPriceHistory, MetalPriceSource, MetalType
 
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Typed errors (fail loudly per CLAUDE.md — never a silently wrong price)
+# ---------------------------------------------------------------------------
+
+
+class MetalPriceError(RuntimeError):
+    """Base class for metal-price-feed failures that must propagate to the
+    fallback chain rather than be swallowed into a guessed price."""
+
+
+class MetalPriceCurrencyError(MetalPriceError):
+    """Raised when the upstream API's base currency isn't EUR and it omits
+    (or zeroes) the EUR conversion rate.
+
+    Previously the service defaulted ``eur_rate`` to 1.0 in this case,
+    silently treating e.g. 1 USD as 1 EUR — an ~8% mispricing with no
+    signal to the operator (BE-22).
+    """
+
+
+class MetalPriceTimeoutError(MetalPriceError):
+    """Raised when the outbound metal-price API call exceeds
+    ``settings.METAL_PRICE_HTTP_TIMEOUT_SECONDS``."""
+
 
 # ---------------------------------------------------------------------------
 # Internal constants
@@ -228,13 +281,34 @@ class MetalPriceService:
 
         If METAL_PRICE_API_URL is not set or returns an unexpected format,
         this method raises so the fallback chain takes over.
-        """
-        now = datetime.utcnow()
 
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            response = await client.get(str(settings.METAL_PRICE_API_URL))
-            response.raise_for_status()
-            data = response.json()
+        Raises:
+            MetalPriceTimeoutError: the API didn't respond within
+                ``settings.METAL_PRICE_HTTP_TIMEOUT_SECONDS``.
+            MetalPriceCurrencyError: the response's base currency isn't EUR
+                and no usable EUR conversion rate was provided.
+            ValueError: the response format wasn't recognised.
+        """
+        now = datetime.now(timezone.utc)
+        timeout_seconds = settings.METAL_PRICE_HTTP_TIMEOUT_SECONDS
+
+        try:
+            async with httpx.AsyncClient(timeout=timeout_seconds) as client:
+                response = await client.get(str(settings.METAL_PRICE_API_URL))
+                response.raise_for_status()
+                data = response.json()
+        except httpx.TimeoutException as exc:
+            logger.error(
+                "Metal price API call timed out",
+                extra={
+                    "url": settings.METAL_PRICE_API_URL,
+                    "timeout_seconds": timeout_seconds,
+                },
+            )
+            raise MetalPriceTimeoutError(
+                f"Metallpreis-API hat nicht innerhalb von {timeout_seconds}s "
+                "geantwortet."
+            ) from exc
 
         prices: Dict[MetalType, tuple[float, MetalPriceSource, datetime]] = {}
 
@@ -255,6 +329,7 @@ class MetalPriceService:
                 MetalPriceSource.API,
                 now,
             )
+            MetalPriceService._assert_all_positive(prices)
             return prices
 
         # -- Try the Open Exchange Rates / XAU format (troy oz in base currency) --
@@ -267,8 +342,28 @@ class MetalPriceService:
             # XAU rate against USD: 1 USD = XAU oz  => 1 oz = 1/XAU USD
             troy_oz_g = 31.1035
 
-            # Get USD/EUR conversion
-            eur_rate = rates.get("EUR", 1.0) if base_currency == "USD" else 1.0
+            # Get the base-currency -> EUR conversion. Fail loudly (BE-22)
+            # instead of defaulting to 1.0 when the base currency isn't EUR
+            # and no usable EUR rate was provided — silently defaulting
+            # would book e.g. USD prices as if they were EUR.
+            if base_currency == "EUR":
+                eur_rate = 1.0
+            else:
+                eur_rate = rates.get("EUR")
+                if not eur_rate or eur_rate <= 0:
+                    logger.error(
+                        "Metal price API omitted a usable EUR conversion rate; "
+                        "refusing to silently treat the base currency as EUR",
+                        extra={
+                            "base_currency": base_currency,
+                            "available_rate_keys": sorted(rates.keys()),
+                        },
+                    )
+                    raise MetalPriceCurrencyError(
+                        f"Kein EUR-Kurs in der Antwort der Metallpreis-API "
+                        f"(Basiswährung '{base_currency}'). Verwende letzten "
+                        "bekannten Preis statt eines falschen Kurses."
+                    )
 
             if "XAU" in rates and rates["XAU"] > 0:
                 price_usd_per_oz = 1.0 / rates["XAU"]
@@ -301,6 +396,7 @@ class MetalPriceService:
                 )
 
             if prices:
+                MetalPriceService._assert_all_positive(prices)
                 return prices
 
         raise ValueError(
@@ -308,6 +404,23 @@ class MetalPriceService:
             "Expected keys: gold_eur_per_gram / silver_eur_per_gram / platinum_eur_per_gram "
             "or rates.XAU / rates.XAG / rates.XPT"
         )
+
+    @staticmethod
+    def _assert_all_positive(
+        prices: Dict[MetalType, tuple[float, MetalPriceSource, datetime]],
+    ) -> None:
+        """Never let a zero or negative price leave `_fetch_from_api` —
+        that would get cached and persisted as a real EUR value (BE-22)."""
+        for metal_type, (price, _source, _updated_at) in prices.items():
+            if price <= 0:
+                logger.error(
+                    "Metal price API returned a non-positive price",
+                    extra={"metal_type": metal_type.value, "price": price},
+                )
+                raise MetalPriceError(
+                    f"Metallpreis-API lieferte einen ungültigen Preis "
+                    f"({price}) für {metal_type.value}."
+                )
 
     @staticmethod
     async def _fetch_from_db(
@@ -329,7 +442,15 @@ class MetalPriceService:
             )
             row = result.scalar_one_or_none()
             if row is not None:
-                prices[metal] = (row.price_per_gram_eur, row.source, row.fetched_at)
+                # The spot-price tiers (API, cache, DB, fallback) share one
+                # float contract; the NUMERIC(12, 4) history row is converted
+                # at this boundary (BE-14). Money derived from it is computed
+                # in Decimal by the consumers (scrap gold, cost calculation).
+                prices[metal] = (
+                    float(row.price_per_gram_eur),
+                    row.source,
+                    row.fetched_at,
+                )
 
         return prices if len(prices) == len(_BASE_METALS) else None
 
@@ -338,7 +459,7 @@ class MetalPriceService:
         Dict[MetalType, tuple[float, MetalPriceSource, datetime]]
     ):
         """Return hardcoded fallback prices from settings."""
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         return {
             MetalType.GOLD_24K: (
                 settings.METAL_PRICE_FALLBACK_GOLD,
@@ -370,10 +491,21 @@ class MetalPriceService:
         Uses a standalone flush (no explicit transaction wrapper) because
         this is a fire-and-log operation — failure must never block the
         price response.
+
+        Defence in depth (BE-22): a zero/negative price is never written,
+        even though `_fetch_from_api` already rejects these before this is
+        reached — a bad value must never look like a real historical EUR
+        price to the tier-3 DB fallback.
         """
         try:
             for metal_type, (price, _, fetched_at) in prices.items():
                 if metal_type not in _BASE_METALS:
+                    continue
+                if price <= 0:
+                    logger.warning(
+                        "Refusing to persist non-positive metal price",
+                        extra={"metal_type": metal_type.value, "price": price},
+                    )
                     continue
                 row = MetalPriceHistory(
                     metal_type=metal_type,
@@ -420,6 +552,6 @@ class MetalPriceService:
             prices[MetalType(metal_value)] = (
                 float(entry["price"]),
                 MetalPriceSource(entry["source"]),
-                datetime.fromisoformat(entry["updated_at"]),
+                ensure_utc(datetime.fromisoformat(entry["updated_at"])),
             )
         return prices

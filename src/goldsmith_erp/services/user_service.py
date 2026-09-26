@@ -3,7 +3,7 @@
 import hashlib
 import hmac
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from sqlalchemy import text, update
@@ -235,10 +235,15 @@ class UserService:
         Args:
             db: Datenbank-Session
             user_id: ID des zu aktualisierenden Benutzers
-            user_in: Update-Daten
+            user_in: Update-Daten (a ``UserAdminUpdate`` may additionally
+                carry a ``role`` field — SEC-F6)
 
         Returns:
             Aktualisiertes User-Objekt oder None
+
+        Raises:
+            LastAdminError: `user_in` would change `role` away from ADMIN
+                on the last active ADMIN account (SEC-F6).
         """
         # Prüfen ob Benutzer existiert
         user = await UserService.get_user_by_id(db, user_id)
@@ -247,6 +252,10 @@ class UserService:
 
         # Update-Daten vorbereiten
         update_data = user_in.model_dump(exclude_unset=True)
+
+        new_role = update_data.get("role")
+        if new_role is not None and new_role != user.role:
+            await UserService._guard_last_admin_role_change(db, user)
 
         # Passwort hashen, falls vorhanden
         if "password" in update_data:
@@ -264,6 +273,29 @@ class UserService:
         # Aktualisiertes Objekt holen
         updated_user = await UserService.get_user_by_id(db, user_id)
         return updated_user
+
+    @staticmethod
+    async def _guard_last_admin_role_change(db: AsyncSession, user: UserModel) -> None:
+        """Refuse a role change away from ADMIN on the last active ADMIN (SEC-F6).
+
+        Mirrors the last-admin guard in `anonymize_user` — a workshop must
+        never be left without a single active administrator able to manage
+        accounts.
+        """
+        if user.role != UserRole.ADMIN or not user.is_active:
+            return
+
+        other_admins = await db.execute(
+            select(UserModel)
+            .filter(UserModel.role == UserRole.ADMIN)
+            .filter(UserModel.is_active.is_(True))
+            .filter(UserModel.id != user.id)
+            .filter(UserModel.is_deleted.is_(False))
+        )
+        if not other_admins.scalars().first():
+            raise LastAdminError(
+                f"Refusing to demote the last active ADMIN (user {user.id})."
+            )
 
     @staticmethod
     async def delete_user(db: AsyncSession, user_id: int) -> Dict[str, Any]:
@@ -333,9 +365,9 @@ class UserService:
             role=UserRole.VIEWER,
             is_active=False,
             is_deleted=True,
-            deleted_at=datetime.utcnow(),
+            deleted_at=datetime.now(timezone.utc),
             tenant_id=None,
-            created_at=datetime.utcnow(),
+            created_at=datetime.now(timezone.utc),
         )
         db.add(sentinel)
         try:
@@ -351,9 +383,9 @@ class UserService:
                 role=UserRole.VIEWER,
                 is_active=False,
                 is_deleted=True,
-                deleted_at=datetime.utcnow(),
+                deleted_at=datetime.now(timezone.utc),
                 tenant_id=None,
-                created_at=datetime.utcnow(),
+                created_at=datetime.now(timezone.utc),
             )
             db.add(sentinel)
             await db.flush()
@@ -506,7 +538,7 @@ class UserService:
                 fk_updates[f"{table_name}.{column_name}"] = max(res.rowcount or 0, 0)
 
             # Overwrite PII on the target row itself.
-            now = datetime.utcnow()
+            now = datetime.now(timezone.utc)
             await db.execute(
                 update(UserModel)
                 .where(UserModel.id == target.id)

@@ -47,6 +47,8 @@ function makeCustomer(overrides: Partial<CustomerListItem> = {}): CustomerListIt
     first_name: 'Anna',
     last_name: 'Muster',
     email: 'anna@example.com',
+    company_name: null,
+    phone: null,
     customer_type: 'private',
     tags: [],
     is_active: true,

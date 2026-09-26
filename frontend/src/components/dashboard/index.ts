@@ -3,3 +3,5 @@ export { KPICard } from './KPICard';
 export { DashboardKPIs } from './DashboardKPIs';
 export { AlertsWidget } from './AlertsWidget';
 export { DeadlinesWidget } from './DeadlinesWidget';
+export { TodayView } from './TodayView';
+export { HandoffLane } from './HandoffLane';

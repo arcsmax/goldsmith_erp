@@ -327,11 +327,11 @@
     <table class="meta-table">
       <tr>
         <td>Rechnungsdatum:</td>
-        <td>{{ invoice.issue_date.strftime("%d.%m.%Y") }}</td>
+        <td>{{ invoice.issue_date|local_date }}</td>
       </tr>
       <tr>
         <td>Fälligkeitsdatum:</td>
-        <td>{{ invoice.due_date.strftime("%d.%m.%Y") }}</td>
+        <td>{{ invoice.due_date|local_date }}</td>
       </tr>
       {% if service_period_start and service_period_end %}
       <tr>
@@ -411,7 +411,7 @@
   <!-- Payment Info -->
   <div class="payment-info">
     Bitte überweisen Sie den Gesamtbetrag von <strong>{{ "%.2f"|format(invoice.total) }} €</strong>
-    bis zum <strong>{{ invoice.due_date.strftime("%d.%m.%Y") }}</strong> auf das unten angegebene Konto.<br>
+    bis zum <strong>{{ invoice.due_date|local_date }}</strong> auf das unten angegebene Konto.<br>
     Verwendungszweck: <strong>{{ invoice.invoice_number }}</strong>
   </div>
 

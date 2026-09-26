@@ -12,6 +12,10 @@ Key properties:
   - Token-based lookup requires Redis; when Redis is unavailable the token
     endpoint returns 404 (token not found).
   - Rate-limited at 10 req/min per IP via slowapi.
+
+The portal router is off by default (SEC-10, decision D-03; see
+test_portal_flag.py for the disabled-by-default coverage) — every test in
+this file opts it back in via the autouse fixture below.
 """
 
 from unittest.mock import AsyncMock, patch
@@ -20,6 +24,7 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from goldsmith_erp.core.config import settings
 from goldsmith_erp.db.models import (
     Customer,
     Order,
@@ -32,6 +37,12 @@ from goldsmith_erp.db.models import (
 
 PORTAL_BASE = "/api/v1/portal"
 LOOKUP_URL = f"{PORTAL_BASE}/lookup"
+
+
+@pytest.fixture(autouse=True)
+def _portal_enabled(monkeypatch):
+    """This whole file exercises portal behaviour, so opt it back in (SEC-10)."""
+    monkeypatch.setattr(settings, "CUSTOMER_PORTAL_ENABLED", True)
 
 
 def _lookup_payload(reference: str, email: str) -> dict:
@@ -339,3 +350,72 @@ class TestPortalTokenLookup:
         assert data["reference_number"] == str(order.id)
         # Token-based responses do NOT include a new lookup_token
         assert data.get("lookup_token") is None
+
+
+# ===========================================================================
+# GET /workshop-contact — public contact subset for the portal footer.
+#
+# W7 hygiene follow-up: the portal footer used to bake in a fake
+# "info@goldschmiede.de" / "+49 0 000 000" placeholder in the frontend. This
+# endpoint serves the real name/phone/email an ADMIN saved under
+# Werkstatt-Einstellungen — and MUST NOT leak bank/tax fields, which are
+# financial data (CLAUDE.md).
+# ===========================================================================
+
+
+class TestPortalWorkshopContact:
+    CONTACT_URL = f"{PORTAL_BASE}/workshop-contact"
+
+    @pytest.mark.asyncio
+    async def test_returns_the_saved_name_phone_and_email(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        from goldsmith_erp.db.models import WorkshopSettings
+
+        db_session.add(
+            WorkshopSettings(
+                id=1,
+                name="Goldschmiede Musterstadt",
+                phone="+49 30 1234567",
+                email="kontakt@goldschmiede-musterstadt.de",
+                iban="DE89370400440532013000",
+                tax_number="12/345/67890",
+            )
+        )
+        await db_session.commit()
+
+        resp = await client.get(self.CONTACT_URL)
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["name"] == "Goldschmiede Musterstadt"
+        assert data["phone"] == "+49 30 1234567"
+        assert data["email"] == "kontakt@goldschmiede-musterstadt.de"
+        # Financial/bank data must never appear on the public contact.
+        assert "iban" not in data
+        assert "tax_number" not in data
+        assert "vat_id" not in data
+        assert "bank_name" not in data
+        assert "invoice_footer" not in data
+
+    @pytest.mark.asyncio
+    async def test_falls_back_to_the_configured_name_when_unset(
+        self, client: AsyncClient
+    ):
+        """Before an ADMIN ever saves Werkstatt-Einstellungen, the portal
+        footer should still show a real (configured) name rather than 404
+        or crash — phone/email are simply absent until configured."""
+        resp = await client.get(self.CONTACT_URL)
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["name"]
+        assert data["phone"] is None
+        assert data["email"] is None
+
+    @pytest.mark.asyncio
+    async def test_does_not_require_authentication(self, client: AsyncClient):
+        resp = await client.get(self.CONTACT_URL)
+
+        assert resp.status_code != 401
+        assert resp.status_code == 200

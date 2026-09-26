@@ -2,9 +2,31 @@
 
 import re
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    EmailStr,
+    Field,
+    field_validator,
+    model_validator,
+)
+
+from goldsmith_erp.models.consent import ConsentExport
+
+# W2-10 (DOM-02, D-11): email is optional, but a customer must stay
+# reachable through at least one channel.
+CONTACT_REQUIRED_MESSAGE = (
+    "Bitte mindestens eine Kontaktmöglichkeit angeben: E-Mail, Telefon oder Mobil."
+)
+
+
+def has_contact(
+    email: Optional[str], phone: Optional[str], mobile: Optional[str]
+) -> bool:
+    """True if at least one of email / phone / mobile is non-blank."""
+    return any(value and str(value).strip() for value in (email, phone, mobile))
 
 
 class CustomerBase(BaseModel):
@@ -13,7 +35,9 @@ class CustomerBase(BaseModel):
     first_name: str = Field(..., min_length=1, max_length=100)
     last_name: str = Field(..., min_length=1, max_length=100)
     company_name: Optional[str] = Field(None, max_length=200)
-    email: EmailStr = Field(..., description="Customer email address")
+    email: Optional[EmailStr] = Field(
+        None, description="Customer email address (optional, W2-10)"
+    )
     phone: Optional[str] = Field(None, max_length=50)
     mobile: Optional[str] = Field(None, max_length=50)
     street: Optional[str] = Field(None, max_length=200)
@@ -125,9 +149,24 @@ class CustomerBase(BaseModel):
 
 
 class CustomerCreate(CustomerBase):
-    """Schema for creating a new customer"""
+    """Schema for creating a new customer.
 
-    pass
+    W2-10: email is optional, but at least one of email / phone / mobile
+    must be given (walk-in customers often only leave a phone number).
+    """
+
+    @field_validator("email", mode="before")
+    @classmethod
+    def blank_email_is_none(cls, v: Any) -> Any:
+        if isinstance(v, str) and not v.strip():
+            return None
+        return v
+
+    @model_validator(mode="after")
+    def require_contact(self) -> "CustomerCreate":
+        if not has_contact(self.email, self.phone, self.mobile):
+            raise ValueError(CONTACT_REQUIRED_MESSAGE)
+        return self
 
 
 class CustomerUpdate(BaseModel):
@@ -157,6 +196,14 @@ class CustomerUpdate(BaseModel):
     preferences: Optional[dict[str, Any]] = None
     birthday: Optional[datetime] = None
 
+    @field_validator("email", mode="before")
+    @classmethod
+    def blank_email_is_none(cls, v: Any) -> Any:
+        """W2-10: an emptied email field removes the address."""
+        if isinstance(v, str) and not v.strip():
+            return None
+        return v
+
     @field_validator("first_name", "last_name")
     @classmethod
     def validate_name(cls, v: Optional[str]) -> Optional[str]:
@@ -172,7 +219,17 @@ class CustomerUpdate(BaseModel):
 
 
 class CustomerRead(CustomerBase):
-    """Schema for reading a customer (includes DB fields)"""
+    """Schema for reading a customer (includes DB fields)
+
+    ``allergies`` is Art. 9 health data (GDPR-02 / GDPR-11) and is NEVER
+    serialised by this schema — it also rides along embedded in other
+    responses (e.g. ``OrderRead.customer``) that any CUSTOMER/ORDER viewer
+    can read. The customer router adds it back explicitly, and only for
+    CUSTOMER_HEALTH_VIEW holders when a HEALTH_DATA consent exists (see
+    ``api/routers/customers.py::_customer_response``).
+    """
+
+    allergies: Optional[str] = Field(None, exclude=True)
 
     id: int
     is_active: bool
@@ -190,7 +247,7 @@ class CustomerListItem(BaseModel):
     first_name: str
     last_name: str
     company_name: Optional[str]
-    email: str
+    email: Optional[str] = None
     phone: Optional[str]
     customer_type: str
     tags: List[str]
@@ -230,7 +287,7 @@ class CustomerGdprExportCustomer(BaseModel):
     first_name: str
     last_name: str
     company_name: Optional[str] = None
-    email: str
+    email: Optional[str] = None
     phone: Optional[str] = None
     mobile: Optional[str] = None
     street: Optional[str] = None
@@ -363,7 +420,37 @@ class CustomerGdprExport(BaseModel):
     no_gos: List[NoGoExport] = Field(default_factory=list)
     style_profile: Dict[str, Any] = Field(default_factory=dict)
     consultations: List[ConsultationExportItem] = Field(default_factory=list)
+    # GDPR-11: consent history (active + revoked) — Art. 15 Abs. 1 lit. c/h.
+    consents: List[ConsentExport] = Field(default_factory=list)
     # Machine-readable companion to the design-IP exclusion documented on
     # ConsultationExportItem — always True (the export endpoint has no
     # code path that includes design IP).
     design_data_excluded: bool = True
+
+
+# ============================================================================
+# Customer 360 activity (W2-12, DOM-38)
+# ============================================================================
+
+CustomerActivityKind = Literal["order", "repair", "quote", "invoice", "customer_update"]
+
+
+class CustomerActivityItem(BaseModel):
+    """One row of GET /customers/{id}/activity (newest first).
+
+    ``amount`` (order price, repair cost, quote/invoice total) is removed
+    for callers without FINANCIAL_VIEW. Quotes, invoices and customer
+    updates are only listed for callers holding their view permission.
+    ``order_id`` / ``repair_job_id`` point at the parent a row links to
+    (invoices and customer updates have no page of their own).
+    """
+
+    kind: CustomerActivityKind
+    id: int
+    occurred_at: datetime
+    status: str
+    title: str
+    reference: Optional[str] = None
+    amount: Optional[float] = None
+    order_id: Optional[int] = None
+    repair_job_id: Optional[int] = None

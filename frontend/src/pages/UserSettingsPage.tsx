@@ -11,39 +11,53 @@
 import React from 'react';
 
 import { useScannerContext } from '../contexts/ScannerContext';
+import { useBenchMode } from '../lib/benchMode';
 import { ToggleSetting } from '../components/ToggleSetting';
+import { ThemeToggle } from '../components/ThemeToggle';
+import { Card, PageHeader } from '../ui';
 import '../styles/user-settings.css';
 
 export const UserSettingsPage: React.FC = () => {
   const { benchModeEnabled, toggleBenchMode } = useScannerContext();
+  const { isBenchMode, setBenchMode } = useBenchMode();
 
   return (
     <div className="user-settings-container" data-testid="user-settings-page">
-      <h1 className="user-settings-title">Einstellungen</h1>
+      <PageHeader title="Einstellungen" stickyPrimary={false} />
 
-      <section
-        className="user-settings-section"
-        aria-labelledby="settings-scanner-heading"
-      >
-        <h2
-          id="settings-scanner-heading"
-          className="user-settings-section-heading"
-        >
-          Scanner-Einstellungen
-        </h2>
+      <Card title="Anzeige" className="user-settings-section">
+        <ToggleSetting
+          id="bench-layout-mode-toggle"
+          label="Werkbank-Modus aktivieren"
+          description={
+            'Zeigt nur noch Scanner, Zeiterfassung, Aufträge und Heute in einer ' +
+            'unteren Leiste; Seitennavigation und Fußzeile werden ausgeblendet. ' +
+            'Eine Geräte-Einstellung, die den Login übersteht.'
+          }
+          checked={isBenchMode}
+          onChange={setBenchMode}
+        />
+      </Card>
+
+      {/* W4-05: colour scheme per device; "System" follows the device setting. */}
+      <Card title="Darstellung" className="user-settings-section">
+        <ThemeToggle showLegend />
+      </Card>
+
+      <Card title="Scanner-Einstellungen" className="user-settings-section">
 
         <ToggleSetting
           id="bench-mode-toggle"
           label="Werkbank-Station-Modus aktivieren"
           description={
-            'Aktiviert den USB-HID-Scanner fuer die Werkbank. ' +
+            'Aktiviert den USB-HID-Scanner für die Werkbank. ' +
             'Tastatureingaben werden als Scans interpretiert, wenn kein ' +
             'Eingabefeld fokussiert ist.'
           }
           checked={benchModeEnabled}
           onChange={toggleBenchMode}
         />
-      </section>
+      </Card>
     </div>
   );
 };

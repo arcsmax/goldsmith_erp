@@ -12,7 +12,8 @@
 // SummaryStep.test.tsx / ScannerPageV2.test.tsx) — no MemoryRouter needed
 // since the whole module is replaced and the page only calls useNavigate().
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { screen, waitFor } from '@testing-library/react';
+import { renderWithQuery } from '../test/queryWrapper';
 import userEvent from '@testing-library/user-event';
 
 const mocks = vi.hoisted(() => ({ navigate: vi.fn() }));
@@ -62,20 +63,20 @@ beforeEach(() => {
 
 describe('ConsultationsPage', () => {
   it('renders cards from mocked getAll with occasion, piece type, status badge, and dates', async () => {
-    render(<ConsultationsPage />);
+    renderWithQuery(<ConsultationsPage />);
 
     expect(await screen.findByText('Hochzeit')).toBeInTheDocument();
     expect(screen.getByText('Ring')).toBeInTheDocument();
     // 'Entwurf' also labels the filter chip — scope to the status badge.
     expect(
-      screen.getByText('Entwurf', { selector: '.consultation-status-badge' })
+      screen.getByText('Entwurf', { selector: '.ui-status-badge__label' })
     ).toBeInTheDocument();
     expect(screen.getByText('01.06.2026')).toBeInTheDocument();
 
     expect(screen.getByText('Geburtstag')).toBeInTheDocument();
     expect(screen.getByText('Anhänger')).toBeInTheDocument();
     expect(
-      screen.getByText('Abgeschlossen', { selector: '.consultation-status-badge' })
+      screen.getByText('Abgeschlossen', { selector: '.ui-status-badge__label' })
     ).toBeInTheDocument();
     // Follow-up date renders when set (draftItem has none, completedItem does).
     expect(screen.getByText(/15\.07\.2026/)).toBeInTheDocument();
@@ -85,7 +86,7 @@ describe('ConsultationsPage', () => {
   });
 
   it('clicking the Entwurf chip refetches with {status: "draft"}', async () => {
-    render(<ConsultationsPage />);
+    renderWithQuery(<ConsultationsPage />);
     await screen.findByText('Hochzeit');
 
     await userEvent.click(screen.getByRole('button', { name: 'Entwurf' }));
@@ -95,28 +96,24 @@ describe('ConsultationsPage', () => {
     );
   });
 
-  it('clicking a draft card navigates to step=2 (resume)', async () => {
-    render(<ConsultationsPage />);
+  // W4-03: each card is a link (ListCard), not a clickable button.
+  it('links a draft card to step=2 (resume)', async () => {
+    renderWithQuery(<ConsultationsPage />);
     await screen.findByText('Hochzeit');
-
-    await userEvent.click(screen.getByText('Hochzeit'));
-
-    expect(mocks.navigate).toHaveBeenCalledWith('/consultations/1?step=2');
+    expect(screen.getByText('Hochzeit').closest('a')).toHaveAttribute('href', '/consultations/1?step=2');
   });
 
-  it('clicking a non-draft card navigates to step=7 (summary)', async () => {
-    render(<ConsultationsPage />);
+  // W4-03: each card is a link (ListCard), not a clickable button.
+  it('links a non-draft card to step=7 (summary)', async () => {
+    renderWithQuery(<ConsultationsPage />);
     await screen.findByText('Geburtstag');
-
-    await userEvent.click(screen.getByText('Geburtstag'));
-
-    expect(mocks.navigate).toHaveBeenCalledWith('/consultations/2?step=7');
+    expect(screen.getByText('Geburtstag').closest('a')).toHaveAttribute('href', '/consultations/2?step=7');
   });
 
   it('shows an empty state when no consultations match the filter', async () => {
     mockGetAll.mockResolvedValue([]);
-    render(<ConsultationsPage />);
+    renderWithQuery(<ConsultationsPage />);
 
-    expect(await screen.findByText('Keine Beratungen gefunden.')).toBeInTheDocument();
+    expect(await screen.findByText('Keine Beratungen gefunden')).toBeInTheDocument();
   });
 });

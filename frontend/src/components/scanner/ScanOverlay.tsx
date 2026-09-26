@@ -19,6 +19,12 @@
 //     the dialog but release on close/Esc). Esc triggers close.
 //   * `prefers-reduced-motion` respected: animations drop to ≤120ms fade.
 //
+// Scan tracking (2026-09 audit, SC-01): every decode is logged right away
+// (scanTracking.recordScan, action "scan_only" / "unrecognised" /
+// "resolve_failed"), and every action picked in the sheet writes a second
+// row with its result (recordAction). While a result is shown, the sheet
+// (Sheet primitive) owns focus and Escape; the camera panel is not rendered.
+//
 // Slice 11 hook: `lastResolveResponse` is exposed for tests via
 // data-testid. The placeholder JSON block will be replaced by the real
 // QuickActionModalV2 in the next PR.
@@ -43,14 +49,24 @@ import { NetworkAliasResolver } from '../../lib/network-alias-resolver';
 import { NetworkTransport } from '../../lib/network-transport';
 import { useScannerContext } from '../../contexts/ScannerContext';
 import { useTimeTracking } from '../../contexts/TimeTrackingContext';
-import type {
-  ResolveResponse,
-  ScanContext,
-  Transport,
-} from '../../types/scanner';
+import { useOptionalAuth } from '../../contexts/AuthContext';
+import type { ResolveResponse, Transport } from '../../types/scanner';
 import { QuickActionModalV2 } from './QuickActionModalV2';
-import { dispatchAction, type ActionHooks } from './ActionHandlers';
+import {
+  dispatchAction,
+  isSupportedAction,
+  type ActionHooks,
+} from './ActionHandlers';
+import {
+  buildScanContext,
+  recordAction,
+  recordScan,
+  takeHandedOffScan,
+  type TrackedScan,
+} from './scanTracking';
+import { useLocationPrompt } from './LocationPrompt';
 import { ModalStackHost } from '../../lib/modal-stack';
+import { useOptionalToast } from './useOptionalToast';
 import { useNavigate } from 'react-router-dom';
 import '../../styles/components/ScanOverlay.css';
 
@@ -71,33 +87,9 @@ export interface ScanOverlayProps {
 // Helpers
 // ---------------------------------------------------------------------------
 
-/**
- * Build a minimal ScanContext payload. V1.1 only needs input_source +
- * current_location (STATION mode is reserved for V1.1.5 per A9.6). Timer /
- * order ambient context will be wired in Slice 11 when TimeTrackingContext
- * exposes the running-timer shape.
- */
-function makeScanContext(
-  source: ScanSource,
-  currentLocation: string | null,
-): ScanContext {
-  return {
-    running_timer_id: null,
-    current_order_id: null,
-    current_location: currentLocation,
-    device_type: detectDeviceType(),
-    input_source: source === 'camera' ? 'camera' : 'manual',
-  };
-}
-
-function detectDeviceType(): 'mobile' | 'desktop' | 'tablet' {
-  if (typeof navigator === 'undefined') return 'desktop';
-  const ua = navigator.userAgent;
-  if (/iPad/.test(ua) || (ua.includes('Mac') && 'ontouchend' in document)) {
-    return 'tablet';
-  }
-  if (/Mobile|Android|iPhone/.test(ua)) return 'mobile';
-  return 'desktop';
+/** Only actions the sheet can execute (the rest had no handler, FE audit). */
+function withSupportedActions(response: ResolveResponse): ResolveResponse {
+  return { ...response, actions: response.actions.filter((a) => isSupportedAction(a.id)) };
 }
 
 /**
@@ -141,6 +133,8 @@ export const ScanOverlay: React.FC<ScanOverlayProps> = ({ transport }) => {
     currentLocation,
   } = useScannerContext();
   const { runningEntry, refreshRunningEntry } = useTimeTracking();
+  const auth = useOptionalAuth();
+  const userId = auth?.user?.id ?? null;
   const navigate = useNavigate();
 
   const [isActive, setIsActive] = useState<boolean>(true);
@@ -148,6 +142,11 @@ export const ScanOverlay: React.FC<ScanOverlayProps> = ({ transport }) => {
     useState<ResolveResponse | null>(null);
   const [resolving, setResolving] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [scannedPayload, setScannedPayload] = useState<string>('');
+  // The logged scan the sheet's actions follow up (parent_scan_id).
+  const trackedRef = useRef<TrackedScan | null>(null);
+  const { promptLocation, dialog: promptDialog } = useLocationPrompt();
+  const showToast = useOptionalToast();
 
   const overlayRef = useRef<HTMLDivElement | null>(null);
   const closeBtnRef = useRef<HTMLButtonElement | null>(null);
@@ -175,14 +174,17 @@ export const ScanOverlay: React.FC<ScanOverlayProps> = ({ transport }) => {
   const hooks: ActionHooks = useMemo(
     () => ({
       navigate: (path: string) => navigate(path),
-      toast: (_message: string, _severity?: 'success' | 'info' | 'warning' | 'error') => {
-        // Toast wiring is deliberately minimal inside the overlay; the
-        // consumer app hoists ToastProvider one level up. ActionHandler
-        // error strings surface on the QuickActionModalV2 error banner
-        // already.
-        void _message;
-        void _severity;
+      toast: (message: string, severity?: 'success' | 'info' | 'warning' | 'error') => {
+        // Errors surface on the sheet's banner; confirmations as a toast.
+        showToast?.(message, severity ?? 'info');
       },
+      promptLocation: (current) =>
+        promptLocation({
+          title: 'Standort setzen',
+          description: 'Wo liegt das Stück jetzt?',
+          confirmLabel: 'Standort setzen',
+          current,
+        }),
       closeOverlay: () => {
         setLastResolveResponse(null);
         setErrorMessage(null);
@@ -193,7 +195,16 @@ export const ScanOverlay: React.FC<ScanOverlayProps> = ({ transport }) => {
         await refreshRunningEntry();
       },
     }),
-    [navigate, closeScanner, refreshRunningEntry],
+    [navigate, closeScanner, refreshRunningEntry, showToast, promptLocation],
+  );
+
+  const scanContextFor = useCallback(
+    (source: ScanSource) =>
+      buildScanContext(source === 'camera' ? 'camera' : 'manual', {
+        stationLocation: currentLocation,
+        runningEntry,
+      }),
+    [currentLocation, runningEntry],
   );
 
   const handleScan = useCallback(
@@ -202,14 +213,17 @@ export const ScanOverlay: React.FC<ScanOverlayProps> = ({ transport }) => {
       setResolving(true);
       setIsActive(false); // pause camera; we'll resume on "Weiterscannen"
       setInputSource(source === 'camera' ? 'camera' : 'manual');
+      setScannedPayload(payload);
+      const context = scanContextFor(source);
       try {
-        const response = await router.resolve(
-          payload,
-          makeScanContext(source, currentLocation),
-        );
-        setLastResolveResponse(response);
+        const response = await router.resolve(payload, context);
+        // Logged BEFORE the sheet shows: a scan without an action counts.
+        trackedRef.current = await recordScan(payload, response, context);
+        setLastResolveResponse(withSupportedActions(response));
         setLastScan(response);
       } catch (err) {
+        // The scan happened even though it could not be resolved.
+        trackedRef.current = await recordScan(payload, null, context);
         const msg =
           err instanceof Error && err.message.length > 0
             ? err.message
@@ -221,7 +235,40 @@ export const ScanOverlay: React.FC<ScanOverlayProps> = ({ transport }) => {
         setResolving(false);
       }
     },
-    [router, setLastScan, setInputSource, currentLocation],
+    [router, setLastScan, setInputSource, scanContextFor],
+  );
+
+  const handleAction = useCallback(
+    async (actionId: string): Promise<void> => {
+      const response = lastResolveResponse;
+      if (response === null) return;
+      const tracked = trackedRef.current;
+      const scanContext = tracked?.event.context
+        ? { ...scanContextFor('manual'), ...tracked.event.context }
+        : scanContextFor('manual');
+      try {
+        const outcome = await dispatchAction(actionId, {
+          response,
+          scanContext,
+          transport: activeTransport,
+          hooks,
+          // FE-02: when switching, keep the running timer's activity;
+          // otherwise the handler uses this user's last-used activity or
+          // asks via ActivityPickerModal.
+          activityId: runningEntry?.activity_id ?? null,
+          runningEntryId: runningEntry?.id ?? null,
+          userId,
+        });
+        // "Nur erfassen": the scan_only row already says it all.
+        if (tracked !== null && actionId !== 'log_only') {
+          void recordAction(tracked, actionId, outcome.result ?? 'ok', outcome.location);
+        }
+      } catch (err) {
+        if (tracked !== null) void recordAction(tracked, actionId, 'failed');
+        throw err;
+      }
+    },
+    [lastResolveResponse, scanContextFor, activeTransport, hooks, runningEntry, userId],
   );
 
   const handleContinue = useCallback((): void => {
@@ -250,7 +297,7 @@ export const ScanOverlay: React.FC<ScanOverlayProps> = ({ transport }) => {
     if (lastScan === null) return;
     if (lastResolveResponse === null) return;
     if (!isDifferentResponse(lastScan, lastResolveResponse)) return;
-    setLastResolveResponse(lastScan);
+    setLastResolveResponse(withSupportedActions(lastScan));
   }, [lastScan, lastResolveResponse]);
 
   // -------------------------------------------------------------------------
@@ -259,8 +306,13 @@ export const ScanOverlay: React.FC<ScanOverlayProps> = ({ transport }) => {
 
   useEffect(() => {
     if (scanOverlayOpen) {
-      setIsActive(true);
-      setLastResolveResponse(null);
+      // A scan resolved + logged on the ScannerPage opens straight on the
+      // sheet; a FAB open starts with the camera.
+      const handed = takeHandedOffScan();
+      trackedRef.current = handed?.tracked ?? null;
+      setScannedPayload(handed?.payload ?? '');
+      setIsActive(handed === null);
+      setLastResolveResponse(handed ? withSupportedActions(handed.response) : null);
       setErrorMessage(null);
       setResolving(false);
       // Preserve the element that held focus before the overlay opened so we
@@ -286,8 +338,11 @@ export const ScanOverlay: React.FC<ScanOverlayProps> = ({ transport }) => {
   // Focus trap + Esc-to-close while overlay is open.
   // -------------------------------------------------------------------------
 
+  const isSheetShown = lastResolveResponse !== null;
+
   useEffect(() => {
-    if (!scanOverlayOpen) return;
+    // While the sheet is shown the Sheet primitive owns focus + Escape.
+    if (!scanOverlayOpen || isSheetShown) return;
 
     // Defer initial focus until the element is in the DOM.
     const rafId = window.requestAnimationFrame(() => {
@@ -327,13 +382,46 @@ export const ScanOverlay: React.FC<ScanOverlayProps> = ({ transport }) => {
       window.cancelAnimationFrame(rafId);
       document.removeEventListener('keydown', handleKeyDown);
     };
-  }, [scanOverlayOpen, handleClose]);
+  }, [scanOverlayOpen, isSheetShown, handleClose]);
 
   // -------------------------------------------------------------------------
   // Render
   // -------------------------------------------------------------------------
 
   if (!scanOverlayOpen) return null;
+
+  if (lastResolveResponse !== null) {
+    return (
+      <div data-testid="scan-overlay-result">
+        <QuickActionModalV2
+          resolveResponse={lastResolveResponse}
+          rawPayload={scannedPayload}
+          onAction={handleAction}
+          onClose={handleClose}
+          onContinueScanning={handleContinue}
+          onStatusHintClick={() => {
+            const entityType = lastResolveResponse.entity_type ?? '';
+            const entityIdVal = lastResolveResponse.entity_id;
+            if (entityIdVal === null) return;
+            const map: Record<string, string> = {
+              order: `/orders/${entityIdVal}`,
+              repair: `/repairs/${entityIdVal}`,
+              metal_purchase: `/metal-inventory/purchases/${entityIdVal}`,
+              material: `/materials/${entityIdVal}`,
+            };
+            const target = map[entityType];
+            if (target) {
+              navigate(target);
+              handleClose();
+            }
+          }}
+        />
+        {promptDialog}
+        {/* Stacked modals (AlloyMismatchModal, PunzierungsCheckModal). */}
+        <ModalStackHost />
+      </div>
+    );
+  }
 
   return (
     <div
@@ -402,45 +490,6 @@ export const ScanOverlay: React.FC<ScanOverlayProps> = ({ transport }) => {
             </div>
           ) : null}
 
-          {lastResolveResponse !== null ? (
-            <div
-              className="scan-overlay__result"
-              data-testid="scan-overlay-result"
-            >
-              <QuickActionModalV2
-                resolveResponse={lastResolveResponse}
-                onAction={async (actionId: string): Promise<void> => {
-                  await dispatchAction(actionId, {
-                    response: lastResolveResponse,
-                    scanContext: makeScanContext('manual', currentLocation),
-                    transport: activeTransport,
-                    hooks,
-                    activityId: null,
-                    runningEntryId: runningEntry?.id ?? null,
-                  });
-                }}
-                onClose={handleClose}
-                onContinueScanning={handleContinue}
-                onStatusHintClick={() => {
-                  const entityType =
-                    lastResolveResponse.entity?.entity_type ?? '';
-                  const entityIdVal = lastResolveResponse.entity?.entity_id;
-                  if (entityIdVal === undefined) return;
-                  const map: Record<string, string> = {
-                    order: `/orders/${entityIdVal}`,
-                    repair: `/repairs/${entityIdVal}`,
-                    metal_purchase: `/metal-inventory/purchases/${entityIdVal}`,
-                    material: `/materials/${entityIdVal}`,
-                  };
-                  const target = map[entityType];
-                  if (target) {
-                    navigate(target);
-                    handleClose();
-                  }
-                }}
-              />
-            </div>
-          ) : null}
         </div>
       </div>
       {/* Stacked modals (AlloyMismatchModal, PunzierungsCheckModal) render

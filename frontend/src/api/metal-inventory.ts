@@ -15,6 +15,20 @@ import {
   CostingMethod,
 } from '../types';
 
+/**
+ * MetalPriceResponse plus `is_stale` (W2-15 / DOM-11c).
+ *
+ * `is_stale` isn't on the shared `MetalPriceResponse` type in `types.ts`
+ * yet (out of scope for this fix — see docs/review/2026-09-25/03-backend-
+ * correctness.md BE-22 / 05-domain-product-fit.md DOM-11c), but the
+ * backend already returns it (models/metal_price.py). Extending locally
+ * here keeps the shared type untouched while still typing the field for
+ * consumers like EstimatorPanel.
+ */
+export interface MetalPriceInfo extends MetalPriceResponse {
+  is_stale: boolean;
+}
+
 export const metalInventoryApi = {
   /**
    * List metal purchases with optional filters.
@@ -152,6 +166,21 @@ export const metalInventoryApi = {
   getSpotPrice: async (metal_type: MetalType): Promise<MetalPriceResponse> => {
     const response = await apiClient.get<MetalPriceResponse>(
       `/metal-prices/${metal_type}`
+    );
+    return response.data;
+  },
+
+  /**
+   * Get the current price for a workshop Feingehalt/alloy string (e.g.
+   * "750", "Pt950", "Ag925" — case-insensitive, matches Order.alloy).
+   * Used by the EstimatorPanel to show metal price provenance (W2-15 /
+   * DOM-11c). Rejects with a 404 when the alloy has no price mapping —
+   * callers must treat that as "no price available", not a default.
+   * GET /metal-prices/by-alloy/{alloy}
+   */
+  getSpotPriceByAlloy: async (alloy: string): Promise<MetalPriceInfo> => {
+    const response = await apiClient.get<MetalPriceInfo>(
+      `/metal-prices/by-alloy/${encodeURIComponent(alloy)}`
     );
     return response.data;
   },

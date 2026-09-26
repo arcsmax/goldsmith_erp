@@ -100,11 +100,7 @@ function orderResponse(id = 42): ResolveResponse {
     resolution_path: 'prefix',
     entity_type: 'order',
     entity_id: id,
-    entity: {
-      entity_type: 'order',
-      entity_id: id,
-      data: { id, title: 'Ring', status: 'in_progress' },
-    },
+    entity: { id, title: 'Ring', status: 'in_progress' },
     actions: [],
     status_hint: null,
   };
@@ -116,11 +112,7 @@ function metalResponse(id = 85): ResolveResponse {
     resolution_path: 'prefix',
     entity_type: 'metal_purchase',
     entity_id: id,
-    entity: {
-      entity_type: 'metal_purchase',
-      entity_id: id,
-      data: { id, metal_type: 'gold_18k', alloy: '585', lot_number: 'L1' },
-    },
+    entity: { id, metal_type: 'gold_18k', alloy: '585', lot_number: 'L1' },
     actions: [],
     status_hint: null,
   };
@@ -196,10 +188,15 @@ describe('start_timer handler', () => {
     expect(ctx.hooks.closeOverlay).toHaveBeenCalled();
   });
 
-  it('warns the user when no activity is available', async () => {
+  it('asks for an activity when none is known and aborts with a German error on cancel (FE-02)', async () => {
+    (fireModal as unknown as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+      new Error('cancelled'),
+    );
     const ctx = baseContext(orderResponse(7), { activityId: null });
-    await ACTION_HANDLERS.start_timer(ctx);
-    expect(ctx.hooks.toast).toHaveBeenCalled();
+    await expect(ACTION_HANDLERS.start_timer(ctx)).rejects.toThrow(
+      /Keine Aktivität gewählt/,
+    );
+    expect(fireModal).toHaveBeenCalled();
     expect(apiClient.post).not.toHaveBeenCalled();
   });
 
@@ -467,12 +464,41 @@ describe('navigation-only handlers', () => {
     expect(ctx.hooks.closeOverlay).toHaveBeenCalled();
   });
 
-  it('change_location navigates to /orders/<id>?edit=location', async () => {
+  it('change_location asks for the location and stores it on the order', async () => {
     const ctx = baseContext(orderResponse(42));
-    await ACTION_HANDLERS.change_location(ctx);
-    expect(ctx.hooks.navigate).toHaveBeenCalledWith(
-      '/orders/42?edit=location',
-    );
+    const promptLocation = vi.fn().mockResolvedValue({ id: 3, name: 'Tresor' });
+    ctx.hooks = { ...ctx.hooks, promptLocation };
+    const outcome = await ACTION_HANDLERS.change_location(ctx);
+    expect(promptLocation).toHaveBeenCalled();
+    expect(apiClient.post).toHaveBeenCalledWith('/orders/42/location', {
+      location: 'Tresor',
+      location_id: 3,
+    });
+    expect(outcome).toEqual({ location: { name: 'Tresor', id: 3 } });
+    expect(ctx.hooks.closeOverlay).toHaveBeenCalled();
+  });
+
+  it('change_location cancelled writes nothing and reports cancelled', async () => {
+    const ctx = baseContext(orderResponse(42));
+    ctx.hooks = { ...ctx.hooks, promptLocation: vi.fn().mockResolvedValue(null) };
+    const outcome = await ACTION_HANDLERS.change_location(ctx);
+    expect(apiClient.post).not.toHaveBeenCalled();
+    expect(outcome).toEqual({ result: 'cancelled' });
+  });
+
+  it('handover opens the order handoff section', async () => {
+    const ctx = baseContext(orderResponse(42));
+    await ACTION_HANDLERS.handover(ctx);
+    expect(ctx.hooks.navigate).toHaveBeenCalledWith('/orders/42?tab=handoff');
+    expect(ctx.hooks.closeOverlay).toHaveBeenCalled();
+  });
+
+  it('log_only only closes (the scan row is already written)', async () => {
+    const ctx = baseContext(orderResponse(42));
+    await ACTION_HANDLERS.log_only(ctx);
+    expect(apiClient.post).not.toHaveBeenCalled();
+    expect(ctx.hooks.navigate).not.toHaveBeenCalled();
+    expect(ctx.hooks.closeOverlay).toHaveBeenCalled();
   });
 
   it('open_entity routes by entity_type', async () => {
@@ -481,11 +507,11 @@ describe('navigation-only handlers', () => {
     expect(ctx.hooks.navigate).toHaveBeenCalledWith('/orders/42');
   });
 
-  it('take_photo navigates with action=take-photo', async () => {
+  it('take_photo on an order deep-links to the Fotos tab with the camera', async () => {
     const ctx = baseContext(orderResponse(42));
     await ACTION_HANDLERS.take_photo(ctx);
     expect(ctx.hooks.navigate).toHaveBeenCalledWith(
-      '/orders/42?action=take-photo',
+      '/orders/42?tab=fotos&capture=1',
     );
   });
 });

@@ -10,7 +10,7 @@ Endpoints:
   GET    /api/v1/quotes                          - List quotes (with filters)
   GET    /api/v1/quotes/{quote_id}               - Get single quote
   PUT    /api/v1/quotes/{quote_id}               - Update quote fields
-  POST   /api/v1/quotes/{quote_id}/send          - Mark as SENT
+  POST   /api/v1/quotes/{quote_id}/send          - Send (email PDF or PDF_MANUAL)
   POST   /api/v1/quotes/{quote_id}/approve       - Mark as APPROVED (+ signature)
   POST   /api/v1/quotes/{quote_id}/reject        - Mark as REJECTED
   POST   /api/v1/quotes/{quote_id}/convert       - Convert to order (CONVERTED)
@@ -32,7 +32,8 @@ second segment ("pdf" vs "line-items") or segment count (2 vs 3 for
 
 import io
 import logging
-from typing import List, NoReturn, Optional
+from datetime import datetime
+from typing import List, NoReturn, Optional, Union
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
@@ -40,24 +41,38 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from goldsmith_erp.api.deps import get_current_user
-from goldsmith_erp.core.config import settings
 from goldsmith_erp.core.permissions import Permission, require_permission
 from goldsmith_erp.db.models import Customer, Quote, QuoteStatus, User
 from goldsmith_erp.db.session import get_db
+from goldsmith_erp.models.pagination import (
+    Page,
+    PageParams,
+    legacy_list_response,
+    make_page_params,
+    page_response,
+)
 from goldsmith_erp.models.quote import (
     ApproveQuoteRequest,
     QuoteCreate,
     QuoteLineItemCreate,
+    QuoteListItem,
     QuoteListResponse,
     QuoteResponse,
     QuoteUpdate,
     RejectQuoteRequest,
+    quote_list_item,
 )
-from goldsmith_erp.services.pdf_service import PDFService
+from goldsmith_erp.services import list_queries
+from goldsmith_erp.services.quote_delivery import (
+    load_order_gemstones,
+    render_quote_pdf_bytes,
+)
 from goldsmith_erp.services.quote_service import (
     QuoteNotEditableError,
     QuoteNotFoundError,
     QuoteService,
+    _log_quote_access,
+    _user_role_str,
 )
 
 logger = logging.getLogger(__name__)
@@ -87,34 +102,18 @@ def _raise_quote_error(exc: ValueError) -> NoReturn:
     raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from None
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Customer adapter — mirrors pattern in invoices.py
-# ─────────────────────────────────────────────────────────────────────────────
-
-
-class _CustomerAdapter:
-    """Thin adapter so PDFService sees uniform .name/.address/.city/.email/.phone."""
-
-    name: str
-    address: str
-    city: str
-    email: str
-    phone: str
-
-    def __init__(self, c: Customer) -> None:
-        self.name = f"{c.first_name} {c.last_name}".strip()
-        parts = []
-        if c.street:
-            parts.append(c.street)
-        self.address = ", ".join(parts)
-        city_parts = []
-        if c.postal_code:
-            city_parts.append(c.postal_code)
-        if c.city:
-            city_parts.append(c.city)
-        self.city = " ".join(city_parts)
-        self.email = c.email or ""
-        self.phone = c.phone or ""
+async def _with_delivery(db: AsyncSession, quote: Quote) -> QuoteResponse:
+    """QuoteResponse plus how/when the quote reached the customer (DOM-11)."""
+    response = QuoteResponse.model_validate(quote)
+    delivery = await QuoteService.get_delivery(db, quote)
+    if delivery is None:
+        return response
+    return response.model_copy(
+        update={
+            "delivery_method": delivery.delivery_method,
+            "sent_at": delivery.sent_at,
+        }
+    )
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -141,11 +140,20 @@ async def create_quote(
     return await QuoteService.create_quote(db, quote_in, current_user)
 
 
-@router.get("/", response_model=QuoteListResponse)
+@router.get(
+    "/",
+    # W3-08: Page[...] when ``offset`` is sent, the legacy envelope otherwise.
+    response_model=Union[Page[QuoteListItem], QuoteListResponse],
+)
 @require_permission(Permission.QUOTE_VIEW)
 async def list_quotes(
-    skip: int = Query(default=0, ge=0, description="Pagination offset"),
-    limit: int = Query(default=50, ge=1, le=200, description="Page size (max 200)"),
+    page: PageParams = Depends(
+        make_page_params(
+            legacy_default_limit=50,
+            legacy_max_limit=200,
+            sort_fields=tuple(list_queries.QUOTE_SORT_FIELDS),
+        )
+    ),
     status_filter: Optional[QuoteStatus] = Query(
         default=None,
         alias="status",
@@ -153,6 +161,18 @@ async def list_quotes(
     ),
     customer_id: Optional[int] = Query(
         default=None, ge=1, description="Filter by customer ID"
+    ),
+    created_from: Optional[datetime] = Query(
+        default=None, description="Angelegt ab (nur mit offset)"
+    ),
+    created_to: Optional[datetime] = Query(
+        default=None, description="Angelegt bis (nur mit offset)"
+    ),
+    q: Optional[str] = Query(
+        default=None,
+        min_length=1,
+        max_length=100,
+        description="Suche in KV-Nummer und Kundenname/E-Mail (nur mit offset)",
     ),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -162,16 +182,83 @@ async def list_quotes(
 
     Supports filtering by status and customer.
     Results are sorted by created_at descending (newest first).
+
+    With ``offset``: a ``Page`` (``items, total, limit, offset,
+    next_offset``) with date range and ``q`` search. Without it
+    (deprecated, one release): the legacy ``{items, total, skip, limit}``
+    envelope, flagged with ``X-Deprecated-List: true``.
     """
+    if page.is_paged:
+        return await _list_quotes_paged(
+            db,
+            current_user,
+            page,
+            status=status_filter,
+            customer_id=customer_id,
+            created_from=created_from,
+            created_to=created_to,
+            q=q,
+        )
     items, total = await QuoteService.list_quotes(
         db=db,
         current_user=current_user,
-        skip=skip,
-        limit=limit,
+        skip=page.offset,
+        limit=page.limit,
         status=status_filter,
         customer_id=customer_id,
     )
-    return QuoteListResponse(items=items, total=total, skip=skip, limit=limit)
+    legacy = QuoteListResponse.model_validate(
+        {
+            "items": [quote_list_item(r) for r in items],
+            "total": total,
+            "skip": page.offset,
+            "limit": page.limit,
+        }
+    )
+    return legacy_list_response(legacy.model_dump())
+
+
+async def _list_quotes_paged(
+    db: AsyncSession,
+    current_user: User,
+    page: PageParams,
+    *,
+    status: Optional[QuoteStatus],
+    customer_id: Optional[int],
+    created_from: Optional[datetime],
+    created_to: Optional[datetime],
+    q: Optional[str],
+):
+    stmt = await list_queries.quotes_statement(
+        db,
+        status=status,
+        customer_id=customer_id,
+        created_from=created_from,
+        created_to=created_to,
+        q=q,
+        sort=page.sort,
+    )
+    result = await list_queries.fetch_page(
+        db, stmt, page, list_queries.QUOTE_LIST_OPTIONS
+    )
+    # Same financial-access audit line as QuoteService.list_quotes; the
+    # search text is never logged (it may be a customer name).
+    _log_quote_access(
+        action="listed",
+        quote_id=None,
+        user_id=current_user.id,
+        user_role=_user_role_str(current_user),
+        extra={
+            "filters": {
+                "status": status,
+                "customer_id": customer_id,
+                "has_search": bool(q),
+            },
+            "result_count": len(result.items),
+        },
+    )
+    rows = [quote_list_item(r).model_dump() for r in result.items]
+    return page_response(rows, result.total, page)
 
 
 @router.get("/{quote_id}", response_model=QuoteResponse)
@@ -192,7 +279,7 @@ async def get_quote(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Kostenvoranschlag {quote_id} nicht gefunden",
         )
-    return quote
+    return await _with_delivery(db, quote)
 
 
 @router.put("/{quote_id}", response_model=QuoteResponse)
@@ -233,17 +320,23 @@ async def send_quote(
     current_user: User = Depends(get_current_user),
 ):
     """
-    Angebot versenden (Mark quote as SENT).
+    Angebot versenden (DOM-11).
 
-    Only DRAFT quotes can be transitioned to SENT.
+    With SMTP configured and a customer email the quote PDF is emailed
+    (delivery_method "email"); otherwise the hand-over is recorded as
+    "pdf_manual" and the client downloads the PDF. Only DRAFT quotes can be
+    sent (422). An SMTP failure returns 502 and the quote stays a DRAFT.
     """
-    quote = await QuoteService.send_quote(db, quote_id, current_user)
+    try:
+        quote = await QuoteService.send_quote(db, quote_id, current_user)
+    except QuoteNotFoundError as exc:
+        _raise_quote_error(exc)
     if not quote:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Kostenvoranschlag {quote_id} nicht gefunden",
         )
-    return quote
+    return await _with_delivery(db, quote)
 
 
 @router.post("/{quote_id}/approve", response_model=QuoteResponse)
@@ -445,13 +538,10 @@ async def download_quote_pdf(
             detail=f"Kunde {quote.customer_id} nicht gefunden",
         )
 
+    gemstones = await load_order_gemstones(db, quote.order_id)
+
     try:
-        pdf_bytes = PDFService.render_quote_pdf(
-            quote=quote,
-            customer=_CustomerAdapter(customer),
-            line_items=quote.line_items,
-            workshop_name=settings.WORKSHOP_NAME,
-        )
+        pdf_bytes = render_quote_pdf_bytes(quote, customer, gemstones=gemstones)
     except Exception:
         logger.exception(
             "PDF generation failed for quote",

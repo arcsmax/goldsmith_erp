@@ -1,332 +1,292 @@
-// Soll/Ist Vergleich — Estimated vs. Actual comparison tab for completed orders
-import React, { useEffect, useState } from 'react';
-import { ordersApi, invoicesApi } from '../../api';
+// Soll/Ist: estimated vs. actual for a finished order (Arbeit tab; the
+// parent gates it by canViewFinancials and a finished status).
+//
+// W4-03: the comparison and the "is there already an invoice" check run as
+// TanStack queries (queryKeys.orders.comparison, queryKeys.invoices.recent);
+// "Rechnung erstellen" is a mutation that invalidates both roots. Metrics
+// and activities render in DataTable; deviations are text (sign, arrow,
+// "auffällig"), never colour alone.
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { invoicesApi, ordersApi } from '../../api';
+import { queryKeys } from '../../api/queryKeys';
 import { useToast } from '../../contexts';
-import { OrderComparison, ComparisonMetric, ActivityBreakdownComparison } from '../../types';
+import { getErrorMessage } from '../../lib/errors';
+import { logError } from '../../lib/logError';
+import { formatEur, MONEY_CLASS } from '../../lib/format';
+import { canViewFinancials, FINANCIAL_HIDDEN_HINT } from '../../lib/roles';
+import type { ActivityBreakdownComparison, ComparisonMetric } from '../../types';
+import {
+  Button,
+  ButtonLink,
+  Card,
+  DataTable,
+  EmptyState,
+  PageState,
+  type Column,
+  type PageStateValue,
+} from '../../ui';
 
 interface SollIstTabProps {
   orderId: number;
   orderStatus: string;
+  /** Caller's role. Defense-in-depth: the parent already hides this tab
+   * without FINANCIAL_VIEW, but Soll/Ist is financial data (prices, costs)
+   * and must not depend solely on that outer gate. */
+  role?: string | null;
 }
-
-// Deviation colour thresholds (Jason: green <10%, amber 10-20%, red >20%)
-function deviationClass(pct: number | null): string {
-  if (pct === null) return 'deviation-neutral';
-  const abs = Math.abs(pct);
-  if (abs < 10) return 'deviation-green';
-  if (abs < 20) return 'deviation-amber';
-  return 'deviation-red';
-}
-
-function deviationArrow(pct: number | null): string {
-  if (pct === null) return '';
-  if (pct > 0) return ' ↑';
-  if (pct < 0) return ' ↓';
-  return '';
-}
-
-function formatPct(pct: number | null): string {
-  if (pct === null) return '—';
-  const sign = pct > 0 ? '+' : '';
-  return `${sign}${pct.toFixed(1)} %`;
-}
-
-function formatValue(value: number | null, unit: string, decimals = 1): string {
-  if (value === null) return '—';
-  return `${value.toFixed(decimals)} ${unit}`;
-}
-
-// ---- MetricRow ---------------------------------------------------------------
-
-interface MetricRowProps {
-  label: string;
-  metric: ComparisonMetric;
-  unit: string;
-  decimals?: number;
-}
-
-const MetricRow: React.FC<MetricRowProps> = ({ label, metric, unit, decimals = 1 }) => {
-  const cls = deviationClass(metric.deviation_percent);
-  const arrow = deviationArrow(metric.deviation_percent);
-
-  return (
-    <div className="soll-ist-metric-row">
-      <div className="soll-ist-metric-label">{label}</div>
-      <div className="soll-ist-metric-values">
-        <span className="soll-ist-soll">
-          <span className="soll-ist-value-label">Soll</span>
-          {formatValue(metric.soll, unit, decimals)}
-        </span>
-        <span className="soll-ist-arrow-sep">→</span>
-        <span className="soll-ist-ist">
-          <span className="soll-ist-value-label">Ist</span>
-          {formatValue(metric.ist, unit, decimals)}
-        </span>
-        <span className={`soll-ist-deviation ${cls}`} title="Abweichung">
-          {formatPct(metric.deviation_percent)}{arrow}
-        </span>
-      </div>
-    </div>
-  );
-};
-
-// ---- ActivityTable -----------------------------------------------------------
-
-interface ActivityTableProps {
-  rows: ActivityBreakdownComparison[];
-}
-
-const ActivityTable: React.FC<ActivityTableProps> = ({ rows }) => {
-  if (rows.length === 0) {
-    return (
-      <p className="empty-message">Keine Aktivitätsdaten vorhanden.</p>
-    );
-  }
-
-  return (
-    <table className="soll-ist-activity-table">
-      <thead>
-        <tr>
-          <th>Aktivität</th>
-          <th>Kategorie</th>
-          <th className="text-right">Soll (min)</th>
-          <th className="text-right">Ist (min)</th>
-          <th className="text-right">Abweichung</th>
-          <th className="text-right">Einträge</th>
-        </tr>
-      </thead>
-      <tbody>
-        {rows.map((row) => {
-          const cls = deviationClass(row.deviation_percent);
-          const arrow = deviationArrow(row.deviation_percent);
-          return (
-            <tr key={row.activity_id} className={row.is_significant ? 'soll-ist-row-significant' : ''}>
-              <td>{row.activity_name}</td>
-              <td>
-                <span className={`activity-category-badge category-${row.activity_category}`}>
-                  {row.activity_category}
-                </span>
-              </td>
-              <td className="text-right">
-                {row.estimated_minutes !== null ? row.estimated_minutes.toFixed(0) : '—'}
-              </td>
-              <td className="text-right">{row.actual_minutes.toFixed(0)}</td>
-              <td className={`text-right soll-ist-deviation ${cls}`}>
-                {formatPct(row.deviation_percent)}{arrow}
-              </td>
-              <td className="text-right">{row.entry_count}</td>
-            </tr>
-          );
-        })}
-      </tbody>
-    </table>
-  );
-};
-
-// ---- AccuracyBadge -----------------------------------------------------------
-
-const AccuracyBadge: React.FC<{ score: number | null }> = ({ score }) => {
-  if (score === null) return null;
-
-  let cls = 'accuracy-badge-green';
-  if (score < 80) cls = 'accuracy-badge-amber';
-  if (score < 60) cls = 'accuracy-badge-red';
-
-  return (
-    <div className="soll-ist-accuracy">
-      <span className="soll-ist-accuracy-label">Genauigkeitsscore</span>
-      <span className={`accuracy-badge ${cls}`}>{score.toFixed(0)} %</span>
-    </div>
-  );
-};
-
-// ---- Main component ----------------------------------------------------------
 
 const COMPLETED_STATUSES = ['completed', 'delivered'];
+const RECENT_INVOICE_LIMIT = 5;
+const INVOICE_DUE_DAYS = 30;
+const EMPTY_VALUE = '—';
 
-export const SollIstTab: React.FC<SollIstTabProps> = ({ orderId, orderStatus }) => {
+const NUMBER_1 = new Intl.NumberFormat('de-DE', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+const NUMBER_0 = new Intl.NumberFormat('de-DE', { maximumFractionDigits: 0 });
+
+function formatPct(pct: number | null): string {
+  if (pct === null) return EMPTY_VALUE;
+  const sign = pct > 0 ? '+' : '';
+  const arrow = pct > 0 ? ' ↑' : pct < 0 ? ' ↓' : '';
+  return `${sign}${NUMBER_1.format(pct)} %${arrow}`;
+}
+
+function deviationText(pct: number | null, isSignificant: boolean): string {
+  const base = formatPct(pct);
+  return isSignificant ? `${base} (auffällig)` : base;
+}
+
+type MetricUnit = 'h' | 'g' | 'eur';
+
+interface MetricRow {
+  key: string;
+  label: string;
+  unit: MetricUnit;
+  metric: ComparisonMetric;
+}
+
+function formatMetricValue(value: number | null, unit: MetricUnit): string {
+  if (value === null) return EMPTY_VALUE;
+  if (unit === 'eur') return formatEur(value);
+  return `${NUMBER_1.format(value)} ${unit}`;
+}
+
+const METRIC_COLUMNS: Column<MetricRow>[] = [
+  { key: 'label', header: 'Kennzahl', render: (row) => row.label },
+  {
+    key: 'soll',
+    header: 'Soll',
+    numeric: true,
+    align: 'end',
+    render: (row) => (
+      <span className={row.unit === 'eur' ? MONEY_CLASS : undefined}>
+        {formatMetricValue(row.metric.soll, row.unit)}
+      </span>
+    ),
+  },
+  {
+    key: 'ist',
+    header: 'Ist',
+    numeric: true,
+    align: 'end',
+    render: (row) => (
+      <span className={row.unit === 'eur' ? MONEY_CLASS : undefined}>
+        {formatMetricValue(row.metric.ist, row.unit)}
+      </span>
+    ),
+  },
+  {
+    key: 'deviation',
+    header: 'Abweichung',
+    numeric: true,
+    align: 'end',
+    render: (row) => deviationText(row.metric.deviation_percent, row.metric.is_significant),
+  },
+];
+
+const ACTIVITY_COLUMNS: Column<ActivityBreakdownComparison>[] = [
+  { key: 'activity', header: 'Aktivität', render: (row) => row.activity_name },
+  { key: 'category', header: 'Kategorie', hideBelow: 'tablet', render: (row) => row.activity_category },
+  {
+    key: 'soll',
+    header: 'Soll (min)',
+    numeric: true,
+    align: 'end',
+    render: (row) => (row.estimated_minutes !== null ? NUMBER_0.format(row.estimated_minutes) : EMPTY_VALUE),
+  },
+  {
+    key: 'ist',
+    header: 'Ist (min)',
+    numeric: true,
+    align: 'end',
+    render: (row) => NUMBER_0.format(row.actual_minutes),
+  },
+  {
+    key: 'deviation',
+    header: 'Abweichung',
+    numeric: true,
+    align: 'end',
+    render: (row) => deviationText(row.deviation_percent, row.is_significant),
+  },
+  { key: 'entries', header: 'Einträge', numeric: true, align: 'end', render: (row) => row.entry_count },
+];
+
+type RecentInvoiceList = RecentInvoice[] | null;
+
+/** The invoice list is best-effort: a failure means "unknown", not an error. */
+async function fetchRecentInvoiceItems(): Promise<RecentInvoiceList> {
+  try {
+    const response = await invoicesApi.getInvoices({ limit: RECENT_INVOICE_LIMIT });
+    const raw = response as unknown;
+    if (Array.isArray(raw)) return raw as RecentInvoiceList;
+    return (response.items ?? []) as RecentInvoiceList;
+  } catch (err: unknown) {
+    logError('SollIstTab.loadInvoices', err);
+    return null;
+  }
+}
+
+function useCreateInvoice(orderId: number) {
+  const queryClient = useQueryClient();
   const { showToast } = useToast();
-  const [data, setData] = useState<OrderComparison | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [hasLoaded, setHasLoaded] = useState(false);
-  const [existingInvoiceId, setExistingInvoiceId] = useState<number | null | undefined>(undefined);
-  const [isCreatingInvoice, setIsCreatingInvoice] = useState(false);
-
-  const isEligible = COMPLETED_STATUSES.includes(orderStatus);
-
-  useEffect(() => {
-    if (!isEligible || hasLoaded) return;
-
-    const load = async () => {
-      setIsLoading(true);
-      setError(null);
-      try {
-        const [result, invoiceResp] = await Promise.all([
-          ordersApi.getComparison(orderId),
-          invoicesApi.getInvoices({ limit: 5 }).catch(() => null),
-        ]);
-        setData(result);
-        // Check if any invoice already belongs to this order
-        if (invoiceResp) {
-          const items = Array.isArray(invoiceResp) ? invoiceResp : (invoiceResp as any).items ?? [];
-          const match = items.find((inv: any) => inv.order_id === orderId);
-          setExistingInvoiceId(match ? match.id : null);
-        } else {
-          setExistingInvoiceId(null);
-        }
-      } catch (err: any) {
-        setError(err.response?.data?.detail || 'Fehler beim Laden der Vergleichsdaten');
-      } finally {
-        setIsLoading(false);
-        setHasLoaded(true);
-      }
-    };
-
-    load();
-  }, [orderId, isEligible, hasLoaded]);
-
-  const handleCreateInvoice = async () => {
-    setIsCreatingInvoice(true);
-    try {
-      // Due date 30 days from today
+  return useMutation({
+    mutationFn: () => {
       const due = new Date();
-      due.setDate(due.getDate() + 30);
-      const invoice = await invoicesApi.createFromOrder({
-        order_id: orderId,
-        due_date: due.toISOString(),
-      });
-      setExistingInvoiceId(invoice.id);
-      showToast(
-        `Rechnung ${invoice.invoice_number} wurde erstellt. Jetzt unter Rechnungen sichtbar.`,
-        'success'
-      );
-    } catch (err: any) {
-      showToast(
-        err.response?.data?.detail || 'Fehler beim Erstellen der Rechnung',
-        'error'
-      );
-    } finally {
-      setIsCreatingInvoice(false);
-    }
-  };
+      due.setDate(due.getDate() + INVOICE_DUE_DAYS);
+      return invoicesApi.createFromOrder({ order_id: orderId, due_date: due.toISOString() });
+    },
+    onSuccess: async (invoice) => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: queryKeys.invoices.all }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.orders.detail(orderId) }),
+      ]);
+      showToast(`Rechnung ${invoice.invoice_number} erstellt. Sie steht jetzt unter Rechnungen.`, 'success');
+    },
+    onError: (err: unknown) =>
+      showToast(getErrorMessage(err, 'Rechnung konnte nicht erstellt werden.'), 'error'),
+  });
+}
+
+type RecentInvoice = { id: number; order_id?: number | null };
+
+function InvoiceAction({ orderId, invoices }: { orderId: number; invoices: RecentInvoice[] | null | undefined }) {
+  const create = useCreateInvoice(orderId);
+  // Still loading: offer nothing yet. A failed list (null) counts as
+  // "no invoice found" and offers the button, as before.
+  if (invoices === undefined) return null;
+  const existing = invoices?.find((inv) => inv.order_id === orderId);
+  if (existing) {
+    return (
+      <p className="soll-ist-invoice-action">
+        Rechnung vorhanden (Nr.&nbsp;{existing.id}).{' '}
+        <ButtonLink to="/invoices" variant="ghost">
+          Rechnungen öffnen
+        </ButtonLink>
+      </p>
+    );
+  }
+  return (
+    <div className="soll-ist-invoice-action">
+      <Button variant="primary" icon="receipt" loading={create.isPending} onClick={() => create.mutate()}>
+        Rechnung erstellen
+      </Button>
+    </div>
+  );
+}
+
+export function SollIstTab({ orderId, orderStatus, role }: SollIstTabProps) {
+  const canFinance = canViewFinancials(role);
+  const isEligible = COMPLETED_STATUSES.includes(orderStatus) && canFinance;
+  const comparison = useQuery({
+    queryKey: queryKeys.orders.comparison(orderId),
+    queryFn: () => ordersApi.getComparison(orderId),
+    enabled: isEligible,
+  });
+  // In parallel with the comparison; decides "Rechnung erstellen" vs. "vorhanden".
+  const invoices = useQuery({
+    queryKey: queryKeys.invoices.recent(RECENT_INVOICE_LIMIT),
+    queryFn: fetchRecentInvoiceItems,
+    enabled: isEligible,
+  });
+
+  // Defense-in-depth (W3-04): this tab is financial data (SEC-01) and must
+  // never render it without FINANCIAL_VIEW, even if a future caller forgets
+  // the outer gate the parent tab currently applies.
+  if (!canFinance) {
+    return <EmptyState icon="circle-help" headingLevel={3} title={FINANCIAL_HIDDEN_HINT} />;
+  }
 
   if (!isEligible) {
     return (
-      <div className="tab-panel">
-        <h2>Soll/Ist-Vergleich</h2>
-        <div className="soll-ist-unavailable">
-          <p className="soll-ist-unavailable-icon">&#9432;</p>
-          <p>
-            Der Soll/Ist-Vergleich ist nur für abgeschlossene Aufträge verfügbar.
-          </p>
-          <p className="soll-ist-unavailable-hint">
-            Setze den Status auf <strong>Fertiggestellt</strong> oder{' '}
-            <strong>Ausgeliefert</strong>, um den Vergleich zu aktivieren.
-          </p>
-        </div>
-      </div>
+      <EmptyState
+        icon="circle-help"
+        headingLevel={3}
+        title="Soll/Ist gibt es erst für abgeschlossene Aufträge."
+        body="Den Status auf „Fertiggestellt“ oder „Ausgeliefert“ setzen, um den Vergleich zu sehen."
+      />
     );
   }
 
-  if (isLoading) {
-    return (
-      <div className="tab-panel">
-        <h2>Soll/Ist-Vergleich</h2>
-        <p className="page-loading">Lade Vergleichsdaten...</p>
-      </div>
-    );
-  }
+  const data = comparison.data;
+  const state: PageStateValue = comparison.isPending
+    ? { status: 'loading' }
+    : comparison.isError
+      ? {
+          status: 'error',
+          error: getErrorMessage(comparison.error, 'Vergleichsdaten konnten nicht geladen werden.'),
+          retry: () => void comparison.refetch(),
+        }
+      : data
+        ? { status: 'ready' }
+        : { status: 'empty' };
 
-  if (error) {
-    return (
-      <div className="tab-panel">
-        <h2>Soll/Ist-Vergleich</h2>
-        <p className="soll-ist-error">{error}</p>
-      </div>
-    );
-  }
-
-  if (!data) {
-    return (
-      <div className="tab-panel">
-        <h2>Soll/Ist-Vergleich</h2>
-        <p className="empty-message">Keine Vergleichsdaten verfügbar.</p>
-      </div>
-    );
-  }
+  const metrics: MetricRow[] = data
+    ? [
+        { key: 'hours', label: 'Arbeitsstunden', unit: 'h', metric: data.hours },
+        { key: 'weight', label: 'Materialgewicht', unit: 'g', metric: data.material_weight },
+        { key: 'material-cost', label: 'Materialkosten', unit: 'eur', metric: data.material_cost },
+        { key: 'total-price', label: 'Gesamtpreis', unit: 'eur', metric: data.total_price },
+      ]
+    : [];
 
   return (
-    <div className="tab-panel">
-      <div className="soll-ist-header">
-        <h2>Soll/Ist-Vergleich</h2>
-        <AccuracyBadge score={data.overall_accuracy_score} />
-      </div>
-
-      {data.has_significant_deviation && (
-        <div className="soll-ist-alert">
-          Mindestens eine Kennzahl weicht um mehr als 20&nbsp;% ab.
+    <PageState
+      state={state}
+      skeleton="detail"
+      skeletonCount={2}
+      empty={{ icon: 'circle-help', title: 'Keine Vergleichsdaten vorhanden.', headingLevel: 3 }}
+    >
+      {data && (
+        <div className="soll-ist">
+          {data.overall_accuracy_score !== null && (
+            <p className="soll-ist-accuracy">
+              Genauigkeit: <strong className="tabular-nums">{NUMBER_0.format(data.overall_accuracy_score)} %</strong>
+            </p>
+          )}
+          {data.has_significant_deviation && (
+            <Card tone="waiting">
+              <p>Mindestens eine Kennzahl weicht um mehr als 20&nbsp;% ab.</p>
+            </Card>
+          )}
+          <DataTable
+            caption="Kennzahlen Soll und Ist"
+            showCaption
+            rows={metrics}
+            columns={METRIC_COLUMNS}
+            getRowKey={(row) => row.key}
+          />
+          <DataTable
+            caption="Aufschlüsselung nach Aktivität"
+            showCaption
+            rows={data.activity_breakdown}
+            columns={ACTIVITY_COLUMNS}
+            getRowKey={(row) => row.activity_id}
+            empty={{ icon: 'clock', title: 'Keine Aktivitätsdaten vorhanden.', headingLevel: 3 }}
+          />
+          <InvoiceAction orderId={orderId} invoices={invoices.data} />
         </div>
       )}
-
-      {/* Core metrics */}
-      <section className="soll-ist-section">
-        <h3>Kennzahlen</h3>
-        <div className="soll-ist-metrics">
-          <MetricRow
-            label="Arbeitsstunden"
-            metric={data.hours}
-            unit="h"
-            decimals={1}
-          />
-          <MetricRow
-            label="Materialgewicht"
-            metric={data.material_weight}
-            unit="g"
-            decimals={1}
-          />
-          <MetricRow
-            label="Materialkosten"
-            metric={data.material_cost}
-            unit="€"
-            decimals={2}
-          />
-          <MetricRow
-            label="Gesamtpreis"
-            metric={data.total_price}
-            unit="€"
-            decimals={2}
-          />
-        </div>
-      </section>
-
-      {/* Activity breakdown */}
-      <section className="soll-ist-section">
-        <h3>Aufschlüsselung nach Aktivität</h3>
-        <ActivityTable rows={data.activity_breakdown} />
-      </section>
-
-      {/* Invoice shortcut — visible once invoice status is known */}
-      {existingInvoiceId === null && (
-        <div className="soll-ist-invoice-action">
-          <button
-            className="btn-primary soll-ist-invoice-btn"
-            onClick={handleCreateInvoice}
-            disabled={isCreatingInvoice}
-          >
-            {isCreatingInvoice ? 'Rechnung wird erstellt...' : 'Rechnung erstellen'}
-          </button>
-        </div>
-      )}
-      {existingInvoiceId !== null && existingInvoiceId !== undefined && (
-        <div className="soll-ist-invoice-action">
-          <span className="soll-ist-invoice-exists">
-            Rechnung vorhanden (ID&nbsp;{existingInvoiceId})
-          </span>
-        </div>
-      )}
-    </div>
+    </PageState>
   );
-};
+}
 
 export default SollIstTab;

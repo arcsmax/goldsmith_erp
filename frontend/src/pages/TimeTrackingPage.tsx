@@ -1,407 +1,328 @@
-// Time Tracking Page Component - Optimized
-import React, { useEffect, useState, useCallback, useMemo } from 'react';
-import { timeTrackingApi, activitiesApi } from '../api';
-import apiClient from '../api/client';
-import { TimeEntry, TimeEntryCreateInput, TimeEntryUpdateInput, Activity } from '../types';
-// Timer handled by global FAB widget in MainLayout
-import { TimeSummaryCards } from '../components/time-tracking/TimeSummaryCards';
-import { TimeReportsSection } from '../components/time-tracking/TimeReportsSection';
+// Zeiterfassung (W4-03): bench-mode page on src/ui primitives and queries.
+//
+// Data: the signed-in user's entries as one server page at a time
+// (GET /time-tracking/user/{id}?offset=…, Page envelope, sorted server-side
+// by start_time), activities from the shared query. Create, update and
+// delete are mutations that invalidate ['timer'] (lists, running timer,
+// summary) and ['dashboard']. A time_tracking_updates hint refreshes the
+// same root through lib/realtimeInvalidation.ts. The running timer comes
+// from TimeTrackingContext (the one cross-page timer state).
+import React, { useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+
+import { timeTrackingApi, type RunningTimeEntry } from '../api/time-tracking';
+import { queryKeys } from '../api/queryKeys';
+import { TIME_ENTRY_PAGE_SIZE, userEntriesQuery } from '../api/timeTrackingQueries';
+import { pageInfo } from '../api/paged';
+import { Pager } from '../components/Pager';
+import { BenchModeToggle } from '../components/scanner/BenchModeToggle';
+import { RunningTimerEditSheet } from '../components/time-tracking/RunningTimerEditSheet';
 import { TimeEntryFormModal } from '../components/time-tracking/TimeEntryFormModal';
-import { formatDateTime, formatDuration as formatDurationUtil } from '../utils/formatters';
-import { useToast, useConfirm } from '../contexts';
+import { TimeReportsSection } from '../components/time-tracking/TimeReportsSection';
+import { TimeSummaryCards } from '../components/time-tracking/TimeSummaryCards';
+import { useAuth, useConfirm, useTimeTracking, useToast } from '../contexts';
+import { getErrorMessage } from '../lib/errors';
+import { Button, Card, DataTable, Icon, PageHeader, type Column, type PageStateValue } from '../ui';
+import { StatusBadge } from '../ui/StatusBadge';
+import { formatDateTime, formatDuration } from '../utils/formatters';
+import type { Activity, TimeEntry, TimeEntryCreateInput, TimeEntryUpdateInput } from '../types';
 import '../styles/pages.css';
 import '../styles/time-tracking.css';
 
-// Helper function for duration formatting
-const formatDuration = (minutes: number | null): string => {
-  if (minutes === null) return 'Läuft...';
-  return formatDurationUtil(minutes);
+type SortOrder = '-start_time' | 'start_time';
+const PAGE_SIZE_OPTIONS = [25, 50, 100] as const;
+
+const openTimer = () => window.dispatchEvent(new Event('timer:expand'));
+
+/** "Läuft" / "Pausiert" / duration: icon plus text, never colour alone. */
+const EntryState: React.FC<{ entry: TimeEntry }> = ({ entry }) => {
+  if (entry.end_time) {
+    return <span className="time-entry-duration-cell">{formatDuration(entry.duration_minutes ?? 0)}</span>;
+  }
+  if (entry.is_paused) return <StatusBadge kind="timeEntry" status="paused" />;
+  return (
+    <span className="time-entry-running">
+      <Icon name="clock" /> Läuft
+    </span>
+  );
+};
+
+function useEntryMutations(onSaved: () => void) {
+  const queryClient = useQueryClient();
+  const { showToast } = useToast();
+  const invalidate = () =>
+    Promise.all([
+      queryClient.invalidateQueries({ queryKey: queryKeys.timer.all }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.all }),
+    ]);
+  const create = useMutation({
+    mutationFn: (data: TimeEntryCreateInput) => timeTrackingApi.createManual(data),
+    onSuccess: async () => {
+      await invalidate();
+      onSaved();
+      showToast('Zeiteintrag angelegt', 'success');
+    },
+    onError: (err) => showToast(getErrorMessage(err, 'Zeiteintrag konnte nicht angelegt werden'), 'error'),
+  });
+  const update = useMutation({
+    mutationFn: ({ id, data }: { id: string; data: TimeEntryUpdateInput }) => timeTrackingApi.update(id, data),
+    onSuccess: async () => {
+      await invalidate();
+      onSaved();
+      showToast('Zeiteintrag gespeichert', 'success');
+    },
+    onError: (err) => showToast(getErrorMessage(err, 'Zeiteintrag konnte nicht gespeichert werden'), 'error'),
+  });
+  const remove = useMutation({
+    mutationFn: (id: string) => timeTrackingApi.delete(id),
+    onSuccess: async () => {
+      await invalidate();
+      onSaved();
+      showToast('Zeiteintrag gelöscht', 'success');
+    },
+    onError: (err) => showToast(getErrorMessage(err, 'Zeiteintrag konnte nicht gelöscht werden'), 'error'),
+  });
+  return { create, update, remove };
+}
+
+function entryColumns(
+  activityName: (id: number) => string,
+  onEdit: (entry: TimeEntry) => void,
+): Column<TimeEntry>[] {
+  return [
+    { key: 'start', header: 'Start', numeric: true, render: (e) => formatDateTime(e.start_time) },
+    {
+      key: 'end',
+      header: 'Ende',
+      numeric: true,
+      hideBelow: 'tablet',
+      render: (e) => (e.end_time ? formatDateTime(e.end_time) : '–'),
+    },
+    { key: 'state', header: 'Dauer', numeric: true, render: (e) => <EntryState entry={e} /> },
+    {
+      key: 'order',
+      header: 'Auftrag',
+      render: (e) => <Link to={`/orders/${e.order_id}`}>Auftrag #{e.order_id}</Link>,
+    },
+    { key: 'activity', header: 'Aktivität', render: (e) => activityName(e.activity_id) },
+    {
+      key: 'notes',
+      header: 'Notizen',
+      hideBelow: 'desktop',
+      render: (e) => <span className="time-entry-notes-clamp">{e.notes || '–'}</span>,
+    },
+    {
+      key: 'action',
+      header: 'Aktion',
+      render: (e) =>
+        e.end_time ? (
+          <Button variant="ghost" icon="pencil" onClick={() => onEdit(e)}>
+            Bearbeiten
+          </Button>
+        ) : (
+          <Button variant="secondary" icon="clock" onClick={openTimer}>
+            Timer öffnen
+          </Button>
+        ),
+    },
+  ];
+}
+
+const RunningTimerCard: React.FC<{ entry: RunningTimeEntry; activityName: string }> = ({
+  entry,
+  activityName,
+}) => {
+  const [isEditing, setIsEditing] = useState(false);
+  const jobLabel = entry.order_title
+    ? `Auftrag #${entry.order_id} – ${entry.order_title}`
+    : `Auftrag #${entry.order_id}`;
+  return (
+    <Card title="Läuft gerade" tone={entry.is_paused ? 'waiting' : 'info'} className="time-running-card">
+      <div className="time-running-card__body">
+        <p className="time-running-card__order">
+          {jobLabel} · {entry.activity_name ?? activityName}
+          {entry.location ? ` · ${entry.location}` : ''}
+        </p>
+        {entry.is_paused && <StatusBadge kind="timeEntry" status="paused" size="lg" />}
+        <Button size="lg" variant="secondary" icon="pencil" onClick={() => setIsEditing(true)}>
+          Timer bearbeiten
+        </Button>
+        <Button size="lg" icon="clock" onClick={openTimer}>
+          Timer öffnen
+        </Button>
+      </div>
+      {isEditing && <RunningTimerEditSheet entry={entry} onClose={() => setIsEditing(false)} />}
+    </Card>
+  );
 };
 
 export const TimeTrackingPage: React.FC = () => {
-  const { showToast } = useToast();
+  const { user } = useAuth();
+  const userId = user?.id ?? null;
   const { showConfirm } = useConfirm();
-  const [entries, setEntries] = useState<TimeEntry[]>([]);
-  const [activities, setActivities] = useState<Activity[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const { runningEntry, activities } = useTimeTracking();
+  const [pageIndex, setPageIndex] = useState(0);
+  const [pageSize, setPageSize] = useState<number>(TIME_ENTRY_PAGE_SIZE);
+  const [sort, setSort] = useState<SortOrder>('-start_time');
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [isFormLoading, setIsFormLoading] = useState(false);
   const [selectedEntry, setSelectedEntry] = useState<TimeEntry | null>(null);
 
-  // Filters & Sort
-  const [searchQuery, setSearchQuery] = useState('');
-  const [filterActivity, setFilterActivity] = useState<number | ''>('');
-  const [sortBy, setSortBy] = useState<'date' | 'duration'>('date');
-  const [page, setPage] = useState(0);
-  const [pageSize, setPageSize] = useState(25);
+  const params = { limit: pageSize, offset: pageIndex * pageSize, sort };
+  const query = useQuery({ ...userEntriesQuery(userId ?? 0, params), enabled: userId !== null });
 
-  // Memoized fetch functions
-  const fetchEntries = useCallback(async () => {
-    try {
-      setIsLoading(true);
-      setError(null);
-      // Fetch current user's time entries via /users/me then /time-tracking/user/{id}
-      const meResponse = await apiClient.get('/users/me');
-      const userId = meResponse.data.id;
-      const data = await timeTrackingApi.getForUser(userId);
-      setEntries(data);
-    } catch (err: any) {
-      setError(err.response?.data?.detail || 'Fehler beim Laden der Zeiteinträge');
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
-
-  const fetchActivities = useCallback(async () => {
-    try {
-      const data = await activitiesApi.getAll();
-      setActivities(data);
-    } catch (err: any) {
-      console.error('Fehler beim Laden der Aktivitäten:', err);
-      setActivities([]);
-    }
-  }, []);
-
-  useEffect(() => {
-    fetchEntries();
-    fetchActivities();
-  }, [fetchEntries, fetchActivities]);
-
-  // Create activity lookup map for O(1) performance
-  const activityMap = useMemo(() => {
-    const map = new Map<number, Activity>();
-    activities.forEach(activity => map.set(activity.id, activity));
-    return map;
-  }, [activities]);
-
-  // Replace useEffect with useMemo for better performance
-  const filteredEntries = useMemo(() => {
-    let filtered = [...entries];
-
-    // Search filter
-    if (searchQuery.trim()) {
-      const query = searchQuery.toLowerCase();
-      filtered = filtered.filter(
-        (e) =>
-          e.id.toLowerCase().includes(query) ||
-          (e.notes && e.notes.toLowerCase().includes(query))
-      );
-    }
-
-    // Activity filter
-    if (filterActivity) {
-      filtered = filtered.filter((e) => e.activity_id === filterActivity);
-    }
-
-    // Sort
-    filtered.sort((a, b) => {
-      if (sortBy === 'date') {
-        return new Date(b.start_time).getTime() - new Date(a.start_time).getTime();
-      } else if (sortBy === 'duration') {
-        return (b.duration_minutes || 0) - (a.duration_minutes || 0);
-      }
-      return 0;
-    });
-
-    return filtered;
-  }, [entries, searchQuery, filterActivity, sortBy]);
-
-  // Memoized pagination calculations
-  const totalPages = useMemo(() => Math.ceil(filteredEntries.length / pageSize), [filteredEntries.length, pageSize]);
-  const paginatedEntries = useMemo(
-    () => filteredEntries.slice(page * pageSize, (page + 1) * pageSize),
-    [filteredEntries, page, pageSize]
+  const activityMap = useMemo(
+    () => new Map<number, Activity>(activities.map((a) => [a.id, a])),
+    [activities],
   );
+  const activityName = (id: number) => activityMap.get(id)?.name ?? `Aktivität #${id}`;
 
-  // Memoized event handlers
-  const handleCreateEntry = useCallback(async (data: TimeEntryCreateInput) => {
-    try {
-      setIsFormLoading(true);
-      await timeTrackingApi.createManual(data);
-      await fetchEntries();
-      setIsModalOpen(false);
-      showToast('Zeiterfassung erfolgreich erstellt!', 'success');
-    } catch (err: any) {
-      showToast(err.response?.data?.detail || 'Fehler beim Erstellen der Zeiterfassung', 'error');
-    } finally {
-      setIsFormLoading(false);
-    }
-  }, [fetchEntries]);
-
-  const handleUpdateEntry = useCallback(async (data: TimeEntryUpdateInput) => {
-    if (!selectedEntry) return;
-
-    try {
-      setIsFormLoading(true);
-      await timeTrackingApi.update(selectedEntry.id, data);
-      await fetchEntries();
-      setIsModalOpen(false);
-      setSelectedEntry(null);
-      showToast('Zeiterfassung erfolgreich aktualisiert!', 'success');
-    } catch (err: any) {
-      showToast(err.response?.data?.detail || 'Fehler beim Aktualisieren der Zeiterfassung', 'error');
-    } finally {
-      setIsFormLoading(false);
-    }
-  }, [selectedEntry, fetchEntries]);
-
-  const handleDeleteEntry = useCallback(async (entryId: string) => {
-    const confirmed = await showConfirm({
-      title: 'Zeiteintrag loschen',
-      message: 'Mochten Sie diese Zeiterfassung wirklich loschen?',
-      confirmLabel: 'Loschen',
-      variant: 'danger',
-    });
-
-    if (!confirmed) return;
-
-    try {
-      await timeTrackingApi.delete(entryId);
-      await fetchEntries();
-      showToast('Zeiterfassung erfolgreich geloscht!', 'success');
-    } catch (err: any) {
-      showToast(err.response?.data?.detail || 'Fehler beim Loschen der Zeiterfassung', 'error');
-    }
-  }, [fetchEntries, showConfirm, showToast]);
-
-  const openCreateModal = useCallback(() => {
-    setSelectedEntry(null);
-    setIsModalOpen(true);
-  }, []);
-
-  const openEditModal = useCallback((entry: TimeEntry, e: React.MouseEvent) => {
-    e.stopPropagation();
-    setSelectedEntry(entry);
-    setIsModalOpen(true);
-  }, []);
-
-  const closeModal = useCallback(() => {
+  const closeModal = () => {
     setIsModalOpen(false);
     setSelectedEntry(null);
-  }, []);
+  };
+  const { create, update, remove } = useEntryMutations(closeModal);
 
-  const handleFormSubmit = useCallback(async (data: TimeEntryCreateInput | TimeEntryUpdateInput) => {
+  const openEdit = (entry: TimeEntry) => {
+    setSelectedEntry(entry);
+    setIsModalOpen(true);
+  };
+  const openCreate = () => {
+    setSelectedEntry(null);
+    setIsModalOpen(true);
+  };
+
+  const handleSubmit = async (data: TimeEntryCreateInput | TimeEntryUpdateInput) => {
     if (selectedEntry) {
-      await handleUpdateEntry(data);
+      // onError already shows the toast; the modal stays open for a retry.
+      await update.mutateAsync({ id: selectedEntry.id, data }).catch(() => undefined);
     } else {
-      await handleCreateEntry(data as TimeEntryCreateInput);
+      await create.mutateAsync(data as TimeEntryCreateInput).catch(() => undefined);
     }
-  }, [selectedEntry, handleUpdateEntry, handleCreateEntry]);
+  };
+
+  const handleDelete = async (entry: TimeEntry) => {
+    const confirmed = await showConfirm({
+      title: 'Zeiteintrag löschen',
+      message: `Möchten Sie den Zeiteintrag vom ${formatDateTime(entry.start_time)} wirklich löschen?`,
+      confirmLabel: 'Löschen',
+      variant: 'danger',
+    });
+    if (confirmed) remove.mutate(entry.id);
+  };
+
+  const state: PageStateValue =
+    userId === null || query.isPending
+      ? { status: 'loading' }
+      : query.isError && !query.data
+        ? {
+            status: 'error',
+            error: getErrorMessage(query.error, 'Zeiteinträge konnten nicht geladen werden.'),
+            retry: () => void query.refetch(),
+          }
+        : { status: query.data?.items.length ? 'ready' : 'empty' };
+  const page = query.data;
+  const { pageNumber, pageCount } = page ? pageInfo(page) : { pageNumber: 1, pageCount: 1 };
 
   return (
-    <div className="page-container">
-      {/* Timer is handled by the global FAB widget in MainLayout */}
+    <div className="page-container time-tracking-page">
+      <PageHeader
+        title="Zeiterfassung"
+        meta={page ? `${page.total} Einträge` : undefined}
+        primaryAction={
+          <Button size="lg" icon="plus" onClick={openCreate}>
+            Eintrag anlegen
+          </Button>
+        }
+        secondaryActions={<BenchModeToggle />}
+      />
 
-      {/* Summary Cards */}
-      <TimeSummaryCards />
-
-      {/* Reports Section */}
-      <TimeReportsSection />
-
-      {/* Page Header */}
-      <header className="page-header">
-        <div>
-          <h1>Zeiteinträge</h1>
-          <p style={{ color: '#666', margin: '0.5rem 0 0 0' }}>
-            {filteredEntries.length} Einträge
-          </p>
-        </div>
-        <button className="btn-primary" onClick={openCreateModal}>
-          + Manueller Eintrag
-        </button>
-      </header>
-
-      {/* Search and Filters */}
-      <div className="time-tracking-controls">
-        <div className="search-box">
-          <input
-            type="text"
-            placeholder="Suche nach ID, Auftrag oder Notizen..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-          />
-        </div>
-
-        <div className="filter-group">
-          <label>Aktivität:</label>
-          <select
-            value={filterActivity}
-            onChange={(e) => setFilterActivity(Number(e.target.value) || '')}
-          >
-            <option value="">Alle</option>
-            {activities.map((activity) => (
-              <option key={activity.id} value={activity.id}>
-                {activity.icon && `${activity.icon} `}
-                {activity.name}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div className="filter-group">
-          <label>Sortieren:</label>
-          <select value={sortBy} onChange={(e) => setSortBy(e.target.value as 'date' | 'duration')}>
-            <option value="date">Datum</option>
-            <option value="duration">Dauer</option>
-          </select>
-        </div>
-
-        <div className="filter-group">
-          <label>Pro Seite:</label>
-          <select
-            value={pageSize}
-            onChange={(e) => {
-              setPageSize(Number(e.target.value));
-              setPage(0);
-            }}
-          >
-            <option value="25">25</option>
-            <option value="50">50</option>
-            <option value="100">100</option>
-          </select>
-        </div>
-      </div>
-
-      {isLoading ? (
-        <div className="page-loading">Lade Zeiteinträge...</div>
-      ) : error ? (
-        <div className="page-error">{error}</div>
-      ) : filteredEntries.length === 0 ? (
-        <div className="empty-state">
-          <p>
-            {searchQuery || filterActivity
-              ? 'Keine Zeiteinträge gefunden.'
-              : 'Keine Zeiteinträge vorhanden.'}
-          </p>
-        </div>
-      ) : (
-        <>
-          <div className="table-container">
-            <table className="time-entries-table">
-              <thead>
-                <tr>
-                  <th>ID</th>
-                  <th>Startzeit</th>
-                  <th>Endzeit</th>
-                  <th>Dauer</th>
-                  <th>Auftrag</th>
-                  <th>Aktivität</th>
-                  <th>Standort</th>
-                  <th>Notizen</th>
-                  <th>Aktionen</th>
-                </tr>
-              </thead>
-              <tbody>
-                {paginatedEntries.map((entry) => {
-                  const activity = activityMap.get(entry.activity_id);
-                  const isRunning = !entry.end_time;
-
-                  return (
-                    <tr
-                      key={entry.id}
-                      className={isRunning ? 'running clickable' : ''}
-                      onClick={isRunning ? () => window.dispatchEvent(new Event('timer:expand')) : undefined}
-                      style={isRunning ? { cursor: 'pointer' } : undefined}
-                      title={isRunning ? 'Klicken um Timer zu öffnen' : undefined}
-                    >
-                      <td>#{entry.id.slice(0, 8)}</td>
-                      <td>{formatDateTime(entry.start_time)}</td>
-                      <td>{entry.end_time ? formatDateTime(entry.end_time) : 'Läuft...'}</td>
-                      <td>
-                        <span className={`duration-badge ${isRunning ? 'running' : ''}`}>
-                          {formatDuration(entry.duration_minutes ?? null)}
-                        </span>
-                      </td>
-                      <td>{`#${entry.order_id}`}</td>
-                      <td>
-                        {activity && (
-                          <span className="activity-badge">
-                            {activity.icon && `${activity.icon} `}
-                            {activity.name}
-                          </span>
-                        )}
-                      </td>
-                      <td>{entry.location || '-'}</td>
-                      <td className="notes-cell">
-                        {entry.notes ? (
-                          <span title={entry.notes}>
-                            {entry.notes.length > 30
-                              ? `${entry.notes.slice(0, 30)}...`
-                              : entry.notes}
-                          </span>
-                        ) : (
-                          '-'
-                        )}
-                      </td>
-                      <td>
-                        <div className="time-page-actions">
-                          <button
-                            className="btn-icon btn-edit"
-                            onClick={(e) => openEditModal(entry, e)}
-                            title="Bearbeiten"
-                            disabled={isRunning}
-                          >
-                            ✏️
-                          </button>
-                          <button
-                            className="btn-icon btn-delete"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleDeleteEntry(entry.id);
-                            }}
-                            title="Löschen"
-                            disabled={isRunning}
-                          >
-                            🗑️
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-
-          {/* Pagination */}
-          {totalPages > 1 && (
-            <div className="pagination-controls">
-              <div className="pagination-info">
-                Seite {page + 1} von {totalPages} • {filteredEntries.length} Einträge
-              </div>
-              <div className="pagination-buttons">
-                <button onClick={() => setPage(0)} disabled={page === 0}>
-                  ‹‹ Erste
-                </button>
-                <button onClick={() => setPage(page - 1)} disabled={page === 0}>
-                  ‹ Zurück
-                </button>
-                <button
-                  onClick={() => setPage(page + 1)}
-                  disabled={page >= totalPages - 1}
-                >
-                  Weiter ›
-                </button>
-                <button
-                  onClick={() => setPage(totalPages - 1)}
-                  disabled={page >= totalPages - 1}
-                >
-                  Letzte ››
-                </button>
-              </div>
-            </div>
-          )}
-        </>
+      {runningEntry && (
+        <RunningTimerCard entry={runningEntry} activityName={activityName(runningEntry.activity_id)} />
       )}
 
-      {/* Time Entry Form Modal */}
+      <TimeSummaryCards />
+
+      <section id="zeiteintraege" className="time-entries" aria-labelledby="time-entries-title">
+        <div className="time-entries__header">
+          <h2 id="time-entries-title">Zeiteinträge</h2>
+          <div className="time-entries__controls">
+            <label className="time-entries__control">
+              Sortieren
+              <select
+                value={sort}
+                onChange={(e) => {
+                  setSort(e.target.value as SortOrder);
+                  setPageIndex(0);
+                }}
+              >
+                <option value="-start_time">Neueste zuerst</option>
+                <option value="start_time">Älteste zuerst</option>
+              </select>
+            </label>
+            <label className="time-entries__control">
+              Pro Seite
+              <select
+                value={pageSize}
+                onChange={(e) => {
+                  setPageSize(Number(e.target.value));
+                  setPageIndex(0);
+                }}
+              >
+                {PAGE_SIZE_OPTIONS.map((size) => (
+                  <option key={size} value={size}>
+                    {size}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+        </div>
+
+        <DataTable
+          rows={page?.items ?? []}
+          columns={entryColumns(activityName, openEdit)}
+          getRowKey={(e) => e.id}
+          caption="Zeiteinträge"
+          state={state}
+          empty={{
+            icon: 'clock',
+            title: 'Noch keine Zeiteinträge',
+            body: 'Starten Sie einen Timer oder tragen Sie eine Zeit nach.',
+            action: (
+              <Button size="lg" icon="plus" onClick={openCreate}>
+                Eintrag anlegen
+              </Button>
+            ),
+          }}
+          cardTitle={(e) => `Auftrag #${e.order_id} · ${activityName(e.activity_id)}`}
+          cardMeta={(e) => formatDateTime(e.start_time)}
+          cardBadges={(e) => <EntryState entry={e} />}
+        />
+
+        {page && page.items.length > 0 && (
+          <Pager
+            label="Seiten der Zeiteinträge"
+            pageNumber={pageNumber}
+            pageCount={pageCount}
+            summary={`${page.total} Einträge`}
+            hasNext={page.next_offset != null}
+            isFetching={query.isFetching}
+            onPrevious={() => setPageIndex((index) => Math.max(index - 1, 0))}
+            onNext={() => setPageIndex((index) => index + 1)}
+          />
+        )}
+      </section>
+
+      <TimeReportsSection />
+
       <TimeEntryFormModal
         isOpen={isModalOpen}
         onClose={closeModal}
-        onSubmit={handleFormSubmit}
+        onSubmit={handleSubmit}
         entry={selectedEntry}
-        isLoading={isFormLoading}
+        isLoading={create.isPending || update.isPending || remove.isPending}
+        onDelete={(entry) => void handleDelete(entry)}
       />
     </div>
   );

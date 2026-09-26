@@ -1,0 +1,145 @@
+/* Werkstatt board (W6 kanban over the jobs spine). Tokens only; the global
+ * :focus-visible ring (a11y-global.css) marks the focused column. */
+
+.workshop-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--space-4);
+  margin-block: var(--space-4);
+}
+
+.workshop-filter__customer {
+  flex: 1 1 16rem;
+  max-width: 28rem;
+}
+
+.workshop-filter__picked {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--touch-min);
+}
+
+.workshop-filter__suggestions {
+  list-style: none;
+  margin: var(--space-1) 0 0;
+  padding: var(--space-1);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-card);
+  box-shadow: var(--shadow-2);
+}
+
+.workshop-filter__note {
+  margin: var(--space-2) 0 0;
+  color: var(--color-text-muted);
+  font-size: var(--type-sm);
+}
+
+/* The board scrolls sideways inside itself; the page never does. */
+.workshop-board {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(16rem, 1fr);
+  gap: var(--space-3);
+  overflow-x: auto;
+  padding-block-end: var(--space-3);
+  scroll-snap-type: x proximity;
+}
+
+.workshop-column {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface-sunken);
+  scroll-snap-align: start;
+}
+
+.workshop-column__heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin: 0;
+  font-size: var(--type-base);
+}
+
+.workshop-column__count {
+  color: var(--color-text-muted);
+  font-size: var(--type-sm);
+}
+
+.workshop-column__note {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--type-sm);
+}
+
+.workshop-column__cards {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.workshop-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-card);
+  box-shadow: var(--shadow-1);
+}
+
+.workshop-card__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.workshop-card__kind {
+  color: var(--color-text-muted);
+  font-size: var(--type-sm);
+}
+
+.workshop-card__number {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--touch-min);
+  color: var(--color-primary);
+  font-weight: 600;
+}
+
+.workshop-card__title,
+.workshop-card__customer {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.workshop-card__customer {
+  color: var(--color-text-muted);
+  font-size: var(--type-sm);
+}
+
+.workshop-card__badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+@media (max-width: 599px) {
+  .workshop-board {
+    grid-auto-columns: 85%;
+  }
+}

@@ -12,11 +12,13 @@
 // logError for all failures. The PUT response is a full RepairJobRead
 // (photos + checklist), so the parent just replaces its whole `repair`
 // state via onUpdated — no local patching.
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { repairsApi, repairPhotoThumbPath } from '../../api/repairs';
 import { IntakeChecklistItem, RepairJob } from '../../types';
-import { useToast } from '../../contexts';
+import { useAuth, useToast } from '../../contexts';
 import { logError } from '../../lib/logError';
+import { canViewDesign } from '../../lib/roles';
+import { Button } from '../../ui';
 import AuthenticatedImage from '../AuthenticatedImage';
 
 /** Backend limit — reject client-side before any upload attempt. */
@@ -62,6 +64,10 @@ interface IntakeChecklistRowProps {
   onCancelReason: () => void;
   onPhotoCapture: (file: File) => void;
   onSubmitReason: () => void;
+  /** DESIGN_VIEW (SEC-09/GDPR-04) — a VIEWER 403s on the thumbnail fetch,
+   *  so it must not even be requested. The "Foto ✓" chip already conveys
+   *  the item's status without it. */
+  canViewPhoto: boolean;
 }
 
 function IntakeChecklistRow({
@@ -75,13 +81,22 @@ function IntakeChecklistRow({
   onCancelReason,
   onPhotoCapture,
   onSubmitReason,
+  canViewPhoto,
 }: IntakeChecklistRowProps) {
+  const reasonInputRef = useRef<HTMLInputElement>(null);
+
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     e.target.value = '';
     if (!file) return;
     onPhotoCapture(file);
   };
+
+  // Move focus into the reason field when it appears, without the
+  // jsx-a11y/no-autofocus-flagged `autoFocus` prop.
+  useEffect(() => {
+    if (reasonOpen) reasonInputRef.current?.focus();
+  }, [reasonOpen]);
 
   return (
     <li className={`intake-checklist-row intake-checklist-row--${item.status}`}>
@@ -100,7 +115,7 @@ function IntakeChecklistRow({
               type="file"
               accept="image/*"
               capture="environment"
-              style={{ display: 'none' }}
+              className="ui-visually-hidden"
               onChange={handleFileChange}
               disabled={locked}
             />
@@ -120,36 +135,31 @@ function IntakeChecklistRow({
       {item.status === 'open' && reasonOpen && (
         <div className="intake-checklist-reason-form">
           <input
+            ref={reasonInputRef}
             type="text"
-            className="form-input"
+            className="ui-field__control"
+            aria-label={`Begründung für „${item.label}“`}
             placeholder="Begründung (mind. 3 Zeichen)"
             value={reasonDraft}
             onChange={(e) => onReasonDraftChange(e.target.value)}
             disabled={locked}
-            autoFocus
           />
           <div className="intake-checklist-reason-actions">
-            <button
-              type="button"
-              className="btn btn-secondary"
-              onClick={onCancelReason}
-              disabled={locked}
-            >
+            <Button variant="secondary" onClick={onCancelReason} disabled={locked}>
               Abbrechen
-            </button>
-            <button
-              type="button"
-              className="btn btn-primary"
+            </Button>
+            <Button
               onClick={onSubmitReason}
+              loading={busy}
               disabled={locked || reasonDraft.trim().length < MIN_REASON_LENGTH}
             >
-              {busy ? 'Wird gespeichert…' : 'Speichern'}
-            </button>
+              Speichern
+            </Button>
           </div>
         </div>
       )}
 
-      {item.status === 'photo' && item.photo_id != null && (
+      {item.status === 'photo' && item.photo_id != null && canViewPhoto && (
         <div className="intake-checklist-row-photo">
           <AuthenticatedImage
             src={repairPhotoThumbPath(item.photo_id)}
@@ -168,6 +178,8 @@ function IntakeChecklistRow({
 
 export function IntakeChecklist({ repair, onUpdated, onRefresh }: IntakeChecklistProps) {
   const { showToast } = useToast();
+  const { user } = useAuth();
+  const canViewPhoto = canViewDesign(user?.role);
   const items = repair.intake_checklist;
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [reasonDraft, setReasonDraft] = useState<Record<string, string>>({});
@@ -315,6 +327,7 @@ export function IntakeChecklist({ repair, onUpdated, onRefresh }: IntakeChecklis
             }}
             onPhotoCapture={(file) => handlePhotoCapture(item, file)}
             onSubmitReason={() => handleNotApplicable(item, reasonDraft[item.key] ?? '')}
+            canViewPhoto={canViewPhoto}
           />
         ))}
       </ul>

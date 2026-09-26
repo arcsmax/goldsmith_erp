@@ -58,7 +58,7 @@
 
 .btn-primary {
   background: var(--color-interactive-primary);
-  color: #fff;
+  color: var(--color-primary-contrast);
   border-color: var(--color-interactive-primary);
 }
 
@@ -74,17 +74,17 @@
 }
 
 .btn-secondary:hover:not(:disabled) {
-  background: #f8f6f0;
-  border-color: var(--color-brand-cta-400);
+  background: var(--color-surface-sunken);
+  border-color: var(--color-accent);
 }
 
 .btn-danger {
-  background: #dc2626;
-  color: #fff;
-  border-color: #dc2626;
+  background: var(--color-danger);
+  color: var(--color-danger-contrast);
+  border-color: var(--color-danger);
 }
 
 .btn-danger:hover:not(:disabled) {
-  background: #b91c1c;
-  border-color: #b91c1c;
+  background: var(--color-danger-fg);
+  border-color: var(--color-danger);
 }

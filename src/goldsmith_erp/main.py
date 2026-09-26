@@ -4,11 +4,11 @@ import os
 from pathlib import Path
 from typing import List
 
+import jwt
 import uvicorn
-from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Request, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from jose import JWTError, jwt
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
@@ -17,7 +17,9 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from goldsmith_erp.api.routers import (
     activities,
     admin_email,
+    admin_outbox,
     admin_scan_metrics,
+    admin_workshop,
     analytics,
     auth,
     calendar,
@@ -26,16 +28,20 @@ from goldsmith_erp.api.routers import (
     customer_portal,
     customer_updates,
     customers,
+    dashboard,
     estimator,
+    gemstones,
     hallmarks,
     handoffs,
     health,
 )
 from goldsmith_erp.api.routers import imports as imports_router
+from goldsmith_erp.api.routers import invoices
+from goldsmith_erp.api.routers import jobs as jobs_router
+from goldsmith_erp.api.routers import locations as locations_router
+from goldsmith_erp.api.routers import materials, measurements
+from goldsmith_erp.api.routers import media as media_router
 from goldsmith_erp.api.routers import (
-    invoices,
-    materials,
-    measurements,
     metal_inventory,
     metal_prices,
     metal_types,
@@ -50,11 +56,13 @@ from goldsmith_erp.api.routers import scanner as scanner_router
 from goldsmith_erp.api.routers import scrap_gold
 from goldsmith_erp.api.routers import theme as theme_router
 from goldsmith_erp.api.routers import time_tracking, users, valuations
+from goldsmith_erp.core import ws_manager
 from goldsmith_erp.core.config import settings
 from goldsmith_erp.core.encryption import EncryptionError, check_encryption_configured
+from goldsmith_erp.core.errors import register_domain_error_handler
 from goldsmith_erp.core.logging import setup_logging
-from goldsmith_erp.core.pubsub import publish_event, subscribe_and_forward
 from goldsmith_erp.core.security import ALGORITHM
+from goldsmith_erp.core.token_revocation import is_token_revoked
 from goldsmith_erp.middleware import RequestLoggingMiddleware, RequestMetricsMiddleware
 from goldsmith_erp.middleware.audit_logging import AuditLoggingMiddleware
 from goldsmith_erp.middleware.auth_required import AuthRequiredMiddleware
@@ -135,6 +143,8 @@ _uploads_dir.mkdir(parents=True, exist_ok=True)
 # Add rate limiting state and error handler
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+# ARCH-08 / W3-07: one handler renders every DomainError as {detail, code, extra}.
+register_domain_error_handler(app)
 
 # Add security middleware (order matters — Starlette runs middleware in
 # REVERSE order of add(), so the LAST add() is the OUTERMOST / first to run
@@ -237,6 +247,9 @@ app.include_router(
 app.include_router(
     repairs.router, prefix=f"{settings.API_V1_STR}/repairs", tags=["repairs"]
 )  # Repair tracking (Reparaturverwaltung)
+app.include_router(  # ARCH phase 5: orders + repairs on the job spine
+    jobs_router.router, prefix=f"{settings.API_V1_STR}/jobs", tags=["jobs"]
+)
 app.include_router(
     hallmarks.router, prefix=f"{settings.API_V1_STR}", tags=["hallmarks"]
 )  # Hallmarking / Punzierung
@@ -251,6 +264,15 @@ app.include_router(
 app.include_router(
     admin_email.router, prefix=f"{settings.API_V1_STR}", tags=["admin-email"]
 )  # Email/SMTP admin configuration
+app.include_router(
+    admin_workshop.router, prefix=settings.API_V1_STR, tags=["admin-workshop"]
+)  # W2-04: Werkstatt-Stammdaten (ADMIN)
+app.include_router(  # W8: Standorte (picker + ADMIN management)
+    locations_router.router, prefix=settings.API_V1_STR, tags=["locations"]
+)
+app.include_router(
+    admin_outbox.router, prefix=settings.API_V1_STR, tags=["admin-outbox"]
+)  # W6 outbox: Nachrichten-Warteschlange (ADMIN)
 app.include_router(
     admin_scan_metrics.router,
     prefix=f"{settings.API_V1_STR}",
@@ -277,14 +299,27 @@ app.include_router(
 )  # V1.2 Kundeninfo + §649 BGB Kostenfreigabe (mixed /orders, /updates,
 #    /cost-changes path roots — bare API prefix, handoffs.py precedent)
 app.include_router(
+    dashboard.router, prefix=f"{settings.API_V1_STR}/dashboard", tags=["dashboard"]
+)  # W2-03 "Heute" start-of-day view
+app.include_router(
     estimator.router,
     prefix=f"{settings.API_V1_STR}/estimates",
     tags=["estimator"],
 )  # V1.3 Phase 1 — statistical labor estimator (financial, ADMIN/GOLDSMITH only)
+app.include_router(
+    gemstones.router, prefix=settings.API_V1_STR, tags=["gemstones"]
+)  # W2-06: /orders/{id}/gemstones + /gemstones/{id}
+app.include_router(
+    media_router.router, prefix=f"{settings.API_V1_STR}/media", tags=["media"]
+)  # ARCH phase 4: unified media_assets (ADR-2026-09-25-media)
 
 
 async def _authenticate_websocket(websocket: WebSocket) -> int | None:
-    """Extract and validate JWT from WebSocket cookie or query param."""
+    """Validate the JWT (cookie, or legacy ``?token=``) and its revocation.
+
+    A token blocklisted at logout or predating the user's invalid-before
+    mark is refused, so a logged-out tablet cannot keep a live channel.
+    """
     token = websocket.cookies.get("access_token")
     if not token:
         token = websocket.query_params.get("token")
@@ -293,71 +328,55 @@ async def _authenticate_websocket(websocket: WebSocket) -> int | None:
     try:
         payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[ALGORITHM])
         user_id = payload.get("sub")
-        return int(user_id) if user_id else None
-    except (JWTError, ValueError, TypeError):
+        if not user_id:
+            return None
+        parsed_user_id = int(user_id)
+    except (jwt.InvalidTokenError, ValueError, TypeError):
         return None
+    if await is_token_revoked(payload):
+        logger.info("Revoked token refused on WebSocket", extra={"user_id": user_id})
+        return None
+    return parsed_user_id
 
 
-# WebSocket endpoint with Redis Pub/Sub integration
-@app.websocket("/ws/orders")
-async def websocket_endpoint(websocket: WebSocket):
+# W2-13 / FE-08 / BE-20 / D.1 — one live-update socket per browser session.
+# The process-wide hub holds ONE Redis subscription and routes role-safe
+# invalidation hints (ids, status, timestamps; never prices or PII) to the
+# right users: order_updates to all staff, time_tracking_updates and
+# notifications:{uid} only to that user. The former /ws/orders and
+# /ws/notifications/{id} raw relays are removed (/ws/orders leaked
+# Order.price to VIEWER sockets, SEC-01).
+@app.websocket("/ws/events")
+async def events_websocket_endpoint(websocket: WebSocket) -> None:
     user_id = await _authenticate_websocket(websocket)
     if user_id is None:
         await websocket.close(code=4001, reason="Authentication required")
         return
     await websocket.accept()
-    channel = "order_updates"
-    subscribe_task = asyncio.create_task(subscribe_and_forward(websocket, channel))
-    try:
-        while True:
-            data = await websocket.receive_text()
-            logger.debug(
-                "WS client message", extra={"channel": channel, "user_id": user_id}
-            )
-    except WebSocketDisconnect:
-        logger.info("WebSocket disconnected", extra={"channel": channel})
-    finally:
-        subscribe_task.cancel()
-        try:
-            await subscribe_task
-        except asyncio.CancelledError:
-            pass
-
-
-# Per-user notification WebSocket — channel: ``notifications:{user_id}``
-# The frontend opens this socket for the currently logged-in user.
-# JWT authentication is enforced at the HTTP level by AuthRequiredMiddleware
-# before the WebSocket upgrade is accepted.
-@app.websocket("/ws/notifications/{user_id}")
-async def notification_websocket_endpoint(websocket: WebSocket, user_id: int):
-    authenticated_user_id = await _authenticate_websocket(websocket)
-    if authenticated_user_id is None or authenticated_user_id != user_id:
-        await websocket.close(code=4001, reason="Authentication required")
-        return
-    await websocket.accept()
-    channel = f"notifications:{user_id}"
-    subscribe_task = asyncio.create_task(subscribe_and_forward(websocket, channel))
-    try:
-        while True:
-            await websocket.receive_text()
-    except WebSocketDisconnect:
-        logger.info(
-            "Notification WebSocket disconnected",
-            extra={"channel": channel, "user_id": user_id},
-        )
-    finally:
-        subscribe_task.cancel()
-        try:
-            await subscribe_task
-        except asyncio.CancelledError:
-            pass
+    await ws_manager.realtime_hub.serve(websocket, user_id)
 
 
 @app.on_event("startup")
 async def start_background_tasks() -> None:
-    """Register long-running background tasks on application startup."""
+    """Register long-running background tasks on application startup.
+
+    With OUTBOX_MODE=worker the worker process (python -m goldsmith_erp.worker)
+    runs the monitor and sends mail, so the web process starts no loops.
+    """
+    if settings.outbox_mode == "worker":
+        logger.info("OUTBOX_MODE=worker: system monitor runs in the worker")
+        return
     asyncio.create_task(system_monitor_loop())
     logger.info("System monitor background task registered")
+
+
+@app.on_event("startup")
+async def backfill_jobs_on_startup() -> None:
+    """Give orders/repairs without a job one (JOBS_BACKFILL_ON_STARTUP)."""
+    from goldsmith_erp.db.session import AsyncSessionLocal
+    from goldsmith_erp.services.job_service import JobService
+
+    await JobService.backfill_on_startup(AsyncSessionLocal)
 
 
 @app.on_event("startup")

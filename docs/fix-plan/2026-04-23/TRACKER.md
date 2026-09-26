@@ -1,3 +1,9 @@
+> ⚠️ **SUPERSEDED.** This tracker's source review
+> (`docs/review/2026-04-23/`) has been superseded by the 2026-09-25 audit:
+> [MASTER-FIX-PLAN.md](../../review/2026-09-25/MASTER-FIX-PLAN.md) and
+> [PROGRESS.md](../../review/2026-09-25/PROGRESS.md) track current work.
+> Kept here for history, not deleted.
+
 # Week 1 Fix Tracker — Groups A + B + F
 **Source:** `docs/review/2026-04-23/FIX-PLAN.md` · **Branch:** `code-review-fixes-2026-04-23` (off main `a6a5d73`) · **Started:** 2026-04-23
 

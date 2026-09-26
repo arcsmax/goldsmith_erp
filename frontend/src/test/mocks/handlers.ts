@@ -20,6 +20,7 @@ export const mockActivities: Activity[] = [
     average_duration_minutes: 45,
     last_used: '2025-01-09T10:00:00Z',
     is_custom: false,
+    is_billable: true,
     created_at: '2025-01-01T00:00:00Z',
   },
   {
@@ -32,6 +33,7 @@ export const mockActivities: Activity[] = [
     average_duration_minutes: 60,
     last_used: '2025-01-09T09:00:00Z',
     is_custom: false,
+    is_billable: true,
     created_at: '2025-01-01T00:00:00Z',
   },
   {
@@ -44,6 +46,7 @@ export const mockActivities: Activity[] = [
     average_duration_minutes: 30,
     last_used: '2025-01-09T08:00:00Z',
     is_custom: false,
+    is_billable: true,
     created_at: '2025-01-01T00:00:00Z',
   },
   {
@@ -56,6 +59,7 @@ export const mockActivities: Activity[] = [
     average_duration_minutes: 15,
     last_used: '2025-01-09T07:00:00Z',
     is_custom: false,
+    is_billable: true,
     created_at: '2025-01-01T00:00:00Z',
   },
   {
@@ -68,6 +72,7 @@ export const mockActivities: Activity[] = [
     average_duration_minutes: 120,
     last_used: '2025-01-08T15:00:00Z',
     is_custom: false,
+    is_billable: true,
     created_at: '2025-01-01T00:00:00Z',
   },
   {
@@ -80,6 +85,7 @@ export const mockActivities: Activity[] = [
     average_duration_minutes: 25,
     last_used: '2025-01-07T11:00:00Z',
     is_custom: true,
+    is_billable: true,
     created_at: '2025-01-05T00:00:00Z',
   },
 ];
@@ -100,6 +106,7 @@ export const mockTimeEntries: TimeEntry[] = [
     notes: 'Polierarbeiten abgeschlossen',
     extra_metadata: null,
     created_at: '2025-01-09T09:00:00Z',
+    is_paused: false,
   },
   {
     id: '123e4567-e89b-12d3-a456-426614174001',
@@ -116,6 +123,7 @@ export const mockTimeEntries: TimeEntry[] = [
     notes: 'Stein erfolgreich gefasst',
     extra_metadata: null,
     created_at: '2025-01-08T14:00:00Z',
+    is_paused: false,
   },
 ];
 
@@ -134,6 +142,7 @@ export const mockRunningEntry: TimeEntry = {
   notes: null,
   extra_metadata: null,
   created_at: new Date().toISOString(),
+  is_paused: false,
 };
 
 export const mockTimeTrackingStats: TimeTrackingStats = {
@@ -149,7 +158,51 @@ export const mockTimeTrackingStats: TimeTrackingStats = {
 
 // Request handlers
 export const handlers = [
+  // Scan tracking (2026-09): every decode POSTs a scan_logs row; tests that
+  // assert on it override these with server.use(...).
+  http.post(`${API_BASE}/scan/log`, async ({ request }) => {
+    const body = (await request.json()) as Record<string, unknown>;
+    return HttpResponse.json(
+      {
+        id: crypto.randomUUID(),
+        scanned_at: new Date().toISOString(),
+        user_id: 1,
+        raw_payload: body.raw_payload,
+        resolved_type: body.resolved_type ?? null,
+        resolved_id: body.resolved_id ?? null,
+        resolution_path: body.resolution_path ?? null,
+        action_taken: body.action_taken ?? null,
+        offline_queued: false,
+        synced_at: null,
+      },
+      { status: 201 },
+    );
+  }),
+  http.get(`${API_BASE}/orders/:id/scans`, () =>
+    HttpResponse.json({ items: [], total: 0, limit: 20, offset: 0, next_offset: null }),
+  ),
+  http.get(`${API_BASE}/repairs/:id/scans`, () =>
+    HttpResponse.json({ items: [], total: 0, limit: 20, offset: 0, next_offset: null }),
+  ),
+  http.get(`${API_BASE}/scan/history`, () =>
+    HttpResponse.json({ items: [], total: 0, limit: 25, offset: 0, next_offset: null }),
+  ),
+  http.post(`${API_BASE}/scan/log/batch`, () =>
+    HttpResponse.json({ ingested: 0, deduplicated: 0, rejected: 0, reasons: [] }),
+  ),
+
   // Activities endpoints
+  // Media assets (ARCH phase 4): the photo tab reads customer_visible flags.
+  http.get(`${API_BASE}/media`, () => HttpResponse.json([])),
+
+  // W8 Standorte: the dropdown's active locations.
+  http.get(`${API_BASE}/locations`, () =>
+    HttpResponse.json([
+      { id: 1, name: 'Werkbank 1', kind: 'bench', is_active: true, sort_order: 10, created_at: '2026-09-25T10:00:00Z' },
+      { id: 2, name: 'Tresor', kind: 'safe', is_active: true, sort_order: 20, created_at: '2026-09-25T10:00:00Z' },
+    ]),
+  ),
+
   http.get(`${API_BASE}/activities/`, ({ request }) => {
     const url = new URL(request.url);
     const category = url.searchParams.get('category');
@@ -232,6 +285,7 @@ export const handlers = [
       notes: null,
       extra_metadata: null,
       created_at: new Date().toISOString(),
+      is_paused: false,
     };
     return HttpResponse.json(newEntry, { status: 201 });
   }),
@@ -321,5 +375,13 @@ export const handlers = [
     const body = (await request.json()) as Record<string, unknown>;
     // Return the entry with interruption added
     return HttpResponse.json(mockRunningEntry);
+  }),
+
+  // Public portal (no auth): CustomerPortalPage fetches this on mount for
+  // the footer's real name/phone/email (W7 hygiene — replaces a hardcoded
+  // placeholder). Harmless default so tests that merely render the page
+  // (e.g. App.portal.test.tsx) don't hit an unhandled-request warning.
+  http.get(`${API_BASE}/portal/workshop-contact`, () => {
+    return HttpResponse.json({ name: 'Goldschmiede', phone: null, email: null });
   }),
 ];

@@ -1,7 +1,29 @@
 @import "tailwindcss";
 
-/* Goldsmith ERP Brand Tokens */
-@theme {
+/* Goldsmith ERP Brand Tokens
+ *
+ * The ONLY file in frontend/src that may contain hex, rgb() or hsl() colour
+ * literals (docs/design/UI-UX-PLAYBOOK.md section 3; enforced by
+ * frontend/scripts/hex-ratchet.mjs).
+ *
+ * Tiers:
+ *   1. Primitives (@theme static): raw ramps. Only this file references them.
+ *   2. Semantic (:root): roles such as --color-text, --color-primary,
+ *      --tone-done-fg. Pages and components use these.
+ *   3. Legacy aliases (:root, bottom): old or never-defined names kept working
+ *      until playbook phase 4 deletes them.
+ *
+ * Breakpoints (custom properties cannot be used inside @media, so these are
+ * the only allowed media-query literals):
+ *   phone    < 600px          @media (max-width: 599px)
+ *   tablet   600px - 1023px   @media (min-width: 600px) and (max-width: 1023px)
+ *   desktop  >= 1024px        @media (min-width: 1024px)
+ *   Bottom tab bar below 1024px.
+ */
+
+/* Tier 1: primitives. `static` emits every variable even when no Tailwind
+ * utility uses it, because plain CSS files reference them via var(). */
+@theme static {
   /* Primary actions — gold/amber */
   --color-brand-cta-50: #fffbeb;
   --color-brand-cta-100: #fef3c7;
@@ -54,35 +76,157 @@
   --color-brand-secondary-700: #963f1a;
   --color-brand-secondary-800: #7a341c;
   --color-brand-secondary-900: #652d1b;
+
+  /* Metal gold (W4-01): decorative accent; never text, never the only boundary. */
+  --color-brand-metal-400: #c5a55a;
+  --color-brand-metal-700: #7c5e10;
+
+  /* Warm neutrals (W4-01) */
+  --color-brand-stone-50: #faf8f4;
+  --color-brand-stone-100: #f3efe7;
+  --color-brand-stone-200: #e3ddd2;
+  --color-brand-stone-500: #8a8175;
+  --color-brand-stone-600: #57534e;
+
+  /* Fonts (IBM Plex is self-hosted in phase 2; until then the fallbacks apply). */
+  --font-sans: "IBM Plex Sans", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+  --font-serif: "IBM Plex Serif", Georgia, serif;
 }
 
-/* Semantic tokens */
+/* Tier 2: semantic roles (playbook section 3.1 to 3.4). The only tokens pages
+ * and components may use. Contrast ratios (Appendix B formula) are in
+ * docs/design/UI-UX-PLAYBOOK.md section 3.1. */
+:root {
+  color-scheme: light;
+
+  /* Surfaces */
+  --color-surface: var(--color-brand-stone-50);
+  --color-surface-raised: #ffffff;
+  --color-surface-sunken: var(--color-brand-stone-100);
+  --color-backdrop: color-mix(in srgb, var(--color-text) 55%, transparent); /* modal scrim */
+  /* Shadow ink for color-mix() tints and multi-layer shadows (W4 phase 4) */
+  --color-shadow: #1e293b;
+  /* Photo and swatch overlays: identical in both themes (photos stay dark-framed) */
+  --color-overlay-bg: #111111;
+  --color-overlay-fg: #ffffff;          /* 18.88 on overlay-bg */
+  --color-overlay-danger: #b91c1c;      /* overlay-fg on it 6.47 */
+
+  /* Text */
+  --color-text: var(--color-brand-primary-800);            /* 13.79 on surface */
+  --color-text-muted: var(--color-brand-stone-600);        /* 7.19 on surface; was #6b7280 (4.56) */
+
+  /* Borders */
+  --color-border: var(--color-brand-stone-200);            /* decorative dividers only */
+  --color-border-strong: var(--color-brand-stone-500);     /* 3.83 on raised: inputs, meaningful edges */
+
+  /* Primary (DES-01): cta-700, white text 5.02. #d97706 (3.19) stays a primitive only. */
+  --color-primary: var(--color-brand-cta-700);
+  --color-primary-hover: var(--color-brand-cta-800);
+  --color-primary-contrast: #ffffff;
+  --color-primary-subtle: var(--color-brand-cta-100);
+
+  /* Accent: metal gold, decorative only */
+  --color-accent: var(--color-brand-metal-400);
+  --color-accent-strong: var(--color-brand-metal-700);
+
+  /* Feedback roles: fill / subtle background / text on that background */
+  --color-success: #15803d;
+  --color-success-fg: #166534;
+  --color-success-contrast: #ffffff;
+  --color-warning: #c2410c;
+  --color-warning-fg: #9a3412;
+  --color-warning-contrast: #ffffff;
+  --color-danger: #b91c1c;
+  --color-danger-bg: #fee2e2;
+  --color-danger-fg: #991b1b;
+  --color-danger-contrast: #ffffff;
+  --color-info: #1d4ed8;
+  --color-info-fg: #1e40af;
+  --color-info-contrast: #ffffff;
+  /* --color-success-bg, --color-warning-bg and --color-info-bg keep their
+   * existing values (defined below): the playbook values would drop existing
+   * text pairs (--color-info-600 on --color-info-bg 4.75 -> 4.24). The tone
+   * triplets carry the playbook values instead. */
+
+  /* Focus (DES-02) */
+  --color-focus: var(--color-brand-primary-800);           /* 13.79 on surface */
+  --color-focus-on-dark: #ffffff;                          /* 5.02 on the gold header */
+
+  /* Header */
+  --color-header-bg: linear-gradient(135deg, var(--color-brand-cta-700), var(--color-brand-cta-900));
+
+  /* Status tones (section 3.2): fg / bg / border. Amber is deliberately not a tone. */
+  --tone-neutral-fg: #374151;  --tone-neutral-bg: #f3f4f6;  --tone-neutral-border: #9ca3af;
+  --tone-info-fg: #1e40af;     --tone-info-bg: #dbeafe;     --tone-info-border: #3b82f6;
+  --tone-progress-fg: #115e59; --tone-progress-bg: #ccfbf1; --tone-progress-border: #14b8a6;
+  --tone-waiting-fg: #9a3412;  --tone-waiting-bg: #ffedd5;  --tone-waiting-border: #f97316;
+  --tone-check-fg: #5b21b6;    --tone-check-bg: #ede9fe;    --tone-check-border: #8b5cf6;
+  --tone-done-fg: #166534;     --tone-done-bg: #dcfce7;     --tone-done-border: #22c55e;
+  --tone-handover-fg: #334155; --tone-handover-bg: #e2e8f0; --tone-handover-border: #64748b;
+  --tone-danger-fg: #991b1b;   --tone-danger-bg: #fee2e2;   --tone-danger-border: #ef4444;
+
+  /* Spacing (4px base, 8pt rhythm) */
+  --space-1: 4px;  --space-2: 8px;  --space-3: 12px; --space-4: 16px;
+  --space-5: 24px; --space-6: 32px; --space-7: 48px; --space-8: 64px;
+
+  /* Type size (ratio about 1.25). Line height 1.5 body, 1.2 headings. */
+  --type-sm: 0.875rem; --type-base: 1rem; --type-md: 1.125rem; --type-lg: 1.375rem;
+  --type-xl: 1.75rem;  --type-2xl: 2.25rem; --type-glance: 3rem;
+  --line-height-body: 1.5; --line-height-heading: 1.2;
+
+  /* Radius */
+  --radius-sm: 4px; --radius-md: 8px; --radius-lg: 12px; --radius-pill: 999px;
+
+  /* Shadow: the only three allowed */
+  --shadow-1: 0 1px 2px rgb(30 41 59 / 0.08);
+  --shadow-2: 0 4px 12px rgb(30 41 59 / 0.12);
+  --shadow-3: 0 12px 32px rgb(30 41 59 / 0.18);
+
+  /* Motion */
+  --duration-fast: 120ms; --duration-base: 200ms; --duration-slow: 300ms;
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+
+  /* Z-index scale (target). Legacy literals (modal 1000, timer 1050, FAB 1060,
+   * scan overlay 1500) move onto this scale page by page in phase 3. */
+  --z-header: 100; --z-banner: 110; --z-drawer: 200; --z-timer: 300;
+  --z-fab: 310; --z-modal: 400; --z-scan: 500; --z-toast: 600;
+
+  /* Touch sizing (WCAG + goldsmith glove tolerance). */
+  --touch-min: 44px;
+  --touch-comfort: 56px;
+}
+
+/* Werkbank-Modus: bigger type and targets (design-investigation I-28). */
+:root.bench { --type-base: 1.125rem; --type-md: 1.375rem; --touch-min: 56px; }
+
+/* Tier 3: legacy names (kept until playbook phase 4, then deleted). Values
+ * repointed to the semantic roles above where the playbook says so. */
 :root {
   --background-color-page: var(--color-brand-cream-50);
   --text-color-primary: var(--color-brand-primary-800);
-  --text-color-link: var(--color-brand-cta-600);
-  --border-color-focus: var(--color-brand-cta-500);
-  --ring-color-focus: var(--color-brand-cta-500);
+  --text-color-link: var(--color-primary);
+  --border-color-focus: var(--color-focus);
+  --ring-color-focus: var(--color-focus);
 
-  /* Surface tokens */
-  --color-surface-header-start: var(--color-brand-cta-600);
-  --color-surface-header-end: var(--color-brand-cta-800);
+  /* Surface tokens. The header start moves from cta-600 (white 3.19) to cta-700 (5.02). */
+  --color-surface-header-start: var(--color-brand-cta-700);
+  --color-surface-header-end: var(--color-brand-cta-900);
   --color-surface-header-gradient: linear-gradient(135deg, var(--color-surface-header-start), var(--color-surface-header-end));
-  --color-surface-page: #faf8f4;
-  --color-surface-card: #ffffff;
+  --color-surface-page: var(--color-surface);
+  --color-surface-card: var(--color-surface-raised);
 
-  /* Interactive tokens */
-  --color-interactive-primary: var(--color-brand-cta-600);
-  --color-interactive-primary-hover: var(--color-brand-cta-700);
+  /* Interactive tokens (DES-01) */
+  --color-interactive-primary: var(--color-primary);
+  --color-interactive-primary-hover: var(--color-primary-hover);
 
   /* Text tokens */
   --color-text-heading: #1a1a2e;
   --color-text-body: #374151;
-  --color-text-muted: #6b7280;
 
   /* Border tokens */
   --color-border-default: #e5e7eb;
-  --color-border-focus: var(--color-brand-cta-500);
+  --color-border-focus: var(--color-focus);
 
   /* Informational / status blue — used for info alerts, active timer, chart accents */
   --color-info-500: #3b82f6;
@@ -98,17 +242,246 @@
   --color-warning-600: #b8651a;
   --color-warning-bg: #fff4e6;
 
-  /* Success green — "completed"/"paid"/"ready"-style status surfaces.
-   * Added during the V1.1 consultation-UI review fix: no success/green
-   * semantic token existed yet even though several stylesheets (invoices,
-   * repairs, toast) already hardcode this exact hue ad hoc. Mirrors the
-   * --color-warning-500/600/bg triplet above rather than color-mixing an
-   * unrelated (non-green) token, which would misrepresent the status. */
+  /* Success green — "completed"/"paid"/"ready"-style status surfaces. */
   --color-success-500: #16a34a;
   --color-success-600: #15803d;
   --color-success-bg: #dcfce7;
 
-  /* Touch sizing (WCAG + goldsmith glove tolerance). */
-  --touch-min: 44px;
-  --touch-comfort: 56px;
+  /* Aliases for custom properties that were referenced in frontend/src but
+   * never defined (design-investigation B.2, DES-08). Each points at the
+   * nearest semantic role. --preview-* are set at runtime by
+   * AdminSystemPage and are deliberately not aliased. */
+  --text-primary: var(--color-text);
+  --text-secondary: var(--color-text-muted);
+  --text-tertiary: var(--color-text-muted);
+  --text-color-secondary: var(--color-text-muted);
+  --color-text-primary: var(--color-text);
+  --color-muted: var(--color-text-muted);
+  --bg-primary: var(--color-surface-raised);
+  --bg-secondary: var(--color-surface-sunken);
+  --bg-hover: var(--color-surface-sunken);
+  --color-bg-muted: var(--color-surface-sunken);
+  --color-surface-secondary: var(--color-surface-sunken);
+  --border-color: var(--color-border);
+  --border-hover: var(--color-border-strong);
+  --color-border-light: var(--color-border);
+  --primary-dark: var(--color-primary-hover);
+  --color-primary-light: var(--color-primary-subtle);      /* primary text on it: 4.51 */
+  --color-gold: var(--color-primary);                      /* used as text: must be AA, so not --color-accent */
+  --color-gold-dark: var(--color-primary-hover);
+  --color-gold-light: var(--color-primary-subtle);
+  --color-error: var(--color-danger);
+  --color-error-bg: var(--color-danger-bg);
+  --danger-color: var(--color-danger);
+  --timer-tertiary: var(--color-danger);                   /* .btn-stop fill, white text 6.47 */
+  --color-success-dark: var(--color-success-fg);
+  --color-success-light: var(--color-success-bg);
+  /* MetalTypeManager uses --color-success as a banner background with
+   * --color-success-text on top: white on the success fill is 5.02. */
+  --color-success-text: var(--color-success-contrast);
+  --chart-line-color: var(--color-primary);
+  --chart-avg7-color: var(--color-info);
+  --chart-avg30-color: var(--color-border-strong);
+  --chart-axis-color: var(--color-border);
+  --chart-grid-color: var(--color-border);
+  --chart-label-color: var(--color-text-muted);
+  /* Stacked modals over the scan overlay (1500); see src/lib/modal-stack.tsx. */
+  --modal-stack-z: 1600;
+}
+
+/* Dark theme (W4-05, playbook section 9 phase 5). Every semantic token and
+ * every legacy token with a literal light value gets a dark value; tokens that
+ * only alias other semantic tokens follow automatically. Contrast numbers
+ * (Appendix B formula) are in docs/design/UI-UX-PLAYBOOK.md Appendix B and are
+ * checked by src/test/themeTokens.test.ts.
+ *
+ * Two selectors carry the SAME declarations (the test keeps them identical):
+ *   :root.dark    the user chose "Dunkel", or "System" resolved to dark
+ *                 (hooks/useTheme.ts sets the class)
+ *   media query   before JS runs: follow the OS unless .light or .dark is set
+ * The admin-set primary colour is validated per theme in hooks/useTheme.ts. */
+:root.dark {
+  color-scheme: dark;
+
+  /* Surfaces (warm stone) */
+  --color-surface: #1c1917;
+  --color-surface-raised: #292524;
+  --color-surface-sunken: #0c0a09;
+  --color-backdrop: rgb(0 0 0 / 0.7);
+  --color-shadow: #000000;
+  --color-overlay-bg: #111111;
+  --color-overlay-fg: #ffffff;
+  --color-overlay-danger: #b91c1c;
+
+  /* Text */
+  --color-text: #f5f5f4;                /* 16.03 on surface, 13.90 on raised */
+  --color-text-muted: #a8a29e;          /* 6.93 on surface, 6.01 on raised */
+
+  /* Borders */
+  --color-border: #44403c;              /* decorative dividers only */
+  --color-border-strong: #8a8178;       /* 3.97 on raised, 4.57 on surface */
+
+  /* Primary: the light amber fill carries dark text (8.14) */
+  --color-primary: #f59e0b;
+  --color-primary-hover: #fbbf24;
+  --color-primary-contrast: #1c1917;
+  --color-primary-subtle: #451a03;      /* primary-hover text on it 8.97 */
+
+  /* Accent */
+  --color-accent: #c5a55a;              /* decorative only */
+  --color-accent-strong: #e0c580;       /* 9.01 on raised */
+
+  /* Feedback roles: lighter fills carry dark text in dark mode */
+  --color-success: #4ade80;
+  --color-success-fg: #86efac;
+  --color-success-contrast: #1c1917;
+  --color-warning: #fb923c;
+  --color-warning-fg: #fdba74;
+  --color-warning-contrast: #1c1917;
+  --color-danger: #f87171;
+  --color-danger-bg: #450a0a;
+  --color-danger-fg: #fca5a5;
+  --color-danger-contrast: #1c1917;
+  --color-info: #60a5fa;
+  --color-info-fg: #93c5fd;
+  --color-info-contrast: #1c1917;
+
+  /* Focus */
+  --color-focus: #fde68a;               /* 14.04 on surface */
+  --color-focus-on-dark: #1c1917;       /* ring and icons on the amber header */
+
+  /* Header: amber gradient with dark text (layout.css uses --color-primary-contrast) */
+  --color-header-bg: linear-gradient(135deg, #f59e0b, #d97706);
+
+  /* Status tones: light fg on a deep tinted bg, border >= 3.0 on bg */
+  --tone-neutral-fg: #e5e7eb;  --tone-neutral-bg: #1f2937;  --tone-neutral-border: #9ca3af;
+  --tone-info-fg: #bfdbfe;     --tone-info-bg: #172554;     --tone-info-border: #3b82f6;
+  --tone-progress-fg: #99f6e4; --tone-progress-bg: #042f2e; --tone-progress-border: #14b8a6;
+  --tone-waiting-fg: #fed7aa;  --tone-waiting-bg: #431407;  --tone-waiting-border: #f97316;
+  --tone-check-fg: #ddd6fe;    --tone-check-bg: #2e1065;    --tone-check-border: #a78bfa;
+  --tone-done-fg: #bbf7d0;     --tone-done-bg: #052e16;     --tone-done-border: #22c55e;
+  --tone-handover-fg: #e2e8f0; --tone-handover-bg: #1e293b; --tone-handover-border: #94a3b8;
+  --tone-danger-fg: #fecaca;   --tone-danger-bg: #450a0a;   --tone-danger-border: #ef4444;
+
+  /* Shadows: denser, a light shadow is invisible on dark surfaces */
+  --shadow-1: 0 1px 2px rgb(0 0 0 / 0.4);
+  --shadow-2: 0 4px 12px rgb(0 0 0 / 0.5);
+  --shadow-3: 0 12px 32px rgb(0 0 0 / 0.6);
+
+  /* Legacy names whose light value is a literal or a raw ramp */
+  --background-color-page: var(--color-surface);
+  --text-color-primary: var(--color-text);
+  --color-surface-header-start: #f59e0b;
+  --color-surface-header-end: #d97706;
+  --color-text-heading: #fafaf9;
+  --color-text-body: #e7e5e4;
+  --color-border-default: #44403c;
+  --color-info-500: #60a5fa;
+  --color-info-600: #93c5fd;
+  --color-info-bg: #172554;
+  --color-chart-primary: #60a5fa;
+  --color-warning-500: #fb923c;
+  --color-warning-600: #fdba74;
+  --color-warning-bg: #431407;
+  --color-success-500: #4ade80;
+  --color-success-600: #86efac;
+  --color-success-bg: #052e16;
+
+  /* index.css base tokens (body text and background) */
+  --text-dark: var(--color-text);
+  --background-light: var(--color-surface);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not(.light):not(.dark) {
+    color-scheme: dark;
+
+    /* Surfaces (warm stone) */
+    --color-surface: #1c1917;
+    --color-surface-raised: #292524;
+    --color-surface-sunken: #0c0a09;
+    --color-backdrop: rgb(0 0 0 / 0.7);
+    --color-shadow: #000000;
+    --color-overlay-bg: #111111;
+    --color-overlay-fg: #ffffff;
+    --color-overlay-danger: #b91c1c;
+
+    /* Text */
+    --color-text: #f5f5f4;                /* 16.03 on surface, 13.90 on raised */
+    --color-text-muted: #a8a29e;          /* 6.93 on surface, 6.01 on raised */
+
+    /* Borders */
+    --color-border: #44403c;              /* decorative dividers only */
+    --color-border-strong: #8a8178;       /* 3.97 on raised, 4.57 on surface */
+
+    /* Primary: the light amber fill carries dark text (8.14) */
+    --color-primary: #f59e0b;
+    --color-primary-hover: #fbbf24;
+    --color-primary-contrast: #1c1917;
+    --color-primary-subtle: #451a03;      /* primary-hover text on it 8.97 */
+
+    /* Accent */
+    --color-accent: #c5a55a;              /* decorative only */
+    --color-accent-strong: #e0c580;       /* 9.01 on raised */
+
+    /* Feedback roles: lighter fills carry dark text in dark mode */
+    --color-success: #4ade80;
+    --color-success-fg: #86efac;
+    --color-success-contrast: #1c1917;
+    --color-warning: #fb923c;
+    --color-warning-fg: #fdba74;
+    --color-warning-contrast: #1c1917;
+    --color-danger: #f87171;
+    --color-danger-bg: #450a0a;
+    --color-danger-fg: #fca5a5;
+    --color-danger-contrast: #1c1917;
+    --color-info: #60a5fa;
+    --color-info-fg: #93c5fd;
+    --color-info-contrast: #1c1917;
+
+    /* Focus */
+    --color-focus: #fde68a;               /* 14.04 on surface */
+    --color-focus-on-dark: #1c1917;       /* ring and icons on the amber header */
+
+    /* Header: amber gradient with dark text (layout.css uses --color-primary-contrast) */
+    --color-header-bg: linear-gradient(135deg, #f59e0b, #d97706);
+
+    /* Status tones: light fg on a deep tinted bg, border >= 3.0 on bg */
+    --tone-neutral-fg: #e5e7eb;  --tone-neutral-bg: #1f2937;  --tone-neutral-border: #9ca3af;
+    --tone-info-fg: #bfdbfe;     --tone-info-bg: #172554;     --tone-info-border: #3b82f6;
+    --tone-progress-fg: #99f6e4; --tone-progress-bg: #042f2e; --tone-progress-border: #14b8a6;
+    --tone-waiting-fg: #fed7aa;  --tone-waiting-bg: #431407;  --tone-waiting-border: #f97316;
+    --tone-check-fg: #ddd6fe;    --tone-check-bg: #2e1065;    --tone-check-border: #a78bfa;
+    --tone-done-fg: #bbf7d0;     --tone-done-bg: #052e16;     --tone-done-border: #22c55e;
+    --tone-handover-fg: #e2e8f0; --tone-handover-bg: #1e293b; --tone-handover-border: #94a3b8;
+    --tone-danger-fg: #fecaca;   --tone-danger-bg: #450a0a;   --tone-danger-border: #ef4444;
+
+    /* Shadows: denser, a light shadow is invisible on dark surfaces */
+    --shadow-1: 0 1px 2px rgb(0 0 0 / 0.4);
+    --shadow-2: 0 4px 12px rgb(0 0 0 / 0.5);
+    --shadow-3: 0 12px 32px rgb(0 0 0 / 0.6);
+
+    /* Legacy names whose light value is a literal or a raw ramp */
+    --background-color-page: var(--color-surface);
+    --text-color-primary: var(--color-text);
+    --color-surface-header-start: #f59e0b;
+    --color-surface-header-end: #d97706;
+    --color-text-heading: #fafaf9;
+    --color-text-body: #e7e5e4;
+    --color-border-default: #44403c;
+    --color-info-500: #60a5fa;
+    --color-info-600: #93c5fd;
+    --color-info-bg: #172554;
+    --color-chart-primary: #60a5fa;
+    --color-warning-500: #fb923c;
+    --color-warning-600: #fdba74;
+    --color-warning-bg: #431407;
+    --color-success-500: #4ade80;
+    --color-success-600: #86efac;
+    --color-success-bg: #052e16;
+
+    /* index.css base tokens (body text and background) */
+    --text-dark: var(--color-text);
+    --background-light: var(--color-surface);
+  }
 }

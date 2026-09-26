@@ -4,6 +4,8 @@
 import React, { useEffect, useState } from 'react';
 import { customersApi } from '../../api/customers';
 import { CustomerListItem } from '../../types';
+import { logError } from '../../lib/logError';
+import { Field } from '../../ui';
 
 const SEARCH_DEBOUNCE_MS = 300;
 const MIN_QUERY_LENGTH = 2;
@@ -12,10 +14,18 @@ const LISTBOX_ID = 'typeahead-listbox';
 
 interface CustomerTypeaheadProps {
   onSelect: (customer: CustomerListItem) => void;
-  autoFocus?: boolean;
+  /** id for the input, so a visible <label htmlFor> can name it. */
+  inputId?: string;
+  /** Called when the search request fails (LV-02: never fail silently).
+   *  The failure is always logged; callers add a toast. */
+  onError?: (err: unknown) => void;
 }
 
-export const CustomerTypeahead: React.FC<CustomerTypeaheadProps> = ({ onSelect, autoFocus }) => {
+export const CustomerTypeahead: React.FC<CustomerTypeaheadProps> = ({
+  onSelect,
+  inputId,
+  onError,
+}) => {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<CustomerListItem[]>([]);
   const [isOpen, setIsOpen] = useState(false);
@@ -42,8 +52,11 @@ export const CustomerTypeahead: React.FC<CustomerTypeaheadProps> = ({ onSelect, 
         setResults(data);
         setHighlighted(0);
         setIsOpen(true);
-      } catch {
-        if (!cancelled) setResults([]);
+      } catch (err) {
+        if (cancelled) return;
+        setResults([]);
+        logError('CustomerTypeahead.search', err);
+        onError?.(err);
       } finally {
         if (!cancelled) setIsSearching(false);
       }
@@ -52,6 +65,9 @@ export const CustomerTypeahead: React.FC<CustomerTypeaheadProps> = ({ onSelect, 
       cancelled = true;
       clearTimeout(timer);
     };
+    // onError is a notification callback; re-running the search when a
+    // caller passes a new function identity would repeat the request.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [query]);
 
   const select = (customer: CustomerListItem) => {
@@ -83,21 +99,26 @@ export const CustomerTypeahead: React.FC<CustomerTypeaheadProps> = ({ onSelect, 
 
   return (
     <div className="typeahead">
-      <input
-        type="search"
-        role="combobox"
-        aria-expanded={isOpen}
-        aria-label="Kundin suchen"
-        aria-controls={LISTBOX_ID}
-        aria-autocomplete="list"
-        aria-activedescendant={activeOptionId}
-        placeholder="Name oder E-Mail suchen..."
-        value={query}
-        autoFocus={autoFocus}
-        onChange={(e) => setQuery(e.target.value)}
-        onKeyDown={handleKeyDown}
-      />
-      {isSearching && <span className="typeahead-hint">Suche...</span>}
+      <Field label="Kundin suchen" name="customer-typeahead" inputMode="search">
+        <input
+          id={inputId}
+          type="search"
+          role="combobox"
+          aria-expanded={isOpen}
+          aria-controls={LISTBOX_ID}
+          aria-autocomplete="list"
+          aria-activedescendant={activeOptionId}
+          placeholder="Name oder E-Mail …"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          onKeyDown={handleKeyDown}
+        />
+      </Field>
+      {isSearching && (
+        <span className="typeahead-hint" role="status">
+          Suche läuft …
+        </span>
+      )}
       {isOpen && (
         <ul className="typeahead-results" role="listbox" id={LISTBOX_ID}>
           {results.length === 0 && (

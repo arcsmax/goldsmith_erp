@@ -4,15 +4,22 @@ import itertools
 import logging
 import uuid
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional, Union
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from goldsmith_erp.api.deps import get_current_user
+from goldsmith_erp.api.role_projection import (
+    ExcludeSpec,
+    build_excludes,
+    ensure_financial_view,
+    project,
+    project_response,
+)
 from goldsmith_erp.core.config import settings
 from goldsmith_erp.core.permissions import Permission, require_permission
 from goldsmith_erp.db.models import Material as MaterialModel
@@ -24,6 +31,14 @@ from goldsmith_erp.models.material import (
     MaterialUpdate,
     MaterialWithStock,
 )
+from goldsmith_erp.models.pagination import (
+    Page,
+    PageParams,
+    legacy_list_response,
+    make_page_params,
+    page_response,
+)
+from goldsmith_erp.services import list_queries
 from goldsmith_erp.services.material_service import MaterialService
 from goldsmith_erp.services.photo_service import (
     _MAX_MAGIC_BYTES,
@@ -37,6 +52,15 @@ logger = logging.getLogger(__name__)
 _MATERIAL_IMAGE_MAX_BYTES: int = 10 * 1024 * 1024
 
 router = APIRouter()
+
+# SEC-01 / GDPR-03: material prices and derived stock values are financial
+# data (CLAUDE.md: ADMIN + GOLDSMITH only). Stripped for callers without
+# FINANCIAL_VIEW; the pure stock-value report requires it outright.
+_MATERIAL_FINANCIAL_FIELDS: frozenset[str] = frozenset({"unit_price", "stock_value"})
+
+
+def _material_excludes(user: UserModel) -> ExcludeSpec:
+    return build_excludes(user, financial=_MATERIAL_FINANCIAL_FIELDS)
 
 
 # ==================== PYDANTIC SCHEMAS ====================
@@ -59,11 +83,25 @@ class StockValueResponse(BaseModel):
 # ==================== MATERIAL CRUD ENDPOINTS ====================
 
 
-@router.get("/", response_model=List[MaterialRead])
+@router.get(
+    "/",
+    # W3-08: Page[...] when ``offset`` is sent, the legacy list otherwise.
+    response_model=Union[Page[MaterialRead], List[MaterialRead]],
+)
 @require_permission(Permission.MATERIAL_VIEW)
 async def list_materials(
-    skip: int = 0,
-    limit: int = 100,
+    page: PageParams = Depends(
+        make_page_params(
+            legacy_default_limit=100,
+            sort_fields=tuple(list_queries.MATERIAL_SORT_FIELDS),
+        )
+    ),
+    q: Optional[str] = Query(
+        None,
+        min_length=1,
+        max_length=100,
+        description="Suche in Name und Lieferant (nur mit offset)",
+    ),
     db: AsyncSession = Depends(get_db),
     current_user: UserModel = Depends(get_current_user),
 ):
@@ -75,9 +113,19 @@ async def list_materials(
     - Sortiert alphabetisch nach Namen
 
     **Use Case**: Übersicht über alle verfügbaren Materialien.
+
+    Mit ``offset``: ``Page`` mit Gesamtzahl und ``q``-Suche. Ohne ``offset``
+    (veraltet): Liste mit Header ``X-Deprecated-List: true``.
     """
-    materials = await MaterialService.get_materials(db, skip, limit)
-    return materials
+    excludes = _material_excludes(current_user)
+    if page.is_paged:
+        result = await list_queries.fetch_page(
+            db, list_queries.materials_statement(q=q, sort=page.sort), page
+        )
+        rows = [project(MaterialRead, m, excludes) for m in result.items]
+        return page_response(rows, result.total, page)
+    materials = await MaterialService.get_materials(db, page.offset, page.limit)
+    return legacy_list_response([project(MaterialRead, m, excludes) for m in materials])
 
 
 @router.post("/", response_model=MaterialRead, status_code=status.HTTP_201_CREATED)
@@ -177,7 +225,7 @@ async def get_material(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Material not found"
         )
-    return material
+    return project_response(MaterialRead, material, _material_excludes(current_user))
 
 
 @router.put("/{material_id}", response_model=MaterialRead)
@@ -304,7 +352,9 @@ async def get_low_stock_materials(
     # Konvertiere zu MaterialWithStock mit Wertberechnung
     materials_with_value = [MaterialWithStock.from_material(m) for m in materials]
 
-    return materials_with_value
+    return project_response(
+        MaterialWithStock, materials_with_value, _material_excludes(current_user)
+    )
 
 
 @router.post("/{material_id}/image", response_model=MaterialRead)
@@ -455,6 +505,9 @@ async def get_total_stock_value(
     - Nützlich für Bilanzierung und Reporting
 
     **Use Case**: Lagerwert für Buchhaltung ermitteln.
+
+    Finanzdaten: erfordert FINANCIAL_VIEW (ADMIN, GOLDSMITH; SEC-01).
     """
+    ensure_financial_view(current_user)
     total_value = await MaterialService.calculate_total_stock_value(db)
     return StockValueResponse(total_value=total_value)

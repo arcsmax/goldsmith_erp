@@ -14,32 +14,87 @@ All service methods are async and accept AsyncSession as first parameter.
 """
 
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+from decimal import Decimal
 from typing import List, Optional, cast
 
-from fastapi import HTTPException
-from sqlalchemy import func
+from sqlalchemy import func, update
+from sqlalchemy.engine import CursorResult
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy.orm import selectinload
 
+from goldsmith_erp.core.errors import (
+    ConflictError,
+    DomainValidationError,
+    NotFoundError,
+    UpstreamError,
+)
+from goldsmith_erp.db.models import CostChangeResponseMethod
 from goldsmith_erp.db.models import Customer as CustomerModel
-from goldsmith_erp.db.models import InvoiceLineType, MetalType
+from goldsmith_erp.db.models import CustomerUpdateStatus, InvoiceLineType, MetalType
 from goldsmith_erp.db.models import Order as OrderModel
 from goldsmith_erp.db.models import OrderStatusEnum
 from goldsmith_erp.db.models import Quote as QuoteModel
 from goldsmith_erp.db.models import QuoteLineItem as QuoteLineItemModel
-from goldsmith_erp.db.models import QuoteLineType, QuoteStatus
+from goldsmith_erp.db.models import QuoteLineType, QuoteStatus, UpdateDeliveryMethod
 from goldsmith_erp.db.models import User as UserModel
 from goldsmith_erp.db.transaction import transactional
+from goldsmith_erp.models._common import DecimalLike, dec, money
 from goldsmith_erp.models.quote import (
     ApproveQuoteRequest,
     QuoteCreate,
     QuoteLineItemCreate,
     QuoteUpdate,
 )
+from goldsmith_erp.services import consultation_carry, order_workflow, quote_delivery
+from goldsmith_erp.services.job_service import JobService
+from goldsmith_erp.services.number_sequence_service import (
+    QUOTE_KIND,
+    NumberSequenceService,
+)
+from goldsmith_erp.services.outbox_service import is_worker_mode
 
 logger = logging.getLogger(__name__)
+
+# DOM-11d: German evidence text for how the customer approved a quote.
+_APPROVAL_METHOD_LABELS: dict[CostChangeResponseMethod, str] = {
+    CostChangeResponseMethod.IN_PERSON: "persönlich vor Ort",
+    CostChangeResponseMethod.EMAIL_REPLY: "per E-Mail",
+    CostChangeResponseMethod.PHONE: "telefonisch",
+}
+
+
+def _soll_from_quote_lines(line_items: list) -> dict:
+    """Order Soll (planned cost) from quote lines (DOM-11b).
+
+    LABOR lines give hours (quantity) and their total gives the labour cost
+    and the effective hourly rate; MATERIAL lines give the planned material
+    cost. Metal weight and stones have no quote-line columns and stay for
+    the order form (W2-06).
+    """
+    labor = [li for li in line_items if li.line_type == QuoteLineType.LABOR]
+    hours = money(sum((dec(li.quantity) for li in labor), Decimal("0")))
+    labor_total = money(sum((dec(li.total) for li in labor), Decimal("0")))
+    material_total = money(
+        sum(
+            (
+                dec(li.total)
+                for li in line_items
+                if li.line_type == QuoteLineType.MATERIAL
+            ),
+            Decimal("0"),
+        )
+    )
+    soll: dict = {}
+    if hours > 0 and labor_total > 0:
+        # Order.labor_hours is a Float column (hours are a measurement).
+        soll["labor_hours"] = float(hours)
+        soll["hourly_rate"] = money(labor_total / hours)
+        soll["labor_cost"] = labor_total
+    if material_total > 0:
+        soll["material_cost_override"] = material_total
+    return soll
 
 
 def _log_quote_access(
@@ -64,7 +119,7 @@ def _log_quote_access(
             "quote_id": quote_id,
             "user_id": user_id,
             "user_role": user_role,
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             **(extra or {}),
         },
     )
@@ -134,32 +189,14 @@ class QuoteService:
     @staticmethod
     async def generate_quote_number(db: AsyncSession) -> str:
         """
-        Generate the next sequential quote number for the current year.
+        Next sequential quote number for the current Europe/Berlin year.
 
-        Format: KV-YYYY-NNNN (e.g. KV-2026-0001)
+        Format: KV-YYYY-NNNN (e.g. KV-2026-0001).
 
-        Uses SELECT MAX inside the current transaction — safe for the ERP's
-        low-concurrency usage. A DB sequence would be preferable at scale.
+        W2-04 (BE-16): drawn from the row-locked ``number_sequences`` counter
+        inside the caller's transaction (see number_sequence_service).
         """
-        year = datetime.utcnow().year
-        prefix = f"KV-{year}-"
-
-        result = await db.execute(
-            select(func.max(QuoteModel.quote_number)).where(
-                QuoteModel.quote_number.like(f"{prefix}%")
-            )
-        )
-        last_number: Optional[str] = result.scalar_one_or_none()
-
-        if last_number:
-            try:
-                seq = int(last_number.split("-")[-1]) + 1
-            except (ValueError, IndexError):
-                seq = 1
-        else:
-            seq = 1
-
-        return f"{prefix}{seq:04d}"
+        return await NumberSequenceService.next_number(db, QUOTE_KIND)
 
     # -------------------------------------------------------------------------
     # Total calculation
@@ -168,7 +205,7 @@ class QuoteService:
     @staticmethod
     def calculate_totals(
         line_items: List[QuoteLineItemCreate],
-        tax_rate: float,
+        tax_rate: DecimalLike,
     ) -> dict:
         """
         Calculate quote totals from line items.
@@ -178,11 +215,21 @@ class QuoteService:
           tax_amount - MwSt-Betrag
           total      - Gesamtbetrag (brutto)
         """
-        subtotal = sum(item.quantity * item.unit_price for item in line_items)
-        tax_amount = round(subtotal * (tax_rate / 100), 2)
-        total = round(subtotal + tax_amount, 2)
-        subtotal = round(subtotal, 2)
-        return {"subtotal": subtotal, "tax_amount": tax_amount, "total": total}
+        # Same Decimal / ROUND_HALF_UP algorithm as
+        # InvoiceService.calculate_totals (BE-14): the quote a customer signs
+        # and the invoice that follows it must round identically.
+        raw_subtotal = sum(
+            (dec(item.quantity) * dec(item.unit_price) for item in line_items),
+            Decimal("0"),
+        )
+        subtotal = money(raw_subtotal)
+        tax_amount = money(subtotal * dec(tax_rate) / 100)
+        total = subtotal + tax_amount
+        return {
+            "subtotal": float(subtotal),
+            "tax_amount": float(tax_amount),
+            "total": float(total),
+        }
 
     @staticmethod
     def _recompute_totals_from_items(quote: QuoteModel) -> None:
@@ -200,13 +247,13 @@ class QuoteService:
         # (classic Column() style, no Mapped[] here) — at runtime, on a
         # loaded instance, they are plain float/str (cost_change_service.py
         # precedent for this exact false-positive class).
-        tax_rate = cast(float, quote.tax_rate)
+        tax_rate = cast(Decimal, quote.tax_rate)
         items = [
             QuoteLineItemCreate(
                 line_type=cast(QuoteLineType, li.line_type),
                 description=cast(str, li.description),
-                quantity=cast(float, li.quantity),
-                unit_price=cast(float, li.unit_price),
+                quantity=cast(Decimal, li.quantity),
+                unit_price=cast(Decimal, li.unit_price),
             )
             for li in quote.line_items
         ]
@@ -247,19 +294,19 @@ class QuoteService:
                     line_type=QuoteLineType.MATERIAL,
                     description=metal_desc,
                     quantity=1.0,
-                    unit_price=round(material_cost, 2),
+                    unit_price=money(material_cost),
                 )
             )
 
         # --- Labor cost ---
         if order.labor_hours and order.labor_hours > 0:
-            hourly_rate = order.hourly_rate or 75.0
+            hourly_rate = dec(order.hourly_rate or 75)
             items.append(
                 QuoteLineItemCreate(
                     line_type=QuoteLineType.LABOR,
                     description=f"Arbeitszeit: {order.labor_hours:.2f}h x {hourly_rate:.2f} EUR/h",
                     quantity=order.labor_hours,
-                    unit_price=round(hourly_rate, 2),
+                    unit_price=money(hourly_rate),
                 )
             )
         elif order.labor_cost and order.labor_cost > 0:
@@ -268,7 +315,7 @@ class QuoteService:
                     line_type=QuoteLineType.LABOR,
                     description="Arbeitszeit",
                     quantity=1.0,
-                    unit_price=round(order.labor_cost, 2),
+                    unit_price=money(order.labor_cost),
                 )
             )
 
@@ -287,20 +334,20 @@ class QuoteService:
                 QuoteLineItemCreate(
                     line_type=QuoteLineType.GEMSTONE,
                     description=gemstone_desc,
-                    quantity=float(gemstone.quantity or 1),
-                    unit_price=round(gemstone.cost, 2),
+                    quantity=dec(gemstone.quantity or 1),
+                    unit_price=money(gemstone.cost),
                 )
             )
 
         # --- Fallback ---
         if not items:
-            fallback_price = order.price or order.calculated_price or 0.0
+            fallback_price = order.price or order.calculated_price or 0
             items.append(
                 QuoteLineItemCreate(
                     line_type=QuoteLineType.OTHER,
                     description=f"Auftrag: {order.title}",
                     quantity=1.0,
-                    unit_price=round(fallback_price, 2),
+                    unit_price=money(fallback_price),
                 )
             )
 
@@ -392,9 +439,9 @@ class QuoteService:
             select(CustomerModel.id).where(CustomerModel.id == quote_in.customer_id)
         )
         if not cust_result.scalar_one_or_none():
-            raise HTTPException(
-                status_code=404,
-                detail=f"Kunde {quote_in.customer_id} nicht gefunden",
+            raise NotFoundError(
+                f"Kunde {quote_in.customer_id} nicht gefunden",
+                code="quote.customer_not_found",
             )
 
         auto_items: List[QuoteLineItemCreate] = []
@@ -402,9 +449,15 @@ class QuoteService:
         if quote_in.order_id:
             order = await QuoteService._get_order_with_relations(db, quote_in.order_id)
             if not order:
-                raise HTTPException(
-                    status_code=404,
-                    detail=f"Auftrag {quote_in.order_id} nicht gefunden",
+                raise NotFoundError(
+                    f"Auftrag {quote_in.order_id} nicht gefunden",
+                    code="quote.order_not_found",
+                )
+            if order.customer_id != quote_in.customer_id:
+                raise DomainValidationError(
+                    f"Auftrag {quote_in.order_id} gehoert zu einem anderen "
+                    f"Kunden; Angebot und Auftrag muessen denselben Kunden haben.",
+                    code="quote.order_customer_mismatch",
                 )
             auto_items = QuoteService._build_line_items_from_order(order)
 
@@ -419,7 +472,7 @@ class QuoteService:
 
         totals = QuoteService.calculate_totals(all_line_items, quote_in.tax_rate)
 
-        valid_until = datetime.utcnow() + timedelta(days=quote_in.valid_days)
+        valid_until = datetime.now(timezone.utc) + timedelta(days=quote_in.valid_days)
 
         async with transactional(db):
             quote_number = await QuoteService.generate_quote_number(db)
@@ -447,7 +500,7 @@ class QuoteService:
                     description=item.description,
                     quantity=item.quantity,
                     unit_price=item.unit_price,
-                    total=round(item.quantity * item.unit_price, 2),
+                    total=money(dec(item.quantity) * dec(item.unit_price)),
                 )
                 db.add(db_line)
 
@@ -499,7 +552,12 @@ class QuoteService:
 
         Returns (items, total_count) for pagination.
         """
-        base_query = select(QuoteModel).options(selectinload(QuoteModel.line_items))
+        base_query = select(QuoteModel).options(
+            selectinload(QuoteModel.line_items),
+            # LV2-06: eager-load for the resolved customer display name
+            # instead of "Kunde #<id>" (job_list_item's _customer_summary).
+            selectinload(QuoteModel.customer),
+        )
         count_query = select(func.count(QuoteModel.id))
 
         if status is not None:
@@ -574,9 +632,9 @@ class QuoteService:
 
         immutable_statuses = {QuoteStatus.CONVERTED}
         if quote.status in immutable_statuses:
-            raise HTTPException(
-                status_code=422,
-                detail=f"Umgewandelte Kostenvoranschlaege koennen nicht bearbeitet werden",
+            raise DomainValidationError(
+                f"Umgewandelte Kostenvoranschlaege koennen nicht bearbeitet werden",
+                code="quote.converted_immutable",
             )
 
         update_data = quote_in.model_dump(exclude_unset=True)
@@ -647,7 +705,7 @@ class QuoteService:
                 description=item.description,
                 quantity=item.quantity,
                 unit_price=item.unit_price,
-                total=round(item.quantity * item.unit_price, 2),
+                total=money(dec(item.quantity) * dec(item.unit_price)),
                 estimator_metadata=item.estimator_metadata,
             )
             quote.line_items.append(db_line)
@@ -696,7 +754,7 @@ class QuoteService:
             db_line.description = item.description
             db_line.quantity = item.quantity
             db_line.unit_price = item.unit_price
-            db_line.total = round(item.quantity * item.unit_price, 2)
+            db_line.total = money(dec(item.quantity) * dec(item.unit_price))
             # estimator_metadata is immutable after creation — do NOT update it
             QuoteService._recompute_totals_from_items(quote)
             new_total = quote.total
@@ -765,33 +823,130 @@ class QuoteService:
         current_user: UserModel,
     ) -> Optional[QuoteModel]:
         """
-        Mark a quote as SENT (Versendet).
+        Versenden: deliver a DRAFT quote to the customer and mark it SENT.
 
-        Only DRAFT quotes can be sent. Records audit log.
+        DOM-11. With SMTP configured and a customer email, the quote PDF is
+        emailed; otherwise the hand-over is recorded as PDF_MANUAL (the UI
+        downloads the PDF). Status becomes SENT only after a successful send
+        or the manual record. An SMTP failure keeps the DRAFT, records
+        SEND_FAILED and raises 502 (see services/quote_delivery.py).
+
+        Returns None if not found. 422 if the quote is not a DRAFT.
         """
-        result = await db.execute(select(QuoteModel).where(QuoteModel.id == quote_id))
-        quote = result.scalar_one_or_none()
+        quote = await QuoteService._load_quote(db, quote_id)
         if not quote:
             return None
+        QuoteService._require_draft_for_send(quote)
 
-        if quote.status != QuoteStatus.DRAFT:
-            raise HTTPException(
-                status_code=422,
-                detail=f"Nur Entwuerfe koennen versendet werden. "
-                f"Aktueller Status: {quote.status.value}",
-            )
+        customer = await quote_delivery.load_customer(db, int(quote.customer_id))
+        await quote_delivery.check_send_allowed(db, quote, customer)
+        recipient = await quote_delivery.resolve_delivery_recipient(db, customer)
+        method = UpdateDeliveryMethod.PDF_MANUAL
+        queue_email = recipient is not None and is_worker_mode()
+        if recipient is not None:
+            method = UpdateDeliveryMethod.EMAIL
+        if recipient is not None and not queue_email:
+            gemstones = await quote_delivery.load_order_gemstones(db, quote.order_id)
+            if not await quote_delivery.email_quote(
+                quote, customer, recipient, gemstones=gemstones
+            ):
+                await QuoteService._record_send_failure(db, quote, current_user)
+                raise UpstreamError(
+                    quote_delivery.SMTP_FAILED_DETAIL,
+                    code="quote.send_failed",
+                )
 
         async with transactional(db):
-            quote.status = QuoteStatus.SENT
+            locked = await QuoteService._load_quote(db, quote_id, for_update=True)
+            if locked is None:
+                raise QuoteNotFoundError(quote_id)
+            QuoteService._require_draft_for_send(locked)
+            locked.status = QuoteStatus.SENT
+            if queue_email:  # ARCH-04: the mail job commits with SENT
+                # Audited by the worker once the mail is delivered (E16).
+                await quote_delivery.enqueue_quote_email(
+                    db, locked, int(current_user.id)
+                )
+            else:
+                record = quote_delivery.build_record(
+                    locked,
+                    int(current_user.id),
+                    CustomerUpdateStatus.SENT,
+                    method,
+                    datetime.now(timezone.utc),
+                )
+                db.add(record)
+                await db.flush()  # populate record.id for the audit row (E16)
+                await quote_delivery.record_delivery_audit(
+                    db, record, int(current_user.id), int(customer.id), method
+                )
 
         _log_quote_access(
             action="sent",
             quote_id=quote_id,
             user_id=current_user.id,
             user_role=_user_role_str(current_user),
+            extra={"delivery_method": method.value},
         )
 
         return await QuoteService.get_quote(db, quote_id, current_user)
+
+    @staticmethod
+    async def _load_quote(
+        db: AsyncSession, quote_id: int, for_update: bool = False
+    ) -> Optional[QuoteModel]:
+        """Load a quote with line items (optionally FOR UPDATE)."""
+        stmt = (
+            select(QuoteModel)
+            .options(selectinload(QuoteModel.line_items))
+            .where(QuoteModel.id == quote_id)
+        )
+        if for_update:
+            stmt = stmt.with_for_update()
+        return (await db.execute(stmt)).scalar_one_or_none()
+
+    @staticmethod
+    def _require_draft_for_send(quote: QuoteModel) -> None:
+        if quote.status != QuoteStatus.DRAFT:
+            raise DomainValidationError(
+                f"Nur Entwuerfe koennen versendet werden. "
+                f"Aktueller Status: {quote.status.value}",
+                code="quote.not_draft",
+            )
+
+    @staticmethod
+    async def _record_send_failure(
+        db: AsyncSession, quote: QuoteModel, current_user: UserModel
+    ) -> None:
+        """Record a failed email attempt; the quote itself stays a DRAFT."""
+        async with transactional(db):
+            db.add(
+                quote_delivery.build_record(
+                    quote,
+                    int(current_user.id),
+                    CustomerUpdateStatus.SEND_FAILED,
+                    None,
+                    None,
+                )
+            )
+        logger.error(
+            "Quote email delivery failed; quote stays DRAFT",
+            extra={"quote_id": quote.id, "user_id": current_user.id},
+        )
+
+    @staticmethod
+    async def get_delivery(
+        db: AsyncSession, quote: QuoteModel
+    ) -> Optional[quote_delivery.QuoteDelivery]:
+        """How and when ``quote`` was delivered (None if never sent)."""
+        return await quote_delivery.get_delivery(db, quote)
+
+    @staticmethod
+    def _approval_note(request: ApproveQuoteRequest, now: datetime) -> str:
+        label = _APPROVAL_METHOD_LABELS[request.response_method]
+        if request.signature_data:
+            label += " mit Unterschrift"
+        return f"[Freigabe] {label} am {now:%d.%m.%Y}"
 
     @staticmethod
     async def approve_quote(
@@ -803,7 +958,9 @@ class QuoteService:
         """
         Mark a quote as APPROVED (Genehmigt) and optionally store signature.
 
-        Only SENT quotes can be approved.
+        SENT or DRAFT quotes can be approved. DOM-11d: the request says how
+        the customer agreed; that evidence is appended to the notes (same
+        pattern as the rejection reason) and audit-logged.
         """
         result = await db.execute(select(QuoteModel).where(QuoteModel.id == quote_id))
         quote = result.scalar_one_or_none()
@@ -811,17 +968,19 @@ class QuoteService:
             return None
 
         if quote.status not in (QuoteStatus.SENT, QuoteStatus.DRAFT):
-            raise HTTPException(
-                status_code=422,
-                detail=f"Nur gesendete oder Entwurf-Angebote koennen genehmigt werden. "
+            raise DomainValidationError(
+                f"Nur gesendete oder Entwurf-Angebote koennen genehmigt werden. "
                 f"Aktueller Status: {quote.status.value}",
+                code="quote.approve_invalid_status",
             )
 
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
+        note = QuoteService._approval_note(request, now)
 
         async with transactional(db):
             quote.status = QuoteStatus.APPROVED
             quote.approved_at = now
+            quote.notes = f"{quote.notes or ''}\n{note}".strip()
             if request.signature_data:
                 quote.customer_signature_data = request.signature_data
 
@@ -830,7 +989,10 @@ class QuoteService:
             quote_id=quote_id,
             user_id=current_user.id,
             user_role=_user_role_str(current_user),
-            extra={"has_signature": bool(request.signature_data)},
+            extra={
+                "has_signature": bool(request.signature_data),
+                "response_method": request.response_method.value,
+            },
         )
 
         return await QuoteService.get_quote(db, quote_id, current_user)
@@ -853,13 +1015,13 @@ class QuoteService:
             return None
 
         if quote.status not in (QuoteStatus.SENT, QuoteStatus.DRAFT):
-            raise HTTPException(
-                status_code=422,
-                detail=f"Nur gesendete oder Entwurf-Angebote koennen abgelehnt werden. "
+            raise DomainValidationError(
+                f"Nur gesendete oder Entwurf-Angebote koennen abgelehnt werden. "
                 f"Aktueller Status: {quote.status.value}",
+                code="quote.reject_invalid_status",
             )
 
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         notes_update = quote.notes or ""
         if reason:
             notes_update = f"{notes_update}\n[Ablehnungsgrund] {reason}".strip()
@@ -887,61 +1049,185 @@ class QuoteService:
         current_user: UserModel,
     ) -> Optional[QuoteModel]:
         """
-        Convert an APPROVED quote to a confirmed order (CONVERTED status).
+        Convert an APPROVED quote into a confirmed order (CONVERTED status).
 
-        Creates a new Order in CONFIRMED status using the quote data, then
-        marks the quote as CONVERTED and links it to the new order.
+        - If the quote was built from an existing order (``quote.order_id``),
+          that order is confirmed and priced from the quote; no duplicate
+          order is created (BE-17). Its customer must still match (A3.4).
+        - Otherwise a new CONFIRMED order is created. Its Soll (labour hours,
+          rate, material cost) comes from the quote lines (DOM-11b).
+        - If the quote came from a consultation, the consultation's deadline,
+          order type, alloy, ring size and photos reach the order (DOM-03);
+          on an existing order only empty fields are filled.
 
-        Only APPROVED quotes can be converted.
+        ``Order.price`` is NET: it receives ``quote.subtotal``, never the
+        gross ``quote.total`` (BE-01, ADR-2026-09-25-price-semantics). A
+        quote without an agreed price cannot be converted (A3.1).
+
+        The APPROVED -> CONVERTED step is a compare-and-set UPDATE, so two
+        concurrent conversions create one order on every database (A3.3);
+        the FOR UPDATE row lock is kept for Postgres.
         """
-        result = await db.execute(
-            select(QuoteModel)
-            .options(selectinload(QuoteModel.line_items))
-            .where(QuoteModel.id == quote_id)
-        )
-        quote = result.scalar_one_or_none()
+        quote = await QuoteService._load_quote(db, quote_id, for_update=True)
         if not quote:
             return None
 
-        if quote.status != QuoteStatus.APPROVED:
-            raise HTTPException(
-                status_code=422,
-                detail=f"Nur genehmigte Angebote koennen umgewandelt werden. "
-                f"Aktueller Status: {quote.status.value}",
-            )
+        now = datetime.now(timezone.utc)
+        QuoteService._require_convertible(quote, now)
+        existing_order = await QuoteService._linked_order_for_conversion(db, quote)
+        net_price = QuoteService._agreed_net_price(quote)
 
-        now = datetime.utcnow()
-
-        # Build order title from quote number
-        order_title = f"Auftrag aus {quote.quote_number}"
-
-        # Calculate estimated price from quote total (gross)
-        estimated_price = quote.total
+        consultation = await consultation_carry.consultation_for_quote(db, quote_id)
+        carried = (
+            await consultation_carry.fields_from_consultation(db, consultation)
+            if consultation is not None
+            else consultation_carry.CarriedOrderFields()
+        )
 
         async with transactional(db):
-            new_order = OrderModel(
-                title=order_title,
-                description=quote.notes or "",
-                price=estimated_price,
-                status=OrderStatusEnum.CONFIRMED,
-                customer_id=quote.customer_id,
-            )
-            db.add(new_order)
-            await db.flush()
+            await QuoteService._claim_for_conversion(db, quote, now)
+            if existing_order is not None:
+                target_order = existing_order
+                target_order.price = net_price
+                if target_order.status in (
+                    OrderStatusEnum.DRAFT,
+                    OrderStatusEnum.NEW,
+                ):
+                    await order_workflow.transition(  # W2-07: table + event
+                        db,
+                        target_order,
+                        OrderStatusEnum.CONFIRMED,
+                        current_user,
+                        meta={"origin": "quote_conversion", "quote_id": quote.id},
+                    )
+                consultation_carry.fill_empty_order_fields(target_order, carried)
+            else:
+                target_order = OrderModel(
+                    **QuoteService._new_order_kwargs(quote, net_price, carried)
+                )
+                db.add(target_order)
+                await db.flush()
 
+            # ARCH phase 5: a new order gets its job; carried fields reach it.
+            await JobService.sync_order(db, target_order)
             quote.status = QuoteStatus.CONVERTED
             quote.converted_at = now
-            quote.order_id = new_order.id
+            quote.order_id = target_order.id
+            if consultation is not None:
+                consultation_carry.link_consultation_to_order(
+                    consultation, int(target_order.id)
+                )
 
         _log_quote_access(
             action="converted",
             quote_id=quote_id,
             user_id=current_user.id,
             user_role=_user_role_str(current_user),
-            extra={"new_order_id": new_order.id, "total": quote.total},
+            extra={
+                "order_id": target_order.id,
+                "reused_existing_order": existing_order is not None,
+                "consultation_id": consultation.id if consultation else None,
+                "carried_fields": sorted(carried.as_order_kwargs()),
+                "net_price": net_price,
+                "total": quote.total,
+            },
         )
 
         return await QuoteService.get_quote(db, quote_id, current_user)
+
+    @staticmethod
+    def _require_convertible(quote: QuoteModel, now: datetime) -> None:
+        if quote.status != QuoteStatus.APPROVED:
+            raise DomainValidationError(
+                f"Nur genehmigte Angebote koennen umgewandelt werden. "
+                f"Aktueller Status: {quote.status.value}",
+                code="quote.convert_not_approved",
+            )
+        if quote.valid_until is not None and quote.valid_until < now:
+            raise DomainValidationError(
+                f"Angebot {quote.quote_number} ist abgelaufen "
+                f"(gueltig bis {quote.valid_until:%d.%m.%Y}) und kann nicht "
+                f"umgewandelt werden.",
+                code="quote.expired",
+            )
+
+    @staticmethod
+    async def _linked_order_for_conversion(
+        db: AsyncSession, quote: QuoteModel
+    ) -> Optional[OrderModel]:
+        """The order the quote was built from; must exist and share the customer."""
+        if quote.order_id is None:
+            return None
+        order = (
+            await db.execute(
+                select(OrderModel)
+                .where(OrderModel.id == quote.order_id)
+                .where(OrderModel.is_deleted.is_(False))
+            )
+        ).scalar_one_or_none()
+        if order is None:
+            raise DomainValidationError(
+                f"Verknuepfter Auftrag {quote.order_id} existiert nicht "
+                f"mehr; Angebot kann nicht umgewandelt werden.",
+                code="quote.linked_order_missing",
+            )
+        if order.customer_id != quote.customer_id:
+            raise DomainValidationError(
+                f"Auftrag {quote.order_id} gehoert zu einem anderen Kunden "
+                f"als Angebot {quote.quote_number}; Umwandlung abgebrochen.",
+                code="quote.linked_order_customer_mismatch",
+            )
+        return order
+
+    @staticmethod
+    def _agreed_net_price(quote: QuoteModel) -> Decimal:
+        """Net agreed price; 422 when the quote has none (same rule as invoices)."""
+        net_price = money(quote.subtotal)
+        if net_price <= 0:
+            raise DomainValidationError(
+                (
+                    f"Angebot {quote.quote_number} hat keinen vereinbarten Preis. "
+                    "Bitte zuerst Positionen mit Preis erfassen."
+                ),
+                code="quote.price_missing",
+            )
+        return net_price
+
+    @staticmethod
+    async def _claim_for_conversion(
+        db: AsyncSession, quote: QuoteModel, now: datetime
+    ) -> None:
+        """Compare-and-set APPROVED -> CONVERTED; 409 if another call won."""
+        result = await db.execute(
+            update(QuoteModel)
+            .where(QuoteModel.id == quote.id)
+            .where(QuoteModel.status == QuoteStatus.APPROVED)
+            .values(status=QuoteStatus.CONVERTED, converted_at=now)
+            .execution_options(synchronize_session=False)
+        )
+        if cast(CursorResult, result).rowcount != 1:
+            raise ConflictError(
+                f"Angebot {quote.quote_number} wurde bereits umgewandelt.",
+                code="quote.already_converted",
+            )
+
+    @staticmethod
+    def _new_order_kwargs(
+        quote: QuoteModel,
+        net_price: Decimal,
+        carried: "consultation_carry.CarriedOrderFields",
+    ) -> dict:
+        """Columns for an order created from an unlinked quote."""
+        return {
+            "title": f"Auftrag aus {quote.quote_number}",
+            "description": quote.notes or "",
+            "price": net_price,
+            "vat_rate": quote.tax_rate,
+            "status": OrderStatusEnum.CONFIRMED,
+            "customer_id": quote.customer_id,
+            **_soll_from_quote_lines(list(quote.line_items)),
+            **carried.as_order_kwargs(),
+        }
 
     @staticmethod
     async def delete_quote(
@@ -966,10 +1252,10 @@ class QuoteService:
             QuoteStatus.CONVERTED,
         }
         if quote.status in protected_statuses:
-            raise HTTPException(
-                status_code=422,
-                detail=f"Angebote mit Status '{quote.status.value}' koennen nicht geloescht werden. "
+            raise DomainValidationError(
+                f"Angebote mit Status '{quote.status.value}' koennen nicht geloescht werden. "
                 f"Nur Entwuerfe und abgelehnte Angebote sind loeschbar.",
+                code="quote.delete_protected",
             )
 
         async with transactional(db):

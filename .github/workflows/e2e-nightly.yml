@@ -1,0 +1,146 @@
+name: Goldsmith ERP E2E (nightly)
+
+# OPS-01 (docs/review/2026-09-25/06-testing-ci-ops.md §C): 4 of the repo's 6
+# Playwright specs — the ones covering the actually-critical flows (full
+# workshop day, order creation, consultation wizard, estimator-on-quote) —
+# never ran anywhere in CI. ci.yml's `test-e2e` job only runs smoke.spec.ts +
+# auth.spec.ts on every PR to keep PR wall-time down; this workflow runs the
+# other four on a nightly schedule (plus on-demand) against a freshly
+# migrated + seeded stack, reusing the same job shape as `test-e2e`.
+#
+# Seeding note (was: three seed scripts each defined their own demo
+# email/password convention, and three Playwright specs hard-coded a fourth
+# combination that matched none of them — this workflow used to run a
+# second seeder just to create a working login for those specs. Fixed by
+# introducing src/goldsmith_erp/db/seed_credentials.py as the single source
+# of truth every seed path now imports; see that module's docstring):
+#   - consultation-wizard.spec.ts and the three previously-hard-coded specs
+#     (goldsmith-workflow.spec.ts, goldsmith-full.spec.ts,
+#     estimator-quote-flow.spec.ts) all read their credentials from
+#     E2E_GOLDSMITH_EMAIL/PASSWORD and E2E_ADMIN_EMAIL/PASSWORD respectively,
+#     defaulting to scripts/seed_demo.py's actual goldsmith and admin/inhaber
+#     accounts. Only scripts/seed_demo.py needs to run — its dataset already
+#     includes the quotes (KV-2026-0001/0002 etc.) estimator-quote-flow.spec.ts
+#     depends on, and its own accounts now match every spec's default.
+
+on:
+  schedule:
+    # 03:17 UTC daily — off the top of the hour, well outside workshop hours.
+    - cron: "17 3 * * *"
+  workflow_dispatch: {}
+
+concurrency:
+  group: e2e-nightly
+  cancel-in-progress: false
+
+env:
+  MIGRATION_DATABASE_URL: postgresql://user:pass@localhost:5432/goldsmith_test
+  DATABASE_URL: postgresql+asyncpg://user:pass@localhost:5432/goldsmith_test
+  REDIS_URL: redis://localhost:6379/0
+  SECRET_KEY: ci-test-secret-key-minimum-32-characters-long-enough
+  ENCRYPTION_KEY: V0Ae_U1MhSkUCNugAmmQV7Jl2GnxkizHeurQnglXVOc=
+  ANONYMIZATION_SALT: testsalt1234567890abcdef
+  DEBUG: "true"
+  CI: "true"
+  # scripts/seed_demo.py's actual accounts (see note above; canonical values
+  # live in src/goldsmith_erp/db/seed_credentials.py). consultation-wizard.spec.ts
+  # is gated on the goldsmith pair being set; the admin pair overrides the
+  # matching default already baked into the other three specs.
+  E2E_GOLDSMITH_EMAIL: demo-goldschmied@werkstatt.de
+  E2E_GOLDSMITH_PASSWORD: demo2026!
+  E2E_ADMIN_EMAIL: demo-inhaber@werkstatt.de
+  E2E_ADMIN_PASSWORD: demo2026!
+
+jobs:
+  test-e2e-nightly:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: user
+          POSTGRES_PASSWORD: pass
+          POSTGRES_DB: goldsmith_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Poetry
+        # OPS-04: Poetry must be on PATH before setup-python for its
+        # `cache: poetry` option to resolve a cache directory.
+        run: pipx install poetry
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "poetry"
+      - name: Enable Corepack
+        run: corepack enable
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "yarn"
+          cache-dependency-path: frontend/yarn.lock
+      - name: Install backend dependencies
+        run: poetry install
+      - name: Run migrations
+        run: poetry run alembic upgrade head
+      - name: Seed demo data (scripts/seed_demo.py)
+        run: poetry run python scripts/seed_demo.py
+      - name: Start backend (uvicorn, background)
+        working-directory: ./src
+        run: |
+          poetry run uvicorn goldsmith_erp.main:app --host 0.0.0.0 --port 8000 &
+          echo "BACKEND_PID=$!" >> $GITHUB_ENV
+      - name: Wait for backend health
+        run: |
+          for i in {1..30}; do
+            if curl -sf http://localhost:8000/health >/dev/null; then
+              echo "Backend is up."
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "Backend did not start within 60s" >&2
+          exit 1
+      - name: Install frontend dependencies
+        working-directory: ./frontend
+        run: yarn install --frozen-lockfile
+      - name: Install Playwright browsers
+        working-directory: ./frontend
+        run: npx playwright install --with-deps chromium
+      - name: Run Playwright E2E (heavy specs, nightly-only)
+        working-directory: ./frontend
+        run: |
+          npx playwright test \
+            e2e/goldsmith-workflow.spec.ts \
+            e2e/goldsmith-full.spec.ts \
+            e2e/consultation-wizard.spec.ts \
+            e2e/estimator-quote-flow.spec.ts
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-nightly
+          path: frontend/playwright-report/
+          retention-days: 7
+      - name: Upload Playwright test-results (screenshots, traces)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-test-results-nightly
+          path: frontend/test-results/
+          retention-days: 7

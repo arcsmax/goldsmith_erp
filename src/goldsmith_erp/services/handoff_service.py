@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Optional
 
 from sqlalchemy import select
@@ -265,7 +265,7 @@ class HandoffService:
 
         async with transactional(db):
             handoff.status = HandoffStatusEnum.ACCEPTED
-            handoff.responded_at = datetime.utcnow()
+            handoff.responded_at = datetime.now(timezone.utc)
             if response_notes:
                 handoff.response_notes = response_notes
             await db.flush()
@@ -357,7 +357,7 @@ class HandoffService:
 
         async with transactional(db):
             handoff.status = HandoffStatusEnum.DECLINED
-            handoff.responded_at = datetime.utcnow()
+            handoff.responded_at = datetime.now(timezone.utc)
             handoff.response_notes = response_notes.strip()
             await db.flush()
 

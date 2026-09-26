@@ -59,6 +59,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
+from goldsmith_erp.core.errors import DomainValidationError
 from goldsmith_erp.db.models import Activity as ActivityModel
 from goldsmith_erp.db.models import Material as MaterialModel
 from goldsmith_erp.db.models import MetalPurchase as MetalPurchaseModel
@@ -75,6 +76,7 @@ from goldsmith_erp.models.scanner import (
     ScanContext,
     ScanLogCreate,
 )
+from goldsmith_erp.services.location_service import LocationService
 
 logger = logging.getLogger(__name__)
 
@@ -414,6 +416,7 @@ class ScannerService:
             if existing is not None:
                 return existing
 
+        event = await _resolve_scan_location(db, event)
         db_row = _build_scan_log_row(user_id, event)
 
         try:
@@ -497,6 +500,11 @@ class ScannerService:
                     deduplicated += 1
                     continue
 
+            # SC-04 (follow-up) — same resolution as the single-event
+            # path (`log_scan`): an unknown/deactivated location_id must
+            # never reach the FK column below, or the INSERT would fail
+            # and the whole scan would be lost.
+            event = await _resolve_scan_location(db, event)
             db_row = _build_scan_log_row(user_id, event)
             try:
                 db.add(db_row)
@@ -915,19 +923,16 @@ _ACTION_SWITCH_TIMER = ActionItem(
     id="switch_timer", label="Timer wechseln", icon="swap", primary=True
 )
 _ACTION_CHANGE_STATUS = ActionItem(
-    id="change_status", label="Status ändern", icon="clipboard"
+    id="change_status", label="Status weiter", icon="clipboard"
 )
 _ACTION_CHANGE_LOCATION = ActionItem(
-    id="change_location", label="Lagerort ändern", icon="pin"
+    id="change_location", label="Standort setzen", icon="pin"
 )
-_ACTION_TAKE_PHOTO = ActionItem(id="take_photo", label="Foto aufnehmen", icon="camera")
-_ACTION_ADD_MATERIAL = ActionItem(
-    id="add_material", label="Material zuordnen", icon="gem"
-)
-_ACTION_ADD_NOTE = ActionItem(id="add_note", label="Notiz hinzufügen", icon="note")
-_ACTION_CONTACT_CUSTOMER = ActionItem(
-    id="contact_customer", label="Kunde kontaktieren", icon="phone"
-)
+_ACTION_TAKE_PHOTO = ActionItem(id="take_photo", label="Foto", icon="camera")
+# Scan-tracking action sheet (2026-09 audit): hand the piece to a colleague
+# (order handoffs) and the explicit "scanned, nothing else" tap (SC-05).
+_ACTION_HANDOVER = ActionItem(id="handover", label="Übergabe", icon="handoff")
+_ACTION_LOG_ONLY = ActionItem(id="log_only", label="Nur erfassen", icon="check")
 _ACTION_PRINT_LABEL = ActionItem(
     id="print_label", label="Etikett drucken", icon="label"
 )
@@ -945,17 +950,12 @@ _ACTION_CONSUME_METAL = ActionItem(
     icon="scale",
     primary=True,
 )
-_ACTION_CHECK_STOCK = ActionItem(id="check_stock", label="Bestand prüfen", icon="chart")
-_ACTION_REORDER = ActionItem(id="reorder", label="Nachbestellen", icon="cart")
 # REPAIR
 _ACTION_ADVANCE_REPAIR = ActionItem(
     id="advance_repair",
-    label="Status weiterschalten",
+    label="Status weiter",
     icon="clipboard",
     primary=True,
-)
-_ACTION_REPAIR_DIAGNOSIS = ActionItem(
-    id="repair_diagnosis", label="Diagnose eingeben", icon="magnifier"
 )
 
 
@@ -1051,19 +1051,29 @@ def _compute_order_actions(
     ):
         actions.append(_ACTION_PUNZIERUNG_CHECK)
 
-    # Goldsmith / Admin — write-capable actions.
+    # Goldsmith / Admin — write-capable actions. Only actions the scan
+    # sheet can execute are offered (2026-09 audit: add_material, add_note
+    # and contact_customer had no client handler and failed on tap).
     if user_role in (UserRole.GOLDSMITH, UserRole.ADMIN):
-        actions.append(_ACTION_CHANGE_STATUS)
-        actions.append(_ACTION_CHANGE_LOCATION)
         actions.append(_ACTION_TAKE_PHOTO)
-        actions.append(_ACTION_ADD_MATERIAL)
-        actions.append(_ACTION_ADD_NOTE)
-        actions.append(_ACTION_CONTACT_CUSTOMER)
+        actions.append(_ACTION_CHANGE_STATUS)
+        actions.append(_ACTION_HANDOVER)
+        actions.append(_ACTION_CHANGE_LOCATION)
 
     # Label printing — safe for all roles per spec §4.a.
-    actions.append(_ACTION_PRINT_LABEL)
     actions.append(_ACTION_OPEN_ENTITY)
+    actions.append(_ACTION_PRINT_LABEL)
+    actions.append(_ACTION_LOG_ONLY)
     return actions
+
+
+# Repairs past these statuses have no next workflow step.
+_REPAIR_FINAL_STATUSES: FrozenSet[Optional[str]] = frozenset(
+    {
+        RepairJobStatus.PICKED_UP.value,
+        RepairJobStatus.CANCELLED.value,
+    }
+)
 
 
 def _compute_repair_actions(
@@ -1074,16 +1084,20 @@ def _compute_repair_actions(
     actions: List[ActionItem] = []
     status_value = getattr(getattr(repair, "status", None), "value", None)
     if user_role in (UserRole.GOLDSMITH, UserRole.ADMIN):
-        actions.append(_ACTION_ADVANCE_REPAIR)
-        # Timer-start only while the piece is actually being worked.
-        if status_value == RepairJobStatus.IN_REPAIR.value:
-            actions.append(_ACTION_START_TIMER)
-        if status_value == RepairJobStatus.RECEIVED.value:
-            actions.append(_ACTION_REPAIR_DIAGNOSIS)
+        # "Status weiter" opens the repair page, whose one primary action is
+        # the next step (diagnosis for RECEIVED included) — so no separate
+        # repair_diagnosis entry. No start_timer for repairs (FE-03): time
+        # entries have no repair_job_id yet, so the only bookable target
+        # would be the ORDER with the same numeric id — wrong piece, wrong
+        # customer, wrong invoice. Re-add once TimeEntry can reference a
+        # repair.
+        if status_value not in _REPAIR_FINAL_STATUSES:
+            actions.append(_ACTION_ADVANCE_REPAIR)
         actions.append(_ACTION_TAKE_PHOTO)
-        actions.append(_ACTION_ADD_NOTE)
-    actions.append(_ACTION_PRINT_LABEL)
+        actions.append(_ACTION_CHANGE_LOCATION)
     actions.append(_ACTION_OPEN_ENTITY)
+    actions.append(_ACTION_PRINT_LABEL)
+    actions.append(_ACTION_LOG_ONLY)
     return actions
 
 
@@ -1102,10 +1116,9 @@ def _compute_metal_actions(
         return actions
     # GOLDSMITH / ADMIN
     actions.append(_ACTION_CONSUME_METAL)
-    actions.append(_ACTION_CHECK_STOCK)
-    actions.append(_ACTION_REORDER)
-    actions.append(_ACTION_PRINT_LABEL)
     actions.append(_ACTION_OPEN_ENTITY)
+    actions.append(_ACTION_PRINT_LABEL)
+    actions.append(_ACTION_LOG_ONLY)
     return actions
 
 
@@ -1117,13 +1130,11 @@ def _compute_material_actions(
     actions: List[ActionItem] = []
     if user_role in (UserRole.GOLDSMITH, UserRole.ADMIN):
         actions.append(_ACTION_CONSUME_METAL)  # reused id; semantically same
-        actions.append(_ACTION_CHECK_STOCK)
-        actions.append(_ACTION_REORDER)
-    else:
-        # VIEWER — read-only
-        actions.append(_ACTION_CHECK_STOCK)
-    actions.append(_ACTION_PRINT_LABEL)
+    # check_stock / reorder had no client handler (2026-09 audit); the
+    # material page ("Öffnen") shows the stock.
     actions.append(_ACTION_OPEN_ENTITY)
+    actions.append(_ACTION_PRINT_LABEL)
+    actions.append(_ACTION_LOG_ONLY)
     return actions
 
 
@@ -1238,6 +1249,34 @@ async def _find_by_idempotency_key(
     return result.scalar_one_or_none()
 
 
+async def _resolve_scan_location(
+    db: AsyncSession, event: ScanLogCreate
+) -> ScanLogCreate:
+    """Name the scan's workshop location from its ``location_id`` (W8).
+
+    A scan must never be lost over its location: an unknown or deactivated
+    id is dropped (the client's text label stays) and logged, instead of
+    failing the insert.
+    """
+    context = event.context
+    if context is None or context.location_id is None:
+        return event
+    try:
+        location_id, name = await LocationService.resolve(
+            db, context.location_id, context.current_location
+        )
+    except DomainValidationError:
+        logger.warning(
+            "Scan location id not usable, keeping the text label",
+            extra={"location_id": context.location_id},
+        )
+        location_id, name = None, context.current_location
+    resolved = context.model_copy(
+        update={"location_id": location_id, "current_location": name}
+    )
+    return event.model_copy(update={"context": resolved})
+
+
 def _build_scan_log_row(
     user_id: int,
     event: ScanLogCreate,
@@ -1262,13 +1301,20 @@ def _build_scan_log_row(
     else:
         context_dict = event.context.model_dump(exclude_unset=True)
 
+    # SC-04 (follow-up) — the FK column, not just the JSON copy. The
+    # caller MUST have already run the event through
+    # ``_resolve_scan_location`` so an unknown/deactivated id is never
+    # here (it would violate the FK); this only reads what survived
+    # resolution.
+    location_id = event.context.location_id if event.context is not None else None
+
     idem_key = str(event.idempotency_key) if event.idempotency_key else None
 
     # ``scanned_at`` is server-set using UTC now. The composite PK on
     # the partitioned PostgreSQL table requires ``scanned_at`` to be
     # present at INSERT; providing it explicitly avoids a NOT NULL
     # violation on SQLite (where the default is not enforced by DDL).
-    now = datetime.now(tz=timezone.utc).replace(tzinfo=None)
+    now = datetime.now(tz=timezone.utc)
 
     return ScanLogModel(
         scanned_at=now,
@@ -1279,6 +1325,7 @@ def _build_scan_log_row(
         resolution_path=event.resolution_path,
         action_taken=event.action_taken,
         context=context_dict,
+        location_id=location_id,
         offline_queued=event.offline_queued,
         idempotency_key=idem_key,
         client_tap_at=event.client_tap_at,

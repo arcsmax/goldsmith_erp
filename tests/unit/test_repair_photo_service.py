@@ -5,15 +5,22 @@ happy path, rejection of non-image uploads via the shared
 PhotoValidationError, get_photo_path/delete_photo behavior, and the
 "repair job must exist" guard. Unlike ConsultationPhoto, RepairPhoto.id is
 a DB-assigned Integer — file names on disk are still uuid4-based.
+
+The publish tests mock ``pubsub.publish_event`` the way
+tests/unit/test_realtime_publish.py does (module attribute, not the
+function) — see conftest.py's autouse ``mock_publish_event`` docstring for
+why that's the only pattern a monkeypatch can actually intercept.
 """
 
 import io
+import json
 
 import pytest
 import pytest_asyncio
 from fastapi import UploadFile
 from PIL import Image
 
+from goldsmith_erp.core import pubsub
 from goldsmith_erp.db.models import (
     RepairItemType,
     RepairJob,
@@ -71,7 +78,54 @@ async def test_upload_and_list(db_session, tmp_path, monkeypatch, repair, sample
     # id is a DB-assigned integer, NOT the uuid4 filename stem.
     assert isinstance(photo.id, int)
     assert (tmp_path / "repairs" / str(repair.id)).exists()
-    assert (tmp_path / "repairs" / str(repair.id) / "thumbs").exists()
+    # Content-addressed layout (ARCH phase 4): <owner>/<sha[:2]>/thumbs/.
+    assert list((tmp_path / "repairs" / str(repair.id)).glob("*/thumbs"))
+
+
+@pytest.mark.asyncio
+async def test_upload_publishes_reduced_repair_event_after_commit(
+    db_session, tmp_path, monkeypatch, repair, sample_user
+):
+    """W7 hygiene follow-up: publish AFTER commit, ids/action/phase/timestamp only."""
+    monkeypatch.setattr(
+        "goldsmith_erp.core.config.settings.PHOTO_STORAGE_PATH", str(tmp_path)
+    )
+    published: list[tuple[str, str]] = []
+
+    async def _record(channel: str, message: str) -> bool:
+        published.append((channel, message))
+        return True
+
+    monkeypatch.setattr(pubsub, "publish_event", _record)
+
+    photo = await RepairPhotoService.upload_photo(
+        db_session,
+        repair_id=repair.id,
+        file=_jpeg_upload(),
+        user_id=sample_user.id,
+        phase=RepairPhotoPhase.INTAKE,
+        notes="vertrauliche Notiz",
+    )
+
+    assert len(published) == 1
+    channel, raw = published[0]
+    assert channel == "repair_updates"
+    payload = json.loads(raw)
+    assert payload["action"] == "photo_added"
+    assert payload["repair_id"] == repair.id
+    assert payload["photo_id"] == photo.id
+    assert payload["phase"] == RepairPhotoPhase.INTAKE.value
+    assert payload["timestamp"]
+    # Reduced payload only — never the image path or the notes.
+    assert set(payload.keys()) == {
+        "action",
+        "repair_id",
+        "photo_id",
+        "phase",
+        "timestamp",
+    }
+    assert "notes" not in raw
+    assert "vertrauliche Notiz" not in raw
 
 
 @pytest.mark.asyncio

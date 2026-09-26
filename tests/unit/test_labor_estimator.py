@@ -233,8 +233,12 @@ def test_low_outlier_order_is_excluded_and_median_reflects_remaining_set() -> No
 
 def test_suggested_activities_are_per_activity_medians_over_matched_set() -> None:
     """suggested_activities holds the median hours per activity_id, computed
-    only from orders in the matched (post-exclusion) set that actually
-    logged that activity — no zero-filling.
+    over the FULL matched (post-exclusion) set with zero-filling for orders
+    that didn't log the activity, and reported only when present in at
+    least 50% of that set (BE-10 / decision D-09, 2026-09-25 — see
+    ACTIVITY_PRESENCE_THRESHOLD). This replaces the earlier "median over
+    only the orders that logged it, no zero-filling" behavior, which let a
+    minority-logged activity inflate the labor cost beyond hours_p50.
 
     Note: Added 2 more orders (total 7) to ensure >=5 remain after P10 exclusion
     per decision #1 (MIN_SAMPLE floor applies to post-exclusion count)."""
@@ -305,9 +309,13 @@ def test_suggested_activities_are_per_activity_medians_over_matched_set() -> Non
 
     # order 501 (hours=10.0) is below this set's P10 threshold and is
     # excluded, so its activity hours (1: 4.0, 2: 3.0) must not appear.
-    # With 7 orders, P10 exclusion leaves 6 >= MIN_SAMPLE=5.
+    # With 7 orders, P10 exclusion leaves 6 >= MIN_SAMPLE=5: orders
+    # 502-507. Activity 1 is present on 502-506 (5/6 = 83% >= 50%),
+    # zero-filled hours [5,6,7,8,9,0] -> median 6.5. Activity 2 is present
+    # on 502, 504, 507 (3/6 = 50%, meets "at least 50%"), zero-filled
+    # hours [4,0,5,0,0,6] -> median 2.0.
     assert estimate.excluded_orders == [501]
-    assert estimate.suggested_activities == {1: 7.0, 2: 5.0}
+    assert estimate.suggested_activities == {1: 6.5, 2: 2.0}
 
 
 def test_estimate_does_not_mutate_corpus_activity_hours() -> None:

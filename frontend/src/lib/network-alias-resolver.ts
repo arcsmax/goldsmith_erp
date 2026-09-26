@@ -8,10 +8,10 @@
 // V1.2 will replace this body with a call to GET /api/v1/aliases/lookup/:code
 // (see spec §10.a). Tests for that wiring belong to Slice 7 of V1.2, not here.
 
-import type { AliasResolver, ResolvedEntity } from '../types/scanner';
+import type { AliasedEntity, AliasResolver } from '../types/scanner';
 
 export class NetworkAliasResolver implements AliasResolver {
-  async lookup(_externalCode: string): Promise<ResolvedEntity | null> {
+  async lookup(_externalCode: string): Promise<AliasedEntity | null> {
     // V1.1: alias system not yet available. Always returns null so that every
     // non-prefix / non-numeric scan falls through to the server for logging
     // as `resolution_path='unknown'`.

@@ -17,7 +17,7 @@ Business logic:
   - Duplicate erasure request returns 409
 """
 
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 import pytest
 from httpx import AsyncClient
@@ -57,9 +57,11 @@ def _erase_url(customer_id: int) -> str:
 # Sentinel values used to prove design-IP fields never leak into the export
 # (see test_export_never_leaks_consultation_design_ip and
 # test_export_never_leaks_order_description below).
-_SENTINEL_WISHES = "SENTINEL_WISHES_MUST_NOT_LEAK"
+# D-13 (GDPR-05): wishes and source_material are what the CUSTOMER told us —
+# disclosed, but only in the ``consultation_statements`` section.
+_SENTINEL_WISHES = "SENTINEL_CUSTOMER_WISHES_DISCLOSED"
 _SENTINEL_NOTES = "SENTINEL_NOTES_MUST_NOT_LEAK"
-_SENTINEL_SOURCE_MATERIAL = "SENTINEL_SOURCE_MATERIAL_MUST_NOT_LEAK"
+_SENTINEL_SOURCE_MATERIAL = "SENTINEL_CUSTOMER_SOURCE_MATERIAL_DISCLOSED"
 _SENTINEL_MATERIALS_DISCUSSED = "SENTINEL_MATERIALS_DISCUSSED_MUST_NOT_LEAK"
 # order.description is the design brief for a custom piece — design IP
 # (CLAUDE.md: "Design descriptions in orders are business-confidential"),
@@ -100,10 +102,10 @@ async def customer_with_v11_personal_data(
     Attach V1.1 personal-data surfaces (a no-go, a style profile, and a
     consultation) to the integration-test customer.
 
-    The consultation's design-IP fields (wishes/notes/source_material/
-    materials_discussed) are populated with distinctive sentinel values so
-    export tests can assert they never appear anywhere in the serialized
-    response — see CLAUDE.md "Design IP" data-privacy rule.
+    The consultation's fields are populated with distinctive sentinel values
+    so export tests can assert that design IP (notes/materials_discussed)
+    never appears and that customer-supplied facts (wishes/source_material)
+    appear only where D-13 puts them.
     """
     consultation = Consultation(
         customer_id=test_customer.id,
@@ -317,19 +319,26 @@ class TestGdprExport:
         customer_with_v11_personal_data: Customer,
         admin_auth_headers: dict,
     ):
-        """Design-IP rule (CLAUDE.md, binding): wishes/notes/source_material/
-        materials_discussed/photos must NEVER appear anywhere in the GDPR
-        export, even though the consultation row has them populated."""
+        """Design-IP rule (CLAUDE.md, binding) as refined by decision D-13:
+        the goldsmith's own work (notes, materials_discussed, photos) never
+        appears; what the customer told us (wishes, source_material) is
+        disclosed ONLY in ``consultation_statements``."""
         response = await client.get(
             _export_url(customer_with_v11_personal_data.id),
             headers=admin_auth_headers,
         )
-        body_text = str(response.json())
+        body = response.json()
+        body_text = str(body)
 
-        assert _SENTINEL_WISHES not in body_text
         assert _SENTINEL_NOTES not in body_text
-        assert _SENTINEL_SOURCE_MATERIAL not in body_text
         assert _SENTINEL_MATERIALS_DISCUSSED not in body_text
+        # Customer-supplied facts: present, but not on the consultation items.
+        assert _SENTINEL_WISHES not in str(body["consultations"])
+        assert _SENTINEL_SOURCE_MATERIAL not in str(body["consultations"])
+        statements = body["consultation_statements"]
+        assert [s["wishes"] for s in statements] == [_SENTINEL_WISHES]
+        assert [s["source_material"] for s in statements] == [_SENTINEL_SOURCE_MATERIAL]
+        assert set(statements[0]) == {"consultation_id", "wishes", "source_material"}
 
     @pytest.mark.asyncio
     async def test_export_never_leaks_order_description(
@@ -429,7 +438,7 @@ class TestGdprErasure:
         )
         body = response.json()
 
-        expected_date = (datetime.utcnow() + timedelta(days=30)).date()
+        expected_date = (datetime.now(timezone.utc) + timedelta(days=30)).date()
         returned_date = date.fromisoformat(body["deletion_date"])
 
         assert returned_date == expected_date
@@ -476,8 +485,8 @@ class TestGdprErasure:
         customer = result.scalar_one()
 
         assert customer.deletion_scheduled_at is not None
-        min_expected = datetime.utcnow() + timedelta(days=29)
-        max_expected = datetime.utcnow() + timedelta(days=31)
+        min_expected = datetime.now(timezone.utc) + timedelta(days=29)
+        max_expected = datetime.now(timezone.utc) + timedelta(days=31)
         assert min_expected < customer.deletion_scheduled_at < max_expected
 
     @pytest.mark.asyncio
@@ -539,3 +548,260 @@ class TestGdprErasure:
             headers=admin_auth_headers,
         )
         assert response.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# GDPR-05 — completeness of the Art. 15 export
+# ---------------------------------------------------------------------------
+
+_SENTINEL_DIAGNOSIS = "SENTINEL_REPAIR_DIAGNOSIS_WITHHELD"
+_SENTINEL_SIGNATURE = "data:image/png;base64,SENTINEL_SIGNATURE_BYTES"
+
+
+@pytest.fixture
+async def customer_with_every_record(
+    db_session: AsyncSession, customer_with_order: Customer, admin_user: User
+) -> Customer:
+    """One row in every customer-linked table the export must cover."""
+    from goldsmith_erp.db.models import (
+        AlloyType,
+        CostChangeRequest,
+        CostChangeStatus,
+        CustomerConsent,
+        CustomerUpdate,
+        CustomerUpdateKind,
+        CustomerUpdateStatus,
+        Invoice,
+        InvoiceLineItem,
+        InvoiceStatus,
+        OrderEvent,
+        OrderPhoto,
+        Quote,
+        QuoteLineItem,
+        QuoteStatus,
+        RepairItemType,
+        RepairJob,
+        RepairJobStatus,
+        RepairPhoto,
+        RepairPhotoPhase,
+        ScrapGold,
+        ScrapGoldItem,
+        ScrapGoldStatus,
+        ValuationCertificate,
+    )
+
+    customer = customer_with_order
+    order = (
+        await db_session.execute(select(Order).where(Order.customer_id == customer.id))
+    ).scalar_one()
+
+    invoice = Invoice(
+        invoice_number="RE-2026-EXP1",
+        order_id=order.id,
+        customer_id=customer.id,
+        created_by=admin_user.id,
+        status=InvoiceStatus.PAID,
+        due_date=datetime.now(timezone.utc) + timedelta(days=14),
+        subtotal=100.0,
+        tax_amount=19.0,
+        total=119.0,
+    )
+    quote = Quote(
+        quote_number="KV-2026-EXP1",
+        order_id=order.id,
+        customer_id=customer.id,
+        created_by=admin_user.id,
+        status=QuoteStatus.APPROVED,
+        valid_until=datetime.now(timezone.utc) + timedelta(days=14),
+        customer_signature_data=_SENTINEL_SIGNATURE,
+    )
+    scrap = ScrapGold(
+        order_id=order.id,
+        customer_id=customer.id,
+        created_by=admin_user.id,
+        status=ScrapGoldStatus.RECEIVED,
+        total_fine_gold_g=2.925,
+        total_value_eur=150.0,
+        signature_data=_SENTINEL_SIGNATURE,
+    )
+    valuation = ValuationCertificate(
+        certificate_number="WG-2026-EXP1",
+        order_id=order.id,
+        customer_id=customer.id,
+        created_by=admin_user.id,
+        item_description="Solitärring",
+        appraised_value=1500.0,
+        valuation_date=datetime.now(timezone.utc),
+        valid_until=datetime.now(timezone.utc) + timedelta(days=730),
+        goldsmith_name="Export Test",
+    )
+    repair = RepairJob(
+        repair_number="REP-2026-EXP1",
+        bag_number="EXP-1",
+        customer_id=customer.id,
+        received_by=admin_user.id,
+        item_description="Kette gerissen",
+        item_type=RepairItemType.CHAIN,
+        status=RepairJobStatus.RECEIVED,
+        diagnosis_notes=_SENTINEL_DIAGNOSIS,
+    )
+    db_session.add_all([invoice, quote, scrap, valuation, repair])
+    await db_session.flush()
+
+    db_session.add_all(
+        [
+            InvoiceLineItem(
+                invoice_id=invoice.id,
+                description="Ring weiten",
+                quantity=1.0,
+                unit_price=100.0,
+                total=100.0,
+            ),
+            QuoteLineItem(
+                quote_id=quote.id,
+                description="Ring weiten",
+                quantity=1.0,
+                unit_price=100.0,
+                total=100.0,
+            ),
+            ScrapGoldItem(
+                scrap_gold_id=scrap.id,
+                description="Alter Ehering",
+                alloy=AlloyType.GOLD_585,
+                weight_g=5.0,
+                fine_content_g=2.925,
+            ),
+            RepairPhoto(
+                repair_job_id=repair.id,
+                phase=RepairPhotoPhase.INTAKE,
+                file_path="repairs/exp1.jpg",
+                taken_by=admin_user.id,
+            ),
+            OrderPhoto(
+                order_id=order.id,
+                file_path="orders/exp1.jpg",
+                taken_by=admin_user.id,
+            ),
+            OrderEvent(order_id=order.id, from_status="new", to_status="in_progress"),
+            CustomerUpdate(
+                order_id=order.id,
+                kind=CustomerUpdateKind.PROGRESS,
+                subject="Ihr Ring ist in Arbeit",
+                body="Guten Tag, Ihr Ring ist in Arbeit.",
+                status=CustomerUpdateStatus.SENT,
+                sent_at=datetime.now(timezone.utc),
+                sent_by=admin_user.id,
+            ),
+            CustomerUpdate(
+                repair_job_id=repair.id,
+                kind=CustomerUpdateKind.PROGRESS,
+                subject="Ihre Kette ist angekommen",
+                body="Wir haben Ihre Kette erhalten.",
+                status=CustomerUpdateStatus.SENT,
+                sent_by=admin_user.id,
+            ),
+            CostChangeRequest(
+                order_id=order.id,
+                original_amount=100.0,
+                new_amount=130.0,
+                delta_percent=30.0,
+                reason="Zusätzliche Lötstelle",
+                status=CostChangeStatus.SENT,
+                created_by=admin_user.id,
+            ),
+            CustomerConsent(
+                customer_id=customer.id,
+                purpose="email_contact",
+                method="written",
+                granted_at=datetime.now(timezone.utc),
+                recorded_by_user_id=admin_user.id,
+            ),
+        ]
+    )
+    await db_session.commit()
+    return customer
+
+
+class TestGdprExportCompleteness:
+    @pytest.mark.asyncio
+    async def test_export_covers_every_customer_linked_table(
+        self,
+        client: AsyncClient,
+        customer_with_every_record: Customer,
+        admin_auth_headers: dict,
+    ):
+        response = await client.get(
+            _export_url(customer_with_every_record.id), headers=admin_auth_headers
+        )
+        assert response.status_code == 200
+        body = response.json()
+
+        assert [i["invoice_number"] for i in body["invoices"]] == ["RE-2026-EXP1"]
+        assert body["invoices"][0]["line_items"][0]["description"] == "Ring weiten"
+        assert [q["quote_number"] for q in body["quotes"]] == ["KV-2026-EXP1"]
+        assert body["quotes"][0]["customer_signature_present"] is True
+        assert body["scrap_gold"][0]["items"][0]["description"] == "Alter Ehering"
+        assert body["valuations"][0]["appraised_value"] == 1500.0
+        assert body["repairs"][0]["repair_number"] == "REP-2026-EXP1"
+        subjects = {u["subject"] for u in body["customer_updates"]}
+        assert subjects == {"Ihr Ring ist in Arbeit", "Ihre Kette ist angekommen"}
+        assert body["cost_changes"][0]["reason"] == "Zusätzliche Lötstelle"
+        assert {p["source"] for p in body["photos"]} == {"order", "repair"}
+        assert body["order_events"][0]["to_status"] == "in_progress"
+        assert [c["purpose"] for c in body["consents"]] == ["email_contact"]
+        assert body["meta"]["rights"]
+        assert body["meta"]["recipients"]
+
+    @pytest.mark.asyncio
+    async def test_export_withholds_design_work_signatures_and_staff(
+        self,
+        client: AsyncClient,
+        customer_with_every_record: Customer,
+        admin_auth_headers: dict,
+        admin_user: User,
+    ):
+        response = await client.get(
+            _export_url(customer_with_every_record.id), headers=admin_auth_headers
+        )
+        body_text = str(response.json())
+
+        assert _SENTINEL_DIAGNOSIS not in body_text  # goldsmith's work notes
+        assert "SENTINEL_SIGNATURE_BYTES" not in body_text  # copy on request
+        assert _SENTINEL_ORDER_DESCRIPTION not in body_text
+        assert admin_user.email not in body_text  # employee identity
+        assert "file_path" not in body_text
+
+    @pytest.mark.asyncio
+    async def test_export_writes_gdpr_request_row(
+        self,
+        client: AsyncClient,
+        db_session: AsyncSession,
+        test_customer: Customer,
+        admin_auth_headers: dict,
+    ):
+        from goldsmith_erp.db.models import GDPRRequest
+
+        response = await client.get(
+            _export_url(test_customer.id), headers=admin_auth_headers
+        )
+        assert response.status_code == 200
+
+        rows = (
+            (
+                await db_session.execute(
+                    select(GDPRRequest).where(
+                        GDPRRequest.customer_id == test_customer.id,
+                        GDPRRequest.request_type == "export",
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert len(rows) == 1
+        assert rows[0].status == "completed"
+        # The request history is itself part of the next export.
+        second = await client.get(
+            _export_url(test_customer.id), headers=admin_auth_headers
+        )
+        assert {"export"} <= {r["request_type"] for r in second.json()["gdpr_requests"]}

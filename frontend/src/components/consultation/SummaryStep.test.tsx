@@ -199,3 +199,50 @@ describe('SummaryStep', () => {
     expect(screen.queryByRole('button', { name: 'Archivieren' })).not.toBeInTheDocument();
   });
 });
+
+describe('SummaryStep carry-over (W2-05, DOM-03)', () => {
+  it('lists what the order will inherit and converts with the consultation id', async () => {
+    const consultation = makeConsultation({
+      occasion_date: '2027-05-14',
+      piece_type: 'ring',
+      materials_discussed: [{ metal: '585 Gelbgold' }],
+      photos: [
+        {
+          id: 'p1',
+          consultation_id: 9,
+          order_id: null,
+          kind: 'sketch',
+          notes: null,
+          timestamp: '2026-09-25T10:00:00',
+        },
+      ],
+    });
+    mockConvert.mockResolvedValue({ ...consultation, converted_order_id: 88 });
+    renderStep(consultation);
+    await waitFor(() => expect(mockGetById).toHaveBeenCalled());
+
+    const section = screen.getByRole('heading', { name: 'Wird in den Auftrag übernommen' })
+      .parentElement as HTMLElement;
+    expect(section).toHaveTextContent(
+      `Liefertermin ${new Date('2027-05-14').toLocaleDateString('de-DE')}`
+    );
+    expect(section).toHaveTextContent('Legierung 585 Gelbgold');
+    expect(section).toHaveTextContent('Ringgröße aus den Maßen');
+    expect(section).toHaveTextContent('1 Skizzen & Fotos');
+
+    await userEvent.click(screen.getByRole('button', { name: 'Auftrag anlegen' }));
+    await waitFor(() => expect(mockConvert).toHaveBeenCalledWith(9, 'order'));
+    expect(mocks.navigate).toHaveBeenCalledWith('/orders/88');
+  });
+
+  it('opens the new Kostenvoranschlag directly after converting to a quote', async () => {
+    mockConvert.mockResolvedValue({ ...makeConsultation(), converted_quote_id: 31 });
+    renderStep(makeConsultation());
+    await waitFor(() => expect(mockGetById).toHaveBeenCalled());
+
+    await userEvent.click(screen.getByRole('button', { name: 'Kostenvoranschlag erstellen' }));
+
+    await waitFor(() => expect(mockConvert).toHaveBeenCalledWith(9, 'quote'));
+    expect(mocks.navigate).toHaveBeenCalledWith('/quotes?quote_id=31');
+  });
+});

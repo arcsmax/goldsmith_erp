@@ -43,8 +43,10 @@ from goldsmith_erp.db.models import (
     RepairJobStatus,
     UpdateDeliveryMethod,
 )
+from goldsmith_erp.models.consent import ConsentMethod, ConsentPurpose
 from goldsmith_erp.models.customer_update import CustomerUpdateCreate
 from goldsmith_erp.services import email_service as email_service_module
+from goldsmith_erp.services.consent_service import ConsentService
 from goldsmith_erp.services.customer_update_service import (
     CostChangeKindNotAllowedError,
     CustomerUpdateNotFoundError,
@@ -83,6 +85,20 @@ class _CapturingSend:
         return None
 
 
+async def _grant_photo_consent(db_session, order: Order) -> None:
+    """W6: photos only reach a customer with an active PHOTO_USE consent."""
+    if order.customer_id is None:
+        return
+    await ConsentService.grant(
+        db_session,
+        order.customer_id,
+        purpose=ConsentPurpose.PHOTO_USE,
+        method=ConsentMethod.IN_PERSON,
+        recorded_by_user_id=None,
+    )
+    await db_session.commit()
+
+
 async def _make_order_photo(db_session, tmp_path, order: Order, user) -> OrderPhoto:
     photo_dir = tmp_path / str(order.id)
     photo_dir.mkdir(parents=True, exist_ok=True)
@@ -98,6 +114,7 @@ async def _make_order_photo(db_session, tmp_path, order: Order, user) -> OrderPh
     db_session.add(photo)
     await db_session.commit()
     await db_session.refresh(photo)
+    await _grant_photo_consent(db_session, order)
     return photo
 
 
@@ -121,6 +138,7 @@ async def _make_colored_order_photo(
     db_session.add(photo)
     await db_session.commit()
     await db_session.refresh(photo)
+    await _grant_photo_consent(db_session, order)
     return photo
 
 

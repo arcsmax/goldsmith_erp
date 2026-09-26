@@ -1,17 +1,18 @@
 import logging
 from datetime import timedelta
 
+import jwt
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, Response, status
 from fastapi.security import OAuth2PasswordRequestForm
-from jose import JWTError, jwt
 from slowapi import Limiter
-from slowapi.util import get_remote_address
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
+from goldsmith_erp.core.client_ip import get_client_ip
 from goldsmith_erp.core.config import settings
 from goldsmith_erp.core.security import (
     ALGORITHM,
+    DUMMY_PASSWORD_HASH,
     create_access_token,
     decode_token_allowing_grace_window,
     verify_password,
@@ -27,7 +28,7 @@ from goldsmith_erp.db.session import get_db
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
-limiter = Limiter(key_func=get_remote_address)
+limiter = Limiter(key_func=get_client_ip)
 
 # Login rate-limit tuning (finding 2.10). The whole workshop shares one NAT IP,
 # so an IP-only limiter lets a single abuser lock everyone out. We bucket the
@@ -54,7 +55,7 @@ async def _capture_login_identifier(
 
 def _login_ip_username_key(request: Request) -> str:
     """slowapi key: ``ip|normalized-username``. Called synchronously by slowapi."""
-    ip = get_remote_address(request)
+    ip = get_client_ip(request)
     username = getattr(request.state, "login_username", "") or ""
     return f"{ip}|{username}"
 
@@ -87,6 +88,11 @@ async def login_access_token(
     user = result.scalar_one_or_none()
 
     if not user:
+        # SEC-17: run the same bcrypt verify a real account would pay for,
+        # against a hash nothing will ever match, so an unknown email costs
+        # the same wall-clock time as a wrong password on a known account —
+        # response timing cannot be used to enumerate accounts.
+        verify_password(form_data.password, DUMMY_PASSWORD_HASH)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect email or password",
@@ -156,7 +162,7 @@ async def logout(request: Request, response: Response):
             jti = payload.get("jti")
             if jti:
                 await blocklist_jti(str(jti), remaining_ttl_seconds(payload))
-        except JWTError:
+        except jwt.InvalidTokenError:
             pass  # not a valid token — nothing to revoke; still clear the cookie
 
     response.delete_cookie("access_token", path="/")
@@ -193,13 +199,13 @@ async def refresh_access_token(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    # Decode with grace-window logic (raises JWTError if too old or bad signature)
+    # Decode with grace-window logic (raises InvalidTokenError if too old or bad signature)
     try:
         payload = decode_token_allowing_grace_window(token)
-    except JWTError as exc:
+    except jwt.InvalidTokenError as exc:
         logger.warning(
             "Token refresh rejected",
-            extra={"reason": str(exc), "path": str(request.url)},
+            extra={"reason": str(exc), "path": request.url.path},
         )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -213,7 +219,7 @@ async def refresh_access_token(
     if await is_token_revoked(payload):
         logger.warning(
             "Token refresh rejected: token revoked",
-            extra={"path": str(request.url)},
+            extra={"path": request.url.path},
         )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

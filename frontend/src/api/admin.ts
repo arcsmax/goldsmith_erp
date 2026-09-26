@@ -1,5 +1,6 @@
 // Admin API Service — system health, backup management
 import apiClient from './client';
+import type { Schema } from './generated';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -225,5 +226,74 @@ export interface ScanMetrics {
 /** Fetch V1.1 scan-adoption gate metrics (ADMIN only). */
 export const getScanMetrics = async (): Promise<ScanMetrics> => {
   const response = await apiClient.get<ScanMetrics>('/admin/scan-metrics');
+  return response.data;
+};
+
+// ---------------------------------------------------------------------------
+// W2-04: Werkstatt-Stammdaten (seller data on every Rechnung, §14 UStG)
+// ---------------------------------------------------------------------------
+
+export interface WorkshopSettingsInput {
+  name: string;
+  owner_name?: string | null;
+  street?: string | null;
+  postal_code?: string | null;
+  city?: string | null;
+  country?: string | null;
+  phone?: string | null;
+  email?: string | null;
+  tax_number?: string | null;
+  vat_id?: string | null;
+  iban?: string | null;
+  bic?: string | null;
+  bank_name?: string | null;
+  is_kleinunternehmer: boolean;
+  default_vat_rate: number;
+  invoice_footer?: string | null;
+  /** Pflegehinweise default text (handover PDF, status report); empty falls
+   * back to the built-in text. */
+  care_text?: string | null;
+}
+
+export interface WorkshopSettings extends WorkshopSettingsInput {
+  updated_at: string | null;
+  /** §14 Abs. 4 UStG seller fields still missing (German labels). */
+  missing_fields: string[];
+  is_complete: boolean;
+}
+
+/** Werkstatt-Stammdaten lesen (ADMIN only). */
+export const getWorkshopSettings = async (): Promise<WorkshopSettings> => {
+  const response = await apiClient.get<WorkshopSettings>('/admin/workshop-settings');
+  return response.data;
+};
+
+/** Werkstatt-Stammdaten speichern (ADMIN only). */
+export const updateWorkshopSettings = async (
+  data: WorkshopSettingsInput
+): Promise<WorkshopSettings> => {
+  const response = await apiClient.put<WorkshopSettings>('/admin/workshop-settings', data);
+  return response.data;
+};
+
+// ---------------------------------------------------------------------------
+// Nachrichten-Warteschlange / outbox (ARCH-04, ADMIN only)
+// ---------------------------------------------------------------------------
+
+export type OutboxMessage = Schema<'OutboxMessageRead'>;
+export type OutboxList = Schema<'OutboxListResponse'>;
+export type OutboxStatus = OutboxMessage['status'];
+
+/** Queued customer mails, newest first, optionally one status. */
+export const getOutbox = async (status?: OutboxStatus): Promise<OutboxList> => {
+  const response = await apiClient.get<OutboxList>('/admin/outbox', {
+    params: status ? { status } : undefined,
+  });
+  return response.data;
+};
+
+/** Send a failed or dead message again (the worker picks it up). */
+export const retryOutboxMessage = async (id: number): Promise<OutboxMessage> => {
+  const response = await apiClient.post<OutboxMessage>(`/admin/outbox/${id}/retry`);
   return response.data;
 };

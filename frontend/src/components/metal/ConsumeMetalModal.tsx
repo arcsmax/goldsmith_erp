@@ -1,18 +1,24 @@
-// ConsumeMetalModal.tsx
-// Modal for recording material consumption against an order.
-// Supports FIFO, LIFO, AVERAGE and SPECIFIC costing methods.
-// A preview call shows cost breakdown before the user commits.
-import React, { useEffect, useState, useCallback } from 'react';
-import { metalInventoryApi } from '../../api';
-import { ordersApi } from '../../api';
-import {
-  MetalType,
-  CostingMethod,
-  OrderType,
-  MetalPurchaseListItem,
-  OrderMaterialAllocation,
-} from '../../types';
+// ConsumeMetalModal — record metal consumption against an order (W4-03).
+// Supports FIFO, LIFO, AVERAGE and SPECIFIC costing methods; a preview call
+// shows the cost breakdown before the user commits. Batches load through a
+// legacy plain list; orders load a search-filtered PAGE (W7 hygiene: this
+// used to fetch up to 500 orders unconditionally — now it fetches the same
+// 100-row page other order pickers use, plus a debounced `q` search so an
+// order outside that page is still reachable by number/title). Preview and
+// booking are mutations, and a booking invalidates the metal-inventory root.
+import React, { useEffect, useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { metalInventoryApi } from '../../api/metal-inventory';
+import { pagedApi } from '../../api/paged';
+import { queryKeys } from '../../api/queryKeys';
+import type { MetalType, CostingMethod, OrderMaterialAllocation } from '../../types';
 import { useMetalTypes } from '../../hooks/useMetalTypes';
+import { getStatusLabel } from '../../design/status';
+import { getErrorMessage } from '../../lib/errors';
+import { formatEur, MONEY_CLASS } from '../../lib/format';
+import { useDebouncedValue } from '../../lib/useDebouncedValue';
+import { Button, Field, Modal } from '../../ui';
+import { formatPreciseWeight, formatWeight, METAL_TYPES, metalLabelWithPurity } from './metalLabels';
 
 interface ConsumeMetalModalProps {
   isOpen: boolean;
@@ -20,24 +26,17 @@ interface ConsumeMetalModalProps {
   onSuccess: () => void;
 }
 
-// Fallback list used while the metal-types API is loading
-const METAL_TYPE_OPTIONS_FALLBACK: { value: MetalType; label: string }[] = [
-  { value: 'gold_24k', label: 'Gold 24K (999.9)' },
-  { value: 'gold_22k', label: 'Gold 22K (916)' },
-  { value: 'gold_18k', label: 'Gold 18K (750)' },
-  { value: 'gold_14k', label: 'Gold 14K (585)' },
-  { value: 'gold_9k', label: 'Gold 9K (375)' },
-  { value: 'silver_999', label: 'Silber 999' },
-  { value: 'silver_925', label: 'Silber 925 (Sterling)' },
-  { value: 'silver_800', label: 'Silber 800' },
-  { value: 'platinum_950', label: 'Platin 950' },
-  { value: 'platinum_900', label: 'Platin 900' },
-  { value: 'palladium', label: 'Palladium' },
-  { value: 'white_gold_18k', label: 'Weißgold 18K' },
-  { value: 'white_gold_14k', label: 'Weißgold 14K' },
-  { value: 'rose_gold_18k', label: 'Rotgold 18K' },
-  { value: 'rose_gold_14k', label: 'Rotgold 14K' },
-];
+const ORDER_PAGE_SIZE = 100;
+const ACTIVE_ORDER_STATUSES: ReadonlySet<string> = new Set([
+  'in_progress',
+  'confirmed',
+  'new',
+  'draft',
+  'waiting_for_fitting',
+  'fitting_done',
+  'ready_for_setting',
+  'quality_check',
+]);
 
 const COSTING_METHODS: { value: CostingMethod; label: string; description: string }[] = [
   { value: 'fifo', label: 'FIFO', description: 'Älteste Charge zuerst' },
@@ -46,403 +45,313 @@ const COSTING_METHODS: { value: CostingMethod; label: string; description: strin
   { value: 'specific', label: 'Spezifisch', description: 'Bestimmte Charge auswählen' },
 ];
 
-const formatCurrency = (amount: number): string =>
-  new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR' }).format(amount);
+const FALLBACK_OPTIONS = METAL_TYPES.map((value) => ({ value, label: metalLabelWithPurity(value) }));
 
-const formatWeight = (g: number): string => `${g.toFixed(3)} g`;
+interface ConsumeForm {
+  orderId: number | '';
+  metalType: MetalType | '';
+  weightG: string;
+  costingMethod: CostingMethod;
+  specificPurchaseId: number | '';
+  notes: string;
+}
 
-export const ConsumeMetalModal: React.FC<ConsumeMetalModalProps> = ({
-  isOpen,
-  onClose,
-  onSuccess,
-}) => {
+const EMPTY_FORM: ConsumeForm = {
+  orderId: '',
+  metalType: '',
+  weightG: '',
+  costingMethod: 'fifo',
+  specificPurchaseId: '',
+  notes: '',
+};
+
+function parseWeight(value: string): number {
+  return parseFloat(value.replace(',', '.'));
+}
+
+function isComplete(form: ConsumeForm): boolean {
+  const weight = parseWeight(form.weightG);
+  if (!form.orderId || !form.metalType || !Number.isFinite(weight) || weight <= 0) return false;
+  return form.costingMethod !== 'specific' || Boolean(form.specificPurchaseId);
+}
+
+function useConsumeData(isOpen: boolean, metalType: MetalType | '', orderSearch: string) {
+  const orderPageParams = { limit: ORDER_PAGE_SIZE, offset: 0, q: orderSearch || undefined };
+  const orders = useQuery({
+    queryKey: queryKeys.orders.page(orderPageParams),
+    queryFn: ({ signal }) => pagedApi.orders(orderPageParams, signal),
+    enabled: isOpen,
+  });
+  const batchParams = { metal_type: metalType || undefined, include_depleted: false };
+  const batches = useQuery({
+    queryKey: queryKeys.metalInventory.purchaseList(batchParams),
+    queryFn: () =>
+      metalInventoryApi.listPurchases({ metal_type: metalType as MetalType, include_depleted: false }),
+    enabled: isOpen && Boolean(metalType),
+  });
+  return { orders, batches };
+}
+
+const PreviewTable: React.FC<{ preview: OrderMaterialAllocation }> = ({ preview }) => (
+  <section className="consume-preview" aria-label="Kostenvorschau">
+    <h3 className="consume-preview__title">Kostenvorschau</h3>
+    <table className="ui-table">
+      <thead>
+        <tr>
+          <th>Charge</th>
+          <th className="ui-align-end">Gewicht</th>
+          <th className="ui-align-end">Preis/g</th>
+          <th className="ui-align-end">Kosten</th>
+        </tr>
+      </thead>
+      <tbody>
+        {preview.allocations.map((alloc) => (
+          <tr key={alloc.metal_purchase_id}>
+            <td>#{alloc.metal_purchase_id}</td>
+            <td className="ui-align-end ui-num">{formatPreciseWeight(alloc.weight_allocated_g)}</td>
+            <td className={`ui-align-end ${MONEY_CLASS}`}>{formatEur(alloc.price_per_gram)}</td>
+            <td className={`ui-align-end ${MONEY_CLASS}`}>{formatEur(alloc.cost)}</td>
+          </tr>
+        ))}
+      </tbody>
+      <tfoot>
+        <tr>
+          <th scope="row" colSpan={2}>
+            Gesamt ({preview.costing_method.toUpperCase()})
+          </th>
+          <td className="ui-align-end ui-num">{formatPreciseWeight(preview.required_weight_g)}</td>
+          <td className={`ui-align-end ${MONEY_CLASS}`}>
+            <strong>{formatEur(preview.total_cost)}</strong>
+          </td>
+        </tr>
+      </tfoot>
+    </table>
+  </section>
+);
+
+export const ConsumeMetalModal: React.FC<ConsumeMetalModalProps> = ({ isOpen, onClose, onSuccess }) => {
+  const queryClient = useQueryClient();
   const { metalTypes: allMetalTypes, isLoading: isLoadingMetalTypes } = useMetalTypes();
+  const [form, setForm] = useState<ConsumeForm>(EMPTY_FORM);
+  const [orderSearch, setOrderSearch] = useState('');
+  const debouncedOrderSearch = useDebouncedValue(orderSearch);
+  const { orders, batches } = useConsumeData(isOpen, form.metalType, debouncedOrderSearch);
 
-  // Form state
-  const [orderId, setOrderId] = useState<number | ''>('');
-  const [metalType, setMetalType] = useState<MetalType | ''>('');
-  const [weightG, setWeightG] = useState('');
-  const [costingMethod, setCostingMethod] = useState<CostingMethod>('fifo');
-  const [specificPurchaseId, setSpecificPurchaseId] = useState<number | ''>('');
-  const [notes, setNotes] = useState('');
-
-  // Remote data
-  const [inProgressOrders, setInProgressOrders] = useState<OrderType[]>([]);
-  const [availableBatches, setAvailableBatches] = useState<MetalPurchaseListItem[]>([]);
-
-  // UI state
-  const [isLoadingOrders, setIsLoadingOrders] = useState(false);
-  const [isLoadingBatches, setIsLoadingBatches] = useState(false);
-  const [isPreviewLoading, setIsPreviewLoading] = useState(false);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [preview, setPreview] = useState<OrderMaterialAllocation | null>(null);
-  const [previewError, setPreviewError] = useState<string | null>(null);
-  const [submitError, setSubmitError] = useState<string | null>(null);
-
-  // Load in-progress orders once when modal opens
-  useEffect(() => {
-    if (!isOpen) return;
-    resetForm();
-    loadOrders();
-  }, [isOpen]);
-
-  // Load available batches whenever metal type changes
-  useEffect(() => {
-    if (!metalType) {
-      setAvailableBatches([]);
-      setSpecificPurchaseId('');
-      return;
-    }
-    loadBatches(metalType);
-  }, [metalType]);
-
-  // Clear preview whenever key inputs change
-  useEffect(() => {
-    setPreview(null);
-    setPreviewError(null);
-  }, [orderId, metalType, weightG, costingMethod, specificPurchaseId]);
-
-  const resetForm = () => {
-    setOrderId('');
-    setMetalType('');
-    setWeightG('');
-    setCostingMethod('fifo');
-    setSpecificPurchaseId('');
-    setNotes('');
-    setPreview(null);
-    setPreviewError(null);
-    setSubmitError(null);
-    setAvailableBatches([]);
-  };
-
-  const loadOrders = async () => {
-    try {
-      setIsLoadingOrders(true);
-      // Fetch generously — filter client-side for in_progress
-      const all = await ordersApi.getAll({ limit: 500 });
-      const active = all.filter(
-        (o) =>
-          o.status === 'in_progress' ||
-          o.status === 'confirmed' ||
-          o.status === 'new' ||
-          o.status === 'draft' ||
-          o.status === 'waiting_for_fitting' ||
-          o.status === 'fitting_done' ||
-          o.status === 'ready_for_setting' ||
-          o.status === 'quality_check'
-      );
-      setInProgressOrders(active);
-    } catch {
-      // Non-blocking — user can still type the order id
-    } finally {
-      setIsLoadingOrders(false);
-    }
-  };
-
-  const loadBatches = async (type: MetalType) => {
-    try {
-      setIsLoadingBatches(true);
-      const batches = await metalInventoryApi.listPurchases({
-        metal_type: type,
-        include_depleted: false,
-      });
-      setAvailableBatches(batches);
-    } catch {
-      setAvailableBatches([]);
-    } finally {
-      setIsLoadingBatches(false);
-    }
-  };
-
-  const isFormValid = (): boolean => {
-    if (!orderId || !metalType || !weightG) return false;
-    const w = parseFloat(weightG);
-    if (isNaN(w) || w <= 0) return false;
-    if (costingMethod === 'specific' && !specificPurchaseId) return false;
-    return true;
-  };
-
-  const handlePreview = useCallback(async () => {
-    if (!isFormValid() || !metalType) return;
-    const w = parseFloat(weightG);
-    setIsPreviewLoading(true);
-    setPreviewError(null);
-    setPreview(null);
-    try {
-      const result = await metalInventoryApi.previewAllocation({
-        metal_type: metalType,
-        required_weight_g: w,
-        costing_method: costingMethod,
+  const preview = useMutation({
+    mutationFn: (f: ConsumeForm) =>
+      metalInventoryApi.previewAllocation({
+        metal_type: f.metalType as MetalType,
+        required_weight_g: parseWeight(f.weightG),
+        costing_method: f.costingMethod,
         specific_purchase_id:
-          costingMethod === 'specific' && specificPurchaseId
-            ? Number(specificPurchaseId)
-            : undefined,
-      });
-      // Inject order_id into the preview result (backend returns a placeholder)
-      setPreview({ ...result, order_id: Number(orderId) });
-    } catch (err: any) {
-      setPreviewError(
-        err.response?.data?.detail || 'Vorschau konnte nicht geladen werden.'
-      );
-    } finally {
-      setIsPreviewLoading(false);
-    }
-  }, [orderId, metalType, weightG, costingMethod, specificPurchaseId]);
+          f.costingMethod === 'specific' && f.specificPurchaseId ? Number(f.specificPurchaseId) : undefined,
+      }),
+  });
 
-  const handleSubmit = async () => {
-    if (!isFormValid() || !metalType) return;
-    const w = parseFloat(weightG);
-    setIsSubmitting(true);
-    setSubmitError(null);
-    try {
-      await metalInventoryApi.consumeMaterial(
+  const book = useMutation({
+    mutationFn: (f: ConsumeForm) =>
+      metalInventoryApi.consumeMaterial(
         {
-          order_id: Number(orderId),
-          weight_used_g: w,
-          costing_method: costingMethod,
+          order_id: Number(f.orderId),
+          weight_used_g: parseWeight(f.weightG),
+          costing_method: f.costingMethod,
           metal_purchase_id:
-            costingMethod === 'specific' && specificPurchaseId
-              ? Number(specificPurchaseId)
-              : undefined,
-          notes: notes.trim() || undefined,
+            f.costingMethod === 'specific' && f.specificPurchaseId ? Number(f.specificPurchaseId) : undefined,
+          notes: f.notes.trim() || undefined,
         },
-        metalType
-      );
+        f.metalType as MetalType,
+      ),
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: queryKeys.metalInventory.all }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.all }),
+      ]);
       onSuccess();
       onClose();
-    } catch (err: any) {
-      setSubmitError(
-        err.response?.data?.detail || 'Verbrauch konnte nicht gespeichert werden.'
-      );
-    } finally {
-      setIsSubmitting(false);
-    }
+    },
+  });
+
+  // A fresh form every time the dialog opens.
+  useEffect(() => {
+    if (!isOpen) return;
+    setForm(EMPTY_FORM);
+    setOrderSearch('');
+    preview.reset();
+    book.reset();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- reset only on open
+  }, [isOpen]);
+
+  const update = (patch: Partial<ConsumeForm>) => {
+    setForm((prev) => ({ ...prev, ...patch }));
+    preview.reset();
   };
 
-  if (!isOpen) return null;
+  const complete = isComplete(form);
+  const isDirty = form !== EMPTY_FORM;
+  const activeOrders = (orders.data?.items ?? []).filter((o) => ACTIVE_ORDER_STATUSES.has(o.status));
+  const metalOptions =
+    isLoadingMetalTypes || allMetalTypes.length === 0
+      ? FALLBACK_OPTIONS
+      : allMetalTypes.map((o) => ({ value: o.code, label: o.display_name }));
+  const availableBatches = batches.data ?? [];
+  const previewData = preview.data ? { ...preview.data, order_id: Number(form.orderId) } : null;
 
   return (
-    <div className="modal-overlay" role="dialog" aria-modal="true" aria-label="Verbrauch erfassen">
-      <div className="modal consume-metal-modal">
-        <div className="modal-header">
-          <h2>Verbrauch erfassen</h2>
-          <button
-            className="modal-close"
-            onClick={onClose}
-            aria-label="Schließen"
-            disabled={isSubmitting}
-          >
-            &times;
-          </button>
-        </div>
-
-        <div className="modal-body">
-          {/* Order selector */}
-          <div className="form-group">
-            <label htmlFor="consume-order">Auftrag *</label>
-            <select
-              id="consume-order"
-              value={orderId}
-              onChange={(e) => setOrderId(e.target.value ? Number(e.target.value) : '')}
-              disabled={isLoadingOrders || isSubmitting}
-            >
-              <option value="">
-                {isLoadingOrders ? 'Lade Aufträge...' : '-- Auftrag auswählen --'}
-              </option>
-              {inProgressOrders.map((o) => (
-                <option key={o.id} value={o.id}>
-                  #{o.id} – {o.title} ({o.status})
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {/* Metal type */}
-          <div className="form-group">
-            <label htmlFor="consume-metal-type">Metalltyp *</label>
-            <select
-              id="consume-metal-type"
-              value={metalType}
-              onChange={(e) => setMetalType(e.target.value as MetalType | '')}
-              disabled={isSubmitting || isLoadingMetalTypes}
-            >
-              <option value="">-- Metalltyp auswählen --</option>
-              {(isLoadingMetalTypes || allMetalTypes.length === 0
-                ? METAL_TYPE_OPTIONS_FALLBACK
-                : allMetalTypes.map((o) => ({ value: o.code, label: o.display_name }))
-              ).map((opt) => (
-                <option key={opt.value} value={opt.value}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {/* Weight */}
-          <div className="form-group">
-            <label htmlFor="consume-weight">Gewicht (g) *</label>
-            <input
-              id="consume-weight"
-              type="number"
-              min="0.001"
-              max="1000"
-              step="0.001"
-              value={weightG}
-              onChange={(e) => setWeightG(e.target.value)}
-              placeholder="z.B. 4.2"
-              disabled={isSubmitting}
-            />
-          </div>
-
-          {/* Costing method */}
-          <div className="form-group">
-            <label>Bewertungsmethode *</label>
-            <div className="costing-method-grid">
-              {COSTING_METHODS.map((m) => (
-                <label
-                  key={m.value}
-                  className={`costing-method-option ${costingMethod === m.value ? 'selected' : ''}`}
-                >
-                  <input
-                    type="radio"
-                    name="costing-method"
-                    value={m.value}
-                    checked={costingMethod === m.value}
-                    onChange={() => setCostingMethod(m.value)}
-                    disabled={isSubmitting}
-                  />
-                  <span className="costing-method-label">{m.label}</span>
-                  <span className="costing-method-desc">{m.description}</span>
-                </label>
-              ))}
-            </div>
-          </div>
-
-          {/* Batch selector — only shown for SPECIFIC method */}
-          {costingMethod === 'specific' && (
-            <div className="form-group">
-              <label htmlFor="consume-batch">Charge *</label>
-              {!metalType ? (
-                <p className="field-hint">Bitte zuerst Metalltyp auswählen.</p>
-              ) : isLoadingBatches ? (
-                <p className="field-hint">Lade Chargen...</p>
-              ) : availableBatches.length === 0 ? (
-                <p className="field-hint warning">Keine aktiven Chargen für diesen Metalltyp.</p>
-              ) : (
-                <select
-                  id="consume-batch"
-                  value={specificPurchaseId}
-                  onChange={(e) =>
-                    setSpecificPurchaseId(e.target.value ? Number(e.target.value) : '')
-                  }
-                  disabled={isSubmitting}
-                >
-                  <option value="">-- Charge auswählen --</option>
-                  {availableBatches.map((b) => (
-                    <option key={b.id} value={b.id}>
-                      #{b.id} – {b.supplier ?? 'Unbekannt'} –{' '}
-                      {b.remaining_weight_g.toFixed(2)} g verbleibend @{' '}
-                      {formatCurrency(b.price_per_gram)}/g
-                    </option>
-                  ))}
-                </select>
-              )}
-            </div>
-          )}
-
-          {/* Notes */}
-          <div className="form-group">
-            <label htmlFor="consume-notes">Notiz</label>
-            <textarea
-              id="consume-notes"
-              rows={2}
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              placeholder="z.B. Ringfertigung – Kundenwunsch Rotgold"
-              disabled={isSubmitting}
-            />
-          </div>
-
-          {/* Preview section */}
-          {previewError && (
-            <div className="consume-error" role="alert">
-              {previewError}
-            </div>
-          )}
-
-          {preview && (
-            <div className="consume-preview" role="region" aria-label="Kostenvorschau">
-              <h4>Kostenvorschau</h4>
-              <table className="preview-table">
-                <thead>
-                  <tr>
-                    <th>Charge</th>
-                    <th>Gewicht</th>
-                    <th>Preis/g</th>
-                    <th>Kosten</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {preview.allocations.map((alloc) => (
-                    <tr key={alloc.metal_purchase_id}>
-                      <td>#{alloc.metal_purchase_id}</td>
-                      <td>{formatWeight(alloc.weight_allocated_g)}</td>
-                      <td>{formatCurrency(alloc.price_per_gram)}/g</td>
-                      <td>{formatCurrency(alloc.cost)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-                <tfoot>
-                  <tr>
-                    <td colSpan={2}>
-                      <strong>Gesamt ({preview.costing_method.toUpperCase()})</strong>
-                    </td>
-                    <td>{formatWeight(preview.required_weight_g)}</td>
-                    <td>
-                      <strong>{formatCurrency(preview.total_cost)}</strong>
-                    </td>
-                  </tr>
-                </tfoot>
-              </table>
-            </div>
-          )}
-
-          {submitError && (
-            <div className="consume-error" role="alert">
-              {submitError}
-            </div>
-          )}
-        </div>
-
-        <div className="modal-footer">
-          <button
-            type="button"
-            className="btn-secondary"
-            onClick={onClose}
-            disabled={isSubmitting}
-          >
+    <Modal
+      open={isOpen}
+      onClose={onClose}
+      title="Verbrauch erfassen"
+      size="lg"
+      isDirty={isDirty}
+      footer={
+        <>
+          <Button variant="secondary" onClick={onClose} disabled={book.isPending}>
             Abbrechen
-          </button>
-
-          <button
-            type="button"
-            className="btn-secondary"
-            onClick={handlePreview}
-            disabled={!isFormValid() || isPreviewLoading || isSubmitting}
+          </Button>
+          <Button
+            variant="secondary"
+            onClick={() => preview.mutate(form)}
+            disabled={!complete || book.isPending}
+            loading={preview.isPending}
           >
-            {isPreviewLoading ? 'Lade...' : 'Vorschau'}
-          </button>
+            Vorschau anzeigen
+          </Button>
+          <Button onClick={() => book.mutate(form)} disabled={!complete} loading={book.isPending}>
+            Verbrauch buchen
+          </Button>
+        </>
+      }
+    >
+      <div className="metal-form">
+        <Field label="Auftrag suchen" name="consume-order-search">
+          <input
+            type="search"
+            placeholder="Titel, Kunde oder Nr. …"
+            value={orderSearch}
+            onChange={(e) => setOrderSearch(e.target.value)}
+            disabled={book.isPending}
+          />
+        </Field>
 
-          <button
-            type="button"
-            className="btn-primary"
-            onClick={handleSubmit}
-            disabled={!isFormValid() || isSubmitting}
+        <Field
+          label="Auftrag"
+          name="consume-order"
+          required
+          help={orders.isError ? 'Aufträge konnten nicht geladen werden.' : undefined}
+        >
+          <select
+            value={form.orderId}
+            onChange={(e) => update({ orderId: e.target.value ? Number(e.target.value) : '' })}
+            disabled={orders.isPending || book.isPending}
           >
-            {isSubmitting ? 'Speichern...' : 'Verbrauch buchen'}
-          </button>
-        </div>
+            <option value="">{orders.isPending ? 'Aufträge werden geladen …' : 'Auftrag auswählen'}</option>
+            {activeOrders.map((o) => (
+              <option key={o.id} value={o.id}>
+                #{o.id} – {o.title} ({getStatusLabel('order', o.status)})
+              </option>
+            ))}
+          </select>
+        </Field>
+
+        <Field label="Metalltyp" name="consume-metal-type" required>
+          <select
+            value={form.metalType}
+            onChange={(e) =>
+              update({ metalType: e.target.value as MetalType | '', specificPurchaseId: '' })
+            }
+            disabled={book.isPending || isLoadingMetalTypes}
+          >
+            <option value="">Metalltyp auswählen</option>
+            {metalOptions.map((opt) => (
+              <option key={opt.value} value={opt.value}>
+                {opt.label}
+              </option>
+            ))}
+          </select>
+        </Field>
+
+        <Field label="Gewicht" name="consume-weight" required inputMode="decimal" suffix="g">
+          <input
+            type="text"
+            value={form.weightG}
+            onChange={(e) => update({ weightG: e.target.value })}
+            placeholder="z. B. 4,2"
+            disabled={book.isPending}
+          />
+        </Field>
+
+        <fieldset className="costing-methods">
+          <legend className="ui-field__label">Bewertungsmethode</legend>
+          {COSTING_METHODS.map((m) => (
+            <label
+              key={m.value}
+              className={`costing-method${form.costingMethod === m.value ? ' costing-method--selected' : ''}`}
+            >
+              <input
+                type="radio"
+                name="costing-method"
+                value={m.value}
+                checked={form.costingMethod === m.value}
+                onChange={() => update({ costingMethod: m.value })}
+                disabled={book.isPending}
+              />
+              <span className="costing-method__label">{m.label}</span>
+              <span className="costing-method__desc">{m.description}</span>
+            </label>
+          ))}
+        </fieldset>
+
+        {form.costingMethod === 'specific' && (
+          <Field
+            label="Charge"
+            name="consume-batch"
+            required
+            help={
+              !form.metalType
+                ? 'Bitte zuerst den Metalltyp auswählen.'
+                : batches.isSuccess && availableBatches.length === 0
+                  ? 'Keine aktiven Chargen für diesen Metalltyp.'
+                  : undefined
+            }
+          >
+            <select
+              value={form.specificPurchaseId}
+              onChange={(e) => update({ specificPurchaseId: e.target.value ? Number(e.target.value) : '' })}
+              disabled={!form.metalType || batches.isFetching || book.isPending}
+            >
+              <option value="">{batches.isFetching ? 'Chargen werden geladen …' : 'Charge auswählen'}</option>
+              {availableBatches.map((b) => (
+                <option key={b.id} value={b.id}>
+                  #{b.id} – {b.supplier ?? 'Unbekannt'} – {formatWeight(b.remaining_weight_g)} verbleibend
+                  zu {formatEur(b.price_per_gram)}/g
+                </option>
+              ))}
+            </select>
+          </Field>
+        )}
+
+        <Field label="Notiz" name="consume-notes">
+          <textarea
+            rows={2}
+            value={form.notes}
+            onChange={(e) => update({ notes: e.target.value })}
+            placeholder="z. B. Ringfertigung – Kundenwunsch Rotgold"
+            disabled={book.isPending}
+          />
+        </Field>
+
+        {preview.isError && (
+          <p className="metal-form__error" role="alert">
+            {getErrorMessage(preview.error, 'Vorschau konnte nicht geladen werden.')}
+          </p>
+        )}
+        {previewData && <PreviewTable preview={previewData} />}
+        {book.isError && (
+          <p className="metal-form__error" role="alert">
+            {getErrorMessage(book.error, 'Verbrauch konnte nicht gespeichert werden.')}
+          </p>
+        )}
       </div>
-    </div>
+    </Modal>
   );
 };

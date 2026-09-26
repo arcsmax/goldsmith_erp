@@ -6,14 +6,14 @@
   padding-right: 1.5rem;
   padding-top: 0.75rem;
   padding-bottom: 0.75rem;
-  background-color: var(--color-brand-cta-600);
-  color: white;
+  background-color: var(--color-primary);
+  color: var(--color-primary-contrast);
   border-radius: 0.5rem;
   min-height: 44px;
   font-weight: 500;
   cursor: pointer;
   transition: background-color 0.15s;
-  &:hover { background-color: var(--color-brand-cta-700); }
+  &:hover { background-color: var(--color-primary); }
   &:focus { outline: 2px solid var(--ring-color-focus); outline-offset: 2px; }
 }
 
@@ -22,14 +22,14 @@
   padding-right: 1.5rem;
   padding-top: 0.75rem;
   padding-bottom: 0.75rem;
-  border: 1px solid var(--color-brand-secondary-400);
-  color: var(--color-brand-secondary-700);
+  border: 1px solid var(--color-border-strong);
+  color: var(--color-accent-strong);
   border-radius: 0.5rem;
   min-height: 44px;
   font-weight: 500;
   cursor: pointer;
   background: transparent;
-  &:hover { background-color: var(--color-brand-secondary-50); }
+  &:hover { background-color: var(--color-surface-sunken); }
 }
 
 @utility btn-danger {
@@ -37,13 +37,13 @@
   padding-right: 1.5rem;
   padding-top: 0.75rem;
   padding-bottom: 0.75rem;
-  background-color: #dc2626;
-  color: white;
+  background-color: var(--color-danger);
+  color: var(--color-danger-contrast);
   border-radius: 0.5rem;
   min-height: 44px;
   font-weight: 500;
   cursor: pointer;
-  &:hover { background-color: #b91c1c; }
+  &:hover { background-color: var(--color-danger-fg); }
 }
 
 @utility btn-warning {
@@ -55,7 +55,7 @@
   padding-top: 0.75rem;
   padding-bottom: 0.75rem;
   background-color: var(--color-warning-500);
-  color: white;
+  color: var(--color-warning-contrast);
   border-radius: 0.5rem;
   min-height: 44px;
   font-weight: 500;
@@ -71,7 +71,7 @@
   padding-right: 1rem;
   padding-top: 0.5rem;
   padding-bottom: 0.5rem;
-  color: var(--color-brand-cta-600);
+  color: var(--color-primary);
   background: transparent;
   border: none;
   min-height: 44px;
@@ -81,30 +81,30 @@
 
 /* Cards — glass morphism */
 @utility card {
-  background: rgba(255, 255, 255, 0.85);
+  background: color-mix(in srgb, var(--color-surface-raised) 85%, transparent);
   backdrop-filter: blur(4px);
   border-radius: 0.75rem;
-  border: 1px solid var(--color-brand-cream-100);
+  border: 1px solid var(--color-border);
   padding: 1.5rem;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  box-shadow: var(--shadow-1);
 }
 
 @utility card-interactive {
-  background: rgba(255, 255, 255, 0.85);
+  background: color-mix(in srgb, var(--color-surface-raised) 85%, transparent);
   backdrop-filter: blur(4px);
   border-radius: 0.75rem;
-  border: 1px solid var(--color-brand-cream-100);
+  border: 1px solid var(--color-border);
   padding: 1.5rem;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  box-shadow: var(--shadow-1);
   transition: transform 0.15s, box-shadow 0.15s;
   cursor: pointer;
-  &:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15); }
+  &:hover { transform: translateY(-1px); box-shadow: var(--shadow-2); }
 }
 
 @utility card-compact {
-  background: rgba(255, 255, 255, 0.85);
+  background: color-mix(in srgb, var(--color-surface-raised) 85%, transparent);
   border-radius: 0.75rem;
-  border: 1px solid var(--color-brand-cream-100);
+  border: 1px solid var(--color-border);
   padding: 1rem;
 }
 
@@ -129,7 +129,7 @@
 
 @utility subtitle {
   font-size: 0.875rem;
-  color: var(--color-brand-primary-500);
+  color: var(--color-text-muted);
 }
 
 /* Inputs — 44px minimum touch target */
@@ -139,9 +139,16 @@
   padding-top: 0.5rem;
   padding-bottom: 0.5rem;
   font-size: 0.875rem;
-  border: 1px solid var(--color-brand-primary-200);
+  border: 1px solid var(--color-border);
   border-radius: 0.5rem;
   min-height: 44px;
   width: 100%;
   &:focus { outline: 2px solid var(--ring-color-focus); outline-offset: 0px; }
+}
+
+/* Money amounts (LV-10): lib/format.ts MONEY_CLASS. Digits line up in
+ * columns and the euro sign never wraps onto its own line. */
+.money {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }

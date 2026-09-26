@@ -56,6 +56,10 @@ class Permission(str, Enum):
     CUSTOMER_CREATE = "customer:create"
     CUSTOMER_EDIT = "customer:edit"
     CUSTOMER_DELETE = "customer:delete"
+    # GDPR-02 / GDPR-11 — Art. 9 health data (allergies) and the consent
+    # records that make processing it lawful. GOLDSMITH + ADMIN only.
+    CUSTOMER_HEALTH_VIEW = "customer:health_view"
+    CONSENT_MANAGE = "consent:manage"
 
     # Invoice permissions (financial data - ADMIN and GOLDSMITH only)
     INVOICE_VIEW = "invoice:view"
@@ -75,6 +79,16 @@ class Permission(str, Enum):
 
     # System permissions
     SYSTEM_CONFIG = "system:config"
+    # W2-04: Werkstatt-Stammdaten (seller data on every Rechnung). ADMIN only
+    # (ADMIN holds every permission; no other role is granted this one).
+    WORKSHOP_SETTINGS_MANAGE = "workshop_settings:manage"
+    # W6 outbox (ARCH-04): view the mail queue and retry failed/dead rows.
+    # ADMIN only (ADMIN holds every permission; no other role gets this).
+    OUTBOX_MANAGE = "outbox:manage"
+    # W8 Standorte: every staff role reads the active locations (dropdown);
+    # only ADMIN manages the list (ADMIN holds every permission).
+    LOCATION_VIEW = "location:view"
+    LOCATION_MANAGE = "location:manage"
 
     # ML permissions
     ML_PREDICT = "ml:predict"  # Predict duration for orders (all authenticated users)
@@ -128,6 +142,10 @@ class Permission(str, Enum):
     # permission today. Add SCRAP_GOLD_MANAGE only if those writes ever need
     # to diverge from ORDER_EDIT.
     SCRAP_GOLD_VIEW = "scrap_gold:view"
+    # W2-16 (DOM-21): the Ankaufsbuch export carries decrypted seller ID
+    # data for every purchase of a period -> ADMIN only (ADMIN holds every
+    # permission; no other role is granted this one).
+    SCRAP_GOLD_EXPORT = "scrap_gold:export"
 
     # Customer update permissions (Kundeninfo — V1.2, GOLDSMITH + ADMIN only)
     CUSTOMER_UPDATE_VIEW = "customer_update:view"  # View update history/drafts
@@ -161,6 +179,20 @@ class Permission(str, Enum):
     # separate endpoint guarded by its own permission.
     SCAN_READ = "scan:read"
 
+    # Cross-cutting data-class permissions (SEC-01, SEC-09, GDPR-03, GDPR-04).
+    # These do not gate a resource; they gate a *class of data* that rides on
+    # otherwise shared resources (repairs, materials, customers, orders).
+    #
+    # FINANCIAL_VIEW — prices, costs, revenue, stock value, insurance values.
+    #   Endpoints that are financial by nature (metal purchases/usage/stats,
+    #   stock value, revenue ranking) require it outright; shared read
+    #   endpoints strip their financial fields for callers without it
+    #   (api/role_projection.py). CLAUDE.md: ADMIN + GOLDSMITH only.
+    # DESIGN_VIEW — design descriptions / special instructions on orders and
+    #   order + repair photos. CLAUDE.md: GOLDSMITH or ADMIN only.
+    FINANCIAL_VIEW = "financial:view"
+    DESIGN_VIEW = "design:view"
+
 
 # Role-Permission mapping
 ROLE_PERMISSIONS: dict[UserRole, List[Permission]] = {
@@ -188,6 +220,9 @@ ROLE_PERMISSIONS: dict[UserRole, List[Permission]] = {
         Permission.CUSTOMER_VIEW,
         Permission.CUSTOMER_CREATE,
         Permission.CUSTOMER_EDIT,
+        # Health data (allergies) + consent records (GDPR-02 / GDPR-11)
+        Permission.CUSTOMER_HEALTH_VIEW,
+        Permission.CONSENT_MANAGE,
         # Invoices (financial data - goldsmith can view and create, not delete)
         Permission.INVOICE_VIEW,
         Permission.INVOICE_CREATE,
@@ -227,6 +262,8 @@ ROLE_PERMISSIONS: dict[UserRole, List[Permission]] = {
         Permission.SCRAP_GOLD_VIEW,
         # Scanner (V1.1) — goldsmiths are the primary scanner users
         Permission.SCAN_READ,
+        # Standorte (W8) — read the active locations for the dropdown
+        Permission.LOCATION_VIEW,
         # Customer updates (V1.2) — goldsmiths draft and send Kundeninfo
         Permission.CUSTOMER_UPDATE_VIEW,
         Permission.CUSTOMER_UPDATE_SEND,
@@ -236,6 +273,10 @@ ROLE_PERMISSIONS: dict[UserRole, List[Permission]] = {
         # Statistical labor estimator (V1.3) — financial data, goldsmiths
         # can request estimates and view calibration
         Permission.ESTIMATE_VIEW,
+        # Data-class permissions (SEC-01 / SEC-09) — goldsmiths see prices,
+        # costs and design IP exactly as before these were introduced.
+        Permission.FINANCIAL_VIEW,
+        Permission.DESIGN_VIEW,
     ],
     UserRole.VIEWER: [
         # View-only access
@@ -244,7 +285,10 @@ ROLE_PERMISSIONS: dict[UserRole, List[Permission]] = {
         Permission.TIME_VIEW_OWN,
         Permission.ACTIVITY_VIEW,
         Permission.CUSTOMER_VIEW,
-        Permission.REPORTS_VIEW,
+        # REPORTS_VIEW deliberately NOT granted (SEC-01 / GDPR-03): every
+        # analytics route behind it serves cost / price comparisons or
+        # per-goldsmith performance data. FINANCIAL_VIEW and DESIGN_VIEW are
+        # likewise withheld — see their definitions above.
         # ML — viewers can see predictions and stats, not trigger training
         Permission.ML_PREDICT,
         Permission.ML_VIEW_STATS,
@@ -260,6 +304,8 @@ ROLE_PERMISSIONS: dict[UserRole, List[Permission]] = {
         # Scanner (V1.1) — viewers may scan; content projection ensures
         # no financial fields are returned to their role.
         Permission.SCAN_READ,
+        # Standorte (W8) — read the active locations for the dropdown
+        Permission.LOCATION_VIEW,
     ],
 }
 

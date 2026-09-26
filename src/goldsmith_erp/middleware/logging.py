@@ -10,6 +10,7 @@ from typing import Callable
 from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
 
+from goldsmith_erp.core.client_ip import get_client_ip
 from goldsmith_erp.core.logging import clear_request_id, set_request_id
 
 logger = logging.getLogger(__name__)
@@ -18,6 +19,10 @@ logger = logging.getLogger(__name__)
 class RequestLoggingMiddleware(BaseHTTPMiddleware):
     """
     Middleware that logs all HTTP requests with timing and request IDs.
+
+    Only the URL path is logged, never the query string (SEC-05): customer
+    searches carry names, emails and phone numbers as query parameters, and
+    PII must never reach the logs in plaintext.
     """
 
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
@@ -43,8 +48,8 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
             "Incoming request",
             extra={
                 "method": request.method,
-                "url": str(request.url),
-                "client_host": request.client.host if request.client else None,
+                "path": request.url.path,
+                "client_ip": get_client_ip(request),
                 "user_agent": request.headers.get("user-agent"),
             },
         )
@@ -65,7 +70,7 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
                 "Request completed",
                 extra={
                     "method": request.method,
-                    "url": str(request.url),
+                    "path": request.url.path,
                     "status_code": response.status_code,
                     "process_time_ms": round(process_time * 1000, 2),
                 },
@@ -80,7 +85,7 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
                 "Request failed",
                 extra={
                     "method": request.method,
-                    "url": str(request.url),
+                    "path": request.url.path,
                     "error": str(exc),
                     "error_type": type(exc).__name__,
                     "process_time_ms": round(process_time * 1000, 2),

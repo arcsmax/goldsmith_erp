@@ -30,6 +30,33 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - All new models must be registered with audit logging
 - All new endpoints must have @require_permission decorator
 
+## UI rules (full playbook: docs/design/UI-UX-PLAYBOOK.md)
+Status 2026-09-25: the `src/ui` primitives and `src/design/status.ts` are built in Wave 4 of docs/review/2026-09-25/MASTER-FIX-PLAN.md. Until they exist, reuse the closest existing component and never add a new duplicate of a button, badge, modal or table style.
+- NEVER write a hex, rgb(), hsl() or named colour outside frontend/src/styles/brand-tokens.css.
+- NEVER use raw --color-brand-* ramps in pages or components; use semantic tokens (--color-text, --color-primary, --tone-*).
+- NEVER use raw px/rem for spacing, font-size, radius, shadow, z-index or duration; use the --space-*, --type-*, --radius-*, --shadow-*, --z-*, --duration-* scales.
+- NEVER use media-query widths other than 600px and 1024px.
+- NEVER define .btn*, .modal*, .status-badge*, .form-group, .empty-state or table classes in page CSS; use src/ui primitives.
+- NEVER add inline style={{}} except for runtime values (progress width, image aspect).
+- NEVER show status by colour alone; ALWAYS use <StatusBadge kind status> (icon + German label).
+- NEVER add a status label outside src/design/status.ts.
+- NEVER use outline: none without a visible :focus-visible replacement.
+- NEVER make an interactive element smaller than 44x44px (56px on bench views).
+- NEVER put a destructive action next to the frequent action; destructive actions need ConfirmDialog.
+- NEVER close a form modal on backdrop click; dirty forms ask before closing.
+- NEVER use emoji as icons; use the shared icon set with aria-hidden, and aria-label on icon-only buttons.
+- NEVER make a <tr>, <div> or <span> clickable; use <a>/<Link> or <button>.
+- NEVER write German UI text without real umlauts and ß; use … not ...; no ALL CAPS labels.
+- ALWAYS take UI strings from the glossary (playbook section 11); one term per concept.
+- ALWAYS write button labels as verb + noun ("Auftrag speichern"); the success toast repeats it ("Auftrag gespeichert").
+- ALWAYS give every list an EmptyState with an action and every KPI or alert a link to its next action.
+- ALWAYS use Field for form inputs (visible label, error text, correct inputMode).
+- ALWAYS use Modal for overlays (focus trap, Escape, focus return, full-screen below 600px).
+- ALWAYS use tabular-nums for prices, weights, hours and dates.
+- ALWAYS gate pricing, material cost and design IP by role in code, not by hiding with CSS.
+- ALWAYS run the screenshot loop at 1280 and 390 (playbook 7d) before calling UI work done.
+- ALWAYS use demo data in screenshots; never real customer data.
+
 ## Data Privacy Rules (CRITICAL)
 
 These rules are non-negotiable. AI agents MUST follow them in all code generation.

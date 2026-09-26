@@ -2,7 +2,7 @@
 //
 // Pins:
 //   (a) history renders returned updates newest-first with kind + status
-//       badges.
+//       badges (StatusBadge kind="customerUpdate": "Versendet", "Entwurf").
 //   (b) "Erstellen & senden" calls createUpdate then sendUpdate, and shows
 //       the delivered-vs-PDF toast per the mocked send result (both
 //       branches).
@@ -12,9 +12,10 @@
 //   (e) VIEWER (hasRole → false) sees no compose form and listUpdates is
 //       never called (the GET is 403 backend-side for that role).
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { CustomerUpdate } from '../../api/customer-updates';
+import { renderWithQuery } from '../../test/queryWrapper';
 
 // ---------------------------------------------------------------------------
 // Mocks
@@ -25,6 +26,10 @@ const mockCreateUpdate = vi.fn();
 const mockSendUpdate = vi.fn();
 const mockMarkDelivered = vi.fn();
 const mockDownloadUpdatePdf = vi.fn();
+const mockGetMessageContext = vi.fn();
+const mockPreviewUpdate = vi.fn();
+const mockPreviewUpdatePdf = vi.fn();
+const mockDownloadOrderStatusReportPdf = vi.fn();
 
 vi.mock('../../api/customer-updates', () => ({
   customerUpdatesApi: {
@@ -33,6 +38,11 @@ vi.mock('../../api/customer-updates', () => ({
     sendUpdate: (...args: unknown[]) => mockSendUpdate(...args),
     markDelivered: (...args: unknown[]) => mockMarkDelivered(...args),
     downloadUpdatePdf: (...args: unknown[]) => mockDownloadUpdatePdf(...args),
+    getMessageContext: (...args: unknown[]) => mockGetMessageContext(...args),
+    previewUpdate: (...args: unknown[]) => mockPreviewUpdate(...args),
+    previewUpdatePdf: (...args: unknown[]) => mockPreviewUpdatePdf(...args),
+    downloadOrderStatusReportPdf: (...args: unknown[]) =>
+      mockDownloadOrderStatusReportPdf(...args),
   },
 }));
 
@@ -121,15 +131,38 @@ describe('KundeninfoTab', () => {
       }),
     ]);
 
-    render(<KundeninfoTab orderId={5} />);
+    renderWithQuery(<KundeninfoTab orderId={5} />);
 
     const items = await screen.findAllByRole('listitem');
     expect(items).toHaveLength(2);
     expect(within(items[0]).getByText('Neueres Update')).toBeInTheDocument();
-    expect(within(items[0]).getByText('Gesendet')).toBeInTheDocument();
+    expect(within(items[0]).getByText('Versendet')).toBeInTheDocument();
     expect(within(items[1]).getByText('Älteres Update')).toBeInTheDocument();
     expect(within(items[1]).getByText('Entwurf')).toBeInTheDocument();
     expect(mockListUpdates).toHaveBeenCalledWith(5);
+  });
+
+  it('shows the empty state with an action when there is no history yet', async () => {
+    mockUseAuth.mockReturnValue(manageAuth());
+    mockListUpdates.mockResolvedValue([]);
+
+    renderWithQuery(<KundeninfoTab orderId={5} />);
+
+    expect(await screen.findByText('Noch keine Kundeninfos versendet')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Kundeninfo schreiben' }));
+    expect(screen.getByLabelText('Betreff')).toHaveFocus();
+  });
+
+  it('shows a load error with retry and refetches the history', async () => {
+    mockUseAuth.mockReturnValue(manageAuth());
+    mockListUpdates.mockRejectedValueOnce(new Error('offline'));
+    mockListUpdates.mockResolvedValueOnce([makeUpdate({ id: 3, subject: 'Nach Retry' })]);
+
+    renderWithQuery(<KundeninfoTab orderId={5} />);
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Erneut versuchen' }));
+    expect(await screen.findByText('Nach Retry')).toBeInTheDocument();
+    expect(mockLogError).toHaveBeenCalledWith('KundeninfoTab.loadHistory', expect.any(Error));
   });
 
   it('"Erstellen & senden" calls createUpdate then sendUpdate and shows a success toast when delivered', async () => {
@@ -142,7 +175,7 @@ describe('KundeninfoTab', () => {
       method: 'email',
     });
 
-    render(<KundeninfoTab orderId={7} />);
+    renderWithQuery(<KundeninfoTab orderId={7} />);
     await waitFor(() => expect(mockListUpdates).toHaveBeenCalledWith(7));
 
     await userEvent.type(screen.getByLabelText('Betreff'), 'Fortschritt Update');
@@ -157,7 +190,7 @@ describe('KundeninfoTab', () => {
         photo_ids: [],
       })
     );
-    expect(mockSendUpdate).toHaveBeenCalledWith(42);
+    expect(mockSendUpdate).toHaveBeenCalledWith(42, false);
     await waitFor(() =>
       expect(mockShowToast).toHaveBeenCalledWith(expect.stringContaining('versendet'), 'success')
     );
@@ -174,13 +207,13 @@ describe('KundeninfoTab', () => {
     });
     mockDownloadUpdatePdf.mockResolvedValue(new Blob(['pdf-bytes'], { type: 'application/pdf' }));
 
-    render(<KundeninfoTab orderId={7} />);
+    renderWithQuery(<KundeninfoTab orderId={7} />);
     await waitFor(() => expect(mockListUpdates).toHaveBeenCalledWith(7));
 
     await userEvent.click(screen.getByRole('button', { name: 'Erstellen & senden' }));
 
     await waitFor(() => expect(mockCreateUpdate).toHaveBeenCalled());
-    expect(mockSendUpdate).toHaveBeenCalledWith(43);
+    expect(mockSendUpdate).toHaveBeenCalledWith(43, false);
     await waitFor(() =>
       expect(mockShowToast).toHaveBeenCalledWith(expect.stringContaining('PDF'), 'info')
     );
@@ -189,12 +222,50 @@ describe('KundeninfoTab', () => {
     await waitFor(() => expect(mockDownloadUpdatePdf).toHaveBeenCalledWith(43));
   });
 
+  it('"Statusbericht anhängen" checked sends attach_status_report=true, unchecked sends false', async () => {
+    mockUseAuth.mockReturnValue(manageAuth());
+    mockListUpdates.mockResolvedValue([]);
+    mockCreateUpdate.mockResolvedValue(makeUpdate({ id: 99, status: 'draft' }));
+    mockSendUpdate.mockResolvedValue({
+      update: makeUpdate({ id: 99, status: 'sent', delivery_method: 'email' }),
+      delivered: true,
+      method: 'email',
+    });
+
+    renderWithQuery(<KundeninfoTab orderId={7} />);
+    await waitFor(() => expect(mockListUpdates).toHaveBeenCalledWith(7));
+
+    const checkbox = screen.getByLabelText('Statusbericht anhängen');
+    expect(checkbox).not.toBeChecked();
+
+    await userEvent.click(checkbox);
+    expect(checkbox).toBeChecked();
+    await userEvent.click(screen.getByRole('button', { name: 'Erstellen & senden' }));
+
+    await waitFor(() => expect(mockSendUpdate).toHaveBeenCalledWith(99, true));
+  });
+
+  it('"Statusbericht (PDF)" downloads the live status report for the order', async () => {
+    mockUseAuth.mockReturnValue(manageAuth());
+    mockListUpdates.mockResolvedValue([]);
+    mockDownloadOrderStatusReportPdf.mockResolvedValue(
+      new Blob(['pdf-bytes'], { type: 'application/pdf' })
+    );
+
+    renderWithQuery(<KundeninfoTab orderId={9} />);
+    await waitFor(() => expect(mockListUpdates).toHaveBeenCalledWith(9));
+
+    await userEvent.click(screen.getByRole('button', { name: 'Statusbericht (PDF)' }));
+
+    await waitFor(() => expect(mockDownloadOrderStatusReportPdf).toHaveBeenCalledWith(9));
+  });
+
   it('"Als Entwurf speichern" calls createUpdate only — never sendUpdate', async () => {
     mockUseAuth.mockReturnValue(manageAuth());
     mockListUpdates.mockResolvedValue([]);
     mockCreateUpdate.mockResolvedValue(makeUpdate({ id: 44, status: 'draft' }));
 
-    render(<KundeninfoTab orderId={9} />);
+    renderWithQuery(<KundeninfoTab orderId={9} />);
     await waitFor(() => expect(mockListUpdates).toHaveBeenCalledWith(9));
 
     await userEvent.click(screen.getByRole('button', { name: 'Als Entwurf speichern' }));
@@ -218,7 +289,7 @@ describe('KundeninfoTab', () => {
       password_configured: false,
     });
 
-    render(<KundeninfoTab orderId={3} />);
+    renderWithQuery(<KundeninfoTab orderId={3} />);
 
     expect(
       await screen.findByText('E-Mail nicht konfiguriert — Updates werden als PDF erzeugt')
@@ -230,7 +301,7 @@ describe('KundeninfoTab', () => {
     mockUseAuth.mockReturnValue(manageAuth(false));
     mockListUpdates.mockResolvedValue([]);
 
-    render(<KundeninfoTab orderId={3} />);
+    renderWithQuery(<KundeninfoTab orderId={3} />);
     await waitFor(() => expect(mockListUpdates).toHaveBeenCalledWith(3));
 
     expect(mockGetEmailConfig).not.toHaveBeenCalled();
@@ -243,7 +314,7 @@ describe('KundeninfoTab', () => {
     mockUseAuth.mockReturnValue(manageAuth());
     mockListUpdates.mockResolvedValue([]);
 
-    render(<KundeninfoTab orderId={3} />);
+    renderWithQuery(<KundeninfoTab orderId={3} />);
     await waitFor(() => expect(mockListUpdates).toHaveBeenCalledWith(3));
 
     const select = screen.getByLabelText('Art') as HTMLSelectElement;
@@ -267,7 +338,7 @@ describe('KundeninfoTab', () => {
       method: 'email',
     });
 
-    render(<KundeninfoTab orderId={13} />);
+    renderWithQuery(<KundeninfoTab orderId={13} />);
 
     const item = (await screen.findAllByRole('listitem'))[0];
     await userEvent.click(within(item).getByRole('button', { name: 'Senden' }));
@@ -281,7 +352,7 @@ describe('KundeninfoTab', () => {
   it('hides the compose form and never calls listUpdates for a user without the manage role', () => {
     mockUseAuth.mockReturnValue(viewerAuth());
 
-    render(<KundeninfoTab orderId={11} />);
+    renderWithQuery(<KundeninfoTab orderId={11} />);
 
     expect(screen.getByText(/Keine Berechtigung/)).toBeInTheDocument();
     expect(
@@ -292,5 +363,193 @@ describe('KundeninfoTab', () => {
     ).not.toBeInTheDocument();
     expect(mockListUpdates).not.toHaveBeenCalled();
     expect(mockGetEmailConfig).not.toHaveBeenCalled();
+  });
+
+  // W2-08 / DOM-30: the "Fertiggestellt" milestone prompt pre-fills the
+  // compose form; sending stays an explicit tap (consent per send).
+  it('pre-fills the compose form from initialDraft without sending anything', async () => {
+    mockUseAuth.mockReturnValue(manageAuth());
+    mockListUpdates.mockResolvedValue([]);
+
+    renderWithQuery(
+      <KundeninfoTab
+        orderId={14}
+        initialDraft={{
+          kind: 'ready_for_pickup',
+          subject: 'Ihr Auftrag ist fertig',
+          body: 'Guten Tag,',
+          photoIds: ['p3', 'p2'],
+        }}
+      />
+    );
+
+    expect(await screen.findByLabelText('Betreff')).toHaveValue('Ihr Auftrag ist fertig');
+    expect(screen.getByLabelText('Art')).toHaveValue('ready_for_pickup');
+    expect(screen.getByLabelText('Nachricht')).toHaveValue('Guten Tag,');
+    expect(screen.getByTestId('photo-picker-stub')).toHaveTextContent('2 Fotos ausgewählt');
+    expect(mockCreateUpdate).not.toHaveBeenCalled();
+    expect(mockSendUpdate).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// W6 "Update mit Fotos": consent hint, preview, PDF preview
+// ---------------------------------------------------------------------------
+
+function messageContext(overrides: Record<string, unknown> = {}) {
+  return {
+    customer_id: 3,
+    has_email: true,
+    photo_consent: false,
+    email_opt_out: false,
+    ...overrides,
+  };
+}
+
+const PHOTO_DRAFT = {
+  kind: 'progress' as const,
+  subject: 'Zwischenstand',
+  body: 'Der Stein ist gefasst.',
+  photoIds: ['p1'],
+};
+
+describe('KundeninfoTab — W6 composer aids', () => {
+  it('shows the consent hint and blocks sending photos without PHOTO_USE consent', async () => {
+    mockUseAuth.mockReturnValue(manageAuth());
+    mockListUpdates.mockResolvedValue([]);
+    mockGetMessageContext.mockResolvedValue(messageContext());
+
+    renderWithQuery(<KundeninfoTab orderId={21} initialDraft={PHOTO_DRAFT} />);
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Keine Einwilligung „Fotonutzung“ erfasst'
+    );
+    expect(mockGetMessageContext).toHaveBeenCalledWith(21);
+    expect(screen.getByRole('button', { name: 'Erstellen & senden' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Als Entwurf speichern' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Vorschau als PDF' })).toBeDisabled();
+  });
+
+  it('"Fotos entfernen" clears the photos so a text-only update can be sent', async () => {
+    const user = userEvent.setup();
+    mockUseAuth.mockReturnValue(manageAuth());
+    mockListUpdates.mockResolvedValue([]);
+    mockGetMessageContext.mockResolvedValue(messageContext());
+
+    renderWithQuery(<KundeninfoTab orderId={22} initialDraft={PHOTO_DRAFT} />);
+
+    await user.click(await screen.findByRole('button', { name: 'Fotos entfernen' }));
+
+    expect(screen.getByTestId('photo-picker-stub')).toHaveTextContent('0 Fotos ausgewählt');
+    expect(screen.getByRole('button', { name: 'Erstellen & senden' })).toBeEnabled();
+    // The hint stays as information (role=status), no longer blocking.
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('does not block photos when PHOTO_USE consent exists', async () => {
+    mockUseAuth.mockReturnValue(manageAuth());
+    mockListUpdates.mockResolvedValue([]);
+    mockGetMessageContext.mockResolvedValue(messageContext({ photo_consent: true }));
+
+    renderWithQuery(<KundeninfoTab orderId={23} initialDraft={PHOTO_DRAFT} />);
+
+    await waitFor(() => expect(mockGetMessageContext).toHaveBeenCalled());
+    expect(screen.queryByText(/Keine Einwilligung/)).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Erstellen & senden' })).toBeEnabled();
+  });
+
+  it('shows the opt-out hint when the customer objected to email updates', async () => {
+    mockUseAuth.mockReturnValue(manageAuth());
+    mockListUpdates.mockResolvedValue([]);
+    mockGetMessageContext.mockResolvedValue(
+      messageContext({ photo_consent: true, email_opt_out: true })
+    );
+
+    renderWithQuery(<KundeninfoTab orderId={24} />);
+
+    expect(await screen.findByText(/Kunde wünscht keine E-Mail-Updates/)).toBeInTheDocument();
+  });
+
+  it('"Vorschau anzeigen" renders the email text returned by the backend', async () => {
+    const user = userEvent.setup();
+    mockUseAuth.mockReturnValue(manageAuth());
+    mockListUpdates.mockResolvedValue([]);
+    mockGetMessageContext.mockResolvedValue(messageContext({ photo_consent: true }));
+    mockPreviewUpdate.mockResolvedValue({
+      subject: 'Zwischenstand',
+      text: 'Liebe/r Max Mustermann,\nDer Stein ist gefasst.\nDatenschutz: …',
+      delivery_method: 'email',
+      photo_count: 1,
+      photo_consent: true,
+      email_opt_out: false,
+      has_email: true,
+      legal_basis: 'Art. 6(1)(a) DSGVO (Einwilligung)',
+      blocked_reason: null,
+    });
+
+    renderWithQuery(<KundeninfoTab orderId={25} initialDraft={PHOTO_DRAFT} />);
+
+    await user.click(await screen.findByRole('button', { name: 'Vorschau anzeigen' }));
+
+    const preview = await screen.findByRole('region', { name: 'Vorschau der Kundeninfo' });
+    expect(within(preview).getByText(/Der Stein ist gefasst\./)).toBeInTheDocument();
+    expect(within(preview).getByText('1 Foto als Anhang')).toBeInTheDocument();
+    expect(mockPreviewUpdate).toHaveBeenCalledWith(25, {
+      kind: 'progress',
+      subject: 'Zwischenstand',
+      body: 'Der Stein ist gefasst.',
+      photo_ids: ['p1'],
+    });
+    expect(mockCreateUpdate).not.toHaveBeenCalled();
+  });
+
+  it('"Vorschau als PDF" downloads the unsaved content without creating an update', async () => {
+    const user = userEvent.setup();
+    mockUseAuth.mockReturnValue(manageAuth());
+    mockListUpdates.mockResolvedValue([]);
+    mockGetMessageContext.mockResolvedValue(messageContext({ has_email: false }));
+    mockPreviewUpdatePdf.mockResolvedValue(new Blob(['%PDF'], { type: 'application/pdf' }));
+
+    renderWithQuery(
+      <KundeninfoTab
+        orderId={26}
+        initialDraft={{ ...PHOTO_DRAFT, photoIds: [] }}
+      />
+    );
+
+    expect(await screen.findByText(/Keine E-Mail-Adresse hinterlegt/)).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Vorschau als PDF' }));
+
+    await waitFor(() =>
+      expect(mockPreviewUpdatePdf).toHaveBeenCalledWith(26, {
+        kind: 'progress',
+        subject: 'Zwischenstand',
+        body: 'Der Stein ist gefasst.',
+        photo_ids: [],
+      })
+    );
+    expect(mockCreateUpdate).not.toHaveBeenCalled();
+    expect(mockSendUpdate).not.toHaveBeenCalled();
+  });
+
+  it('shows the German 422 detail when the backend refuses the update', async () => {
+    const user = userEvent.setup();
+    mockUseAuth.mockReturnValue(manageAuth());
+    mockListUpdates.mockResolvedValue([]);
+    mockGetMessageContext.mockResolvedValue(messageContext({ photo_consent: true }));
+    mockCreateUpdate.mockRejectedValue({
+      response: { status: 422, data: { detail: 'Preise dürfen nur in Kostenvoranschlag …' } },
+    });
+
+    renderWithQuery(<KundeninfoTab orderId={27} initialDraft={{ ...PHOTO_DRAFT, photoIds: [] }} />);
+
+    await user.click(await screen.findByRole('button', { name: 'Als Entwurf speichern' }));
+
+    await waitFor(() =>
+      expect(mockShowToast).toHaveBeenCalledWith(
+        'Preise dürfen nur in Kostenvoranschlag …',
+        'error'
+      )
+    );
   });
 });

@@ -6,6 +6,14 @@ import React, { createContext, useCallback, useContext, useRef, useState } from 
 
 export type ToastType = 'success' | 'error' | 'warning' | 'info';
 
+/** A route the toast links to so the user can act on it directly
+ *  (CLAUDE.md: "every data display should link to its natural next
+ *  action"), e.g. a 422 that names the order to go fix. */
+export interface ToastAction {
+  label: string;
+  to: string;
+}
+
 export interface Toast {
   id: number;
   message: string;
@@ -14,6 +22,7 @@ export interface Toast {
   duration: number;
   /** true while the exit animation is playing */
   dismissing: boolean;
+  action?: ToastAction;
 }
 
 export interface ConfirmOptions {
@@ -30,7 +39,7 @@ interface ConfirmState extends ConfirmOptions {
 
 interface ToastContextValue {
   toasts: Toast[];
-  showToast: (message: string, type?: ToastType, duration?: number) => void;
+  showToast: (message: string, type?: ToastType, duration?: number, action?: ToastAction) => void;
   dismissToast: (id: number) => void;
   showConfirm: (options: ConfirmOptions) => Promise<boolean>;
   confirmState: ConfirmState | null;
@@ -71,9 +80,9 @@ export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   }, []);
 
   const showToast = useCallback(
-    (message: string, type: ToastType = 'info', duration = 4000) => {
+    (message: string, type: ToastType = 'info', duration = 4000, action?: ToastAction) => {
       const id = nextId++;
-      const toast: Toast = { id, message, type, duration, dismissing: false };
+      const toast: Toast = { id, message, type, duration, dismissing: false, action };
 
       setToasts(prev => [...prev, toast]);
 

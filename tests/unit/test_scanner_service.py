@@ -99,7 +99,7 @@ async def sample_repair(db_session, sample_customer) -> RepairJob:
         bag_number="B-042",
         customer_id=sample_customer.id,
         item_description="Kette kuerzen",
-        item_type=RepairItemType.NECKLACE,
+        item_type=RepairItemType.CHAIN,
         status=RepairJobStatus.RECEIVED,
     )
     db_session.add(rep)
@@ -354,8 +354,10 @@ class TestActionComputation:
         )
         action_ids = {a.id for a in resp.actions}
         assert "change_status" in action_ids
-        assert "add_material" in action_ids
+        assert "handover" in action_ids
+        assert "change_location" in action_ids
         assert "take_photo" in action_ids
+        assert action_ids.isdisjoint({"add_material", "add_note", "contact_customer"})
 
     @pytest.mark.asyncio
     async def test_timer_switch_primary_when_running_on_different_order(
@@ -751,3 +753,50 @@ class TestSearchEntities:
             sample_user,
         )
         assert results == []
+
+
+# --------------------------------------------------------------------------- #
+# FE-03 — repair scans must never become an order (or book time to one)
+# --------------------------------------------------------------------------- #
+
+
+class TestRepairVsOrderDisambiguation:
+    @pytest.mark.asyncio
+    async def test_repair_payload_resolves_to_repair_entity(
+        self, db_session, sample_user, sample_repair
+    ):
+        resp = await ScannerService.resolve_payload(
+            db_session, f"REPAIR:{sample_repair.id}", ScanContext(), sample_user
+        )
+        assert resp.resolved is True
+        assert resp.entity_type == "repair"
+        assert resp.entity_id == sample_repair.id
+
+    @pytest.mark.asyncio
+    async def test_order_payload_with_same_number_stays_an_order(
+        self, db_session, sample_user, sample_order, sample_repair
+    ):
+        resp = await ScannerService.resolve_payload(
+            db_session, f"ORDER:{sample_order.id}", ScanContext(), sample_user
+        )
+        assert resp.entity_type == "order"
+        repair_resp = await ScannerService.resolve_payload(
+            db_session, f"REPAIR:{sample_order.id}", ScanContext(), sample_user
+        )
+        assert repair_resp.entity_type == "repair"
+
+    @pytest.mark.asyncio
+    async def test_in_repair_does_not_offer_start_timer(
+        self, db_session, sample_user, sample_repair
+    ):
+        """Time entries have no repair link; start_timer on a repair would
+        book labour to the ORDER with the same id. Hide it (FE-03)."""
+        sample_repair.status = RepairJobStatus.IN_REPAIR
+        await db_session.commit()
+        resp = await ScannerService.resolve_payload(
+            db_session, f"REPAIR:{sample_repair.id}", ScanContext(), sample_user
+        )
+        action_ids = {a.id for a in resp.actions}
+        assert "start_timer" not in action_ids
+        assert "switch_timer" not in action_ids
+        assert "take_photo" in action_ids

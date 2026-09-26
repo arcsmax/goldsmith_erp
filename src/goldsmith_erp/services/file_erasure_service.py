@@ -4,7 +4,9 @@ File-level GDPR Art. 17 erasure service.
 Complements ``CustomerService.scrub_customer_pii`` (which scrubs DB-resident
 freetext PII) by removing the filesystem artefacts referenced by DB path
 columns — generated valuation PDFs, order / repair photos, scrap-gold
-receipts, consultation sketches/references (+ thumbnails). These files
+item photos, consultation sketches/references (+ thumbnails), and the
+``media_assets`` rows that mirror those photos (ARCH phase 4). Scrap-gold
+receipts are retained (GDPR-01, §8 Abs. 4 GwG / §147 AO). These files
 contain customer PII (names, addresses, signatures, item photos) that
 survives the DB scrub because the DB stores only the path, not the content.
 
@@ -47,14 +49,20 @@ from __future__ import annotations
 import logging
 import os
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, List, Optional, Tuple
 
 from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from goldsmith_erp.db.models import Consultation, ConsultationPhoto, CustomerAuditLog
+from goldsmith_erp.db.models import (
+    Consultation,
+    ConsultationPhoto,
+    CustomerAuditLog,
+    MediaAsset,
+    MediaOwnerType,
+)
 from goldsmith_erp.db.models import Order as OrderModel
 from goldsmith_erp.db.models import (
     OrderPhoto,
@@ -191,13 +199,11 @@ FILE_ERASURE_TARGETS: List[FileErasureTarget] = [
         link="scrap_gold_id",
         path_column_nullable=True,
     ),
-    FileErasureTarget(
-        table="scrap_gold",
-        model=ScrapGold,
-        path_column="receipt_pdf_path",
-        link="customer_id",
-        path_column_nullable=True,
-    ),
+    # GDPR-01: ``scrap_gold.receipt_pdf_path`` (the Altgold Ankaufbeleg) is
+    # deliberately NOT a target. It is the identification/purchase record
+    # §8 Abs. 4 GwG and §147 AO require us to keep, so Art. 17 Abs. 3 lit. b
+    # DSGVO exempts it from erasure — see
+    # ``customer_service.RETAINED_RECORD_FIELDS``.
 ]
 
 
@@ -730,6 +736,22 @@ class FileErasureService:
             result=result,
         )
 
+        # media_assets (ARCH phase 4) mirror the three photo tables; their
+        # files were mostly removed by the passes above, but the rows (and
+        # any file only they reference) must go too.
+        await self._erase_media_assets(
+            db,
+            customer_id=customer_id,
+            owners={
+                MediaOwnerType.ORDER: order_ids,
+                MediaOwnerType.REPAIR: repair_job_ids,
+                MediaOwnerType.CONSULTATION: consultation_ids,
+            },
+            performed_by=performed_by,
+            dry_run=dry_run,
+            result=result,
+        )
+
         # Audit row — written regardless of dry_run so that even
         # preview calls are traceable. Field ``dry_run`` in the
         # details JSON distinguishes them.
@@ -989,6 +1011,126 @@ class FileErasureService:
 
     # ── audit ──────────────────────────────────────────────────────────
 
+    async def _erase_media_assets(
+        self,
+        db: AsyncSession,
+        *,
+        customer_id: int,
+        owners: dict,
+        performed_by: Optional[int],
+        dry_run: bool,
+        result: FileErasureResult,
+    ) -> None:
+        """Erase ``media_assets`` rows (and leftover files) of the customer.
+
+        Every asset of the customer's orders, repairs and consultations gets
+        its file and ``thumbs/`` sibling unlinked if still present (the
+        legacy-table passes above normally removed them already, so a
+        missing file here is expected and not counted), then the row is
+        redacted: ``storage_key`` -> ``REDACTED_PATH_SENTINEL``, caption and
+        sha256 cleared, ``deleted_at`` set. A key escaping the storage root
+        or an IO error is a ``files_failed`` event and leaves that row
+        unredacted for the admin to retry. Idempotent (redacted rows are
+        skipped).
+        """
+        checked = deleted = failed = 0
+        conditions = [
+            (MediaAsset.owner_type == owner_type.value)
+            & (MediaAsset.owner_id.in_(list(ids)))
+            for owner_type, ids in owners.items()
+            if ids
+        ]
+        if not conditions:
+            result.per_target_counts["media_assets.storage_key"] = {
+                "checked": 0,
+                "deleted": 0,
+                "missing": 0,
+                "failed": 0,
+            }
+            return
+        condition = conditions[0]
+        for extra in conditions[1:]:
+            condition = condition | extra
+        assets = list(
+            (
+                await db.execute(
+                    select(MediaAsset).where(
+                        condition,
+                        MediaAsset.storage_key != REDACTED_PATH_SENTINEL,
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        now = datetime.now(timezone.utc)
+        for asset in assets:
+            checked += 1
+            resolved = self._safe_resolve(str(asset.storage_key))
+            if resolved is None:
+                failed += 1
+                result.files_failed += 1
+                result.errors.append(
+                    (f"media_assets:{asset.id}", "storage key escapes the root")
+                )
+                logger.error(
+                    "file erasure refused — media key outside storage root",
+                    extra={
+                        "audit": True,
+                        "action": "file_erasure_refused",
+                        "customer_id": customer_id,
+                        "user_id": performed_by,
+                        "table": "media_assets",
+                        "media_id": asset.id,
+                    },
+                )
+                continue
+            thumb = resolved.parent / "thumbs" / f"{resolved.stem}.jpg"
+            try:
+                for path in (resolved, thumb):
+                    if not path.exists():
+                        continue
+                    if dry_run and asset.legacy_id:
+                        # The legacy-table preview above already counted
+                        # this (dual-written) file.
+                        continue
+                    if not dry_run:
+                        os.unlink(path)
+                    deleted += 1
+                    result.files_deleted += 1
+            except OSError as exc:
+                failed += 1
+                result.files_failed += 1
+                result.errors.append((str(resolved), f"{type(exc).__name__}: {exc}"))
+                logger.error(
+                    "file erasure failed — media IO error",
+                    extra={
+                        "audit": True,
+                        "action": "file_erasure_failed",
+                        "customer_id": customer_id,
+                        "user_id": performed_by,
+                        "table": "media_assets",
+                        "media_id": asset.id,
+                        "error_type": type(exc).__name__,
+                    },
+                )
+                continue
+            if not dry_run:
+                asset.storage_key = REDACTED_PATH_SENTINEL  # type: ignore[assignment]
+                asset.caption = None  # type: ignore[assignment]
+                asset.sha256 = None  # type: ignore[assignment]
+                asset.customer_visible = False  # type: ignore[assignment]
+                if asset.deleted_at is None:
+                    asset.deleted_at = now
+        if not dry_run:
+            await db.flush()
+        result.per_target_counts["media_assets.storage_key"] = {
+            "checked": checked,
+            "deleted": deleted,
+            "missing": 0,
+            "failed": failed,
+        }
+
     async def _write_audit_row(
         self,
         db: AsyncSession,
@@ -1010,7 +1152,7 @@ class FileErasureService:
             entity="customer",
             entity_id=customer_id,
             details=result.as_dict(),
-            timestamp=datetime.utcnow(),
+            timestamp=datetime.now(timezone.utc),
         )
         db.add(audit_log)
 

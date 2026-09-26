@@ -9,6 +9,7 @@ import { ConsultationPieceType, ConsultationUpdateInput } from '../../types';
 // re-exported here for backwards compatibility.
 export { PIECE_TYPE_LABELS } from './labels';
 import { PIECE_TYPE_LABELS } from './labels';
+import { Field } from '../../ui';
 
 const PIECE_TYPE_KEYS = Object.keys(PIECE_TYPE_LABELS) as ConsultationPieceType[];
 
@@ -86,8 +87,10 @@ export const WishStep: React.FC<WishStepProps> = ({ consultation, onFieldsChange
   return (
     <div className="wish-step">
       <div className="wizard-field">
-        <label>Art des Schmuckstücks</label>
-        <div className="chip-group" role="radiogroup" aria-label="Art des Schmuckstücks">
+        <span id="wish-piece-type-label" className="ui-field__label">
+          Art des Schmuckstücks
+        </span>
+        <div className="chip-group" role="radiogroup" aria-labelledby="wish-piece-type-label">
           {PIECE_TYPE_KEYS.map((key) => (
             <button
               key={key}
@@ -103,20 +106,18 @@ export const WishStep: React.FC<WishStepProps> = ({ consultation, onFieldsChange
         </div>
       </div>
 
-      <div className="wizard-field">
-        <label htmlFor="wishes">Was wünscht sich die Kundin?</label>
+      <Field label="Was wünscht sich die Kundin?" name="wishes">
         <textarea
           id="wishes"
           value={wishes}
           onChange={handleWishesChange}
-          placeholder="Erzählen Sie, was der Kundin vorschwebt — Anlass, Stil, besondere Wünsche..."
+          placeholder="Erzählen Sie, was der Kundin vorschwebt — Anlass, Stil, besondere Wünsche …"
           rows={5}
           maxLength={5000}
         />
-      </div>
+      </Field>
 
       <div className="wizard-field">
-        <label htmlFor="material_input">Besprochene Materialien</label>
         {materials.length > 0 && (
           <div className="chip-group">
             {materials.map((metal) => (
@@ -132,27 +133,31 @@ export const WishStep: React.FC<WishStepProps> = ({ consultation, onFieldsChange
             ))}
           </div>
         )}
-        <input
-          type="text"
-          id="material_input"
-          value={materialInput}
-          onChange={(e) => setMaterialInput(e.target.value)}
-          onKeyDown={handleMaterialInputKeyDown}
-          placeholder="Material eingeben und Enter drücken (z. B. Rotgold 585)"
-        />
+        <Field
+          label="Besprochene Materialien"
+          name="material_input"
+          help="Material eingeben und Enter drücken (z. B. Rotgold 585)."
+        >
+          <input
+            type="text"
+            id="material_input"
+            value={materialInput}
+            onChange={(e) => setMaterialInput(e.target.value)}
+            onKeyDown={handleMaterialInputKeyDown}
+          />
+        </Field>
       </div>
 
-      <div className="wizard-field">
-        <label htmlFor="source_material">Mitgebrachtes Material (Altgold, Erbstück ...)</label>
+      <Field label="Mitgebrachtes Material (Altgold, Erbstück …)" name="source_material">
         <textarea
           id="source_material"
           value={sourceMaterial}
           onChange={handleSourceMaterialChange}
-          placeholder="z. B. Ehering der Großmutter, 3 Golddukaten..."
+          placeholder="z. B. Ehering der Großmutter, 3 Golddukaten …"
           rows={3}
           maxLength={2000}
         />
-      </div>
+      </Field>
     </div>
   );
 };

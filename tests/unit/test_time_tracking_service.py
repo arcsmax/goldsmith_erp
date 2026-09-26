@@ -13,11 +13,13 @@ Tests cover:
 """
 
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import pytest
+from fastapi import HTTPException
 
 from goldsmith_erp.db.models import TimeEntry as TimeEntryModel
+from goldsmith_erp.db.models import WorkshopLocation
 from goldsmith_erp.models.interruption import InterruptionCreate
 from goldsmith_erp.models.time_entry import (
     TimeEntryCreate,
@@ -36,8 +38,8 @@ class TestTimeEntryCreation:
         self, db_session, sample_order, sample_activity, sample_user
     ):
         """Test creating a manual time entry with all fields"""
-        start_time = datetime.utcnow() - timedelta(hours=2)
-        end_time = datetime.utcnow()
+        start_time = datetime.now(timezone.utc) - timedelta(hours=2)
+        end_time = datetime.now(timezone.utc)
 
         entry_data = TimeEntryCreate(
             order_id=sample_order.id,
@@ -69,7 +71,7 @@ class TestTimeEntryCreation:
         self, db_session, sample_order, sample_activity, sample_user
     ):
         """Test creating time entry with only required fields"""
-        start_time = datetime.utcnow()
+        start_time = datetime.now(timezone.utc)
 
         entry_data = TimeEntryCreate(
             order_id=sample_order.id,
@@ -91,7 +93,7 @@ class TestTimeEntryCreation:
         self, db_session, sample_order, sample_activity, sample_user
     ):
         """Test creating an active time entry (no end time)"""
-        start_time = datetime.utcnow()
+        start_time = datetime.now(timezone.utc)
 
         entry_data = TimeEntryCreate(
             order_id=sample_order.id,
@@ -111,8 +113,8 @@ class TestTimeEntryCreation:
         self, db_session, sample_order, sample_activity, sample_user
     ):
         """Test that duration is auto-calculated from start and end times"""
-        start_time = datetime.utcnow() - timedelta(hours=3, minutes=30)
-        end_time = datetime.utcnow()
+        start_time = datetime.now(timezone.utc) - timedelta(hours=3, minutes=30)
+        end_time = datetime.now(timezone.utc)
 
         entry_data = TimeEntryCreate(
             order_id=sample_order.id,
@@ -175,8 +177,8 @@ class TestTimeEntryRetrieval:
         self, db_session, sample_user, sample_time_entry
     ):
         """Test retrieving user time entries filtered by date range"""
-        start_date = datetime.utcnow() - timedelta(days=7)
-        end_date = datetime.utcnow() + timedelta(days=1)
+        start_date = datetime.now(timezone.utc) - timedelta(days=7)
+        end_date = datetime.now(timezone.utc) + timedelta(days=1)
 
         entries = await TimeTrackingService.get_time_entries_for_user(
             db_session, sample_user.id, start_date=start_date, end_date=end_date
@@ -197,8 +199,8 @@ class TestTimeEntryRetrieval:
                 order_id=sample_order.id,
                 user_id=sample_user.id,
                 activity_id=sample_activity.id,
-                start_time=datetime.utcnow() - timedelta(hours=i),
-                end_time=datetime.utcnow() - timedelta(hours=i - 1),
+                start_time=datetime.now(timezone.utc) - timedelta(hours=i),
+                end_time=datetime.now(timezone.utc) - timedelta(hours=i - 1),
             )
             await TimeTrackingService.create_time_entry(db_session, entry_data)
 
@@ -313,6 +315,11 @@ class TestActiveTimeTracking:
         self, db_session, sample_order, sample_activity, sample_user
     ):
         """Test starting a new time entry"""
+        loc = WorkshopLocation(name="Werkbank 1", kind="bench", is_active=True)
+        db_session.add(loc)
+        await db_session.commit()
+        await db_session.refresh(loc)
+
         entry_start = TimeEntryStart(
             order_id=sample_order.id,
             user_id=sample_user.id,
@@ -328,6 +335,8 @@ class TestActiveTimeTracking:
         assert entry.start_time is not None
         assert entry.end_time is None
         assert entry.duration_minutes is None
+        assert entry.location == "Werkbank 1"
+        assert entry.location_id == loc.id
 
     async def test_start_time_entry_prevents_multiple_active(
         self, db_session, active_time_entry, sample_order, sample_activity, sample_user
@@ -339,8 +348,10 @@ class TestActiveTimeTracking:
             activity_id=sample_activity.id,
         )
 
-        with pytest.raises(ValueError, match="laufende Zeiterfassung"):
+        # BE-12 (W1-17): a second start is a 409, not a generic 400.
+        with pytest.raises(HTTPException, match="läuft bereits") as exc_info:
             await TimeTrackingService.start_time_entry(db_session, entry_start)
+        assert exc_info.value.status_code == 409
 
     async def test_stop_time_entry_success(self, db_session, active_time_entry):
         """Test stopping an active time entry"""
@@ -370,6 +381,32 @@ class TestActiveTimeTracking:
             await TimeTrackingService.stop_time_entry(
                 db_session, sample_time_entry.id, stop_data  # Already has end_time
             )
+
+    async def test_stop_time_entry_rejects_start_time_after_now(
+        self, db_session, active_time_entry
+    ):
+        """A corrupted row whose start_time is ahead of real "now" (e.g. left
+        over from a bad edit) must never be stoppable into a negative
+        duration_minutes -- the stop has to fail loudly (422) instead.
+
+        Regression for the 2026-09-25 incident: start_time=17:57 UTC,
+        end_time=16:02 UTC, duration_minutes=-114 on a live row.
+        """
+        future_start = datetime.now(timezone.utc) + timedelta(hours=2)
+        active_time_entry.start_time = future_start
+        await db_session.commit()
+        await db_session.refresh(active_time_entry)
+
+        with pytest.raises(HTTPException) as exc_info:
+            await TimeTrackingService.stop_time_entry(
+                db_session, active_time_entry.id, TimeEntryStop()
+            )
+        assert exc_info.value.status_code == 422
+
+        # Never persisted: still running, no negative duration written.
+        await db_session.refresh(active_time_entry)
+        assert active_time_entry.end_time is None
+        assert active_time_entry.duration_minutes is None
 
     async def test_get_running_entry(self, db_session, active_time_entry, sample_user):
         """Test getting the currently running entry for a user"""
@@ -409,8 +446,8 @@ class TestOrderTotalTime:
                 order_id=sample_order.id,
                 user_id=sample_user.id,
                 activity_id=sample_activity.id,
-                start_time=datetime.utcnow() - timedelta(hours=2),
-                end_time=datetime.utcnow() - timedelta(hours=1),
+                start_time=datetime.now(timezone.utc) - timedelta(hours=2),
+                end_time=datetime.now(timezone.utc) - timedelta(hours=1),
             )
             await TimeTrackingService.create_time_entry(db_session, entry_data)
 
@@ -432,8 +469,8 @@ class TestOrderTotalTime:
             order_id=sample_order.id,
             user_id=sample_user.id,
             activity_id=sample_activity.id,
-            start_time=datetime.utcnow() - timedelta(hours=2),
-            end_time=datetime.utcnow(),
+            start_time=datetime.now(timezone.utc) - timedelta(hours=2),
+            end_time=datetime.now(timezone.utc),
         )
         await TimeTrackingService.create_time_entry(db_session, entry_data)
 
@@ -442,7 +479,7 @@ class TestOrderTotalTime:
             order_id=sample_order.id,
             user_id=sample_user.id,
             activity_id=sample_activity.id,
-            start_time=datetime.utcnow() - timedelta(minutes=30),
+            start_time=datetime.now(timezone.utc) - timedelta(minutes=30),
         )
         await TimeTrackingService.create_time_entry(db_session, active_data)
 
@@ -495,7 +532,7 @@ class TestEdgeCases:
         self, db_session, sample_order, sample_activity, sample_user
     ):
         """Test creating entry with very short duration (< 1 minute)"""
-        start_time = datetime.utcnow()
+        start_time = datetime.now(timezone.utc)
         end_time = start_time + timedelta(seconds=30)
 
         entry_data = TimeEntryCreate(
@@ -515,8 +552,8 @@ class TestEdgeCases:
         self, db_session, sample_order, sample_activity, sample_user
     ):
         """Test creating entry with very long duration (multiple days)"""
-        start_time = datetime.utcnow() - timedelta(days=2)
-        end_time = datetime.utcnow()
+        start_time = datetime.now(timezone.utc) - timedelta(days=2)
+        end_time = datetime.now(timezone.utc)
 
         entry_data = TimeEntryCreate(
             order_id=sample_order.id,

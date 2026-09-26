@@ -30,15 +30,11 @@ function orderResponse(overrides?: Partial<ResolveResponse>): ResolveResponse {
     entity_type: 'order',
     entity_id: 42,
     entity: {
-      entity_type: 'order',
-      entity_id: 42,
-      data: {
-        id: 42,
-        title: 'Trauring Mueller Maria',
-        status: 'in_progress',
-        order_number: 'ORDER:42',
-        customer_initials: 'M.M.',
-      },
+      id: 42,
+      title: 'Trauring Mueller Maria',
+      status: 'in_progress',
+      order_number: 'ORDER:42',
+      customer_initials: 'M.M.',
     },
     actions: [
       { id: 'start_timer', label: 'Timer starten', icon: 'play', primary: true },
@@ -57,15 +53,11 @@ function repairResponse(): ResolveResponse {
     entity_type: 'repair',
     entity_id: 7,
     entity: {
-      entity_type: 'repair',
-      entity_id: 7,
-      data: {
-        id: 7,
-        repair_number: 'REP-2024-007',
-        bag_number: 'BAG-A-12',
-        item_type: 'Halskette',
-        status: 'in_repair',
-      },
+      id: 7,
+      repair_number: 'REP-2024-007',
+      bag_number: 'BAG-A-12',
+      item_type: 'Halskette',
+      status: 'in_repair',
     },
     actions: [
       { id: 'advance_repair', label: 'Status weiterschalten', icon: 'clipboard', primary: true },
@@ -81,14 +73,10 @@ function metalResponse(): ResolveResponse {
     entity_type: 'metal_purchase',
     entity_id: 85,
     entity: {
-      entity_type: 'metal_purchase',
-      entity_id: 85,
-      data: {
-        id: 85,
-        metal_type: 'gold_18k',
-        lot_number: '2411-A',
-        remaining_weight_g: 250,
-      },
+      id: 85,
+      metal_type: 'gold_18k',
+      lot_number: '2411-A',
+      remaining_weight_g: 250,
     },
     actions: [
       { id: 'consume_material', label: 'Material entnehmen', icon: 'scale', primary: true },
@@ -103,11 +91,7 @@ function emptyAccessResponse(): ResolveResponse {
     resolution_path: 'prefix',
     entity_type: 'metal_purchase',
     entity_id: 85,
-    entity: {
-      entity_type: 'metal_purchase',
-      entity_id: 85,
-      data: {},
-    },
+    entity: {},
     actions: [],
     status_hint: null,
   };
@@ -150,11 +134,7 @@ describe('QuickActionModalV2 Kurzbezeichnung', () => {
     render(
       <QuickActionModalV2
         resolveResponse={orderResponse({
-          entity: {
-            entity_type: 'order',
-            entity_id: 42,
-            data: { id: 42, title: long, status: 'new' },
-          },
+          entity: { id: 42, title: long, status: 'new' },
         })}
         onAction={vi.fn()}
         onClose={vi.fn()}
@@ -350,10 +330,11 @@ describe('QuickActionModalV2 accessibility', () => {
         onContinueScanning={vi.fn()}
       />,
     );
-    const dialog = screen.getByTestId('qa-modal-v2');
-    expect(dialog.getAttribute('role')).toBe('dialog');
+    // Sheet primitive: the dialog is labelled by its visible title.
+    const dialog = screen.getByRole('dialog');
     expect(dialog.getAttribute('aria-modal')).toBe('true');
-    expect(dialog.getAttribute('aria-labelledby')).toBe('qa-title');
+    expect(dialog).toHaveAccessibleName(screen.getByTestId('qa-title').textContent ?? '');
+    expect(dialog.contains(screen.getByTestId('qa-modal-v2'))).toBe(true);
   });
 
   it('triggers onClose on Escape', () => {
@@ -421,7 +402,7 @@ describe('QuickActionModalV2 footer', () => {
       />,
     );
     const user = userEvent.setup();
-    await user.click(screen.getByTestId('qa-close'));
+    await user.click(screen.getByRole('button', { name: 'Schließen' }));
     expect(onClose).toHaveBeenCalled();
   });
 });

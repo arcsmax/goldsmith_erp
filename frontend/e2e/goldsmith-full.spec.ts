@@ -1,8 +1,11 @@
-import { test, expect, Page } from '@playwright/test';
+import { test, expect } from '@playwright/test';
 
 const BASE = 'http://localhost:3000';
-const EMAIL = 'admin@goldschmiede.de';
-const PASSWORD = 'Admin123!';
+// Defaults match scripts/seed_demo.py's admin/inhaber account (the single
+// source of truth is src/goldsmith_erp/db/seed_credentials.py); override via
+// env vars if a different seeded environment is targeted.
+const EMAIL = process.env.E2E_ADMIN_EMAIL ?? 'demo-inhaber@werkstatt.de';
+const PASSWORD = process.env.E2E_ADMIN_PASSWORD ?? 'demo2026!';
 
 // Use a SINGLE test with sequential steps to avoid rate limiting on login (5/min)
 test('Full goldsmith workflow — single session', async ({ page }) => {

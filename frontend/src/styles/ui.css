@@ -1,0 +1,912 @@
+/* src/ui primitives (UI-UX-PLAYBOOK section 4; W4-02).
+ *
+ * Semantic tokens only: no colour literals (hex ratchet), spacing, type,
+ * radius, shadow, z-index and duration from the scales in brand-tokens.css.
+ * Every class is prefixed `ui-` so it cannot collide with page CSS.
+ * Breakpoints: 600px and 1024px only. The global :focus-visible ring
+ * (a11y-global.css) applies unchanged; nothing here removes an outline.
+ * Component tokens (tier 3) are defined on the component from semantic ones. */
+
+/* ---- Helpers ------------------------------------------------------------ */
+.ui-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.ui-num {
+  font-variant-numeric: tabular-nums;
+}
+
+.ui-align-end {
+  text-align: end;
+}
+
+.ui-scroll-lock {
+  overflow: hidden;
+}
+
+.ui-icon {
+  width: 1.25em;
+  height: 1.25em;
+  flex-shrink: 0;
+}
+
+/* ---- Button, ButtonLink, IconButton (4.1) ------------------------------- */
+.ui-button {
+  --ui-button-height: var(--touch-min);
+  --ui-button-bg: var(--color-primary);
+  --ui-button-fg: var(--color-primary-contrast);
+  --ui-button-border: transparent;
+  --ui-button-bg-hover: var(--color-primary-hover);
+
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  min-height: var(--ui-button-height);
+  min-width: var(--ui-button-height);
+  padding: 0 var(--space-4);
+  border: 1px solid var(--ui-button-border);
+  border-radius: var(--radius-md);
+  background: var(--ui-button-bg);
+  color: var(--ui-button-fg);
+  font-family: inherit;
+  font-size: var(--type-base);
+  font-weight: 600;
+  line-height: 1.2;
+  text-decoration: none;
+  cursor: pointer;
+  transition:
+    background-color var(--duration-fast) var(--ease-standard),
+    border-color var(--duration-fast) var(--ease-standard);
+}
+
+.ui-button--lg {
+  --ui-button-height: var(--touch-comfort);
+  padding: 0 var(--space-5);
+  font-size: var(--type-md);
+}
+
+.ui-button--block {
+  width: 100%;
+}
+
+.ui-button--secondary {
+  --ui-button-bg: var(--color-surface-raised);
+  --ui-button-fg: var(--color-text);
+  --ui-button-border: var(--color-border-strong);
+  --ui-button-bg-hover: var(--color-surface-sunken);
+}
+
+.ui-button--ghost {
+  --ui-button-bg: transparent;
+  --ui-button-fg: var(--color-text);
+  --ui-button-bg-hover: var(--color-surface-sunken);
+}
+
+.ui-button--danger {
+  --ui-button-bg: var(--color-danger);
+  --ui-button-fg: var(--color-danger-contrast);
+  --ui-button-bg-hover: var(--color-danger-fg);
+}
+
+@media (hover: hover) {
+  .ui-button:not(:disabled):hover {
+    background: var(--ui-button-bg-hover);
+  }
+}
+
+.ui-button:not(:disabled):active {
+  background: var(--ui-button-bg-hover);
+}
+
+.ui-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.ui-button[aria-busy='true'] {
+  cursor: progress;
+}
+
+.ui-icon-button {
+  padding: 0;
+  width: var(--ui-button-height);
+}
+
+.ui-spinner {
+  width: 1em;
+  height: 1em;
+  flex-shrink: 0;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: var(--radius-pill);
+  animation: ui-spin 700ms linear infinite;
+}
+
+@keyframes ui-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ---- Card (4.6) --------------------------------------------------------- */
+.ui-card {
+  padding: var(--space-4);
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  color: var(--color-text);
+}
+
+.ui-card--info { border-inline-start: 4px solid var(--tone-info-border); }
+.ui-card--waiting { border-inline-start: 4px solid var(--tone-waiting-border); }
+.ui-card--danger { border-inline-start: 4px solid var(--tone-danger-border); }
+.ui-card--done { border-inline-start: 4px solid var(--tone-done-border); }
+
+.ui-card__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
+}
+
+.ui-card__header--action-only {
+  justify-content: flex-end;
+}
+
+.ui-card__title {
+  margin: 0;
+  font-size: var(--type-md);
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+/* ---- Modal, Dialog, Sheet (4.3) ----------------------------------------- */
+.ui-modal-root {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-modal);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-5);
+}
+
+.ui-modal-backdrop {
+  position: absolute;
+  inset: 0;
+  background: var(--color-backdrop);
+}
+
+.ui-modal {
+  --ui-modal-width: 40rem;
+
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: min(100%, var(--ui-modal-width));
+  max-height: 100%;
+  background: var(--color-surface-raised);
+  color: var(--color-text);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-3);
+}
+
+.ui-modal--sm { --ui-modal-width: 28rem; }
+.ui-modal--lg { --ui-modal-width: 56rem; }
+
+.ui-modal__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-3) var(--space-3) var(--space-5);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.ui-modal__title {
+  margin: 0;
+  font-size: var(--type-lg);
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.ui-modal__body {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: var(--space-5);
+}
+
+.ui-modal__description {
+  margin: 0 0 var(--space-4);
+  color: var(--color-text-muted);
+}
+
+.ui-modal__footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-5);
+  border-top: 1px solid var(--color-border);
+}
+
+.ui-modal__discard {
+  background: var(--color-warning-bg);
+}
+
+.ui-modal__discard-text {
+  margin: 0 auto 0 0;
+  color: var(--color-warning-fg);
+  font-weight: 600;
+}
+
+/* Sheet: anchored to the bottom at every width. */
+.ui-modal-root:has(.ui-modal--sheet) {
+  align-items: flex-end;
+  padding: 0;
+}
+
+.ui-modal--sheet {
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+/* Phone: full-screen sheet, footer pinned, actions full width. */
+@media (width < 600px) {
+  .ui-modal-root {
+    padding: 0;
+  }
+
+  .ui-modal:not(.ui-modal--sheet) {
+    width: 100%;
+    height: 100%;
+    max-height: none;
+    border-radius: 0;
+  }
+
+  .ui-modal__footer {
+    flex-direction: column-reverse;
+    align-items: stretch;
+    padding-bottom: calc(var(--space-4) + env(safe-area-inset-bottom));
+  }
+
+  .ui-modal__discard-text {
+    margin: 0;
+  }
+}
+
+/* ---- Field (4.4) -------------------------------------------------------- */
+.ui-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin-bottom: var(--space-4);
+}
+
+.ui-field__label {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.ui-field__required {
+  font-size: var(--type-sm);
+  font-weight: 400;
+  color: var(--color-text-muted);
+}
+
+.ui-field__control {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: var(--touch-min);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-raised);
+  color: var(--color-text);
+  font-family: inherit;
+  font-size: var(--type-base);
+}
+
+textarea.ui-field__control {
+  resize: vertical;
+}
+
+.ui-field--invalid .ui-field__control {
+  border-color: var(--color-danger);
+  border-width: 2px;
+}
+
+.ui-field__affix {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.ui-field__suffix {
+  color: var(--color-text-muted);
+  font-weight: 600;
+}
+
+.ui-field__error {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-1);
+  margin: 0;
+  color: var(--color-danger);
+  font-size: var(--type-sm);
+  font-weight: 600;
+}
+
+.ui-field__help {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--type-sm);
+}
+
+/* ---- DataTable and ListCard (4.5) --------------------------------------- */
+.ui-table-scroll {
+  overflow-x: auto;
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.ui-table {
+  width: 100%;
+  border-collapse: collapse;
+  color: var(--color-text);
+}
+
+.ui-table__caption {
+  padding: var(--space-3) var(--space-4);
+  text-align: start;
+  font-weight: 600;
+}
+
+.ui-table th {
+  position: sticky;
+  top: 0;
+  padding: var(--space-2) var(--space-4);
+  background: var(--color-surface-sunken);
+  color: var(--color-text-muted);
+  font-size: var(--type-sm);
+  font-weight: 600;
+  text-align: start;
+  white-space: nowrap;
+}
+
+.ui-table th.ui-align-end {
+  text-align: end;
+}
+
+.ui-table td {
+  padding: var(--space-3) var(--space-4);
+  border-top: 1px solid var(--color-border);
+  vertical-align: middle;
+}
+
+.ui-table__sort {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-height: var(--touch-min);
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.ui-table__link {
+  color: var(--color-primary);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.ui-table__link:hover {
+  text-decoration: underline;
+}
+
+.ui-card-list {
+  display: none;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+@media (width < 600px) {
+  .ui-data-table .ui-table-scroll {
+    display: none;
+  }
+
+  .ui-data-table .ui-card-list {
+    display: grid;
+  }
+
+  .ui-hide-below-tablet {
+    display: none;
+  }
+}
+
+@media (width < 1024px) {
+  .ui-hide-below-desktop {
+    display: none;
+  }
+}
+
+.ui-list-card {
+  display: flex;
+  gap: var(--space-3);
+  min-height: var(--touch-min);
+  padding: var(--space-3) var(--space-4);
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  color: var(--color-text);
+  text-decoration: none;
+}
+
+.ui-list-card--link {
+  border-color: var(--color-border-strong);
+}
+
+@media (hover: hover) {
+  .ui-list-card--link:hover {
+    background: var(--color-surface-sunken);
+  }
+}
+
+.ui-list-card__thumb {
+  flex-shrink: 0;
+}
+
+.ui-list-card__main {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.ui-list-card__title {
+  font-weight: 600;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.ui-list-card__meta {
+  color: var(--color-text-muted);
+}
+
+.ui-list-card__badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.ui-list-card__details {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-4);
+}
+
+.ui-list-card__detail {
+  display: inline-flex;
+  gap: var(--space-1);
+}
+
+.ui-list-card__detail-label {
+  color: var(--color-text-muted);
+}
+
+/* ---- EmptyState (4.7) --------------------------------------------------- */
+.ui-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-7) var(--space-4);
+  text-align: center;
+  color: var(--color-text);
+}
+
+.ui-empty-state__icon {
+  width: var(--space-7);
+  height: var(--space-7);
+  color: var(--color-text-muted);
+}
+
+.ui-empty-state__title {
+  margin: 0;
+  font-size: var(--type-lg);
+  font-weight: 600;
+}
+
+.ui-empty-state__body {
+  max-width: 36rem;
+  margin: 0;
+  color: var(--color-text-muted);
+}
+
+.ui-empty-state__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--space-3);
+  margin-top: var(--space-3);
+}
+
+/* ---- PageState (4.8) ---------------------------------------------------- */
+.ui-skeleton {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.ui-skeleton__block {
+  height: var(--space-7);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-sunken);
+  animation: ui-pulse 1.4s ease-in-out infinite;
+}
+
+.ui-skeleton--detail .ui-skeleton__block {
+  height: var(--space-8);
+}
+
+.ui-skeleton--cards {
+  grid-template-columns: repeat(auto-fill, minmax(14rem, 1fr));
+}
+
+.ui-skeleton--cards .ui-skeleton__block {
+  height: var(--space-8);
+  border-radius: var(--radius-md);
+}
+
+@keyframes ui-pulse {
+  50% {
+    opacity: 0.5;
+  }
+}
+
+.ui-page-state--error {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  background: var(--color-danger-bg);
+  border-inline-start: 4px solid var(--tone-danger-border);
+  border-radius: var(--radius-md);
+  color: var(--color-danger-fg);
+}
+
+.ui-page-state__message {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  font-weight: 600;
+}
+
+.ui-page-state__message p {
+  margin: 0;
+}
+
+/* ---- PageHeader (4.10) -------------------------------------------------- */
+.ui-page-header {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-bottom: var(--space-5);
+}
+
+.ui-page-header__back {
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  gap: var(--space-1);
+  min-height: var(--touch-min);
+  color: var(--color-primary);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.ui-page-header__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+
+.ui-page-header__title {
+  margin: 0;
+  font-size: var(--type-xl);
+  font-weight: 600;
+  line-height: 1.2;
+  color: var(--color-text);
+  hyphens: auto;
+}
+
+.ui-page-header__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-1);
+  color: var(--color-text-muted);
+}
+
+.ui-page-header__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+/* Phone: the primary action becomes a sticky bottom bar. MainLayout's fixed
+ * tab bar (.main-tab-bar) also lives below 1024px, so this bar sits flush
+ * above it (--layout-tab-bar-height, layout.css) rather than at bottom: 0 —
+ * otherwise the two fixed bars overlap and the tab bar intercepts taps on
+ * the primary action (order/repair "Weiter" bars via PageHeader). The bar's
+ * own safe-area padding is dropped: it no longer touches the physical
+ * bottom edge, and --layout-tab-bar-height already folds
+ * env(safe-area-inset-bottom) in once (the tab bar reserves it below). */
+@media (width < 600px) {
+  .ui-page-header--sticky-primary .ui-page-header__primary {
+    position: fixed;
+    inset-inline: 0;
+    bottom: var(--layout-tab-bar-height);
+    z-index: var(--z-header);
+    padding: var(--space-3) var(--space-4);
+    background: var(--color-surface-raised);
+    border-top: 1px solid var(--color-border);
+    box-shadow: var(--shadow-2);
+  }
+
+  .ui-page-header--sticky-primary .ui-page-header__primary > * {
+    width: 100%;
+  }
+
+  main:has(.ui-page-header--sticky-primary) {
+    padding-bottom: calc(var(--touch-min) + var(--space-7) + var(--layout-tab-bar-height));
+  }
+}
+
+/* ---- Tabs and TabBar (4.11) --------------------------------------------- */
+.ui-tabs__list {
+  display: flex;
+  gap: var(--space-1);
+  overflow-x: auto;
+  border-bottom: 1px solid var(--color-border);
+  scrollbar-width: thin;
+}
+
+.ui-tabs__tab {
+  flex-shrink: 0;
+  min-height: var(--touch-min);
+  padding: 0 var(--space-4);
+  border: 0;
+  border-bottom: 3px solid transparent;
+  background: none;
+  color: var(--color-text-muted);
+  font-family: inherit;
+  font-size: var(--type-base);
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.ui-tabs__tab--selected {
+  border-bottom-color: var(--color-primary);
+  color: var(--color-text);
+  font-weight: 600;
+}
+
+@media (hover: hover) {
+  .ui-tabs__tab:not(.ui-tabs__tab--selected):hover {
+    color: var(--color-text);
+    background: var(--color-surface-sunken);
+  }
+}
+
+.ui-tabs__panel {
+  padding-top: var(--space-4);
+}
+
+.ui-tab-bar {
+  position: fixed;
+  inset-inline: 0;
+  bottom: 0;
+  z-index: var(--z-header);
+  background: var(--color-surface-raised);
+  border-top: 1px solid var(--color-border);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+/* Demo and documentation only: render the bar in the page flow. */
+.ui-tab-bar--static {
+  position: static;
+}
+
+.ui-tab-bar__list {
+  display: grid;
+  grid-auto-columns: 1fr;
+  grid-auto-flow: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ui-tab-bar__item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-1);
+  min-height: var(--touch-comfort);
+  color: var(--color-text-muted);
+  font-size: var(--type-sm);
+  font-weight: 500;
+  text-decoration: none;
+}
+
+.ui-tab-bar__item--active {
+  color: var(--color-primary);
+  font-weight: 600;
+  box-shadow: inset 0 3px 0 var(--color-primary);
+}
+
+.ui-tab-bar__item--prominent .ui-icon {
+  width: var(--space-6);
+  height: var(--space-6);
+  padding: var(--space-2);
+  border-radius: var(--radius-pill);
+  background: var(--color-primary);
+  color: var(--color-primary-contrast);
+}
+
+@media (width >= 1024px) {
+  .ui-tab-bar:not(.ui-tab-bar--static) {
+    display: none;
+  }
+}
+
+/* ---- DeadlineChip (3.2, 4.2) -------------------------------------------- */
+.ui-deadline-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 0 var(--space-2);
+  border: 1px solid transparent;
+  border-radius: var(--radius-pill);
+  font-size: var(--type-sm);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.6;
+  white-space: nowrap;
+}
+
+.ui-deadline-chip--lg {
+  font-size: var(--type-base);
+  padding: var(--space-1) var(--space-3);
+}
+
+.ui-deadline-chip--neutral {
+  color: var(--tone-neutral-fg);
+  background: var(--tone-neutral-bg);
+  border-color: var(--tone-neutral-border);
+}
+
+.ui-deadline-chip--waiting {
+  color: var(--tone-waiting-fg);
+  background: var(--tone-waiting-bg);
+  border-color: var(--tone-waiting-border);
+}
+
+.ui-deadline-chip--danger {
+  color: var(--tone-danger-fg);
+  background: var(--tone-danger-bg);
+  border-color: var(--tone-danger-border);
+  font-weight: 600;
+}
+
+.ui-deadline-chip--none {
+  color: var(--color-text-muted);
+  border: 1px dashed var(--color-border-strong);
+}
+
+/* ---- /dev/ui demo page layout (development only) ------------------------ */
+.ui-demo {
+  box-sizing: border-box;
+  max-width: 80rem;
+  margin: 0 auto;
+  padding: var(--space-5) var(--space-4);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+}
+
+.ui-demo__section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  margin-bottom: var(--space-7);
+}
+
+.ui-demo__heading {
+  margin: 0;
+  padding-bottom: var(--space-2);
+  border-bottom: 1px solid var(--color-border);
+  font-size: var(--type-lg);
+}
+
+.ui-demo__subheading {
+  margin: var(--space-3) 0 0;
+  font-size: var(--type-md);
+}
+
+.ui-demo__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.ui-demo__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(16rem, 100%), 1fr));
+  gap: var(--space-4);
+}
+
+/* Shared form hint (used by OrderFormModal and ConsentPanel; formerly lived in quotes.css). */
+.form-hint {
+  font-size: var(--type-sm);
+  color: var(--color-text-muted);
+  margin-top: var(--space-1);
+}
+
+/* Legacy button classes still used by CustomerDetailPage (.btn-pdf-download) and the
+   time-tracking / comments tabs (.btn-retry); their rules lived in page CSS that was
+   migrated. Styled like the secondary button until those call sites move to <Button>. */
+.btn-retry,
+.btn-pdf-download {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 44px;
+  padding: var(--space-2) var(--space-4);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-raised);
+  color: var(--color-text);
+  font: inherit;
+  cursor: pointer;
+}
+.btn-retry:hover,
+.btn-pdf-download:hover {
+  background: var(--color-surface-sunken);
+}
+
+/* ---- Dark theme: base elements (W4-05) ---------------------------------- */
+/* index.css paints root, form controls and tables with tokens (W4 phase 4),
+ * so only the OS-light "bare button" fill needs a dark override. :where()
+ * keeps specificity at (0,0,2) so every class still wins. */
+:where(:root.dark) body button {
+  background-color: transparent;
+}

@@ -199,7 +199,7 @@ export const AlloyMismatchModal: React.FC<
     if (!canSubmit || category === null) return;
     if (piiSignal) {
       setSubmitError(
-        'Begruendung enthält Kundennamen oder Kontakt. Bitte nur sachliche Angabe.',
+        'Begründung enthält Kundennamen oder Kontakt. Bitte nur sachliche Angabe.',
       );
       return;
     }
@@ -314,7 +314,7 @@ export const AlloyMismatchModal: React.FC<
             htmlFor="alloy-reason-textarea"
             className="alloy-reason__label"
           >
-            Begruendung (3–200 Zeichen, Pflicht)
+            Begründung (3–200 Zeichen, Pflicht)
           </label>
           <textarea
             id="alloy-reason-textarea"
@@ -334,7 +334,7 @@ export const AlloyMismatchModal: React.FC<
               className="alloy-reason__pii-hint"
               data-testid="alloy-pii-hint"
             >
-              Keine Kundennamen eingeben — nur sachliche Begruendung.
+              Keine Kundennamen eingeben — nur sachliche Begründung.
             </p>
             <span
               id="alloy-reason-counter"
@@ -352,7 +352,7 @@ export const AlloyMismatchModal: React.FC<
               data-testid="alloy-pii-warn"
             >
               Eingabe enthält möglicherweise Kundennamen oder Kontakt. Bitte
-              nur sachliche Begruendung.
+              nur sachliche Begründung.
             </p>
           ) : null}
         </div>
@@ -398,7 +398,7 @@ export const AlloyMismatchModal: React.FC<
             className="alloy-override-help"
             data-testid="alloy-override-help"
           >
-            Bitte Kategorie und Begruendung auswaehlen, um fortzufahren.
+            Bitte Kategorie und Begründung auswählen, um fortzufahren.
           </p>
         ) : null}
       </div>

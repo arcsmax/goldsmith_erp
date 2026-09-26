@@ -15,12 +15,15 @@ import io
 import logging
 import os
 import tempfile
+from datetime import date, datetime, timezone
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Mapping, Optional
 
 from fpdf import FPDF
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 from PIL import Image
+
+from goldsmith_erp.core.timeutil import DATE_FORMAT, format_local
 
 logger = logging.getLogger(__name__)
 
@@ -79,10 +82,13 @@ _FONT_B = "DejaVuBold"  # bold weight
 
 def _get_jinja_env() -> Environment:
     """Return a configured Jinja2 environment pointing at the templates dir."""
-    return Environment(
+    env = Environment(
         loader=FileSystemLoader(str(_TEMPLATES_DIR)),
         autoescape=select_autoescape(["html"]),
     )
+    # Documents show Europe/Berlin dates, never raw UTC (BE-15).
+    env.filters["local_date"] = _fmt_date
+    return env
 
 
 def _html_to_pdf_bytes(html_content: str, title: str = "Dokument") -> bytes:
@@ -212,198 +218,361 @@ class _GoldsmithPDF(FPDF):
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def _render_invoice_fpdf(
-    invoice: Any,
-    customer: Any,
-    line_items: list[Any],
-    workshop_name: str,
-    altgold_credit: float = 0.0,
-) -> bytes:
-    """Build an invoice PDF with fpdf2 and return raw bytes."""
+KLEINUNTERNEHMER_NOTE = "Gemäß § 19 UStG wird keine Umsatzsteuer berechnet."
+_HOME_COUNTRY = "Deutschland"
 
-    footer_text = f"{workshop_name}  |  Rechnung {invoice.invoice_number}"
-    pdf = _GoldsmithPDF(workshop_name=workshop_name, footer_text=footer_text)
 
-    # ── Page top: workshop name + RECHNUNG title ──────────────────────────────
+def _paragraph(pdf: "_GoldsmithPDF", text: str) -> None:
+    """Full-width wrapped text that returns to the left margin afterwards."""
+    pdf.set_x(pdf.l_margin)
+    pdf.multi_cell(0, 4.5, text, new_x="LMARGIN", new_y="NEXT")
+
+
+def _fmt_rate(rate: Any) -> str:
+    """VAT rate as German percent label: 19 -> '19 %', 7.5 -> '7,5 %'."""
+    try:
+        value = float(rate)
+    except (TypeError, ValueError):
+        return "0 %"
+    if value == int(value):
+        return f"{int(value)} %"
+    return f"{value:.1f}".replace(".", ",") + " %"
+
+
+def _place(postal_code: Any, city: Any) -> str:
+    return " ".join(part for part in (_safe_str(postal_code), _safe_str(city)) if part)
+
+
+def _seller_address_lines(seller: Mapping[str, Any]) -> list[str]:
+    """§14 Abs. 4 Nr. 1 UStG: the seller's full name and address."""
+    lines = []
+    if seller.get("owner_name"):
+        lines.append(f"Inhaber/in: {seller['owner_name']}")
+    lines.append(_safe_str(seller.get("street")))
+    lines.append(_place(seller.get("postal_code"), seller.get("city")))
+    country = _safe_str(seller.get("country"))
+    if country and country != _HOME_COUNTRY:
+        lines.append(country)
+    if seller.get("phone"):
+        lines.append(f"Tel. {seller['phone']}")
+    if seller.get("email"):
+        lines.append(_safe_str(seller.get("email")))
+    if not seller.get("street") and seller.get("contact"):
+        lines.append(_safe_str(seller.get("contact")))
+    return [line for line in lines if line]
+
+
+def _seller_tax_lines(seller: Mapping[str, Any]) -> list[str]:
+    """§14 Abs. 4 Nr. 2 UStG: Steuernummer or USt-IdNr. (both if set)."""
+    lines = []
+    if seller.get("tax_number"):
+        lines.append(f"Steuernummer: {seller['tax_number']}")
+    if seller.get("vat_id"):
+        lines.append(f"USt-IdNr.: {seller['vat_id']}")
+    return lines
+
+
+def _recipient_lines(customer: Any) -> list[str]:
+    lines = [
+        _safe_str(getattr(customer, "company_name", None)),
+        _safe_str(getattr(customer, "address", None)),
+        _safe_str(getattr(customer, "city", None)),
+    ]
+    country = _safe_str(getattr(customer, "country", None))
+    if country and country != _HOME_COUNTRY:
+        lines.append(country)
+    return [line for line in lines if line]
+
+
+def _is_storno(invoice: Any) -> bool:
+    return bool(getattr(invoice, "cancels_invoice_number", None))
+
+
+def _draw_invoice_header(
+    pdf: "_GoldsmithPDF", invoice: Any, workshop_name: str
+) -> None:
     pdf.set_font(_FONT_B, "", 18)
     pdf.set_text_color(*_GOLD)
     pdf.cell(110, 10, workshop_name)
-
-    pdf.set_font(_FONT_B, "", 22)
+    pdf.set_font(_FONT_B, "", 20)
     pdf.set_text_color(60, 60, 60)
-    pdf.cell(0, 10, "RECHNUNG", align="R", ln=True)
-
-    pdf.set_font(_FONT, "", 8)
-    pdf.set_text_color(*_GRAY)
-    pdf.cell(110, 5, "Goldschmiede & Atelier")
+    title = "STORNORECHNUNG" if _is_storno(invoice) else "RECHNUNG"
+    pdf.cell(0, 10, title, align="R", ln=True)
     pdf.set_font(_FONT_B, "", 10)
     pdf.set_text_color(*_GOLD)
     pdf.cell(0, 5, invoice.invoice_number, align="R", ln=True)
     pdf.set_text_color(*_DARK)
-
     pdf.gold_rule()
     pdf.ln(4)
 
-    # ── Address columns ───────────────────────────────────────────────────────
+
+def _draw_column(
+    pdf: "_GoldsmithPDF", x: float, label: str, name: str, lines: list[str]
+) -> None:
+    pdf.set_x(x)
+    pdf.set_font(_FONT_B, "", 7)
+    pdf.set_text_color(*_GRAY)
+    pdf.cell(90, 4, label, ln=True)
+    pdf.set_text_color(*_DARK)
+    pdf.set_x(x)
+    pdf.set_font(_FONT_B, "", 10)
+    pdf.cell(90, 5, name, ln=True)
+    pdf.set_font(_FONT, "", 9)
+    for line in lines:
+        pdf.set_x(x)
+        pdf.cell(90, 4.5, line, ln=True)
+
+
+def _draw_address_block(
+    pdf: "_GoldsmithPDF",
+    seller: Mapping[str, Any],
+    customer: Any,
+    workshop_name: str,
+) -> None:
     x_left = pdf.get_x()
-    y_addr = pdf.get_y()
-
-    # Left column: workshop (Rechnungssteller)
-    pdf.set_xy(x_left, y_addr)
-    pdf.set_font(_FONT_B, "", 7)
-    pdf.set_text_color(*_GRAY)
-    pdf.cell(90, 4, "RECHNUNGSSTELLER", ln=True)
-    pdf.set_text_color(*_DARK)
-    pdf.set_font(_FONT_B, "", 10)
-    pdf.cell(90, 5, workshop_name, ln=True)
-    pdf.set_font(_FONT, "", 9)
-
-    # Right column: customer (Rechnungsempfänger)
-    pdf.set_xy(x_left + 100, y_addr)
-    pdf.set_font(_FONT_B, "", 7)
-    pdf.set_text_color(*_GRAY)
-    pdf.cell(90, 4, "RECHNUNGSEMPFÄNGER", ln=True)
-    cust_y = pdf.get_y()
-    pdf.set_xy(x_left + 100, cust_y)
-    pdf.set_text_color(*_DARK)
-
-    customer_name = _safe_str(getattr(customer, "name", "Kunde"))
-    pdf.set_font(_FONT_B, "", 10)
-    pdf.cell(90, 5, customer_name, ln=True)
-    pdf.set_xy(x_left + 100, pdf.get_y())
-    pdf.set_font(_FONT, "", 9)
-
-    for attr in ("address", "city", "email", "phone"):
-        val = _safe_str(getattr(customer, attr, None))
-        if val:
-            pdf.set_xy(x_left + 100, pdf.get_y())
-            pdf.cell(90, 4.5, val, ln=True)
-
-    # Move below address block
-    pdf.set_y(max(pdf.get_y(), y_addr + 28))
+    y_top = pdf.get_y()
+    seller_lines = _seller_address_lines(seller) + _seller_tax_lines(seller)
+    _draw_column(pdf, x_left, "RECHNUNGSSTELLER", workshop_name, seller_lines)
+    y_seller_end = pdf.get_y()
+    pdf.set_xy(x_left + 100, y_top)
+    customer_name = _safe_str(getattr(customer, "name", "")) or "Kunde"
+    _draw_column(
+        pdf,
+        x_left + 100,
+        "RECHNUNGSEMPFÄNGER",
+        customer_name,
+        _recipient_lines(customer),
+    )
+    pdf.set_xy(x_left, max(pdf.get_y(), y_seller_end, y_top + 28))
     pdf.ln(4)
 
-    # ── Invoice meta (right-aligned table) ───────────────────────────────────
-    meta: list[tuple[str, str]] = [
-        ("Rechnungsdatum:", _fmt_date(invoice.issue_date)),
-        ("Fälligkeitsdatum:", _fmt_date(invoice.due_date)),
-        ("Auftragsnummer:", str(invoice.order_id)),
-    ]
-    if getattr(invoice, "payment_method", None):
-        meta.append(("Zahlungsart:", str(invoice.payment_method)))
 
-    for label, value in meta:
+def _invoice_meta_rows(invoice: Any) -> list[tuple[str, str]]:
+    service_date = getattr(invoice, "service_date", None) or invoice.issue_date
+    rows = [
+        ("Rechnungsnummer:", invoice.invoice_number),
+        ("Rechnungsdatum:", _fmt_date(invoice.issue_date)),
+        ("Leistungsdatum:", _fmt_date(service_date)),
+    ]
+    if not _is_storno(invoice):
+        rows.append(("Fälligkeitsdatum:", _fmt_date(invoice.due_date)))
+    reference = getattr(invoice, "reference", None)
+    if reference:
+        label = getattr(invoice, "reference_label", None) or "Auftragsnummer:"
+        rows.append((label, str(reference)))
+    else:
+        rows.append(("Auftragsnummer:", str(invoice.order_id)))
+    if getattr(invoice, "payment_method", None):
+        rows.append(("Zahlungsart:", str(invoice.payment_method)))
+    return rows
+
+
+def _draw_invoice_meta(pdf: "_GoldsmithPDF", invoice: Any) -> None:
+    if _is_storno(invoice):
+        original_date = _fmt_date(getattr(invoice, "cancels_invoice_date", None))
+        text = f"Storno zur Rechnung {invoice.cancels_invoice_number}"
+        if original_date:
+            text += f" vom {original_date}"
+        pdf.set_font(_FONT_B, "", 10)
+        pdf.cell(0, 6, text, ln=True)
+        reason = _safe_str(getattr(invoice, "storno_reason", None))
+        if reason:
+            pdf.set_font(_FONT, "", 9)
+            _paragraph(pdf, f"Grund: {reason[:300]}")
+        pdf.ln(2)
+    for label, value in _invoice_meta_rows(invoice):
         pdf.set_font(_FONT, "", 9)
         pdf.set_text_color(*_GRAY)
         pdf.cell(155, 4.5, label, align="R")
         pdf.set_text_color(*_DARK)
         pdf.set_font(_FONT_B, "", 9)
         pdf.cell(0, 4.5, value, align="R", ln=True)
-
     pdf.ln(5)
 
-    # ── Line items table ──────────────────────────────────────────────────────
-    col_pos = 12
-    col_desc = 88
-    col_qty = 22
-    col_unit = 28
-    col_total = 28
 
+def _draw_line_items(pdf: "_GoldsmithPDF", line_items: list[Any]) -> None:
+    """§14 Abs. 4 Nr. 5 UStG: quantity and kind of each delivery/service."""
+    widths = (12, 78, 18, 36, 34)
     pdf.filled_header_row(
         [
-            ("Pos.", col_pos, "C"),
-            ("Beschreibung", col_desc, "L"),
-            ("Menge", col_qty, "R"),
-            ("Einzelpreis", col_unit, "R"),
-            ("Gesamtpreis", col_total, "R"),
+            ("Pos.", widths[0], "C"),
+            ("Beschreibung", widths[1], "L"),
+            ("Menge", widths[2], "R"),
+            ("Einzelpreis netto", widths[3], "R"),
+            ("Gesamt netto", widths[4], "R"),
         ]
     )
-
     for i, item in enumerate(line_items):
-        even = i % 2 == 0
         pdf.table_data_row(
             [
-                (str(i + 1), col_pos, "C"),
-                (_safe_str(item.description)[:65], col_desc, "L"),
-                (_fmt_num(item.quantity), col_qty, "R"),
-                (_fmt_eur(item.unit_price), col_unit, "R"),
-                (_fmt_eur(item.total), col_total, "R"),
+                (str(i + 1), widths[0], "C"),
+                (_safe_str(item.description)[:65], widths[1], "L"),
+                (_fmt_num(item.quantity), widths[2], "R"),
+                (_fmt_eur(item.unit_price), widths[3], "R"),
+                (_fmt_eur(item.total), widths[4], "R"),
             ],
-            even=even,
+            even=i % 2 == 0,
         )
-
-    # Divider below table
     pdf.set_draw_color(180, 180, 180)
     pdf.line(10, pdf.get_y(), 200, pdf.get_y())
     pdf.set_draw_color(0, 0, 0)
     pdf.ln(4)
 
-    # ── Totals (right-aligned) ────────────────────────────────────────────────
-    label_w = 140
-    value_w = 38
 
-    def _total_row(
-        label: str, value: str, bold: bool = False, gold_bg: bool = False
-    ) -> None:
-        if gold_bg:
-            pdf.set_fill_color(*_GOLD)
-            pdf.set_text_color(255, 255, 255)
-            pdf.set_font(_FONT_B, "", 11)
-        else:
-            pdf.set_fill_color(255, 255, 255)
-            pdf.set_text_color(*(_DARK if bold else _GRAY))
-            pdf.set_font(_FONT_B if bold else _FONT, "", 9)
-        pdf.cell(label_w, 6, label, fill=gold_bg)
-        pdf.cell(value_w, 6, value, align="R", fill=gold_bg, ln=True)
-        pdf.set_text_color(*_DARK)
+def _total_row(
+    pdf: "_GoldsmithPDF", label: str, value: str, highlight: bool = False
+) -> None:
+    if highlight:
+        pdf.set_fill_color(*_GOLD)
+        pdf.set_text_color(255, 255, 255)
+        pdf.set_font(_FONT_B, "", 11)
+    else:
         pdf.set_fill_color(255, 255, 255)
-
-    _total_row("Zwischensumme (netto):", _fmt_eur(invoice.subtotal))
-
-    if altgold_credit > 0:
-        pdf.set_text_color(*_GOLD)
+        pdf.set_text_color(*_GRAY)
         pdf.set_font(_FONT, "", 9)
-        pdf.cell(label_w, 5, "Gutschrift Altgold:")
-        pdf.cell(value_w, 5, f"–{_fmt_eur(altgold_credit)}", align="R", ln=True)
-        pdf.set_text_color(*_DARK)
+    pdf.cell(140, 6, label, fill=highlight)
+    pdf.cell(38, 6, value, align="R", fill=highlight, ln=True)
+    pdf.set_text_color(*_DARK)
+    pdf.set_fill_color(255, 255, 255)
 
-    _total_row(
-        f"MwSt {invoice.tax_rate:.0f}%:",
-        _fmt_eur(invoice.tax_amount),
-    )
-    _total_row("Gesamtbetrag:", _fmt_eur(invoice.total), gold_bg=True)
+
+def _draw_invoice_totals(
+    pdf: "_GoldsmithPDF", invoice: Any, is_kleinunternehmer: bool, altgold_credit: float
+) -> None:
+    """§14 Abs. 4 Nr. 7/8 UStG: net per rate, rate, VAT amount, gross."""
+    if is_kleinunternehmer:
+        _total_row(pdf, "Gesamtbetrag:", _fmt_eur(invoice.total), highlight=True)
+        pdf.set_font(_FONT, "", 9)
+        _paragraph(pdf, KLEINUNTERNEHMER_NOTE)
+    else:
+        rate = _fmt_rate(invoice.tax_rate)
+        _total_row(pdf, f"Nettobetrag {rate}:", _fmt_eur(invoice.subtotal))
+        _total_row(pdf, f"Umsatzsteuer {rate}:", _fmt_eur(invoice.tax_amount))
+        _total_row(
+            pdf, "Gesamtbetrag (brutto):", _fmt_eur(invoice.total), highlight=True
+        )
+    if altgold_credit > 0:
+        # Post-tax deduction (ADR 2026-09-25, BE-03): not part of the VAT base.
+        amount_due = float(invoice.total) - altgold_credit
+        _total_row(pdf, "abzüglich Gutschrift Altgold:", f"–{_fmt_eur(altgold_credit)}")
+        _total_row(pdf, "Zahlbetrag:", _fmt_eur(amount_due))
     pdf.ln(4)
 
-    # ── Notes ─────────────────────────────────────────────────────────────────
-    notes = _safe_str(getattr(invoice, "notes", None))
-    if notes:
-        pdf.set_fill_color(*_LIGHT_GOLD_BG)
-        pdf.set_draw_color(*_GOLD)
-        pdf.set_line_width(0.5)
-        y_note = pdf.get_y()
-        # Left gold border bar
-        pdf.rect(10, y_note, 2, 14, style="F")
-        pdf.set_x(15)
-        pdf.set_font(_FONT_B, "", 7.5)
-        pdf.set_text_color(*_GOLD)
-        pdf.cell(0, 5, "HINWEISE", ln=True)
-        pdf.set_x(15)
-        pdf.set_font(_FONT, "", 9)
-        pdf.set_text_color(*_DARK)
-        pdf.multi_cell(175, 4.5, notes[:400])
-        pdf.ln(2)
 
-    # ── Payment instruction ───────────────────────────────────────────────────
+def _draw_invoice_notes(pdf: "_GoldsmithPDF", notes: str) -> None:
+    pdf.set_fill_color(*_LIGHT_GOLD_BG)
+    pdf.set_draw_color(*_GOLD)
+    pdf.set_line_width(0.5)
+    pdf.rect(10, pdf.get_y(), 2, 14, style="F")
+    pdf.set_x(15)
+    pdf.set_font(_FONT_B, "", 7.5)
+    pdf.set_text_color(*_GOLD)
+    pdf.cell(0, 5, "HINWEISE", ln=True)
+    pdf.set_x(15)
+    pdf.set_font(_FONT, "", 9)
+    pdf.set_text_color(*_DARK)
+    pdf.multi_cell(175, 4.5, notes[:400])
+    pdf.ln(2)
+
+
+def _draw_gemstones(pdf: "_GoldsmithPDF", gemstones: Optional[list[Any]]) -> None:
+    """W2-06 (DOM-04): the stones of the piece, one German line each.
+
+    Description only (type, count, ct, colour/clarity, shape, Fassungsart,
+    Kundenstein); never the purchase cost, which is internal data.
+    """
+    if not gemstones:
+        return
+    from goldsmith_erp.models.gemstone import describe_gemstone  # noqa: PLC0415
+
+    pdf.ln(2)
+    pdf.section_title("Steine")
+    pdf.set_font(_FONT, "", 9)
+    pdf.set_text_color(*_DARK)
+    for stone in gemstones:
+        pdf.set_x(pdf.l_margin)
+        pdf.multi_cell(
+            pdf.w - pdf.l_margin - pdf.r_margin,
+            4.5,
+            f"• {describe_gemstone(stone)}"[:300],
+        )
+    pdf.ln(2)
+
+
+def _bank_line(seller: Mapping[str, Any]) -> str:
+    parts = [
+        _safe_str(seller.get("bank_name")),
+        f"IBAN {seller['iban']}" if seller.get("iban") else "",
+        f"BIC {seller['bic']}" if seller.get("bic") else "",
+    ]
+    text = ", ".join(part for part in parts if part)
+    return f"Bankverbindung: {text}" if seller.get("iban") else ""
+
+
+def _draw_payment_block(
+    pdf: "_GoldsmithPDF",
+    invoice: Any,
+    seller: Mapping[str, Any],
+    altgold_credit: float,
+) -> None:
     pdf.set_font(_FONT, "", 9)
     pdf.set_text_color(*_GRAY)
-    payment_text = (
-        f"Bitte überweisen Sie den Gesamtbetrag von {_fmt_eur(invoice.total)} "
-        f"bis zum {_fmt_date(invoice.due_date)}. "
-        f"Verwendungszweck: {invoice.invoice_number}"
-    )
-    pdf.multi_cell(0, 4.5, payment_text)
+    amount_due = float(invoice.total) - altgold_credit
+    if _is_storno(invoice):
+        _paragraph(
+            pdf,
+            f"Diese Stornorechnung hebt die Rechnung {invoice.cancels_invoice_number} "
+            "auf. Bereits gezahlte Beträge werden erstattet.",
+        )
+    elif amount_due > 0:
+        _paragraph(
+            pdf,
+            f"Bitte überweisen Sie den Betrag von {_fmt_eur(amount_due)} "
+            f"bis zum {_fmt_date(invoice.due_date)}. "
+            f"Verwendungszweck: {invoice.invoice_number}",
+        )
+    bank = _bank_line(seller)
+    if bank:
+        _paragraph(pdf, bank)
+    footer = _safe_str(seller.get("invoice_footer"))
+    if footer:
+        pdf.ln(2)
+        _paragraph(pdf, footer[:1000])
     pdf.set_text_color(*_DARK)
 
+
+def _render_invoice_fpdf(
+    invoice: Any,
+    customer: Any,
+    line_items: list[Any],
+    workshop_name: str,
+    altgold_credit: float = 0.0,
+    seller: Optional[Mapping[str, Any]] = None,
+    gemstones: Optional[list[Any]] = None,
+) -> bytes:
+    """Build a §14 Abs. 4 UStG complete invoice PDF with fpdf2 (W2-04)."""
+    seller_data: Mapping[str, Any] = seller or {"name": workshop_name}
+    kind = "Stornorechnung" if _is_storno(invoice) else "Rechnung"
+    footer_text = f"{workshop_name}  |  {kind} {invoice.invoice_number}"
+    pdf = _GoldsmithPDF(workshop_name=workshop_name, footer_text=footer_text)
+
+    _draw_invoice_header(pdf, invoice, workshop_name)
+    _draw_address_block(pdf, seller_data, customer, workshop_name)
+    _draw_invoice_meta(pdf, invoice)
+    _draw_line_items(pdf, line_items)
+    _draw_invoice_totals(
+        pdf,
+        invoice,
+        bool(seller_data.get("is_kleinunternehmer")),
+        max(float(altgold_credit or 0.0), 0.0),
+    )
+    notes = _safe_str(getattr(invoice, "notes", None))
+    if notes:
+        _draw_invoice_notes(pdf, notes)
+    _draw_gemstones(pdf, gemstones)
+    _draw_payment_block(
+        pdf, invoice, seller_data, max(float(altgold_credit or 0.0), 0.0)
+    )
     return bytes(pdf.output())
 
 
@@ -609,13 +778,12 @@ def _render_scrap_gold_fpdf(
 
 
 def _fmt_date(dt: Any) -> str:
-    """Format a datetime as German dd.mm.YYYY."""
+    """Format as German dd.mm.YYYY; datetimes in Europe/Berlin (BE-15)."""
     if dt is None:
         return ""
-    try:
-        return dt.strftime("%d.%m.%Y")
-    except AttributeError:
-        return str(dt)
+    if isinstance(dt, (datetime, date)):
+        return format_local(dt, DATE_FORMAT, empty="")
+    return str(dt)
 
 
 def _fmt_eur(value: Any) -> str:
@@ -657,6 +825,7 @@ def _render_quote_fpdf(
     customer: Any,
     line_items: list[Any],
     workshop_name: str,
+    gemstones: Optional[list[Any]] = None,
 ) -> bytes:
     """Build a Kostenvoranschlag PDF with fpdf2 and return raw bytes."""
     import base64
@@ -818,6 +987,8 @@ def _render_quote_fpdf(
         pdf.set_text_color(*_DARK)
         pdf.multi_cell(175, 4.5, notes[:400])
         pdf.ln(2)
+
+    _draw_gemstones(pdf, gemstones)
 
     # ── Signature line ────────────────────────────────────────────────────────
     pdf.ln(6)
@@ -1304,9 +1475,19 @@ class PDFService:
         line_items: list[Any],
         workshop_name: str,
         altgold_credit: float = 0.0,
+        seller: Optional[Mapping[str, Any]] = None,
+        gemstones: Optional[list[Any]] = None,
     ) -> bytes:
         """
-        Render a German Rechnung as PDF.
+        Render a German Rechnung (or Stornorechnung) as PDF.
+
+        W2-06: ``gemstones`` (optional) prints a "Steine" block with the
+        description of every stone (no purchase cost).
+
+        W2-04: ``seller`` is the Werkstatt-Stammdaten block from the invoice
+        snapshot; with it the PDF carries every §14 Abs. 4 UStG element
+        (seller address + Steuernummer/USt-IdNr., Leistungsdatum, net per
+        rate, VAT, gross, or the §19 UStG note for a Kleinunternehmer).
 
         Args:
             invoice:        InvoiceResponse-like object (invoice_number, issue_date,
@@ -1331,6 +1512,8 @@ class PDFService:
             line_items=line_items,
             workshop_name=workshop_name,
             altgold_credit=altgold_credit,
+            seller=seller,
+            gemstones=gemstones,
         )
 
     @staticmethod
@@ -1374,9 +1557,12 @@ class PDFService:
         customer: Any,
         line_items: list[Any],
         workshop_name: str,
+        gemstones: Optional[list[Any]] = None,
     ) -> bytes:
         """
         Render a German Kostenvoranschlag as PDF.
+
+        W2-06: ``gemstones`` (optional) prints a "Steine" block.
 
         Args:
             quote:         QuoteResponse-like object (quote_number, created_at,
@@ -1399,6 +1585,7 @@ class PDFService:
             customer=customer,
             line_items=line_items,
             workshop_name=workshop_name,
+            gemstones=gemstones,
         )
 
     @staticmethod
@@ -1432,6 +1619,39 @@ class PDFService:
             customer=customer,
             workshop_name=workshop_name,
         )
+
+    @staticmethod
+    def render_ankaufsbuch_pdf(
+        rows: list[Any], date_from: Any, date_to: Any, workshop_name: str
+    ) -> bytes:
+        """W2-16: Ankaufsbuch Altgold for a period (see services/pdf_reports.py)."""
+        from goldsmith_erp.services.pdf_reports import (  # noqa: PLC0415
+            render_ankaufsbuch_pdf,
+        )
+
+        logger.info("Rendering Ankaufsbuch PDF", extra={"row_count": len(rows)})
+        return render_ankaufsbuch_pdf(rows, date_from, date_to, workshop_name)
+
+    @staticmethod
+    def render_handover_pdf(
+        data: Any, workshop_name: str, care_text: Optional[str] = None
+    ) -> bytes:
+        """W2-11: Abholprotokoll for a delivered order (services/pdf_reports.py).
+
+        ``care_text``: the workshop's own Pflegehinweise default (Werkstatt-
+        Stammdaten, W7 followup); falls back to the built-in per-metal/stone
+        text (``care_texts()``) in ``pdf_reports.py`` when empty.
+        """
+        from dataclasses import replace  # noqa: PLC0415
+
+        from goldsmith_erp.services.pdf_reports import (  # noqa: PLC0415
+            render_handover_pdf,
+        )
+
+        logger.info("Rendering handover PDF", extra={"order_id": data.order_id})
+        if care_text:
+            data = replace(data, care_text=care_text)
+        return render_handover_pdf(data, workshop_name)
 
     @staticmethod
     def render_customer_update_pdf(
@@ -1481,3 +1701,422 @@ class PDFService:
             photos=photos,
             workshop_name=workshop_name,
         )
+
+    @staticmethod
+    def render_status_report_pdf(data: Any) -> bytes:
+        """W6 / DOM section D: customer-facing "Statusbericht" PDF.
+
+        Args:
+            data: a ``status_report_service.StatusReportData`` (reference,
+                title, metal_label, gemstones, events, photos, next_steps,
+                customer_name, workshop).
+
+        Returns:
+            Raw PDF bytes. Caller streams via ``Response``/``StreamingResponse``.
+        """
+        # data.reference may carry the order's free-text title (business-
+        # confidential per CLAUDE.md) — never logged, counts only.
+        logger.info(
+            "Rendering status report PDF",
+            extra={
+                "photo_count": len(getattr(data, "photos", []) or []),
+                "event_count": len(getattr(data, "events", []) or []),
+            },
+        )
+        return _render_status_report_fpdf(data)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Annahmeschein (repair intake receipt, W2-12 / DOM-08)
+# ─────────────────────────────────────────────────────────────────────────────
+
+_ANNAHME_ITEM_TYPE_LABELS = {
+    "ring": "Ring",
+    "chain": "Kette",
+    "bracelet": "Armband",
+    "earring": "Ohrringe",
+    "watch": "Uhr",
+    "brooch": "Brosche",
+    "other": "Sonstiges",
+}
+_ANNAHME_CHECK_LABELS = {"photo": "Foto", "na": "entfällt", "open": "offen"}
+_ANNAHME_THUMB_W_MM = 42.0
+_ANNAHME_THUMB_MAX_H_MM = 42.0
+_ANNAHME_THUMB_GAP_MM = 4.0
+_ANNAHME_THUMBS_PER_ROW = 4
+_ANNAHME_SIGNATURE_BOX = (10.0, 60.0, 25.0)  # x, width, height in mm
+_ANNAHME_TERMS_MIN_SPACE_MM = 40.0
+_ANNAHME_PRICE_NOTE = (
+    "Die Preisindikation ist unverbindlich. Den verbindlichen "
+    "Kostenvoranschlag erhalten Sie nach der Diagnose."
+)
+# DRAFT wording, to be confirmed by the workshop owner (see W2-12 report).
+_ANNAHME_STONE_CLAUSE = (
+    "Haftung für Steine: Bei der Bearbeitung können sich Steine lösen oder "
+    "beschädigt werden (z. B. durch Spannungen, Einschlüsse oder Vorschäden). "
+    "Dafür übernehmen wir keine Haftung, außer bei Vorsatz oder grober "
+    "Fahrlässigkeit."
+)
+_ANNAHME_PICKUP_NOTE = (
+    "Bitte bringen Sie diesen Annahmeschein zur Abholung mit. Die Tütennummer "
+    "identifiziert Ihr Stück in der Werkstatt."
+)
+
+
+def _annahme_item_type(repair: Any) -> str:
+    raw = getattr(getattr(repair, "item_type", None), "value", None)
+    raw = raw or _safe_str(getattr(repair, "item_type", None))
+    return _ANNAHME_ITEM_TYPE_LABELS.get(raw, raw)
+
+
+def _annahme_header(
+    pdf: "_GoldsmithPDF", repair: Any, workshop: Mapping[str, Any]
+) -> None:
+    name = _safe_str(workshop.get("name")) or "Goldschmiede"
+    pdf.set_font(_FONT_B, "", 15)
+    pdf.set_text_color(*_GOLD)
+    pdf.cell(110, 9, name)
+    pdf.set_font(_FONT_B, "", 13)
+    pdf.set_text_color(*_DARK)
+    pdf.cell(0, 9, "Annahmeschein", align="R", ln=True)
+    pdf.set_font(_FONT, "", 8.5)
+    pdf.set_text_color(*_GRAY)
+    for line in _seller_address_lines(workshop):
+        pdf.cell(0, 4, line, ln=True)
+    pdf.set_text_color(*_DARK)
+    pdf.ln(2)
+    pdf.gold_rule()
+    pdf.ln(3)
+    pdf.kv_row("Reparaturnummer", _safe_str(repair.repair_number))
+    pdf.kv_row("Tütennummer", _safe_str(repair.bag_number))
+    pdf.kv_row("Angenommen am", _fmt_date(getattr(repair, "created_at", None)))
+    promised = _fmt_date(getattr(repair, "estimated_completion_date", None))
+    pdf.kv_row("Zugesagt bis", promised or "wird mitgeteilt")
+    pdf.ln(3)
+
+
+def _annahme_customer(pdf: "_GoldsmithPDF", customer: Any) -> None:
+    pdf.section_title("Kundin/Kunde")
+    if customer is None:
+        pdf.kv_row("Name", "Laufkundschaft (nicht erfasst)")
+        pdf.ln(2)
+        return
+    first = _safe_str(getattr(customer, "first_name", None))
+    last = _safe_str(getattr(customer, "last_name", None))
+    pdf.kv_row("Name", f"{first} {last}".strip())
+    phone = _safe_str(getattr(customer, "phone", None)) or _safe_str(
+        getattr(customer, "mobile", None)
+    )
+    if phone:
+        pdf.kv_row("Telefon", phone)
+    pdf.ln(2)
+
+
+def _annahme_piece(pdf: "_GoldsmithPDF", repair: Any, include_price: bool) -> None:
+    pdf.section_title("Schmuckstück")
+    pdf.kv_row("Art", _annahme_item_type(repair))
+    if getattr(repair, "metal_type", None):
+        pdf.kv_row("Metall", _safe_str(repair.metal_type))
+    pdf.set_font(_FONT, "", 9)
+    _paragraph(pdf, _safe_str(getattr(repair, "item_description", None)))
+    pdf.ln(2)
+    if include_price and getattr(repair, "estimated_cost", None) is not None:
+        pdf.kv_row("Preisindikation", _fmt_eur(repair.estimated_cost))
+        pdf.set_font(_FONT, "", 8)
+        pdf.set_text_color(*_GRAY)
+        _paragraph(pdf, _ANNAHME_PRICE_NOTE)
+        pdf.set_text_color(*_DARK)
+        pdf.ln(2)
+
+
+def _annahme_checklist(pdf: "_GoldsmithPDF", repair: Any) -> None:
+    items = getattr(repair, "intake_checklist", None) or []
+    if not items:
+        return
+    pdf.section_title("Eingangs-Checkliste")
+    for item in items:
+        status = _ANNAHME_CHECK_LABELS.get(item.get("status", "open"), "offen")
+        if item.get("status") == "na" and item.get("na_reason"):
+            status = f"{status}: {item['na_reason']}"
+        pdf.kv_row(_safe_str(item.get("label")), status, label_w=75)
+    pdf.ln(2)
+
+
+def _annahme_thumb_size(photo: bytes) -> Optional[tuple[float, float]]:
+    try:
+        with Image.open(io.BytesIO(photo)) as img:
+            w_px, h_px = img.size
+    except Exception:
+        logger.warning("Could not read Annahmeschein photo", exc_info=True)
+        return None
+    if w_px <= 0 or h_px <= 0:
+        return None
+    h_mm = min(_ANNAHME_THUMB_W_MM * h_px / w_px, _ANNAHME_THUMB_MAX_H_MM)
+    return h_mm * w_px / h_px, h_mm
+
+
+def _annahme_photos(pdf: "_GoldsmithPDF", photos: list[bytes]) -> None:
+    """Thumbnails in rows of four; unreadable photos are skipped and logged."""
+    if not photos:
+        return
+    pdf.section_title(f"Zustand bei Annahme: Fotos ({len(photos)})")
+    x, row_h, col = pdf.l_margin, 0.0, 0
+    for photo in photos:
+        size = _annahme_thumb_size(photo)
+        if size is None:
+            continue
+        w_mm, h_mm = size
+        bottom = pdf.get_y() + _ANNAHME_THUMB_MAX_H_MM
+        if col == 0 and bottom > pdf.page_break_trigger:
+            pdf.add_page()
+        rect = (x, pdf.get_y(), w_mm, h_mm)
+        try:
+            _embed_image_bytes(pdf, photo, rect, suffix=".jpg")
+        except Exception:
+            logger.warning("Could not embed Annahmeschein photo", exc_info=True)
+            continue
+        row_h, col = max(row_h, h_mm), col + 1
+        x += _ANNAHME_THUMB_W_MM + _ANNAHME_THUMB_GAP_MM
+        if col == _ANNAHME_THUMBS_PER_ROW:
+            pdf.set_y(pdf.get_y() + row_h + _ANNAHME_THUMB_GAP_MM)
+            x, row_h, col = pdf.l_margin, 0.0, 0
+    if col:
+        pdf.set_y(pdf.get_y() + row_h + _ANNAHME_THUMB_GAP_MM)
+
+
+def _annahme_terms_and_signature(
+    pdf: "_GoldsmithPDF", signature_png: Optional[bytes]
+) -> None:
+    x, width, height = _ANNAHME_SIGNATURE_BOX
+    if pdf.get_y() + height + _ANNAHME_TERMS_MIN_SPACE_MM > pdf.page_break_trigger:
+        pdf.add_page()
+    pdf.section_title("Bedingungen")
+    pdf.set_font(_FONT, "", 8.5)
+    _paragraph(pdf, _ANNAHME_STONE_CLAUSE)
+    _paragraph(pdf, _ANNAHME_PICKUP_NOTE)
+    pdf.ln(4)
+    top = pdf.get_y()
+    if signature_png:
+        _embed_png_signature(pdf, signature_png, (x, top, width, height))
+    line_y = top + height + 1
+    pdf.set_draw_color(*_GRAY)
+    pdf.line(x, line_y, x + width + 20, line_y)
+    pdf.line(120, line_y, 200, line_y)
+    pdf.set_y(line_y + 1)
+    pdf.set_font(_FONT, "", 8)
+    pdf.cell(110, 4, "Unterschrift Kundin/Kunde")
+    pdf.cell(0, 4, "Unterschrift Werkstatt", ln=True)
+
+
+def render_repair_intake_receipt_pdf(
+    repair: Any,
+    customer: Any,
+    workshop: Mapping[str, Any],
+    photos: list[bytes],
+    signature_png: Optional[bytes] = None,
+    include_price: bool = False,
+) -> bytes:
+    """
+    Render the Annahmeschein (repair intake receipt) as PDF (W2-12, DOM-08).
+
+    Args:
+        repair:        RepairJob-like object (repair_number, bag_number,
+                       item_type, item_description, metal_type,
+                       estimated_cost, estimated_completion_date, created_at,
+                       intake_checklist).
+        customer:      Customer-like object or None (walk-in not recorded).
+        workshop:      Werkstatt-Stammdaten
+                       (``WorkshopSettingsService.seller_block``).
+        photos:        JPEG thumbnails of the INTAKE-phase photos.
+        signature_png: Optional PNG of the customer's signature; without it
+                       the receipt carries empty lines for pen and paper.
+        include_price: True only for FINANCIAL_VIEW holders.
+
+    Returns:
+        Raw PDF bytes.
+    """
+    # Numbers only: the description and customer data are never logged.
+    logger.info(
+        "Rendering repair intake receipt PDF",
+        extra={
+            "repair_number": _safe_str(getattr(repair, "repair_number", None)),
+            "photo_count": len(photos),
+            "has_signature": bool(signature_png),
+        },
+    )
+    name = _safe_str(workshop.get("name")) or "Goldschmiede"
+    footer = f"{name}  |  Annahmeschein {_safe_str(repair.repair_number)}"
+    pdf = _GoldsmithPDF(workshop_name=name, footer_text=footer)
+    pdf.set_title(f"Annahmeschein {_safe_str(repair.repair_number)}")
+    _annahme_header(pdf, repair, workshop)
+    _annahme_customer(pdf, customer)
+    _annahme_piece(pdf, repair, include_price)
+    _annahme_checklist(pdf, repair)
+    _annahme_photos(pdf, photos)
+    _annahme_terms_and_signature(pdf, signature_png)
+    return bytes(pdf.output())
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Statusbericht (customer-facing status report, W6 / DOM section D Option 2)
+# ─────────────────────────────────────────────────────────────────────────────
+
+_STATUS_REPORT_ART13_NOTE = (
+    "Unsere Datenschutzhinweise zu Ihren Rechten und zur Speicherdauer liegen "
+    "in der Werkstatt aus; auf Anfrage senden wir sie Ihnen gern per E-Mail."
+)
+_STATUS_REPORT_THUMB_W_MM = 58.0
+_STATUS_REPORT_THUMB_MAX_H_MM = 58.0
+_STATUS_REPORT_THUMB_GAP_MM = 4.0
+_STATUS_REPORT_THUMBS_PER_ROW = 3
+
+
+def _status_report_header(
+    pdf: "_GoldsmithPDF", data: Any, workshop: Mapping[str, Any]
+) -> None:
+    name = _safe_str(workshop.get("name")) or "Goldschmiede"
+    pdf.set_font(_FONT_B, "", 15)
+    pdf.set_text_color(*_GOLD)
+    pdf.cell(110, 9, name)
+    pdf.set_font(_FONT_B, "", 13)
+    pdf.set_text_color(*_DARK)
+    pdf.cell(0, 9, "Statusbericht", align="R", ln=True)
+    pdf.set_font(_FONT, "", 8.5)
+    pdf.set_text_color(*_GRAY)
+    for line in _seller_address_lines(workshop):
+        pdf.cell(0, 4, line, ln=True)
+    pdf.set_text_color(*_DARK)
+    pdf.ln(2)
+    pdf.gold_rule()
+    pdf.ln(3)
+    pdf.kv_row(
+        "Kundin/Kunde", _safe_str(getattr(data, "customer_name", None)) or "Kunde"
+    )
+    pdf.kv_row("Referenz", _safe_str(getattr(data, "reference", None)))
+    pdf.kv_row("Datum", _fmt_date(datetime.now(timezone.utc)))
+    pdf.ln(3)
+
+
+def _status_report_piece(pdf: "_GoldsmithPDF", data: Any) -> None:
+    pdf.section_title("Schmuckstück")
+    pdf.set_font(_FONT, "", 9)
+    _paragraph(pdf, _safe_str(getattr(data, "title", None)))
+    metal_label = getattr(data, "metal_label", None)
+    if metal_label:
+        pdf.kv_row("Material", _safe_str(metal_label))
+    gemstones = getattr(data, "gemstones", None) or []
+    if gemstones:
+        pdf.kv_row("Steine", ", ".join(gemstones), label_w=55)
+    pdf.ln(2)
+
+
+def _status_report_timeline(pdf: "_GoldsmithPDF", data: Any) -> None:
+    events = getattr(data, "events", None) or []
+    pdf.section_title("Verlauf")
+    if not events:
+        pdf.set_font(_FONT, "", 9)
+        _paragraph(pdf, "Noch keine Ereignisse erfasst.")
+        pdf.ln(2)
+        return
+    for event in events:
+        pdf.set_font(_FONT, "", 8)
+        pdf.set_text_color(*_GRAY)
+        pdf.cell(28, 5, _fmt_date(getattr(event, "at", None)))
+        pdf.set_text_color(*_DARK)
+        pdf.set_font(_FONT, "", 9)
+        pdf.multi_cell(
+            0,
+            5,
+            _safe_str(getattr(event, "summary", None)),
+            new_x="LMARGIN",
+            new_y="NEXT",
+        )
+    pdf.ln(2)
+
+
+def _status_report_photo_size(photo: bytes) -> Optional[tuple[float, float]]:
+    try:
+        with Image.open(io.BytesIO(photo)) as img:
+            w_px, h_px = img.size
+    except Exception:
+        logger.warning("Could not read status report photo", exc_info=True)
+        return None
+    if w_px <= 0 or h_px <= 0:
+        return None
+    h_mm = min(_STATUS_REPORT_THUMB_W_MM * h_px / w_px, _STATUS_REPORT_THUMB_MAX_H_MM)
+    return h_mm * w_px / h_px, h_mm
+
+
+def _status_report_photos(pdf: "_GoldsmithPDF", photos: list[bytes]) -> None:
+    if not photos:
+        return
+    pdf.section_title(f"Aktuelle Fotos ({len(photos)})")
+    x, row_h, col = pdf.l_margin, 0.0, 0
+    for photo in photos:
+        size = _status_report_photo_size(photo)
+        if size is None:
+            continue
+        w_mm, h_mm = size
+        bottom = pdf.get_y() + _STATUS_REPORT_THUMB_MAX_H_MM
+        if col == 0 and bottom > pdf.page_break_trigger:
+            pdf.add_page()
+        rect = (x, pdf.get_y(), w_mm, h_mm)
+        try:
+            _embed_image_bytes(pdf, photo, rect, suffix=".jpg")
+        except Exception:
+            logger.warning("Could not embed status report photo", exc_info=True)
+            continue
+        row_h, col = max(row_h, h_mm), col + 1
+        x += _STATUS_REPORT_THUMB_W_MM + _STATUS_REPORT_THUMB_GAP_MM
+        if col == _STATUS_REPORT_THUMBS_PER_ROW:
+            pdf.set_y(pdf.get_y() + row_h + _STATUS_REPORT_THUMB_GAP_MM)
+            x, row_h, col = pdf.l_margin, 0.0, 0
+    if col:
+        pdf.set_y(pdf.get_y() + row_h + _STATUS_REPORT_THUMB_GAP_MM)
+
+
+def _status_report_next_steps_and_contact(
+    pdf: "_GoldsmithPDF", data: Any, workshop: Mapping[str, Any]
+) -> None:
+    pdf.section_title("Wie geht es weiter?")
+    pdf.set_font(_FONT, "", 9)
+    _paragraph(pdf, _safe_str(getattr(data, "next_steps", None)))
+    pdf.ln(2)
+    pdf.section_title("Kontakt")
+    pdf.set_font(_FONT, "", 9)
+    phone = _safe_str(workshop.get("phone"))
+    email = _safe_str(workshop.get("email"))
+    contact_bits = [bit for bit in (phone, email) if bit]
+    contact_line = (
+        f"Bei Fragen erreichen Sie uns unter {' oder '.join(contact_bits)}."
+        if contact_bits
+        else "Bei Fragen erreichen Sie uns gern in der Werkstatt."
+    )
+    _paragraph(pdf, contact_line)
+    pdf.ln(3)
+    pdf.set_font(_FONT, "", 7.5)
+    pdf.set_text_color(*_GRAY)
+    _paragraph(pdf, _STATUS_REPORT_ART13_NOTE)
+    pdf.set_text_color(*_DARK)
+
+
+def _render_status_report_fpdf(data: Any) -> bytes:
+    """Render the Statusbericht (order or repair) as PDF bytes.
+
+    ``data`` is a ``status_report_service.StatusReportData`` — never carries
+    prices, cost internals, staff names or internal/diagnosis notes; only
+    the piece's customer-facing facts, the sent-to-customer timeline and the
+    photos actually shared with this customer so far (see that module's
+    docstring for the exact visibility rule per photo source).
+    """
+    workshop = getattr(data, "workshop", None) or {}
+    name = _safe_str(workshop.get("name")) or "Goldschmiede"
+    footer = f"{name}  |  Statusbericht {_safe_str(getattr(data, 'reference', ''))}"
+    pdf = _GoldsmithPDF(workshop_name=name, footer_text=footer)
+    pdf.set_title(f"Statusbericht {_safe_str(getattr(data, 'reference', ''))}")
+    _status_report_header(pdf, data, workshop)
+    _status_report_piece(pdf, data)
+    _status_report_timeline(pdf, data)
+    _status_report_photos(pdf, list(getattr(data, "photos", None) or []))
+    _status_report_next_steps_and_contact(pdf, data, workshop)
+    return bytes(pdf.output())

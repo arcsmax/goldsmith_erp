@@ -41,6 +41,7 @@ Entities created (in dependency order):
 """
 
 import asyncio
+import io
 import logging
 import os
 import sys
@@ -53,8 +54,10 @@ _project_root = Path(__file__).resolve().parent.parent
 _src_dir = _project_root / "src"
 sys.path.insert(0, str(_src_dir))
 
+from PIL import Image  # noqa: E402
 from sqlalchemy import select  # noqa: E402
 
+from goldsmith_erp.core.config import settings  # noqa: E402
 from goldsmith_erp.core.security import get_password_hash  # noqa: E402
 from goldsmith_erp.db import _seed_helpers  # noqa: E402
 from goldsmith_erp.db.models import (  # noqa: E402
@@ -98,6 +101,7 @@ from goldsmith_erp.db.models import (  # noqa: E402
     NotificationTypeEnum,
     Order,
     OrderComment,
+    OrderEvent,
     OrderHallmark,
     OrderHandoff,
     OrderPhoto,
@@ -124,12 +128,24 @@ from goldsmith_erp.db.reference_seed import (  # noqa: E402
     seed_reference_activities,
     seed_reference_materials,
 )
+from goldsmith_erp.db.seed_credentials import (  # noqa: E402
+    DEMO_PASSWORD,
+    DEMO_USERS,
+    SENTINEL_EMAIL,
+)
 from goldsmith_erp.db.session import AsyncSessionLocal, engine  # noqa: E402
+from goldsmith_erp.services.image_validation import (  # noqa: E402
+    create_thumbnail_bounded,
+    store_processed_original,
+)
+from goldsmith_erp.services.job_service import JobService  # noqa: E402
 
 logger = logging.getLogger("seed_demo")
 
-# ── Sentinel email used for idempotency check ─────────────────────────────
-SENTINEL_EMAIL = "demo-goldschmied@werkstatt.de"
+# SENTINEL_EMAIL, DEMO_USERS, DEMO_PASSWORD come from db.seed_credentials —
+# the single source of truth shared by every seed path (see that module's
+# docstring for why: three seed scripts used to disagree on demo
+# users/passwords).
 
 # ── Date helpers ───────────────────────────────────────────────────────────
 NOW = datetime.utcnow()
@@ -152,41 +168,61 @@ def _uuid() -> str:
     return str(uuid.uuid4())
 
 
+# LV-16: solid-colour palette for the demo order photos — just enough
+# variety that six thumbnails in a row don't look identical.
+_DEMO_PHOTO_COLORS: tuple[tuple[int, int, int], ...] = (
+    (196, 154, 58),  # gold
+    (192, 192, 192),  # silver
+    (139, 94, 60),  # workbench brown
+    (74, 104, 128),  # steel blue
+    (150, 111, 51),  # bronze
+    (90, 90, 90),  # graphite
+)
+
+
+def _demo_photo_jpeg_bytes(color: tuple[int, int, int]) -> bytes:
+    """Render a 600x400 solid-colour JPEG in memory (Pillow).
+
+    LV-16: the seed used to write OrderPhoto rows pointing at files that
+    were never created, so ``/api/v1/photos/<id>/thumbnail`` 404'd for
+    every demo photo. These bytes are EXIF-free by construction (Pillow
+    never writes EXIF unless explicitly asked to) and are still run
+    through the real ``store_processed_original`` / ``create_thumbnail_bounded``
+    pipeline below so the on-disk layout matches a real upload exactly.
+    """
+    image = Image.new("RGB", (600, 400), color)
+    buffer = io.BytesIO()
+    image.save(buffer, format="JPEG", quality=85)
+    return buffer.getvalue()
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 # SEED FUNCTIONS — one per entity group, called in dependency order
 # ═══════════════════════════════════════════════════════════════════════════
 
 
 async def seed_users(db) -> list:
-    """Create 3 demo users: Admin/Owner, Goldsmith, Buerokraft."""
+    """Create 3 demo users: Admin/Owner, Goldsmith, Buerokraft.
+
+    Credentials come from db.seed_credentials (the shared source of truth)
+    — only the per-user `created_at` offset is specific to this seeder.
+    """
+    created_at_by_email = {
+        DEMO_USERS[0].email: _days_ago(365),  # goldsmith
+        DEMO_USERS[1].email: _days_ago(400),  # admin/inhaber
+        DEMO_USERS[2].email: _days_ago(200),  # viewer/buero
+    }
     users = [
         User(
-            email=SENTINEL_EMAIL,
-            hashed_password=get_password_hash("demo2026!"),
-            first_name="Markus",
-            last_name="Goldmann",
-            role="goldsmith",
+            email=demo_user.email,
+            hashed_password=get_password_hash(DEMO_PASSWORD),
+            first_name=demo_user.first_name,
+            last_name=demo_user.last_name,
+            role=demo_user.role,
             is_active=True,
-            created_at=_days_ago(365),
-        ),
-        User(
-            email="demo-inhaber@werkstatt.de",
-            hashed_password=get_password_hash("demo2026!"),
-            first_name="Petra",
-            last_name="Goldmann",
-            role="admin",
-            is_active=True,
-            created_at=_days_ago(400),
-        ),
-        User(
-            email="demo-buero@werkstatt.de",
-            hashed_password=get_password_hash("demo2026!"),
-            first_name="Lisa",
-            last_name="Schreiber",
-            role="viewer",
-            is_active=True,
-            created_at=_days_ago(200),
-        ),
+            created_at=created_at_by_email[demo_user.email],
+        )
+        for demo_user in DEMO_USERS
     ]
     for u in users:
         db.add(u)
@@ -1066,12 +1102,14 @@ async def seed_orders(db, customers, users, metal_purchases) -> list:
             special_instructions="Gravur 'H+R 1975' nachstechen und Ring polieren.",
             created_at=_days_ago(14),
         ),
-        # 8 - Goldkette 750 Anker 50cm (NEW / RUSH ORDER)
+        # 8 - Goldkette 750 Anker 50cm (CONFIRMED / RUSH ORDER)
+        # LV-05: the W2-07 order-lifecycle migration maps legacy "new" rows
+        # away; a priced order seeds as "confirmed" (see OrderEvent below).
         dict(
             title="Goldkette 750 Anker 50cm EILAUFTRAG",
             description="Ankerkette Gelbgold 750, 50cm, 2mm Breite. EILAUFTRAG fuer Geschenk!",
             price=2100.00,
-            status="new",
+            status="confirmed",
             customer_id=customers[9].id,  # Klaus Mueller
             deadline=_days_from_now(2),  # RUSH: only 2 days!
             current_location="Eingang",
@@ -1146,12 +1184,13 @@ async def seed_orders(db, customers, users, metal_purchases) -> list:
             special_instructions="Perle vorsichtig aus alter Fassung loesen. Neue Zargenfassung.",
             created_at=_days_ago(18),
         ),
-        # 11 - Manschettenknuepfe Gold 585 (NEW)
+        # 11 - Manschettenknuepfe Gold 585 (CONFIRMED)
+        # LV-05: same legacy-"new" fix as order 8 above.
         dict(
             title="Manschettenknopf-Paar Gold 585",
             description="Manschettenknuepfe Gold 585, rund, 15mm Durchmesser, mit Monogramm 'MB'.",
             price=980.00,
-            status="new",
+            status="confirmed",
             customer_id=customers[7].id,  # Dr. Bauer
             deadline=_days_from_now(21),
             current_location="Eingang",
@@ -1257,6 +1296,25 @@ async def seed_orders(db, customers, users, metal_purchases) -> list:
         db.add(o)
         orders.append(o)
     await db.flush()
+
+    # LV-05: orders 8 and 11 above seed directly at "confirmed" instead of
+    # the legacy "new" status. This loop bulk-inserts Order rows and
+    # bypasses services/order_workflow.transition by design, so it has to
+    # add the matching order_events rows itself — otherwise their Historie
+    # timeline would be empty even though the order is already confirmed.
+    for idx in (8, 11):
+        confirmed_order = orders[idx]
+        db.add(
+            OrderEvent(
+                order_id=confirmed_order.id,
+                from_status=None,
+                to_status=confirmed_order.status,
+                user_id=admin.id,
+                created_at=confirmed_order.created_at,
+            )
+        )
+    await db.flush()
+
     print(f"  Auftraege: {len(orders)} erstellt")
     return orders
 
@@ -3101,14 +3159,36 @@ async def seed_order_photos(db, orders, time_entries, users) -> list:
     for te in time_entries or []:
         te_for_order.setdefault(te.order_id, te.id)
 
+    # LV-16: write real files through the same storage layout and pipeline
+    # (image_validation.store_processed_original / create_thumbnail_bounded)
+    # a genuine upload uses, so the photos + orders list actually has
+    # working thumbnails instead of a broken-image icon.
+    storage_root = Path(settings.PHOTO_STORAGE_PATH).resolve()
+
     photos = []
     for idx, order in enumerate(orders[:6]):
+        file_uuid = _uuid()
+        order_dir = storage_root / str(order.id)
+        photo_path = order_dir / f"{file_uuid}.jpg"
+        thumb_path = order_dir / "thumbs" / f"{file_uuid}.jpg"
+
+        raw = _demo_photo_jpeg_bytes(_DEMO_PHOTO_COLORS[idx % len(_DEMO_PHOTO_COLORS)])
+        await store_processed_original(raw, "jpg", photo_path)
+        try:
+            await create_thumbnail_bounded(photo_path, thumb_path)
+        except Exception:
+            logger.warning(
+                "Demo-Thumbnail-Erstellung fehlgeschlagen — Foto bleibt gespeichert",
+                extra={"photo_path": str(photo_path)},
+                exc_info=True,
+            )
+
         payload = _seed_helpers.filter_model_fields(
             OrderPhoto,
             dict(
-                id=_uuid(),
+                id=file_uuid,
                 order_id=order.id,
-                file_path=f"/uploads/orders/demo_order_{order.id}_{idx + 1}.jpg",
+                file_path=str(photo_path),
                 taken_by=goldsmith.id,
                 notes="Demo-Fortschrittsfoto.",
                 time_entry_id=te_for_order.get(order.id),
@@ -3125,7 +3205,18 @@ async def seed_order_photos(db, orders, time_entries, users) -> list:
 
 
 async def seed_repair_photos(db, repairs, users) -> list:
-    """Create intake / completed photos for the first few repair jobs."""
+    """Create intake / completed photos for the first few repair jobs.
+
+    LV3-03: this used to write ``RepairPhoto`` rows pointing at
+    ``/uploads/repairs/demo_repair_*.jpg`` files that were never created, so
+    ``/repairs/photos/<id>/thumbnail`` 404'd for every demo repair photo (the
+    same class of bug as LV-16 for order photos). Reuses the exact same
+    real-file pipeline ``seed_order_photos`` uses above
+    (``store_processed_original`` / ``create_thumbnail_bounded``), writing
+    into the legacy ``{PHOTO_STORAGE_PATH}/repairs/{repair_id}/{uuid}.jpg``
+    layout that ``RepairPhotoService.get_photo_path`` already supports (see
+    that module's docstring).
+    """
     if not repairs or not users:
         return []
     if await db.scalar(select(RepairPhoto.id).limit(1)) is not None:
@@ -3133,18 +3224,35 @@ async def seed_repair_photos(db, repairs, users) -> list:
         return []
 
     goldsmith = users[0]
+    storage_root = Path(settings.PHOTO_STORAGE_PATH).resolve()
+
     photos = []
     for idx, repair in enumerate(repairs[:4]):
         for phase in (RepairPhotoPhase.INTAKE, RepairPhotoPhase.COMPLETED):
+            file_uuid = _uuid()
+            repair_dir = storage_root / "repairs" / str(repair.id)
+            photo_path = repair_dir / f"{file_uuid}.jpg"
+            thumb_path = repair_dir / "thumbs" / f"{file_uuid}.jpg"
+
+            raw = _demo_photo_jpeg_bytes(
+                _DEMO_PHOTO_COLORS[idx % len(_DEMO_PHOTO_COLORS)]
+            )
+            await store_processed_original(raw, "jpg", photo_path)
+            try:
+                await create_thumbnail_bounded(photo_path, thumb_path)
+            except Exception:
+                logger.warning(
+                    "Demo-Thumbnail-Erstellung fehlgeschlagen — Foto bleibt gespeichert",
+                    extra={"photo_path": str(photo_path)},
+                    exc_info=True,
+                )
+
             payload = _seed_helpers.filter_model_fields(
                 RepairPhoto,
                 dict(
                     repair_job_id=repair.id,
                     phase=phase,
-                    file_path=(
-                        f"/uploads/repairs/demo_repair_{repair.id}_"
-                        f"{phase.value}.jpg"
-                    ),
+                    file_path=str(photo_path),
                     taken_by=goldsmith.id,
                     notes=f"Demo-Foto ({phase.value}).",
                     timestamp=_days_ago(20 - idx),
@@ -3185,7 +3293,13 @@ async def seed_customer_updates(db, orders, repairs, users) -> list:
                 sent_at=_days_ago(5),
             )
         )
-    if len(repairs) > 3:
+    # LV-18: RepairJob.customer_notified_at may only be stamped once the
+    # matching Kundeninfo was actually SENT (see
+    # RepairService.send_customer_update) — a DRAFT update must never sit
+    # next to a repair whose customer_notified_at is already set. repairs[3]
+    # and repairs[4] (see seed_repair_jobs) both carry customer_notified_at,
+    # so their updates seed as SENT with that same timestamp instead of DRAFT.
+    if len(repairs) > 3 and repairs[3].customer_notified_at is not None:
         updates.append(
             dict(
                 repair_job_id=repairs[3].id,
@@ -3193,7 +3307,22 @@ async def seed_customer_updates(db, orders, repairs, users) -> list:
                 subject="Ihre Reparatur ist abholbereit",
                 body="Ihr Schmuckstueck ist fertig und kann abgeholt werden.",
                 sent_by=sender.id,
-                status=CustomerUpdateStatus.DRAFT,
+                status=CustomerUpdateStatus.SENT,
+                delivery_method=UpdateDeliveryMethod.EMAIL,
+                sent_at=repairs[3].customer_notified_at,
+            )
+        )
+    if len(repairs) > 4 and repairs[4].customer_notified_at is not None:
+        updates.append(
+            dict(
+                repair_job_id=repairs[4].id,
+                kind=CustomerUpdateKind.READY_FOR_PICKUP,
+                subject="Ihre Reparatur ist abholbereit",
+                body="Ihr Schmuckstueck ist fertig und kann abgeholt werden.",
+                sent_by=sender.id,
+                status=CustomerUpdateStatus.SENT,
+                delivery_method=UpdateDeliveryMethod.EMAIL,
+                sent_at=repairs[4].customer_notified_at,
             )
         )
 
@@ -3340,6 +3469,16 @@ async def seed():
         customer_updates = await seed_customer_updates(db, orders, repairs, users)
         cost_change_requests = await seed_cost_change_requests(db, orders, users)
 
+        # ── Phase 13: Jobs spine (ARCH-02) ────────────────────────────
+        # The phases above insert orders and repairs directly, bypassing the
+        # service sync rules, so every one of them gets its job here.
+        job_counts = await JobService.backfill_missing(db)
+        logger.info("seed jobs backfilled", extra={"jobs_created": job_counts})
+        print(
+            f"  Jobs: {job_counts['orders']} Aufträge, "
+            f"{job_counts['repairs']} Reparaturen verknüpft"
+        )
+
         # ── Commit everything ─────────────────────────────────────────
         await db.commit()
 
@@ -3349,9 +3488,9 @@ async def seed():
         print("=" * 60)
         print()
         print("  Anmeldedaten:")
-        print(f"    Goldschmied: {SENTINEL_EMAIL} / demo2026!")
-        print("    Inhaber:     demo-inhaber@werkstatt.de / demo2026!")
-        print("    Buero:       demo-buero@werkstatt.de / demo2026!")
+        print(f"    Goldschmied: {DEMO_USERS[0].email} / {DEMO_PASSWORD}")
+        print(f"    Inhaber:     {DEMO_USERS[1].email} / {DEMO_PASSWORD}")
+        print(f"    Buero:       {DEMO_USERS[2].email} / {DEMO_PASSWORD}")
         print()
 
 

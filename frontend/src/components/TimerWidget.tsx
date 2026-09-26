@@ -1,437 +1,279 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { TimeEntry, TimeEntryStopInput, OrderType, Activity } from '../types';
-import { timeTrackingApi } from '../api/time-tracking';
-import { ordersApi } from '../api/orders';
-import { activitiesApi } from '../api/activities';
+// TimerWidget — the always-mounted timer FAB (W4-03, bench mode).
+//
+// Props are unchanged, so MainLayout keeps passing TimeTrackingContext's
+// runningEntry / refresh / pause / resume. Three states:
+//   * collapsed FAB (clock icon, elapsed time while a timer runs);
+//   * start form (TimerStartForm, queries mount only while it is open);
+//   * expanded controls: "Läuft" + StatusBadge "Pausiert", elapsed time,
+//     56px Pause/Weiter and Stopp buttons, and the stop dialog (Modal).
+//
+// FE-10: there is no client-side pause. The ticker always shows gross
+// wall-clock time from start_time; the "Pausiert" badge is the source of
+// truth for the server-side pause (D-15), which the server excludes from
+// net hours.
+import React, { useEffect, useState } from 'react';
+
+import { timeTrackingApi, type RunningTimeEntry } from '../api/time-tracking';
+import { getErrorMessage } from '../lib/errors';
+import { Button, Icon, IconButton } from '../ui';
+import { StatusBadge } from '../ui/StatusBadge';
+import { TimeEntryStopInput } from '../types';
+import { parseUTC } from '../utils/formatters';
+import { RunningTimerEditSheet } from './time-tracking/RunningTimerEditSheet';
+import { TimerStartForm } from './time-tracking/TimerStartForm';
+import { TimerStopDialog } from './time-tracking/TimerStopDialog';
 import '../styles/components/TimerWidget.css';
 
 interface TimerWidgetProps {
-  runningEntry: TimeEntry | null;
+  /** activity_name / order_title (GET /running) are shown when present. */
+  runningEntry: RunningTimeEntry | null;
   onStop: () => void;
   onRefresh?: () => void;
+  /** D-15: manually pause the running entry. Optional so existing callers
+   *  (and tests) keep working; the Pause button is hidden without it. */
+  onPause?: () => Promise<void> | void;
+  /** D-15: end the manual pause. */
+  onResume?: () => Promise<void> | void;
 }
 
-interface StopDialogData {
-  complexity_rating: number;
-  quality_rating: number;
-  rework_required: boolean;
-  notes: string;
+const TICK_MS = 1000;
+
+/** Server timestamps may be naive or already timezone-aware; parseUTC handles both. */
+function parseStart(startTime: string): number {
+  return parseUTC(startTime).getTime();
+}
+
+function formatElapsed(seconds: number): string {
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  const secs = seconds % 60;
+  const mmss = `${minutes.toString().padStart(hours > 0 ? 2 : 1, '0')}:${secs.toString().padStart(2, '0')}`;
+  return hours > 0 ? `${hours}:${mmss}` : mmss;
+}
+
+function useElapsedSeconds(entry: RunningTimeEntry | null): number {
+  const [elapsed, setElapsed] = useState(0);
+  useEffect(() => {
+    if (!entry) return undefined;
+    const start = parseStart(entry.start_time);
+    const update = () => setElapsed(Math.floor((Date.now() - start) / 1000));
+    update();
+    const interval = setInterval(update, TICK_MS);
+    return () => clearInterval(interval);
+  }, [entry]);
+  return elapsed;
+}
+
+/** "Auftrag #12 – Ring weiten · Polieren" (names from GET /running when present). */
+export function describeRunning(entry: RunningTimeEntry): string {
+  const job = entry.order_title
+    ? `Auftrag #${entry.order_id} – ${entry.order_title}`
+    : `Auftrag #${entry.order_id}`;
+  return entry.activity_name ? `${job} · ${entry.activity_name}` : job;
+}
+
+function isAlreadyStopped(err: unknown): boolean {
+  const response = (err as { response?: { status?: number; data?: { detail?: unknown } } })?.response;
+  const detail = response?.data?.detail;
+  return (typeof detail === 'string' && detail.includes('bereits gestoppt')) || response?.status === 400;
 }
 
 const TimerWidget: React.FC<TimerWidgetProps> = ({
   runningEntry,
   onStop,
   onRefresh,
+  onPause,
+  onResume,
 }) => {
-  const [elapsedTime, setElapsedTime] = useState(0);
-  const [isPaused, setIsPaused] = useState(false);
+  const elapsed = useElapsedSeconds(runningEntry);
+  const elapsedLabel = formatElapsed(elapsed);
   const [isCollapsed, setIsCollapsed] = useState(true);
+  const [showStartForm, setShowStartForm] = useState(false);
+  const [showStopDialog, setShowStopDialog] = useState(false);
+  const [showEditSheet, setShowEditSheet] = useState(false);
+  const [isBusy, setIsBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  // Listen for external "expand timer" events (e.g. clicking a running entry row)
+  // External "expand timer" events (e.g. tapping a running entry row).
   useEffect(() => {
-    const handleExpand = () => { setIsCollapsed(false); setShowStartForm(false); };
+    const handleExpand = () => {
+      setIsCollapsed(false);
+      setShowStartForm(false);
+    };
     window.addEventListener('timer:expand', handleExpand);
     return () => window.removeEventListener('timer:expand', handleExpand);
   }, []);
-  const [showStartForm, setShowStartForm] = useState(false);
-  const [showStopDialog, setShowStopDialog] = useState(false);
-  // Start form state
-  const [orders, setOrders] = useState<OrderType[]>([]);
-  const [activities, setActivities] = useState<Activity[]>([]);
-  const [selectedOrderId, setSelectedOrderId] = useState<number | null>(null);
-  const [selectedActivityId, setSelectedActivityId] = useState<number | null>(null);
-  const [startLoading, setStartLoading] = useState(false);
-  const [stopData, setStopData] = useState<StopDialogData>({
-    complexity_rating: 3,
-    quality_rating: 4,
-    rework_required: false,
-    notes: '',
-  });
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
-  // Calculate elapsed time
-  useEffect(() => {
-    if (!runningEntry || isPaused) return;
-
-    // Server sends UTC timestamps without 'Z' suffix — append it so
-    // JavaScript doesn't interpret them as local time.
-    const isoStart = runningEntry.start_time.endsWith('Z')
-      ? runningEntry.start_time
-      : runningEntry.start_time + 'Z';
-    const startTime = new Date(isoStart).getTime();
-
-    const updateElapsed = () => {
-      const now = Date.now();
-      const elapsed = Math.floor((now - startTime) / 1000); // seconds
-      setElapsedTime(elapsed);
-    };
-
-    // Update immediately
-    updateElapsed();
-
-    // Update every second
-    const interval = setInterval(updateElapsed, 1000);
-
-    return () => clearInterval(interval);
-  }, [runningEntry, isPaused]);
-
-  const formatTime = (seconds: number): string => {
-    const hours = Math.floor(seconds / 3600);
-    const minutes = Math.floor((seconds % 3600) / 60);
-    const secs = seconds % 60;
-
-    if (hours > 0) {
-      return `${hours}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
-    }
-    return `${minutes}:${secs.toString().padStart(2, '0')}`;
-  };
-
-  const handlePauseResume = () => {
-    if (!runningEntry) return;
-    // Pause/resume is a local UI action only — the backend timer keeps running.
-    // The actual elapsed time is always calculated from start_time to end_time.
-    setIsPaused((prev) => !prev);
-  };
-
-  const handleStopClick = () => {
-    setShowStopDialog(true);
-  };
-
-  const handleStopConfirm = async () => {
-    if (!runningEntry) return;
-
-    try {
-      setLoading(true);
-      setError(null);
-
-      const stopInput: TimeEntryStopInput = {
-        complexity_rating: stopData.complexity_rating,
-        quality_rating: stopData.quality_rating,
-        rework_required: stopData.rework_required,
-        notes: stopData.notes || undefined,
-      };
-
-      await timeTrackingApi.stop(runningEntry.id, stopInput);
-
-      // Reset state
-      setShowStopDialog(false);
-      setStopData({
-        complexity_rating: 3,
-        quality_rating: 4,
-        rework_required: false,
-        notes: '',
-      });
-
-      // Notify parent
-      onStop();
-
-      // Refresh if callback provided
-      if (onRefresh) {
-        onRefresh();
-      }
-    } catch (err: any) {
-      const detail = err.response?.data?.detail || '';
-      // If already stopped, treat as success and clean up
-      if (detail.includes('bereits gestoppt') || err.response?.status === 400) {
-        setShowStopDialog(false);
-        onStop();
-        if (onRefresh) onRefresh();
-      } else {
-        console.error('Failed to stop timer:', err);
-        setError(detail || 'Timer stoppen fehlgeschlagen');
-      }
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleStopCancel = () => {
+  const finishStop = () => {
     setShowStopDialog(false);
+    onStop();
+    onRefresh?.();
+  };
+
+  const handleStopConfirm = async (input: TimeEntryStopInput) => {
+    if (!runningEntry) return;
+    setIsBusy(true);
     setError(null);
-  };
-
-  const renderStars = (count: number, value: number, onChange: (val: number) => void) => {
-    return (
-      <div className="star-rating">
-        {[1, 2, 3, 4, 5].map((star) => (
-          <button
-            key={star}
-            type="button"
-            onClick={() => onChange(star)}
-            className={`star ${star <= value ? 'active' : ''}`}
-          >
-            ★
-          </button>
-        ))}
-      </div>
-    );
-  };
-
-  const fetchStartFormData = useCallback(async () => {
     try {
-      const [o, a] = await Promise.all([
-        ordersApi.getAll({ limit: 100 }),
-        activitiesApi.getAll(),
-      ]);
-      setOrders(o);
-      setActivities(a);
+      await timeTrackingApi.stop(runningEntry.id, input);
+      finishStop();
     } catch (err) {
-      console.error('Failed to load form data:', err);
-    }
-  }, []);
-
-  const handleStartTimer = async () => {
-    if (!selectedOrderId || !selectedActivityId) return;
-    try {
-      setStartLoading(true);
-      setError(null);
-      await timeTrackingApi.start({
-        order_id: selectedOrderId,
-        activity_id: selectedActivityId,
-      });
-      setShowStartForm(false);
-      setSelectedOrderId(null);
-      setSelectedActivityId(null);
-      if (onRefresh) onRefresh();
-    } catch (err: any) {
-      const detail = err.response?.data?.detail || '';
-      if (detail.includes('bereits eine laufende') || detail.includes('already')) {
-        // Already running — just close form and refresh to show it
-        setShowStartForm(false);
-        if (onRefresh) onRefresh();
+      if (isAlreadyStopped(err)) {
+        finishStop();
       } else {
-        setError(detail || 'Fehler beim Starten');
+        console.error('Timer konnte nicht gestoppt werden', { entryId: runningEntry.id, err });
+        setError(getErrorMessage(err, 'Timer stoppen fehlgeschlagen'));
       }
     } finally {
-      setStartLoading(false);
+      setIsBusy(false);
+    }
+  };
+
+  const runPauseCommand = async (command: (() => Promise<void> | void) | undefined, fallback: string) => {
+    if (!command) return;
+    setIsBusy(true);
+    setError(null);
+    try {
+      await command();
+    } catch (err) {
+      setError(getErrorMessage(err, fallback));
+    } finally {
+      setIsBusy(false);
     }
   };
 
   const handleFabClick = () => {
     if (runningEntry) {
-      // Running entry exists — expand the timer display
       setIsCollapsed(false);
       setShowStartForm(false);
     } else {
-      // No running entry — open start form
       setShowStartForm((prev) => !prev);
-      if (!showStartForm) fetchStartFormData();
     }
   };
 
-  // Collapsed FAB button — always visible in bottom-right
-  if (isCollapsed && !showStartForm) {
-    return (
-      <button
-        className={`timer-fab ${runningEntry ? 'timer-fab--active' : ''}`}
-        onClick={handleFabClick}
-        title={runningEntry ? `${formatTime(elapsedTime)} — Klicken zum Öffnen` : 'Zeiterfassung starten'}
-      >
-        <span className="timer-fab-icon">⏱️</span>
-        {runningEntry && (
-          <span className="timer-fab-time">{formatTime(elapsedTime)}</span>
-        )}
-      </button>
-    );
-  }
-
-  // Start form overlay — when no entry is running
   if (showStartForm && !runningEntry) {
     return (
-      <div className="timer-widget timer-widget--start-form">
-        <div className="timer-header-row">
-          <h3>⏱️ Zeiterfassung starten</h3>
-          <button
-            className="timer-close-btn"
-            onClick={() => { setShowStartForm(false); setIsCollapsed(true); }}
-            title="Schließen"
-          >
-            ✕
-          </button>
-        </div>
-
-        {error && <div className="timer-error">{error}</div>}
-
-        <div className="timer-start-form">
-          <label>Auftrag</label>
-          <select
-            value={selectedOrderId || ''}
-            onChange={(e) => setSelectedOrderId(Number(e.target.value) || null)}
-          >
-            <option value="">-- Auftrag wählen --</option>
-            {orders.map((o) => (
-              <option key={o.id} value={o.id}>
-                #{o.id} - {o.title}
-                {o.customer && ` (${o.customer.first_name} ${o.customer.last_name})`}
-              </option>
-            ))}
-          </select>
-
-          <label>Aktivität</label>
-          <select
-            value={selectedActivityId || ''}
-            onChange={(e) => setSelectedActivityId(Number(e.target.value) || null)}
-          >
-            <option value="">-- Aktivität wählen --</option>
-            {activities.map((a) => (
-              <option key={a.id} value={a.id}>
-                {a.icon && `${a.icon} `}{a.name}
-              </option>
-            ))}
-          </select>
-
-          <button
-            className="timer-start-btn"
-            onClick={handleStartTimer}
-            disabled={startLoading || !selectedOrderId || !selectedActivityId}
-          >
-            {startLoading ? 'Wird gestartet...' : '▶️ Timer starten'}
-          </button>
-        </div>
-      </div>
+      <TimerStartForm
+        onClose={() => {
+          setShowStartForm(false);
+          setIsCollapsed(true);
+        }}
+        onStarted={() => {
+          setShowStartForm(false);
+          onRefresh?.();
+        }}
+      />
     );
   }
 
-  // No running entry and form not open — just show FAB
-  if (!runningEntry) {
+  if (isCollapsed || !runningEntry) {
     return (
       <button
-        className="timer-fab"
+        type="button"
+        className={`timer-fab ${runningEntry ? 'timer-fab--active' : ''}`}
         onClick={handleFabClick}
-        title="Zeiterfassung starten"
+        title={runningEntry ? `${elapsedLabel} – Tippen zum Öffnen` : 'Zeiterfassung starten'}
       >
-        <span className="timer-fab-icon">⏱️</span>
+        <Icon name="clock" className="timer-fab-icon" />
+        {runningEntry && <span className="timer-fab-time">{elapsedLabel}</span>}
+        {runningEntry?.is_paused && <span className="ui-visually-hidden"> Pausiert</span>}
       </button>
     );
   }
 
+  const isPaused = Boolean(runningEntry.is_paused);
   return (
     <>
-      {/* Timer Widget (Sticky, expanded) */}
-      <div className={`timer-widget ${isPaused ? 'paused' : ''}`}>
+      <section
+        className={`timer-widget ${isPaused ? 'timer-widget--paused' : ''}`}
+        aria-label="Laufende Zeiterfassung"
+      >
         <div className="timer-widget-content">
           <div className="timer-info">
             <div className="timer-label">
-              {isPaused ? '⏸️ Pausiert' : '⏱️ Läuft'}
+              <Icon name="clock" /> <span>Läuft</span>
             </div>
-            <div className="timer-time">{formatTime(elapsedTime)}</div>
-            <div className="timer-activity">
-              Auftrag #{runningEntry.order_id}
-            </div>
+            {isPaused && <StatusBadge kind="timeEntry" status="paused" size="lg" />}
+            <div className="timer-time">{elapsedLabel}</div>
+            <div className="timer-activity">{describeRunning(runningEntry)}</div>
+            {runningEntry.location && (
+              <div className="timer-label">
+                <span>Ort: {runningEntry.location}</span>
+              </div>
+            )}
           </div>
 
           <div className="timer-controls">
-            <button
-              onClick={handlePauseResume}
-              className="timer-button timer-button-pause"
-              disabled={loading}
+            {isPaused
+              ? onResume && (
+                  <Button
+                    size="lg"
+                    variant="secondary"
+                    icon="arrow-right"
+                    disabled={isBusy}
+                    onClick={() => void runPauseCommand(onResume, 'Fortsetzen fehlgeschlagen')}
+                  >
+                    Weiter
+                  </Button>
+                )
+              : onPause && (
+                  <Button
+                    size="lg"
+                    variant="secondary"
+                    icon="pause"
+                    disabled={isBusy}
+                    onClick={() => void runPauseCommand(onPause, 'Pausieren fehlgeschlagen')}
+                  >
+                    Pause
+                  </Button>
+                )}
+            <Button
+              size="lg"
+              variant="secondary"
+              icon="pencil"
+              disabled={isBusy}
+              onClick={() => setShowEditSheet(true)}
             >
-              {isPaused ? '▶️ Fortsetzen' : '⏸️ Pause'}
-            </button>
-            <button
-              onClick={handleStopClick}
-              className="timer-button timer-button-stop"
-              disabled={loading}
-            >
-              ⏹️ Stopp
-            </button>
-            <button
+              Bearbeiten
+            </Button>
+            <Button size="lg" icon="check" disabled={isBusy} onClick={() => setShowStopDialog(true)}>
+              Stopp
+            </Button>
+            <IconButton
+              icon="chevron-down"
+              label="Minimieren"
+              size="lg"
               onClick={() => setIsCollapsed(true)}
-              className="timer-button timer-button-collapse"
-              title="Minimieren"
-            >
-              ▼
-            </button>
+            />
           </div>
         </div>
 
-        {error && <div className="timer-error">{error}</div>}
-      </div>
+        {error && !showStopDialog && (
+          <p className="timer-error" role="alert">
+            {error}
+          </p>
+        )}
+      </section>
 
-      {/* Stop Dialog */}
-      {showStopDialog && (
-        <div className="timer-stop-dialog-overlay">
-          <div className="timer-stop-dialog">
-            <h3>Zeiterfassung beenden</h3>
-
-            <div className="stop-dialog-content">
-              <div className="stop-dialog-field">
-                <label>Komplexität (1-5)</label>
-                {renderStars(
-                  5,
-                  stopData.complexity_rating,
-                  (val) => setStopData({ ...stopData, complexity_rating: val })
-                )}
-                <span className="rating-hint">
-                  Wie schwierig war die Aufgabe?
-                </span>
-              </div>
-
-              <div className="stop-dialog-field">
-                <label>Qualität (1-5)</label>
-                {renderStars(
-                  5,
-                  stopData.quality_rating,
-                  (val) => setStopData({ ...stopData, quality_rating: val })
-                )}
-                <span className="rating-hint">
-                  Wie zufrieden sind Sie mit dem Ergebnis?
-                </span>
-              </div>
-
-              <div className="stop-dialog-field">
-                <label className="checkbox-label">
-                  <input
-                    type="checkbox"
-                    checked={stopData.rework_required}
-                    onChange={(e) =>
-                      setStopData({ ...stopData, rework_required: e.target.checked })
-                    }
-                  />
-                  Nacharbeit erforderlich
-                </label>
-              </div>
-
-              <div className="stop-dialog-field">
-                <label>Notizen (optional)</label>
-                <textarea
-                  value={stopData.notes}
-                  onChange={(e) =>
-                    setStopData({ ...stopData, notes: e.target.value })
-                  }
-                  placeholder="Zusätzliche Notizen..."
-                  rows={3}
-                  className="notes-textarea"
-                />
-              </div>
-
-              <div className="stop-dialog-summary">
-                <strong>Zeit:</strong> {formatTime(elapsedTime)}
-              </div>
-            </div>
-
-            {error && <div className="stop-dialog-error">{error}</div>}
-
-            <div className="stop-dialog-actions">
-              <button
-                onClick={handleStopCancel}
-                className="dialog-button dialog-button-cancel"
-                disabled={loading}
-              >
-                Abbrechen
-              </button>
-              <button
-                onClick={handleStopConfirm}
-                className="dialog-button dialog-button-confirm"
-                disabled={loading}
-              >
-                {loading ? 'Speichern...' : 'Stoppen & Speichern'}
-              </button>
-            </div>
-          </div>
-        </div>
+      {showEditSheet && (
+        <RunningTimerEditSheet
+          entry={runningEntry}
+          onClose={() => setShowEditSheet(false)}
+          onSaved={() => onRefresh?.()}
+        />
       )}
+
+      <TimerStopDialog
+        open={showStopDialog}
+        elapsedLabel={elapsedLabel}
+        isSaving={isBusy}
+        error={showStopDialog ? error : null}
+        onCancel={() => {
+          setShowStopDialog(false);
+          setError(null);
+        }}
+        onConfirm={(input) => void handleStopConfirm(input)}
+      />
     </>
   );
 };

@@ -16,6 +16,7 @@ File type validation uses magic bytes (JPEG / PNG / WEBP only).
 Maximum upload size is controlled by settings.PHOTO_MAX_SIZE_MB.
 """
 
+import json
 import logging
 from typing import List, Optional
 
@@ -33,6 +34,11 @@ from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from goldsmith_erp.api.deps import get_current_user
+from goldsmith_erp.core import pubsub
+
+# Import the module (not the function) so a unit-test monkeypatch on
+# goldsmith_erp.core.pubsub.publish_event actually intercepts this call (see
+# services/order_service.py for the pattern this follows).
 from goldsmith_erp.core.permissions import Permission, require_permission
 from goldsmith_erp.db.models import User
 from goldsmith_erp.db.session import get_db
@@ -101,6 +107,33 @@ async def upload_photo(
 
     await db.commit()
     await db.refresh(photo)
+
+    # Publish AFTER the commit so other devices refresh their order view
+    # (W7 hygiene follow-up). The payload carries ids/action/timestamp only —
+    # never the image bytes, notes, or any other PII — same reduced-payload
+    # contract as OrderService._safe_publish_order_event.
+    try:
+        await pubsub.publish_event(
+            "order_updates",
+            json.dumps(
+                {
+                    "action": "photo_added",
+                    "order_id": order_id,
+                    "photo_id": photo.id,
+                    "timestamp": (
+                        photo.timestamp.isoformat() if photo.timestamp else None
+                    ),
+                }
+            ),
+        )
+    except Exception:
+        # Log but don't fail the (already-committed) upload if publishing fails.
+        logger.error(
+            "Failed to publish photo-added event",
+            extra={"order_id": order_id, "photo_id": photo.id},
+            exc_info=True,
+        )
+
     return photo
 
 
@@ -111,7 +144,7 @@ async def upload_photo(
     "/orders/{order_id}/photos",
     response_model=List[OrderPhotoRead],
 )
-@require_permission(Permission.ORDER_VIEW)
+@require_permission(Permission.DESIGN_VIEW)
 async def list_photos(
     order_id: int,
     db: AsyncSession = Depends(get_db),
@@ -124,7 +157,7 @@ async def list_photos(
     upload time (oldest first). Use the file/thumbnail endpoints to
     retrieve the actual image data.
 
-    Requires ORDER_VIEW permission.
+    Requires DESIGN_VIEW permission (GOLDSMITH/ADMIN; SEC-09, GDPR-04).
     """
     photos = await PhotoService.get_photos(db, order_id)
     return photos
@@ -134,7 +167,7 @@ async def list_photos(
 
 
 @router.get("/photos/{photo_id}/file")
-@require_permission(Permission.ORDER_VIEW)
+@require_permission(Permission.DESIGN_VIEW)
 async def get_photo_file(
     photo_id: str,
     db: AsyncSession = Depends(get_db),
@@ -146,7 +179,7 @@ async def get_photo_file(
     Returns the full-resolution image via FileResponse.
     Content-Type is inferred from the file extension.
 
-    Requires ORDER_VIEW permission.
+    Requires DESIGN_VIEW permission (GOLDSMITH/ADMIN; SEC-09, GDPR-04).
     """
     photo = await PhotoService.get_photo(db, photo_id)
     if not photo:
@@ -177,7 +210,7 @@ async def get_photo_file(
 
 
 @router.get("/photos/{photo_id}/thumbnail")
-@require_permission(Permission.ORDER_VIEW)
+@require_permission(Permission.DESIGN_VIEW)
 async def get_photo_thumbnail(
     photo_id: str,
     db: AsyncSession = Depends(get_db),
@@ -190,7 +223,7 @@ async def get_photo_thumbnail(
     Falls back to the original file if no thumbnail exists (e.g. for
     photos uploaded before thumbnail support was added).
 
-    Requires ORDER_VIEW permission.
+    Requires DESIGN_VIEW permission (GOLDSMITH/ADMIN; SEC-09, GDPR-04).
     """
     photo = await PhotoService.get_photo(db, photo_id)
     if not photo:

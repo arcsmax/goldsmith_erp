@@ -8,15 +8,18 @@ Responsibilities:
   so that connected WebSocket clients receive them immediately.
 - Scan orders for approaching deadlines and materials for low stock,
   creating Notification rows for each affected user (ADMIN + GOLDSMITH).
-- Deduplicate: do NOT create a deadline warning if an unread one already
-  exists for the same order on the same day.
+- Deduplicate: at most one scan notification per (user, type, order or
+  material) per day, whether or not it has been read (BE-09).
+- Customer email is NOT a side effect of staff notifications. The pickup and
+  fitting scans call ``automated_customer_email.send_customer_mail_once``
+  once per order (BE-09 / DOM-10).
 """
 
 from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import List, Optional
 
 from sqlalchemy import and_, func, select
@@ -28,7 +31,6 @@ from sqlalchemy.orm import selectinload
 # services/consultation_service.py for the pattern this follows).
 from goldsmith_erp.core import pubsub
 from goldsmith_erp.db.models import (
-    Customer,
     Material,
     Notification,
     NotificationPreference,
@@ -40,22 +42,10 @@ from goldsmith_erp.db.models import (
     UserRole,
 )
 from goldsmith_erp.models.notification import NotificationCreate, NotificationRead
+from goldsmith_erp.services.automated_customer_email import send_customer_mail_once
+from goldsmith_erp.services.order_workflow import NO_DEADLINE_STATUSES
 
 logger = logging.getLogger(__name__)
-
-# Notification types that should trigger a customer email when a customer
-# is associated with the notification. Internal-only types (LOW_STOCK,
-# DEADLINE_WARNING, HANDOFF, COMMENT) are excluded — those are for
-# workshop staff only.
-_CUSTOMER_EMAIL_TYPES: frozenset[NotificationTypeEnum] = frozenset(
-    [
-        NotificationTypeEnum.ORDER_STATUS,
-        NotificationTypeEnum.PICKUP_READY,
-        NotificationTypeEnum.FITTING_REMINDER,
-        NotificationTypeEnum.REPAIR_RECEIVED,
-        NotificationTypeEnum.REPAIR_READY,
-    ]
-)
 
 # Threshold below which a material stock triggers a LOW_STOCK alert.
 # Using a simple fixed threshold for MVP — can be per-material later.
@@ -103,14 +93,9 @@ class NotificationService:
         # Publish to Redis AFTER commit so the DB row is durable first.
         await NotificationService._publish_notification(notification)
 
-        # Attempt customer email — failure must never block the caller.
-        if notification_type in _CUSTOMER_EMAIL_TYPES and (
-            related_customer_id or related_order_id
-        ):
-            await NotificationService._try_send_customer_email(
-                db=db,
-                notification=notification,
-            )
+        # No customer email here: this runs once per staff recipient, so an
+        # email side effect sent N mails per event (BE-09). Customer mail is
+        # sent once per order by the scans via send_customer_mail_once.
 
         logger.info(
             "Notification created",
@@ -184,7 +169,7 @@ class NotificationService:
 
         if not notification.is_read:
             notification.is_read = True
-            notification.read_at = datetime.utcnow()
+            notification.read_at = datetime.now(timezone.utc)
             await db.commit()
             await db.refresh(notification)
 
@@ -206,7 +191,7 @@ class NotificationService:
         result = await db.execute(stmt)
         notifications = result.scalars().all()
 
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         count = 0
         for n in notifications:
             n.is_read = True
@@ -223,6 +208,34 @@ class NotificationService:
     # ------------------------------------------------------------------
 
     @staticmethod
+    async def _notified_today(
+        db: AsyncSession,
+        user_id: int,
+        notification_type: NotificationTypeEnum,
+        day_start: datetime,
+        related_order_id: Optional[int] = None,
+        title: Optional[str] = None,
+    ) -> bool:
+        """True if a matching scan notification already exists today.
+
+        Deliberately ignores ``is_read``. The old ``is_read=False`` filter
+        re-created the row, and with it the customer email, on the next
+        5-minute tick after staff read it (BE-09).
+        """
+        conditions = [
+            Notification.user_id == user_id,
+            Notification.notification_type == notification_type,
+            Notification.created_at >= day_start,
+            Notification.created_at < day_start + timedelta(days=1),
+        ]
+        if related_order_id is not None:
+            conditions.append(Notification.related_order_id == related_order_id)
+        if title is not None:
+            conditions.append(Notification.title == title)
+        stmt = select(Notification.id).where(and_(*conditions)).limit(1)
+        return (await db.execute(stmt)).scalar_one_or_none() is not None
+
+    @staticmethod
     async def check_deadline_warnings(db: AsyncSession) -> int:
         """
         Scan open orders for approaching deadlines and create notifications.
@@ -230,16 +243,16 @@ class NotificationService:
         Rules:
         - Warn at 1 day and 3 days before deadline (hard-coded for MVP; can
           be overridden per-user via NotificationPreference.advance_days).
-        - Skip orders that are COMPLETED or DELIVERED.
-        - Skip if an unread DEADLINE_WARNING notification already exists for
-          the same order today (deduplication).
+        - Skip orders that are COMPLETED, DELIVERED, ON_HOLD or CANCELLED
+          (``order_workflow.NO_DEADLINE_STATUSES``, W2-07).
+        - Skip if a DEADLINE_WARNING notification (read or unread) already
+          exists for the same user and order today (deduplication).
         - Notify all ADMIN and GOLDSMITH users.
 
         Returns the number of notifications created.
         """
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
-        today_end = today_start + timedelta(days=1)
 
         # Load all active orders with deadlines in the next 4 days
         stmt = (
@@ -249,12 +262,9 @@ class NotificationService:
                     Order.deadline.isnot(None),
                     Order.deadline >= now,
                     Order.deadline <= now + timedelta(days=4),
-                    Order.status.notin_(
-                        [
-                            OrderStatusEnum.COMPLETED,
-                            OrderStatusEnum.DELIVERED,
-                        ]
-                    ),
+                    # W2-07: finished, paused and cancelled orders raise no
+                    # deadline alarm (order_workflow.counts_for_deadline).
+                    Order.status.notin_(sorted(NO_DEADLINE_STATUSES)),
                     Order.is_deleted.is_(False),
                 )
             )
@@ -297,20 +307,13 @@ class NotificationService:
             )
 
             for user in target_users:
-                # Deduplication: skip if already notified today for this order
-                existing_stmt = select(Notification).where(
-                    and_(
-                        Notification.user_id == user.id,
-                        Notification.related_order_id == order.id,
-                        Notification.notification_type
-                        == NotificationTypeEnum.DEADLINE_WARNING,
-                        Notification.is_read.is_(False),
-                        Notification.created_at >= today_start,
-                        Notification.created_at < today_end,
-                    )
-                )
-                existing_result = await db.execute(existing_stmt)
-                if existing_result.scalar_one_or_none() is not None:
+                if await NotificationService._notified_today(
+                    db,
+                    user.id,
+                    NotificationTypeEnum.DEADLINE_WARNING,
+                    today_start,
+                    related_order_id=order.id,
+                ):
                     continue  # Already warned today
 
                 await NotificationService.create_notification(
@@ -341,9 +344,8 @@ class NotificationService:
 
         Returns the number of notifications created.
         """
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
-        today_end = today_start + timedelta(days=1)
 
         stmt = select(Material).where(Material.stock <= Material.min_stock)
         result = await db.execute(stmt)
@@ -368,21 +370,14 @@ class NotificationService:
             )
 
             for user in admin_users:
-                # Deduplication per material per day
-                existing_stmt = select(Notification).where(
-                    and_(
-                        Notification.user_id == user.id,
-                        Notification.notification_type
-                        == NotificationTypeEnum.LOW_STOCK,
-                        Notification.is_read.is_(False),
-                        Notification.created_at >= today_start,
-                        Notification.created_at < today_end,
-                        # Use title as proxy for material identity (no FK to materials)
-                        Notification.title == title,
-                    )
-                )
-                existing_result = await db.execute(existing_stmt)
-                if existing_result.scalar_one_or_none() is not None:
+                # Title is the proxy for material identity (no FK to materials)
+                if await NotificationService._notified_today(
+                    db,
+                    user.id,
+                    NotificationTypeEnum.LOW_STOCK,
+                    today_start,
+                    title=title,
+                ):
                     continue
 
                 await NotificationService.create_notification(
@@ -417,15 +412,16 @@ class NotificationService:
             b) The order has been in COMPLETED state for more than 3 days (overdue pickup).
         - Severity is INFO for deadline-approaching orders; WARNING for orders
           waiting more than 3 days without delivery.
-        - Deduplicate: skip if an unread PICKUP_READY notification already exists
-          for the same order today.
+        - Deduplicate: skip if a PICKUP_READY notification (read or unread)
+          already exists for the same user and order today.
         - Include customer name in the notification message.
+        - Email the customer once per order (not per staff user), recorded as
+          a CustomerUpdate row. See automated_customer_email.
 
         Returns the number of notifications created.
         """
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
-        today_end = today_start + timedelta(days=1)
         overdue_threshold = now - timedelta(days=3)
         deadline_window = now + timedelta(days=2)
 
@@ -491,19 +487,13 @@ class NotificationService:
                 message += f" Wartet seit {days_waiting} Tagen."
 
             for user in target_users:
-                existing_stmt = select(Notification).where(
-                    and_(
-                        Notification.user_id == user.id,
-                        Notification.related_order_id == order.id,
-                        Notification.notification_type
-                        == NotificationTypeEnum.PICKUP_READY,
-                        Notification.is_read.is_(False),
-                        Notification.created_at >= today_start,
-                        Notification.created_at < today_end,
-                    )
-                )
-                existing_result = await db.execute(existing_stmt)
-                if existing_result.scalar_one_or_none() is not None:
+                if await NotificationService._notified_today(
+                    db,
+                    user.id,
+                    NotificationTypeEnum.PICKUP_READY,
+                    today_start,
+                    related_order_id=order.id,
+                ):
                     continue
 
                 await NotificationService.create_notification(
@@ -517,6 +507,9 @@ class NotificationService:
                     related_customer_id=order.customer_id,
                 )
                 created_count += 1
+
+            # Customer mail: once per order event, outside the staff loop.
+            await send_customer_mail_once(db, order, NotificationTypeEnum.PICKUP_READY)
 
         logger.info(
             "Pickup reminder scan complete",
@@ -537,14 +530,15 @@ class NotificationService:
         Rules:
         - Only orders with status WAITING_FOR_FITTING and is_deleted == False.
         - Severity is always WARNING.
-        - Deduplicate: skip if an unread FITTING_REMINDER notification already
-          exists for the same order today.
+        - Deduplicate: skip if a FITTING_REMINDER notification (read or
+          unread) already exists for the same user and order today.
+        - Email the customer once per order (not per staff user), recorded as
+          a CustomerUpdate row. See automated_customer_email.
 
         Returns the number of notifications created.
         """
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
-        today_end = today_start + timedelta(days=1)
 
         stmt = select(Order).where(
             and_(
@@ -573,19 +567,13 @@ class NotificationService:
             )
 
             for user in target_users:
-                existing_stmt = select(Notification).where(
-                    and_(
-                        Notification.user_id == user.id,
-                        Notification.related_order_id == order.id,
-                        Notification.notification_type
-                        == NotificationTypeEnum.FITTING_REMINDER,
-                        Notification.is_read.is_(False),
-                        Notification.created_at >= today_start,
-                        Notification.created_at < today_end,
-                    )
-                )
-                existing_result = await db.execute(existing_stmt)
-                if existing_result.scalar_one_or_none() is not None:
+                if await NotificationService._notified_today(
+                    db,
+                    user.id,
+                    NotificationTypeEnum.FITTING_REMINDER,
+                    today_start,
+                    related_order_id=order.id,
+                ):
                     continue
 
                 await NotificationService.create_notification(
@@ -600,6 +588,11 @@ class NotificationService:
                 )
                 created_count += 1
 
+            # Customer mail: once per order event, outside the staff loop.
+            await send_customer_mail_once(
+                db, order, NotificationTypeEnum.FITTING_REMINDER
+            )
+
         logger.info(
             "Fitting reminder scan complete",
             extra={
@@ -608,108 +601,6 @@ class NotificationService:
             },
         )
         return created_count
-
-    # ------------------------------------------------------------------
-    # Customer email delivery (graceful degradation)
-    # ------------------------------------------------------------------
-
-    @staticmethod
-    async def _try_send_customer_email(
-        db: AsyncSession,
-        notification: Notification,
-    ) -> None:
-        """
-        Attempt to send a customer-facing email for order-lifecycle events.
-
-        This method resolves the customer email from the DB and dispatches the
-        appropriate typed EmailService method. All exceptions are caught here —
-        email failure must NEVER propagate to the caller.
-
-        PII note: the customer email address is resolved from the DB each time
-        and never stored on the Notification row.
-        """
-        # Import lazily to avoid circular imports at module load time.
-        from goldsmith_erp.services.email_service import EmailService
-
-        try:
-            customer_email: Optional[str] = None
-            order: Optional[Order] = None
-
-            # Resolve customer email — prefer direct customer link, fall back
-            # to order's customer.
-            if notification.related_customer_id:
-                stmt = select(Customer).where(
-                    Customer.id == notification.related_customer_id
-                )
-                result = await db.execute(stmt)
-                customer = result.scalar_one_or_none()
-                if customer:
-                    customer_email = getattr(customer, "email", None)
-
-            if not customer_email and notification.related_order_id:
-                stmt = (
-                    select(Order)
-                    .where(Order.id == notification.related_order_id)
-                    .options(selectinload(Order.customer))
-                )
-                result = await db.execute(stmt)
-                order = result.scalar_one_or_none()
-                if order and order.customer:
-                    customer_email = getattr(order.customer, "email", None)
-
-            if not customer_email:
-                logger.debug(
-                    "No customer email found for notification, skipping email",
-                    extra={"notification_id": notification.id},
-                )
-                return
-
-            ntype = notification.notification_type
-            order_id = notification.related_order_id or 0
-
-            if ntype == NotificationTypeEnum.PICKUP_READY:
-                await EmailService.send_ready_for_pickup(
-                    to=customer_email,
-                    order_id=order_id,
-                )
-            elif ntype == NotificationTypeEnum.FITTING_REMINDER:
-                # Fitting date is embedded in the notification message for now;
-                # pass the message as a proxy until a structured field exists.
-                await EmailService.send_fitting_reminder(
-                    to=customer_email,
-                    order_id=order_id,
-                    fitting_date=notification.message[:80],
-                )
-            elif ntype == NotificationTypeEnum.REPAIR_RECEIVED:
-                await EmailService.send_repair_received(
-                    to=customer_email,
-                    order_id=order_id,
-                    description=notification.message[:120],
-                    bag_number=str(order_id),
-                )
-            elif ntype == NotificationTypeEnum.REPAIR_READY:
-                await EmailService.send_ready_for_pickup(
-                    to=customer_email,
-                    order_id=order_id,
-                )
-            elif ntype == NotificationTypeEnum.ORDER_STATUS:
-                await EmailService.send_order_confirmed(
-                    to=customer_email,
-                    order_id=order_id,
-                    deadline=None,
-                )
-            # All other types: no customer email — silently skip.
-
-        except Exception as exc:
-            logger.error(
-                "Customer email dispatch failed — notification already persisted",
-                extra={
-                    "notification_id": notification.id,
-                    "type": notification.notification_type.value,
-                    "error": str(exc),
-                },
-                exc_info=True,
-            )
 
     # ------------------------------------------------------------------
     # Real-time delivery

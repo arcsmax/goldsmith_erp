@@ -2,7 +2,6 @@
 import apiClient from './client';
 import {
   TimeEntry,
-  TimeEntryWithDetails,
   TimeEntryStartInput,
   TimeEntryStopInput,
   TimeEntryCreateInput,
@@ -12,6 +11,46 @@ import {
   TimeTrackingStats,
   TimeSummaryStats,
 } from '../types';
+import type { Schema } from './generated';
+import type { TimeEntryPageParams } from './queryKeys';
+
+/** The running timer as GET /running and PATCH /{id} return it (with names). */
+export type RunningTimeEntry = TimeEntry &
+  Partial<Pick<Schema<'RunningTimeEntryRead'>, 'activity_name' | 'order_title'>>;
+/** PATCH /time-tracking/{id} body: only the fields sent change. */
+export type RunningTimeEntryEditInput = Schema<'RunningTimeEntryEdit'>;
+
+/** Page envelope of the time-entry lists (W3-08, models/pagination.py). */
+export interface TimeEntriesPage {
+  items: TimeEntry[];
+  total: number;
+  limit: number;
+  offset: number;
+  next_offset: number | null;
+}
+
+function assertTimeEntriesPage(body: unknown, url: string): TimeEntriesPage {
+  const candidate = body as Partial<TimeEntriesPage> | null;
+  if (!candidate || !Array.isArray(candidate.items) || typeof candidate.total !== 'number') {
+    throw new Error(`Unerwartete Antwort von ${url}: keine Seiten-Hülle (items/total).`);
+  }
+  return candidate as TimeEntriesPage;
+}
+
+async function fetchTimeEntriesPage(
+  url: string,
+  params: TimeEntryPageParams,
+  signal?: AbortSignal,
+): Promise<TimeEntriesPage> {
+  const response = await apiClient.get<unknown>(url, { params, signal });
+  return assertTimeEntriesPage(response.data, url);
+}
+
+export interface SwitchTimerInput {
+  new_order_id: number;
+  activity_id: number;
+  location?: string;
+}
 
 export const timeTrackingApi = {
   /**
@@ -36,13 +75,83 @@ export const timeTrackingApi = {
   /**
    * Get currently running time entry for current user
    */
-  getRunning: async (): Promise<TimeEntry | null> => {
-    const response = await apiClient.get<TimeEntry | null>('/time-tracking/running');
+  getRunning: async (): Promise<RunningTimeEntry | null> => {
+    const response = await apiClient.get<RunningTimeEntry | null>('/time-tracking/running');
     return response.data;
   },
 
   /**
-   * Get all time entries for a specific order
+   * Edit the RUNNING timer (activity, order, location, notes, start time).
+   * 403 for a colleague's entry, 409 once stopped, 422 for an impossible
+   * start time (German detail).
+   */
+  editRunning: async (
+    entryId: string,
+    data: RunningTimeEntryEditInput,
+  ): Promise<RunningTimeEntry> => {
+    const response = await apiClient.patch<RunningTimeEntry>(`/time-tracking/${entryId}`, data);
+    return response.data;
+  },
+
+  /**
+   * D-15: manually pause a running entry (opens an Interruption).
+   * 409 if already paused or not running.
+   */
+  pause: async (entryId: string): Promise<TimeEntry> => {
+    const response = await apiClient.post<TimeEntry>(
+      `/time-tracking/${entryId}/pause`
+    );
+    return response.data;
+  },
+
+  /**
+   * D-15: end the current manual pause (closes the open Interruption).
+   * 409 if not paused or not running.
+   */
+  resume: async (entryId: string): Promise<TimeEntry> => {
+    const response = await apiClient.post<TimeEntry>(
+      `/time-tracking/${entryId}/resume`
+    );
+    return response.data;
+  },
+
+  /**
+   * H18: atomic stop-old + start-new (POST /time-tracking/{id}/switch).
+   * One transaction, one pubsub event. The idempotency key makes a retried
+   * tap safe.
+   */
+  switchTimer: async (
+    entryId: string,
+    data: SwitchTimerInput,
+    idempotencyKey: string = crypto.randomUUID(),
+  ): Promise<TimeEntry> => {
+    const response = await apiClient.post<TimeEntry>(`/time-tracking/${entryId}/switch`, data, {
+      headers: {
+        'Idempotency-Key': idempotencyKey,
+        'X-Client-Created-At': new Date().toISOString(),
+      },
+    });
+    return response.data;
+  },
+
+  /** One page of a user's entries (always sends `offset`, so always a Page). */
+  getUserPage: (
+    userId: number,
+    params: TimeEntryPageParams,
+    signal?: AbortSignal,
+  ): Promise<TimeEntriesPage> =>
+    fetchTimeEntriesPage(`/time-tracking/user/${userId}`, params, signal),
+
+  /** One page of an order's entries (Page envelope). */
+  getOrderPage: (
+    orderId: number,
+    params: TimeEntryPageParams,
+    signal?: AbortSignal,
+  ): Promise<TimeEntriesPage> =>
+    fetchTimeEntriesPage(`/time-tracking/order/${orderId}`, params, signal),
+
+  /**
+   * Get all time entries for a specific order (legacy plain list)
    */
   getForOrder: async (
     orderId: number,

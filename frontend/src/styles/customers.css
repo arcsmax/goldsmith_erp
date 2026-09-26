@@ -6,8 +6,8 @@
   border-radius: 12px;
   font-size: 0.85rem;
   font-weight: 500;
-  background-color: #f0f0f0;
-  color: #333;
+  background-color: var(--color-surface-sunken);
+  color: var(--color-text);
 }
 
 .customer-status {
@@ -19,13 +19,13 @@
 }
 
 .customer-status.active {
-  background-color: #d1fae5;
-  color: #065f46;
+  background-color: var(--tone-done-bg);
+  color: var(--color-success-fg);
 }
 
 .customer-status.inactive {
-  background-color: #fee2e2;
-  color: #991b1b;
+  background-color: var(--color-danger-bg);
+  color: var(--color-danger-fg);
 }
 
 .customer-actions {
@@ -50,11 +50,11 @@
 }
 
 .btn-action:hover {
-  background-color: #f3f4f6;
+  background-color: var(--color-surface-sunken);
 }
 
 .btn-action.btn-danger:hover {
-  background-color: #fee2e2;
+  background-color: var(--color-danger-bg);
 }
 
 .filter-bar {
@@ -65,11 +65,22 @@
   align-items: center;
 }
 
+/* LV2-03: the global `.table-container { overflow: hidden }` (pages.css)
+ * clipped TAGS mid-word ("Stammkund", "Geschaeftsk") at 1280 and hid the
+ * Status/Aktionen columns after it, with no scroll cue — the 9-column table
+ * (ID/Name/Firma/E-Mail/Telefon/Typ/Tags/Status/Aktionen) is wider than the
+ * container. Same fix as invoices.css: let the row scroll horizontally
+ * instead of clipping it. */
+.filter-bar + .table-container {
+  overflow-x: auto;
+  overflow-y: visible;
+}
+
 .search-input {
   flex: 1;
   min-width: 250px;
   padding: 0.75rem 1rem;
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--color-border);
   border-radius: 8px;
   font-size: 0.95rem;
 }
@@ -77,15 +88,15 @@
 .search-input:focus {
   outline: none;
   border-color: var(--color-border-focus);
-  box-shadow: 0 0 0 3px rgba(217, 119, 6, 0.1);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 10%, transparent);
 }
 
 .filter-select {
   padding: 0.75rem 1rem;
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--color-border);
   border-radius: 8px;
   font-size: 0.95rem;
-  background-color: white;
+  background-color: var(--color-surface-raised);
   cursor: pointer;
   min-width: 150px;
 }
@@ -93,13 +104,13 @@
 .filter-select:focus {
   outline: none;
   border-color: var(--color-border-focus);
-  box-shadow: 0 0 0 3px rgba(217, 119, 6, 0.1);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 10%, transparent);
 }
 
 .btn-clear-filters {
   padding: 0.75rem 1.5rem;
-  background-color: #f3f4f6;
-  border: 1px solid #d1d5db;
+  background-color: var(--color-surface-sunken);
+  border: 1px solid var(--color-border);
   border-radius: 8px;
   font-size: 0.95rem;
   cursor: pointer;
@@ -107,15 +118,15 @@
 }
 
 .btn-clear-filters:hover {
-  background-color: #e5e7eb;
+  background-color: var(--color-border);
 }
 
 .customer-tag {
   display: inline-block;
   padding: 0.2rem 0.6rem;
   margin: 0.1rem 0.2rem;
-  background-color: #dbeafe;
-  color: #1e40af;
+  background-color: var(--tone-info-bg);
+  color: var(--color-info-fg);
   border-radius: 6px;
   font-size: 0.8rem;
   font-weight: 500;
@@ -127,13 +138,13 @@
   align-items: center;
   margin-top: 1.5rem;
   padding: 1rem;
-  background: white;
+  background: var(--color-surface-raised);
   border-radius: 12px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  box-shadow: var(--shadow-2);
 }
 
 .pagination-info {
-  color: #666;
+  color: var(--color-text-muted);
   font-size: 0.95rem;
 }
 
@@ -144,17 +155,17 @@
 
 .pagination-buttons button {
   padding: 0.5rem 1rem;
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--color-border);
   border-radius: 6px;
-  background-color: white;
+  background-color: var(--color-surface-raised);
   cursor: pointer;
   font-size: 0.9rem;
   transition: all 0.2s;
 }
 
 .pagination-buttons button:hover:not(:disabled) {
-  background-color: #f3f4f6;
-  border-color: #9ca3af;
+  background-color: var(--color-surface-sunken);
+  border-color: var(--color-border-strong);
 }
 
 .pagination-buttons button:disabled {
@@ -170,7 +181,7 @@
 
 .page-size-selector select {
   padding: 0.5rem;
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--color-border);
   border-radius: 6px;
   font-size: 0.9rem;
   cursor: pointer;
@@ -183,7 +194,7 @@
   left: 0;
   right: 0;
   bottom: 0;
-  background-color: rgba(0, 0, 0, 0.5);
+  background-color: var(--color-backdrop);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -192,9 +203,9 @@
 }
 
 .modal-content {
-  background: white;
+  background: var(--color-surface-raised);
   border-radius: 12px;
-  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
+  box-shadow: var(--shadow-3);
   max-width: 600px;
   width: 100%;
   max-height: 90vh;
@@ -203,7 +214,7 @@
 
 .modal-header {
   padding: 1.5rem;
-  border-bottom: 1px solid #e5e7eb;
+  border-bottom: 1px solid var(--color-border);
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -212,7 +223,7 @@
 .modal-header h2 {
   margin: 0;
   font-size: 1.5rem;
-  color: #333;
+  color: var(--color-text);
 }
 
 .modal-close {
@@ -220,13 +231,13 @@
   border: none;
   font-size: 1.5rem;
   cursor: pointer;
-  color: #6b7280;
+  color: var(--color-text-muted);
   padding: 0.25rem;
   line-height: 1;
 }
 
 .modal-close:hover {
-  color: #111827;
+  color: var(--color-text);
 }
 
 .modal-body {
@@ -235,7 +246,7 @@
 
 .modal-footer {
   padding: 1.5rem;
-  border-top: 1px solid #e5e7eb;
+  border-top: 1px solid var(--color-border);
   display: flex;
   justify-content: flex-end;
   gap: 0.75rem;
@@ -249,12 +260,12 @@
   display: block;
   margin-bottom: 0.5rem;
   font-weight: 500;
-  color: #374151;
+  color: var(--color-text);
   font-size: 0.95rem;
 }
 
 .form-group label .required {
-  color: #dc2626;
+  color: var(--color-danger);
   margin-left: 0.2rem;
 }
 
@@ -263,7 +274,7 @@
 .form-group select {
   width: 100%;
   padding: 0.75rem;
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--color-border);
   border-radius: 8px;
   font-size: 0.95rem;
   font-family: inherit;
@@ -273,8 +284,8 @@
 .form-group textarea:focus,
 .form-group select:focus {
   outline: none;
-  border-color: #3b82f6;
-  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+  border-color: var(--tone-info-border);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--tone-info-border) 10%, transparent);
 }
 
 .form-group textarea {
@@ -284,7 +295,7 @@
 
 .form-group .error-message {
   margin-top: 0.5rem;
-  color: #dc2626;
+  color: var(--color-danger);
   font-size: 0.85rem;
 }
 
@@ -297,11 +308,11 @@
 .form-section-title {
   font-size: 1.1rem;
   font-weight: 600;
-  color: #111827;
+  color: var(--color-text);
   margin-top: 1.5rem;
   margin-bottom: 1rem;
   padding-bottom: 0.5rem;
-  border-bottom: 2px solid #e5e7eb;
+  border-bottom: 2px solid var(--color-border);
 }
 
 .checkbox-group {
@@ -317,8 +328,8 @@
 
 .btn-secondary {
   padding: 0.75rem 1.5rem;
-  background-color: #f3f4f6;
-  border: 1px solid #d1d5db;
+  background-color: var(--color-surface-sunken);
+  border: 1px solid var(--color-border);
   border-radius: 8px;
   font-size: 0.95rem;
   font-weight: 500;
@@ -327,13 +338,13 @@
 }
 
 .btn-secondary:hover {
-  background-color: #e5e7eb;
+  background-color: var(--color-border);
 }
 
 .btn-primary {
   padding: 0.75rem 1.5rem;
   background: var(--color-surface-header-gradient);
-  color: white;
+  color: var(--color-primary-contrast);
   border: none;
   border-radius: 8px;
   font-size: 0.95rem;
@@ -343,17 +354,17 @@
 }
 
 .btn-primary:hover {
-  background-color: var(--color-interactive-primary-hover, #b45309);
+  background-color: var(--color-interactive-primary-hover);
 }
 
 .btn-primary:disabled {
-  background-color: #9ca3af;
+  background-color: var(--color-border-strong);
   cursor: not-allowed;
 }
 
 /* Customer Detail / Measurement Row */
 .row-expanded {
-  background-color: #f9fafb;
+  background-color: var(--color-surface-sunken);
 }
 
 .customer-detail-row td {
@@ -363,8 +374,8 @@
 
 .customer-detail-content {
   padding: 1rem 1.5rem;
-  background-color: #f9fafb;
-  border-top: 1px solid #e5e7eb;
+  background-color: var(--color-surface-sunken);
+  border-top: 1px solid var(--color-border);
 }
 
 .detail-section {
@@ -378,7 +389,7 @@
 .detail-section-title {
   font-size: 0.85rem;
   font-weight: 600;
-  color: #6b7280;
+  color: var(--color-text-muted);
   text-transform: uppercase;
   letter-spacing: 0.05em;
   margin: 0 0 0.5rem 0;
@@ -394,44 +405,34 @@
 .measurement-badge {
   display: inline-block;
   padding: 0.3rem 0.75rem;
-  background-color: #ede9fe;
-  color: #5b21b6;
+  background-color: var(--tone-check-bg);
+  color: var(--tone-check-fg);
   border-radius: 8px;
   font-size: 0.85rem;
   font-weight: 500;
 }
 
 .measurement-badge.badge-warning {
-  background-color: #fef3c7;
-  color: #92400e;
-}
-
-.preference-badge {
-  display: inline-block;
-  padding: 0.3rem 0.75rem;
-  background-color: #e0f2fe;
-  color: #0c4a6e;
-  border-radius: 8px;
-  font-size: 0.85rem;
-  font-weight: 500;
+  background-color: var(--color-primary-subtle);
+  color: var(--color-primary-hover);
 }
 
 .detail-empty {
-  color: #9ca3af;
+  color: var(--color-text-muted);
   font-size: 0.9rem;
   font-style: italic;
 }
 
 .detail-notes {
   margin: 0;
-  color: #4b5563;
+  color: var(--color-text-muted);
   font-size: 0.9rem;
   line-height: 1.5;
 }
 
 .detail-loading {
   padding: 1rem 1.5rem;
-  color: #6b7280;
+  color: var(--color-text-muted);
   font-style: italic;
 }
 
@@ -482,5 +483,19 @@
   .form-group textarea,
   .form-group select {
     min-height: 44px;
+  }
+}
+
+/* LV2-03: at 1280px the customers table (id + phone alongside every other
+ * column) ran wider than its card. This table is hand-rolled (not on the
+ * DataTable primitive), so there is no hideBelow prop to reuse; mirrors
+ * the same page-scoped-class fix already applied to orders
+ * (.orders-col-description), materials and metal-inventory
+ * (.materials-col-hide-tablet-up / .metal-col-hide-tablet-up): hidden from
+ * 600px up, still shown in the phone table below 600px. Only the 600px
+ * breakpoint is used (playbook: 600/1024 only). */
+@media (min-width: 600px) {
+  .customers-col-hide-tablet-up {
+    display: none;
   }
 }

@@ -48,7 +48,7 @@ class TestOrderCreation:
         assert order.description == "18K gold wedding ring, 5mm width"
         assert order.customer_id == sample_customer.id
         assert order.price == 1200.00
-        assert order.status == OrderStatusEnum.NEW
+        assert order.status == OrderStatusEnum.DRAFT  # W2-07 / DOM-46
         assert order.created_at is not None
 
     async def test_create_order_with_deadline(self, db_session, sample_customer):
@@ -195,7 +195,7 @@ class TestOrderCreation:
         order = await OrderService.create_order(db_session, order_data)
 
         # Verify defaults
-        assert order.status == OrderStatusEnum.NEW
+        assert order.status == OrderStatusEnum.DRAFT  # W2-07 / DOM-46
         assert order.scrap_percentage == 5.0  # Default from model
         assert order.hourly_rate == 75.00  # Default
         assert order.profit_margin_percent == 40.0  # Default

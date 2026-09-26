@@ -25,7 +25,7 @@
 .btn-start-tracking {
   padding: 0.75rem 1.5rem;
   background: var(--primary-color);
-  color: white;
+  color: var(--color-primary-contrast);
   border: none;
   border-radius: 8px;
   font-size: 1rem;
@@ -40,7 +40,7 @@
 .btn-start-tracking:hover {
   background: var(--primary-dark);
   transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  box-shadow: var(--shadow-2);
 }
 
 .btn-start-tracking:active {
@@ -61,7 +61,7 @@
 .loading-message .spinner {
   width: 40px;
   height: 40px;
-  border: 4px solid #f3f3f3;
+  border: 4px solid var(--color-border);
   border-top: 4px solid var(--primary-color);
   border-radius: 50%;
   animation: spin 1s linear infinite;
@@ -86,7 +86,7 @@
 .btn-retry {
   padding: 0.75rem 1.5rem;
   background: var(--primary-color);
-  color: white;
+  color: var(--color-primary-contrast);
   border: none;
   border-radius: 8px;
   font-size: 1rem;
@@ -107,8 +107,8 @@
 }
 
 .stat-card {
-  background: white;
-  border: 2px solid #e5e7eb;
+  background: var(--color-surface-raised);
+  border: 2px solid var(--color-border);
   border-radius: 12px;
   padding: 1.25rem;
   display: flex;
@@ -119,7 +119,7 @@
 
 .stat-card:hover {
   border-color: var(--primary-color);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  box-shadow: var(--shadow-2);
 }
 
 .stat-icon {
@@ -145,25 +145,25 @@
 
 /* Stat Card Variants */
 .stat-total .stat-icon {
-  color: #3b82f6;
+  color: var(--color-info);
 }
 
 .stat-entries .stat-icon {
-  color: #8b5cf6;
+  color: var(--tone-check-fg);
 }
 
 .stat-complexity .stat-icon {
-  color: #f59e0b;
+  color: var(--color-primary);
 }
 
 .stat-quality .stat-icon {
-  color: #10b981;
+  color: var(--color-success);
 }
 
 /* Activity Breakdown */
 .activity-breakdown {
-  background: white;
-  border: 2px solid #e5e7eb;
+  background: var(--color-surface-raised);
+  border: 2px solid var(--color-border);
   border-radius: 12px;
   padding: 1.5rem;
   margin-bottom: 2rem;
@@ -206,7 +206,7 @@
 .activity-breakdown-bar {
   width: 100%;
   height: 8px;
-  background: #e5e7eb;
+  background: var(--color-border);
   border-radius: 4px;
   overflow: hidden;
 }
@@ -230,8 +230,8 @@
 }
 
 .no-entries-message {
-  background: #f9fafb;
-  border: 2px dashed #d1d5db;
+  background: var(--color-surface-sunken);
+  border: 2px dashed var(--color-border);
   border-radius: 12px;
   padding: 3rem 2rem;
   text-align: center;
@@ -256,8 +256,8 @@
 }
 
 .time-entry-card {
-  background: white;
-  border: 2px solid #e5e7eb;
+  background: var(--color-surface-raised);
+  border: 2px solid var(--color-border);
   border-radius: 12px;
   padding: 1.25rem;
   transition: all 0.2s ease;
@@ -265,12 +265,12 @@
 
 .time-entry-card:hover {
   border-color: var(--primary-color);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  box-shadow: var(--shadow-2);
 }
 
 .time-entry-card.running {
-  border-color: #10b981;
-  background: linear-gradient(135deg, #ffffff 0%, #f0fdf4 100%);
+  border-color: var(--tone-done-border);
+  background: linear-gradient(135deg, var(--color-surface-raised) 0%, var(--tone-done-bg) 100%);
 }
 
 /* Entry Header */
@@ -301,8 +301,8 @@
 }
 
 .running-badge {
-  background: #10b981;
-  color: white;
+  background: var(--color-success);
+  color: var(--color-success-contrast);
   padding: 0.25rem 0.75rem;
   border-radius: 12px;
   font-size: 0.75rem;
@@ -335,7 +335,7 @@
   gap: 0.5rem;
   margin-bottom: 1rem;
   padding: 0.75rem;
-  background: #f9fafb;
+  background: var(--color-surface-sunken);
   border-radius: 8px;
 }
 
@@ -361,7 +361,7 @@
   display: flex;
   gap: 2rem;
   padding: 0.75rem;
-  background: #f9fafb;
+  background: var(--color-surface-sunken);
   border-radius: 8px;
   margin-bottom: 0.75rem;
 }
@@ -385,11 +385,11 @@
 
 .star-display .star {
   font-size: 1.125rem;
-  color: #d1d5db;
+  color: var(--color-border-strong);
 }
 
 .star-display .star.filled {
-  color: #fbbf24;
+  color: var(--color-primary);
 }
 
 .no-rating {
@@ -400,10 +400,10 @@
 /* Entry Rework Badge */
 .entry-rework-badge {
   padding: 0.5rem 0.75rem;
-  background: #fef3c7;
-  border: 1px solid #fbbf24;
+  background: var(--color-primary-subtle);
+  border: 1px solid var(--color-accent);
   border-radius: 6px;
-  color: #92400e;
+  color: var(--color-primary-hover);
   font-size: 0.875rem;
   font-weight: 600;
   margin-bottom: 0.75rem;
@@ -412,8 +412,8 @@
 /* Entry Notes */
 .entry-notes {
   padding: 0.75rem;
-  background: #f0f9ff;
-  border-left: 3px solid #3b82f6;
+  background: var(--tone-info-bg);
+  border-left: 3px solid var(--tone-info-border);
   border-radius: 4px;
   font-size: 0.875rem;
   color: var(--text-primary);
@@ -432,7 +432,7 @@
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(0, 0, 0, 0.5);
+  background: var(--color-backdrop);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -441,13 +441,13 @@
 }
 
 .time-tracking-tab .modal-content {
-  background: white;
+  background: var(--color-surface-raised);
   border-radius: 16px;
   max-width: 600px;
   width: 100%;
   max-height: 90vh;
   overflow: auto;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+  box-shadow: var(--shadow-3);
 }
 
 /* Responsive Design */

@@ -6,7 +6,7 @@
   left: 0;
   right: 0;
   bottom: 0;
-  background-color: rgba(0, 0, 0, 0.5);
+  background-color: var(--color-backdrop);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -16,14 +16,14 @@
 
 .modal,
 .modal-content {
-  background: white;
-  color: #333;
+  background: var(--color-surface-raised);
+  color: var(--color-text);
   border-radius: 12px;
   width: 90%;
   max-width: 600px;
   max-height: 90vh;
   overflow-y: auto;
-  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+  box-shadow: var(--shadow-3);
   animation: slideUp 0.3s;
 }
 
@@ -32,7 +32,7 @@
   justify-content: space-between;
   align-items: center;
   padding: 1.25rem 1.5rem;
-  border-bottom: 1px solid var(--color-border-default, #e5e7eb);
+  border-bottom: 1px solid var(--color-border-default);
 }
 
 .modal-header h2, .modal-header h3 {
@@ -45,13 +45,13 @@
   border: none;
   font-size: 1.5rem;
   cursor: pointer;
-  color: var(--color-text-muted, #6b7280);
+  color: var(--color-text-muted);
   padding: 0.25rem;
   line-height: 1;
 }
 
 .modal-close:hover {
-  color: var(--color-text-heading, #1a1a2e);
+  color: var(--color-text-heading);
 }
 
 .modal-body {
@@ -63,7 +63,7 @@
   justify-content: flex-end;
   gap: 0.75rem;
   padding: 1rem 1.5rem;
-  border-top: 1px solid var(--color-border-default, #e5e7eb);
+  border-top: 1px solid var(--color-border-default);
 }
 
 @keyframes fadeIn {
@@ -94,7 +94,7 @@
 
 .page-header h1 {
   font-size: 2rem;
-  color: #333;
+  color: var(--color-text);
   margin: 0;
 }
 
@@ -105,35 +105,30 @@
   align-items: center;
   min-height: 400px;
   font-size: 1.1rem;
-  color: #666;
+  color: var(--color-text-muted);
 }
 
 .page-error {
   flex-direction: column;
   gap: 1rem;
-  color: #dc2626;
-}
-
-.error-hint {
-  color: #666;
-  font-size: 0.95rem;
+  color: var(--color-danger);
 }
 
 .empty-state {
-  background: white;
+  background: var(--color-surface-raised);
   padding: 3rem;
   border-radius: 12px;
   text-align: center;
-  color: #666;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  color: var(--color-text-muted);
+  box-shadow: var(--shadow-2);
 }
 
 /* ==================== TABLE CONTAINER ==================== */
 
 .table-container {
-  background: white;
+  background: var(--color-surface-raised);
   border-radius: 12px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  box-shadow: var(--shadow-2);
   overflow: hidden;
 }
 
@@ -143,28 +138,28 @@
 }
 
 .data-table thead {
-  background-color: #f8f9fa;
+  background-color: var(--color-surface-sunken);
 }
 
 .data-table th {
   padding: 1rem;
   text-align: left;
   font-weight: 600;
-  color: #666;
+  color: var(--color-text-muted);
   font-size: 0.9rem;
   text-transform: uppercase;
   letter-spacing: 0.5px;
-  border-bottom: 2px solid #e9ecef;
+  border-bottom: 2px solid var(--color-border);
 }
 
 .data-table td {
   padding: 1rem;
-  border-bottom: 1px solid #e9ecef;
-  color: #333;
+  border-bottom: 1px solid var(--color-border);
+  color: var(--color-text);
 }
 
 .data-table tbody tr:hover {
-  background-color: #f8f9fa;
+  background-color: var(--color-surface-sunken);
 }
 
 .data-table tbody tr:last-child td {
@@ -173,7 +168,7 @@
 
 /* Utility Classes */
 .low-stock {
-  color: #dc2626;
+  color: var(--color-danger);
   font-weight: 600;
 }
 
@@ -181,8 +176,9 @@
 /*
  * Tables on small screens are replaced with card layouts.
  *
- * Usage: Add data-label="Column Name" to every <td>
- *        and the class "responsive-table" to the <table>.
+ * Usage: Add data-label="Column Name" to every <td> and one of the table
+ *        classes below to the <table> (.data-table or .orders-table —
+ *        CustomersPage, OrdersPage).
  *
  * On desktop nothing changes. On mobile (≤640px):
  *   - thead is hidden (screen-reader accessible via data-label)
@@ -191,24 +187,13 @@
  */
 
 @media (max-width: 640px) {
-  /* ---- generic .responsive-table ---- */
-  .responsive-table,
   .data-table,
-  .orders-table,
-  .materials-table,
-  .time-entries-table,
-  .customers-table,
-  .users-table {
+  .orders-table {
     display: block;
   }
 
-  .responsive-table thead,
   .data-table thead,
-  .orders-table thead,
-  .materials-table thead,
-  .time-entries-table thead,
-  .customers-table thead,
-  .users-table thead {
+  .orders-table thead {
     /* Visually hidden but remains accessible to screen readers */
     position: absolute;
     width: 1px;
@@ -218,84 +203,54 @@
     white-space: nowrap;
   }
 
-  .responsive-table tbody,
   .data-table tbody,
-  .orders-table tbody,
-  .materials-table tbody,
-  .time-entries-table tbody,
-  .customers-table tbody,
-  .users-table tbody {
+  .orders-table tbody {
     display: block;
   }
 
   /* Each row becomes a card */
-  .responsive-table tbody tr,
   .data-table tbody tr,
-  .orders-table tbody tr,
-  .materials-table tbody tr,
-  .time-entries-table tbody tr,
-  .customers-table tbody tr,
-  .users-table tbody tr {
+  .orders-table tbody tr {
     display: block;
-    background: white;
+    background: var(--color-surface-raised);
     border-radius: 10px;
-    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+    box-shadow: var(--shadow-2);
     margin-bottom: 0.875rem;
     padding: 0.75rem 1rem;
-    border-left: 3px solid #e5e7eb;
+    border-left: 3px solid var(--color-border);
     cursor: pointer;
   }
 
-  .responsive-table tbody tr:last-child,
   .data-table tbody tr:last-child,
-  .orders-table tbody tr:last-child,
-  .materials-table tbody tr:last-child,
-  .time-entries-table tbody tr:last-child,
-  .customers-table tbody tr:last-child,
-  .users-table tbody tr:last-child {
+  .orders-table tbody tr:last-child {
     margin-bottom: 0;
   }
 
   /* Remove the inherited table-cell layout from td */
-  .responsive-table td,
   .data-table td,
-  .orders-table td,
-  .materials-table td,
-  .time-entries-table td,
-  .customers-table td,
-  .users-table td {
+  .orders-table td {
     display: flex;
     justify-content: space-between;
     align-items: flex-start;
     padding: 0.4rem 0;
-    border-bottom: 1px solid #f3f4f6;
+    border-bottom: 1px solid var(--color-border);
     font-size: 0.9rem;
     min-height: 40px;
   }
 
-  .responsive-table td:last-child,
   .data-table td:last-child,
-  .orders-table td:last-child,
-  .materials-table td:last-child,
-  .time-entries-table td:last-child,
-  .customers-table td:last-child,
-  .users-table td:last-child {
+  .orders-table td:last-child {
     border-bottom: none;
     padding-top: 0.6rem;
   }
 
   /* data-label becomes the left-side label */
-  .responsive-table td::before,
   .data-table td::before,
-  .orders-table td::before,
-  .materials-table td::before,
-  .time-entries-table td::before,
-  .customers-table td::before,
-  .users-table td::before {
+  .orders-table td::before {
     content: attr(data-label);
     font-size: 0.75rem;
     font-weight: 600;
-    color: #9ca3af;
+    color: var(--color-text-muted);
     text-transform: uppercase;
     letter-spacing: 0.4px;
     white-space: nowrap;

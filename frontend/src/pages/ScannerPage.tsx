@@ -1,543 +1,321 @@
-// ScannerPage — Slice 12 upgrade.
+// ScannerPage — bench mode (W4-03, UI-UX-PLAYBOOK 5.5).
 //
-// Replaces the legacy inline-ORDER-parser implementation with the V1.1
-// scanner infrastructure:
+// One screen, one job: get to the job bag's order. Camera start, manual
+// number entry and every "Letzte Scans" row are single 56px taps. A
+// resolved scan goes through ScannerContext.setLastScan → the always-mounted
+// ScanOverlay opens with QuickActionModalV2 and its big action buttons.
 //
-//   * QrCameraScanner component (Slice 8) for camera-based capture.
-//   * Manual text input routed through ScannerRouter.resolve() (Slice 7),
-//     preserving USB-HID keyboard-wedge scanners that type+Enter into
-//     focused inputs.
-//   * "Letzte Scans" list fed by ``GET /api/v1/scan/log`` (Slice 12 backend
-//     endpoint) — no more localStorage history.
-//   * Resolved scans flow through ScannerContext.setLastScan → the globally
-//     mounted ScanOverlay (already rendered by MainLayout) opens and drives
-//     the QuickActionModalV2 / ActionHandlers flow.
-//
-// One-shot legacy migration: on first mount, read the old
-// ``last_scanned_orders`` localStorage key and POST the entries as
-// ``resolution_path='import'`` rows via ``/scan/log/batch``. On success we
-// clear the key; on failure we leave it for a retry on the next mount.
-//
-// Strings: 100% German.
-
+//   * QrCameraScanner (Slice 8) only after a tap on "Kamera starten"; the
+//     camera never opens by itself.
+//   * Manual entry routes through ScannerRouter.resolve() (Slice 7) and
+//     keeps USB/HID keyboard-wedge scanners working (focus on mount).
+//   * "Letzte Scans" is the query scanHistoryQuery (GET /scan/log); a scan
+//     invalidates it. The one-shot legacy import of `last_scanned_orders`
+//     runs first (components/scanner/scanHistory.ts).
+//   * The running timer (TimeTrackingContext) shows with its pause state.
+//   * The Werkbank-Modus toggle sits in the header (per device).
+//   * Scan tracking (2026-09 audit, SC-01): every resolve (camera, hand
+//     scanner, typed number, "Letzte Scans" re-open) is logged right away
+//     (components/scanner/scanTracking.ts) with this device's id and bench
+//     location ("Standort dieses Geräts", chosen once per device), then
+//     handed to the overlay's action sheet. ADMIN / GOLDSMITH also get the
+//     cross-piece Scan-Verlauf search (pages/admin/ScanHistoryPanel.tsx).
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useQuery, useQueryClient, type UseQueryResult } from '@tanstack/react-query';
 
+import { queryKeys } from '../api/queryKeys';
+import { scanHistoryQuery } from '../api/scanner';
+import { BenchModeToggle } from '../components/scanner/BenchModeToggle';
+import { QrCameraScanner, type ScanSource } from '../components/scanner/QrCameraScanner';
+import { DeviceLocationSetting } from '../components/scanner/DeviceLocationSetting';
+import {
+  HISTORY_LIMIT,
+  describeAction,
+  describeScanLog,
+  formatScanTime,
+  migrateLegacyScanHistory,
+} from '../components/scanner/scanHistory';
+import {
+  buildScanContext,
+  flushScanQueue,
+  handOffScan,
+  recordScan,
+} from '../components/scanner/scanTracking';
+import { useOptionalAuth } from '../contexts/AuthContext';
+import { canCreateOrders } from '../lib/roles';
+import { ScanHistoryPanel } from './admin/ScanHistoryPanel';
 import { useScannerContext } from '../contexts/ScannerContext';
 import { useTimeTracking } from '../contexts/TimeTrackingContext';
+import { getErrorMessage } from '../lib/errors';
 import { NetworkAliasResolver } from '../lib/network-alias-resolver';
 import { NetworkTransport } from '../lib/network-transport';
 import { ScannerRouter } from '../lib/scan-router';
-import { QrCameraScanner } from '../components/scanner/QrCameraScanner';
-import type { ScanSource } from '../components/scanner/QrCameraScanner';
-import { getScanLogHistory, logScanBatch } from '../api/scanner';
-import type {
-  ResolveResponse,
-  ScanContext,
-  ScanEvent,
-  ScanLogRead,
-} from '../types/scanner';
+import { Button, EmptyState, Field, Icon, PageHeader } from '../ui';
+import { StatusBadge } from '../ui/StatusBadge';
+import type { ResolveResponse, ScanLogRead } from '../types/scanner';
 import '../styles/scanner.css';
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-const LEGACY_STORAGE_KEY = 'last_scanned_orders';
-const HISTORY_LIMIT = 20;
-
-interface LegacyScanEntry {
-  id: number;
-  time: string;
+/** A router error (plain Error, German text) keeps its message; HTTP errors are mapped. */
+function scanErrorMessage(err: unknown): string {
+  const isHttp = typeof err === 'object' && err !== null && ('response' in err || 'isAxiosError' in err);
+  if (!isHttp && err instanceof Error && err.message.length > 0) return err.message;
+  return getErrorMessage(err, 'Scan konnte nicht verarbeitet werden.');
 }
 
-/**
- * Build a minimal ScanContext payload. ScannerPage runs outside the
- * QuickActionModalV2 so the running-timer context is read from the global
- * TimeTrackingContext at call time.
- */
-function makeScanContext(
-  source: ScanSource,
-  currentLocation: string | null,
-  runningEntryId: string | null,
-  runningEntryOrderId: number | null,
-): ScanContext {
-  return {
-    running_timer_id: runningEntryId,
-    current_order_id: runningEntryOrderId,
-    current_location: currentLocation,
-    device_type: detectDeviceType(),
-    input_source: source === 'camera' ? 'camera' : 'manual',
-  };
+/** Run the legacy import once per mount, then let the history query load. */
+function useLegacyMigration(): boolean {
+  const [isDone, setIsDone] = useState(false);
+  const hasRun = useRef(false);
+  useEffect(() => {
+    if (hasRun.current) return;
+    hasRun.current = true;
+    void migrateLegacyScanHistory().finally(() => setIsDone(true));
+  }, []);
+  return isDone;
 }
 
-function detectDeviceType(): 'mobile' | 'desktop' | 'tablet' {
-  if (typeof navigator === 'undefined') return 'desktop';
-  const ua = navigator.userAgent;
-  if (/iPad/.test(ua) || (ua.includes('Mac') && 'ontouchend' in document)) {
-    return 'tablet';
+const ScanHistory: React.FC<{
+  query: UseQueryResult<ScanLogRead[]>;
+  isScanning: boolean;
+  onReopen: (row: ScanLogRead) => void;
+  onStartCamera: () => void;
+}> = ({ query, isScanning, onReopen, onStartCamera }) => {
+  if (query.isPending) {
+    return (
+      <p className="scanner-history-note" role="status" data-testid="scanner-history-loading">
+        Verlauf wird geladen…
+      </p>
+    );
   }
-  if (/Mobile|Android|iPhone/.test(ua)) return 'mobile';
-  return 'desktop';
-}
-
-/**
- * Format a scanned-at ISO timestamp for the "Letzte Scans" list. Uses the
- * browser locale (de-DE preferred) but falls back to a stable ISO-like
- * representation if Intl is unavailable (e.g. very restrictive environments).
- */
-function formatScanTime(iso: string): string {
-  try {
-    const d = new Date(iso);
-    if (Number.isNaN(d.getTime())) return iso;
-    return d.toLocaleString('de-DE', {
-      dateStyle: 'short',
-      timeStyle: 'short',
-    });
-  } catch {
-    return iso;
+  if (query.isError) {
+    return (
+      <div className="scanner-history-error" data-testid="scanner-history-error">
+        <p role="alert">Scan-Verlauf konnte nicht geladen werden. Bitte später erneut versuchen.</p>
+        <Button variant="secondary" icon="refresh" onClick={() => void query.refetch()}>
+          Erneut versuchen
+        </Button>
+      </div>
+    );
   }
-}
-
-/**
- * Render a human-readable label for a ScanLogRead row. Falls back to the
- * raw payload when resolution metadata is missing (unknown scans still
- * appear in history).
- */
-function describeScanLog(row: ScanLogRead): string {
-  if (row.resolved_type && row.resolved_id) {
-    const type = row.resolved_type.toUpperCase();
-    return `${type}:${row.resolved_id}`;
+  if (query.data.length === 0) {
+    return (
+      <div data-testid="scanner-history-empty">
+        <EmptyState
+          icon="scan"
+          title="Noch keine Scans vorhanden"
+          body="Scannen Sie den QR-Code auf der Auftragstüte."
+          headingLevel={3}
+          action={
+            <Button size="lg" icon="camera" onClick={onStartCamera}>
+              Kamera starten
+            </Button>
+          }
+        />
+      </div>
+    );
   }
-  return row.raw_payload;
-}
-
-/**
- * Describe the action taken on a scan for the history row subtitle.
- * `null` means we render no subtitle (e.g. an unknown scan).
- */
-function describeAction(row: ScanLogRead): string | null {
-  if (row.action_taken !== null && row.action_taken.length > 0) {
-    return row.action_taken;
-  }
-  if (row.resolution_path === 'unknown') {
-    return 'Nicht erkannt';
-  }
-  return null;
-}
-
-/**
- * Migrate the legacy ``last_scanned_orders`` localStorage key into the
- * backend ``scan_logs`` table via the batch endpoint.
- *
- * Grace rules (plan §Slice 12):
- *   * If the POST fails (offline, 5xx), localStorage is NOT cleared so the
- *     next page load retries.
- *   * If the POST succeeds OR the storage blob is malformed, the key is
- *     removed (malformed entries are not worth re-attempting).
- *
- * Returns true when a migration attempt was actually made (for tests).
- */
-async function migrateLegacyScanHistory(): Promise<boolean> {
-  let raw: string | null;
-  try {
-    raw = localStorage.getItem(LEGACY_STORAGE_KEY);
-  } catch {
-    return false;
-  }
-  if (raw === null) return false;
-
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch {
-    // Malformed — strip it so we don't retry forever.
-    try {
-      localStorage.removeItem(LEGACY_STORAGE_KEY);
-    } catch {
-      // ignore
-    }
-    return false;
-  }
-
-  if (!Array.isArray(parsed) || parsed.length === 0) {
-    try {
-      localStorage.removeItem(LEGACY_STORAGE_KEY);
-    } catch {
-      // ignore
-    }
-    return false;
-  }
-
-  const events: ScanEvent[] = [];
-  for (const entry of parsed as LegacyScanEntry[]) {
-    if (
-      typeof entry !== 'object' ||
-      entry === null ||
-      typeof (entry as LegacyScanEntry).id !== 'number'
-    ) {
-      continue;
-    }
-    events.push({
-      raw_payload: `ORDER:${(entry as LegacyScanEntry).id}`,
-      resolved_type: 'order',
-      resolved_id: String((entry as LegacyScanEntry).id),
-      resolution_path: 'import',
-      action_taken: 'legacy_migration',
-      offline_queued: false,
-      idempotency_key: crypto.randomUUID(),
-    });
-  }
-
-  if (events.length === 0) {
-    try {
-      localStorage.removeItem(LEGACY_STORAGE_KEY);
-    } catch {
-      // ignore
-    }
-    return false;
-  }
-
-  try {
-    await logScanBatch(events);
-    try {
-      localStorage.removeItem(LEGACY_STORAGE_KEY);
-    } catch {
-      // ignore
-    }
-    return true;
-  } catch {
-    // Leave the legacy key in place — retry on next mount.
-    return false;
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Component
-// ---------------------------------------------------------------------------
+  return (
+    <ul className="scanner-history-list" data-testid="scanner-history-list">
+      {query.data.map((row) => {
+        const subtitle = describeAction(row);
+        return (
+          <li key={row.id}>
+            <button
+              type="button"
+              className="scanner-history-item"
+              onClick={() => onReopen(row)}
+              disabled={isScanning}
+              data-testid={`scanner-history-item-${row.id}`}
+            >
+              <span className="scanner-history-item__id">{describeScanLog(row)}</span>
+              <span className="scanner-history-item__meta">
+                <time dateTime={row.scanned_at}>{formatScanTime(row.scanned_at)}</time>
+                {subtitle !== null && <span> · {subtitle}</span>}
+              </span>
+              <Icon name="arrow-right" className="scanner-history-item__chevron" />
+            </button>
+          </li>
+        );
+      })}
+    </ul>
+  );
+};
 
 export const ScannerPage: React.FC = () => {
-  const navigate = useNavigate();
-  const {
-    setLastScan,
-    setInputSource,
-    openScanner,
-    currentLocation,
-  } = useScannerContext();
+  const queryClient = useQueryClient();
+  const { setLastScan, setInputSource, openScanner, currentLocation } = useScannerContext();
   const { runningEntry } = useTimeTracking();
 
-  const [scanInput, setScanInput] = useState<string>('');
-  const [isScanning, setIsScanning] = useState<boolean>(false);
+  const [scanInput, setScanInput] = useState('');
+  const [isScanning, setIsScanning] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [cameraActive, setCameraActive] = useState<boolean>(false);
-
-  const [history, setHistory] = useState<ScanLogRead[]>([]);
-  const [historyLoading, setHistoryLoading] = useState<boolean>(true);
-  const [historyError, setHistoryError] = useState<string | null>(null);
-
+  const [cameraActive, setCameraActive] = useState(false);
   const manualInputRef = useRef<HTMLInputElement | null>(null);
-  const migrationRan = useRef<boolean>(false);
 
-  // -------------------------------------------------------------------------
-  // Router — one instance per component lifetime. NetworkTransport wraps
-  // the shared apiClient which already authenticates via HttpOnly cookies.
-  // -------------------------------------------------------------------------
-  const router = useMemo<ScannerRouter>(
+  const auth = useOptionalAuth();
+  // Mirrors the backend gate on GET /scan/history (ADMIN + GOLDSMITH).
+  const canSearchScans = canCreateOrders(auth?.user?.role);
+
+  const isMigrated = useLegacyMigration();
+
+  // Scans that could not be sent earlier (offline) go out now.
+  useEffect(() => {
+    void flushScanQueue();
+  }, []);
+  const history = useQuery({ ...scanHistoryQuery(HISTORY_LIMIT), enabled: isMigrated });
+
+  // One router per page lifetime; NetworkTransport uses the shared apiClient.
+  const router = useMemo(
     () => new ScannerRouter(new NetworkAliasResolver(), new NetworkTransport()),
     [],
   );
 
-  // -------------------------------------------------------------------------
-  // Load history + run legacy migration exactly once on mount
-  // -------------------------------------------------------------------------
-
-  const loadHistory = useCallback(async (): Promise<void> => {
-    setHistoryLoading(true);
-    setHistoryError(null);
-    try {
-      const rows = await getScanLogHistory(HISTORY_LIMIT);
-      setHistory(rows);
-    } catch {
-      setHistoryError(
-        'Scan-Verlauf konnte nicht geladen werden. Bitte spaeter erneut versuchen.',
-      );
-    } finally {
-      setHistoryLoading(false);
-    }
-  }, []);
-
+  // USB/HID scanners type and press Enter: land them in the input.
   useEffect(() => {
-    if (migrationRan.current) return;
-    migrationRan.current = true;
-
-    // Kick off migration then history fetch. Migration is fire-and-forget
-    // — if it succeeds the backend history will now include the imported
-    // rows; if it fails silently we still show whatever the backend has.
-    void migrateLegacyScanHistory().finally(() => {
-      void loadHistory();
-    });
-
-    // Auto-focus the manual input on mount so USB HID scanners (which type
-    // and press Enter) land in the input without a tap.
     manualInputRef.current?.focus();
-  }, [loadHistory]);
-
-  // -------------------------------------------------------------------------
-  // Scan handling — both camera and manual paths converge here
-  // -------------------------------------------------------------------------
+  }, []);
 
   const handleScan = useCallback(
     async (payload: string, source: ScanSource): Promise<void> => {
       const trimmed = payload.trim();
       if (trimmed.length === 0 || isScanning) return;
-
       setError(null);
       setIsScanning(true);
       setInputSource(source === 'camera' ? 'camera' : 'manual');
-      // Pause the camera if it was running — resume on the next scan click.
       setCameraActive(false);
-
+      const ctx = buildScanContext(source === 'camera' ? 'camera' : 'manual', {
+        stationLocation: currentLocation,
+        runningEntry,
+      });
       try {
-        const ctx = makeScanContext(
-          source,
-          currentLocation,
-          runningEntry?.id ?? null,
-          runningEntry?.order_id ?? null,
-        );
         const response: ResolveResponse = await router.resolve(trimmed, ctx);
-        // Publish through the global context so the always-mounted
-        // ScanOverlay renders QuickActionModalV2 on top. Opening the
-        // overlay last ensures the modal sees `lastScan` already set.
+        // Logged before the sheet opens: a scan without an action counts.
+        const tracked = await recordScan(trimmed, response, ctx);
+        // The overlay opens straight on the action sheet for this scan.
+        handOffScan({ response, tracked, payload: trimmed });
         setLastScan(response);
         openScanner();
-
-        // Clear the manual input so the next scan starts fresh.
         setScanInput('');
-
-        // Optimistic refresh — the scan was just logged server-side by
-        // the resolve/action flow inside the overlay, so refreshing
-        // history gives the user immediate feedback.
-        void loadHistory();
+        void queryClient.invalidateQueries({ queryKey: queryKeys.scanLog.all });
       } catch (err) {
-        const message =
-          err instanceof Error && err.message.length > 0
-            ? err.message
-            : 'Scan konnte nicht verarbeitet werden.';
-        setError(message);
+        console.error('Scan konnte nicht verarbeitet werden', { source, err });
+        // The scan still happened: record it as resolve_failed.
+        await recordScan(trimmed, null, ctx);
+        setError(scanErrorMessage(err));
       } finally {
         setIsScanning(false);
       }
     },
-    [
-      isScanning,
-      setInputSource,
-      currentLocation,
-      runningEntry,
-      router,
-      setLastScan,
-      openScanner,
-      loadHistory,
-    ],
+    [isScanning, setInputSource, currentLocation, runningEntry, router, setLastScan, openScanner, queryClient],
   );
 
-  const handleManualSubmit = useCallback(
-    (event: React.FormEvent<HTMLFormElement>): void => {
-      event.preventDefault();
-      if (scanInput.trim().length === 0) return;
-      void handleScan(scanInput, 'manual');
-    },
-    [scanInput, handleScan],
-  );
+  const handleManualSubmit = (event: React.FormEvent<HTMLFormElement>): void => {
+    event.preventDefault();
+    if (scanInput.trim().length > 0) void handleScan(scanInput, 'manual');
+  };
 
-  const handleCameraToggle = useCallback((): void => {
+  const toggleCamera = (): void => {
     setCameraActive((prev) => !prev);
     setError(null);
-  }, []);
-
-  const handleHistoryItemClick = useCallback(
-    (row: ScanLogRead): void => {
-      // Re-resolve the raw payload so the user can re-open the QuickAction
-      // flow on a recent entity without needing to scan again. This uses
-      // the same resolve pipeline rather than a direct navigate so role
-      // filtering and quick-action computation always run server-side.
-      void handleScan(row.raw_payload, 'manual');
-    },
-    [handleScan],
-  );
-
-  // -------------------------------------------------------------------------
-  // Render
-  // -------------------------------------------------------------------------
+  };
 
   return (
-    <div className="scanner-container" data-testid="scanner-page">
-      <div className="scanner-box">
-        <div className="scanner-icon" aria-hidden="true">
-          QR
-        </div>
-        <h1>QR / Barcode Scanner</h1>
-        <p className="scanner-subtitle">
-          Scannen Sie einen QR-Code mit der Kamera, oder geben Sie die
-          Kennung manuell ein.
+    <div className="scanner-page" data-testid="scanner-page">
+      <PageHeader
+        title="Scanner"
+        meta="QR-Code auf der Auftragstüte scannen oder Nummer eintippen"
+        secondaryActions={<BenchModeToggle />}
+        stickyPrimary={false}
+      />
+
+      <DeviceLocationSetting />
+
+      {runningEntry && (
+        <p className="scanner-running" role="status">
+          <Icon name="clock" />
+          <span>
+            Timer läuft: <strong>Auftrag #{runningEntry.order_id}</strong>
+          </span>
+          {runningEntry.is_paused && <StatusBadge kind="timeEntry" status="paused" size="lg" />}
         </p>
+      )}
 
-        {/* Camera section */}
-        <section
-          className="scanner-camera-section"
-          aria-labelledby="scanner-camera-heading"
-          data-testid="scanner-camera-section"
+      <section
+        className="scanner-section"
+        aria-labelledby="scanner-camera-heading"
+        data-testid="scanner-camera-section"
+      >
+        <h2 id="scanner-camera-heading">Kamera</h2>
+        {cameraActive && <QrCameraScanner active={cameraActive} onScan={handleScan} />}
+        <Button
+          size="lg"
+          block
+          variant={cameraActive ? 'secondary' : 'primary'}
+          icon={cameraActive ? 'close' : 'camera'}
+          onClick={toggleCamera}
+          data-testid={cameraActive ? 'scanner-camera-stop' : 'scanner-camera-start'}
         >
-          <h2 id="scanner-camera-heading" className="scanner-section-heading">
-            Kamera
-          </h2>
-          {cameraActive ? (
-            <QrCameraScanner active={cameraActive} onScan={handleScan} />
-          ) : (
-            <button
-              type="button"
-              className="btn-scan"
-              onClick={handleCameraToggle}
-              data-testid="scanner-camera-start"
-            >
-              Kamera starten
-            </button>
-          )}
-          {cameraActive ? (
-            <button
-              type="button"
-              className="btn-scan-secondary"
-              onClick={handleCameraToggle}
-              data-testid="scanner-camera-stop"
-            >
-              Kamera stoppen
-            </button>
-          ) : null}
-        </section>
+          {cameraActive ? 'Kamera stoppen' : 'Kamera starten'}
+        </Button>
+      </section>
 
-        {/* Manual input section */}
-        <section
-          className="scanner-manual-section"
-          aria-labelledby="scanner-manual-heading"
-        >
-          <h2 id="scanner-manual-heading" className="scanner-section-heading">
-            Manuelle Eingabe
-          </h2>
-          <form
-            className="scan-input-group"
-            onSubmit={handleManualSubmit}
-            data-testid="scanner-manual-form"
+      <section className="scanner-section" aria-labelledby="scanner-manual-heading">
+        <h2 id="scanner-manual-heading">Nummer eintippen</h2>
+        <form className="scanner-manual-form" onSubmit={handleManualSubmit} data-testid="scanner-manual-form">
+          <Field
+            label="Auftragsnummer oder Kennung"
+            name="scan-input"
+            help="z. B. 42 oder ORDER:42. Handscanner tippen die Kennung automatisch ein."
           >
-            <label htmlFor="scan-input" className="sr-only">
-              Scan-Kennung eingeben
-            </label>
             <input
               id="scan-input"
               ref={manualInputRef}
               type="text"
               inputMode="text"
+              autoComplete="off"
               value={scanInput}
               onChange={(e) => setScanInput(e.target.value)}
-              placeholder="z.B. ORDER:42 oder Auftragsnummer"
-              className="scan-input"
-              autoFocus
               disabled={isScanning}
               data-testid="scanner-manual-input"
             />
-            <button
-              type="submit"
-              disabled={scanInput.trim().length === 0 || isScanning}
-              className="btn-scan"
-              data-testid="scanner-manual-submit"
-            >
-              {isScanning ? 'Laedt…' : 'Oeffnen'}
-            </button>
-          </form>
-          {error !== null ? (
-            <div className="scan-error" role="alert" data-testid="scanner-error">
-              {error}
-            </div>
-          ) : null}
-        </section>
-
-        {/* Last scans — backed by GET /api/v1/scan/log */}
-        <section
-          className="last-scanned"
-          aria-labelledby="scanner-history-heading"
-          data-testid="scanner-history-section"
-        >
-          <h3
-            id="scanner-history-heading"
-            className="scanner-section-heading"
+          </Field>
+          <Button
+            type="submit"
+            size="lg"
+            icon="search"
+            loading={isScanning}
+            disabled={scanInput.trim().length === 0}
+            data-testid="scanner-manual-submit"
           >
-            Letzte Scans
-          </h3>
-          {historyLoading ? (
-            <p
-              className="scanner-history-empty"
-              data-testid="scanner-history-loading"
-            >
-              Verlauf wird geladen…
-            </p>
-          ) : historyError !== null ? (
-            <p
-              className="scanner-history-error"
-              role="alert"
-              data-testid="scanner-history-error"
-            >
-              {historyError}
-            </p>
-          ) : history.length === 0 ? (
-            <p
-              className="scanner-history-empty"
-              data-testid="scanner-history-empty"
-            >
-              Noch keine Scans vorhanden.
-            </p>
-          ) : (
-            <ul className="scanned-list" data-testid="scanner-history-list">
-              {history.map((row) => {
-                const subtitle = describeAction(row);
-                return (
-                  <li key={row.id} className="scanned-item-row">
-                    <button
-                      type="button"
-                      className="scanned-item"
-                      onClick={() => handleHistoryItemClick(row)}
-                      data-testid={`scanner-history-item-${row.id}`}
-                    >
-                      <span className="scanned-id">{describeScanLog(row)}</span>
-                      <span className="scanned-time">
-                        {formatScanTime(row.scanned_at)}
-                      </span>
-                      {subtitle !== null ? (
-                        <span className="scanned-action">{subtitle}</span>
-                      ) : null}
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </section>
+            Auftrag öffnen
+          </Button>
+        </form>
+        {error !== null && (
+          <p className="scanner-error" role="alert" data-testid="scanner-error">
+            {error}
+          </p>
+        )}
+      </section>
 
-        {/* Info Box */}
-        <div className="scan-info">
-          <h3>So funktioniert&apos;s:</h3>
-          <ol>
-            <li>QR-Code mit der Kamera scannen oder Kennung eingeben.</li>
-            <li>
-              USB-Handscanner tippen die Kennung automatisch in das
-              Eingabefeld.
-            </li>
-            <li>Schnellaktionen oeffnen sich automatisch nach dem Scan.</li>
-          </ol>
-        </div>
-      </div>
+      <section
+        className="scanner-section"
+        aria-labelledby="scanner-history-heading"
+        data-testid="scanner-history-section"
+      >
+        <h2 id="scanner-history-heading">Letzte Scans</h2>
+        <ScanHistory
+          query={history}
+          isScanning={isScanning}
+          onReopen={(row) => void handleScan(row.raw_payload, 'manual')}
+          onStartCamera={() => setCameraActive(true)}
+        />
+      </section>
+
+      {canSearchScans && <ScanHistoryPanel />}
     </div>
   );
 };
 
-// Named-export kept for compatibility with existing App.tsx lazy import.
 export default ScannerPage;
 
 // Exposed for unit tests — not part of the public component API.

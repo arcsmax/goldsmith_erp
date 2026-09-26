@@ -28,6 +28,7 @@ describe('TimerWidget', () => {
     rework_required: false,
     notes: null,
     extra_metadata: null,
+    is_paused: false,
     created_at: new Date(Date.now() - 1800000).toISOString(),
     ...overrides,
   });
@@ -89,7 +90,7 @@ describe('TimerWidget', () => {
       renderWidget(makeEntry());
       expand();
 
-      expect(screen.getByText('⏱️ Läuft')).toBeInTheDocument();
+      expect(screen.getByText('Läuft')).toBeInTheDocument();
 
       const activity = screen.getByText(
         (_, el) => el?.classList.contains('timer-activity') ?? false
@@ -112,22 +113,72 @@ describe('TimerWidget', () => {
     });
   });
 
-  describe('Pause / Resume', () => {
-    it('toggles between running and paused state', async () => {
-      const user = userEvent.setup();
+  describe('Pause (FE-10 / D-15)', () => {
+    it('renders no Pause control without an onPause handler (FE-10 default)', () => {
+      // FE-10: a client-side-only "Pause" was removed because it never
+      // touched the server, so booked hours silently included breaks.
+      // D-15 brings a real, server-backed pause back — but only when the
+      // caller wires it up (MainLayout passes TimeTrackingContext's
+      // pauseTracking/resumeTracking); a widget rendered without those
+      // props (as in most tests here) still shows no pause control.
       renderWidget(makeEntry());
       expand();
 
-      expect(screen.getByText('⏱️ Läuft')).toBeInTheDocument();
+      expect(screen.getByText('Läuft')).toBeInTheDocument();
+      expect(screen.queryByText('Pause')).not.toBeInTheDocument();
+    });
 
-      await user.click(screen.getByText('⏸️ Pause'));
+    it('keeps advancing the elapsed time — nothing in the UI freezes the ticker', () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2025-01-01T12:00:00Z'));
+      renderWidget(makeEntry({ start_time: '2025-01-01T11:59:00Z' }));
+      expand();
 
-      expect(screen.getByText('⏸️ Pausiert')).toBeInTheDocument();
-      expect(screen.getByText('▶️ Fortsetzen')).toBeInTheDocument();
+      expect(document.querySelector('.timer-time')?.textContent).toBe('1:00');
 
-      await user.click(screen.getByText('▶️ Fortsetzen'));
+      act(() => {
+        vi.advanceTimersByTime(60_000);
+      });
 
-      expect(screen.getByText('⏱️ Läuft')).toBeInTheDocument();
+      expect(document.querySelector('.timer-time')?.textContent).toBe('2:00');
+    });
+
+    it('D-15: shows a Pause button that calls onPause when provided', async () => {
+      const user = userEvent.setup();
+      const onPause = vi.fn().mockResolvedValue(undefined);
+      render(
+        <TimerWidget
+          runningEntry={makeEntry()}
+          onStop={mockOnStop}
+          onPause={onPause}
+        />
+      );
+      expand();
+
+      const pauseButton = screen.getByText('Pause');
+      await user.click(pauseButton);
+
+      expect(onPause).toHaveBeenCalledTimes(1);
+    });
+
+    it('D-15: shows a "Pausiert" badge and a Weiter button when is_paused is true', async () => {
+      const user = userEvent.setup();
+      const onResume = vi.fn().mockResolvedValue(undefined);
+      render(
+        <TimerWidget
+          runningEntry={makeEntry({ is_paused: true })}
+          onStop={mockOnStop}
+          onResume={onResume}
+        />
+      );
+      expand();
+
+      expect(screen.getByText('Pausiert')).toBeInTheDocument();
+      expect(screen.queryByText('Pause')).not.toBeInTheDocument();
+      const resumeButton = screen.getByText('Weiter');
+      await user.click(resumeButton);
+
+      expect(onResume).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -135,7 +186,7 @@ describe('TimerWidget', () => {
     const openStopDialog = async (user: ReturnType<typeof userEvent.setup>) => {
       renderWidget(makeEntry());
       expand();
-      await user.click(screen.getByText('⏹️ Stopp'));
+      await user.click(screen.getByText('Stopp'));
     };
 
     it('opens with rating, rework and notes fields', async () => {
@@ -148,7 +199,7 @@ describe('TimerWidget', () => {
       expect(screen.getByText('Nacharbeit erforderlich')).toBeInTheDocument();
       expect(screen.getByText('Notizen (optional)')).toBeInTheDocument();
       expect(
-        screen.getByPlaceholderText('Zusätzliche Notizen...')
+        screen.getByPlaceholderText('Zusätzliche Notizen…')
       ).toBeInTheDocument();
     });
 
@@ -168,7 +219,7 @@ describe('TimerWidget', () => {
       const user = userEvent.setup();
       await openStopDialog(user);
 
-      await user.click(screen.getByText('Stoppen & Speichern'));
+      await user.click(screen.getByText('Stoppen & speichern'));
 
       await waitFor(() => {
         expect(mockOnStop).toHaveBeenCalledTimes(1);
@@ -226,7 +277,7 @@ describe('TimerWidget', () => {
       const user = userEvent.setup();
       await openStopDialog(user);
 
-      const notes = screen.getByPlaceholderText('Zusätzliche Notizen...');
+      const notes = screen.getByPlaceholderText('Zusätzliche Notizen…');
       await user.type(notes, 'Sauber poliert');
       expect(notes).toHaveValue('Sauber poliert');
     });

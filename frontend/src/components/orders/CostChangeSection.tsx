@@ -1,13 +1,17 @@
 // CostChangeSection — §649 cost-change history, create-form & record-response
-// modal (V1.2 Task 5). Mounted in the order-detail `kosten` tab beside
-// CostBreakdownCard.
+// modal (V1.2 Task 5; W4-03 on TanStack Query + src/ui). Mounted in the
+// order-detail work tab beside CostBreakdownCard.
 //
 // Permission model mirrors KundeninfoTab / CostAlertBanner: listCostChanges
 // is COST_CHANGE_VIEW and every write is COST_CHANGE_MANAGE, both ADMIN +
 // GOLDSMITH only. A VIEWER must never trigger the GET (it 403s backend-side)
-// and never see any write action — so the fetch itself is gated on the role,
-// not just the rendered UI.
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+// and never see any write action — so the query itself is disabled for the
+// role, not just the rendered UI.
+//
+// Every write invalidates queryKeys.orders.detail(orderId), which refreshes
+// this history, the CostAlertBanner's projected cost and the order itself.
+import React, { useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAuth, useConfirm, useToast } from '../../contexts';
 import { customerUpdatesApi } from '../../api/customer-updates';
 import type {
@@ -15,25 +19,24 @@ import type {
   CostChangeCreateInput,
   CostChangeRecordResponseInput,
   CostChangeResponseMethod,
-  CostChangeStatus,
 } from '../../api/customer-updates';
+import { queryKeys } from '../../api/queryKeys';
+import { COST_CHANGE_STATUS } from '../../design/status';
+import { getErrorMessage } from '../../lib/errors';
+import { formatEur, MONEY_CLASS } from '../../lib/format';
 import { logError } from '../../lib/logError';
-import { formatCurrency, formatPercentage } from '../../utils/formatters';
+import { formatPercentage } from '../../utils/formatters';
+import { Button, Field, Modal, PageState, type PageStateValue } from '../../ui';
+import { StatusBadge } from '../../ui/StatusBadge';
 import { CostChangeForm } from './CostChangeForm';
+import { invalidateOrder } from './orderQueries';
 import './cost-change.css';
 
 export interface CostChangeSectionProps {
   orderId: number;
+  /** Optional notification after a successful write (the queries refresh themselves). */
   onChanged?: () => void;
 }
-
-const STATUS_LABELS: Record<CostChangeStatus, string> = {
-  draft: 'Entwurf',
-  sent: 'Gesendet',
-  approved: 'Genehmigt',
-  declined: 'Abgelehnt',
-  superseded: 'Ersetzt',
-};
 
 const RESPONSE_METHOD_LABELS: Record<CostChangeResponseMethod, string> = {
   email_reply: 'E-Mail-Antwort',
@@ -43,6 +46,7 @@ const RESPONSE_METHOD_LABELS: Record<CostChangeResponseMethod, string> = {
 
 const RESPONSE_EVIDENCE_MIN = 5;
 const RESPONSE_EVIDENCE_MAX = 2000;
+const RESPONSE_FORM_ID = 'cost-change-response-form';
 
 function sortNewestFirst(costChanges: CostChange[]): CostChange[] {
   return [...costChanges].sort(
@@ -50,106 +54,41 @@ function sortNewestFirst(costChanges: CostChange[]): CostChange[] {
   );
 }
 
-/** Pull the backend's specific error message out of an axios error, so the
- *  user sees the real reason (e.g. "Kein Kostenvoranschlag …", "bereits
- *  gesendet") instead of a generic fallback that hides it. */
-function extractDetail(err: unknown): string | undefined {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const detail = (err as any)?.response?.data?.detail;
-  return typeof detail === 'string' && detail ? detail : undefined;
-}
-
-function StatusBadge({ status }: { status: CostChangeStatus }) {
-  return (
-    <span className={`cost-change-status-badge status-${status}`}>
-      {STATUS_LABELS[status] ?? status}
-    </span>
-  );
+async function fetchHistory(orderId: number): Promise<CostChange[]> {
+  try {
+    return sortNewestFirst(await customerUpdatesApi.listCostChanges(orderId));
+  } catch (err) {
+    logError('CostChangeSection.loadHistory', err);
+    throw err;
+  }
 }
 
 // ---------------------------------------------------------------------------
 // Record-response modal
 // ---------------------------------------------------------------------------
 
-// Focus-trap helpers — mirrors the convention in AlloyMismatchModal /
-// QuickActionModalV2 / PunzierungsCheckModal (no shared primitive exists yet
-// to extract this into).
-const FOCUSABLE_SELECTOR =
-  'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
-
-function getFocusable(root: HTMLElement): HTMLElement[] {
-  return Array.from(root.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR));
-}
-
 interface RecordResponseModalProps {
-  costChange: CostChange | null;
+  costChange: CostChange;
+  isSubmitting: boolean;
   onClose: () => void;
-  onSubmit: (input: CostChangeRecordResponseInput) => Promise<void>;
+  onSubmit: (input: CostChangeRecordResponseInput) => void;
 }
 
-function RecordResponseModal({ costChange, onClose, onSubmit }: RecordResponseModalProps) {
+/** Mounted with `key={costChange.id}`, so each row starts with a fresh draft. */
+function RecordResponseModal({
+  costChange,
+  isSubmitting,
+  onClose,
+  onSubmit,
+}: RecordResponseModalProps) {
   const [status, setStatus] = useState<'approved' | 'declined'>('approved');
   const [responseMethod, setResponseMethod] = useState<CostChangeResponseMethod>('email_reply');
   const [evidence, setEvidence] = useState('');
-  const [error, setError] = useState<string | null>(null);
-  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | undefined>(undefined);
 
-  const dialogRef = useRef<HTMLDivElement>(null);
-
-  // Reset the draft whenever a different (or no) cost-change is targeted, so
-  // a stale evidence text never leaks into the next row's response.
-  useEffect(() => {
-    setStatus('approved');
-    setResponseMethod('email_reply');
-    setEvidence('');
-    setError(null);
-  }, [costChange]);
-
-  // Focus management — move focus into the dialog whenever it opens (or
-  // re-targets a different cost-change), so keyboard/screen-reader users
-  // land inside the modal instead of on the row button that opened it.
-  useEffect(() => {
-    if (!costChange) return;
-    const rafId = window.requestAnimationFrame(() => {
-      const root = dialogRef.current;
-      if (!root) return;
-      getFocusable(root)[0]?.focus();
-    });
-    return () => window.cancelAnimationFrame(rafId);
-  }, [costChange]);
-
-  // Esc closes the modal; Tab/Shift+Tab cycles focus within it so it never
-  // escapes to the page behind the overlay.
-  const handleDialogKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
-    if (e.key === 'Escape') {
-      e.preventDefault();
-      onClose();
-      return;
-    }
-    if (e.key !== 'Tab') return;
-    const root = dialogRef.current;
-    if (!root) return;
-    const focusable = getFocusable(root);
-    if (focusable.length === 0) return;
-    const first = focusable[0];
-    const last = focusable[focusable.length - 1];
-    const active = document.activeElement as HTMLElement | null;
-    if (e.shiftKey) {
-      if (active === first || active === null || !root.contains(active)) {
-        e.preventDefault();
-        last.focus();
-      }
-    } else if (active === last) {
-      e.preventDefault();
-      first.focus();
-    }
-  };
-
-  if (!costChange) return null;
-
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (submitting) return;
+    if (isSubmitting) return;
 
     const trimmed = evidence.trim();
     if (trimmed.length < RESPONSE_EVIDENCE_MIN || trimmed.length > RESPONSE_EVIDENCE_MAX) {
@@ -158,100 +97,194 @@ function RecordResponseModal({ costChange, onClose, onSubmit }: RecordResponseMo
       );
       return;
     }
-    setError(null);
-
-    setSubmitting(true);
-    try {
-      await onSubmit({ status, response_method: responseMethod, response_evidence: trimmed });
-    } finally {
-      setSubmitting(false);
-    }
+    setError(undefined);
+    onSubmit({ status, response_method: responseMethod, response_evidence: trimmed });
   };
 
   return (
-    <div className="cost-change-modal-overlay" onClick={onClose}>
-      <div
-        className="cost-change-modal"
-        onClick={(e) => e.stopPropagation()}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="cost-change-response-title"
-        ref={dialogRef}
-        onKeyDown={handleDialogKeyDown}
+    <Modal
+      open
+      onClose={onClose}
+      title="Antwort erfassen"
+      description={`Kostenänderung über ${formatEur(costChange.new_amount)} (netto)`}
+      size="sm"
+      isDirty={evidence.trim().length > 0 && !isSubmitting}
+      footer={
+        <>
+          <Button variant="secondary" onClick={onClose} disabled={isSubmitting}>
+            Abbrechen
+          </Button>
+          <Button type="submit" form={RESPONSE_FORM_ID} variant="primary" loading={isSubmitting}>
+            Antwort speichern
+          </Button>
+        </>
+      }
+    >
+      <form
+        id={RESPONSE_FORM_ID}
+        className="cost-change-response-form"
+        noValidate
+        onSubmit={handleSubmit}
       >
-        <div className="cost-change-modal-header">
-          <h3 id="cost-change-response-title">Antwort erfassen</h3>
-          <button
-            type="button"
-            className="cost-change-modal-close"
-            onClick={onClose}
-            aria-label="Schließen"
+        <Field label="Antwort des Kunden" name="status">
+          <select
+            id="cost-change-response-status"
+            value={status}
+            onChange={(e) => setStatus(e.target.value as 'approved' | 'declined')}
+            disabled={isSubmitting}
           >
-            &#x2715;
-          </button>
-        </div>
+            <option value="approved">{COST_CHANGE_STATUS.approved.label}</option>
+            <option value="declined">{COST_CHANGE_STATUS.declined.label}</option>
+          </select>
+        </Field>
 
-        <form noValidate onSubmit={(e) => void handleSubmit(e)}>
-          <div className="form-group">
-            <label htmlFor="cost-change-response-status">Antwort des Kunden</label>
-            <select
-              id="cost-change-response-status"
-              value={status}
-              onChange={(e) => setStatus(e.target.value as 'approved' | 'declined')}
-              disabled={submitting}
-            >
-              <option value="approved">Genehmigt</option>
-              <option value="declined">Abgelehnt</option>
-            </select>
-          </div>
+        <Field label="Art der Rückmeldung" name="response_method">
+          <select
+            id="cost-change-response-method"
+            value={responseMethod}
+            onChange={(e) => setResponseMethod(e.target.value as CostChangeResponseMethod)}
+            disabled={isSubmitting}
+          >
+            {(Object.keys(RESPONSE_METHOD_LABELS) as CostChangeResponseMethod[]).map((method) => (
+              <option key={method} value={method}>
+                {RESPONSE_METHOD_LABELS[method]}
+              </option>
+            ))}
+          </select>
+        </Field>
 
-          <div className="form-group">
-            <label htmlFor="cost-change-response-method">Art der Rückmeldung</label>
-            <select
-              id="cost-change-response-method"
-              value={responseMethod}
-              onChange={(e) => setResponseMethod(e.target.value as CostChangeResponseMethod)}
-              disabled={submitting}
-            >
-              {(Object.keys(RESPONSE_METHOD_LABELS) as CostChangeResponseMethod[]).map(
-                (method) => (
-                  <option key={method} value={method}>
-                    {RESPONSE_METHOD_LABELS[method]}
-                  </option>
-                )
-              )}
-            </select>
-          </div>
+        <Field label="Nachweis / Notiz" name="response_evidence" error={error}>
+          <textarea
+            id="cost-change-response-evidence"
+            rows={4}
+            maxLength={RESPONSE_EVIDENCE_MAX}
+            value={evidence}
+            onChange={(e) => setEvidence(e.target.value)}
+            disabled={isSubmitting}
+          />
+        </Field>
+      </form>
+    </Modal>
+  );
+}
 
-          <div className="form-group">
-            <label htmlFor="cost-change-response-evidence">Nachweis / Notiz</label>
-            <textarea
-              id="cost-change-response-evidence"
-              rows={4}
-              maxLength={RESPONSE_EVIDENCE_MAX}
-              value={evidence}
-              onChange={(e) => setEvidence(e.target.value)}
-              disabled={submitting}
-            />
-            {error && <p className="cost-change-error">{error}</p>}
-          </div>
+// ---------------------------------------------------------------------------
+// Data hooks
+// ---------------------------------------------------------------------------
 
-          <div className="cost-change-modal-actions">
-            <button
-              type="button"
-              className="btn btn-secondary"
-              onClick={onClose}
-              disabled={submitting}
-            >
-              Abbrechen
-            </button>
-            <button type="submit" className="btn btn-primary" disabled={submitting}>
-              Antwort speichern
-            </button>
-          </div>
-        </form>
+function useCostChangeHistory(orderId: number, enabled: boolean) {
+  return useQuery({
+    queryKey: queryKeys.orders.costChanges(orderId),
+    queryFn: () => fetchHistory(orderId),
+    enabled,
+  });
+}
+
+function useCostChangeMutations(orderId: number, onChanged?: () => void) {
+  const queryClient = useQueryClient();
+  const { showToast } = useToast();
+  const afterWrite = async () => {
+    await invalidateOrder(queryClient, orderId);
+    onChanged?.();
+  };
+  const fail = (context: string, fallback: string) => (err: unknown) => {
+    logError(context, err);
+    showToast(getErrorMessage(err, fallback), 'error');
+  };
+
+  const create = useMutation({
+    mutationFn: (input: CostChangeCreateInput) =>
+      customerUpdatesApi.createCostChange(orderId, input),
+    onSuccess: async () => {
+      showToast('Kostenänderung angelegt', 'success');
+      await afterWrite();
+    },
+    onError: fail(
+      'CostChangeSection.createCostChange',
+      'Kostenänderung konnte nicht angelegt werden.'
+    ),
+  });
+
+  const send = useMutation({
+    mutationFn: (costChangeId: number) => customerUpdatesApi.sendCostChange(costChangeId),
+    onSuccess: async (result) => {
+      if (result.delivered) showToast('Kostenänderung per E-Mail versendet', 'success');
+      else showToast('Als PDF erstellt — bitte manuell an den Kunden übergeben.', 'info');
+      await afterWrite();
+    },
+    onError: fail('CostChangeSection.sendCostChange', 'Kostenänderung konnte nicht gesendet werden.'),
+  });
+
+  const recordResponse = useMutation({
+    mutationFn: ({ id, input }: { id: number; input: CostChangeRecordResponseInput }) =>
+      customerUpdatesApi.recordCostChangeResponse(id, input),
+    onSuccess: async () => {
+      showToast('Antwort erfasst', 'success');
+      await afterWrite();
+    },
+    onError: fail(
+      'CostChangeSection.recordCostChangeResponse',
+      'Antwort konnte nicht erfasst werden.'
+    ),
+  });
+
+  return { create, send, recordResponse };
+}
+
+function historyState(query: ReturnType<typeof useCostChangeHistory>): PageStateValue {
+  if (query.isPending) return { status: 'loading' };
+  if (query.isError) {
+    return {
+      status: 'error',
+      error: getErrorMessage(
+        query.error,
+        'Verlauf der Kostenänderungen konnte nicht geladen werden.'
+      ),
+      retry: () => void query.refetch(),
+    };
+  }
+  return { status: query.data.length === 0 ? 'empty' : 'ready' };
+}
+
+// ---------------------------------------------------------------------------
+// History row
+// ---------------------------------------------------------------------------
+
+interface CostChangeItemProps {
+  costChange: CostChange;
+  isBusy: boolean;
+  onSend: (costChange: CostChange) => void;
+  onRecordResponse: (costChange: CostChange) => void;
+}
+
+function CostChangeItem({ costChange, isBusy, onSend, onRecordResponse }: CostChangeItemProps) {
+  return (
+    <li className="cost-change-item">
+      <div className="cost-change-item-header">
+        <span className={`cost-change-amounts ${MONEY_CLASS}`}>
+          {formatEur(costChange.original_amount)} → {formatEur(costChange.new_amount)} (netto)
+        </span>
+        <StatusBadge kind="costChange" status={costChange.status} />
       </div>
-    </div>
+      <p className="cost-change-delta">{formatPercentage(costChange.delta_percent)}</p>
+      <p className="cost-change-reason">{costChange.reason}</p>
+      <div className="cost-change-item-actions">
+        {costChange.status === 'draft' && (
+          <Button variant="primary" icon="send" onClick={() => onSend(costChange)} disabled={isBusy}>
+            Senden
+          </Button>
+        )}
+        {costChange.status === 'sent' && (
+          <Button
+            variant="secondary"
+            onClick={() => onRecordResponse(costChange)}
+            disabled={isBusy}
+          >
+            Antwort erfassen
+          </Button>
+        )}
+      </div>
+    </li>
   );
 }
 
@@ -261,163 +294,37 @@ function RecordResponseModal({ costChange, onClose, onSubmit }: RecordResponseMo
 
 export function CostChangeSection({ orderId, onChanged }: CostChangeSectionProps) {
   const { hasRole } = useAuth();
-  const { showToast } = useToast();
   const { showConfirm } = useConfirm();
   const canManage = hasRole(['ADMIN', 'GOLDSMITH']);
 
-  const [costChanges, setCostChanges] = useState<CostChange[]>([]);
-  const [isLoadingHistory, setIsLoadingHistory] = useState(canManage);
-  const [actionLoading, setActionLoading] = useState(false);
-  const [responseModalTarget, setResponseModalTarget] = useState<CostChange | null>(null);
+  const history = useCostChangeHistory(orderId, canManage);
+  const { create, send, recordResponse } = useCostChangeMutations(orderId, onChanged);
+  const [responseTarget, setResponseTarget] = useState<CostChange | null>(null);
+  const isBusy = create.isPending || send.isPending || recordResponse.isPending;
 
-  // Guards against out-of-order responses + setState-after-unmount, mirroring
-  // the applyIfCurrent/actionLoading pattern in QuotesPage.tsx and
-  // KundeninfoTab: a response for a stale orderId or an unmounted component
-  // must never clobber current state.
-  const mountedRef = useRef(true);
-  const currentOrderIdRef = useRef(orderId);
+  const handleCreate = async (input: CostChangeCreateInput): Promise<void> => {
+    if (isBusy) return;
+    // Rejects on failure (onError already toasted), so the form keeps the draft.
+    await create.mutateAsync(input);
+  };
 
-  useEffect(() => {
-    currentOrderIdRef.current = orderId;
-  }, [orderId]);
+  const handleSend = async (costChange: CostChange) => {
+    if (isBusy) return;
+    const ok = await showConfirm({
+      title: '§649 Kostenänderung senden',
+      message: `Kostenänderung über ${formatEur(costChange.new_amount)} (netto) an den Kunden senden?`,
+      confirmLabel: 'Senden',
+    });
+    if (ok) send.mutate(costChange.id);
+  };
 
-  useEffect(
-    () => () => {
-      mountedRef.current = false;
-    },
-    []
-  );
-
-  const isCurrent = useCallback(
-    (targetOrderId: number) => mountedRef.current && currentOrderIdRef.current === targetOrderId,
-    []
-  );
-
-  const loadHistory = useCallback(
-    async (targetOrderId: number) => {
-      setIsLoadingHistory(true);
-      try {
-        const data = await customerUpdatesApi.listCostChanges(targetOrderId);
-        if (isCurrent(targetOrderId)) {
-          setCostChanges(sortNewestFirst(data));
-        }
-      } catch (err) {
-        logError('CostChangeSection.loadHistory', err);
-        if (isCurrent(targetOrderId)) {
-          showToast('Verlauf der Kostenänderungen konnte nicht geladen werden.', 'error');
-        }
-      } finally {
-        if (isCurrent(targetOrderId)) {
-          setIsLoadingHistory(false);
-        }
-      }
-    },
-    [isCurrent, showToast]
-  );
-
-  // Skip the GET entirely for a user without the manage role — the backend
-  // 403s COST_CHANGE_VIEW for VIEWER, and we must never even attempt it.
-  useEffect(() => {
-    if (!canManage) {
-      setCostChanges([]);
-      setIsLoadingHistory(false);
-      return;
-    }
-    void loadHistory(orderId);
-    // loadHistory is a useCallback whose own deps (isCurrent, showToast) are
-    // themselves stable across renders, so its identity never changes here —
-    // safe to omit from this effect's deps.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [orderId, canManage]);
-
-  const handleCreate = useCallback(
-    async (input: CostChangeCreateInput) => {
-      if (actionLoading) return;
-      setActionLoading(true);
-      try {
-        await customerUpdatesApi.createCostChange(orderId, input);
-        showToast('Kostenänderung wurde angelegt.', 'success');
-        await loadHistory(orderId);
-        onChanged?.();
-      } catch (err) {
-        logError('CostChangeSection.createCostChange', err);
-        showToast(
-          extractDetail(err) ?? 'Kostenänderung konnte nicht angelegt werden.',
-          'error'
-        );
-      } finally {
-        setActionLoading(false);
-      }
-    },
-    [actionLoading, orderId, loadHistory, onChanged, showToast]
-  );
-
-  const handleSend = useCallback(
-    async (costChange: CostChange) => {
-      if (actionLoading) return;
-      const ok = await showConfirm({
-        title: '§649 Kostenänderung senden',
-        message: `Kostenänderung über ${formatCurrency(costChange.new_amount)} (netto) an den Kunden senden?`,
-        confirmLabel: 'Senden',
-      });
-      if (!ok) return;
-
-      setActionLoading(true);
-      try {
-        const result = await customerUpdatesApi.sendCostChange(costChange.id);
-        if (result.delivered) {
-          showToast('Kostenänderung wurde per E-Mail versendet.', 'success');
-        } else {
-          showToast(
-            'Als PDF erstellt — bitte manuell an den Kunden übergeben.',
-            'info'
-          );
-        }
-        await loadHistory(orderId);
-        onChanged?.();
-      } catch (err) {
-        logError('CostChangeSection.sendCostChange', err);
-        showToast(
-          extractDetail(err) ?? 'Kostenänderung konnte nicht gesendet werden.',
-          'error'
-        );
-      } finally {
-        setActionLoading(false);
-      }
-    },
-    [actionLoading, showConfirm, loadHistory, orderId, onChanged, showToast]
-  );
-
-  const handleRecordResponse = useCallback(
-    async (costChangeId: number, input: CostChangeRecordResponseInput) => {
-      if (actionLoading) return;
-      setActionLoading(true);
-      try {
-        await customerUpdatesApi.recordCostChangeResponse(costChangeId, input);
-        showToast('Antwort wurde erfasst.', 'success');
-        setResponseModalTarget(null);
-        await loadHistory(orderId);
-        onChanged?.();
-      } catch (err) {
-        logError('CostChangeSection.recordCostChangeResponse', err);
-        showToast(
-          extractDetail(err) ?? 'Antwort konnte nicht erfasst werden.',
-          'error'
-        );
-      } finally {
-        setActionLoading(false);
-      }
-    },
-    [actionLoading, loadHistory, orderId, onChanged, showToast]
-  );
-
-  const handleModalSubmit = useCallback(
-    async (input: CostChangeRecordResponseInput) => {
-      if (!responseModalTarget) return;
-      await handleRecordResponse(responseModalTarget.id, input);
-    },
-    [responseModalTarget, handleRecordResponse]
-  );
+  const handleRecordResponse = (input: CostChangeRecordResponseInput) => {
+    if (!responseTarget || isBusy) return;
+    recordResponse.mutate(
+      { id: responseTarget.id, input },
+      { onSuccess: () => setResponseTarget(null) }
+    );
+  };
 
   if (!canManage) {
     return (
@@ -432,65 +339,46 @@ export function CostChangeSection({ orderId, onChanged }: CostChangeSectionProps
 
   return (
     <div className="cost-change-section">
-      <section className="cost-change-history">
-        <h3>§649 Kostenänderungen</h3>
-        {isLoadingHistory ? (
-          <p>Verlauf wird geladen…</p>
-        ) : costChanges.length === 0 ? (
-          <p className="cost-change-empty">Noch keine Kostenänderungen angelegt.</p>
-        ) : (
+      <section className="cost-change-history" aria-labelledby="cost-change-history-title">
+        <h3 id="cost-change-history-title">§649 Kostenänderungen</h3>
+        <PageState
+          state={historyState(history)}
+          skeletonCount={2}
+          empty={{
+            icon: 'receipt',
+            title: 'Noch keine Kostenänderungen',
+            body: 'Eine neue Kostenänderung legst du unten im Formular an.',
+            headingLevel: 3,
+          }}
+        >
           <ul className="cost-change-list">
-            {costChanges.map((costChange) => (
-              <li key={costChange.id} className="cost-change-item">
-                <div className="cost-change-item-header">
-                  <span className="cost-change-amounts">
-                    {formatCurrency(costChange.original_amount)} →{' '}
-                    {formatCurrency(costChange.new_amount)} (netto)
-                  </span>
-                  <StatusBadge status={costChange.status} />
-                </div>
-                <p className="cost-change-delta">
-                  {formatPercentage(costChange.delta_percent)}
-                </p>
-                <p className="cost-change-reason">{costChange.reason}</p>
-                <div className="cost-change-item-actions">
-                  {costChange.status === 'draft' && (
-                    <button
-                      type="button"
-                      className="btn btn-primary btn-sm"
-                      onClick={() => void handleSend(costChange)}
-                      disabled={actionLoading}
-                    >
-                      Senden
-                    </button>
-                  )}
-                  {costChange.status === 'sent' && (
-                    <button
-                      type="button"
-                      className="btn btn-secondary btn-sm"
-                      onClick={() => setResponseModalTarget(costChange)}
-                      disabled={actionLoading}
-                    >
-                      Antwort erfassen
-                    </button>
-                  )}
-                </div>
-              </li>
+            {(history.data ?? []).map((costChange) => (
+              <CostChangeItem
+                key={costChange.id}
+                costChange={costChange}
+                isBusy={isBusy}
+                onSend={(target) => void handleSend(target)}
+                onRecordResponse={setResponseTarget}
+              />
             ))}
           </ul>
-        )}
+        </PageState>
       </section>
 
-      <section className="cost-change-compose">
-        <h3>Neue Kostenänderung</h3>
-        <CostChangeForm onSubmit={handleCreate} disabled={actionLoading} />
+      <section className="cost-change-compose" aria-labelledby="cost-change-compose-title">
+        <h3 id="cost-change-compose-title">Neue Kostenänderung</h3>
+        <CostChangeForm onSubmit={handleCreate} disabled={isBusy} />
       </section>
 
-      <RecordResponseModal
-        costChange={responseModalTarget}
-        onClose={() => setResponseModalTarget(null)}
-        onSubmit={handleModalSubmit}
-      />
+      {responseTarget && (
+        <RecordResponseModal
+          key={responseTarget.id}
+          costChange={responseTarget}
+          isSubmitting={recordResponse.isPending}
+          onClose={() => setResponseTarget(null)}
+          onSubmit={handleRecordResponse}
+        />
+      )}
     </div>
   );
 }

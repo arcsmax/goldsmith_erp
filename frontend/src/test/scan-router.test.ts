@@ -21,9 +21,9 @@ import { ScannerRouter } from '../lib/scan-router';
 import { NetworkAliasResolver } from '../lib/network-alias-resolver';
 import type {
   ActionResult,
+  AliasedEntity,
   AliasResolver,
   ResolveResponse,
-  ResolvedEntity,
   ScanContext,
   Transport,
 } from '../types/scanner';
@@ -65,7 +65,7 @@ function makeMockTransport(
 }
 
 function makeMockResolver(
-  result: ResolvedEntity | null = null,
+  result: AliasedEntity | null = null,
 ): AliasResolver & { lookup: ReturnType<typeof vi.fn> } {
   return {
     lookup: vi.fn().mockResolvedValue(result),
@@ -98,6 +98,24 @@ describe('ScannerRouter.resolve — prefix match', () => {
 
     expect(transport.resolve).toHaveBeenCalledWith('REPAIR:17', CTX);
     expect(resolver.lookup).not.toHaveBeenCalled();
+  });
+
+  it('keeps a repair and an order with the same number distinct (FE-03)', async () => {
+    // Label payloads are REPAIR:<id> (repairs.py label) and ORDER:<id>
+    // (orders.py label). The router must never collapse REPAIR:17 onto
+    // ORDER:17; only a *bare* number falls back to ORDER.
+    const transport = makeMockTransport();
+    const router = new ScannerRouter(makeMockResolver(), transport);
+
+    await router.resolve('REPAIR:17', CTX);
+    await router.resolve('ORDER:17', CTX);
+    await router.resolve(' REPAIR:17 ', CTX);
+
+    expect(transport.resolve.mock.calls.map((c) => c[0])).toEqual([
+      'REPAIR:17',
+      'ORDER:17',
+      'REPAIR:17',
+    ]);
   });
 
   it('accepts all V1.1 prefixes: ORDER, REPAIR, METAL, MATERIAL, ACTIVITY, INTERRUPT', async () => {
@@ -174,7 +192,7 @@ describe('ScannerRouter.resolve — alias lookup fallthrough', () => {
   });
 
   it('on alias hit, canonicalises hit to "<TYPE>:<id>" before calling transport', async () => {
-    const hit: ResolvedEntity = {
+    const hit: AliasedEntity = {
       entity_type: 'metal',
       entity_id: 85,
       data: {},
@@ -240,18 +258,17 @@ describe('ScannerRouter.resolve — input validation', () => {
     expect(transport.resolve).toHaveBeenCalledWith(big, CTX);
   });
 
-  it('lowercase prefix "order:42" is NOT canonicalised (uppercase grammar)', async () => {
-    // Decision: we route only uppercase canonical forms. Lowercase gets treated
-    // as an alias candidate so the server can log it as an unknown or the
-    // alias table can eventually resolve it.
+  it('lowercase prefix "order:42" is canonicalised like the backend does', async () => {
+    // 2026-09 audit: the backend already upper-cases the prefix
+    // (_split_prefix); hand-typed "order:42" is the same piece.
     const resolver = makeMockResolver(null);
-    const transport = makeMockTransport(stubResponse('unknown'));
+    const transport = makeMockTransport(stubResponse('prefix'));
     const router = new ScannerRouter(resolver, transport);
 
     await router.resolve('order:42', CTX);
 
-    expect(resolver.lookup).toHaveBeenCalledWith('order:42');
-    expect(transport.resolve).toHaveBeenCalledWith('order:42', CTX);
+    expect(resolver.lookup).not.toHaveBeenCalled();
+    expect(transport.resolve).toHaveBeenCalledWith('ORDER:42', CTX);
   });
 });
 

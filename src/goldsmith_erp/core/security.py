@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-from jose import JWTError, jwt
+import jwt
 from passlib.context import CryptContext
 
 from goldsmith_erp.core.config import settings
@@ -27,6 +27,16 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 def get_password_hash(password: str) -> str:
     """Generiert einen Hash für ein Passwort."""
     return pwd_context.hash(password)
+
+
+# SEC-17: login previously short-circuited before any bcrypt call when the
+# submitted e-mail matched no user, so a known account's ~250ms bcrypt cost
+# made it distinguishable from an unknown one by response timing alone (an
+# account-enumeration side channel). The login handler runs `verify_password`
+# against this fixed, never-matching hash for the unknown-user branch so both
+# cases pay the same bcrypt cost. Generated once per process from random
+# bytes — not a real password, never stored or used to authenticate anyone.
+DUMMY_PASSWORD_HASH = get_password_hash(uuid.uuid4().hex)
 
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
@@ -69,8 +79,8 @@ def decode_token_allowing_grace_window(token: str) -> dict:
     without being forced to re-authenticate with credentials.
 
     Raises:
-        JWTError: if the token is structurally invalid, has a bad signature,
-                  or has been expired for longer than the grace window.
+        jwt.InvalidTokenError: if the token is structurally invalid, has a bad
+                  signature, or has been expired for longer than the grace window.
     """
     # Decode without expiry enforcement so we can apply the grace window ourselves.
     payload = jwt.decode(
@@ -82,11 +92,11 @@ def decode_token_allowing_grace_window(token: str) -> dict:
 
     exp = payload.get("exp")
     if exp is None:
-        raise JWTError("Token has no expiry claim (exp)")
+        raise jwt.InvalidTokenError("Token has no expiry claim (exp)")
 
     now_utc = datetime.now(timezone.utc).timestamp()
     if now_utc > exp + REFRESH_GRACE_SECONDS:
-        raise JWTError(
+        raise jwt.InvalidTokenError(
             f"Token expired more than {REFRESH_GRACE_SECONDS // 60} minutes ago "
             "and cannot be refreshed"
         )

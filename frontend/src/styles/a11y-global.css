@@ -1,0 +1,62 @@
+/* Global accessibility rules (UI-UX-PLAYBOOK section 6; DES-02, DES-29).
+ * Loaded globally from index.css. */
+
+/* ---- Focus ring --------------------------------------------------------
+ * One ring for every focusable element. `:focus-visible` (not `:focus`) so a
+ * mouse click on a button draws no ring. The 2px offset puts the ring on the
+ * surface (13.79:1) rather than on a gold button (2.91:1). */
+:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+/* On the gold header the dark ring would vanish: use the light one (5.02:1). */
+.main-header :focus-visible {
+  outline-color: var(--color-focus-on-dark);
+}
+
+/* Restore the ring where a stylesheet sets `outline: none` on focus and
+ * replaces it with a low-contrast border or a faint shadow (33+ rules,
+ * design-investigation F.2). Each selector mirrors the offending rule with a
+ * `:root` prefix, so it wins on specificity whatever the load order. The
+ * offending rules themselves live in page stylesheets and go in phase 4. */
+:root .form-group input:focus-visible,
+:root .cdetail-masse-form .form-group input:focus-visible,
+:root .cdetail-masse-form .form-group select:focus-visible,
+:root .search-input:focus-visible,
+:root .filter-select:focus-visible,
+:root .form-group textarea:focus-visible,
+:root .form-group select:focus-visible,
+:root .search-box input:focus-visible,
+:root .filter-group select:focus-visible,
+:root .handoff-form .form-group select:focus-visible,
+:root .handoff-form .form-group textarea:focus-visible,
+:root .repairs-search:focus-visible,
+:root .scan-input:focus-visible,
+:root .alloy-field input:focus-visible,
+:root .alloy-field select:focus-visible,
+:root .signature-canvas:focus-visible,
+:root .new-comment-form textarea:focus-visible,
+:root .comment-edit-form textarea:focus-visible,
+:root .timer-start-form select:focus-visible,
+:root .cost-change-form select:focus-visible,
+:root .cost-change-form input:focus-visible,
+:root .cost-change-form textarea:focus-visible,
+:root .kundeninfo-compose select:focus-visible,
+:root .kundeninfo-compose input[type='text']:focus-visible,
+:root .kundeninfo-compose textarea:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+/* ---- Reduced motion ---------------------------------------------------- */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+  }
+}

@@ -66,18 +66,22 @@ vi.mock('../contexts/TimeTrackingContext', () => ({
 import { ScannerPage } from '../pages/ScannerPage';
 import { ScannerProvider } from '../contexts/ScannerContext';
 import { MemoryRouter } from 'react-router-dom';
+import { QueryWrapper, createTestQueryClient } from './queryWrapper';
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
 function renderPage(): ReturnType<typeof render> {
+  // W4-03: "Letzte Scans" is a query; each render gets a fresh client.
   return render(
-    <MemoryRouter>
-      <ScannerProvider>
-        <ScannerPage />
-      </ScannerProvider>
-    </MemoryRouter>,
+    <QueryWrapper client={createTestQueryClient()}>
+      <MemoryRouter>
+        <ScannerProvider>
+          <ScannerPage />
+        </ScannerProvider>
+      </MemoryRouter>
+    </QueryWrapper>,
   );
 }
 
@@ -269,7 +273,7 @@ describe('ScannerPage V2 (Slice 12)', () => {
         events: expect.arrayContaining([
           expect.objectContaining({
             raw_payload: 'ORDER:1',
-            resolution_path: 'import',
+            resolution_path: 'prefix',
           }),
         ]),
       });

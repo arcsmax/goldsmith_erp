@@ -10,9 +10,10 @@
 //       never called (COST_CHANGE_VIEW 403s backend-side for VIEWER).
 //   (f) a failed fetch is swallowed + logged, never crashes the page.
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { ProjectedCost } from '../../api/customer-updates';
+import { renderWithQuery } from '../../test/queryWrapper';
 import { formatCurrency, formatPercentage } from '../../utils/formatters';
 
 // jest-dom's toHaveTextContent normalizer collapses all whitespace (including
@@ -20,7 +21,7 @@ import { formatCurrency, formatPercentage } from '../../utils/formatters';
 // the € sign) down to a single regular space — so the *expected* string must
 // be normalized the same way, or an exact-match NBSP never matches.
 function normalizeSpace(value: string): string {
-  return value.replace(/ /g, ' ');
+  return value.replace(/\u00a0/g, ' ');
 }
 
 // ---------------------------------------------------------------------------
@@ -88,7 +89,7 @@ describe('CostAlertBanner', () => {
     mockUseAuth.mockReturnValue(manageAuth());
     mockGetProjectedCost.mockResolvedValue(makeProjectedCost({ over_threshold: false }));
 
-    const { container } = render(
+    const { container } = renderWithQuery(
       <CostAlertBanner orderId={1} onCreateCostChange={vi.fn()} />
     );
 
@@ -103,7 +104,7 @@ describe('CostAlertBanner', () => {
       makeProjectedCost({ baseline_source: 'quote', delta_abs: 245.5, delta_percent: 24.55 })
     );
 
-    render(<CostAlertBanner orderId={2} onCreateCostChange={vi.fn()} />);
+    renderWithQuery(<CostAlertBanner orderId={2} onCreateCostChange={vi.fn()} />);
 
     const banner = await screen.findByRole('alert');
     expect(banner).toHaveTextContent(normalizeSpace(formatCurrency(245.5)));
@@ -117,7 +118,7 @@ describe('CostAlertBanner', () => {
       makeProjectedCost({ baseline_source: 'approved_change' })
     );
 
-    render(<CostAlertBanner orderId={3} onCreateCostChange={vi.fn()} />);
+    renderWithQuery(<CostAlertBanner orderId={3} onCreateCostChange={vi.fn()} />);
 
     const banner = await screen.findByRole('alert');
     expect(banner).toHaveTextContent('gegenüber der bereits genehmigten Kostenänderung');
@@ -127,7 +128,7 @@ describe('CostAlertBanner', () => {
     mockUseAuth.mockReturnValue(manageAuth());
     mockGetProjectedCost.mockResolvedValue(makeProjectedCost({ baseline_source: null }));
 
-    render(<CostAlertBanner orderId={4} onCreateCostChange={vi.fn()} />);
+    renderWithQuery(<CostAlertBanner orderId={4} onCreateCostChange={vi.fn()} />);
 
     const banner = await screen.findByRole('alert');
     expect(banner).toHaveTextContent('gegenüber der Kalkulationsbasis');
@@ -138,7 +139,7 @@ describe('CostAlertBanner', () => {
     mockGetProjectedCost.mockResolvedValue(makeProjectedCost());
     const onCreateCostChange = vi.fn();
 
-    render(<CostAlertBanner orderId={5} onCreateCostChange={onCreateCostChange} />);
+    renderWithQuery(<CostAlertBanner orderId={5} onCreateCostChange={onCreateCostChange} />);
 
     const button = await screen.findByRole('button', { name: '§649 Kostenänderung anlegen' });
     await userEvent.click(button);
@@ -149,7 +150,7 @@ describe('CostAlertBanner', () => {
   it('renders nothing and never calls getProjectedCost for a VIEWER', async () => {
     mockUseAuth.mockReturnValue(viewerAuth());
 
-    const { container } = render(
+    const { container } = renderWithQuery(
       <CostAlertBanner orderId={6} onCreateCostChange={vi.fn()} />
     );
 
@@ -165,7 +166,7 @@ describe('CostAlertBanner', () => {
     const error = new Error('network down');
     mockGetProjectedCost.mockRejectedValue(error);
 
-    const { container } = render(
+    const { container } = renderWithQuery(
       <CostAlertBanner orderId={7} onCreateCostChange={vi.fn()} />
     );
 

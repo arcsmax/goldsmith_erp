@@ -1,348 +1,29 @@
-/* Repair Tracking — Reparaturverwaltung
- * Uses brand tokens from brand-tokens.css.
- * Status badge colours mirror the physical workflow:
- *   Eingang   → blue   (cool, waiting)
- *   Diagnose  → purple (knowledge work)
- *   Angebot   → orange (action needed)
- *   Genehmigt → teal   (approved, moving)
- *   In Arbeit → amber  (active work)
- *   QK        → indigo (inspection)
- *   Fertig    → green  (done)
- *   Abgeholt  → gray   (closed)
- *   Storniert → red    (cancelled)
+/* Reparaturen — list, detail page, counter intake (W4-03).
+ * Buttons, badges, dialogs, fields, tables, tabs, cards and empty/loading
+ * states come from src/ui (ui.css); status colours from src/design/status.ts.
+ * This file keeps only the layout of the repair screens, the intake chips,
+ * the Eingangs-Checkliste and the shared PhotoCompare / lightbox styles.
  */
 
 /* ============================================================
    PAGE SHELL
    ============================================================ */
 
-.repairs-page {
-  padding: 1.5rem 2rem;
-  max-width: 1400px;
+.repairs-page,
+.repair-detail-page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: var(--space-5) var(--space-6);
   margin: 0 auto;
 }
 
-.repairs-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 1.5rem;
-  flex-wrap: wrap;
-  gap: 0.75rem;
+.repairs-page {
+  max-width: 1400px;
 }
 
-.repairs-header h1 {
-  font-size: 1.75rem;
-  font-weight: 700;
-  color: var(--color-text-heading);
-  margin: 0;
-}
-
-/* ============================================================
-   TOOLBAR (search + filter + actions)
-   ============================================================ */
-
-.repairs-toolbar {
-  display: flex;
-  gap: 0.75rem;
-  margin-bottom: 1.25rem;
-  flex-wrap: wrap;
-  align-items: center;
-}
-
-.repairs-search {
-  flex: 1;
-  min-width: 200px;
-  max-width: 340px;
-  padding: 0.5rem 0.875rem;
-  border: 1px solid var(--color-border-default);
-  border-radius: 8px;
-  font-size: 0.9rem;
-  background: var(--color-surface-card);
-  color: var(--color-text-body);
-  transition: border-color 0.15s;
-}
-
-.repairs-search:focus {
-  outline: none;
-  border-color: var(--color-border-focus);
-  box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.12);
-}
-
-.repairs-filter-select {
-  padding: 0.5rem 0.875rem;
-  border: 1px solid var(--color-border-default);
-  border-radius: 8px;
-  font-size: 0.9rem;
-  background: var(--color-surface-card);
-  color: var(--color-text-body);
-  cursor: pointer;
-  transition: border-color 0.15s;
-}
-
-.repairs-filter-select:focus {
-  outline: none;
-  border-color: var(--color-border-focus);
-}
-
-/* ============================================================
-   PRIMARY ACTION BUTTON
-   ============================================================ */
-
-.btn-new-repair {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
-  padding: 0.55rem 1.1rem;
-  background: var(--color-interactive-primary);
-  color: #fff;
-  border: none;
-  border-radius: 8px;
-  font-size: 0.9rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: background 0.15s, transform 0.1s;
-  white-space: nowrap;
-}
-
-.btn-new-repair:hover {
-  background: var(--color-interactive-primary-hover);
-  transform: translateY(-1px);
-}
-
-.btn-new-repair:active {
-  transform: translateY(0);
-}
-
-/* ============================================================
-   REPAIR TABLE
-   ============================================================ */
-
-.repairs-table-wrapper {
-  background: var(--color-surface-card);
-  border-radius: 12px;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.07);
-  overflow: hidden;
-  border: 1px solid var(--color-border-default);
-}
-
-.repairs-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 0.875rem;
-}
-
-.repairs-table thead {
-  background: #f8f6f0;
-  border-bottom: 2px solid var(--color-border-default);
-}
-
-.repairs-table th {
-  padding: 0.75rem 1rem;
-  text-align: left;
-  font-weight: 600;
-  color: var(--color-text-muted);
-  white-space: nowrap;
-  font-size: 0.8rem;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-}
-
-.repairs-table td {
-  padding: 0.8rem 1rem;
-  border-bottom: 1px solid #f0ece4;
-  color: var(--color-text-body);
-  vertical-align: middle;
-}
-
-.repairs-table tbody tr:last-child td {
-  border-bottom: none;
-}
-
-.repairs-table tbody tr {
-  cursor: pointer;
-  transition: background 0.1s;
-}
-
-.repairs-table tbody tr:hover {
-  background: #fdf8f0;
-}
-
-.repair-number-cell {
-  font-family: 'Courier New', monospace;
-  font-weight: 600;
-  color: var(--color-brand-cta-700);
-  white-space: nowrap;
-}
-
-.repair-bag-cell {
-  font-family: 'Courier New', monospace;
-  font-size: 0.8rem;
-  color: var(--color-text-muted);
-  white-space: nowrap;
-}
-
-.repair-description-cell {
-  max-width: 220px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.repair-deadline-cell {
-  white-space: nowrap;
-  font-size: 0.85rem;
-}
-
-.repair-deadline-cell.overdue {
-  color: #dc2626;
-  font-weight: 600;
-}
-
-.repair-deadline-cell.soon {
-  color: #d97706;
-  font-weight: 600;
-}
-
-/* Row action buttons */
-.repair-actions {
-  display: flex;
-  gap: 0.4rem;
-  align-items: center;
-}
-
-.btn-repair-action {
-  padding: 0.3rem 0.6rem;
-  border-radius: 6px;
-  border: 1px solid var(--color-border-default);
-  background: #fff;
-  font-size: 0.8rem;
-  cursor: pointer;
-  transition: background 0.1s, border-color 0.1s;
-  color: var(--color-text-body);
-}
-
-.btn-repair-action:hover {
-  background: #f8f6f0;
-  border-color: var(--color-brand-cta-400);
-}
-
-/* ============================================================
-   STATUS BADGES
-   ============================================================ */
-
-.status-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.3rem;
-  padding: 0.25rem 0.65rem;
-  border-radius: 999px;
-  font-size: 0.75rem;
-  font-weight: 600;
-  white-space: nowrap;
-  letter-spacing: 0.02em;
-}
-
-.status-badge.received {
-  background: #dbeafe;
-  color: #1d4ed8;
-}
-
-.status-badge.diagnosed {
-  background: #ede9fe;
-  color: #6d28d9;
-}
-
-.status-badge.quoted {
-  background: #ffedd5;
-  color: #c2410c;
-}
-
-.status-badge.approved {
-  background: #ccfbf1;
-  color: #0f766e;
-}
-
-.status-badge.in_repair {
-  background: #fef3c7;
-  color: #92400e;
-}
-
-.status-badge.quality_check {
-  background: #e0e7ff;
-  color: #3730a3;
-}
-
-.status-badge.ready {
-  background: #dcfce7;
-  color: #15803d;
-}
-
-.status-badge.picked_up {
-  background: #f3f4f6;
-  color: #4b5563;
-}
-
-.status-badge.cancelled {
-  background: #fee2e2;
-  color: #b91c1c;
-}
-
-/* ============================================================
-   EMPTY STATE
-   ============================================================ */
-
-.repairs-empty {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  padding: 4rem 2rem;
-  color: var(--color-text-muted);
-  text-align: center;
-}
-
-.repairs-empty-icon {
-  font-size: 3rem;
-  margin-bottom: 1rem;
-  opacity: 0.5;
-}
-
-.repairs-empty h3 {
-  font-size: 1.1rem;
-  color: var(--color-text-heading);
-  margin: 0 0 0.4rem;
-}
-
-.repairs-empty p {
-  font-size: 0.9rem;
-  margin: 0;
-}
-
-/* ============================================================
-   MODAL — Neue Reparatur
-   ============================================================ */
-
-.modal-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.45);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1000;
-  padding: 1rem;
-}
-
-.modal-box {
-  background: var(--color-surface-card);
-  border-radius: 14px;
-  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.22);
-  width: 100%;
-  max-width: 520px;
-  max-height: 90vh;
-  overflow-y: auto;
-  animation: modal-in 0.18s ease;
+.repair-detail-page {
+  max-width: 1100px;
 }
 
 @keyframes modal-in {
@@ -350,452 +31,136 @@
   to   { opacity: 1; transform: scale(1)    translateY(0); }
 }
 
-.modal-header {
+/* List filters: search grows, selects keep their width. */
+.repairs-filters {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 1.25rem 1.5rem 0.75rem;
-  border-bottom: 1px solid var(--color-border-default);
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  align-items: flex-end;
 }
 
-.modal-header h2 {
-  margin: 0;
-  font-size: 1.15rem;
-  font-weight: 700;
-  color: var(--color-text-heading);
+.repairs-filters__search {
+  flex: 1 1 18rem;
 }
 
-.modal-close {
-  background: none;
-  border: none;
-  font-size: 1.3rem;
-  cursor: pointer;
-  color: var(--color-text-muted);
-  padding: 0.2rem;
-  line-height: 1;
-  transition: color 0.1s;
-}
-
-.modal-close:hover {
-  color: var(--color-text-heading);
-}
-
-.modal-body {
-  padding: 1.25rem 1.5rem;
-}
-
-.modal-footer {
-  display: flex;
-  justify-content: flex-end;
-  gap: 0.75rem;
-  padding: 0.75rem 1.5rem 1.25rem;
-  border-top: 1px solid var(--color-border-default);
-}
-
-/* ============================================================
-   FORM ELEMENTS (shared modal + detail page)
-   ============================================================ */
-
-.form-group {
-  margin-bottom: 1rem;
-}
-
-.form-label {
-  display: block;
-  font-size: 0.85rem;
-  font-weight: 600;
-  color: var(--color-text-body);
-  margin-bottom: 0.35rem;
-}
-
-.form-label .required {
-  color: #dc2626;
-  margin-left: 0.2rem;
-}
-
-.form-input,
-.form-select,
-.form-textarea {
-  width: 100%;
-  padding: 0.55rem 0.875rem;
-  border: 1px solid var(--color-border-default);
-  border-radius: 8px;
-  font-size: 0.9rem;
-  background: var(--color-surface-card);
-  color: var(--color-text-body);
-  transition: border-color 0.15s, box-shadow 0.15s;
-  box-sizing: border-box;
-}
-
-.form-input:focus,
-.form-select:focus,
-.form-textarea:focus {
-  outline: none;
-  border-color: var(--color-border-focus);
-  box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.12);
-}
-
-.form-textarea {
-  resize: vertical;
-  min-height: 90px;
-}
-
-/* Inline form row */
-.form-row {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 0.75rem;
-}
-
-/* ============================================================
-   BUTTONS (shared)
-   ============================================================ */
-
-.btn {
+.repair-item-cell {
   display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-  padding: 0.55rem 1rem;
-  border-radius: 8px;
-  font-size: 0.875rem;
-  font-weight: 600;
-  cursor: pointer;
-  border: 1px solid transparent;
-  transition: background 0.15s, border-color 0.15s, transform 0.1s;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: baseline;
 }
 
-.btn:active { transform: translateY(1px); }
-
-.btn-primary {
-  background: var(--color-interactive-primary);
-  color: #fff;
-  border-color: var(--color-interactive-primary);
-}
-
-.btn-primary:hover {
-  background: var(--color-interactive-primary-hover);
-  border-color: var(--color-interactive-primary-hover);
-}
-
-.btn-secondary {
-  background: #fff;
-  color: var(--color-text-body);
-  border-color: var(--color-border-default);
-}
-
-.btn-secondary:hover {
-  background: #f8f6f0;
-  border-color: var(--color-brand-cta-400);
-}
-
-.btn-danger {
-  background: #fee2e2;
-  color: #b91c1c;
-  border-color: #fca5a5;
-}
-
-.btn-danger:hover {
-  background: #fecaca;
-}
-
-.btn-success {
-  background: #dcfce7;
-  color: #15803d;
-  border-color: #86efac;
-}
-
-.btn-success:hover {
-  background: #bbf7d0;
-}
-
-.btn:disabled,
-.btn[disabled] {
-  opacity: 0.5;
-  cursor: not-allowed;
-  transform: none;
+.repair-item-cell__metal {
+  color: var(--color-text-muted);
+  font-size: var(--type-sm);
 }
 
 /* ============================================================
    REPAIR DETAIL PAGE
    ============================================================ */
 
-.repair-detail-page {
-  padding: 1.5rem 2rem;
-  max-width: 1100px;
-  margin: 0 auto;
+.repair-header-meta {
+  color: var(--color-text-muted);
 }
 
-.repair-detail-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  margin-bottom: 1.5rem;
-  gap: 1rem;
-  flex-wrap: wrap;
-}
-
-.repair-detail-title {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  flex-wrap: wrap;
-}
-
-.repair-detail-title h1 {
-  font-size: 1.6rem;
-  font-weight: 700;
-  color: var(--color-text-heading);
-  margin: 0;
-  font-family: 'Courier New', monospace;
-}
-
-.repair-detail-meta {
-  display: flex;
-  gap: 1.5rem;
-  margin-bottom: 1.5rem;
-  flex-wrap: wrap;
-}
-
-.repair-meta-item {
+.repair-tab-body {
   display: flex;
   flex-direction: column;
-  gap: 0.2rem;
+  gap: var(--space-4);
+  padding-top: var(--space-4);
 }
 
-.repair-meta-label {
-  font-size: 0.75rem;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
+.repair-tab-body__hint,
+.repair-dialog-form__hint,
+.repair-update-panel__muted {
+  margin: 0 0 var(--space-3);
   color: var(--color-text-muted);
-  font-weight: 600;
 }
 
-.repair-meta-value {
-  font-size: 0.95rem;
-  color: var(--color-text-body);
-  font-weight: 500;
-}
-
-.repair-bag-number {
-  font-family: 'Courier New', monospace;
-  background: var(--color-brand-cta-100);
-  color: var(--color-brand-cta-800);
-  padding: 0.15rem 0.5rem;
-  border-radius: 4px;
-  font-weight: 700;
-}
-
-/* Action button strip */
-.repair-actions-strip {
-  display: flex;
-  gap: 0.5rem;
-  flex-wrap: wrap;
-  margin-bottom: 1.5rem;
-  padding: 1rem;
-  background: var(--color-surface-card);
-  border-radius: 10px;
-  border: 1px solid var(--color-border-default);
-}
-
-/* ============================================================
-   DETAIL TABS
-   ============================================================ */
-
-.repair-tabs {
-  display: flex;
-  gap: 0;
-  border-bottom: 2px solid var(--color-border-default);
-  margin-bottom: 1.5rem;
-}
-
-.repair-tab {
-  padding: 0.6rem 1.2rem;
-  border: none;
-  background: none;
-  font-size: 0.9rem;
-  font-weight: 600;
-  color: var(--color-text-muted);
-  cursor: pointer;
-  border-bottom: 2px solid transparent;
-  margin-bottom: -2px;
-  transition: color 0.15s, border-color 0.15s;
-}
-
-.repair-tab.active {
-  color: var(--color-brand-cta-700);
-  border-bottom-color: var(--color-brand-cta-600);
-}
-
-.repair-tab:hover:not(.active) {
-  color: var(--color-text-heading);
-}
-
-/* ============================================================
-   TAB PANELS
-   ============================================================ */
-
-.repair-tab-panel {
-  background: var(--color-surface-card);
-  border-radius: 10px;
-  border: 1px solid var(--color-border-default);
-  padding: 1.5rem;
-}
-
-/* Details tab — key/value grid */
-.repair-details-grid {
+.repair-facts {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: 1.25rem;
+  grid-template-columns: repeat(auto-fill, minmax(14rem, 1fr));
+  gap: var(--space-3) var(--space-5);
+  margin: 0;
 }
 
-.repair-detail-field {
-  display: flex;
-  flex-direction: column;
-  gap: 0.2rem;
-}
-
-.repair-detail-field-label {
-  font-size: 0.75rem;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
+.repair-fact__label {
   color: var(--color-text-muted);
-  font-weight: 600;
+  font-size: var(--type-sm);
 }
 
-.repair-detail-field-value {
-  font-size: 0.95rem;
+.repair-fact__value {
+  margin: 0;
   color: var(--color-text-body);
+  overflow-wrap: anywhere;
 }
 
-.repair-detail-field-value.highlight {
-  font-weight: 700;
-  color: var(--color-text-heading);
-}
-
-/* Diagnosis panel */
-.diagnosis-section {
-  margin-bottom: 1.5rem;
-}
-
-.diagnosis-section h3 {
-  font-size: 1rem;
-  font-weight: 700;
-  color: var(--color-text-heading);
-  margin: 0 0 0.75rem;
-}
-
-.diagnosis-notes-box {
-  background: #fffbf0;
-  border: 1px solid var(--color-brand-cta-200);
-  border-radius: 8px;
-  padding: 1rem;
-  font-size: 0.9rem;
-  color: var(--color-text-body);
-  line-height: 1.6;
+.repair-diagnosis {
+  margin: 0;
   white-space: pre-wrap;
 }
 
-.cost-comparison {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 1rem;
-  margin-top: 1rem;
+.repair-dialog-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
 }
 
-.cost-card {
-  background: #f8f6f0;
-  border-radius: 8px;
-  padding: 1rem;
-  text-align: center;
+.repair-photo-upload {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--color-border-default);
 }
 
-.cost-card-label {
-  font-size: 0.75rem;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--color-text-muted);
+.repair-update-panel__subject {
+  margin: var(--space-3) 0;
   font-weight: 600;
-  margin-bottom: 0.4rem;
 }
 
-.cost-card-value {
-  font-size: 1.4rem;
-  font-weight: 700;
+/* Verlauf: milestones on a vertical line; done = filled marker + check. */
+.repair-timeline {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.repair-timeline__item {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: var(--space-3);
+  align-items: center;
+  color: var(--color-text-muted);
+}
+
+.repair-timeline__item--done {
   color: var(--color-text-heading);
 }
 
-/* Photos tab — grouped by phase */
-.photos-phase-group {
-  margin-bottom: 1.5rem;
-}
-
-.photos-phase-title {
-  font-size: 0.85rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.07em;
-  color: var(--color-text-muted);
-  margin-bottom: 0.75rem;
-  padding-bottom: 0.4rem;
-  border-bottom: 1px solid var(--color-border-default);
-}
-
-.photos-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
-  gap: 0.75rem;
-}
-
-.photo-thumb {
-  aspect-ratio: 1;
-  border-radius: 8px;
-  overflow: hidden;
-  border: 2px solid var(--color-border-default);
-  background: #f0ece4;
-  position: relative;
-}
-
-.photo-thumb img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-.photo-thumb-placeholder {
-  width: 100%;
-  height: 100%;
-  display: flex;
-  flex-direction: column;
+.repair-timeline__marker {
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-  color: var(--color-text-muted);
-  font-size: 0.7rem;
-  text-align: center;
-  padding: 0.5rem;
-  gap: 0.3rem;
+  width: var(--space-6);
+  height: var(--space-6);
+  border-radius: var(--radius-pill);
+  border: 2px solid var(--color-border-strong);
+  background: var(--color-surface-card);
 }
 
-/* Photo upload button */
-.photo-upload-btn {
-  aspect-ratio: 1;
-  border-radius: 8px;
-  border: 2px dashed var(--color-border-default);
-  background: transparent;
-  cursor: pointer;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  color: var(--color-text-muted);
-  font-size: 0.75rem;
-  gap: 0.3rem;
-  transition: border-color 0.15s, background 0.15s;
+.repair-timeline__item--done .repair-timeline__marker {
+  border-color: var(--tone-done-border);
+  background: var(--tone-done-bg);
+  color: var(--tone-done-fg);
 }
 
-.photo-upload-btn:hover {
-  border-color: var(--color-brand-cta-400);
-  background: var(--color-brand-cta-50);
-  color: var(--color-brand-cta-700);
+.repair-timeline__time {
+  color: var(--color-text-muted);
+  font-size: var(--type-sm);
 }
 
 /* ============================================================
@@ -836,7 +201,7 @@
   font-size: 0.8rem;
   font-weight: 600;
   color: var(--color-text-muted);
-  background: #f8f6f0;
+  background: var(--color-surface-sunken);
   padding: 0.2rem 0.6rem;
   border-radius: 999px;
 }
@@ -845,7 +210,7 @@
   margin-left: auto;
   background: none;
   border: none;
-  color: var(--color-brand-cta-700);
+  color: var(--color-primary);
   font-size: 0.8rem;
   cursor: pointer;
   font-weight: 600;
@@ -866,12 +231,12 @@
   border: 1px solid var(--color-border-default);
   border-radius: 8px;
   padding: 0.75rem 0.9rem;
-  background: #fdfcf9;
+  background: var(--color-surface-card);
 }
 
 .intake-checklist-row--photo,
 .intake-checklist-row--na {
-  background: #f8f9f7;
+  background: var(--color-surface-sunken);
 }
 
 .intake-checklist-row-main {
@@ -897,18 +262,18 @@
 }
 
 .intake-checklist-chip--open {
-  background: #f3f4f6;
-  color: #4b5563;
+  background: var(--tone-neutral-bg);
+  color: var(--tone-neutral-fg);
 }
 
 .intake-checklist-chip--photo {
-  background: #dcfce7;
-  color: #15803d;
+  background: var(--tone-done-bg);
+  color: var(--tone-done-fg);
 }
 
 .intake-checklist-chip--na {
-  background: #f3f4f6;
-  color: #6b7280;
+  background: var(--tone-neutral-bg);
+  color: var(--color-text-muted);
 }
 
 .intake-checklist-row-actions {
@@ -933,9 +298,9 @@
 }
 
 .intake-checklist-photo-btn:hover {
-  border-color: var(--color-brand-cta-400);
-  background: var(--color-brand-cta-50);
-  color: var(--color-brand-cta-700);
+  border-color: var(--color-accent);
+  background: var(--color-primary-subtle);
+  color: var(--color-primary);
 }
 
 .intake-checklist-na-btn {
@@ -943,7 +308,7 @@
   padding: 0 1rem;
   border-radius: 8px;
   border: 1px solid var(--color-border-default);
-  background: #fff;
+  background: var(--color-surface-card);
   font-size: 0.82rem;
   cursor: pointer;
   color: var(--color-text-body);
@@ -951,8 +316,8 @@
 }
 
 .intake-checklist-na-btn:hover {
-  background: #f8f6f0;
-  border-color: var(--color-brand-cta-400);
+  background: var(--color-surface-sunken);
+  border-color: var(--color-accent);
 }
 
 .intake-checklist-reason-form {
@@ -966,12 +331,6 @@
   display: flex;
   justify-content: flex-end;
   gap: 0.5rem;
-}
-
-/* 44px+ touch targets for the reason form's Speichern/Abbrechen — scoped
-   here so the shared .btn stays untouched site-wide. */
-.intake-checklist-reason-actions .btn {
-  min-height: 44px;
 }
 
 .intake-checklist-row-photo {
@@ -1002,8 +361,8 @@
   padding: 0.75rem 1.25rem;
   border-radius: 10px;
   border: 1px solid var(--color-border-default);
-  background: #f0fdf4;
-  color: #15803d;
+  background: var(--tone-done-bg);
+  color: var(--tone-done-fg);
   font-weight: 600;
   font-size: 0.9rem;
   cursor: pointer;
@@ -1017,86 +376,6 @@
   margin-left: auto;
   font-size: 0.8rem;
   text-decoration: underline;
-}
-
-/* History tab */
-.repair-history-list {
-  list-style: none;
-  padding: 0;
-  margin: 0;
-  position: relative;
-}
-
-.repair-history-list::before {
-  content: '';
-  position: absolute;
-  left: 11px;
-  top: 8px;
-  bottom: 8px;
-  width: 2px;
-  background: var(--color-border-default);
-}
-
-.repair-history-item {
-  display: flex;
-  gap: 1rem;
-  padding: 0.5rem 0;
-  position: relative;
-}
-
-.repair-history-dot {
-  width: 24px;
-  height: 24px;
-  border-radius: 50%;
-  background: var(--color-brand-cta-500);
-  flex-shrink: 0;
-  z-index: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 0.7rem;
-  color: #fff;
-}
-
-.repair-history-content {
-  flex: 1;
-  padding-top: 0.1rem;
-}
-
-.repair-history-label {
-  font-size: 0.9rem;
-  font-weight: 600;
-  color: var(--color-text-heading);
-}
-
-.repair-history-time {
-  font-size: 0.78rem;
-  color: var(--color-text-muted);
-  margin-top: 0.1rem;
-}
-
-/* ============================================================
-   LOADING / ERROR STATES
-   ============================================================ */
-
-.repairs-loading {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 3rem;
-  color: var(--color-text-muted);
-  font-size: 0.9rem;
-  gap: 0.5rem;
-}
-
-.repairs-error {
-  padding: 1.25rem;
-  background: #fee2e2;
-  border: 1px solid #fca5a5;
-  border-radius: 8px;
-  color: #991b1b;
-  font-size: 0.9rem;
-  margin-bottom: 1rem;
 }
 
 /* ============================================================
@@ -1171,7 +450,7 @@
   border-radius: 8px;
   overflow: hidden;
   border: 2px solid var(--color-border-default);
-  background: #f0ece4;
+  background: var(--color-surface-sunken);
   cursor: pointer;
   padding: 0;
   transition: border-color 0.15s, transform 0.12s;
@@ -1192,14 +471,14 @@
   font-size: 1.1rem;
   line-height: 1;
   border: none;
-  background: rgb(0 0 0 / 0.6);
-  color: #fff;
+  background: var(--color-backdrop);
+  color: var(--color-overlay-fg);
   cursor: pointer;
   transition: background 0.15s;
 }
 
 .photo-compare-thumb-delete:hover {
-  background: rgb(185 28 28 / 0.85);
+  background: color-mix(in srgb, var(--color-overlay-danger) 85%, transparent);
 }
 
 .photo-compare-thumb-delete:disabled {
@@ -1208,7 +487,7 @@
 }
 
 .photo-compare-thumb:hover {
-  border-color: var(--color-brand-cta-500);
+  border-color: var(--color-primary);
   transform: scale(1.03);
 }
 
@@ -1242,11 +521,11 @@
 .photo-compare-thumb-hover-overlay {
   position: absolute;
   inset: 0;
-  background: rgba(0, 0, 0, 0);
+  background: transparent;
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #fff;
+  color: var(--color-overlay-fg);
   font-size: 1.5rem;
   opacity: 0;
   transition: opacity 0.15s, background 0.15s;
@@ -1254,7 +533,7 @@
 
 .photo-compare-thumb:hover .photo-compare-thumb-hover-overlay {
   opacity: 1;
-  background: rgba(0, 0, 0, 0.35);
+  background: color-mix(in srgb, var(--color-shadow) 35%, transparent);
 }
 
 /* Empty column placeholder */
@@ -1266,7 +545,7 @@
   gap: 0.5rem;
   padding: 2rem 1rem;
   border-radius: 8px;
-  background: #f8f6f0;
+  background: var(--color-surface-sunken);
   border: 1px dashed var(--color-border-default);
   color: var(--color-text-muted);
   font-size: 0.85rem;
@@ -1280,9 +559,9 @@
 
 /* Highlight "after" column when still empty — gentle amber tint */
 .photo-compare-empty--after {
-  background: #fffbf0;
-  border-color: var(--color-brand-cta-200);
-  color: var(--color-brand-cta-700);
+  background: var(--tone-waiting-bg);
+  border-color: var(--color-accent);
+  color: var(--color-primary);
 }
 
 /* Centered empty (gridMode) */
@@ -1295,7 +574,7 @@
 .photo-lightbox-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.88);
+  background: var(--color-backdrop);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1309,7 +588,7 @@
   max-width: min(90vw, 900px);
   max-height: 92vh;
   width: 100%;
-  background: #111;
+  background: var(--color-overlay-bg);
   border-radius: 14px;
   overflow: hidden;
   animation: modal-in 0.18s ease;
@@ -1320,23 +599,23 @@
   align-items: center;
   justify-content: space-between;
   padding: 0.75rem 1rem;
-  background: rgba(255, 255, 255, 0.05);
+  background: color-mix(in srgb, var(--color-overlay-fg) 5%, transparent);
 }
 
 .photo-lightbox-counter {
   font-size: 0.85rem;
-  color: rgba(255, 255, 255, 0.75);
+  color: color-mix(in srgb, var(--color-overlay-fg) 75%, transparent);
 }
 
 .photo-lightbox-notes {
-  color: rgba(255, 255, 255, 0.5);
+  color: color-mix(in srgb, var(--color-overlay-fg) 50%, transparent);
 }
 
 .photo-lightbox-close {
   background: none;
   border: none;
   font-size: 1.4rem;
-  color: rgba(255, 255, 255, 0.7);
+  color: color-mix(in srgb, var(--color-overlay-fg) 70%, transparent);
   cursor: pointer;
   padding: 0.25rem 0.5rem;
   line-height: 1;
@@ -1345,8 +624,8 @@
 }
 
 .photo-lightbox-close:hover {
-  color: #fff;
-  background: rgba(255, 255, 255, 0.1);
+  color: var(--color-overlay-fg);
+  background: color-mix(in srgb, var(--color-overlay-fg) 10%, transparent);
 }
 
 .photo-lightbox-image-wrap {
@@ -1370,7 +649,7 @@
   flex-direction: column;
   align-items: center;
   gap: 0.5rem;
-  color: rgba(255, 255, 255, 0.5);
+  color: color-mix(in srgb, var(--color-overlay-fg) 50%, transparent);
   text-align: center;
   padding: 2rem;
 }
@@ -1379,14 +658,14 @@
   display: flex;
   justify-content: space-between;
   padding: 0.5rem 0.75rem;
-  background: rgba(255, 255, 255, 0.04);
+  background: color-mix(in srgb, var(--color-overlay-fg) 4%, transparent);
 }
 
 .photo-lightbox-nav-btn {
-  background: rgba(255, 255, 255, 0.1);
+  background: color-mix(in srgb, var(--color-overlay-fg) 10%, transparent);
   border: none;
   border-radius: 8px;
-  color: #fff;
+  color: var(--color-overlay-fg);
   font-size: 1.25rem;
   padding: 0.5rem 1.25rem;
   cursor: pointer;
@@ -1397,36 +676,17 @@
 }
 
 .photo-lightbox-nav-btn:hover {
-  background: rgba(255, 255, 255, 0.2);
+  background: color-mix(in srgb, var(--color-overlay-fg) 20%, transparent);
 }
 
 /* ============================================================
    RESPONSIVE
    ============================================================ */
 
-@media (max-width: 768px) {
+@media (max-width: 600px) {
   .repairs-page,
   .repair-detail-page {
-    padding: 1rem;
-  }
-
-  .repairs-table th:nth-child(4),
-  .repairs-table td:nth-child(4),
-  .repairs-table th:nth-child(5),
-  .repairs-table td:nth-child(5) {
-    display: none;
-  }
-
-  .form-row {
-    grid-template-columns: 1fr;
-  }
-
-  .cost-comparison {
-    grid-template-columns: 1fr;
-  }
-
-  .repair-detail-header {
-    flex-direction: column;
+    padding: var(--space-4);
   }
 
   /* Photo compare: stack columns vertically on mobile */
@@ -1440,3 +700,174 @@
     border-radius: 8px;
   }
 }
+
+.intake-camera svg,
+.intake-receipt svg {
+  width: var(--space-5);
+  height: var(--space-5);
+}
+
+.intake-chip:focus-visible,
+.intake-camera:focus-within {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+.intake-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.intake-section h3 {
+  margin: 0;
+  font-size: var(--type-md);
+  color: var(--color-text);
+}
+
+.intake-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.intake-chip {
+  min-height: var(--touch-min);
+  padding: 0 var(--space-4);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-pill);
+  background: var(--color-surface-raised);
+  color: var(--color-text);
+  font-size: var(--type-base);
+  cursor: pointer;
+  transition: background var(--duration-fast) var(--ease-standard);
+}
+
+.intake-chip[aria-pressed='true'] {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: var(--color-primary-contrast);
+}
+
+.intake-field-row {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--space-3);
+}
+
+.intake-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-3);
+}
+
+.intake-customer-search__row {
+  display: flex;
+  gap: var(--space-2);
+  align-items: flex-start;
+}
+
+.intake-customer-search__row .typeahead {
+  flex: 1;
+}
+
+.intake-customer-search__row .typeahead input {
+  width: 100%;
+  min-height: var(--touch-comfort);
+  padding: 0 var(--space-3);
+  font-size: var(--type-base);
+}
+
+.intake-customer-card {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-sunken);
+}
+
+.intake-customer-card__name {
+  margin: 0;
+  font-size: var(--type-md);
+  font-weight: 700;
+}
+
+.intake-customer-card__meta {
+  margin: 0;
+  color: var(--color-text-muted);
+}
+
+.intake-camera {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  align-self: flex-start;
+  min-height: var(--touch-comfort);
+  padding: 0 var(--space-5);
+  font-size: var(--type-base);
+  cursor: pointer;
+}
+
+.intake-camera__input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.intake-photos {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.intake-photo {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.intake-photo img {
+  width: var(--space-8);
+  height: var(--space-8);
+  object-fit: cover;
+  border-radius: var(--radius-sm);
+}
+
+.intake-receipt {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.intake-receipt h3 {
+  margin: 0;
+  font-size: var(--type-lg);
+}
+
+.intake-receipt__numbers {
+  margin: 0;
+  font-size: var(--type-md);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 600px) {
+  .intake-field-row {
+    grid-template-columns: 1fr;
+  }
+
+  .intake-customer-search__row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}
+

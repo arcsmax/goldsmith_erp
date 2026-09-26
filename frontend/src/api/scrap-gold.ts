@@ -1,37 +1,37 @@
 // Scrap Gold (Altgold) API Service
 import apiClient from './client';
+import type { ApiScrapGold, ApiScrapGoldIdentification, ApiScrapGoldItem } from './generated';
 
 // ==================== INTERFACES ====================
 
-export interface ScrapGoldItem {
-  id: number;
-  scrap_gold_id: number;
-  description: string;
-  alloy: number;
-  weight_g: number;
-  fine_content_g: number;
-  photo_path: string | null;
-  created_at: string;
-}
+/**
+ * Generated from the backend `ScrapGoldItemRead` (FE-12, W3-02). `alloy` is
+ * the canonical alloy/fineness code, e.g. "585", "750", "ag925", "pt950",
+ * matching the backend's `AlloyType` values (a string; the old `number` type
+ * made every add-item request 422, see DOM-19).
+ */
+export type ScrapGoldItem = ApiScrapGoldItem;
 
-export interface ScrapGold {
-  id: number;
-  order_id: number;
-  customer_id: number;
-  status: ScrapGoldStatus;
-  total_fine_gold_g: number;
-  total_value_eur: number;
-  gold_price_per_g: number;
-  price_source: string | null;
-  signature_data: string | null;
-  signed_at: string | null;
-  notes: string | null;
-  items: ScrapGoldItem[];
-  created_at: string;
-  updated_at: string;
-}
+/**
+ * Wire values of the backend `ScrapGoldStatus` enum (db/models.py). The
+ * read schema declares `status: str`, so the union is kept here. The last
+ * state is "credited" (applied to an invoice); the old "settled" never
+ * came back from the API.
+ */
+export type ScrapGoldStatus = 'received' | 'calculated' | 'signed' | 'credited';
 
-export type ScrapGoldStatus = 'received' | 'calculated' | 'signed' | 'settled';
+export type ScrapGold = Omit<ApiScrapGold, 'status'> & { status: ScrapGoldStatus };
+
+/** W2-16: seller ID for the Ankaufsbuch (number + authority stored encrypted). */
+export type ScrapGoldIdentificationInput = ApiScrapGoldIdentification;
+export type IdDocumentType = ScrapGoldIdentificationInput['id_document_type'];
+
+export const ID_DOCUMENT_OPTIONS: readonly { value: IdDocumentType; label: string }[] = [
+  { value: 'personalausweis', label: 'Personalausweis' },
+  { value: 'reisepass', label: 'Reisepass' },
+  { value: 'aufenthaltstitel', label: 'Aufenthaltstitel' },
+  { value: 'sonstiges', label: 'Sonstiges Ausweisdokument' },
+];
 
 export interface ScrapGoldCreateInput {
   notes?: string;
@@ -39,15 +39,16 @@ export interface ScrapGoldCreateInput {
 
 export interface ScrapGoldItemCreateInput {
   description: string;
-  alloy: number;
+  /** Canonical alloy/fineness code — see ScrapGoldItem.alloy. */
+  alloy: string;
   weight_g: number;
 }
 
 export interface AlloyCalculation {
-  alloy: number;
+  alloy: string;
   weight_g: number;
   fine_content_g: number;
-  fine_percentage: number;
+  fine_content_percent: number;
 }
 
 export interface ScrapGoldSignInput {
@@ -125,7 +126,7 @@ export const scrapGoldApi = {
   /**
    * Calculate fine content for an alloy and weight (server-side)
    */
-  calculateAlloy: async (alloy: number, weightG: number): Promise<AlloyCalculation> => {
+  calculateAlloy: async (alloy: string, weightG: number): Promise<AlloyCalculation> => {
     const response = await apiClient.get<AlloyCalculation>(
       '/scrap-gold/alloy-calculator',
       { params: { alloy, weight_g: weightG } }
@@ -150,6 +151,36 @@ export const scrapGoldApi = {
       { headers: { 'Content-Type': 'multipart/form-data' } }
     );
     return response.data;
+  },
+
+  /**
+   * W2-16: record the seller's ID (before signing; required above the
+   * configured value threshold).
+   */
+  setIdentification: async (
+    scrapGoldId: number,
+    input: ScrapGoldIdentificationInput
+  ): Promise<ScrapGold> => {
+    const response = await apiClient.put<ScrapGold>(
+      `/scrap-gold/${scrapGoldId}/identification`,
+      input
+    );
+    return response.data;
+  },
+
+  /**
+   * W2-16: Ankaufsbuch export for a period (ADMIN only), as CSV or PDF blob.
+   */
+  downloadAnkaufsbuch: async (
+    dateFrom: string,
+    dateTo: string,
+    format: 'csv' | 'pdf' = 'csv'
+  ): Promise<Blob> => {
+    const response = await apiClient.get('/scrap-gold/ankaufsbuch', {
+      params: { date_from: dateFrom, date_to: dateTo, format },
+      responseType: 'blob',
+    });
+    return response.data as Blob;
   },
 
   /**

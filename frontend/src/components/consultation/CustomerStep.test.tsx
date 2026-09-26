@@ -27,6 +27,11 @@ vi.mock('../../api/consultations', () => ({
 const mockShowToast = vi.fn();
 vi.mock('../../contexts', () => ({
   useToast: () => ({ showToast: mockShowToast }),
+  // CustomerFormModal (rendered by CustomerStep) now also calls useConfirm()
+  // unconditionally for its health-data consent "Einwilligung widerrufen"
+  // action (GDPR-02) — stub it so the hook call doesn't throw here even
+  // though this suite never exercises that path.
+  useConfirm: () => ({ showConfirm: vi.fn() }),
 }));
 
 import { CustomerStep } from './CustomerStep';
@@ -36,7 +41,7 @@ beforeEach(() => {
 });
 
 async function openModalAndFillRequiredFields() {
-  await userEvent.click(screen.getByRole('button', { name: '+ Neue Kundin' }));
+  await userEvent.click(screen.getByRole('button', { name: 'Kundin anlegen' }));
   // CustomerFormModal auto-focuses its first field via a 30 ms setTimeout
   // (focus effect). That one-shot timer is still pending right after the modal
   // opens; if we start typing before it fires, it lands mid-sequence, steals

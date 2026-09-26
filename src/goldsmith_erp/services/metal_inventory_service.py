@@ -8,6 +8,7 @@ Supports multiple costing methods: FIFO, LIFO, Weighted Average, and Specific Id
 import json
 import logging
 from datetime import datetime
+from decimal import Decimal
 from typing import List, Literal, Optional, Tuple
 
 from fastapi import HTTPException
@@ -24,6 +25,7 @@ from ..db.models import (
     Order,
 )
 from ..db.transaction import transactional
+from ..models._common import DecimalLike, dec, money
 from ..models.metal_inventory import (
     InventoryAdjustmentCreate,
     InventoryStatistics,
@@ -117,6 +119,40 @@ def _expected_alloy(mt: MetalType) -> Optional[str]:
     return _METAL_TYPE_TO_ALLOY.get(mt)
 
 
+# Reverse of _METAL_TYPE_TO_ALLOY, built once at import time. Where several
+# MetalType entries share the same alloy string (e.g. "750" is both
+# GOLD_18K and WHITE_GOLD_18K/ROSE_GOLD_18K — identical price, since
+# _ALLOY_RATIOS in metal_price_service.py derives all three from the same
+# GOLD_24K spot at the same 0.750 ratio), the FIRST entry in
+# _METAL_TYPE_TO_ALLOY's definition order wins so the plain karat type
+# (not a white/rose variant) is the canonical one shown to the user.
+_ALLOY_TO_METAL_TYPE: dict[str, MetalType] = {}
+for _metal_type, _alloy_str in _METAL_TYPE_TO_ALLOY.items():
+    if _alloy_str and _alloy_str not in _ALLOY_TO_METAL_TYPE:
+        _ALLOY_TO_METAL_TYPE[_alloy_str] = _metal_type
+del _metal_type, _alloy_str
+
+
+def resolve_alloy_to_metal_type(alloy: str) -> Optional[MetalType]:
+    """Map a workshop Feingehalt/alloy string (e.g. '750', 'Pt950', 'Ag925'
+    — case-insensitive, as stored on ``Order.alloy`` or typed into the
+    estimator) to the ``MetalType`` whose live spot price represents it.
+
+    Single source of truth: reuses ``_METAL_TYPE_TO_ALLOY`` (the R10
+    alloy-mismatch mapping above) instead of a second hardcoded table that
+    could drift out of sync (W2-15 / DOM-11c: metal price lookup for the
+    estimator/quote UI).
+
+    Returns None when the alloy has no defined price mapping (e.g. the
+    order-intake-only '333'/'900' gold marks have no MetalType/spot-price
+    equivalent yet) — callers must treat that as "no price available",
+    never guess a default.
+    """
+    if not alloy:
+        return None
+    return _ALLOY_TO_METAL_TYPE.get(alloy.strip().lower())
+
+
 class MetalInventoryService:
     """Service for metal inventory management and cost accounting"""
 
@@ -135,7 +171,9 @@ class MetalInventoryService:
         """
         async with transactional(db):
             # Calculate price per gram
-            price_per_gram = purchase_data.price_total / purchase_data.weight_g
+            price_per_gram = dec(purchase_data.price_total) / dec(
+                purchase_data.weight_g
+            )
 
             purchase = MetalPurchase(
                 date_purchased=purchase_data.date_purchased,
@@ -143,7 +181,7 @@ class MetalInventoryService:
                 weight_g=purchase_data.weight_g,
                 remaining_weight_g=purchase_data.weight_g,  # Initially no usage
                 price_total=purchase_data.price_total,
-                price_per_gram=round(price_per_gram, 2),
+                price_per_gram=money(price_per_gram),
                 supplier=purchase_data.supplier,
                 invoice_number=purchase_data.invoice_number,
                 notes=purchase_data.notes,
@@ -239,7 +277,7 @@ class MetalInventoryService:
     async def allocate_material(
         db: AsyncSession,
         metal_type: MetalType,
-        required_weight_g: float,
+        required_weight_g: DecimalLike,
         costing_method: CostingMethod,
         specific_purchase_id: Optional[int] = None,
     ) -> OrderMaterialAllocation:
@@ -261,6 +299,7 @@ class MetalInventoryService:
         Raises:
             ValueError: If insufficient inventory or invalid parameters
         """
+        required_weight_g = dec(required_weight_g)
         # Validate specific purchase if SPECIFIC method
         if costing_method == CostingMethod.SPECIFIC:
             if not specific_purchase_id:
@@ -331,31 +370,67 @@ class MetalInventoryService:
             raise ValueError(f"No inventory available for {metal_type.value}")
 
         # Calculate total available weight
-        total_available = sum(p.remaining_weight_g for p in available_purchases)
+        total_available = sum(
+            (dec(p.remaining_weight_g) for p in available_purchases), Decimal("0")
+        )
         if total_available < required_weight_g:
             raise ValueError(
                 f"Insufficient inventory: {total_available:.2f}g available, "
                 f"{required_weight_g:.2f}g required"
             )
 
-        # Weighted Average Cost calculation
+        # Weighted Average Cost calculation (BE-08).
+        #
+        # The average PRICE is the weighted average across every available
+        # batch, but the physical draw must actually come from real batches
+        # — it cannot all be pulled from available_purchases[0] once that
+        # batch is smaller than the requested weight (that used to trip the
+        # "concurrent consume" re-check in consume_material() for a case
+        # that has nothing to do with concurrency). So: draw FIFO
+        # (oldest-first, same order_by as above) across as many batches as
+        # needed, pricing every gram at the weighted average.
+        #
+        # Decimal is used for the money-sensitive weighted-average price so
+        # repeated multi-batch draws don't accumulate float rounding drift
+        # (house convention — see invoice_service.py / scrap_gold_service.py).
         if costing_method == CostingMethod.AVERAGE:
             total_value = sum(
-                p.remaining_weight_g * p.price_per_gram for p in available_purchases
+                (
+                    Decimal(str(p.remaining_weight_g)) * Decimal(str(p.price_per_gram))
+                    for p in available_purchases
+                ),
+                Decimal("0"),
             )
-            avg_price_per_gram = total_value / total_available
+            total_available_decimal = Decimal(str(total_available))
+            avg_price_decimal = total_value / total_available_decimal
 
-            # Allocate from first batch (for simplicity), but use average price
-            allocations = [
-                MetalAllocation(
-                    metal_purchase_id=available_purchases[0].id,
-                    metal_type=metal_type,
-                    weight_allocated_g=required_weight_g,
-                    price_per_gram=avg_price_per_gram,
-                    cost=required_weight_g * avg_price_per_gram,
-                    date_purchased=available_purchases[0].date_purchased,
+            allocations = []
+            remaining_need = Decimal(str(required_weight_g))
+
+            for purchase in available_purchases:
+                if remaining_need <= 0:
+                    break
+
+                batch_remaining = Decimal(str(purchase.remaining_weight_g))
+                allocated_from_batch = min(batch_remaining, remaining_need)
+
+                allocations.append(
+                    MetalAllocation(
+                        metal_purchase_id=purchase.id,
+                        metal_type=metal_type,
+                        weight_allocated_g=allocated_from_batch,
+                        price_per_gram=avg_price_decimal,
+                        cost=allocated_from_batch * avg_price_decimal,
+                        date_purchased=purchase.date_purchased,
+                    )
                 )
-            ]
+
+                remaining_need -= allocated_from_batch
+
+            if remaining_need > Decimal("0.01"):  # Floating point tolerance
+                raise ValueError(
+                    "Failed to allocate sufficient material (internal error)"
+                )
 
             return OrderMaterialAllocation(
                 order_id=0,
@@ -495,7 +570,10 @@ class MetalInventoryService:
                 # Re-check stock UNDER THE LOCK. The planner's view may
                 # be stale if a concurrent consume happened between
                 # allocate and the lock acquisition.
-                if purchase.remaining_weight_g + 0.01 < alloc.weight_allocated_g:
+                if (
+                    purchase.remaining_weight_g + Decimal("0.01")
+                    < alloc.weight_allocated_g
+                ):
                     raise ValueError(
                         f"Cannot consume {alloc.weight_allocated_g}g from "
                         f"purchase {purchase.id}: only "
@@ -544,7 +622,8 @@ class MetalInventoryService:
                 metal_purchase_id=primary_allocation.metal_purchase_id,
                 weight_used_g=usage_data.weight_used_g,
                 cost_at_time=allocation.total_cost,
-                price_per_gram_at_time=allocation.total_cost / usage_data.weight_used_g,
+                price_per_gram_at_time=dec(allocation.total_cost)
+                / dec(usage_data.weight_used_g),
                 costing_method=usage_data.costing_method,
                 notes=usage_data.notes,
                 alloy_override=bool(alloy_override),
@@ -559,10 +638,34 @@ class MetalInventoryService:
             await db.flush()
             await db.refresh(usage)
 
-            # 5. Update Order.material_cost_calculated
+            # 5. Update Order.material_cost_calculated / actual_weight_g.
+            #
+            # BE-07: these MUST accumulate across every consumption for the
+            # order, not just reflect the latest call (a second consume —
+            # e.g. a later repair/sizing top-up — used to silently discard
+            # the first one's cost and weight). MaterialUsage rows are never
+            # overwritten or deleted, so SUM(cost_at_time)/SUM(weight_used_g)
+            # over all usage rows for this order is the authoritative total
+            # — recomputed from source rather than incremented in place, so
+            # it can't drift even if this method is ever called more than
+            # once for the same logical consumption. Decimal is used for the
+            # summation to avoid float drift across many small draws over an
+            # order's lifetime (house convention for money — see
+            # invoice_service.py / scrap_gold_service.py).
             if order:
-                order.material_cost_calculated = allocation.total_cost
-                order.actual_weight_g = usage_data.weight_used_g
+                usage_totals = await db.execute(
+                    select(
+                        MaterialUsage.cost_at_time, MaterialUsage.weight_used_g
+                    ).where(MaterialUsage.order_id == usage_data.order_id)
+                )
+                total_cost = Decimal("0")
+                total_weight = Decimal("0")
+                for cost_at_time, weight_used_g in usage_totals.all():
+                    total_cost += Decimal(str(cost_at_time))
+                    total_weight += Decimal(str(weight_used_g))
+
+                order.material_cost_calculated = total_cost
+                order.actual_weight_g = total_weight
 
         if alloy_override:
             logger.info(
@@ -627,7 +730,7 @@ class MetalInventoryService:
             "usage_id": usage.id,
             "order_id": order_id,
             "metal_purchase_id": usage.metal_purchase_id,
-            "weight_used_g": usage.weight_used_g,
+            "weight_used_g": float(usage.weight_used_g),
             "alloy_override": alloy_override,
         }
         publish_ok = False
@@ -701,15 +804,15 @@ class MetalInventoryService:
 
         summaries = []
         for row in result:
-            avg_price = (
-                row.total_value / row.total_weight if row.total_weight > 0 else 0
-            )
+            row_weight = dec(row.total_weight)
+            row_value = dec(row.total_value)
+            avg_price = row_value / row_weight if row_weight > 0 else Decimal("0")
             summaries.append(
                 MetalInventorySummary(
                     metal_type=row.metal_type,
-                    total_weight_g=round(row.total_weight, 2),
-                    total_value=round(row.total_value, 2),
-                    average_price_per_gram=round(avg_price, 2),
+                    total_weight_g=money(row_weight),
+                    total_value=money(row_value),
+                    average_price_per_gram=money(avg_price),
                     batch_count=row.batch_count,
                     oldest_batch_date=row.oldest,
                     newest_batch_date=row.newest,
@@ -736,8 +839,8 @@ class MetalInventoryService:
         ]
 
         return InventoryStatistics(
-            total_value=round(total_value, 2),
-            total_weight_g=round(total_weight, 2),
+            total_value=money(total_value),
+            total_weight_g=money(total_weight),
             metal_types=summaries,
             depleted_batches_count=depleted_count,
             low_stock_alerts=low_stock_alerts,

@@ -5,22 +5,47 @@ Repair tracking endpoints (Reparaturverwaltung).
 All endpoints require authentication.  Write operations (create, status changes)
 require REPAIR_CREATE or REPAIR_EDIT permission.  The list/detail endpoints
 require REPAIR_VIEW which is granted to all roles including VIEWER.
+
+SEC-01 / GDPR-03: list/detail strip ``estimated_cost``, ``actual_cost`` and
+``estimated_value`` (insurance value) for callers without FINANCIAL_VIEW.
+SEC-09 / GDPR-04: repair photos (list, file, thumbnail, and the ``photos``
+array on the detail view) require DESIGN_VIEW.
 """
 
 import logging
-from typing import List, Optional
+from typing import List, Optional, Union
 
 from fastapi import APIRouter, Depends
 from fastapi import File as FastAPIFile
 from fastapi import Form, HTTPException, Query, UploadFile, status
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.encoders import jsonable_encoder
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from goldsmith_erp.api.deps import get_current_user
+from goldsmith_erp.api.role_projection import (
+    ExcludeSpec,
+    build_excludes,
+    can_view_financial,
+    project,
+    project_response,
+)
 from goldsmith_erp.core.config import settings
 from goldsmith_erp.core.permissions import Permission, require_permission
 from goldsmith_erp.db.models import RepairJobStatus, RepairPhotoPhase, User
 from goldsmith_erp.db.session import get_db
+from goldsmith_erp.models.customer_update import (
+    CustomerUpdateRead,
+    CustomerUpdateSendResult,
+)
+from goldsmith_erp.models.invoice import InvoiceResponse, RepairInvoiceCreate
+from goldsmith_erp.models.pagination import (
+    Page,
+    PageParams,
+    legacy_list_response,
+    make_page_params,
+    page_response,
+)
 from goldsmith_erp.models.repair import (
     IntakeChecklistUpdate,
     RepairCompleteInput,
@@ -31,16 +56,49 @@ from goldsmith_erp.models.repair import (
     RepairPhotoRead,
     RepairStatusUpdate,
 )
+from goldsmith_erp.models.scan_history import PieceScanPage
+from goldsmith_erp.services import list_queries
+from goldsmith_erp.services.customer_update_service import (
+    CustomerUpdateNotFoundError,
+    CustomerUpdateService,
+    InvalidUpdateStateError,
+)
 from goldsmith_erp.services.label_service import LabelService
+from goldsmith_erp.services.pdf_service import render_repair_intake_receipt_pdf
 from goldsmith_erp.services.photo_service import PhotoValidationError
+from goldsmith_erp.services.repair_invoice_service import RepairInvoiceService
 from goldsmith_erp.services.repair_photo_service import RepairPhotoService
 from goldsmith_erp.services.repair_service import (
     InvalidChecklistPhotoError,
+    NoCustomerUpdateDraftError,
     RepairService,
 )
+from goldsmith_erp.services.scan_history_service import (
+    DEFAULT_HISTORY_LIMIT,
+    MAX_HISTORY_LIMIT,
+    ScanHistoryService,
+)
+from goldsmith_erp.services.status_report_service import (
+    StatusReportNotFoundError,
+    render_repair_status_report_pdf,
+)
+from goldsmith_erp.services.workshop_settings_service import WorkshopSettingsService
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+# Fields removed from repair reads for callers without FINANCIAL_VIEW.
+_REPAIR_FINANCIAL_FIELDS: frozenset[str] = frozenset(
+    {"estimated_cost", "actual_cost", "estimated_value"}
+)
+# Fields removed for callers without DESIGN_VIEW (photos of the piece).
+_REPAIR_DESIGN_FIELDS: frozenset[str] = frozenset({"photos"})
+
+
+def _repair_excludes(user: User) -> ExcludeSpec:
+    return build_excludes(
+        user, financial=_REPAIR_FINANCIAL_FIELDS, design=_REPAIR_DESIGN_FIELDS
+    )
 
 
 def _media_type_from_ext(suffix: str) -> str:
@@ -59,15 +117,29 @@ def _media_type_from_ext(suffix: str) -> str:
 # ============================================================================
 
 
-@router.get("/", response_model=List[RepairJobListItem])
+@router.get(
+    "/",
+    # W3-08: Page[...] when ``offset`` is sent, the legacy list otherwise.
+    response_model=Union[Page[RepairJobListItem], List[RepairJobListItem]],
+)
 @require_permission(Permission.REPAIR_VIEW)
 async def list_repairs(
-    skip: int = Query(0, ge=0, description="Datensaetze ueberspringen"),
-    limit: int = Query(100, ge=1, le=500, description="Maximale Ergebnisanzahl"),
+    page: PageParams = Depends(
+        make_page_params(
+            legacy_default_limit=100,
+            sort_fields=tuple(list_queries.REPAIR_SORT_FIELDS),
+        )
+    ),
     status: Optional[RepairJobStatus] = Query(None, description="Nach Status filtern"),
     customer_id: Optional[int] = Query(None, gt=0, description="Nach Kunde filtern"),
     search: Optional[str] = Query(
         None, max_length=100, description="Suche in Nr, Tüte, Beschreibung"
+    ),
+    q: Optional[str] = Query(
+        None,
+        min_length=1,
+        max_length=100,
+        description="Suche in Nr, Tüte, Beschreibung, Kunde (nur mit offset)",
     ),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -75,15 +147,37 @@ async def list_repairs(
     """
     Liste aller Reparaturauftraege mit optionalen Filtern.
 
+    Mit ``offset``: ``Page`` mit Gesamtzahl; ``q`` (oder ``search``) sucht
+    zusaetzlich im Kundennamen. Ohne ``offset`` (veraltet): Liste mit Header
+    ``X-Deprecated-List: true``.
+
     Gibt kompakte ListItem-Objekte zurueck (ohne Fotos und lange Felder).
+    Ohne FINANCIAL_VIEW (VIEWER) entfaellt ``estimated_cost``.
     """
-    return await RepairService.list_repairs(
+    excludes = _repair_excludes(current_user)
+    if page.is_paged:
+        stmt = await list_queries.repairs_statement(
+            db,
+            status=status,
+            customer_id=customer_id,
+            q=q or search,
+            sort=page.sort,
+        )
+        result = await list_queries.fetch_page(
+            db, stmt, page, list_queries.REPAIR_LIST_OPTIONS
+        )
+        rows = [project(RepairJobListItem, r, excludes) for r in result.items]
+        return page_response(rows, result.total, page)
+    repairs = await RepairService.list_repairs(
         db,
-        skip=skip,
-        limit=limit,
+        skip=page.offset,
+        limit=page.limit,
         status=status,
         customer_id=customer_id,
         search=search,
+    )
+    return legacy_list_response(
+        [project(RepairJobListItem, r, excludes) for r in repairs]
     )
 
 
@@ -94,14 +188,46 @@ async def get_repair(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Reparaturauftrag Detailansicht mit Fotos."""
+    """Reparaturauftrag Detailansicht mit Fotos.
+
+    Ohne FINANCIAL_VIEW entfallen Kosten und Versicherungswert, ohne
+    DESIGN_VIEW die Fotos (SEC-01, SEC-09).
+    """
     repair = await RepairService.get_repair(db, repair_id)
     if repair is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Reparaturauftrag #{repair_id} nicht gefunden",
         )
-    return repair
+    data = project(RepairJobRead, repair, _repair_excludes(current_user))
+    last_scan = await ScanHistoryService.last_scan(db, "repair", repair_id)
+    if last_scan is not None:
+        data["last_scan"] = last_scan.model_dump()
+    return JSONResponse(content=jsonable_encoder(data))
+
+
+@router.get("/{repair_id}/scans", response_model=PieceScanPage)
+@require_permission(Permission.REPAIR_VIEW)
+async def list_repair_scans(
+    repair_id: int,
+    limit: int = Query(DEFAULT_HISTORY_LIMIT, ge=1, le=MAX_HISTORY_LIMIT),
+    offset: int = Query(0, ge=0),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> PieceScanPage:
+    """Scan-Verlauf einer Reparatur: wer, wann, wo, welche Aktion (neueste zuerst).
+
+    VIEWER allowed — rows carry no financial fields or entity data.
+    """
+    repair = await RepairService.get_repair(db, repair_id)
+    if repair is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Reparaturauftrag #{repair_id} nicht gefunden",
+        )
+    return await ScanHistoryService.list_piece_scans(
+        db, "repair", repair_id, limit=limit, offset=offset
+    )
 
 
 @router.get("/{repair_id}/label", response_class=HTMLResponse)
@@ -136,6 +262,95 @@ async def get_repair_label(
         label_height_mm=height_mm,
     )
     return HTMLResponse(content=html, status_code=200)
+
+
+@router.get("/{repair_id}/annahmeschein.pdf", response_class=Response)
+@require_permission(Permission.DESIGN_VIEW)
+async def get_repair_annahmeschein(
+    repair_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> Response:
+    """Annahmeschein (Reparaturannahme) als PDF (W2-12, DOM-08).
+
+    Enthaelt Werkstattdaten, Kunde, Stueck, Zustand, Fotos der Annahme als
+    Miniaturen, Preisindikation, Termine und Unterschriftszeilen. Fotos sind
+    Design-IP, daher DESIGN_VIEW (VIEWER: 403); die Preisindikation nur mit
+    FINANCIAL_VIEW. Eine Unterschrift wird noch nicht gespeichert (keine
+    Spalte, siehe W2-12-Bericht): der Schein wird auf Papier unterschrieben.
+    """
+    repair = await RepairService.get_repair(db, repair_id)
+    if repair is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Reparaturauftrag #{repair_id} nicht gefunden",
+        )
+    include_price = can_view_financial(current_user)
+    workshop = await WorkshopSettingsService.seller_block(db)
+    photos = await RepairService.intake_thumbnails(db, repair)
+    pdf_bytes = render_repair_intake_receipt_pdf(
+        repair=repair,
+        customer=repair.customer,
+        workshop=workshop,
+        photos=photos,
+        signature_png=None,
+        include_price=include_price,
+    )
+    logger.info(
+        "Annahmeschein PDF served",
+        extra={
+            "audit": True,
+            "action": "repair_annahmeschein_pdf",
+            "repair_id": repair_id,
+            "user_id": current_user.id,
+            "financial_data": include_price,
+        },
+    )
+    filename = f"Annahmeschein_{repair.repair_number}.pdf"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="{filename}"'},
+    )
+
+
+@router.get("/{repair_id}/status-report.pdf", response_class=Response)
+@require_permission(Permission.CUSTOMER_UPDATE_SEND)
+async def get_repair_status_report(
+    repair_id: int,
+    next_steps: Optional[str] = Query(None, max_length=2000),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> Response:
+    """Statusbericht (Kundenbericht) als PDF (W6, DOM section D Option 2).
+
+    Werkstatt-Kopf, Schmuckstueck, Verlauf (aktueller Status, tatsaechlich
+    verschickte Kundeninfos), die neuesten Reparaturfotos, ein "Wie geht es
+    weiter"-Text und die Kontaktzeile. Nie Preise, Kosten, Diagnosenotizen
+    oder Mitarbeiternamen (CLAUDE.md). GOLDSMITH/ADMIN only (VIEWER: 403);
+    jeder Abruf wird protokolliert.
+    """
+    try:
+        pdf_bytes = await render_repair_status_report_pdf(
+            db, repair_id, next_steps=next_steps
+        )
+    except StatusReportNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+    logger.info(
+        "Status report PDF served",
+        extra={
+            "audit": True,
+            "action": "repair_status_report_pdf",
+            "repair_id": repair_id,
+            "user_id": current_user.id,
+        },
+    )
+    filename = f"Statusbericht_Reparatur_{repair_id}.pdf"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="{filename}"'},
+    )
 
 
 # ============================================================================
@@ -311,10 +526,13 @@ async def complete_repair(
     current_user: User = Depends(get_current_user),
 ):
     """
-    Reparatur fertigmelden — Status wechselt zu READY, Kunde wird benachrichtigt.
+    Reparatur fertigmelden — Status wechselt zu READY.
 
     Erfasst den tatsaechlichen Rechnungsbetrag (kann vom Kostenvoranschlag abweichen).
-    Erstellt REPAIR_READY Benachrichtigungen fuer alle aktiven Benutzer.
+    Erstellt REPAIR_READY Benachrichtigungen fuer alle aktiven Benutzer UND einen
+    Kundeninfo-Entwurf (Abholbereit). Der Kunde wird erst benachrichtigt, wenn
+    dieser Entwurf per "Kunde benachrichtigen" verschickt wird (DOM-12 / W2-02) —
+    siehe POST .../customer-updates/send.
     """
     try:
         repair = await RepairService.complete_repair(
@@ -371,6 +589,106 @@ async def cancel_repair(
         )
     repair = await RepairService.get_repair(db, repair.id)
     return repair
+
+
+# ============================================================================
+# INVOICE (Rechnung) — ARCH-02 / ARCH phase 5
+# ============================================================================
+
+
+@router.post(
+    "/{repair_id}/invoice",
+    response_model=InvoiceResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+@require_permission(Permission.INVOICE_CREATE)
+async def create_repair_invoice(
+    repair_id: int,
+    invoice_in: RepairInvoiceCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Rechnung für eine fertige Reparatur erstellen.
+
+    Nur für Status ``ready`` oder ``picked_up`` und mit zugeordnetem Kunden.
+    Position: vereinbarter Nettopreis (tatsächliche Kosten, sonst
+    Kostenvoranschlag); Nummer, MwSt, §14-Angaben und Snapshot wie bei
+    Auftragsrechnungen. 409, wenn schon eine aktive Rechnung existiert.
+    """
+    return await RepairInvoiceService.create_invoice_for_repair(
+        db, repair_id, invoice_in, current_user
+    )
+
+
+# ============================================================================
+# CUSTOMER UPDATES (Kundeninfo) — DOM-12 / W2-02
+#
+# A pickup-ready draft is created automatically when the repair reaches
+# READY (see POST /{repair_id}/complete -> RepairService.complete_repair).
+# These two endpoints let staff view it and send it with one tap — the same
+# CustomerUpdateService draft/send/dedupe mechanism the order-scoped
+# /orders/{id}/updates family uses (api/routers/customer_updates.py), not a
+# second notification path.
+# ============================================================================
+
+
+@router.get(
+    "/{repair_id}/customer-updates",
+    response_model=List[CustomerUpdateRead],
+    summary="Kundeninfo-Update-Verlauf einer Reparatur abrufen",
+)
+@require_permission(Permission.CUSTOMER_UPDATE_VIEW)
+async def get_repair_customer_updates(
+    repair_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Gibt alle Kundeninfo-Updates fuer eine Reparatur zurueck (neueste
+    zuerst) — i. d. R. genau ein Abholbereit-Entwurf, automatisch erstellt
+    beim Wechsel nach READY (siehe POST /{repair_id}/complete).
+    """
+    updates = await CustomerUpdateService.list_for_repair(
+        db, repair_id, current_user.id
+    )
+    return [CustomerUpdateRead.model_validate(u) for u in updates]
+
+
+@router.post(
+    "/{repair_id}/customer-updates/send",
+    response_model=CustomerUpdateSendResult,
+    summary="Kundeninfo-Update der Reparatur verschicken",
+)
+@require_permission(Permission.CUSTOMER_UPDATE_SEND)
+async def send_repair_customer_update(
+    repair_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Verschickt den (i. d. R. einzigen) Kundeninfo-Entwurf dieser Reparatur
+    per Email — "ein Tastendruck" (DOM-12 / W2-02).
+
+    Setzt ``customer_notified_at`` auf der Reparatur NUR bei erfolgreicher
+    Zustellung — niemals beim reinen Entwurf-Erstellen. Liefert IMMER 200
+    bei einem gueltigen Entwurf, auch wenn SMTP nicht konfiguriert ist
+    (``delivered=false``); die Goldschmiedin kann dann per PDF-Download +
+    manueller Zustellbestaetigung ausweichen (siehe
+    GET /updates/{update_id}/pdf und POST .../mark-delivered in
+    api/routers/customer_updates.py). Kein Entwurf vorhanden -> 404.
+    Bereits verschickt -> 409 (kein erneuter Versand).
+    """
+    try:
+        return await RepairService.send_customer_update(db, repair_id, current_user.id)
+    except NoCustomerUpdateDraftError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+    except CustomerUpdateNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+    except InvalidUpdateStateError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
 
 
 @router.delete("/{repair_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -454,7 +772,7 @@ async def upload_repair_photo(
 
 
 @router.get("/{repair_id}/photos", response_model=List[RepairPhotoRead])
-@require_permission(Permission.REPAIR_VIEW)
+@require_permission(Permission.DESIGN_VIEW)
 async def list_photos(
     repair_id: int,
     db: AsyncSession = Depends(get_db),
@@ -471,7 +789,7 @@ async def list_photos(
 
 
 @router.get("/photos/{photo_id}")
-@require_permission(Permission.REPAIR_VIEW)
+@require_permission(Permission.DESIGN_VIEW)
 async def get_repair_photo_file(
     photo_id: int,
     db: AsyncSession = Depends(get_db),
@@ -480,7 +798,7 @@ async def get_repair_photo_file(
     """
     Original-Foto herunterladen.
 
-    Requires REPAIR_VIEW permission.
+    Requires DESIGN_VIEW permission (GOLDSMITH/ADMIN; SEC-09, GDPR-04).
     """
     try:
         path = await RepairPhotoService.get_photo_path(db, photo_id)
@@ -505,7 +823,7 @@ async def get_repair_photo_file(
 
 
 @router.get("/photos/{photo_id}/thumbnail")
-@require_permission(Permission.REPAIR_VIEW)
+@require_permission(Permission.DESIGN_VIEW)
 async def get_repair_photo_thumbnail(
     photo_id: int,
     db: AsyncSession = Depends(get_db),
@@ -515,7 +833,7 @@ async def get_repair_photo_thumbnail(
     Miniaturansicht herunterladen. Faellt auf das Original zurueck, falls keine
     Miniaturansicht existiert (z. B. bei fehlgeschlagener Thumbnail-Erzeugung).
 
-    Requires REPAIR_VIEW permission.
+    Requires DESIGN_VIEW permission (GOLDSMITH/ADMIN; SEC-09, GDPR-04).
     """
     try:
         thumb_path = await RepairPhotoService.get_photo_path(

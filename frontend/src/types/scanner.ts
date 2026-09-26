@@ -11,12 +11,24 @@ export interface ScanContext {
   running_timer_id: string | null;
   current_order_id: number | null;
   current_location: string | null;
+  /** W8 workshop location id; the server names it in current_location. */
+  location_id?: number;
   device_type: 'mobile' | 'desktop' | 'tablet';
   input_source: 'camera' | 'usb_hid' | 'manual';
   client_version?: string;
+  /** Scan tracking (2026-09): the bench tablet (lib/deviceId.ts). */
+  device_id?: string;
+  /** On an action row: the scan row this action follows up. */
+  parent_scan_id?: string;
+  /** On an action row: how the action ended. */
+  action_result?: 'ok' | 'failed' | 'cancelled';
 }
 
-export interface ResolvedEntity {
+/**
+ * Shape returned by the (currently stubbed) alias lookup — distinct from
+ * `ResolveResponse.entity`. See `AliasResolver` below.
+ */
+export interface AliasedEntity {
   entity_type: string;
   entity_id: number;
   data: Record<string, unknown>;
@@ -29,12 +41,22 @@ export interface ActionItem {
   primary: boolean;
 }
 
+/**
+ * Server response for `POST /scan/resolve` (backend `ResolveResponse` in
+ * `src/goldsmith_erp/models/scanner.py`, generated type
+ * `components["schemas"]["ResolveResponse"]` in `api/generated/schema.d.ts`).
+ *
+ * `entity_type` / `entity_id` live at the TOP level, alongside `entity`.
+ * `entity` is the role-filtered projection of the underlying row itself
+ * (e.g. `{ id, title, status, ... }`) — NOT a wrapper carrying its own
+ * `entity_type` / `entity_id` / `data` fields.
+ */
 export interface ResolveResponse {
   resolved: boolean;
   resolution_path: 'prefix' | 'alias' | 'numeric_fallback' | 'unknown';
   entity_type: string | null;
   entity_id: number | null;
-  entity: ResolvedEntity | null;
+  entity: Record<string, unknown> | null;
   actions: ActionItem[];
   status_hint: string | null;
 }
@@ -67,7 +89,7 @@ export interface ActionResult {
 }
 
 export interface AliasResolver {
-  lookup(externalCode: string): Promise<ResolvedEntity | null>;
+  lookup(externalCode: string): Promise<AliasedEntity | null>;
 }
 
 export interface Transport {

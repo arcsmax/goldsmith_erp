@@ -141,7 +141,7 @@ class TestCreateOrder:
         assert response.status_code == 200
         body = response.json()
         assert body["title"] == "Admin Created Order"
-        assert body["status"] == OrderStatusEnum.NEW.value
+        assert body["status"] == OrderStatusEnum.DRAFT.value  # W2-07 / DOM-46
         assert body["customer_id"] == test_customer.id
         assert "id" in body
         assert "created_at" in body
@@ -360,6 +360,20 @@ class TestUpdateOrder:
         )
         order_id = post_resp.json()["id"]
 
+        # W2-07: a new order is a DRAFT; it is confirmed (with the
+        # Pflichtfelder) before production starts.
+        confirm_resp = await client.put(
+            _order_url(order_id),
+            json={
+                "status": OrderStatusEnum.CONFIRMED.value,
+                "metal_type": "gold_18k",
+                "alloy": "750",
+                "deadline": "2030-01-15T10:00:00",
+            },
+            headers=admin_auth_headers,
+        )
+        assert confirm_resp.status_code == 200, confirm_resp.text
+
         update_payload = {"status": OrderStatusEnum.IN_PROGRESS.value}
         put_resp = await client.put(
             _order_url(order_id),
@@ -368,6 +382,45 @@ class TestUpdateOrder:
         )
         assert put_resp.status_code == 200
         assert put_resp.json()["status"] == OrderStatusEnum.IN_PROGRESS.value
+
+    @pytest.mark.asyncio
+    async def test_confirm_order_missing_deadline_returns_422_with_link_data(
+        self,
+        client: AsyncClient,
+        admin_auth_headers: dict,
+        test_customer: Customer,
+    ):
+        """LV3-02: confirming a DRAFT missing its Pflichtfelder (here just
+        the deadline) is a 422 with a correctly-umlauted German message
+        (never the ASCII "ausgefuellt") and a machine-readable envelope
+        (code + extra.order_id/missing_fields) so the frontend can link the
+        toast straight to the order instead of leaving it a dead end.
+        """
+        payload = _create_payload(test_customer.id, title="Missing Deadline Order")
+        post_resp = await client.post(
+            ORDERS_URL, json=payload, headers=admin_auth_headers
+        )
+        order_id = post_resp.json()["id"]
+
+        confirm_resp = await client.put(
+            _order_url(order_id),
+            json={
+                "status": OrderStatusEnum.CONFIRMED.value,
+                "metal_type": "gold_18k",
+                "alloy": "750",
+                # deadline intentionally omitted
+            },
+            headers=admin_auth_headers,
+        )
+
+        assert confirm_resp.status_code == 422, confirm_resp.text
+        body = confirm_resp.json()
+        assert "ausgefuellt" not in body["detail"]
+        assert "ausgefüllt" in body["detail"]
+        assert "Abgabetermin" in body["detail"]
+        assert body["code"] == "order.confirmation_fields_missing"
+        assert body["extra"]["order_id"] == order_id
+        assert "Abgabetermin" in body["extra"]["missing_fields"]
 
     @pytest.mark.asyncio
     async def test_update_order_as_goldsmith_returns_200(

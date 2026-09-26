@@ -108,11 +108,7 @@ const RESOLVED_ORDER_42: ResolveResponse = {
   resolution_path: 'prefix',
   entity_type: 'order',
   entity_id: 42,
-  entity: {
-    entity_type: 'order',
-    entity_id: 42,
-    data: { id: 42, status: 'IN_PROGRESS' },
-  },
+  entity: { id: 42, status: 'IN_PROGRESS' },
   actions: [],
   status_hint: null,
 };
@@ -122,11 +118,7 @@ const RESOLVED_ORDER_99: ResolveResponse = {
   resolution_path: 'prefix',
   entity_type: 'order',
   entity_id: 99,
-  entity: {
-    entity_type: 'order',
-    entity_id: 99,
-    data: { id: 99, status: 'NEW' },
-  },
+  entity: { id: 99, status: 'NEW' },
   actions: [],
   status_hint: null,
 };
@@ -259,8 +251,9 @@ describe('ScanOverlay scan flow', () => {
     const user = userEvent.setup();
     await user.type(input, 'ORDER:42{Enter}');
 
-    const result = await screen.findByTestId('scan-overlay-result');
-    expect(result.textContent).toContain('42');
+    await screen.findByTestId('scan-overlay-result');
+    // The sheet renders in a portal (Sheet primitive).
+    expect(screen.getByTestId('qa-modal-v2').textContent).toContain('42');
     // Slice 11 — the placeholder JSON block is replaced by
     // QuickActionModalV2; the "Weiterscannen" CTA now lives inside the
     // modal footer (testid `qa-continue`).
@@ -314,15 +307,15 @@ describe('ScanOverlay A10.3 auto-dismiss on new scan', () => {
     const input = await screen.findByLabelText('Code manuell eingeben');
     const user = userEvent.setup();
     await user.type(input, 'ORDER:42{Enter}');
-    const firstResult = await screen.findByTestId('scan-overlay-result');
-    expect(firstResult.textContent).toContain('42');
+    await screen.findByTestId('scan-overlay-result');
+    expect(screen.getByTestId('qa-modal-v2').textContent).toContain('42');
 
     // Second scan arrives externally (bench scanner burst simulated by
     // context.setLastScan(...)).
     setLastScanExternal(RESOLVED_ORDER_99);
 
     await waitFor(() => {
-      const text = screen.getByTestId('scan-overlay-result').textContent ?? '';
+      const text = screen.getByTestId('qa-modal-v2').textContent ?? '';
       expect(text).toContain('99');
     });
   });

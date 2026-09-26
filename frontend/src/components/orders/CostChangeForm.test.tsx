@@ -53,7 +53,7 @@ describe('CostChangeForm', () => {
       screen.getByLabelText(/Begründung/),
       'Zusätzlicher Steinbesatz wurde vom Kunden gewünscht.'
     );
-    await userEvent.click(screen.getByRole('button', { name: '+ Position hinzufügen' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Position hinzufügen' }));
     await userEvent.type(screen.getByLabelText('Bezeichnung Position 1'), 'Saphir 0.5ct');
     await userEvent.type(screen.getByLabelText('Betrag Position 1'), '120');
 
@@ -76,7 +76,7 @@ describe('CostChangeForm', () => {
       'Kein Zusatzmaterial, nur Preisanpassung.'
     );
     // Add and then leave a row entirely blank.
-    await userEvent.click(screen.getByRole('button', { name: '+ Position hinzufügen' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Position hinzufügen' }));
 
     await userEvent.click(screen.getByRole('button', { name: 'Kostenänderung anlegen' }));
 
@@ -96,7 +96,7 @@ describe('CostChangeForm', () => {
       screen.getByLabelText(/Begründung/),
       'Ausreichend lange Begründung für den Test.'
     );
-    await userEvent.click(screen.getByRole('button', { name: '+ Position hinzufügen' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Position hinzufügen' }));
     await userEvent.type(screen.getByLabelText('Bezeichnung Position 1'), 'Saphir 0.5ct');
     // Amount is left blank on purpose — Number('') === 0 must NOT pass validation.
 

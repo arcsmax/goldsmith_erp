@@ -162,6 +162,65 @@ class UserUpdate(BaseModel):
         return v
 
 
+class UserAdminUpdate(UserUpdate):
+    """Schema for ``PUT /users/{user_id}`` (ADMIN-only).
+
+    Adds an admin-only ``role`` field (SEC-F6): only an ADMIN can set or
+    change a user's role. The endpoint's existing
+    ``@require_permission(Permission.USER_EDIT)`` gate already restricts
+    this schema's use to ADMIN — ``USER_EDIT`` is not granted to GOLDSMITH
+    or VIEWER in ``core.permissions.ROLE_PERMISSIONS``. Demoting the last
+    active ADMIN away from the ADMIN role is refused by the service layer
+    (``UserService.update_user`` raises ``LastAdminError`` -> 409), the same
+    guard `anonymize_user` already applies to erasure.
+
+    Deliberately NOT a field on ``UserSelfUpdate``/``UserUpdate``: a user
+    must never be able to grant themselves a role via ``PUT /users/me``.
+
+    ``current_password`` (SEC-11, adversarial finding B3.1/B3.2,
+    2026-09-25): this route is gated only by ``Permission.USER_EDIT``, which
+    ADMIN holds unconditionally — including against their own ``user_id``.
+    Without this field an ADMIN could change their own email/password
+    through this route with zero re-authentication, completely bypassing
+    the SEC-11 rule ``PUT /users/me`` enforces. The router requires and
+    verifies it only when ``user_id == current_user.id`` and the payload
+    changes email or password; changing another user's credentials as
+    ADMIN is unaffected (that stays allowed, and is audit-logged by the
+    middleware). Optional here because it is irrelevant for every other
+    call of this route.
+    """
+
+    role: Optional[UserRole] = Field(
+        None, description="New role (admin/goldsmith/viewer); ADMIN only"
+    )
+    current_password: Optional[str] = Field(
+        None,
+        min_length=1,
+        max_length=128,
+        description=(
+            "Current password of the acting ADMIN. Required only when "
+            "user_id is the caller's own id AND the payload changes email "
+            "or password (SEC-11); ignored otherwise. Never persisted."
+        ),
+    )
+
+
+class UserSelfUpdate(UserUpdate):
+    """Schema for ``PUT /users/me``.
+
+    Changing the account's email or password requires ``current_password``
+    (SEC-11): an unattended open session must not be enough to take the
+    account over. It is verified by the router and never persisted.
+    """
+
+    current_password: Optional[str] = Field(
+        None,
+        min_length=1,
+        max_length=128,
+        description="Current password; required when changing email or password",
+    )
+
+
 class User(UserBase):
     """Schema für User-Anzeige mit RBAC role."""
 

@@ -504,11 +504,17 @@ async def test_anonymize_user_rewrites_slice_1_fks(
     sentinel_id = result.sentinel_user_id
     assert sentinel_id != goldsmith_user.id
 
+    # `scan_logs.id` is a `Uuid(as_uuid=False)` column (PG/ORM drift fix,
+    # 2026-09 audit): SQLAlchemy stores it dash-stripped (CHAR(32)) on
+    # SQLite, so a raw `text()` literal comparison against the
+    # dashed `scan.id` string would silently match zero rows. Go through
+    # the Core `select()` builder instead — it applies the column's
+    # bind processor for whichever dialect is active — while still
+    # issuing a fresh SELECT that bypasses the ORM identity map's
+    # possibly-stale cached `user_id` (the actual thing this lookup
+    # guards against; see the comment above).
     scan_fk = (
-        await db_session.execute(
-            text("SELECT user_id FROM scan_logs WHERE id = :sid"),
-            {"sid": scan.id},
-        )
+        await db_session.execute(select(ScanLog.user_id).where(ScanLog.id == scan.id))
     ).scalar_one()
     alias_fk = (
         await db_session.execute(

@@ -1,6 +1,7 @@
 // Authentication Context - Global auth state management
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { authApi } from '../api';
+import { PROBE_FREE_PATHS } from '../api/client';
 import {
   UserType,
   UserRole,
@@ -8,6 +9,58 @@ import {
   UserCreateInput,
   AuthContextType,
 } from '../types';
+import { logError } from '../lib/logError';
+
+const HTTP_UNAUTHORIZED = 401;
+
+function isUnauthorized(err: unknown): boolean {
+  const status = (err as { response?: { status?: number } } | null)?.response?.status;
+  return status === HTTP_UNAUTHORIZED;
+}
+
+function shouldSkipSessionProbe(hasCachedUser: boolean): boolean {
+  return !hasCachedUser && PROBE_FREE_PATHS.includes(window.location.pathname);
+}
+
+/** localStorage keys holding the previous user's session data (FE-07). */
+const PER_USER_STORAGE_KEYS = [
+  'user',
+  'running_time_entry',
+  // Legacy unscoped scan activity; per-user keys
+  // (scanner_last_activity_id:<id>) are intentionally kept.
+  'scanner_last_activity_id',
+];
+
+/** Service-worker runtime caches holding authenticated API responses. */
+const AUTHENTICATED_CACHE_PREFIX = 'api-';
+
+/**
+ * FE-07 / FE-11 — on a shared bench tablet the next user must not see the
+ * previous user's timer, orders, prices or materials. Clears per-user
+ * localStorage and the SW API caches (static assets stay cached).
+ */
+export function clearPerUserClientState(): void {
+  for (const key of PER_USER_STORAGE_KEYS) {
+    try {
+      localStorage.removeItem(key);
+    } catch (err) {
+      console.error('Failed to clear local session key:', key, err);
+    }
+  }
+  if (typeof caches === 'undefined') return;
+  void caches
+    .keys()
+    .then((names) =>
+      Promise.all(
+        names
+          .filter((name) => name.startsWith(AUTHENTICATED_CACHE_PREFIX))
+          .map((name) => caches.delete(name)),
+      ),
+    )
+    .catch((err: unknown) => {
+      console.error('Failed to clear API caches on logout:', err);
+    });
+}
 
 // Create the context
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -48,8 +101,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
    */
   useEffect(() => {
     const handleSessionExpired = () => {
+      clearPerUserClientState();
       setUser(null);
-      localStorage.removeItem('user');
     };
     window.addEventListener('auth:session-expired', handleSessionExpired);
     return () => window.removeEventListener('auth:session-expired', handleSessionExpired);
@@ -71,13 +124,22 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         }
       }
 
-      // Always validate the HttpOnly cookie by calling the server
+      if (shouldSkipSessionProbe(savedUser !== null)) {
+        setIsLoading(false);
+        return;
+      }
+
+      // Validate the HttpOnly cookie by calling the server
       try {
         const currentUser = await authApi.getCurrentUser();
         setUser(currentUser);
         localStorage.setItem('user', JSON.stringify(currentUser));
-      } catch {
-        // Cookie invalid or expired — clear state
+      } catch (err) {
+        // 401 = no (or expired) session: the expected answer, stay quiet.
+        // Anything else (network, 5xx) must stay visible (LV-21).
+        if (!isUnauthorized(err)) {
+          logError('AuthContext.sessionProbe', err);
+        }
         setUser(null);
         localStorage.removeItem('user');
       }
@@ -138,6 +200,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
    */
   const logout = (): void => {
     authApi.logout();
+    clearPerUserClientState();
     setUser(null);
   };
 
@@ -180,4 +243,13 @@ export const useAuth = (): AuthContextType => {
     throw new Error('useAuth must be used within an AuthProvider');
   }
   return context;
+};
+
+/**
+ * useOptionalAuth — like useAuth but returns null outside an AuthProvider.
+ * For components that are also rendered standalone (e.g. ScanOverlay in
+ * tests) and only need the user id opportunistically.
+ */
+export const useOptionalAuth = (): AuthContextType | null => {
+  return useContext(AuthContext) ?? null;
 };

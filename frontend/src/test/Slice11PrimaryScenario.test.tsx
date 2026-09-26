@@ -100,11 +100,10 @@ Object.defineProperty(navigator, 'mediaDevices', {
   configurable: true,
 });
 
-// Set up a last-used activity so start_timer proceeds without a warning
-// toast. The handler reads localStorage to source activityId when none
-// is passed explicitly — matches the real Slice 12 flow.
+// Fresh device: no pre-seeded activity (FE-02). switch_timer must reuse
+// the running entry's activity (9) supplied by the overlay.
 beforeEach(() => {
-  localStorage.setItem('scanner_last_activity_id', '9');
+  localStorage.clear();
   mocks.apiPost.mockClear();
   mocks.apiPatch.mockClear();
   mocks.refreshTimer.mockClear();
@@ -139,14 +138,10 @@ const RESOLVED_ORDER_2: ResolveResponse = {
   entity_type: 'order',
   entity_id: 2,
   entity: {
-    entity_type: 'order',
-    entity_id: 2,
-    data: {
-      id: 2,
-      title: 'Kette Schmidt',
-      status: 'in_progress',
-      customer_initials: 'S.',
-    },
+    id: 2,
+    title: 'Kette Schmidt',
+    status: 'in_progress',
+    customer_initials: 'S.',
   },
   actions: [
     // "Timer wechseln" is primary per the scanner_service logic when

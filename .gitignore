@@ -403,6 +403,7 @@ FodyWeavers.xsd
 frontend/dist/
 frontend/node_modules/
 frontend/.vite/
+frontend/coverage/
 
 # Environment variables - NEVER commit these!
 .env
@@ -438,3 +439,4 @@ src/goldsmith_erp/ml/models/*/
 
 # User-uploaded photos — stored on disk, not in version control.
 uploads/
+.import_linter_cache/

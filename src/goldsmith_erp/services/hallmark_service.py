@@ -14,7 +14,7 @@ legal documentation.
 """
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Optional
 
 from sqlalchemy import select
@@ -190,7 +190,7 @@ class HallmarkService:
                 f"Allowed next states: {[s.value for s in allowed]}"
             )
 
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         hallmark.status = new_status
 
         if new_status == HallmarkStatus.SUBMITTED:

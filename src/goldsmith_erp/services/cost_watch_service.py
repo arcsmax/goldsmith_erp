@@ -79,6 +79,7 @@ Dedup decision (documented per plan Task 3):
 from __future__ import annotations
 
 import logging
+from decimal import Decimal
 from typing import Literal, Optional, cast
 
 from sqlalchemy import and_, case, func, select
@@ -101,6 +102,7 @@ from goldsmith_erp.db.models import (
     User,
     UserRole,
 )
+from goldsmith_erp.models._common import dec, money
 from goldsmith_erp.models.customer_update import ProjectedCost
 
 logger = logging.getLogger(__name__)
@@ -216,12 +218,16 @@ class CostWatchService:
         # `is not None`, NOT truthiness: an explicit 0.0 rate (e.g. warranty
         # rework billed at zero) is a valid override and must not silently
         # fall back to the default rate.
-        hourly_rate = (
+        hourly_rate = dec(
             order.hourly_rate
             if order is not None and order.hourly_rate is not None
             else settings.DEFAULT_HOURLY_RATE
         )
-        labor_cost = (billable_minutes / 60.0) * hourly_rate
+        # Decimal end to end (BE-14); SUM() over an empty set comes back as
+        # the float/int coalesce literal, dec() normalises that too.
+        material_cost = dec(material_cost)
+        gemstone_cost = dec(gemstone_cost)
+        labor_cost = dec(billable_minutes) / 60 * hourly_rate
         projected_total = material_cost + gemstone_cost + labor_cost
 
         quote = await CostWatchService._select_reference_quote(db, order_id)
@@ -230,10 +236,10 @@ class CostWatchService:
         )
 
         quote_id: Optional[int] = None
-        baseline: Optional[float] = None
+        baseline: Optional[Decimal] = None
         baseline_source: Optional[Literal["quote", "approved_change"]] = None
-        delta_abs: Optional[float] = None
-        delta_percent: Optional[float] = None
+        delta_abs: Optional[Decimal] = None
+        delta_percent: Optional[Decimal] = None
         over_threshold = False
 
         if quote is not None:
@@ -246,34 +252,32 @@ class CostWatchService:
             # Approved-cost-change baseline override (issue #27) — see
             # module docstring + this method's docstring. new_amount is
             # already NET, same basis as Quote.subtotal, no conversion.
-            baseline = cast(float, approved_change.new_amount)
+            baseline = dec(cast(Decimal, approved_change.new_amount))
             baseline_source = "approved_change"
         elif quote is not None:
             # NET reference — Quote.subtotal, NOT Quote.total (gross incl.
             # VAT). See the netto/brutto note in this method's docstring.
-            baseline = cast(float, quote.subtotal)
+            baseline = dec(cast(Decimal, quote.subtotal))
             baseline_source = "quote"
 
         if baseline is not None:
             delta_abs = projected_total - baseline
-            delta_percent = (delta_abs / baseline) * 100.0 if baseline else None
+            delta_percent = delta_abs / baseline * 100 if baseline else None
             over_threshold = (
                 delta_percent is not None
                 and delta_percent >= settings.COST_ALERT_THRESHOLD_PERCENT
             ) or (delta_abs >= settings.COST_ALERT_THRESHOLD_ABS_EUR)
 
         return ProjectedCost(
-            material_cost=round(material_cost, 2),
-            gemstone_cost=round(gemstone_cost, 2),
+            material_cost=money(material_cost),
+            gemstone_cost=money(gemstone_cost),
             labor_minutes_billable=float(billable_minutes),
-            labor_cost=round(labor_cost, 2),
-            projected_total=round(projected_total, 2),
+            labor_cost=money(labor_cost),
+            projected_total=money(projected_total),
             quote_id=quote_id,
-            quote_total=round(baseline, 2) if baseline is not None else None,
-            delta_percent=(
-                round(delta_percent, 2) if delta_percent is not None else None
-            ),
-            delta_abs=round(delta_abs, 2) if delta_abs is not None else None,
+            quote_total=money(baseline) if baseline is not None else None,
+            delta_percent=(money(delta_percent) if delta_percent is not None else None),
+            delta_abs=money(delta_abs) if delta_abs is not None else None,
             over_threshold=bool(over_threshold),
             baseline_source=baseline_source,
         )

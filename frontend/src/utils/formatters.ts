@@ -4,14 +4,25 @@
  */
 
 /**
+ * Matches a trailing timezone designator: 'Z'/'z', or an explicit offset
+ * like '+02:00', '-0500', etc. Used to detect timestamps that are already
+ * timezone-aware so we never double-apply an offset.
+ */
+const TIMEZONE_DESIGNATOR_RE = /(?:[Zz]|[+-]\d{2}:?\d{2})$/;
+
+/**
  * Parse a server timestamp as UTC.
- * The backend stores UTC datetimes but omits the 'Z' suffix.
- * Without this, JavaScript's Date constructor interprets them as local time,
- * causing a timezone-offset shift (e.g. +2h in CEST).
+ * The backend may send a naive datetime (no timezone info), in which case
+ * JavaScript's Date constructor would interpret it as local time, causing a
+ * timezone-offset shift (e.g. +2h in CEST). We only append 'Z' when the
+ * string has no existing timezone designator (no 'Z' and no '+HH:MM' /
+ * '-HH:MM' offset) — appending it unconditionally corrupts strings that are
+ * already timezone-aware (e.g. '...+00:00' becomes the unparsable
+ * '...+00:00Z').
  */
 export const parseUTC = (dateString: string): Date => {
   if (!dateString) return new Date(NaN);
-  const s = dateString.endsWith('Z') ? dateString : dateString + 'Z';
+  const s = TIMEZONE_DESIGNATOR_RE.test(dateString) ? dateString : dateString + 'Z';
   return new Date(s);
 };
 

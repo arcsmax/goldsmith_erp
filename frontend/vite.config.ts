@@ -2,6 +2,7 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import { VitePWA } from 'vite-plugin-pwa'
+import { buildRuntimeCaching } from './src/pwa/cachingRules'
 
 // https://vitejs.dev/config/
 //
@@ -30,72 +31,12 @@ export default defineConfig(({ command }) => ({
               swDest: 'dist/sw.js',
               // Precache everything emitted by the build
               globPatterns: ['**/*.{js,css,html,svg,png,ico,woff,woff2}'],
-              runtimeCaching: [
-                // Orders — NetworkFirst with a 5-minute stale fallback
-                {
-                  urlPattern: /\/api\/v1\/orders/,
-                  handler: 'NetworkFirst',
-                  options: {
-                    cacheName: 'api-orders',
-                    networkTimeoutSeconds: 10,
-                    expiration: {
-                      maxEntries: 200,
-                      maxAgeSeconds: 5 * 60, // 5 minutes
-                    },
-                    cacheableResponse: {
-                      statuses: [0, 200],
-                    },
-                  },
-                },
-                // Materials — NetworkFirst with a 10-minute stale fallback
-                {
-                  urlPattern: /\/api\/v1\/materials/,
-                  handler: 'NetworkFirst',
-                  options: {
-                    cacheName: 'api-materials',
-                    networkTimeoutSeconds: 10,
-                    expiration: {
-                      maxEntries: 500,
-                      maxAgeSeconds: 10 * 60, // 10 minutes
-                    },
-                    cacheableResponse: {
-                      statuses: [0, 200],
-                    },
-                  },
-                },
-                // Activities — CacheFirst; these change rarely (hourly revalidation)
-                {
-                  urlPattern: /\/api\/v1\/activities/,
-                  handler: 'CacheFirst',
-                  options: {
-                    cacheName: 'api-activities',
-                    expiration: {
-                      maxEntries: 100,
-                      maxAgeSeconds: 60 * 60, // 1 hour
-                    },
-                    cacheableResponse: {
-                      statuses: [0, 200],
-                    },
-                  },
-                },
-                // All other API routes — NetworkOnly (never cache mutations or auth)
-                {
-                  urlPattern: /\/api\//,
-                  handler: 'NetworkOnly',
-                },
-                // Static assets (JS, CSS, fonts) — CacheFirst
-                {
-                  urlPattern: /\.(js|css|woff2?)(\?.*)?$/,
-                  handler: 'CacheFirst',
-                  options: {
-                    cacheName: 'static-assets',
-                    expiration: {
-                      maxEntries: 100,
-                      maxAgeSeconds: 30 * 24 * 60 * 60, // 30 days
-                    },
-                  },
-                },
-              ],
+              // FE-09 / FE-11 (W1-14): no /api/ response that can carry
+              // customer PII, financial data, design IP or insurance
+              // valuations may be cached — see src/pwa/cachingRules.ts for
+              // the full rationale and the single source of truth these
+              // rules are built from.
+              runtimeCaching: buildRuntimeCaching(),
             },
           }),
         ]
@@ -133,6 +74,11 @@ export default defineConfig(({ command }) => ({
       '/uploads': {
         target: process.env.VITE_API_TARGET || 'http://localhost:8080',
         changeOrigin: true,
+      },
+      '/health': {
+        target: process.env.VITE_API_TARGET || 'http://localhost:8080',
+        changeOrigin: true,
+        secure: false,
       },
     },
   },

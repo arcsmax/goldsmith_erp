@@ -1,6 +1,6 @@
 # src/goldsmith_erp/api/routers/time_tracking.py
 from datetime import datetime
-from typing import List, Optional
+from typing import Any, Dict, List, Optional, Sequence, Union
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -12,15 +12,25 @@ from goldsmith_erp.core.permissions import (
     check_ownership_or_permission,
     require_permission,
 )
+from goldsmith_erp.db.models import TimeEntry as TimeEntryModel
 from goldsmith_erp.db.models import User
 from goldsmith_erp.db.session import get_db
 from goldsmith_erp.models.interruption import InterruptionCreate, InterruptionRead
+from goldsmith_erp.models.pagination import (
+    Page,
+    PageParams,
+    legacy_list_response,
+    make_page_params,
+    page_response,
+)
 from goldsmith_erp.models.scanner import (
     LogInterruptionRequest,
     PatchActivityRequest,
     SwitchTimerRequest,
 )
 from goldsmith_erp.models.time_entry import (
+    RunningTimeEntryEdit,
+    RunningTimeEntryRead,
     TimeEntryCreate,
     TimeEntryRead,
     TimeEntryStart,
@@ -29,9 +39,67 @@ from goldsmith_erp.models.time_entry import (
     TimeEntryWithDetails,
     TimeSummaryStats,
 )
-from goldsmith_erp.services.time_tracking_service import TimeTrackingService
+from goldsmith_erp.services import list_queries
+from goldsmith_erp.services.time_tracking_service import (
+    TimeEntryValidationError,
+    TimeTrackingService,
+)
 
 router = APIRouter()
+
+
+async def _get_owned_entry(
+    db: AsyncSession, entry_id: str, current_user: User
+) -> TimeEntryModel:
+    """SEC-13: load an entry the caller may mutate (owner or TIME_VIEW_ALL).
+
+    404 for an unknown id, 403 for a colleague's entry. ADMIN holds
+    TIME_VIEW_ALL; GOLDSMITH and VIEWER do not.
+    """
+    entry = await TimeTrackingService.get_time_entry(db, entry_id)
+    if entry is None:
+        raise HTTPException(status_code=404, detail="Time entry not found")
+    if not check_ownership_or_permission(
+        entry.user_id, current_user, Permission.TIME_VIEW_ALL
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail="Sie können nur Ihre eigenen Zeiterfassungen ändern.",
+        )
+    return entry
+
+
+async def _with_pause_state(db: AsyncSession, entry: TimeEntryModel) -> TimeEntryRead:
+    """D-15: ``TimeEntryRead`` with ``is_paused`` set explicitly.
+
+    Queried fresh via ``TimeTrackingService._has_open_interruption`` rather
+    than trusted off ``entry.interruptions`` — that relationship can be
+    stale within one request/session (e.g. ``_get_owned_entry`` loads the
+    entry before a mutation; SQLAlchemy does not re-run a `selectinload`
+    for an already-populated collection on the identity-mapped object).
+    Never a raw ORM attribute — that would need a db/models.py change,
+    out of scope here.
+    """
+    is_paused = await TimeTrackingService._has_open_interruption(db, entry.id)
+    read = TimeEntryRead.model_validate(entry)
+    return read.model_copy(update={"is_paused": is_paused})
+
+
+async def _running_read(
+    db: AsyncSession, entry: TimeEntryModel
+) -> RunningTimeEntryRead:
+    """The running timer plus activity / order display names.
+
+    ``activity`` and ``order`` are selectinloaded by the service getters.
+    """
+    base = await _with_pause_state(db, entry)
+    activity = getattr(entry, "activity", None)
+    order = getattr(entry, "order", None)
+    return RunningTimeEntryRead(
+        **base.model_dump(),
+        activity_name=getattr(activity, "name", None),
+        order_title=getattr(order, "title", None),
+    )
 
 
 @router.post("/start", response_model=TimeEntryRead)
@@ -72,6 +140,7 @@ async def stop_time_tracking(
     - Speichert Bewertungen (complexity, quality, rework)
     - Aktualisiert Activity average_duration
     """
+    await _get_owned_entry(db, entry_id, current_user)
     try:
         entry = await TimeTrackingService.stop_time_entry(db, entry_id, stop_data)
         if not entry:
@@ -81,28 +150,58 @@ async def stop_time_tracking(
         raise HTTPException(status_code=400, detail=str(e))
 
 
-@router.get("/running", response_model=Optional[TimeEntryRead])
+@router.get("/running", response_model=Optional[RunningTimeEntryRead])
 @require_permission(Permission.TIME_VIEW_OWN)
 async def get_running_entry(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     """Holt die aktuell laufende Zeiterfassung für den aktuellen User."""
-    return await TimeTrackingService.get_running_entry(db, current_user.id)
+    entry = await TimeTrackingService.get_running_entry(db, current_user.id)
+    if entry is None:
+        return None
+    return await _running_read(db, entry)
 
 
-@router.get("/order/{order_id}", response_model=List[TimeEntryRead])
+_TIME_ENTRY_LIST_MODEL = Union[Page[TimeEntryRead], List[TimeEntryRead]]
+
+
+def _time_entry_rows(rows: Sequence[Any]) -> List[Dict[str, Any]]:
+    return [TimeEntryRead.model_validate(e).model_dump() for e in rows]
+
+
+async def _time_entries_response(db: AsyncSession, page: PageParams, stmt, legacy):
+    """Page when ``offset`` was sent; otherwise the legacy list (deprecated)."""
+    if page.is_paged:
+        result = await list_queries.fetch_page(
+            db, stmt, page, list_queries.TIME_ENTRY_LIST_OPTIONS
+        )
+        return page_response(_time_entry_rows(result.items), result.total, page)
+    return legacy_list_response(_time_entry_rows(await legacy()))
+
+
+# W3-08: Page[...] when ``offset`` is sent, the legacy list otherwise.
+@router.get("/order/{order_id}", response_model=_TIME_ENTRY_LIST_MODEL)
 @require_permission(Permission.TIME_VIEW_ALL)
 async def get_time_entries_for_order(
     order_id: int,
-    skip: int = 0,
-    limit: int = 100,
+    page: PageParams = Depends(
+        make_page_params(
+            legacy_default_limit=100,
+            sort_fields=tuple(list_queries.TIME_ENTRY_SORT_FIELDS),
+        )
+    ),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     """Holt alle Zeiterfassungen für einen bestimmten Auftrag."""
-    return await TimeTrackingService.get_time_entries_for_order(
-        db, order_id, skip, limit
+    return await _time_entries_response(
+        db,
+        page,
+        list_queries.time_entries_statement(order_id=order_id, sort=page.sort),
+        lambda: TimeTrackingService.get_time_entries_for_order(
+            db, order_id, page.offset, page.limit
+        ),
     )
 
 
@@ -117,14 +216,18 @@ async def get_total_time_for_order(
     return await TimeTrackingService.get_total_time_for_order(db, order_id)
 
 
-@router.get("/user/{user_id}", response_model=List[TimeEntryRead])
+@router.get("/user/{user_id}", response_model=_TIME_ENTRY_LIST_MODEL)
 @require_permission(Permission.TIME_VIEW_OWN)
 async def get_time_entries_for_user(
     user_id: int,
     start_date: Optional[datetime] = Query(None, description="Filter by start date"),
     end_date: Optional[datetime] = Query(None, description="Filter by end date"),
-    skip: int = 0,
-    limit: int = 100,
+    page: PageParams = Depends(
+        make_page_params(
+            legacy_default_limit=100,
+            sort_fields=tuple(list_queries.TIME_ENTRY_SORT_FIELDS),
+        )
+    ),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -139,8 +242,18 @@ async def get_time_entries_for_user(
             detail="Permission denied: You can only view your own time entries or need TIME_VIEW_ALL permission",
         )
 
-    return await TimeTrackingService.get_time_entries_for_user(
-        db, user_id, start_date, end_date, skip, limit
+    return await _time_entries_response(
+        db,
+        page,
+        list_queries.time_entries_statement(
+            user_id=user_id,
+            start_date=start_date,
+            end_date=end_date,
+            sort=page.sort,
+        ),
+        lambda: TimeTrackingService.get_time_entries_for_user(
+            db, user_id, start_date, end_date, page.offset, page.limit
+        ),
     )
 
 
@@ -204,7 +317,7 @@ async def get_time_entry(
     entry = await TimeTrackingService.get_time_entry(db, entry_id)
     if not entry:
         raise HTTPException(status_code=404, detail="Time entry not found")
-    return entry
+    return await _with_pause_state(db, entry)
 
 
 @router.put("/{entry_id}", response_model=TimeEntryRead)
@@ -215,11 +328,39 @@ async def update_time_entry(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Aktualisiert eine Zeiterfassung."""
-    entry = await TimeTrackingService.update_time_entry(db, entry_id, entry_in)
+    """Aktualisiert eine Zeiterfassung (nur eigene, außer ADMIN)."""
+    await _get_owned_entry(db, entry_id, current_user)
+    try:
+        entry = await TimeTrackingService.update_time_entry(db, entry_id, entry_in)
+    except TimeEntryValidationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     if not entry:
         raise HTTPException(status_code=404, detail="Time entry not found")
     return entry
+
+
+@router.patch("/{entry_id}", response_model=RunningTimeEntryRead)
+@require_permission(Permission.TIME_TRACK)
+async def edit_running_entry(
+    entry_id: str,
+    body: RunningTimeEntryEdit,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> RunningTimeEntryRead:
+    """Laufenden Timer bearbeiten (Aktivität, Auftrag, Ort, Notiz, Startzeit).
+
+    Nur eigene Einträge, außer ADMIN. 409 wenn der Eintrag gestoppt ist,
+    422 bei unmöglicher Startzeit (Zukunft, vor dem Ende der vorherigen
+    Zeiterfassung, älter als 24 h). Jede Änderung schreibt eine Zeile ins
+    Änderungsprotokoll der Notiz und ein ``entry_edited``-Event.
+    """
+    await _get_owned_entry(db, entry_id, current_user)
+    entry = await TimeTrackingService.edit_running_entry(
+        db, entry_id, body, current_user
+    )
+    if entry is None:
+        raise HTTPException(status_code=404, detail="Time entry not found")
+    return await _running_read(db, entry)
 
 
 @router.delete("/{entry_id}")
@@ -247,11 +388,46 @@ async def add_interruption(
     """Fügt eine Unterbrechung zu einer Zeiterfassung hinzu."""
     # Override entry_id from path
     interruption_in.time_entry_id = entry_id
+    await _get_owned_entry(db, entry_id, current_user)
 
     try:
         return await TimeTrackingService.add_interruption(db, interruption_in)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.post("/{entry_id}/pause", response_model=TimeEntryRead)
+@require_permission(Permission.TIME_TRACK)
+async def pause_time_tracking(
+    entry_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """D-15: manually pause a running entry (owner or ADMIN).
+
+    Opens a new Interruption (``reason="pause"``). 409 if the entry is
+    already stopped or already paused.
+    """
+    await _get_owned_entry(db, entry_id, current_user)
+    entry = await TimeTrackingService.pause_time_entry(db, entry_id)
+    return await _with_pause_state(db, entry)
+
+
+@router.post("/{entry_id}/resume", response_model=TimeEntryRead)
+@require_permission(Permission.TIME_TRACK)
+async def resume_time_tracking(
+    entry_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """D-15: end the current manual pause (owner or ADMIN).
+
+    Closes the open Interruption (sets ``resumed_at`` + measured minutes).
+    409 if the entry is stopped or is not currently paused.
+    """
+    await _get_owned_entry(db, entry_id, current_user)
+    entry = await TimeTrackingService.resume_time_entry(db, entry_id)
+    return await _with_pause_state(db, entry)
 
 
 # ==================================================================

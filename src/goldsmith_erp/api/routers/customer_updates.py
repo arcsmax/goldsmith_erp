@@ -15,6 +15,11 @@ mixed path roots, see main.py):
   POST   /api/v1/cost-changes/{cost_change_id}/send             — create+send linked update
   POST   /api/v1/cost-changes/{cost_change_id}/record-response  — log customer's answer
   GET    /api/v1/orders/{order_id}/projected-cost       — §649 cost projection
+  GET    /api/v1/orders/{order_id}/message-context      — consent/delivery hints (W6)
+  POST   /api/v1/orders/{order_id}/updates/preview      — email text preview (W6)
+  POST   /api/v1/orders/{order_id}/updates/preview/pdf  — same content as PDF (W6)
+  GET    /api/v1/customers/{customer_id}/email-opt-out  — Art. 21 objection (W6)
+  PUT    /api/v1/customers/{customer_id}/email-opt-out  — record / lift it (W6)
 
 Permissions: CUSTOMER_UPDATE_VIEW/SEND for the updates family,
 COST_CHANGE_VIEW/MANAGE for the cost-change + projected-cost family
@@ -25,10 +30,13 @@ details, IDs-only — never user free-text):
   *NotFoundError / bare ValueError -> 404
   Invalid*StateError / NoQuoteAvailableError -> 409
   *ValidationError (photo ownership, missing template content) -> 422
+  CustomerMessageError (photos without PHOTO_USE consent, price in a
+    status message) -> 422
 """
 
 import io
 import logging
+from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
@@ -36,18 +44,23 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from goldsmith_erp.api.deps import get_current_user
 from goldsmith_erp.core.permissions import Permission, require_permission
-from goldsmith_erp.db.models import UpdateDeliveryMethod, User
+from goldsmith_erp.db.models import Customer, Order, UpdateDeliveryMethod, User
 from goldsmith_erp.db.session import get_db
 from goldsmith_erp.models.customer_update import (
+    AttachStatusReportRequest,
     CostChangeCreate,
     CostChangeRead,
     CostChangeRecordResponse,
+    CustomerMessageContext,
+    CustomerMessagePreview,
     CustomerUpdateCreate,
     CustomerUpdateRead,
     CustomerUpdateSendResult,
+    EmailOptOut,
     MarkDeliveredRequest,
     ProjectedCost,
 )
+from goldsmith_erp.services.consent_service import ConsentCustomerNotFoundError
 from goldsmith_erp.services.cost_change_service import (
     CostChangeNotFoundError,
     CostChangeService,
@@ -55,6 +68,10 @@ from goldsmith_erp.services.cost_change_service import (
     NoQuoteAvailableError,
 )
 from goldsmith_erp.services.cost_watch_service import CostWatchService
+from goldsmith_erp.services.customer_message_service import (
+    CustomerMessageError,
+    CustomerMessageService,
+)
 from goldsmith_erp.services.customer_update_service import (
     CustomerUpdateNotFoundError,
     CustomerUpdateService,
@@ -100,7 +117,7 @@ async def create_order_update(
             data=data,
             user_id=current_user.id,
         )
-    except CustomerUpdateValidationError as exc:
+    except (CustomerUpdateValidationError, CustomerMessageError) as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
         )
@@ -133,6 +150,7 @@ async def get_order_updates(
 @require_permission(Permission.CUSTOMER_UPDATE_SEND)
 async def send_update(
     update_id: int,
+    data: Optional[AttachStatusReportRequest] = None,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -142,14 +160,26 @@ async def send_update(
     Liefert IMMER 200 — auch bei fehlgeschlagenem Versand oder wenn SMTP
     nicht konfiguriert ist (``delivered=false``); der Entwurf bleibt in
     jedem Fall erhalten. Ein bereits verschicktes Update (Status "sent")
-    kann nicht erneut verschickt werden (409).
+    kann nicht erneut verschickt werden (409). Optionaler Body
+    ``{"attach_status_report": true}`` haengt den aktuellen Statusbericht
+    als PDF an die E-Mail an (W6, "Statusbericht anhaengen").
     """
+    attach_status_report = bool(data and data.attach_status_report)
     try:
-        return await CustomerUpdateService.send(db, update_id, current_user.id)
+        return await CustomerUpdateService.send(
+            db,
+            update_id,
+            current_user.id,
+            attach_status_report=attach_status_report,
+        )
     except InvalidUpdateStateError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
     except CustomerUpdateNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+    except CustomerMessageError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+        )
 
 
 @router.get(
@@ -172,6 +202,10 @@ async def download_update_pdf(
         pdf_bytes = await CustomerUpdateService.render_pdf(db, update_id)
     except CustomerUpdateNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+    except CustomerMessageError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+        )
     except Exception:
         logger.exception(
             "PDF generation failed for customer update",
@@ -220,6 +254,159 @@ async def mark_update_delivered(
     except CustomerUpdateNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
     return CustomerUpdateRead.model_validate(update)
+
+
+# ============================================================================
+# CUSTOMER MESSAGE COMPOSER SUPPORT (W6)
+# ============================================================================
+
+
+async def _require_order(db: AsyncSession, order_id: int) -> None:
+    if await db.get(Order, order_id) is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Auftrag #{order_id} nicht gefunden",
+        )
+
+
+def _pdf_response(pdf_bytes: bytes, filename: str) -> StreamingResponse:
+    return StreamingResponse(
+        io.BytesIO(pdf_bytes),
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Content-Length": str(len(pdf_bytes)),
+        },
+    )
+
+
+@router.get(
+    "/orders/{order_id}/message-context",
+    response_model=CustomerMessageContext,
+    summary="Einwilligungs- und Zustellhinweise fuer die Kundeninfo",
+)
+@require_permission(Permission.CUSTOMER_UPDATE_VIEW)
+async def get_order_message_context(
+    order_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """E-Mail vorhanden? Einwilligung Fotonutzung? Widerspruch gegen E-Mails?"""
+    await _require_order(db, order_id)
+    return await CustomerMessageService.message_context(db, order_id=order_id)
+
+
+@router.post(
+    "/orders/{order_id}/updates/preview",
+    response_model=CustomerMessagePreview,
+    summary="Kundeninfo-Vorschau (E-Mail-Text)",
+)
+@require_permission(Permission.CUSTOMER_UPDATE_SEND)
+async def preview_order_update(
+    order_id: int,
+    data: CustomerUpdateCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Zeigt den E-Mail-Text, den der Kunde erhalten wuerde (inkl. Fusszeile).
+    Speichert nichts. Verstoesse (Fotos ohne Einwilligung, Preise) stehen in
+    ``blocked_reason`` statt als Fehler.
+    """
+    await _require_order(db, order_id)
+    return await CustomerMessageService.preview(
+        db,
+        order_id=order_id,
+        kind=data.kind,
+        subject=data.subject,
+        body=data.body,
+        photo_ids=data.photo_ids,
+    )
+
+
+@router.post(
+    "/orders/{order_id}/updates/preview/pdf",
+    summary="Kundeninfo-Vorschau als PDF",
+)
+@require_permission(Permission.CUSTOMER_UPDATE_SEND)
+async def preview_order_update_pdf(
+    order_id: int,
+    data: CustomerUpdateCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Liefert den Inhalt des Entwurfs als PDF fuer Kunden ohne E-Mail. Speichert
+    nichts und markiert nichts als zugestellt. Fotos nur mit Einwilligung (422).
+    """
+    await _require_order(db, order_id)
+    try:
+        pdf_bytes = await CustomerMessageService.render_preview_pdf(
+            db,
+            order_id=order_id,
+            kind=data.kind,
+            subject=data.subject,
+            body=data.body,
+            photo_ids=data.photo_ids,
+        )
+    except (CustomerUpdateValidationError, CustomerMessageError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+        )
+    return _pdf_response(pdf_bytes, f"kundeninfo_vorschau_auftrag_{order_id}.pdf")
+
+
+@router.get(
+    "/customers/{customer_id}/email-opt-out",
+    response_model=EmailOptOut,
+    summary="Widerspruch gegen E-Mail-Updates abfragen",
+)
+@require_permission(Permission.CONSENT_MANAGE)
+async def get_customer_email_opt_out(
+    customer_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """``email_opt_out=true``: Kunde erhaelt keine E-Mail-Updates (Art. 21)."""
+    customer = await db.get(Customer, customer_id)
+    if customer is None or customer.is_deleted:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Kunde nicht gefunden"
+        )
+    return EmailOptOut(
+        email_opt_out=await CustomerMessageService.is_opted_out(db, customer_id)
+    )
+
+
+@router.put(
+    "/customers/{customer_id}/email-opt-out",
+    response_model=EmailOptOut,
+    summary="Widerspruch gegen E-Mail-Updates erfassen oder aufheben",
+)
+@require_permission(Permission.CONSENT_MANAGE)
+async def set_customer_email_opt_out(
+    customer_id: int,
+    data: EmailOptOut,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Erfasst den Widerspruch "Keine E-Mail-Updates" (Art. 21 DSGVO) als
+    widerrufene Einwilligung "E-Mail-Kontakt", oder hebt ihn auf. Solange er
+    besteht, gehen Kundeninfos nur als PDF (manuelle Uebergabe) raus.
+    """
+    try:
+        opted_out = await CustomerMessageService.set_email_opt_out(
+            db,
+            customer_id,
+            opted_out=data.email_opt_out,
+            user_id=int(current_user.id),
+        )
+    except ConsentCustomerNotFoundError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Kunde nicht gefunden"
+        )
+    return EmailOptOut(email_opt_out=opted_out)
 
 
 # ============================================================================

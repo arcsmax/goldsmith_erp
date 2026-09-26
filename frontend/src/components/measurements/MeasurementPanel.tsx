@@ -236,8 +236,9 @@ export const MeasurementPanel: React.FC<{
       {showForm && (
         <form className="cdetail-masse-form" onSubmit={handleAdd}>
           <div className="form-group">
-            <label>Maßart</label>
+            <label htmlFor="measurement-type">Maßart</label>
             <select
+              id="measurement-type"
               value={formData.type}
               onChange={(e) =>
                 setFormData({
@@ -252,8 +253,9 @@ export const MeasurementPanel: React.FC<{
             </select>
           </div>
           <div className="form-group">
-            <label>Wert</label>
+            <label htmlFor="measurement-value">Wert</label>
             <input
+              id="measurement-value"
               type="number"
               step="0.1"
               value={formData.value}
@@ -265,8 +267,9 @@ export const MeasurementPanel: React.FC<{
           {(formData.type === 'ring_size' || formData.type === 'finger_circumference') && (
             <>
               <div className="form-group">
-                <label>Hand</label>
+                <label htmlFor="measurement-hand">Hand</label>
                 <select
+                  id="measurement-hand"
                   value={formData.hand}
                   onChange={(e) =>
                     setFormData({
@@ -281,8 +284,9 @@ export const MeasurementPanel: React.FC<{
                 </select>
               </div>
               <div className="form-group">
-                <label>Finger</label>
+                <label htmlFor="measurement-finger">Finger</label>
                 <select
+                  id="measurement-finger"
                   value={formData.finger}
                   onChange={(e) =>
                     setFormData({
@@ -302,7 +306,7 @@ export const MeasurementPanel: React.FC<{
             <div
               className="cdetail-masse-form__error"
               role="alert"
-              style={{ color: 'var(--color-error, #b91c1c)', marginTop: '0.5rem' }}
+              style={{ color: 'var(--color-error)', marginTop: '0.5rem' }}
             >
               {submitError}
             </div>

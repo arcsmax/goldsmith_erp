@@ -12,6 +12,16 @@ import {
   RepairPhotoPhase,
   RepairStatusUpdateInput,
 } from '../types';
+import type { Schema } from './generated';
+import { fetchPage, type PageItem, type PageParams, type PageResponse } from './paged';
+
+/** GET /repairs/?offset=… answers with a Page envelope (W3-08). */
+export type RepairsPage = PageResponse<'/api/v1/repairs/'>;
+export type RepairPageItem = PageItem<'/api/v1/repairs/'>;
+export type RepairPageParams = PageParams<'/api/v1/repairs/'>;
+
+/** Counter intake body (W2-12): the generated RepairJobCreate schema. */
+export type RepairIntakeInput = Schema<'RepairJobCreate'>;
 
 const BASE = '/repairs';
 
@@ -21,6 +31,13 @@ export const repairPhotoThumbPath = (photoId: number): string =>
   `${BASE}/photos/${photoId}/thumbnail`;
 
 export const repairsApi = {
+  /**
+   * One page of repair jobs (Page envelope; status filter, `q` search and
+   * `sort` run on the server). The list screen uses this, not getAll.
+   */
+  getPage: (params: RepairPageParams, signal?: AbortSignal): Promise<RepairsPage> =>
+    fetchPage('/api/v1/repairs/', params, signal),
+
   /**
    * List repair jobs with optional filters.
    */
@@ -44,10 +61,34 @@ export const repairsApi = {
   },
 
   /**
-   * Create a new repair intake (Eingang).
+   * Create a new repair intake (Eingang). W2-12: also takes the counter
+   * intake fields (customer_problem, condition_notes, estimated_cost as
+   * the first price indication).
    */
-  create: async (data: RepairJobCreateInput): Promise<RepairJob> => {
+  create: async (data: RepairJobCreateInput | RepairIntakeInput): Promise<RepairJob> => {
     const response = await apiClient.post<RepairJob>(BASE + '/', data);
+    return response.data;
+  },
+
+  /**
+   * Annahmeschein (intake receipt) as a PDF blob (W2-12). Needs
+   * DESIGN_VIEW (ADMIN/GOLDSMITH); VIEWER gets 403.
+   */
+  getAnnahmescheinPdf: async (id: number): Promise<Blob> => {
+    const response = await apiClient.get<Blob>(`${BASE}/${id}/annahmeschein.pdf`, {
+      responseType: 'blob',
+    });
+    return response.data;
+  },
+
+  /**
+   * Customer-facing "Statusbericht" PDF (W6, DOM section D Option 2) — a
+   * live snapshot, never cached. GOLDSMITH/ADMIN only; VIEWER gets 403.
+   */
+  getStatusReportPdf: async (id: number): Promise<Blob> => {
+    const response = await apiClient.get<Blob>(`${BASE}/${id}/status-report.pdf`, {
+      responseType: 'blob',
+    });
     return response.data;
   },
 

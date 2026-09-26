@@ -1,7 +1,8 @@
 # Makefile for Goldsmith ERP with Podman
 # Makes development easier with simple commands
 
-.PHONY: help install start stop restart logs clean build test test-integration-pg lint format seed-demo seed-production validate-compose
+.PHONY: help install start stop restart logs clean build test test-integration-pg lint format seed-demo seed-production validate-compose \
+        test-backend-local test-frontend-local lint-local lint-frontend types types-check
 
 # Default target
 .DEFAULT_GOAL := help
@@ -150,6 +151,25 @@ test-integration-pg: ## F1 — run integration tests against real Postgres (not 
 	  DEBUG=true \
 	  poetry run pytest ../tests/integration/ -v --tb=short
 
+test-backend-local: ## OPS-05 — full backend suite outside containers, same env + command as CI's test-backend job
+	@echo "$(GREEN)Starting db + redis services...$(NC)"
+	@$(COMPOSE) up -d db redis
+	@echo "$(GREEN)Running backend suite (env mirrors .github/workflows/ci.yml test-backend job)...$(NC)"
+	@DATABASE_URL=postgresql+asyncpg://user:pass@localhost:5432/goldsmith_test \
+	  REDIS_URL=redis://localhost:6379/0 \
+	  SECRET_KEY=ci-test-secret-key-minimum-32-characters-long-enough \
+	  ENCRYPTION_KEY=V0Ae_U1MhSkUCNugAmmQV7Jl2GnxkizHeurQnglXVOc= \
+	  ANONYMIZATION_SALT=testsalt1234567890abcdef \
+	  MIGRATION_TEST_DATABASE_URL=postgresql://user:pass@localhost:5432/goldsmith_test \
+	  DEBUG=true \
+	  PYTHONDONTWRITEBYTECODE=1 \
+	  poetry run python -m pytest tests/ --maxfail=3 -q --tb=short --cov=goldsmith_erp --cov-report=term --cov-fail-under=50
+
+test-frontend-local: ## OPS-05 — frontend suite outside containers, same commands as CI's test-frontend job
+	@echo "$(GREEN)Running frontend suite (yarn test + build check, same as CI)...$(NC)"
+	@cd frontend && yarn test --run
+	@cd frontend && yarn build
+
 # Linting and formatting
 lint: ## Run linters (pylint, mypy, black check)
 	@echo "$(GREEN)Running linters...$(NC)"
@@ -157,6 +177,20 @@ lint: ## Run linters (pylint, mypy, black check)
 	@$(COMPOSE) exec backend poetry run isort --check src/
 	@$(COMPOSE) exec backend poetry run pylint src/
 	@$(COMPOSE) exec backend poetry run mypy src/
+
+lint-local: lint-frontend ## OPS-05 — backend lint suite outside containers, same tools as CI's lint job, run from repo root
+	@echo "$(GREEN)Running lint suite from repo root (same tools as CI's lint job)...$(NC)"
+	@poetry run black --check src/goldsmith_erp/
+	@poetry run isort --check-only src/goldsmith_erp/
+	@poetry run bandit -r src/goldsmith_erp/ -c pyproject.toml
+	@poetry run mypy src/goldsmith_erp/ --ignore-missing-imports
+	@PYTHONPATH=src poetry run lint-imports  # ARCH-09 layering contracts (.importlinter)
+	@poetry run pip install --quiet ruff
+	@poetry run ruff check src/goldsmith_erp/ --exit-zero
+
+lint-frontend: ## OPS-13 / FE-15 — ESLint 9 (react-hooks + jsx-a11y), same as CI's lint-frontend job
+	@echo "$(GREEN)Running frontend ESLint...$(NC)"
+	@cd frontend && yarn lint
 
 format: ## Format code with black and isort
 	@echo "$(GREEN)Formatting code...$(NC)"
@@ -176,6 +210,12 @@ check-bundle: ## V1.1 Slice 13 — scanner-route bundle-size gate (<=250 KB gzip
 	@echo "$(GREEN)Building frontend and running scanner bundle gate...$(NC)"
 	@cd frontend && yarn build
 	@node frontend/scripts/check-scanner-bundle.mjs
+
+types: ## FE-12 — regenerate frontend API types from the backend OpenAPI schema (set PYTHON= to skip poetry)
+	@node frontend/scripts/gen-api-types.mjs
+
+types-check: ## FE-12 — regenerate API types and fail if the committed ones drifted (CI gate)
+	@node frontend/scripts/gen-api-types.mjs --check
 
 # Pod operations (alternative to compose)
 pod-create: ## Create Kubernetes-style pod
@@ -218,7 +258,8 @@ docker-compose-down: stop ## Alias for 'stop' (Docker compatibility)
 # =============================================================================
 
 .PHONY: setup prod-start prod-stop prod-restart prod-logs prod-status \
-        update backup-now restore install-service install-backup-cron rotate-secrets
+        update backup-now restore install-service install-backup-cron rotate-secrets \
+        install-timers timers-status
 
 PROD_COMPOSE := podman-compose --env-file .env.production -f podman-compose.prod.yml
 
@@ -256,7 +297,9 @@ prod-status: ## Show production container status and health
 	@$(PROD_COMPOSE) exec -T redis redis-cli ping \
 		&& echo "$(GREEN)Redis: OK$(NC)" || echo "$(YELLOW)Redis: nicht erreichbar$(NC)"
 
-update: ## Pull latest images, rebuild, and restart production services
+update: ## Backup, then pull latest images, rebuild, and restart production services (OPS-08)
+	@echo "$(GREEN)Update: Backup vor dem Upgrade…$(NC)"
+	@bash scripts/backup.sh || (echo "$(YELLOW)Backup fehlgeschlagen — Update abgebrochen. Siehe docs/technical/infrastructure/PRODUCTION_DEPLOYMENT.md Schritt 8.$(NC)" && exit 1)
 	@echo "$(GREEN)Update: Container neu bauen und starten…$(NC)"
 	@$(PROD_COMPOSE) build --no-cache
 	@$(PROD_COMPOSE) up -d --remove-orphans
@@ -291,3 +334,12 @@ install-backup-cron: ## Install daily 02:00 backup cron job
 
 rotate-secrets: ## Rotate SECRET_KEY in .env.production via scripts/rotate-secrets.sh (requires restart)
 	@bash scripts/rotate-secrets.sh
+
+install-timers: ## OPS-07 — install + enable + start all compliance systemd user timers (GDPR cleanup, retention sweep, health watchdog)
+	@bash scripts/install-timers.sh
+
+timers-status: ## OPS-07 — show status of the installed compliance timers (systemctl --user list-timers)
+	@bash scripts/install-timers.sh --status
+
+worktree-status: ## OPS-14 — report stale git worktrees/branches (read-only, never removes anything)
+	@bash scripts/list-stale-worktrees.sh

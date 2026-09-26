@@ -14,7 +14,7 @@ import asyncio
 import json
 import logging
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -23,6 +23,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from goldsmith_erp.core import pubsub
 from goldsmith_erp.core.config import settings
+from goldsmith_erp.core.leader_lock import SYSTEM_MONITOR_LOCK_KEY, LeaderLease
+from goldsmith_erp.core.timeutil import ensure_utc
 from goldsmith_erp.db.models import (
     MetalPriceSource,
     Notification,
@@ -31,7 +33,7 @@ from goldsmith_erp.db.models import (
     User,
     UserRole,
 )
-from goldsmith_erp.db.session import AsyncSessionLocal
+from goldsmith_erp.db.session import AsyncSessionLocal, engine
 from goldsmith_erp.services.metal_price_service import MetalPriceService
 from goldsmith_erp.services.notification_service import NotificationService
 from goldsmith_erp.services.system_health_service import SystemHealthService
@@ -79,7 +81,7 @@ async def _already_notified(
     Return True if a SYSTEM notification with the same title was created for this
     user within the last ``within_hours`` hours.
     """
-    cutoff = datetime.utcnow() - timedelta(hours=within_hours)
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=within_hours)
     stmt = select(Notification).where(
         and_(
             Notification.user_id == user_id,
@@ -143,8 +145,8 @@ async def _check_backup_age(db: AsyncSession) -> None:
         )
         return
 
-    last_backup_dt = datetime.fromisoformat(timestamp_str)
-    age_hours = (datetime.utcnow() - last_backup_dt).total_seconds() / 3600
+    last_backup_dt = ensure_utc(datetime.fromisoformat(timestamp_str))
+    age_hours = (datetime.now(timezone.utc) - last_backup_dt).total_seconds() / 3600
 
     if age_hours > BACKUP_WARNING_HOURS:
         await _notify_admins(
@@ -239,7 +241,7 @@ async def _refresh_metal_prices(db: AsyncSession) -> None:
     """
     global _last_price_refresh
 
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     if _last_price_refresh is not None:
         elapsed = (now - _last_price_refresh).total_seconds()
         if elapsed < PRICE_REFRESH_INTERVAL_SECONDS:
@@ -330,9 +332,25 @@ async def _run_one_cycle() -> None:
                 )
 
 
+async def run_cycle_if_leader(lease: LeaderLease) -> bool:
+    """Run one cycle only if this process holds the monitor leader lease.
+
+    Every uvicorn worker starts ``system_monitor_loop``, but only the one that
+    holds the PostgreSQL advisory lock runs the scans. The others skip, so
+    scans, customer mails and metal price rows are not repeated per worker
+    (ARCH-04 / BE-09). Returns True if a cycle ran.
+    """
+    if not await lease.try_acquire():
+        logger.debug("System monitor: not leader, skipping cycle")
+        return False
+    await _run_one_cycle()
+    return True
+
+
 async def system_monitor_loop() -> None:
     """
-    Infinite async loop — run a health check cycle every MONITOR_INTERVAL_SECONDS.
+    Infinite async loop — run a health check cycle every MONITOR_INTERVAL_SECONDS
+    on at most one process (see ``run_cycle_if_leader``).
 
     Register this in main.py startup via:
         asyncio.create_task(system_monitor_loop())
@@ -341,6 +359,10 @@ async def system_monitor_loop() -> None:
         "System monitor started",
         extra={"interval_seconds": MONITOR_INTERVAL_SECONDS},
     )
-    while True:
-        await _run_one_cycle()
-        await asyncio.sleep(MONITOR_INTERVAL_SECONDS)
+    lease = LeaderLease(engine, SYSTEM_MONITOR_LOCK_KEY)
+    try:
+        while True:
+            await run_cycle_if_leader(lease)
+            await asyncio.sleep(MONITOR_INTERVAL_SECONDS)
+    finally:
+        await lease.release()

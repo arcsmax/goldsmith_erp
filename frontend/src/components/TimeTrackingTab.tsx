@@ -212,7 +212,7 @@ const TimeTrackingTab: React.FC<TimeTrackingTabProps> = ({ orderId }) => {
         {entries.length === 0 ? (
           <div className="no-entries-message">
             <p>Noch keine Zeiteinträge für diesen Auftrag.</p>
-            <p className="hint">Klicken Sie auf "Zeit erfassen starten" um zu beginnen.</p>
+            <p className="hint">Klicken Sie auf &quot;Zeit erfassen starten&quot; um zu beginnen.</p>
           </div>
         ) : (
           <div className="time-entries-list">
@@ -293,7 +293,15 @@ const TimeTrackingTab: React.FC<TimeTrackingTabProps> = ({ orderId }) => {
 
       {/* Activity Picker Modal */}
       {showActivityPicker && (
-        <div className="modal-overlay" onClick={() => setShowActivityPicker(false)}>
+        // eslint-disable-next-line jsx-a11y/click-events-have-key-events -- backdrop dismiss is mouse-only by convention
+        <div
+          className="modal-overlay"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Aktivität wählen"
+          onClick={() => setShowActivityPicker(false)}
+        >
+          {/* eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions -- stops the backdrop's onClose from firing when clicking inside the dialog; not itself interactive */}
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
             <ActivityPicker
               onSelectActivity={handleStartTracking}

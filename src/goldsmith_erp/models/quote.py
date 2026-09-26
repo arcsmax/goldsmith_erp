@@ -13,11 +13,18 @@ German quote terminology:
 """
 
 from datetime import datetime, timedelta
-from typing import List, Optional
+from typing import Any, List, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from goldsmith_erp.db.models import QuoteLineType, QuoteStatus
+from goldsmith_erp.db.models import (
+    CostChangeResponseMethod,
+    QuoteLineType,
+    QuoteStatus,
+    UpdateDeliveryMethod,
+)
+from goldsmith_erp.models._common import Money, Percent, Weight
+from goldsmith_erp.models.job import JobCustomer, _customer_summary
 
 # ============================================================================
 # LINE ITEM SCHEMAS
@@ -36,10 +43,10 @@ class QuoteLineItemCreate(BaseModel):
         max_length=500,
         description="Description of the line item (Beschreibung)",
     )
-    quantity: float = Field(
+    quantity: Weight = Field(
         ..., gt=0, description="Quantity (Menge) - must be positive"
     )
-    unit_price: float = Field(
+    unit_price: Money = Field(
         ..., ge=0, description="Net unit price in EUR (Einzelpreis netto)"
     )
     estimator_metadata: dict | None = Field(
@@ -63,9 +70,9 @@ class QuoteLineItemResponse(BaseModel):
     quote_id: int
     line_type: QuoteLineType
     description: str
-    quantity: float
-    unit_price: float
-    total: float
+    quantity: Weight
+    unit_price: Money
+    total: Money
     estimator_metadata: dict | None = Field(
         default=None,
         description="Snapshot of estimator inputs/outputs. Set on create; immutable on update.",
@@ -92,8 +99,9 @@ class QuoteCreate(BaseModel):
         default=None, gt=0, description="Order ID to generate quote from (optional)"
     )
     customer_id: int = Field(..., gt=0, description="Customer ID (Kunden-ID)")
-    tax_rate: float = Field(
+    tax_rate: Percent = Field(
         default=19.0,
+        validate_default=True,
         ge=0,
         le=100,
         description="VAT rate in percent (MwSt-Satz, default 19%)",
@@ -119,14 +127,23 @@ class QuoteUpdate(BaseModel):
     status: Optional[QuoteStatus] = Field(None, description="New quote status")
     valid_until: Optional[datetime] = Field(None, description="Updated validity date")
     notes: Optional[str] = Field(None, max_length=2000, description="Updated notes")
-    tax_rate: Optional[float] = Field(
+    tax_rate: Optional[Percent] = Field(
         None, ge=0, le=100, description="Updated MwSt rate"
     )
 
 
 class ApproveQuoteRequest(BaseModel):
-    """Request body for approving a quote with optional customer signature."""
+    """Request body for approving a quote.
 
+    DOM-11d: ``response_method`` records how the customer agreed (in person,
+    by email reply, by phone), the same evidence vocabulary as the section
+    649 BGB cost-change approval. The signature stays optional.
+    """
+
+    response_method: CostChangeResponseMethod = Field(
+        ...,
+        description="Wie hat die Kundin zugestimmt? in_person, email_reply, phone",
+    )
     signature_data: Optional[str] = Field(
         default=None,
         description="Base64-encoded PNG of the customer's signature (optional)",
@@ -156,15 +173,20 @@ class QuoteResponse(BaseModel):
     approved_at: Optional[datetime] = None
     rejected_at: Optional[datetime] = None
     converted_at: Optional[datetime] = None
-    subtotal: float = Field(..., description="Zwischensumme (net)")
-    tax_rate: float = Field(..., description="MwSt-Satz in Prozent")
-    tax_amount: float = Field(..., description="MwSt-Betrag")
-    total: float = Field(..., description="Gesamtbetrag (gross)")
+    subtotal: Money = Field(..., description="Zwischensumme (net)")
+    tax_rate: Percent = Field(..., description="MwSt-Satz in Prozent")
+    tax_amount: Money = Field(..., description="MwSt-Betrag")
+    total: Money = Field(..., description="Gesamtbetrag (gross)")
     customer_signature_data: Optional[str] = None
     notes: Optional[str] = None
     created_at: datetime
     updated_at: datetime
     line_items: List[QuoteLineItemResponse] = []
+    # DOM-11: how and when the quote reached the customer. Read from the
+    # quote's Kundeninfo delivery record (services/quote_delivery.py);
+    # None while the quote was never sent.
+    delivery_method: Optional[UpdateDeliveryMethod] = None
+    sent_at: Optional[datetime] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -176,12 +198,41 @@ class QuoteListItem(BaseModel):
     quote_number: str
     order_id: Optional[int] = None
     customer_id: int
+    # LV2-06: resolved name (job_list_item's _customer_summary), so the
+    # list can show it instead of the bare "Kunde #<id>" fallback.
+    customer: Optional[JobCustomer] = None
     status: QuoteStatus
     valid_until: datetime
-    total: float
+    total: Money
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+
+def quote_list_item(row: Any) -> QuoteListItem:
+    """Build a QuoteListItem from a Quote row with .customer eager-loaded.
+
+    ``row`` is a ``db.models.Quote`` ORM instance; typed as ``Any`` here to
+    avoid importing the ORM model into a schema module.
+
+    Deliberately field-by-field (not ``QuoteListItem.model_validate(row,
+    from_attributes=True)``): the ``customer`` relationship on the row is a
+    raw ORM ``Customer`` with no ``display_name`` attribute, so blind
+    attribute-walking validation would raise instead of resolving it — the
+    same reason ``job_list_item`` builds ``JobListItem`` explicitly rather
+    than relying on ``from_attributes``.
+    """
+    return QuoteListItem(
+        id=row.id,
+        quote_number=row.quote_number,
+        order_id=row.order_id,
+        customer_id=row.customer_id,
+        customer=_customer_summary(getattr(row, "customer", None)),
+        status=row.status,
+        valid_until=row.valid_until,
+        total=row.total,
+        created_at=row.created_at,
+    )
 
 
 class QuoteListResponse(BaseModel):

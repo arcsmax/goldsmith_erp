@@ -1,266 +1,129 @@
-/* Scanner Page Styles */
+/* ScannerPage (W4-03, bench mode). Layout only; buttons, fields, badges
+ * and the empty state are src/ui primitives. Semantic tokens only. */
 
-.scanner-container {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  min-height: calc(100vh - 200px);
-  padding: 2rem;
-}
-
-.scanner-box {
-  background: white;
-  padding: 3rem;
-  border-radius: 16px;
-  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1);
-  max-width: 600px;
-  width: 100%;
-  text-align: center;
-}
-
-.scanner-icon {
-  font-size: 5rem;
-  margin-bottom: 1rem;
-  animation: pulse 2s infinite;
-}
-
-@keyframes pulse {
-  0%,
-  100% {
-    transform: scale(1);
-  }
-  50% {
-    transform: scale(1.1);
-  }
-}
-
-.scanner-box h1 {
-  font-size: 2rem;
-  color: #333;
-  margin-bottom: 0.5rem;
-}
-
-.scanner-subtitle {
-  color: #666;
-  font-size: 1.1rem;
-  margin-bottom: 2rem;
-}
-
-/* Scan Input */
-.scan-input-group {
-  display: flex;
-  gap: 1rem;
-  margin-bottom: 1.5rem;
-}
-
-.scan-input {
-  flex: 1;
-  padding: 1rem;
-  border: 2px solid #e5e7eb;
-  border-radius: 8px;
-  font-size: 1.2rem;
-  text-align: center;
-  transition: border-color 0.3s;
-}
-
-.scan-input:focus {
-  outline: none;
-  border-color: var(--color-border-focus);
-  box-shadow: 0 0 0 3px rgba(217, 119, 6, 0.1);
-}
-
-.btn-scan {
-  padding: 1rem 2rem;
-  background: var(--color-surface-header-gradient);
-  color: white;
-  border: none;
-  border-radius: 8px;
-  font-size: 1rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: transform 0.2s, box-shadow 0.2s;
-  min-width: 120px;
-}
-
-.btn-scan:hover:not(:disabled) {
-  transform: translateY(-2px);
-  box-shadow: 0 5px 15px rgba(180, 83, 9, 0.4);
-}
-
-.btn-scan:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-  transform: none;
-}
-
-/* Error Message */
-.scan-error {
-  background: #fee;
-  border: 2px solid #fcc;
-  color: #c33;
-  padding: 1rem;
-  border-radius: 8px;
-  margin-bottom: 1.5rem;
-  font-weight: 500;
-}
-
-/* Info Box */
-.scan-info {
-  background: linear-gradient(135deg, #e0e7ff 0%, #ede9fe 100%);
-  padding: 1.5rem;
-  border-radius: 12px;
-  margin-bottom: 2rem;
-  text-align: left;
-}
-
-.scan-info h3 {
-  margin: 0 0 1rem 0;
-  color: #333;
-  font-size: 1.1rem;
-}
-
-.scan-info ol {
-  margin: 0;
-  padding-left: 1.5rem;
-  color: #555;
-}
-
-.scan-info li {
-  margin-bottom: 0.5rem;
-}
-
-/* Last Scanned */
-.last-scanned {
-  margin-top: 2rem;
-  padding-top: 2rem;
-  border-top: 2px solid #e5e7eb;
-}
-
-.last-scanned h3 {
-  color: #333;
-  font-size: 1.1rem;
-  margin-bottom: 1rem;
-}
-
-.scanned-list {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-  gap: 0.75rem;
-}
-
-.scanned-item {
+.scanner-page {
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: 0.25rem;
-  padding: 1rem;
-  background: #f8f9fa;
-  border: 2px solid #e5e7eb;
-  border-radius: 8px;
-  cursor: pointer;
-  transition: all 0.3s;
+  gap: var(--space-5);
+  max-width: 40rem;
+  margin: 0 auto;
+  padding: var(--space-4);
 }
 
-.scanned-item:hover {
-  background: white;
-  border-color: var(--color-interactive-primary);
-  transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(180, 83, 9, 0.2);
+.scanner-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface-raised);
 }
 
-.scanned-id {
-  font-weight: 700;
-  font-size: 1.2rem;
-  color: var(--color-interactive-primary);
-}
-
-.scanned-time {
-  font-size: 0.85rem;
-  color: #666;
-}
-
-/* Manual Note */
-.manual-note {
-  margin-top: 2rem;
-  color: #999;
-  font-size: 0.9rem;
-  font-style: italic;
-}
-
-/* Responsive */
-@media (max-width: 768px) {
-  .scanner-box {
-    padding: 2rem 1.5rem;
-  }
-
-  .scan-input-group {
-    flex-direction: column;
-  }
-
-  .scanned-list {
-    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
-  }
-}
-
-/* ---------- Slice 12 additions ---------- */
-
-.scanner-section-heading {
-  font-size: 1rem;
-  font-weight: 600;
-  color: #444;
-  margin: 1.5rem 0 0.75rem;
-  text-align: left;
-}
-
-.scanner-camera-section,
-.scanner-manual-section {
-  text-align: left;
-}
-
-.btn-scan-secondary {
-  margin-top: 0.5rem;
-  padding: 0.75rem 1.5rem;
-  background: transparent;
-  color: var(--color-border-focus, #d97706);
-  border: 2px solid var(--color-border-focus, #d97706);
-  border-radius: 8px;
-  font-size: 0.95rem;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.scanner-history-empty,
-.scanner-history-error {
-  color: #666;
-  text-align: left;
-  padding: 0.75rem 0;
+.scanner-section h2 {
   margin: 0;
+  font-size: var(--type-lg);
+}
+
+.scanner-running {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  padding: var(--space-3) var(--space-4);
+  border-left: var(--space-1) solid var(--tone-info-fg);
+  border-radius: var(--radius-sm);
+  background: var(--color-info-bg);
+  color: var(--color-text);
+  font-size: var(--type-md);
+}
+
+.scanner-manual-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.scanner-manual-form .ui-field__control {
+  min-height: var(--touch-comfort);
+  font-size: var(--type-md);
+}
+
+.scanner-error,
+.scanner-history-error p {
+  margin: 0;
+  padding: var(--space-3);
+  border-radius: var(--radius-sm);
+  background: var(--color-danger-bg);
+  color: var(--color-danger-fg);
 }
 
 .scanner-history-error {
-  color: #b91c1c;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-3);
 }
 
-.scanned-item-row {
+.scanner-history-note {
+  margin: 0;
+  color: var(--color-text-muted);
+}
+
+.scanner-history-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
   list-style: none;
 }
 
-.scanned-action {
-  display: block;
-  margin-top: 0.25rem;
-  font-size: 0.8rem;
-  color: #6b7280;
+/* One tap re-opens the quick actions for that code. */
+.scanner-history-item {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  grid-template-areas: 'id chevron' 'meta chevron';
+  align-items: center;
+  gap: 0 var(--space-3);
+  width: 100%;
+  min-height: var(--touch-comfort);
+  padding: var(--space-2) var(--space-4);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
 }
 
-.sr-only {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  margin: -1px;
-  overflow: hidden;
-  clip: rect(0, 0, 0, 0);
-  white-space: nowrap;
-  border: 0;
+.scanner-history-item:disabled {
+  cursor: progress;
+  opacity: 0.6;
 }
 
+@media (hover: hover) {
+  .scanner-history-item:hover:not(:disabled) {
+    background: var(--color-surface-sunken);
+  }
+}
+
+.scanner-history-item__id {
+  grid-area: id;
+  font-size: var(--type-md);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.scanner-history-item__meta {
+  grid-area: meta;
+  font-size: var(--type-sm);
+  color: var(--color-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.scanner-history-item__chevron {
+  grid-area: chevron;
+}

@@ -87,7 +87,11 @@ class TestPasswordChangeRevocation:
         ).status_code == 200
 
         # Change the password (authenticated via the auto-sent cookie).
-        change = await client.put(ME_URL, json={"password": new_password})
+        # (SEC-11: a credential change must re-authenticate with the old password.)
+        change = await client.put(
+            ME_URL,
+            json={"password": new_password, "current_password": old_password},
+        )
         assert change.status_code == 200
 
         # The pre-change token is now rejected (iat < invalid-before mark).

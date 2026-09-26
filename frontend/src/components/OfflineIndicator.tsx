@@ -43,6 +43,16 @@ export const OfflineIndicator: React.FC = () => {
     };
   }, [handleOffline, handleOnline]);
 
+  // LV-13: the banner is position:fixed; body.is-offline moves the layout
+  // down by --offline-banner-height (layout.css) so the header stays visible.
+  useEffect(() => {
+    const isBannerVisible = state !== 'online';
+    document.body.classList.toggle('is-offline', isBannerVisible);
+    return () => {
+      document.body.classList.remove('is-offline');
+    };
+  }, [state]);
+
   if (state === 'online') return null;
 
   // ---- Offline banner --------------------------------------------------------
@@ -79,10 +89,7 @@ export const OfflineIndicator: React.FC = () => {
           <circle cx="8" cy="8" r="6.5" stroke="currentColor" strokeWidth="1.5"/>
           <line x1="2.5" y1="2.5" x2="13.5" y2="13.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
         </svg>
-        <span>
-          Offline-Modus —&nbsp;
-          Daten werden synchronisiert, sobald die Verbindung wiederhergestellt ist
-        </span>
+        <span>Offline: Änderungen werden nicht gespeichert</span>
       </div>
     );
   }

@@ -1,17 +1,20 @@
 /**
- * useWebSocket — persistent WebSocket connection with exponential back-off
- * reconnect.
+ * useWebSocket — one persistent WebSocket with exponential back-off
+ * reconnect, heartbeat reply and a silence watchdog.
  *
- * Connects to `ws[s]://<host>/ws/notifications/{userId}` and calls
- * `onMessage` for every valid JSON message it receives.
+ * Used only by WebSocketProvider (W2-13); components subscribe through
+ * `useRealtime(channel, handler)` instead of opening their own sockets.
  *
- * Reconnect schedule (capped at maxDelay):
- *   attempt 1 → 1 s, attempt 2 → 2 s, attempt 3 → 4 s, … → 30 s max
- *
- * The hook cleans up the socket and any pending reconnect timer on unmount
- * so there are no dangling references.
+ * - Auth rides on the HttpOnly `access_token` cookie (same origin).
+ * - `userId` keys the session: null closes the socket and stops
+ *   reconnecting (logout); a different id closes and reopens (next user).
+ * - Reconnect schedule: 1 s, 2 s, 4 s, … capped at `maxDelay`; reset on
+ *   a successful open.
+ * - The server sends `{"type":"ping"}` every 30 s; the hook answers
+ *   "pong". If nothing arrives for `watchdogMs`, the socket is presumed
+ *   dead and reopened.
  */
-import { useEffect, useRef, useCallback } from 'react';
+import { useEffect, useRef } from 'react';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -19,37 +22,63 @@ import { useEffect, useRef, useCallback } from 'react';
 
 export interface WebSocketMessage {
   type?: string;
+  channel?: string;
+  data?: unknown;
   [key: string]: unknown;
 }
 
+export interface WebSocketOpenInfo {
+  /** True when this open follows a drop in the same session. */
+  isReconnect: boolean;
+}
+
 export interface UseWebSocketOptions {
-  /** User ID used to subscribe to the per-user notification channel. */
+  /** Signed-in user; null keeps the socket closed. */
   userId: number | null;
-  /** Called for every parsed JSON message received from the server. */
+  /** Called for every parsed JSON message except heartbeats. */
   onMessage: (message: WebSocketMessage) => void;
+  /** Called after each successful open. */
+  onOpen?: (info: WebSocketOpenInfo) => void;
+  /** Server path (default: /ws/events). */
+  path?: string;
   /** Base reconnect delay in milliseconds (default: 1 000). */
   baseDelay?: number;
   /** Maximum reconnect delay in milliseconds (default: 30 000). */
   maxDelay?: number;
+  /** Reopen when no frame arrives for this long (default: 75 000). */
+  watchdogMs?: number;
 }
+
+export const DEFAULT_WS_PATH = '/ws/events';
+const DEFAULT_BASE_DELAY_MS = 1_000;
+const DEFAULT_MAX_DELAY_MS = 30_000;
+/** 2.5 server heartbeats (30 s) without any frame. */
+const DEFAULT_WATCHDOG_MS = 75_000;
+const PONG = 'pong';
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-/**
- * Build the WebSocket URL.
- *
- * - In development (Vite proxy or direct): ws://localhost:8080/ws/…
- * - In production (same-origin): relative ws:// using window.location
- *
- * We always use the relative approach so the hook works behind any reverse
- * proxy that terminates TLS.
- */
-function buildWsUrl(userId: number): string {
+/** Same-origin URL so the hook works behind any TLS-terminating proxy. */
+export function buildWsUrl(path: string = DEFAULT_WS_PATH): string {
   const { protocol, host } = window.location;
   const wsProtocol = protocol === 'https:' ? 'wss:' : 'ws:';
-  return `${wsProtocol}//${host}/ws/notifications/${userId}`;
+  return `${wsProtocol}//${host}${path}`;
+}
+
+export function reconnectDelay(attempt: number, baseDelay: number, maxDelay: number): number {
+  return Math.min(baseDelay * 2 ** attempt, maxDelay);
+}
+
+function parseFrame(raw: unknown): WebSocketMessage | null {
+  if (typeof raw !== 'string') return null;
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    return parsed !== null && typeof parsed === 'object' ? (parsed as WebSocketMessage) : null;
+  } catch {
+    return null;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -59,96 +88,99 @@ function buildWsUrl(userId: number): string {
 export function useWebSocket({
   userId,
   onMessage,
-  baseDelay = 1_000,
-  maxDelay = 30_000,
+  onOpen,
+  path = DEFAULT_WS_PATH,
+  baseDelay = DEFAULT_BASE_DELAY_MS,
+  maxDelay = DEFAULT_MAX_DELAY_MS,
+  watchdogMs = DEFAULT_WATCHDOG_MS,
 }: UseWebSocketOptions): void {
-  const socketRef = useRef<WebSocket | null>(null);
-  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const attemptRef = useRef<number>(0);
-  const isMountedRef = useRef<boolean>(true);
-
-  // Keep a stable reference to onMessage so the effect does not re-run on
-  // every render when the caller passes an inline function.
+  // Latest callbacks without re-running the connection effect.
   const onMessageRef = useRef(onMessage);
+  const onOpenRef = useRef(onOpen);
   useEffect(() => {
     onMessageRef.current = onMessage;
-  }, [onMessage]);
-
-  const clearReconnectTimer = useCallback(() => {
-    if (reconnectTimerRef.current !== null) {
-      clearTimeout(reconnectTimerRef.current);
-      reconnectTimerRef.current = null;
-    }
-  }, []);
-
-  const closeSocket = useCallback(() => {
-    if (socketRef.current) {
-      // Prevent the onclose handler from scheduling a reconnect when we are
-      // intentionally closing the connection (e.g. userId changed, unmount).
-      socketRef.current.onclose = null;
-      socketRef.current.onerror = null;
-      socketRef.current.onmessage = null;
-      socketRef.current.close();
-      socketRef.current = null;
-    }
-  }, []);
-
-  const connect = useCallback(() => {
-    if (!isMountedRef.current || userId === null) return;
-
-    const url = buildWsUrl(userId);
-    const ws = new WebSocket(url);
-    socketRef.current = ws;
-
-    ws.onopen = () => {
-      if (!isMountedRef.current) {
-        ws.close();
-        return;
-      }
-      // Reset back-off on a successful connection.
-      attemptRef.current = 0;
-    };
-
-    ws.onmessage = (event: MessageEvent) => {
-      if (!isMountedRef.current) return;
-      try {
-        const data = JSON.parse(event.data as string) as WebSocketMessage;
-        onMessageRef.current(data);
-      } catch {
-        // Non-JSON frames (e.g. ping strings) are silently ignored.
-      }
-    };
-
-    ws.onerror = () => {
-      // onerror is always followed by onclose — let onclose handle reconnect.
-    };
-
-    ws.onclose = () => {
-      if (!isMountedRef.current) return;
-
-      // Exponential back-off: 1 s, 2 s, 4 s, 8 s, … capped at maxDelay.
-      const delay = Math.min(baseDelay * 2 ** attemptRef.current, maxDelay);
-      attemptRef.current += 1;
-
-      reconnectTimerRef.current = setTimeout(() => {
-        if (isMountedRef.current) {
-          connect();
-        }
-      }, delay);
-    };
-  }, [userId, baseDelay, maxDelay]); // eslint-disable-line react-hooks/exhaustive-deps
+    onOpenRef.current = onOpen;
+  }, [onMessage, onOpen]);
 
   useEffect(() => {
-    isMountedRef.current = true;
+    if (userId === null) return undefined;
 
-    if (userId !== null) {
-      connect();
+    let socket: WebSocket | null = null;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    let watchdogTimer: ReturnType<typeof setTimeout> | null = null;
+    let attempt = 0;
+    let hasOpened = false;
+    let isActive = true;
+
+    const clearWatchdog = () => {
+      if (watchdogTimer !== null) clearTimeout(watchdogTimer);
+      watchdogTimer = null;
+    };
+
+    const armWatchdog = (ws: WebSocket) => {
+      clearWatchdog();
+      watchdogTimer = setTimeout(() => {
+        console.warn('Live-update socket silent; reconnecting');
+        ws.close();
+      }, watchdogMs);
+    };
+
+    const scheduleReconnect = () => {
+      const delay = reconnectDelay(attempt, baseDelay, maxDelay);
+      attempt += 1;
+      reconnectTimer = setTimeout(connect, delay);
+    };
+
+    function connect(): void {
+      if (!isActive) return;
+      const ws = new WebSocket(buildWsUrl(path));
+      socket = ws;
+
+      ws.onopen = () => {
+        attempt = 0;
+        const isReconnect = hasOpened;
+        hasOpened = true;
+        armWatchdog(ws);
+        onOpenRef.current?.({ isReconnect });
+      };
+
+      ws.onmessage = (event: MessageEvent) => {
+        armWatchdog(ws);
+        const message = parseFrame(event.data);
+        if (message === null) return;
+        if (message.type === 'ping') {
+          ws.send(PONG);
+          return;
+        }
+        onMessageRef.current(message);
+      };
+
+      // onerror is always followed by onclose — onclose reconnects.
+      ws.onerror = () => undefined;
+
+      ws.onclose = () => {
+        clearWatchdog();
+        if (!isActive || socket !== ws) return;
+        socket = null;
+        scheduleReconnect();
+      };
     }
 
+    connect();
+
     return () => {
-      isMountedRef.current = false;
-      clearReconnectTimer();
-      closeSocket();
+      isActive = false;
+      clearWatchdog();
+      if (reconnectTimer !== null) clearTimeout(reconnectTimer);
+      if (socket) {
+        const closing = socket;
+        socket = null;
+        closing.onclose = null;
+        closing.onmessage = null;
+        closing.onerror = null;
+        closing.onopen = null;
+        closing.close();
+      }
     };
-  }, [userId, connect, clearReconnectTimer, closeSocket]);
+  }, [userId, path, baseDelay, maxDelay, watchdogMs]);
 }

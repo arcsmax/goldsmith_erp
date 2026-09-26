@@ -264,14 +264,15 @@ class TestHappyPath:
                 assert p.file_path != REDACTED_PATH_SENTINEL
 
     @pytest.mark.asyncio
-    async def test_nullable_column_set_to_null(
+    async def test_scrap_gold_receipt_is_retained_gdpr01(
         self,
         db_session: AsyncSession,
         customer_a: Customer,
         admin: User,
         tmp_path: Path,
     ):
-        """scrap_gold.receipt_pdf_path is nullable — after erasure it is NULL."""
+        """GDPR-01: the Altgold receipt (Ankaufbeleg) is a GwG/§147 AO record
+        and is retained — neither the file nor its path is touched."""
         service = FileErasureService(tmp_path)
         scrap = await _mk_scrap(db_session, customer_a, admin)
         rel = f"receipts/scrap_{scrap.id}.pdf"
@@ -286,8 +287,9 @@ class TestHappyPath:
         await db_session.commit()
         await db_session.refresh(scrap)
 
-        assert scrap.receipt_pdf_path is None
-        assert result.files_deleted >= 1
+        assert scrap.receipt_pdf_path == rel
+        assert (tmp_path / rel).exists()
+        assert result.files_deleted == 0
 
 
 # ---------------------------------------------------------------------------
@@ -955,3 +957,137 @@ class TestAudit:
 
         assert len(result.errors) >= 1
         assert result.files_failed >= 1
+
+
+# ---------------------------------------------------------------------------
+# media_assets (ARCH phase 4) — mirrored photo rows are erased too
+# ---------------------------------------------------------------------------
+
+
+class TestErasureMediaAssets:
+    @pytest.mark.asyncio
+    async def test_erasure_redacts_customer_media_and_spares_others(
+        self,
+        db_session: AsyncSession,
+        customer_a: Customer,
+        customer_b: Customer,
+        admin: User,
+        tmp_path: Path,
+        monkeypatch,
+    ):
+        from goldsmith_erp.db.models import MediaAsset, MediaOwnerType
+        from goldsmith_erp.services.media_service import MediaService
+
+        monkeypatch.setattr(
+            "goldsmith_erp.core.config.settings.PHOTO_STORAGE_PATH", str(tmp_path)
+        )
+        order_a = await _mk_order(db_session, customer_a)
+        repair_a = await _mk_repair(db_session, customer_a, admin)
+        order_b = await _mk_order(db_session, customer_b)
+        photo_a = await PhotoService.upload_photo(
+            db_session, order_a.id, _jpeg_upload(), admin.id, notes="Frau A."
+        )
+        await RepairPhotoService.upload_photo(
+            db_session, repair_a.id, _jpeg_upload(), admin.id, RepairPhotoPhase.INTAKE
+        )
+        photo_b = await PhotoService.upload_photo(
+            db_session, order_b.id, _jpeg_upload(), admin.id
+        )
+        # A media-only asset (no legacy row): only the media pass can see it.
+        orphan_file = _write_file(tmp_path, f"{order_a.id}/zz/orphan.jpg", b"x")
+        db_session.add(
+            MediaAsset(
+                owner_type="order",
+                owner_id=order_a.id,
+                kind="document",
+                storage_key=str(orphan_file),
+                mime="image/jpeg",
+                caption="Kundin A",
+            )
+        )
+        await db_session.commit()
+
+        service = FileErasureService(tmp_path)
+        result = await service.erase_customer_files(
+            db_session, customer_id=customer_a.id, performed_by=admin.id
+        )
+        await db_session.commit()
+
+        rows_a = (
+            (
+                await db_session.execute(
+                    select(MediaAsset).where(
+                        (
+                            (MediaAsset.owner_type == "order")
+                            & (MediaAsset.owner_id == order_a.id)
+                        )
+                        | (
+                            (MediaAsset.owner_type == "repair")
+                            & (MediaAsset.owner_id == repair_a.id)
+                        )
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert len(rows_a) == 3
+        for row in rows_a:
+            await db_session.refresh(row)
+            assert row.storage_key == REDACTED_PATH_SENTINEL
+            assert row.caption is None and row.sha256 is None
+            assert row.deleted_at is not None
+        assert not orphan_file.exists()
+        counts = result.per_target_counts["media_assets.storage_key"]
+        assert counts == {"checked": 3, "deleted": 1, "missing": 0, "failed": 0}
+        assert result.files_failed == 0
+        with pytest.raises(LookupError):
+            await MediaService.get(db_session, photo_a.id)
+
+        # Customer B untouched.
+        asset_b = await MediaService.get(db_session, photo_b.id)
+        assert Path(photo_b.file_path).exists()
+        assert asset_b.storage_key != REDACTED_PATH_SENTINEL
+        assert MediaService.original_path(asset_b) is not None
+        assert (
+            await MediaService.list_for_owner(
+                db_session, MediaOwnerType.ORDER, order_b.id
+            )
+        ) == [asset_b]
+
+        # Idempotent.
+        again = await service.erase_customer_files(
+            db_session, customer_id=customer_a.id, performed_by=admin.id
+        )
+        assert again.per_target_counts["media_assets.storage_key"]["checked"] == 0
+
+    @pytest.mark.asyncio
+    async def test_media_key_outside_root_is_refused_and_kept(
+        self,
+        db_session: AsyncSession,
+        customer_a: Customer,
+        admin: User,
+        tmp_path: Path,
+    ):
+        from goldsmith_erp.db.models import MediaAsset
+
+        order = await _mk_order(db_session, customer_a)
+        asset = MediaAsset(
+            owner_type="order",
+            owner_id=order.id,
+            kind="photo",
+            storage_key="/etc/passwd",
+            mime="image/jpeg",
+        )
+        db_session.add(asset)
+        await db_session.commit()
+
+        result = await FileErasureService(tmp_path).erase_customer_files(
+            db_session, customer_id=customer_a.id, performed_by=admin.id
+        )
+        await db_session.commit()
+        await db_session.refresh(asset)
+
+        assert result.files_failed == 1
+        assert asset.storage_key == "/etc/passwd"  # kept for the admin
+        assert Path("/etc/passwd").exists()

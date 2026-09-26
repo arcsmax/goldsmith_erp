@@ -2,8 +2,9 @@
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from goldsmith_erp.models._common import UtcDatetime
 from goldsmith_erp.models.time_entry_metadata import TimeEntryMetadata
 
 
@@ -17,6 +18,9 @@ class TimeEntryBase(BaseModel):
         min_length=1,
         max_length=50,
         description="Storage location (1-50 characters)",
+    )
+    location_id: Optional[int] = Field(
+        None, gt=0, description="Configured workshop location (Standort) id"
     )
     notes: Optional[str] = Field(
         None, max_length=2000, description="Notes (max 2000 characters)"
@@ -51,6 +55,9 @@ class TimeEntryStart(BaseModel):
     )
     location: Optional[str] = Field(
         None, min_length=1, max_length=50, description="Storage location"
+    )
+    location_id: Optional[int] = Field(
+        None, gt=0, description="Configured workshop location (Standort) id"
     )
     extra_metadata: Optional[Dict[str, Any]] = None
 
@@ -113,14 +120,24 @@ class TimeEntryCreate(TimeEntryBase):
 
 
 class TimeEntryUpdate(BaseModel):
-    """Schema für TimeEntry-Updates mit Input Validation."""
+    """Schema für TimeEntry-Updates mit Input Validation.
 
-    end_time: Optional[datetime] = None
+    BE-18: ``end_time`` is normalised to naive UTC (browser sends ``Z``);
+    ``duration_minutes`` together with ``end_time`` is rejected because the
+    two conflict (the duration is always derived from the end time). The
+    ``end > start`` and 24 h checks need the stored ``start_time`` and run
+    in ``TimeTrackingService.update_time_entry`` (422).
+    """
+
+    end_time: Optional[UtcDatetime] = None
     duration_minutes: Optional[int] = Field(
         None, gt=0, le=1440, description="Duration in minutes (1-1440)"  # Max 24 hours
     )
     location: Optional[str] = Field(
         None, min_length=1, max_length=50, description="Storage location"
+    )
+    location_id: Optional[int] = Field(
+        None, gt=0, description="Configured workshop location (Standort) id"
     )
     complexity_rating: Optional[int] = Field(
         None, ge=1, le=5, description="Complexity rating (1-5)"
@@ -139,6 +156,49 @@ class TimeEntryUpdate(BaseModel):
     def _scrub_extra_metadata(cls, v):
         return _validate_metadata_whitelist(v)
 
+    @model_validator(mode="after")
+    def _duration_xor_end_time(self) -> "TimeEntryUpdate":
+        if self.end_time is not None and self.duration_minutes is not None:
+            raise ValueError(
+                "Bitte entweder Endzeit oder Dauer angeben, nicht beides "
+                "(die Dauer wird aus der Endzeit berechnet)."
+            )
+        return self
+
+
+class RunningTimeEntryEdit(BaseModel):
+    """PATCH body for a RUNNING entry (edit a timer while it runs).
+
+    Every field is optional; only the fields sent are changed. ``location``
+    may be sent as ``null`` to clear it. ``location_id`` (the Standort
+    dropdown) or ``location`` (a name) is resolved through
+    ``LocationService.resolve``; a name that matches no configured Standort
+    is a 422 (see ``services.running_timer_edit.resolve_location``).
+    ``start_time`` bounds (not in the future, not before the previous
+    entry's end, within 24 h) need the database and run in the service
+    (422).
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    activity_id: Optional[int] = Field(None, gt=0)
+    order_id: Optional[int] = Field(None, gt=0)
+    location: Optional[str] = Field(None, min_length=1, max_length=50)
+    location_id: Optional[int] = Field(
+        None, gt=0, description="Configured workshop location (Standort) id"
+    )
+    notes: Optional[str] = Field(None, max_length=2000)
+    start_time: Optional[UtcDatetime] = None
+
+    @model_validator(mode="after")
+    def _at_least_one_field(self) -> "RunningTimeEntryEdit":
+        if not self.model_fields_set:
+            raise ValueError("Bitte mindestens ein Feld ändern.")
+        for key in ("activity_id", "order_id", "start_time"):
+            if key in self.model_fields_set and getattr(self, key) is None:
+                raise ValueError(f"{key} darf nicht leer sein.")
+        return self
+
 
 class TimeEntryRead(TimeEntryBase):
     """Schema für TimeEntry-Anzeige."""
@@ -153,12 +213,26 @@ class TimeEntryRead(TimeEntryBase):
     rework_required: bool
     extra_metadata: Optional[Dict[str, Any]] = None
     created_at: datetime
+    # D-15: true while an Interruption is open (resumed_at IS NULL,
+    # duration_minutes == 0) — never derived from an ORM attribute (that
+    # would need a db/models.py change); the service/router compute it
+    # explicitly from the already-loaded ``interruptions`` relationship
+    # and set it via ``.model_copy(update={"is_paused": ...})``.
+    is_paused: bool = False
 
     model_config = ConfigDict(from_attributes=True)
 
 
 # Nested schemas für relationships
 from .activity import ActivityRead
+
+
+class RunningTimeEntryRead(TimeEntryRead):
+    """The running timer with display names, so a widget can show the
+    current activity and job without a second request."""
+
+    activity_name: Optional[str] = None
+    order_title: Optional[str] = None
 
 
 class TimeEntryWithDetails(TimeEntryRead):
