@@ -420,6 +420,17 @@ on each commit.
 - Left open: none noted in the report beyond the general "no backend production code changed" scope note.
 - Evidence: `tests/integration/test_customer_allergy_consent.py::test_consultation_step4_quick_allergen_no_go_reproduces_bug_and_fix`; `frontend/src/components/consultation/StyleNoGoStep.test.tsx` (new `describe('HEALTH_DATA consent gate')` block, 4 cases); full backend suite 4433 passed, 12 skipped, 1 xfailed after the final merge; frontend `vitest run` 1379 passed (147 files) after the final merge; `tsc --noEmit` 0; `yarn lint` 0 errors, 81 pre-existing warnings.
 
+### Session 2026-09-26 (fresh context) — PR #51 CI green, bench follow-ups, 390 px pass
+- Scope: continue the bench-batch handoff (390 px visual check, scan-log location migration, PROGRESS.md) and get PR #51's CI green. 13 commits on top of `52e84cb`, all verified live against the Docker demo stack (backend :8080, Vite :3000) via the Playwright MCP at 390×844.
+- CI: `b6c29c8` (Corepack enabled before `setup-node` in every Yarn job — `lint-frontend`, `test-frontend`, `security-audit`, bundle gate and e2e all died on Yarn 1.22 vs the pinned 4.9.1), `7118f35` (isort in `models/quote.py`), `55a59fa` (`alembic/env.py` `fileConfig(..., disable_existing_loggers=False)` — the three `test-backend` failures "expected request log records" / empty `caplog` in `test_jobs_backfill_startup`, `test_outbox_service`, `test_request_logging_no_query` only reproduce when the PostgreSQL migration round-trip test runs first, which is exactly CI's order; 3 failed → 4 passed with `MIGRATION_TEST_DATABASE_URL` set).
+- Deps/stack: `3550f6a` (httpx was dev-only; `poetry install --only main` images crashed on boot), `717194a` (`docker-compose.yml` never mounted `alembic/`, so the boot-time `upgrade head` ran the image's stale migrations — the demo DB was two migrations behind and every list endpoint 500'd).
+- Scanner (SC-01..SC-06 follow-ups): `8c9627f` (migration `20260926_sc04_scan_log_location`: indexed `scan_logs.location_id` FK, JSON backfill, write path incl. the batch path, `GET /scan/history?location=`; PG round-trips upgrade/downgrade -1/upgrade and upgrade/downgrade base/upgrade all exit 0), `b92341a` (frontend `ResolveResponse.entity` was typed as `{entity_type, entity_id, data}` but the backend sends them top-level — "Öffnen" failed with "Ziel nicht verfügbar" and every id-based sheet action posted `undefined`; the unit tests passed on their own wrong fixtures; contract pinned in `ScanResolveContract.test.ts`), `5ff6f91` (`scan_logs.id`/`idempotency_key` declared `String(36)` against native `uuid` columns — **scan logging had never worked on PostgreSQL**; now `Uuid(as_uuid=False)`, PG-gated regression test `test_scan_log_idempotency_key_uuid.py`), `ab672ea` (regenerated API types).
+- Timer: `5193f35` (`stop_time_entry` never checked end > start — the demo DB holds a −114 min entry from the 25.09 testing and the page showed "Gesamtstunden −1,9 h"; now 422 `time_entry.end_before_start`; `edit_running_entry`'s UPDATE guards `end_time IS NULL` and raises 409 `time_entry.not_running` if a stop raced the edit; tests RED → GREEN).
+- 390 px layout: `ae66ac0` (the 48 px scan FAB sat exactly on the 56 px timer FAB on every page — "Zeiterfassung starten" was untappable; now stacked with tokens, both 56 px, measured bottom 68/140 px), `f46ad51` (the consultation wizard footer, the sticky PageHeader primary bar and the mobile toast container were `fixed; bottom: 0` under the tab bar — "Weiter" hit the "Kunden" tab; offset by `--layout-tab-bar-height`).
+- Verified at 390 px with no horizontal overflow: dashboard, scan action sheet (every target 56 px), Standorte admin panel (39 controls ≥ 44 px), manual time-entry form with the Standort dropdown, consultation step 4 (consent block shown first, allergy chips disabled until "Einwilligung bestätigen"), order detail tabs (scroll cue) and the Verlauf tab's Scan-Verlauf. End to end after the fixes: USB burst `ORDER:1` → sheet → "Öffnen" → `/orders/1` shows "Zuletzt gescannt von … um … · Geöffnet" and the Scan-Verlauf rows; `POST /scan/log` 201.
+- Evidence: full backend suite (CI-like env, SQLite) 4487 passed, 14 skipped, 1 xfailed (exit 0); frontend `vitest` 1433 passed; `yarn lint` 0 errors; `make types-check` clean; `black`/`isort` on `goldsmith_erp/` clean; hex ratchet 35 (baseline 35). Scratch reports with commands and exit codes: `.orchestrated-fable/pr51-ci-green-bench-followups/*.md`.
+- Left open: see the rows added to section (c) for this session.
+
 ## (b) Decisions taken during execution
 
 Each needs a named person's confirmation before it should be treated as final
@@ -648,6 +659,19 @@ that point; see the changelog above for exactly which commit closed them.
 | SC-08: `Permissions-Policy: camera=...` header still not set anywhere in the stack | scanner-diagnosis.md | L | infra |
 | SC-09/SC-10: alias-resolution stub (V1.1 always returns null) and scan-log retention/purge job both still out of scope | scanner-diagnosis.md | L | out of scope |
 
+
+**Session 2026-09-26 open items:**
+
+| Item | Source | Severity guess | Suggested owner |
+|---|---|---|---|
+| Two toggles both called "Werkbank…": the header "Werkbank-Modus" is the layout flag (`bench_layout_mode`); the USB scanner listener is armed only by "Werkbank-Station-Modus" on the Einstellungen page (`scan_bench_mode`). Nothing tells an ADMIN this (the nudge toast is GOLDSMITH-only by design). Either arm on both or rename per the glossary's one-term-per-concept rule | live 390 px pass | M | product/@jason |
+| `--layout-tab-bar-height` is 56 px but the rendered tab bar is 58 px, so offset bars overlap it by 2 px (no target affected) | bottom-bars.md | L | Wave 4 tokens |
+| Scan rows show "Standort unbekannt" until the device sets a Standort; the sheet's "Standort setzen" is the only way in — consider a one-time prompt on first scan per device | live 390 px pass | L | scanner owner |
+| Demo DB still holds the −114 min time entry (user 2, order 12); the code path is closed, the row was left untouched | timer-edit-bound.md | L | demo seed |
+| The running backend container must be recreated (`docker compose up -d backend`) to pick up the new `alembic/` mount; until then migrate from the host (recipe in the memory note / section (d)) | live pass | L | Max |
+| `alembic/env.py` is not black-formatted (pre-existing; CI's black gate only covers `goldsmith_erp/`) | this session | L | hygiene |
+| The TOCTOU explanation for the −114 min row is plausible but not proven to be the literal sequence (the future-start hypothesis was ruled out: that path was already rejected) | timer-edit-bound.md | info | — |
+
 ## (d) How to verify locally
 
 Environment values below match `.github/workflows/ci.yml` exactly (throwaway,
@@ -775,3 +799,5 @@ Before treating this as a release candidate:
 6. Treat the **H-severity open follow-ups** as blockers for any production cutover, not backlog: the pre-go-live `Order.price` data review for pre-NET-semantics orders, the order-lifecycle migration never run on PostgreSQL, E7/E8 (recipient confirmation and SMTP TLS) in customer messaging, W5-06 (column encryption), and the restore drill in item 4 above.
 7. The full findings register and master fix plan now distinguish `fixed`, `partial: <what's left>`, and `open` — re-run this same method (reports first, commits second, never invent a status) after any further wave lands.
 8. A fix-item report (`fix-w7-hygiene-backend.md`) documented declining a mid-task message purporting to be "the coordinator" asking it to expand scope — worth a quick human read of that report as a sanity check on the multi-agent process itself, not because anything appears to have gone wrong.
+
+**Session 2026-09-26 verified state (fresh context, after the bench batch):** the batch's reported totals were re-verified and exceeded by the follow-up commits — backend full suite 4487 passed, 14 skipped, 1 xfailed (exit 0), frontend 1433 passed, `yarn lint` 0 errors, `make types-check` clean, backend `black`/`isort` clean. CI's six red checks on PR #51 have known, fixed causes (Corepack ordering, isort, Alembic logger disabling); the next CI run on the pushed head is the confirmation. Two features from the bench batch that unit tests had green were broken against the real PostgreSQL backend (scan logging: uuid type drift; scanner sheet actions: response-shape drift) — a reminder that the PostgreSQL integration suite and a live pass, not the SQLite suite, are the gate for anything touching `scan_logs` or hand-written API types. Items 1–8 above stand unchanged.
