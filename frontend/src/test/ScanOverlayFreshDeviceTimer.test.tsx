@@ -72,7 +72,7 @@ const RESOLVED_ORDER_2: ResolveResponse = {
   resolution_path: 'prefix',
   entity_type: 'order',
   entity_id: 2,
-  entity: { entity_type: 'order', entity_id: 2, data: { id: 2, title: 'Kette' } },
+  entity: { id: 2, title: 'Kette' },
   actions: [{ id: 'start_timer', label: 'Timer starten', icon: 'play', primary: true }],
   status_hint: null,
 };

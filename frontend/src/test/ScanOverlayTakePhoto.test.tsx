@@ -64,7 +64,7 @@ const RESOLVED_ORDER_7: ResolveResponse = {
   resolution_path: 'prefix',
   entity_type: 'order',
   entity_id: 7,
-  entity: { entity_type: 'order', entity_id: 7, data: { id: 7, title: 'Trauring' } },
+  entity: { id: 7, title: 'Trauring' },
   actions: [
     { id: 'start_timer', label: 'Timer starten', icon: 'play', primary: true },
     { id: 'take_photo', label: 'Foto aufnehmen', icon: 'camera', primary: false },

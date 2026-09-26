@@ -100,11 +100,7 @@ function orderResponse(id = 42): ResolveResponse {
     resolution_path: 'prefix',
     entity_type: 'order',
     entity_id: id,
-    entity: {
-      entity_type: 'order',
-      entity_id: id,
-      data: { id, title: 'Ring', status: 'in_progress' },
-    },
+    entity: { id, title: 'Ring', status: 'in_progress' },
     actions: [],
     status_hint: null,
   };
@@ -116,11 +112,7 @@ function metalResponse(id = 85): ResolveResponse {
     resolution_path: 'prefix',
     entity_type: 'metal_purchase',
     entity_id: id,
-    entity: {
-      entity_type: 'metal_purchase',
-      entity_id: id,
-      data: { id, metal_type: 'gold_18k', alloy: '585', lot_number: 'L1' },
-    },
+    entity: { id, metal_type: 'gold_18k', alloy: '585', lot_number: 'L1' },
     actions: [],
     status_hint: null,
   };

@@ -21,9 +21,9 @@ import { ScannerRouter } from '../lib/scan-router';
 import { NetworkAliasResolver } from '../lib/network-alias-resolver';
 import type {
   ActionResult,
+  AliasedEntity,
   AliasResolver,
   ResolveResponse,
-  ResolvedEntity,
   ScanContext,
   Transport,
 } from '../types/scanner';
@@ -65,7 +65,7 @@ function makeMockTransport(
 }
 
 function makeMockResolver(
-  result: ResolvedEntity | null = null,
+  result: AliasedEntity | null = null,
 ): AliasResolver & { lookup: ReturnType<typeof vi.fn> } {
   return {
     lookup: vi.fn().mockResolvedValue(result),
@@ -192,7 +192,7 @@ describe('ScannerRouter.resolve — alias lookup fallthrough', () => {
   });
 
   it('on alias hit, canonicalises hit to "<TYPE>:<id>" before calling transport', async () => {
-    const hit: ResolvedEntity = {
+    const hit: AliasedEntity = {
       entity_type: 'metal',
       entity_id: 85,
       data: {},

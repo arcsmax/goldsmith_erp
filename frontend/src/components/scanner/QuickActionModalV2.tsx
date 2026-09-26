@@ -67,7 +67,7 @@ interface EntityDisplay {
 function buildEntityDisplay(response: ResolveResponse): EntityDisplay {
   const entityType = response.entity_type ?? '';
   const entityId = response.entity_id;
-  const data = (response.entity?.data ?? {}) as Record<string, unknown>;
+  const data = (response.entity ?? {}) as Record<string, unknown>;
 
   // ORDER
   if (entityType === 'order') {

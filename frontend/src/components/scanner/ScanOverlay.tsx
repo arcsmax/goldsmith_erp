@@ -400,9 +400,9 @@ export const ScanOverlay: React.FC<ScanOverlayProps> = ({ transport }) => {
           onClose={handleClose}
           onContinueScanning={handleContinue}
           onStatusHintClick={() => {
-            const entityType = lastResolveResponse.entity?.entity_type ?? '';
-            const entityIdVal = lastResolveResponse.entity?.entity_id;
-            if (entityIdVal === undefined) return;
+            const entityType = lastResolveResponse.entity_type ?? '';
+            const entityIdVal = lastResolveResponse.entity_id;
+            if (entityIdVal === null) return;
             const map: Record<string, string> = {
               order: `/orders/${entityIdVal}`,
               repair: `/repairs/${entityIdVal}`,

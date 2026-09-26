@@ -108,11 +108,7 @@ const RESOLVED_ORDER_42: ResolveResponse = {
   resolution_path: 'prefix',
   entity_type: 'order',
   entity_id: 42,
-  entity: {
-    entity_type: 'order',
-    entity_id: 42,
-    data: { id: 42, status: 'IN_PROGRESS' },
-  },
+  entity: { id: 42, status: 'IN_PROGRESS' },
   actions: [],
   status_hint: null,
 };
@@ -122,11 +118,7 @@ const RESOLVED_ORDER_99: ResolveResponse = {
   resolution_path: 'prefix',
   entity_type: 'order',
   entity_id: 99,
-  entity: {
-    entity_type: 'order',
-    entity_id: 99,
-    data: { id: 99, status: 'NEW' },
-  },
+  entity: { id: 99, status: 'NEW' },
   actions: [],
   status_hint: null,
 };

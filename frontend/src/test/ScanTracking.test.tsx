@@ -65,7 +65,7 @@ function orderResolve(id = 42): ResolveResponse {
     resolution_path: 'prefix',
     entity_type: 'order',
     entity_id: id,
-    entity: { entity_type: 'order', entity_id: id, data: { id, title: 'Trauring', status: 'in_progress' } },
+    entity: { id, title: 'Trauring', status: 'in_progress' },
     actions: [
       { id: 'start_timer', label: 'Timer starten', icon: 'play', primary: true },
       { id: 'take_photo', label: 'Foto', icon: 'camera', primary: false },

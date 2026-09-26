@@ -138,14 +138,10 @@ const RESOLVED_ORDER_2: ResolveResponse = {
   entity_type: 'order',
   entity_id: 2,
   entity: {
-    entity_type: 'order',
-    entity_id: 2,
-    data: {
-      id: 2,
-      title: 'Kette Schmidt',
-      status: 'in_progress',
-      customer_initials: 'S.',
-    },
+    id: 2,
+    title: 'Kette Schmidt',
+    status: 'in_progress',
+    customer_initials: 'S.',
   },
   actions: [
     // "Timer wechseln" is primary per the scanner_service logic when

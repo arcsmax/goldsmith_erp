@@ -33,8 +33,8 @@ import apiClient from '../../api/client';
 import { fireModal } from '../../lib/modal-stack';
 import type {
   ActionExecution,
+  AliasedEntity,
   ResolveResponse,
-  ResolvedEntity,
   ScanContext,
   Transport,
 } from '../../types/scanner';
@@ -128,19 +128,23 @@ const NO_ACTIVITY_MESSAGE =
 const REPAIR_TIMER_MESSAGE =
   'Zeiterfassung auf Reparaturen ist noch nicht möglich. Bitte die Zeit am Auftrag buchen oder in der Reparatur vermerken.';
 
-function getEntity(ctx: ActionHandlerContext): ResolvedEntity | null {
+/** The role-filtered entity projection itself (backend `entity` field). */
+function getEntity(ctx: ActionHandlerContext): Record<string, unknown> | null {
   return ctx.response.entity;
 }
 
+/** The entity's discriminator — lives at the TOP level of `ResolveResponse`. */
+function entityType(ctx: ActionHandlerContext): string | null {
+  return ctx.response.entity_type;
+}
+
+/** The entity's id — lives at the TOP level of `ResolveResponse`. */
 function entityId(ctx: ActionHandlerContext): number | null {
-  const entity = getEntity(ctx);
-  if (entity === null) return null;
-  return entity.entity_id;
+  return ctx.response.entity_id;
 }
 
 function entityData(ctx: ActionHandlerContext): Record<string, unknown> {
-  const entity = getEntity(ctx);
-  return (entity?.data ?? {}) as Record<string, unknown>;
+  return getEntity(ctx) ?? {};
 }
 
 function readActivityId(ctx: ActionHandlerContext): number | null {
@@ -188,30 +192,33 @@ async function resolveActivityId(ctx: ActionHandlerContext): Promise<number> {
  * books labour on ORDER 17.
  */
 function requireTimerOrderId(ctx: ActionHandlerContext): number {
-  const entity = getEntity(ctx);
-  if (entity === null) throw new Error('Kein Auftrag erkannt.');
-  if (entity.entity_type === 'repair') throw new Error(REPAIR_TIMER_MESSAGE);
-  if (entity.entity_type !== 'order') {
+  const type = entityType(ctx);
+  const id = entityId(ctx);
+  if (type === null || id === null) throw new Error('Kein Auftrag erkannt.');
+  if (type === 'repair') throw new Error(REPAIR_TIMER_MESSAGE);
+  if (type !== 'order') {
     throw new Error('Timer kann nur für Aufträge gestartet werden.');
   }
-  return entity.entity_id;
+  return id;
 }
 
 /** FE-03 — order-only navigation actions refuse other entity types. */
 function requireOrderId(ctx: ActionHandlerContext, message: string): number {
-  const entity = getEntity(ctx);
-  if (entity === null || entity.entity_type !== 'order') {
+  const type = entityType(ctx);
+  const id = entityId(ctx);
+  if (type !== 'order' || id === null) {
     throw new Error(message);
   }
-  return entity.entity_id;
+  return id;
 }
 
 /** FE-03 — detail-page base path per entity type (routes that exist). */
 function detailBasePath(ctx: ActionHandlerContext): string | null {
-  const entity = getEntity(ctx);
-  if (entity === null) return null;
-  if (entity.entity_type === 'order') return `/orders/${entity.entity_id}`;
-  if (entity.entity_type === 'repair') return `/repairs/${entity.entity_id}`;
+  const type = entityType(ctx);
+  const id = entityId(ctx);
+  if (type === null || id === null) return null;
+  if (type === 'order') return `/orders/${id}`;
+  if (type === 'repair') return `/repairs/${id}`;
   return null;
 }
 
@@ -354,8 +361,9 @@ export const MAX_PIECE_LOCATION = 50;
  * is the record ("Zuletzt gescannt … in …").
  */
 async function handleChangeLocation(ctx: ActionHandlerContext): Promise<ActionOutcome> {
-  const entity = getEntity(ctx);
-  if (entity === null || (entity.entity_type !== 'order' && entity.entity_type !== 'repair')) {
+  const type = entityType(ctx);
+  const id = entityId(ctx);
+  if (id === null || (type !== 'order' && type !== 'repair')) {
     throw new Error('Standort kann nur für Aufträge und Reparaturen gesetzt werden.');
   }
   if (ctx.hooks.promptLocation === undefined) {
@@ -367,10 +375,10 @@ async function handleChangeLocation(ctx: ActionHandlerContext): Promise<ActionOu
   const picked = await ctx.hooks.promptLocation(current);
   const name = picked === null ? '' : picked.name.trim().slice(0, MAX_PIECE_LOCATION);
   if (picked === null || name.length === 0) return { result: 'cancelled' };
-  if (entity.entity_type === 'order') {
+  if (type === 'order') {
     // W8: the configured location id wins server side; the name is the
     // legacy text kept in sync for one release.
-    await apiClient.post(`/orders/${entity.entity_id}/location`, {
+    await apiClient.post(`/orders/${id}/location`, {
       location: name,
       ...(picked.id !== null ? { location_id: picked.id } : {}),
     });
@@ -389,11 +397,12 @@ async function handleHandover(ctx: ActionHandlerContext): Promise<void> {
 
 /** "Status weiter" on a repair: its page leads with the next step. */
 async function handleAdvanceRepair(ctx: ActionHandlerContext): Promise<void> {
-  const entity = getEntity(ctx);
-  if (entity === null || entity.entity_type !== 'repair') {
+  const type = entityType(ctx);
+  const id = entityId(ctx);
+  if (type !== 'repair' || id === null) {
     throw new Error('Status weiter ist hier nur für Reparaturen möglich.');
   }
-  ctx.hooks.navigate(`/repairs/${entity.entity_id}`);
+  ctx.hooks.navigate(`/repairs/${id}`);
   ctx.hooks.closeOverlay();
 }
 
@@ -437,11 +446,12 @@ async function handleLogInterruption(
 }
 
 async function handleTakePhoto(ctx: ActionHandlerContext): Promise<void> {
-  const entity = getEntity(ctx);
+  const type = entityType(ctx);
+  const id = entityId(ctx);
   // W2-01 / DOM-01: an order scan lands on the Fotos tab with the camera
   // already open (OrderDetailPage reads ?tab=fotos&capture=1).
-  if (entity !== null && entity.entity_type === 'order') {
-    ctx.hooks.navigate(orderPhotoCaptureLink(entity.entity_id));
+  if (type === 'order' && id !== null) {
+    ctx.hooks.navigate(orderPhotoCaptureLink(id));
     ctx.hooks.closeOverlay();
     return;
   }
@@ -461,8 +471,7 @@ async function handlePrintLabel(ctx: ActionHandlerContext): Promise<void> {
 async function handleOpenEntity(ctx: ActionHandlerContext): Promise<void> {
   const id = entityId(ctx);
   if (id === null) throw new Error('Entitaet unklar.');
-  const entity = getEntity(ctx);
-  const type = entity?.entity_type ?? '';
+  const type = entityType(ctx) ?? '';
   const pathByType: Record<string, string> = {
     order: `/orders/${id}`,
     repair: `/repairs/${id}`,
@@ -651,7 +660,7 @@ export function isSupportedAction(actionId: string): boolean {
  */
 export function buildActionExecution(
   actionId: string,
-  entity: ResolvedEntity,
+  entity: AliasedEntity,
   payload: Record<string, unknown>,
 ): ActionExecution {
   return {

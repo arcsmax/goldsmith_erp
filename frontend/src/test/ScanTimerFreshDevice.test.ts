@@ -43,7 +43,7 @@ function response(entityType: 'order' | 'repair', id: number): ResolveResponse {
     resolution_path: 'prefix',
     entity_type: entityType,
     entity_id: id,
-    entity: { entity_type: entityType, entity_id: id, data: { id } },
+    entity: { id },
     actions: [],
     status_hint: null,
   };
