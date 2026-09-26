@@ -19,6 +19,7 @@ from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple, cast
 
 from sqlalchemy import func, update
+from sqlalchemy.engine import CursorResult
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
@@ -270,9 +271,26 @@ async def edit_running_entry(
         values["location_id"] = changes["_location_id"]
     values["notes"] = join_notes(user_text, new_log)
 
-    await db.execute(
-        update(TimeEntryModel).where(TimeEntryModel.id == entry_id).values(**values)
+    # Re-check ``end_time IS NULL`` in the WHERE clause: ``_load_running``
+    # above only proves the entry was running at load time. Without this,
+    # a stop that commits between that check and this write would leave the
+    # row with a ``start_time`` moved by this edit but an ``end_time`` (and
+    # ``duration_minutes``) already fixed by the stop -- exactly the
+    # 2026-09-25 incident's negative-duration row. Losing the race is a
+    # 409, like calling PATCH on an already-stopped entry.
+    result = await db.execute(
+        update(TimeEntryModel)
+        .where(TimeEntryModel.id == entry_id, TimeEntryModel.end_time.is_(None))
+        .values(**values)
     )
+    if cast(CursorResult[Any], result).rowcount == 0:
+        await db.rollback()
+        raise ConflictError(
+            "Diese Zeiterfassung wurde inzwischen gestoppt und kann hier "
+            "nicht mehr bearbeitet werden.",
+            code="time_entry.not_running",
+            extra={"entry_id": entry_id},
+        )
     await db.commit()
     logger.info(
         "Running time entry edited",

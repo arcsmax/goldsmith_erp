@@ -13,10 +13,12 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 from httpx import AsyncClient
+from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from goldsmith_erp.core.security import create_access_token, get_password_hash
 from goldsmith_erp.db.models import Order, TimeEntry, User, UserRole, WorkshopLocation
+from goldsmith_erp.services import running_timer_edit
 from goldsmith_erp.services.running_timer_edit import EDIT_LOG_MARKER, split_notes
 
 pytestmark = pytest.mark.asyncio
@@ -409,6 +411,28 @@ class TestStartTimeBounds:
         assert resp.status_code == 422
         assert resp.json()["code"] == "time_entry.start_in_future"
 
+    async def test_future_start_as_naive_string_is_422(
+        self,
+        client: AsyncClient,
+        db_session: AsyncSession,
+        sample_user,
+        auth_headers,
+        sample_order,
+        sample_activity,
+    ):
+        """A naive (no offset) wall-clock string is read as UTC (BE-15) --
+        so a naive string that is numerically ahead of UTC now must be
+        rejected exactly like an aware one, not silently accepted."""
+        entry = await _entry(db_session, sample_order, sample_user, sample_activity)
+        naive_future = (_utcnow() + timedelta(minutes=10)).replace(tzinfo=None)
+        resp = await client.patch(
+            URL.format(entry.id),
+            headers=auth_headers,
+            json={"start_time": naive_future.isoformat()},
+        )
+        assert resp.status_code == 422
+        assert resp.json()["code"] == "time_entry.start_in_future"
+
     async def test_start_older_than_24h_is_422(
         self,
         client: AsyncClient,
@@ -461,3 +485,61 @@ class TestStartTimeBounds:
         assert resp.status_code == 422
         assert resp.json()["code"] == "time_entry.start_before_previous"
         assert "vorherigen Zeiterfassung" in resp.json()["detail"]
+
+
+class TestConcurrentStopRace:
+    """Regression for the 2026-09-25 incident (start_time=17:57 UTC,
+    end_time=16:02 UTC, duration_minutes=-114 on a live row).
+
+    ``_load_running`` only proves the entry was running when it was read;
+    without a re-check at write time, a ``POST /stop`` that commits in the
+    window between that read and this PATCH's write leaves the row with a
+    ``start_time`` moved by the edit but an ``end_time``/``duration_minutes``
+    already fixed by the stop -- a negative duration. This is exercised by
+    monkeypatching ``_load_running`` to commit a concurrent stop right
+    after it loads the (still "running") entry, simulating the race
+    window without needing real concurrency.
+    """
+
+    async def test_stop_between_load_and_write_is_409_not_corruption(
+        self,
+        client: AsyncClient,
+        db_session: AsyncSession,
+        sample_user,
+        auth_headers,
+        sample_order,
+        sample_activity,
+        monkeypatch,
+    ):
+        entry = await _entry(db_session, sample_order, sample_user, sample_activity)
+        original_start = entry.start_time
+        original_load = running_timer_edit._load_running
+
+        async def _load_then_concurrent_stop(db, entry_id):
+            loaded = await original_load(db, entry_id)
+            await db.execute(
+                update(TimeEntry)
+                .where(TimeEntry.id == entry_id)
+                .values(end_time=_utcnow(), duration_minutes=1)
+            )
+            await db.commit()
+            return loaded
+
+        monkeypatch.setattr(
+            running_timer_edit, "_load_running", _load_then_concurrent_stop
+        )
+
+        resp = await client.patch(
+            URL.format(entry.id),
+            headers=auth_headers,
+            json={"start_time": _utcnow().isoformat()},
+        )
+        assert resp.status_code == 409
+        assert resp.json()["code"] == "time_entry.not_running"
+
+        await db_session.refresh(entry)
+        # The concurrent stop's write stands; the PATCH's start_time change
+        # was rejected wholesale, not partially applied on top of it.
+        assert entry.end_time is not None
+        assert entry.duration_minutes == 1
+        assert entry.start_time == original_start

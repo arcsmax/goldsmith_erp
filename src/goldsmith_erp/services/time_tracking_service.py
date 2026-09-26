@@ -277,7 +277,18 @@ class TimeTrackingService:
         # Berechne Dauer
         # Naive input is read as UTC for one release (BE-15).
         end_time = ensure_utc(end_time) if end_time is not None else utcnow()
-        duration = int((end_time - entry.start_time).total_seconds() / 60)
+        entry_start = ensure_utc(entry.start_time)
+        if end_time <= entry_start:
+            # Regression guard (2026-09-25 incident): a running entry whose
+            # start_time ended up ahead of the stop's end_time -- however
+            # that happened -- must never silently persist a zero/negative
+            # duration_minutes. Fail loudly instead (422).
+            raise DomainValidationError(
+                "Die Endzeit darf nicht vor oder gleich der Startzeit liegen.",
+                code="time_entry.end_before_start",
+                extra={"entry_id": entry_id},
+            )
+        duration = int((end_time - entry_start).total_seconds() / 60)
 
         # W2-14: an interruption still open at the stop ends with the entry.
         await TimeTrackingService._close_open_interruptions(db, entry_id, end_time)

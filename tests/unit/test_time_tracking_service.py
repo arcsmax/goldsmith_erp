@@ -382,6 +382,32 @@ class TestActiveTimeTracking:
                 db_session, sample_time_entry.id, stop_data  # Already has end_time
             )
 
+    async def test_stop_time_entry_rejects_start_time_after_now(
+        self, db_session, active_time_entry
+    ):
+        """A corrupted row whose start_time is ahead of real "now" (e.g. left
+        over from a bad edit) must never be stoppable into a negative
+        duration_minutes -- the stop has to fail loudly (422) instead.
+
+        Regression for the 2026-09-25 incident: start_time=17:57 UTC,
+        end_time=16:02 UTC, duration_minutes=-114 on a live row.
+        """
+        future_start = datetime.now(timezone.utc) + timedelta(hours=2)
+        active_time_entry.start_time = future_start
+        await db_session.commit()
+        await db_session.refresh(active_time_entry)
+
+        with pytest.raises(HTTPException) as exc_info:
+            await TimeTrackingService.stop_time_entry(
+                db_session, active_time_entry.id, TimeEntryStop()
+            )
+        assert exc_info.value.status_code == 422
+
+        # Never persisted: still running, no negative duration written.
+        await db_session.refresh(active_time_entry)
+        assert active_time_entry.end_time is None
+        assert active_time_entry.duration_minutes is None
+
     async def test_get_running_entry(self, db_session, active_time_entry, sample_user):
         """Test getting the currently running entry for a user"""
         running_entry = await TimeTrackingService.get_running_entry(
