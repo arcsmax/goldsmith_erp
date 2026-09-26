@@ -19399,6 +19399,25 @@
             "description": "Nur Scans dieses Benutzers"
           },
           {
+            "name": "location",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "exclusiveMinimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Nur Scans an diesem Standort",
+              "title": "Location"
+            },
+            "description": "Nur Scans an diesem Standort"
+          },
+          {
             "name": "from",
             "in": "query",
             "required": false,

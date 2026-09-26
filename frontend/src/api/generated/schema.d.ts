@@ -22089,6 +22089,8 @@ export interface operations {
             query?: {
                 from?: string | null;
                 limit?: number;
+                /** @description Nur Scans an diesem Standort */
+                location?: number | null;
                 offset?: number;
                 q?: string | null;
                 to?: string | null;
